@@ -282,14 +282,10 @@ struct Ui::Impl {
         ApplyOrbState();
     }
 
-    static void ScaleAnim(void* var, int32_t v) { lv_image_set_scale(static_cast<lv_obj_t*>(var), static_cast<uint32_t>(v)); }
-
     // The pre-rendered orb: speed and a gentle pulse say what state it's in.
     void ApplyFramesState() {
         lv_anim_delete(orb_img, nullptr);
-        bool full = OrbFull();
-        int32_t base = full ? 256 : 256 * 48 / 160;
-        lv_image_set_scale(orb_img, base);
+        lv_image_set_scale(orb_img, LV_SCALE_NONE);
         lv_obj_center(orb_img);
         bool error = orb_state == OrbState::Error;
         lv_obj_set_style_image_recolor(orb_img, lv_color_hex(settings.theme.danger), 0);
@@ -310,7 +306,18 @@ struct Ui::Impl {
     }
 
     void ApplyOrbState() {
-        if (orb_img) return ApplyFramesState();
+        // Frames only draw at their native size (LVGL scaling of them renders a solid box),
+        // so the small in-page indicator uses the drawn orb.
+        bool frames = orb_img && OrbFull();
+        if (orb_img) {
+            if (frames) lv_obj_remove_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
+            for (lv_obj_t* o : {glow, mid, core}) {
+                if (frames) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+                else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+        if (frames) return ApplyFramesState();
         for (lv_obj_t* o : {glow, mid, core}) lv_anim_delete(o, nullptr);
         bool full = OrbFull();
         int s = full ? 1 : 0;
