@@ -81,6 +81,7 @@ public:
     void SetOrbState(OrbState state);
     void SetVoiceActive(bool active);  // overlay while a turn runs (unless home is the orb page)
     void SetCaption(const std::string& text);
+    void SetVoiceLevel(int percent);  // mic level while listening: pulses the ring
 
     void OnTap(int x, int y);
     void ApplySettings();  // theme / clock format / home changed

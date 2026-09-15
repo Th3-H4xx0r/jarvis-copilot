@@ -1,5 +1,7 @@
 #include "jarvis_voice.h"
 
+#include <algorithm>
+
 #include <cJSON.h>
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -26,6 +28,11 @@ constexpr int64_t kEndSilenceMs = 700;
 // silence after it can end the turn, and the first moments after a tap are ignored.
 constexpr int64_t kMinSpeechMs = 300;
 constexpr int64_t kTapGuardMs = 350;
+// Energy endpointing: speech is this far above the noise floor; the turn ends after
+// this long back near it.
+constexpr float kLoudAboveFloorDb = 9.0f;
+constexpr float kLoudMinDb = -58.0f;
+constexpr int64_t kEnergyEndMs = 800;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
@@ -182,6 +189,7 @@ void Voice::Trigger(const std::string& text) {
     speech_seen_ = false;
     speech_start_ms_ = 0;
     silence_since_ms_ = 0;
+    ResetEndpointing();
     last_heard_ms_ = NowMs();
     follow_up_ = false;
     if (!text.empty()) {
@@ -268,6 +276,7 @@ void Voice::FinishTurn() {
     speech_seen_ = false;
     speech_start_ms_ = 0;
     silence_since_ms_ = 0;
+    ResetEndpointing();
     turn_start_ms_ = NowMs();
     Ui::Get().SetOrbState(OrbState::Listening);
 }
@@ -359,6 +368,40 @@ void Voice::OnPlaybackDrained() {
     if (audio_ && phase_ == Phase::Speaking && server_done_) FinishTurn();
 }
 
+void Voice::ResetEndpointing() {
+    loud_since_ms_ = 0;
+    quiet_since_ms_ = 0;
+    energy_speech_ = false;
+    if (audio_) audio_->TakeMicLevelDb();  // drop what built up before this turn
+    Ui::Get().SetVoiceLevel(0);
+}
+
+// Every Tick while listening: the level drives the ring's pulse, and speech that has
+// dropped back to the noise floor ends the turn even while the VAD still says "speech".
+void Voice::TrackMicLevel(int64_t now) {
+    float db = audio_->TakeMicLevelDb();
+    if (db <= -95.0f) return;  // no audio this tick
+    // Floor: falls at once to a quieter reading, creeps up (so speech never becomes the floor).
+    if (floor_db_ == 0 || db < floor_db_) floor_db_ = db;
+    else floor_db_ += (db - floor_db_) * 0.01f;
+    bool loud = db > floor_db_ + kLoudAboveFloorDb && db > kLoudMinDb;
+    int level = loud ? std::min(100, static_cast<int>((db - floor_db_ - kLoudAboveFloorDb) * 5.0f)) : 0;
+    Ui::Get().SetVoiceLevel(level);
+    if (now - turn_start_ms_ < kTapGuardMs) return;
+    if (loud) {
+        if (!loud_since_ms_) loud_since_ms_ = now;
+        quiet_since_ms_ = 0;
+        if (now - loud_since_ms_ >= kMinSpeechMs) energy_speech_ = true;
+        return;
+    }
+    loud_since_ms_ = 0;
+    if (!quiet_since_ms_) quiet_since_ms_ = now;
+    if (energy_speech_ && now - quiet_since_ms_ >= kEnergyEndMs) {
+        ESP_LOGI(TAG, "turn: speech ended (level %.0f dB, floor %.0f dB)", db, floor_db_);
+        EndTurn();
+    }
+}
+
 void Voice::Tick() {
     int64_t now = NowMs();
     if (discard_audio_ && now - discard_since_ms_ > kDiscardExpiryMs) discard_audio_ = false;
@@ -371,6 +414,8 @@ void Voice::Tick() {
         return;
     }
     if (phase_ == Phase::Listening) {
+        TrackMicLevel(now);
+        if (phase_ != Phase::Listening) return;
         if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
             EndTurn();
         } else if (!speech_seen_ && now - last_heard_ms_ >= kListenCapMs) {

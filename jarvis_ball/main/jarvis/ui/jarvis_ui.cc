@@ -7,6 +7,7 @@
 #include <esp_partition.h>
 #include <wifi_manager.h>
 
+#include <cmath>
 #include <cstring>
 
 #include <algorithm>
@@ -142,6 +143,11 @@ struct Ui::Impl {
     lv_obj_t* ring = nullptr;          // screen-edge ring in the voice state's colour (an arc)
     int ring_fill = 0;                 // 0..1000: grows up both sides from the bottom
     int ring_target = 0;
+    int ring_width = kRingWidth;       // pulses with the voice while listening
+    lv_timer_t* spin_timer = nullptr;  // thinking: a Material-style indeterminate spinner
+    uint32_t spin_start = 0;
+    int spin_cycle = -1;
+    lv_obj_t* close_btn = nullptr;     // stands in for the menu button while the menu is open
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
     lv_obj_t* back_btn = nullptr;
@@ -382,6 +388,55 @@ struct Ui::Impl {
     static constexpr int kReplyH = 92;  // y 80..172: below the menu button, above the small orb
     bool reply_caption = false;
 
+    static constexpr int kRingWidth = 5;
+
+    void SetRingWidth(int w) {
+        if (w == ring_width) return;
+        ring_width = w;
+        lv_obj_set_style_arc_width(ring, w, LV_PART_MAIN);
+    }
+
+    // Thinking: the arc chases itself round like Google's loading spinner — the head
+    // sweeps out, then the tail catches up, while the whole thing turns and the colour
+    // steps through the theme each lap.
+    void StartSpin() {
+        lv_anim_delete(ring, nullptr);
+        SetRingWidth(kRingWidth);
+        lv_arc_set_rotation(ring, 270);  // start at the top
+        spin_start = lv_tick_get();
+        spin_cycle = -1;
+        spin_timer = lv_timer_create([](lv_timer_t* t) { static_cast<Impl*>(lv_timer_get_user_data(t))->SpinTick(); },
+                                     30, this);
+        SpinTick();
+    }
+
+    void StopSpin() {
+        if (!spin_timer) return;
+        lv_timer_delete(spin_timer);
+        spin_timer = nullptr;
+        lv_arc_set_rotation(ring, 90);
+    }
+
+    void SpinTick() {
+        constexpr uint32_t kLapMs = 1333;
+        uint32_t ms = lv_tick_elaps(spin_start);
+        int cycle = static_cast<int>(ms / kLapMs);
+        float p = static_cast<float>(ms % kLapMs) / kLapMs;
+        auto ease = [](float x) { return x < 0.5f ? 4 * x * x * x : 1 - std::pow(-2 * x + 2, 3) / 2; };
+        float head = 270.0f * ease(std::min(p * 2, 1.0f));
+        float tail = 270.0f * ease(std::max(p * 2 - 1, 0.0f));
+        float base = ms * 360.0f / 1568.0f + cycle * 270.0f;
+        int start = static_cast<int>(base + tail) % 360;
+        int end = static_cast<int>(base + head + 14) % 360;
+        if (cycle != spin_cycle) {
+            spin_cycle = cycle;
+            const auto& t = settings.theme;
+            const uint32_t colors[] = {t.accent, t.danger, t.warning, t.success};
+            lv_obj_set_style_arc_color(ring, lv_color_hex(colors[cycle % 4]), LV_PART_MAIN);
+        }
+        lv_arc_set_bg_angles(ring, start, end);
+    }
+
     void SetRingFill(int v) {
         ring_fill = v;
         int a = 180 * v / 1000;  // degrees either side of the bottom (the arc is rotated 90°)
@@ -392,6 +447,16 @@ struct Ui::Impl {
 
     // Voice on: the ring fills up both sides to meet at the top. Voice off: it drains back down.
     void UpdateRing() {
+        if (voice_active && orb_state == OrbState::Thinking) {
+            if (!spin_timer) StartSpin();
+            ring_target = 1000;
+            return;
+        }
+        if (spin_timer) {
+            StopSpin();
+            SetRingFill(1000);  // settle to a full ring; it drains from there
+        }
+        if (!voice_active || orb_state != OrbState::Listening) SetRingWidth(kRingWidth);
         if (voice_active) {
             const auto& t = settings.theme;
             uint32_t color = orb_state == OrbState::Thinking ? t.warning
@@ -659,8 +724,10 @@ struct Ui::Impl {
     // ---- chrome + menu ----------------------------------------------------------
     void UpdateChrome() {
         bool system = screen == Screen::Setup || screen == Screen::System;
-        if (system) lv_obj_add_flag(menu_btn, LV_OBJ_FLAG_HIDDEN);
+        if (system || menu_open) lv_obj_add_flag(menu_btn, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_remove_flag(menu_btn, LV_OBJ_FLAG_HIDDEN);
+        if (menu_open && !system) lv_obj_remove_flag(close_btn, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(close_btn, LV_OBJ_FLAG_HIDDEN);
         if (screen == Screen::Shown && !menu_open) lv_obj_remove_flag(back_btn, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(back_btn, LV_OBJ_FLAG_HIDDEN);
         UpdateOrbLayer();
@@ -668,6 +735,7 @@ struct Ui::Impl {
         lv_obj_move_foreground(ring);
         lv_obj_move_foreground(menu_layer);
         lv_obj_move_foreground(menu_btn);
+        lv_obj_move_foreground(close_btn);
         lv_obj_move_foreground(back_btn);
     }
 
@@ -848,6 +916,7 @@ void Ui::Init(Display* display) {
     // Inset enough to clear the voice ring at the screen edge.
     m->menu_btn = GlassButton(m->root, LV_SYMBOL_BARS, 40, 40);
     m->back_btn = GlassButton(m->root, LV_SYMBOL_LEFT, 164, 40);
+    m->close_btn = GlassButton(m->root, LV_SYMBOL_CLOSE, 40, 40);
     m->UpdateChrome();
     m->tick = lv_timer_create(
         [](lv_timer_t* t) {
@@ -1027,12 +1096,20 @@ void Ui::SetCaption(const std::string& text) {
     impl_->FitCaption();
 }
 
+void Ui::SetVoiceLevel(int percent) {
+    DisplayLockGuard lock(impl_->display);
+    auto* m = impl_;
+    if (!m->ring || m->spin_timer || !m->voice_active || m->orb_state != OrbState::Listening) return;
+    // Four steps, so quiet flicker doesn't redraw the screen every tick.
+    m->SetRingWidth(Impl::kRingWidth + 2 * std::min(4, std::max(0, percent) / 20));
+}
+
 void Ui::OnTap(int x, int y) {
     DisplayLockGuard lock(impl_->display);
     auto* m = impl_;
     if (m->screen == Screen::Setup) return;
     if (m->menu_open) {
-        if (Hit(m->menu_btn, x, y)) return m->CloseMenu();
+        if (Hit(m->close_btn, x, y)) return m->CloseMenu();
         for (int i = 0; i < static_cast<int>(m->rows.size()); ++i) {
             if (Hit(m->rows[i].obj, x, y)) return m->Select(i);
         }

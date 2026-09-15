@@ -125,6 +125,9 @@ public:
     bool IsVoiceDetected() const { return voice_detected_; }
     bool IsIdle();
     bool IsPlaybackIdle();
+    // JARVIS: mean energy of the processed mic audio since the last call, in dBFS
+    // (-96 when none arrived) — the ball's endpointing and voice-level ring.
+    float TakeMicLevelDb();
     bool IsWakeWordRunning() const {
         return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;
     }
@@ -149,6 +152,9 @@ public:
     void SetModelsList(srmodel_list_t* models_list);
 
 private:
+    std::mutex mic_level_mutex_;
+    double mic_energy_ = 0;
+    uint32_t mic_samples_ = 0;
     AudioCodec* codec_ = nullptr;
     AudioServiceCallbacks callbacks_;
     std::unique_ptr<AudioEngine> audio_engine_;

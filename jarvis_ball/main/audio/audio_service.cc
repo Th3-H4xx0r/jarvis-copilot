@@ -1,4 +1,6 @@
 #include "audio_service.h"
+
+#include <cmath>
 #include <esp_log.h>
 #include <cstring>
 
@@ -85,6 +87,13 @@ void AudioService::Initialize(AudioCodec* codec) {
     audio_engine_ = std::make_unique<LiteAudioEngine>();
 #endif
     audio_engine_->OnOutput([this](std::vector<int16_t>&& data) {
+        double sum = 0;
+        for (int16_t s : data) sum += static_cast<double>(s) * s;
+        {
+            std::lock_guard<std::mutex> lock(mic_level_mutex_);
+            mic_energy_ += sum;
+            mic_samples_ += data.size();
+        }
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
     audio_engine_->OnVadStateChange([this](bool speaking) {
@@ -878,4 +887,16 @@ bool AudioService::InitializeAudioEngine() {
     audio_engine_initialized_ = true;
     audio_engine_->EnableDeviceAec(device_aec_enabled_);
     return true;
+}
+
+float AudioService::TakeMicLevelDb() {
+    std::lock_guard<std::mutex> lock(mic_level_mutex_);
+    float db = -96.0f;
+    if (mic_samples_ > 0) {
+        double mean = mic_energy_ / mic_samples_ / (32768.0 * 32768.0);
+        if (mean > 1e-10) db = static_cast<float>(10.0 * log10(mean));
+    }
+    mic_energy_ = 0;
+    mic_samples_ = 0;
+    return db;
 }

@@ -56,6 +56,13 @@ private:
     bool follow_up_ = false;
     bool speech_seen_ = false;
     int64_t speech_start_ms_ = 0;  // current VAD speech run, 0 when silent
+    // Energy endpointing alongside the VAD, which can hold "speech" through room noise.
+    float floor_db_ = 0;           // adaptive noise floor; 0 = not measured yet
+    int64_t loud_since_ms_ = 0;
+    int64_t quiet_since_ms_ = 0;
+    bool energy_speech_ = false;
+    void ResetEndpointing();
+    void TrackMicLevel(int64_t now);
     int64_t last_heard_ms_ = 0;    // last tap or transcribed words: the 2-minute listening cap
     bool server_done_ = false;
     int64_t turn_start_ms_ = 0;
