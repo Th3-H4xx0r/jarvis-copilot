@@ -144,6 +144,7 @@ struct Ui::Impl {
     int ring_fill = 0;                 // 0..1000: grows up both sides from the bottom
     int ring_target = 0;
     int ring_width = kRingWidth;       // pulses with the voice while listening
+    bool speak_pulse = false;          // the ring breathes while Jarvis speaks
     lv_timer_t* spin_timer = nullptr;  // thinking: a Material-style indeterminate spinner
     uint32_t spin_start = 0;
     lv_obj_t* close_btn = nullptr;     // stands in for the menu button while the menu is open
@@ -264,6 +265,9 @@ struct Ui::Impl {
         bool charging = false, discharging = false;
         bool battery = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
         if (battery) lv_arc_set_value(clock_arc, level);
+        // The clock's battery ring turns green while charging.
+        lv_obj_set_style_arc_color(clock_arc, lv_color_hex(battery && charging ? settings.theme.success : settings.theme.accent),
+                                   LV_PART_INDICATOR);
         UpdateClockStatus(battery, level, charging);
     }
 
@@ -438,10 +442,11 @@ struct Ui::Impl {
     // sweeps out, then the tail catches up, while the whole thing turns.
     void StartSpin() {
         lv_anim_delete(ring, nullptr);
+        speak_pulse = false;
         SetRingWidth(kRingWidth);
         lv_arc_set_rotation(ring, 270);  // start at the top
         spin_start = lv_tick_get();
-        lv_obj_set_style_arc_color(ring, lv_color_hex(settings.theme.warning), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(ring, lv_color_hex(settings.theme.accent), LV_PART_MAIN);  // as listening
         spin_timer = lv_timer_create([](lv_timer_t* t) { static_cast<Impl*>(lv_timer_get_user_data(t))->SpinTick(); },
                                      30, this);
         SpinTick();
@@ -468,6 +473,25 @@ struct Ui::Impl {
         lv_arc_set_bg_angles(ring, start, end);
     }
 
+    // Speaking: the ring breathes (width 5 -> 11 -> 5). Steps, not pixels, so it redraws
+    // about seven times a second rather than every frame.
+    void StartSpeakPulse() {
+        speak_pulse = true;
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, ring);
+        lv_anim_set_user_data(&a, this);
+        lv_anim_set_values(&a, 0, 3);
+        lv_anim_set_duration(&a, 450);
+        lv_anim_set_reverse_duration(&a, 450);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_set_custom_exec_cb(&a, [](lv_anim_t* anim, int32_t v) {
+            static_cast<Impl*>(lv_anim_get_user_data(anim))->SetRingWidth(kRingWidth + 2 * v);
+        });
+        lv_anim_start(&a);
+    }
+
     void SetRingFill(int v) {
         ring_fill = v;
         int a = 180 * v / 1000;  // degrees either side of the bottom (the arc is rotated 90°)
@@ -487,18 +511,24 @@ struct Ui::Impl {
             StopSpin();
             SetRingFill(1000);  // settle to a full ring; it drains from there
         }
+        bool speaking = voice_active && orb_state == OrbState::Speaking;
+        if (speak_pulse && !speaking) {
+            lv_anim_delete(ring, nullptr);
+            speak_pulse = false;
+        }
         if (!voice_active || orb_state != OrbState::Listening) SetRingWidth(kRingWidth);
         if (voice_active) {
+            // One colour for listening, thinking and speaking; red only for an error.
             const auto& t = settings.theme;
-            uint32_t color = orb_state == OrbState::Thinking ? t.warning
-                             : orb_state == OrbState::Speaking ? t.success
-                             : orb_state == OrbState::Error ? t.danger : t.accent;
-            lv_obj_set_style_arc_color(ring, lv_color_hex(color), LV_PART_MAIN);
+            lv_obj_set_style_arc_color(ring, lv_color_hex(orb_state == OrbState::Error ? t.danger : t.accent),
+                                       LV_PART_MAIN);
         }
+        if (speaking && !speak_pulse && ring_target == 1000) StartSpeakPulse();
         int target = voice_active ? 1000 : 0;
         if (target == ring_target) return;
         ring_target = target;
         lv_anim_delete(ring, nullptr);
+        speak_pulse = false;
         lv_anim_t a;
         lv_anim_init(&a);
         lv_anim_set_var(&a, ring);
