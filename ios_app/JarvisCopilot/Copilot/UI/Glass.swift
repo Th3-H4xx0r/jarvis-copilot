@@ -441,6 +441,7 @@ struct JcIcon: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: drawn, height: drawn)
+                .fixedSize()   // a toolbar would otherwise stretch it to the bar's height
         } else {
             // A name with no Phosphor mapping (usually built at runtime): keep Apple's.
             // NOT JcIcon(name) — that would recurse forever.

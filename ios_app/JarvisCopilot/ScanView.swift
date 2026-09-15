@@ -47,9 +47,14 @@ struct ScanView: View {
             NavigationLink {
                 BridgeSettingsView()
             } label: {
-                JcIcon("gearshape").foregroundStyle(JcTheme.accent)
+                JcIcon("gearshape", size: 18).foregroundStyle(JcTheme.accent)
             }
-            Button("Rescan", jcIcon: "arrow.clockwise") { WearablesHub.shared.rescanAll() }
+            Button {
+                WearablesHub.shared.rescanAll()
+            } label: {
+                JcIcon("arrow.clockwise", size: 18).foregroundStyle(JcTheme.accent)
+            }
+            .accessibilityLabel("Rescan")
                 .disabled(!manager.bluetoothReady)
         }
     }
