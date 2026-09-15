@@ -146,7 +146,6 @@ struct Ui::Impl {
     int ring_width = kRingWidth;       // pulses with the voice while listening
     lv_timer_t* spin_timer = nullptr;  // thinking: a Material-style indeterminate spinner
     uint32_t spin_start = 0;
-    int spin_cycle = -1;
     lv_obj_t* close_btn = nullptr;     // stands in for the menu button while the menu is open
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
@@ -397,14 +396,13 @@ struct Ui::Impl {
     }
 
     // Thinking: the arc chases itself round like Google's loading spinner — the head
-    // sweeps out, then the tail catches up, while the whole thing turns and the colour
-    // steps through the theme each lap.
+    // sweeps out, then the tail catches up, while the whole thing turns.
     void StartSpin() {
         lv_anim_delete(ring, nullptr);
         SetRingWidth(kRingWidth);
         lv_arc_set_rotation(ring, 270);  // start at the top
         spin_start = lv_tick_get();
-        spin_cycle = -1;
+        lv_obj_set_style_arc_color(ring, lv_color_hex(settings.theme.warning), LV_PART_MAIN);
         spin_timer = lv_timer_create([](lv_timer_t* t) { static_cast<Impl*>(lv_timer_get_user_data(t))->SpinTick(); },
                                      30, this);
         SpinTick();
@@ -428,12 +426,6 @@ struct Ui::Impl {
         float base = ms * 360.0f / 1568.0f + cycle * 270.0f;
         int start = static_cast<int>(base + tail) % 360;
         int end = static_cast<int>(base + head + 14) % 360;
-        if (cycle != spin_cycle) {
-            spin_cycle = cycle;
-            const auto& t = settings.theme;
-            const uint32_t colors[] = {t.accent, t.danger, t.warning, t.success};
-            lv_obj_set_style_arc_color(ring, lv_color_hex(colors[cycle % 4]), LV_PART_MAIN);
-        }
         lv_arc_set_bg_angles(ring, start, end);
     }
 
