@@ -66,6 +66,11 @@ const char* SymbolGlyph(const std::string& sf_name);
 std::vector<std::string> NearSymbols(const std::string& sf_name);
 
 bool IsBuiltinHome(const std::string& id);
+
+// A transcript that only asks voice to stop listening: "Stop.", "Never mind, Jarvis",
+// "okay that's all", "stop stop". Commands that happen to contain the words
+// ("stop the music", "cancel my meeting") are not.
+bool IsStopPhrase(const std::string& transcript);
 bool ValidPageId(const std::string& id);
 
 }  // namespace jarvis::logic

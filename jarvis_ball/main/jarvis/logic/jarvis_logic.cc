@@ -234,6 +234,57 @@ std::vector<std::string> NearSymbols(const std::string& sf_name) {
 
 bool IsBuiltinHome(const std::string& id) { return id == "orb" || id == "clock"; }
 
+bool IsStopPhrase(const std::string& transcript) {
+    // Lowercase words; apostrophes (ASCII or U+2019) dropped so "that's" == "thats".
+    std::vector<std::string> words;
+    std::string w;
+    for (size_t i = 0; i <= transcript.size(); ++i) {
+        unsigned char c = i < transcript.size() ? static_cast<unsigned char>(transcript[i]) : ' ';
+        if (c == 0xE2 && i + 2 < transcript.size() && static_cast<unsigned char>(transcript[i + 1]) == 0x80 &&
+            static_cast<unsigned char>(transcript[i + 2]) == 0x99) {
+            i += 2;
+            continue;
+        }
+        if (c == '\'') continue;
+        if (isalpha(c)) {
+            w.push_back(static_cast<char>(tolower(c)));
+        } else if (!w.empty()) {
+            words.push_back(w);
+            w.clear();
+        }
+    }
+    static const char* kFillers[] = {"hey", "ok", "okay", "oh", "uh", "um", "hmm", "please", "jarvis", "so", "well", "yeah"};
+    auto filler = [](const std::string& s) {
+        for (const char* f : kFillers) {
+            if (s == f) return true;
+        }
+        return false;
+    };
+    while (!words.empty() && filler(words.front())) words.erase(words.begin());
+    while (!words.empty() && filler(words.back())) words.pop_back();
+    // "stop stop", "never mind never mind": one copy.
+    for (size_t n = 1; n <= words.size() / 2; ++n) {
+        if (words.size() % n) continue;
+        bool repeats = true;
+        for (size_t i = n; i < words.size() && repeats; ++i) repeats = words[i] == words[i % n];
+        if (repeats) {
+            words.resize(n);
+            break;
+        }
+    }
+    std::string t;
+    for (auto& word : words) t += (t.empty() ? "" : " ") + word;
+    static const char* kStops[] = {
+        "stop", "stop listening", "stop it", "nothing", "nothing else", "no nothing", "never mind", "nevermind",
+        "cancel", "thats all", "thats it", "thats enough", "no thats all", "no thats it", "goodbye", "good bye",
+        "bye", "no thanks", "no thank you", "im done", "im good", "all done", "done", "forget it", "be quiet",
+        "quiet", "shut up", "go to sleep", "nah", "nope"};
+    for (const char* s : kStops) {
+        if (t == s) return true;
+    }
+    return false;
+}
+
 bool ValidPageId(const std::string& id) {
     // "/pages/<id>.json" must fit SPIFFS's 31-char object names.
     if (id.empty() || id.size() > 20) return false;

@@ -24,9 +24,10 @@ namespace jarvis {
 
 namespace {
 constexpr int64_t kEndSilenceMs = 700;
-// A tap's click or a cough isn't a request: speech must run this long before the
-// silence after it can end the turn, and the first moments after a tap are ignored.
-constexpr int64_t kMinSpeechMs = 300;
+// A tap's click isn't a request: the first moments after a tap are ignored, and a sound
+// must last this long to count as speech. Short enough for a one-word answer ("yes",
+// "stop"); a cough that slips through just comes back no_speech and listening goes on.
+constexpr int64_t kMinSpeechMs = 150;
 constexpr int64_t kTapGuardMs = 350;
 // Energy endpointing: speech is this far above the noise floor; the turn ends after
 // this long back near it.
@@ -36,21 +37,6 @@ constexpr int64_t kEnergyEndMs = 800;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
-bool IsStopPhrase(std::string text) {
-    std::string t;
-    for (char c : text) {
-        if (isalpha(static_cast<unsigned char>(c)) || c == ' ' || c == '\'') t.push_back(static_cast<char>(tolower(c)));
-    }
-    while (!t.empty() && t.back() == ' ') t.pop_back();
-    while (!t.empty() && t.front() == ' ') t.erase(0, 1);
-    static const char* kStops[] = {"stop", "stop listening", "nothing", "never mind", "nevermind", "that's all",
-                                   "thats all", "that's it", "thats it", "cancel", "goodbye", "bye", "no thanks",
-                                   "no thank you", "i'm done", "im done", "jarvis stop", "okay stop", "ok stop"};
-    for (const char* s : kStops) {
-        if (t == s) return true;
-    }
-    return false;
-}
 constexpr int64_t kMaxTurnMs = 15000;
 constexpr int64_t kSocketIdleMs = 60000;
 constexpr int64_t kDiscardExpiryMs = 10000;
@@ -228,7 +214,8 @@ void Voice::OnVad(bool speaking) {
         silence_since_ms_ = 0;
         return;
     }
-    if (speech_start_ms_ && now - speech_start_ms_ >= kMinSpeechMs) speech_seen_ = true;
+    // The VAD only reports speech after ~128 ms of it (vad_min_speech_ms), so any run counts.
+    if (speech_start_ms_) speech_seen_ = true;
     speech_start_ms_ = 0;
     if (speech_seen_) silence_since_ms_ = now;
 }
@@ -320,7 +307,7 @@ void Voice::HandleJson(const std::string& text) {
         return;
     }
     if (t == "transcript") {
-        if (IsStopPhrase(s)) {
+        if (logic::IsStopPhrase(s)) {
             // "Stop" / "nothing" / "that's all": cut the reply the server is starting and stop listening.
             ESP_LOGI(TAG, "turn: stop phrase \"%s\"", s.c_str());
             SendText("{\"type\":\"interrupt\",\"heard\":\"\"}");
@@ -393,7 +380,8 @@ void Voice::TrackMicLevel(int64_t now) {
     if (loud) {
         if (!loud_since_ms_) loud_since_ms_ = now;
         quiet_since_ms_ = 0;
-        if (now - loud_since_ms_ >= kMinSpeechMs) energy_speech_ = true;
+        // Each tick's reading covers the 100 ms before it.
+        if (now - loud_since_ms_ + 100 >= kMinSpeechMs) energy_speech_ = true;
         return;
     }
     loud_since_ms_ = 0;

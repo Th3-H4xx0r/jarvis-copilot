@@ -180,7 +180,12 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         // room noise once the mic gain went up.
         afe_config->wakenet_mode = DET_MODE_90;
     }
-    afe_config->agc_init = false;
+    // JARVIS: AGC on the processed output (after WakeNet), so near and far speech reach the
+    // server and the endpointing at a similar level; its limiter stops loud words clipping.
+    afe_config->agc_init = true;
+    afe_config->agc_mode = AFE_AGC_MODE_WEBRTC;
+    afe_config->agc_compression_gain_db = 9;
+    afe_config->agc_target_level_dbfs = 3;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
     ESP_LOGI(TAG, "Before AFE create: free=%u min=%u largest=%u",
@@ -203,7 +208,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
         // JARVIS: the Jarvis model ships at ~0.63; slightly lower so speaking volume still fires.
-        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.55f);
+        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.52f);
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);

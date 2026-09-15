@@ -16,10 +16,9 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     output_sample_rate_ = output_sample_rate;
     pa_pin_ = pa_pin;
     pa_inverted_ = pa_inverted;
-    // JARVIS: 42 dB (the PGA's top step). 30 needed shouting; 36 still missed the wake word at
-    // speaking volume. 42 once failed only alongside a x4 software boost (clipping, constant VAD
-    // "speech"); turns now also end on energy vs the noise floor (jarvis_voice.cc), not VAD alone.
-    input_gain_ = 42;
+    // JARVIS: 36 dB. 30 needed shouting; at 42 normal speech averaged -9 dBFS a metre away, so
+    // louder words clipped. Distance is evened out by the AFE's AGC (afe_audio_engine.cc).
+    input_gain_ = 36;
 
     assert(input_sample_rate_ == output_sample_rate_);
     CreateDuplexChannels(mclk, bclk, ws, dout, din);

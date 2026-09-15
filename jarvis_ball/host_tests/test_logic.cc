@@ -116,6 +116,16 @@ int main() {
     CHECK(ValidPageId("a2345678901234567890") && !ValidPageId("a23456789012345678901"));  // SPIFFS name limit
     CHECK(Contains(Validate("{\"root\":{\"type\":\"clock\",\"format\":\"%H:%M:%S %A %B %d %Y and some more text\"}}"), "32 chars"));
 
+    for (const char* s : {"Stop.", "stop stop", "Never mind, Jarvis.", "Okay, that's all.", "No thanks!",
+                          "That\u2019s it", "NEVERMIND", "nothing", "Hey Jarvis, stop listening", "Nope."}) {
+        if (!IsStopPhrase(s)) fprintf(stderr, "not a stop phrase: %s\n", s);
+        CHECK(IsStopPhrase(s));
+    }
+    for (const char* s : {"stop the music", "cancel my meeting", "nothing is working", "", "Jarvis",
+                          "what time is it", "done with the report?"}) {
+        CHECK(!IsStopPhrase(s));
+    }
+
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return 1;
