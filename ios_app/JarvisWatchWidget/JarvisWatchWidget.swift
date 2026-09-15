@@ -30,8 +30,10 @@ struct WatchWidgetView: View {
             }
             .widgetAccentable()
             .containerBackground(Color.clear, for: .widget)
+            .widgetURL(URL(string: "jarviscopilot://talk"))
         case .accessoryInline:
             Label("Talk to JARVIS", systemImage: "mic.fill")
+                .widgetURL(URL(string: "jarviscopilot://talk"))
         default:  // accessoryRectangular
             HStack(spacing: 8) {
                 Image(systemName: "mic.fill").font(.system(size: 20, weight: .semibold))
@@ -42,6 +44,7 @@ struct WatchWidgetView: View {
             }
             .widgetAccentable()
             .containerBackground(Color.clear, for: .widget)
+            .widgetURL(URL(string: "jarviscopilot://talk"))
         }
     }
 }

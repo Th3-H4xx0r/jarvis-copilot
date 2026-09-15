@@ -14,6 +14,10 @@ struct ContentView: View {
     @StateObject private var menu = WatchMenuStore()
     @State private var activeSheet: ActiveSheet?
     @State private var vol: Float = 0   // live system volume shown in the drawer
+    // Opened from the watch face complication: focus a field so watchOS brings up its
+    // input screen (dictation is its default) without the user finding the orb first.
+    @State private var launchDraft = ""
+    @FocusState private var launchFocused: Bool
 
     enum ActiveSheet: Int, Identifiable { case volume, menu, chats; var id: Int { rawValue } }
 
@@ -41,7 +45,26 @@ struct ContentView: View {
                 NavigationStack { WatchChatPicker(store: menu) }
             }
         }
-        // The orb is a TextFieldLink, so dictation can't be opened programmatically.
+        // The orb is a TextFieldLink, so dictation can't be opened programmatically;
+        // the complication instead focuses this field, which opens the same input screen.
+        .overlay(alignment: .top) {
+            TextField("Speak to JARVIS", text: $launchDraft)
+                .focused($launchFocused)
+                .opacity(0.001)
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .onSubmit {
+                    let t = launchDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    launchDraft = ""
+                    guard !t.isEmpty else { return }
+                    Task { await vm.submit(text: t) }
+                }
+        }
+        .onOpenURL { url in
+            guard url.host == "talk" || url.path.hasSuffix("talk") else { return }
+            activeSheet = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { launchFocused = true }
+        }
     }
 
     @ViewBuilder private var content: some View {
