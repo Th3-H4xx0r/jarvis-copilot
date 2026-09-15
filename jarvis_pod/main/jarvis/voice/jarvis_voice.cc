@@ -32,9 +32,13 @@ constexpr int64_t kTouchGuardMs = 200;  // only after a tap or button press (its
 // this long back near it.
 constexpr float kLoudAboveFloorDb = 8.0f;
 constexpr float kLoudMinDb = -60.0f;
-constexpr int64_t kEnergyEndMs = 550;
-// The pause hint goes out this far into the quiet; end_turn follows at kEnergyEndMs.
-constexpr int64_t kPauseHintMs = 100;
+constexpr int64_t kEnergyEndMs = 600;
+// Quiet this long ends the turn even while the VAD still says speech (room noise can
+// hold it there); shorter quiet only counts once the VAD agrees. A quiet talker sits a
+// dB above the floor, so energy alone cut sentences in half at 550 ms.
+constexpr int64_t kEnergyOnlyEndMs = 1500;
+// The pause hint (server starts transcribing) goes out once both agree for this long.
+constexpr int64_t kPauseHintMs = 150;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
@@ -215,6 +219,7 @@ void Voice::OnVad(bool speaking) {
     ESP_LOGI(TAG, "vad: %s (phase %d)", speaking ? "speech" : "silence", static_cast<int>(phase_));
     if (phase_ != Phase::Listening) return;
     int64_t now = NowMs();
+    vad_speaking_ = speaking;
     if (now - turn_start_ms_ < guard_ms_) return;
     if (speaking) {
         if (!speech_start_ms_) speech_start_ms_ = now;
@@ -225,10 +230,7 @@ void Voice::OnVad(bool speaking) {
     // The VAD only reports speech after ~128 ms of it (vad_min_speech_ms), so any run counts.
     if (speech_start_ms_) speech_seen_ = true;
     speech_start_ms_ = 0;
-    if (speech_seen_) {
-        silence_since_ms_ = now;
-        NotePause();
-    }
+    if (speech_seen_) silence_since_ms_ = now;
 }
 
 void Voice::EndTurn() {
@@ -396,6 +398,7 @@ void Voice::KeepWarm(int64_t now) {
 
 void Voice::ResetEndpointing() {
     pause_hint_sent_ = false;
+    vad_speaking_ = false;
     loud_ticks_ = 0;
     loud_since_ms_ = 0;
     quiet_since_ms_ = 0;
@@ -432,8 +435,9 @@ void Voice::TrackMicLevel(int64_t now) {
     loud_ticks_ = 0;
     loud_since_ms_ = 0;
     if (!quiet_since_ms_) quiet_since_ms_ = now;
-    if (energy_speech_ && now - quiet_since_ms_ >= kPauseHintMs) NotePause();
-    if (energy_speech_ && now - quiet_since_ms_ >= kEnergyEndMs) {
+    int64_t quiet = now - quiet_since_ms_;
+    if (energy_speech_ && !vad_speaking_ && quiet >= kPauseHintMs) NotePause();
+    if (energy_speech_ && ((!vad_speaking_ && quiet >= kEnergyEndMs) || quiet >= kEnergyOnlyEndMs)) {
         ESP_LOGI(TAG, "turn: speech ended (level %.0f dB, floor %.0f dB)", db, floor_db_);
         EndTurn();
     }

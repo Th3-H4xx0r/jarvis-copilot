@@ -73,6 +73,7 @@ private:
     void KeepWarm(int64_t now);
     void NotePause();
     bool pause_hint_sent_ = false;
+    bool vad_speaking_ = false;    // the AFE VAD's latest state
     int64_t last_keepalive_ms_ = 0;
     int64_t next_connect_ms_ = 0;
     int connect_failures_ = 0;

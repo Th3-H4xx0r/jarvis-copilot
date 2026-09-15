@@ -1326,6 +1326,43 @@ def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int, *, realtime: bool = F
             pass
 
 
+# The fast model's guess is taken only this confident or better; below it the accurate
+# model runs on the whole turn. Measured on the pod's own clips: its mistakes ("Further?"
+# heard as "Turn it in") sit under -0.5, its correct short commands above -0.45.
+_FAST_STT_MIN_LOGPROB = -0.45
+
+
+def _pcm_to_transcript_fast(pcm_bytes: bytes, sample_rate: int):
+    """(text, confidence) from the small fast model — the pause-time pass."""
+    transcribe = _try_import_stt()
+    if not transcribe:
+        return "", -99.0
+    wav_bytes = _pcm_to_wav(pcm_bytes, sample_rate=sample_rate)
+    with tempfile.NamedTemporaryFile(prefix="webui-voice-fast-", suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+        tmp.write(wav_bytes)
+    try:
+        result = transcribe(tmp_path, realtime=True, fast=True)
+        if not (isinstance(result, dict) and result.get("success")):
+            return "", -99.0
+        text = str(result.get("transcript") or "").strip()
+        try:
+            from agent.voice_hallucination import is_hallucinated_output
+            if text and is_hallucinated_output(text, mode="conversation"):
+                return "", -99.0
+        except Exception:
+            pass
+        return text, float(result.get("avg_logprob") or 0.0)
+    except Exception:
+        logger.debug("voice: fast STT failed", exc_info=True)
+        return "", -99.0
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 16000,
                 channels: int = 1, sample_width: int = 2) -> bytes:
     import io
@@ -2708,7 +2745,7 @@ _SPEC_STT_MAX_TAIL_BYTES = int(16000 * 2 * 1.0)
 
 
 def _start_speculative_stt(state: dict) -> None:
-    """Transcribe the turn's audio so far on a background thread (see "speech_pause").
+    """Transcribe the turn's audio so far with the fast model (see "speech_pause").
 
     Every hint is remembered (``spec_mark``); a transcription only starts when none is
     running, and ``_take_speculative_transcript`` accepts it only if it was taken at
@@ -2721,6 +2758,8 @@ def _start_speculative_stt(state: dict) -> None:
     if len(pcm) < 1000:
         return
     state["spec_mark"] = len(pcm)
+    if state.get("client") == "jarvis_pod":
+        pcm = _normalize_for_stt(pcm)
     running = state.get("spec_stt")
     if running is not None and not running["done"].is_set():
         return
@@ -2729,7 +2768,11 @@ def _start_speculative_stt(state: dict) -> None:
 
     def _run():
         try:
-            spec["text"] = _pcm_to_transcript(pcm, sr, realtime=True)
+            text, confidence = _pcm_to_transcript_fast(pcm, sr)
+            if confidence >= _FAST_STT_MIN_LOGPROB:
+                spec["text"] = text
+            else:
+                logger.debug("voice: fast STT unsure (%.2f) for %r", confidence, text[:60])
         except Exception:
             logger.debug("voice: speculative STT failed", exc_info=True)
         finally:
@@ -2746,7 +2789,32 @@ def _take_speculative_transcript(state: dict, pcm_len: int, wait_s: float = 15.0
         return None
     if not spec["done"].wait(timeout=wait_s):
         return None
-    return spec["text"]
+    # Empty on the partial audio (Whisper's VAD found nothing yet) proves nothing about
+    # the whole turn: transcribe all of it instead of dropping the turn.
+    return spec["text"] or None
+
+
+# Quiet pod speech (a dB over the room) slipped under faster-whisper's own VAD and came
+# back empty. Peak-normalise what's transcribed; the saved recording keeps its level.
+_STT_PEAK_TARGET = 0.7 * 32767
+_STT_MAX_GAIN = 8.0  # +18 dB
+
+
+def _normalize_for_stt(pcm: bytes) -> bytes:
+    import array
+    samples = array.array("h", pcm[: len(pcm) - len(pcm) % 2])
+    if sys.byteorder != "little":
+        samples.byteswap()
+    peak = max((abs(v) for v in samples), default=0)
+    if peak <= 0:
+        return pcm
+    gain = min(_STT_MAX_GAIN, _STT_PEAK_TARGET / peak)
+    if gain <= 1.05:
+        return pcm
+    out = array.array("h", (max(-32768, min(32767, int(v * gain))) for v in samples))
+    if sys.byteorder != "little":
+        out.byteswap()
+    return out.tobytes()
 
 
 def _record_pod_turn(state: dict, pcm: bytes, sr: int, transcript: str) -> None:
@@ -2791,7 +2859,8 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _t0 = time.monotonic()
         transcript = _take_speculative_transcript(state, len(pcm))
         if transcript is None:
-            transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+            stt_pcm = _normalize_for_stt(pcm) if state.get("client") == "jarvis_pod" else pcm
+            transcript = _pcm_to_transcript(stt_pcm, sr, realtime=True)
         else:
             _mark_span(timing, "stt_speculative", 1.0)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)

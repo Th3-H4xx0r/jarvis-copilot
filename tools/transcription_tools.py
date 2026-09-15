@@ -87,6 +87,10 @@ DEFAULT_LOCAL_MODEL = "base"
 # stt.local.realtime_model; an invalid/cloud-only override falls back to
 # DEFAULT_LOCAL_MODEL via _normalize_local_model, same as the quality path.
 DEFAULT_REALTIME_LOCAL_MODEL = "tiny.en"
+# The "fast" realtime slot: a smaller model the voice bridge runs the moment the user
+# pauses, with its own cache so it never evicts the accurate realtime model. Its guess
+# is used only when confident (see the voice bridge); set via stt.local.fast_model.
+DEFAULT_FAST_LOCAL_MODEL = "base.en"
 DEFAULT_LOCAL_STT_LANGUAGE = "en"
 DEFAULT_STT_MODEL = os.getenv("STT_OPENAI_MODEL", "whisper-1")
 DEFAULT_GROQ_STT_MODEL = os.getenv("STT_GROQ_MODEL", "whisper-large-v3-turbo")
@@ -117,6 +121,8 @@ _local_model_name: Optional[str] = None
 _local_realtime_model: Optional[object] = None
 _local_realtime_model_name: Optional[str] = None
 _local_realtime_requested_name = None  # name asked for; differs from _name after a fallback (plan 1.5)
+_local_fast_model: Optional[object] = None
+_local_fast_requested_name = None
 
 # Guards the load-check-assign of _local_model/_local_realtime_model (and
 # warm_stt()'s preload of _local_realtime_model) so a background warm thread
@@ -463,7 +469,8 @@ def _load_realtime_model_with_fallback(model_name: str):
         return _load_local_whisper_model(DEFAULT_LOCAL_MODEL), DEFAULT_LOCAL_MODEL
 
 
-def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False) -> Dict[str, Any]:
+def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False,
+                      fast: bool = False) -> Dict[str, Any]:
     """Transcribe using faster-whisper (local, free).
 
     realtime=False (default, unchanged): the quality path — beam_size=5, no
@@ -475,6 +482,7 @@ def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False
     (or is evicted by) the quality-path model.
     """
     global _local_model, _local_model_name, _local_realtime_model, _local_realtime_model_name, _local_realtime_requested_name
+    global _local_fast_model, _local_fast_requested_name
 
     if not _HAS_FASTER_WHISPER:
         if not _try_lazy_install_stt():
@@ -486,7 +494,13 @@ def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False
         # _model_load_lock so a concurrent warm_stt() thread and a live turn
         # can't both see "not loaded" and each load their own model instance.
         with _model_load_lock:
-            if realtime:
+            if fast:
+                if _local_fast_model is None or _local_fast_requested_name != model_name:
+                    logger.info("Loading fast faster-whisper model '%s'...", model_name)
+                    _local_fast_model, _ = _load_realtime_model_with_fallback(model_name)
+                    _local_fast_requested_name = model_name
+                model_obj = _local_fast_model
+            elif realtime:
                 if _local_realtime_model is None or _local_realtime_requested_name != model_name:
                     logger.info("Loading realtime faster-whisper model '%s' (first load downloads the model)...", model_name)
                     _local_realtime_model, _local_realtime_model_name = _load_realtime_model_with_fallback(model_name)
@@ -513,6 +527,7 @@ def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False
 
         try:
             segments, info = model_obj.transcribe(file_path, **transcribe_kwargs)
+            segments = list(segments)
             transcript = " ".join(segment.text.strip() for segment in segments)
         except Exception as exc:
             # CUDA runtime libs sometimes only fail at dlopen-on-first-use,
@@ -544,6 +559,7 @@ def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False
                     _local_model = model_obj
                     _local_model_name = model_name
             segments, info = model_obj.transcribe(file_path, **transcribe_kwargs)
+            segments = list(segments)
             transcript = " ".join(segment.text.strip() for segment in segments)
 
         logger.info(
@@ -551,7 +567,23 @@ def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False
             Path(file_path).name, model_name, realtime, info.language, info.duration,
         )
 
-        return {"success": True, "transcript": transcript, "provider": "local"}
+        # avg_logprob: how sure the model is (0 is best; below about -0.5 usually means a
+        # misheard word). The voice bridge uses it to decide whether the fast model's
+        # guess stands or the accurate model should run.
+        def _score(attr: str, pick) -> float:
+            try:
+                return float(pick([float(getattr(s, attr)) for s in segments], default=0.0))
+            except Exception:  # a stub/segment without the field
+                return 0.0
+
+        return {
+            "success": True,
+            "transcript": transcript,
+            "provider": "local",
+            "model": model_name,
+            "avg_logprob": _score("avg_logprob", min),
+            "no_speech_prob": _score("no_speech_prob", max),
+        }
 
     except Exception as e:
         logger.error("Local transcription failed: %s", e, exc_info=True)
@@ -911,7 +943,8 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def transcribe_audio(file_path: str, model: Optional[str] = None, *, realtime: bool = False) -> Dict[str, Any]:
+def transcribe_audio(file_path: str, model: Optional[str] = None, *, realtime: bool = False,
+                     fast: bool = False) -> Dict[str, Any]:
     """
     Transcribe an audio file using the configured STT provider.
 
@@ -954,6 +987,11 @@ def transcribe_audio(file_path: str, model: Optional[str] = None, *, realtime: b
 
     if provider == "local":
         local_cfg = stt_config.get("local", {})
+        if fast:
+            model_name = _normalize_local_model(
+                model or local_cfg.get("fast_model", DEFAULT_FAST_LOCAL_MODEL)
+            )
+            return _transcribe_local(file_path, model_name, realtime=True, fast=True)
         if realtime:
             model_name = _normalize_local_model(
                 model or local_cfg.get("realtime_model", DEFAULT_REALTIME_LOCAL_MODEL)

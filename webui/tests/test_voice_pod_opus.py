@@ -115,7 +115,7 @@ def test_pause_hint_transcript_is_used_when_only_the_endpoint_wait_followed(monk
     import api.voice as voice
 
     calls = []
-    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: calls.append(len(pcm)) or "a short poem")
+    monkeypatch.setattr(voice, "_pcm_to_transcript_fast", lambda pcm, sr: (calls.append(len(pcm)) or "a short poem", -0.2))
     state = _spec_state(64000)
     voice._start_speculative_stt(state)
     assert state["spec_stt"]["done"].wait(2)
@@ -128,7 +128,7 @@ def test_pause_hint_transcript_is_used_when_only_the_endpoint_wait_followed(monk
 def test_speech_after_the_pause_discards_the_speculative_transcript(monkeypatch):
     import api.voice as voice
 
-    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: "hello")
+    monkeypatch.setattr(voice, "_pcm_to_transcript_fast", lambda pcm, sr: ("hello", -0.2))
     state = _spec_state(32000)
     voice._start_speculative_stt(state)
     assert state["spec_stt"]["done"].wait(2)
@@ -138,7 +138,7 @@ def test_speech_after_the_pause_discards_the_speculative_transcript(monkeypatch)
     import threading as _threading
 
     release = _threading.Event()
-    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: release.wait(2) and "hello")
+    monkeypatch.setattr(voice, "_pcm_to_transcript_fast", lambda pcm, sr: (release.wait(2) and "hello", -0.2))
     state = _spec_state(32000)
     voice._start_speculative_stt(state)            # first pause: still transcribing...
     state["pcm_buf"].extend(b"\x01\x00" * 8000)
@@ -150,8 +150,18 @@ def test_speech_after_the_pause_discards_the_speculative_transcript(monkeypatch)
 def test_short_audio_starts_no_speculative_stt(monkeypatch):
     import api.voice as voice
 
-    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda *a, **k: "x")
+    monkeypatch.setattr(voice, "_pcm_to_transcript_fast", lambda *a, **k: ("x", -0.2))
     state = _spec_state(200)
     voice._start_speculative_stt(state)
     assert "spec_stt" not in state
     assert voice._take_speculative_transcript(state, 200) is None
+
+
+def test_an_unsure_fast_guess_is_not_used(monkeypatch):
+    import api.voice as voice
+
+    monkeypatch.setattr(voice, "_pcm_to_transcript_fast", lambda pcm, sr: ("turn it in", -0.8))
+    state = _spec_state(48000)
+    voice._start_speculative_stt(state)
+    assert state["spec_stt"]["done"].wait(2)
+    assert voice._take_speculative_transcript(state, 48000) is None  # the accurate model runs

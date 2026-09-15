@@ -131,8 +131,9 @@ public:
     // JARVIS: mean energy of the processed mic audio since the last call, in dBFS
     // (-96 when none arrived) — the pod's endpointing and voice-level ring.
     float TakeMicLevelDb();
-    // JARVIS: a 180 Hz high-pass on the mic before the AFE (wake word, VAD, what's sent) —
-    // takes out fan/AC rumble. The pod's "Noise cancelling" setting.
+    // JARVIS: a 180 Hz high-pass on the processed mic audio (what's sent to the server and
+    // metered for end-of-speech) — takes out fan/AC rumble; WakeNet hears it unfiltered.
+    // The pod's "Noise cancelling" setting.
     void SetInputHighPass(bool on) { input_highpass_ = on; }
     bool IsWakeWordRunning() const {
         return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;

@@ -88,6 +88,9 @@ void AudioService::Initialize(AudioCodec* codec) {
     audio_engine_ = std::make_unique<LiteAudioEngine>();
 #endif
     audio_engine_->OnOutput([this](std::vector<int16_t>&& data) {
+        // The rumble filter goes on what's sent and metered, after the AFE: filtered
+        // input made WakeNet miss "Jarvis" at speaking volume.
+        if (input_highpass_) HighPass(data, 1);
         double sum = 0;
         for (int16_t s : data) sum += static_cast<double>(s) * s;
         {
@@ -321,7 +324,6 @@ void AudioService::AudioInputTask() {
             int samples = 160;  // 10ms
             std::vector<int16_t> data;
             if (ReadAudioData(data, 16000, samples)) {
-                if (input_highpass_) HighPass(data, codec_->input_channels());
                 audio_engine_->Feed(std::move(data));
                 continue;
             }
