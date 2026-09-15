@@ -2459,7 +2459,7 @@ def _spoken_failure(seg: dict) -> str:
 # "MEDIA:<url>" is how a reply carries a picture to the chat UIs. The pod has no chat
 # bubble, so the line was read out and printed on its screen: pull it out and put the
 # picture on the screen instead.
-_MEDIA_LINE_RE = re.compile(r"^[ \t]*MEDIA:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+_MEDIA_LINE_RE = re.compile(r"MEDIA:[ \t]*(\S+)")  # its own line by convention, but not always
 
 
 def _take_pod_media(state: dict, text: str) -> str:
