@@ -176,8 +176,9 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         if (wakenet_models.size() > 1) {
             afe_config->wakenet_model_name_2 = wakenet_models[1];
         }
-        // JARVIS: the more sensitive detection mode, so "Jarvis" works at speaking volume.
-        afe_config->wakenet_mode = DET_MODE_95;
+        // JARVIS: normal detection mode — the aggressive one (with the lowered threshold) fired on
+        // room noise once the mic gain went up.
+        afe_config->wakenet_mode = DET_MODE_90;
     }
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
@@ -201,8 +202,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
 
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
-        // JARVIS: the Jarvis model ships at ~0.63; lower it so a normal voice across the room fires.
-        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.50f);
+        // JARVIS: the Jarvis model ships at ~0.63; slightly lower so speaking volume still fires.
+        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.58f);
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);

@@ -22,6 +22,10 @@ namespace jarvis {
 
 namespace {
 constexpr int64_t kEndSilenceMs = 700;
+// A tap's click or a cough isn't a request: speech must run this long before the
+// silence after it can end the turn, and the first moments after a tap are ignored.
+constexpr int64_t kMinSpeechMs = 300;
+constexpr int64_t kTapGuardMs = 350;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
@@ -176,7 +180,9 @@ void Voice::Trigger(const std::string& text) {
     turn_start_ms_ = NowMs();
     last_server_ms_ = NowMs();
     speech_seen_ = false;
+    speech_start_ms_ = 0;
     silence_since_ms_ = 0;
+    last_heard_ms_ = NowMs();
     follow_up_ = false;
     if (!text.empty()) {
         cJSON* msg = cJSON_CreateObject();
@@ -207,12 +213,16 @@ void Voice::SendMic() {
 void Voice::OnVad(bool speaking) {
     ESP_LOGI(TAG, "vad: %s (phase %d)", speaking ? "speech" : "silence", static_cast<int>(phase_));
     if (phase_ != Phase::Listening) return;
+    int64_t now = NowMs();
+    if (now - turn_start_ms_ < kTapGuardMs) return;
     if (speaking) {
-        speech_seen_ = true;
+        if (!speech_start_ms_) speech_start_ms_ = now;
         silence_since_ms_ = 0;
-    } else if (speech_seen_) {
-        silence_since_ms_ = NowMs();
+        return;
     }
+    if (speech_start_ms_ && now - speech_start_ms_ >= kMinSpeechMs) speech_seen_ = true;
+    speech_start_ms_ = 0;
+    if (speech_seen_) silence_since_ms_ = now;
 }
 
 void Voice::EndTurn() {
@@ -256,6 +266,7 @@ void Voice::FinishTurn() {
     phase_ = Phase::Listening;
     follow_up_ = true;
     speech_seen_ = false;
+    speech_start_ms_ = 0;
     silence_since_ms_ = 0;
     turn_start_ms_ = NowMs();
     Ui::Get().SetOrbState(OrbState::Listening);
@@ -312,7 +323,10 @@ void Voice::HandleJson(const std::string& text) {
             cJSON_Delete(msg);
             return;
         }
-        if (!s.empty()) Ui::Get().SetCaption(s);
+        if (!s.empty()) {
+            last_heard_ms_ = NowMs();
+            Ui::Get().SetCaption(s);
+        }
     } else if (t == "assistant_text") {
         spoken_.push_back(s);
         Ui::Get().SetCaption(s);
@@ -330,8 +344,10 @@ void Voice::HandleJson(const std::string& text) {
         server_done_ = true;
         if (hide_overlay_at_ms_) {
             // An error is on screen; let it stay its full time.
-        } else if (r == "no_speech" || r == "error") {
+        } else if (r == "error") {
             GoIdle();
+        } else if (r == "no_speech") {
+            FinishTurn();  // nothing understood: keep listening (a tap, "stop" or 2 quiet minutes end it)
         } else if (phase_ != Phase::Speaking || audio_->IsPlaybackIdle()) {
             FinishTurn();
         }
@@ -357,7 +373,7 @@ void Voice::Tick() {
     if (phase_ == Phase::Listening) {
         if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
             EndTurn();
-        } else if (!speech_seen_ && now - turn_start_ms_ >= kListenCapMs) {
+        } else if (!speech_seen_ && now - last_heard_ms_ >= kListenCapMs) {
             ESP_LOGI(TAG, "turn: nothing said for 2 minutes, going idle");
             GoIdle();
         } else if (now - turn_start_ms_ >= kMaxTurnMs) {

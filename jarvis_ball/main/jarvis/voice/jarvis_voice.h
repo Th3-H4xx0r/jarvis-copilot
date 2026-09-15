@@ -55,6 +55,8 @@ private:
     Phase phase_ = Phase::Idle;
     bool follow_up_ = false;
     bool speech_seen_ = false;
+    int64_t speech_start_ms_ = 0;  // current VAD speech run, 0 when silent
+    int64_t last_heard_ms_ = 0;    // last tap or transcribed words: the 2-minute listening cap
     bool server_done_ = false;
     int64_t turn_start_ms_ = 0;
     int64_t silence_since_ms_ = 0;

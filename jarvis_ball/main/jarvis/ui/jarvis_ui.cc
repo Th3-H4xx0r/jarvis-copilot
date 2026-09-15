@@ -139,7 +139,9 @@ struct Ui::Impl {
     uint16_t* orb_scaled_px = nullptr;
     lv_image_dsc_t orb_scaled = {};
     lv_obj_t* status_pill = nullptr;   // "● Listening" above the orb, like the phone
-    lv_obj_t* ring = nullptr;          // screen-edge ring in the voice state's colour
+    lv_obj_t* ring = nullptr;          // screen-edge ring in the voice state's colour (an arc)
+    int ring_fill = 0;                 // 0..1000: grows up both sides from the bottom
+    int ring_target = 0;
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
     lv_obj_t* back_btn = nullptr;
@@ -279,7 +281,8 @@ struct Ui::Impl {
 
     static constexpr int kOrbNative = 160;
     static constexpr int kOrbSmall = 48;
-    int BigCy() const { return kScreen / 2 + (voice_active ? 4 : -8); }  // voice: pill above, caption below
+    int BigSize() const { return kOrbNative; }
+    int BigCy() const { return kScreen / 2 + (voice_active ? 0 : -8); }
     static constexpr int kOrbSmallCy = 202; // bottom, under the reply text
 
     // Writes the current orb frame at `size` px into orb_scaled (box filter; caches are off,
@@ -321,7 +324,7 @@ struct Ui::Impl {
 
     void SetOrbMorph(int v) {
         orb_morph = v;
-        int size = kOrbNative - (kOrbNative - kOrbSmall) * v / 1000;
+        int size = BigSize() - (BigSize() - kOrbSmall) * v / 1000;
         int cy = BigCy() + (kOrbSmallCy - BigCy()) * v / 1000;
         lv_obj_set_size(orb_box, size, size);
         lv_obj_align(orb_box, LV_ALIGN_TOP_LEFT, kScreen / 2 - size / 2, cy - size / 2);
@@ -379,7 +382,42 @@ struct Ui::Impl {
     static constexpr int kReplyH = 92;  // y 80..172: below the menu button, above the small orb
     bool reply_caption = false;
 
+    void SetRingFill(int v) {
+        ring_fill = v;
+        int a = 180 * v / 1000;  // degrees either side of the bottom (the arc is rotated 90°)
+        if (a >= 180) lv_arc_set_bg_angles(ring, 0, 360);
+        else if (a <= 0) lv_arc_set_bg_angles(ring, 0, 0);
+        else lv_arc_set_bg_angles(ring, 360 - a, a);
+    }
+
+    // Voice on: the ring fills up both sides to meet at the top. Voice off: it drains back down.
+    void UpdateRing() {
+        if (voice_active) {
+            const auto& t = settings.theme;
+            uint32_t color = orb_state == OrbState::Thinking ? t.warning
+                             : orb_state == OrbState::Speaking ? t.success
+                             : orb_state == OrbState::Error ? t.danger : t.accent;
+            lv_obj_set_style_arc_color(ring, lv_color_hex(color), LV_PART_MAIN);
+        }
+        int target = voice_active ? 1000 : 0;
+        if (target == ring_target) return;
+        ring_target = target;
+        lv_anim_delete(ring, nullptr);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, ring);
+        lv_anim_set_user_data(&a, this);
+        lv_anim_set_values(&a, ring_fill, target);
+        lv_anim_set_duration(&a, 80 + 470 * std::abs(target - ring_fill) / 1000);
+        lv_anim_set_path_cb(&a, voice_active ? lv_anim_path_ease_out : lv_anim_path_ease_in);
+        lv_anim_set_custom_exec_cb(&a, [](lv_anim_t* anim, int32_t v) {
+            static_cast<Impl*>(lv_anim_get_user_data(anim))->SetRingFill(v);
+        });
+        lv_anim_start(&a);
+    }
+
     void UpdateOrbLayer() {
+        UpdateRing();
         if (!OrbVisible()) {
             lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
             if (orb_timer) lv_timer_pause(orb_timer);
@@ -401,7 +439,7 @@ struct Ui::Impl {
             } else {
                 lv_obj_set_style_text_font(caption, &lv_font_montserrat_16, 0);
                 lv_obj_set_size(caption, 150, 20);
-                lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+                lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, 192);
             }
             // Let the orb get out of the way before the words appear.
             if (full && orb_img) FadeIn(caption, reply ? 240 : 300);
@@ -417,18 +455,10 @@ struct Ui::Impl {
             lv_obj_set_size(orb_box, 48, 48);
             lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -6);
         }
-        if (voice_active) {
-            const auto& t = settings.theme;
-            uint32_t color = orb_state == OrbState::Thinking ? t.warning
-                             : orb_state == OrbState::Speaking ? t.success
-                             : orb_state == OrbState::Error ? t.danger : t.accent;
-            lv_obj_set_style_border_color(ring, lv_color_hex(color), 0);
-            lv_obj_remove_flag(ring, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
-        }
         if (full && voice_active) {
-            lv_obj_remove_flag(caption, LV_OBJ_FLAG_HIDDEN);
+            // Listening and thinking show just the orb; words only for a reply or an error.
+            if (reply || orb_state == OrbState::Error) lv_obj_remove_flag(caption, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(caption, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
             const char* word = orb_state == OrbState::Thinking ? "Thinking"
                                : orb_state == OrbState::Speaking ? "Speaking"
@@ -582,15 +612,18 @@ struct Ui::Impl {
                 125, this);
             lv_timer_pause(orb_timer);
         }
-        ring = lv_obj_create(orb_layer);
+        // On the root, above the orb layer, so it can drain away after voice ends on any home.
+        ring = lv_arc_create(root);
         lv_obj_remove_style_all(ring);
         lv_obj_set_size(ring, kScreen, kScreen);
         lv_obj_set_pos(ring, 0, 0);
-        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_border_width(ring, 7, 0);
-        lv_obj_set_style_border_opa(ring, LV_OPA_COVER, 0);
+        lv_obj_set_style_arc_width(ring, 5, LV_PART_MAIN);
+        lv_obj_set_style_arc_rounded(ring, true, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(ring, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(ring, LV_OPA_TRANSP, LV_PART_INDICATOR);
+        lv_arc_set_rotation(ring, 90);
+        lv_arc_set_bg_angles(ring, 0, 0);
         lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
 
         caption = lv_label_create(orb_layer);
         lv_label_set_text(caption, "");
@@ -599,7 +632,7 @@ struct Ui::Impl {
         lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
         lv_obj_set_size(caption, 150, 20);
-        lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+        lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, 192);
 
         status_pill = lv_obj_create(orb_layer);
         lv_obj_remove_style_all(status_pill);
@@ -618,7 +651,7 @@ struct Ui::Impl {
         lv_label_set_text(status_label, "Listening");
         lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(status_label, kWhite, 0);
-        lv_obj_align(status_pill, LV_ALIGN_TOP_MID, 0, 16);
+        lv_obj_align(status_pill, LV_ALIGN_TOP_MID, 0, 20);
         lv_obj_add_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
     }
@@ -632,6 +665,7 @@ struct Ui::Impl {
         else lv_obj_add_flag(back_btn, LV_OBJ_FLAG_HIDDEN);
         UpdateOrbLayer();
         lv_obj_move_foreground(orb_layer);
+        lv_obj_move_foreground(ring);
         lv_obj_move_foreground(menu_layer);
         lv_obj_move_foreground(menu_btn);
         lv_obj_move_foreground(back_btn);
@@ -811,8 +845,9 @@ void Ui::Init(Display* display) {
     lv_obj_set_style_bg_color(m->menu_layer, kBlack, 0);
     lv_obj_set_style_bg_opa(m->menu_layer, 235, 0);
     lv_obj_add_flag(m->menu_layer, LV_OBJ_FLAG_HIDDEN);
-    m->menu_btn = GlassButton(m->root, LV_SYMBOL_BARS, 34, 34);
-    m->back_btn = GlassButton(m->root, LV_SYMBOL_LEFT, 170, 34);
+    // Inset enough to clear the voice ring at the screen edge.
+    m->menu_btn = GlassButton(m->root, LV_SYMBOL_BARS, 40, 40);
+    m->back_btn = GlassButton(m->root, LV_SYMBOL_LEFT, 164, 40);
     m->UpdateChrome();
     m->tick = lv_timer_create(
         [](lv_timer_t* t) {
