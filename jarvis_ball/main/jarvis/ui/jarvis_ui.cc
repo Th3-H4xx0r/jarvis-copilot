@@ -139,6 +139,7 @@ struct Ui::Impl {
     uint16_t* orb_scaled_px = nullptr;
     lv_image_dsc_t orb_scaled = {};
     lv_obj_t* status_pill = nullptr;   // "● Listening" above the orb, like the phone
+    lv_obj_t* ring = nullptr;          // screen-edge ring in the voice state's colour
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
     lv_obj_t* back_btn = nullptr;
@@ -416,6 +417,16 @@ struct Ui::Impl {
             lv_obj_set_size(orb_box, 48, 48);
             lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -6);
         }
+        if (voice_active) {
+            const auto& t = settings.theme;
+            uint32_t color = orb_state == OrbState::Thinking ? t.warning
+                             : orb_state == OrbState::Speaking ? t.success
+                             : orb_state == OrbState::Error ? t.danger : t.accent;
+            lv_obj_set_style_border_color(ring, lv_color_hex(color), 0);
+            lv_obj_remove_flag(ring, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+        }
         if (full && voice_active) {
             lv_obj_remove_flag(caption, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
@@ -571,6 +582,16 @@ struct Ui::Impl {
                 125, this);
             lv_timer_pause(orb_timer);
         }
+        ring = lv_obj_create(orb_layer);
+        lv_obj_remove_style_all(ring);
+        lv_obj_set_size(ring, kScreen, kScreen);
+        lv_obj_set_pos(ring, 0, 0);
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(ring, 7, 0);
+        lv_obj_set_style_border_opa(ring, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(ring, LV_OBJ_FLAG_HIDDEN);
+
         caption = lv_label_create(orb_layer);
         lv_label_set_text(caption, "");
         lv_obj_set_style_text_font(caption, &lv_font_montserrat_16, 0);
@@ -948,7 +969,7 @@ void Ui::SetOrbState(OrbState state) {
                 impl->error_timer = nullptr;
                 if (impl->orb_state == OrbState::Error) {
                     impl->orb_state = OrbState::Idle;
-                    impl->ApplyOrbState();
+                    impl->UpdateOrbLayer();
                 }
                 lv_timer_delete(t);
             },
