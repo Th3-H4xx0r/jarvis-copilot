@@ -161,6 +161,15 @@ void RegisterPodTools() {
               return std::string();
           });
 
+    t.Add("pod_stop_listening", "Stop the Jarvis Pod listening — call this when the user's words just mean "
+          "they are finished (\"stop\", \"nothing\", \"that's all for now\", \"never mind\"). Not for "
+          "\"stop the music\" or any other command that happens to contain those words.",
+          R"({"type":"object","properties":{}})", [](const cJSON*, cJSON* out) -> std::string {
+              cJSON_AddBoolToObject(out, "ok", true);
+              Application::GetInstance().Schedule([]() { Application::GetInstance().voice().StopListening(); });
+              return std::string();
+          });
+
     t.Add("pod_settings_get", "Jarvis Pod settings: home page id, brightness, volume, wake word, theme, timezone, 24-hour clock.",
           R"({"type":"object","properties":{}})", [](const cJSON*, cJSON* out) -> std::string {
               AddSettings(out);

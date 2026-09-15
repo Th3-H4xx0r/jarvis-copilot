@@ -1132,8 +1132,9 @@ void Ui::SetVoiceLevel(int percent) {
     DisplayLockGuard lock(impl_->display);
     auto* m = impl_;
     if (!m->ring || m->spin_timer || !m->voice_active || m->orb_state != OrbState::Listening) return;
-    // Four steps, so quiet flicker doesn't redraw the screen every tick.
-    m->SetRingWidth(Impl::kRingWidth + 2 * std::min(4, std::max(0, percent) / 20));
+    // Seven steps up to 17 px: wide enough to read across the room, stepped so quiet
+    // flicker doesn't redraw the screen every tick.
+    m->SetRingWidth(Impl::kRingWidth + 2 * std::min(6, std::max(0, percent) / 14));
 }
 
 void Ui::OnTap(int x, int y) {

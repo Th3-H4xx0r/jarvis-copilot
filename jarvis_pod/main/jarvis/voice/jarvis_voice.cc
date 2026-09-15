@@ -266,7 +266,23 @@ void Voice::Interrupt() {
     audio_->ResetDecoder();
 }
 
+void Voice::StopListening() {
+    if (phase_ == Phase::Idle) return;
+    ESP_LOGI(TAG, "turn: the agent asked to stop listening");
+    if (phase_ == Phase::Listening) {
+        GoIdle();
+        return;
+    }
+    // Mid-reply: let the sentence finish, then don't listen again.
+    stop_after_reply_ = true;
+}
+
 void Voice::FinishTurn() {
+    if (stop_after_reply_) {
+        stop_after_reply_ = false;
+        GoIdle();
+        return;
+    }
     last_turn_end_ms_ = NowMs();
     // Follow-up window: listen again without the wake word.
     audio_->EnableVoiceProcessing(true);
@@ -418,7 +434,8 @@ void Voice::TrackMicLevel(int64_t now) {
     bool loud = db > floor_db_ + kLoudAboveFloorDb && db > kLoudMinDb;
     static int ticks = 0;
     if (++ticks % 10 == 0) ESP_LOGI(TAG, "mic: %.0f dBFS, floor %.0f dBFS%s", db, floor_db_, loud ? " (speech)" : "");
-    int level = loud ? std::min(100, static_cast<int>((db - floor_db_ - kLoudAboveFloorDb) * 5.0f)) : 0;
+    // The ring follows the voice from a couple of dB over the floor, not just "loud".
+    int level = std::max(0, std::min(100, static_cast<int>((db - floor_db_ - 2.0f) * 7.0f)));
     Ui::Get().SetVoiceLevel(level);
     if (now - turn_start_ms_ < guard_ms_) return;
     if (loud) {

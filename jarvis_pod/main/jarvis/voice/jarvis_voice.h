@@ -22,6 +22,8 @@ public:
     // the mic hears for a moment; after a wake word you may talk straight away.
     void Trigger(const std::string& text = "", bool by_touch = false);
     void Interrupt();
+    // The agent decided the user is done talking (pod_stop_listening).
+    void StopListening();
     void OnVad(bool speaking);
     void SendMic();
     void OnPlaybackDrained();
@@ -74,6 +76,7 @@ private:
     void NotePause();
     bool pause_hint_sent_ = false;
     bool vad_speaking_ = false;    // the AFE VAD's latest state
+    bool stop_after_reply_ = false;  // pod_stop_listening arrived while Jarvis was talking
     int64_t last_keepalive_ms_ = 0;
     int64_t next_connect_ms_ = 0;
     int connect_failures_ = 0;

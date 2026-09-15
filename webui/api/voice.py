@@ -779,7 +779,10 @@ _CLIENT_DIRECTIVES = {
         "\n\n[The user is speaking through their Jarvis Pod, a small device with a "
         "round 240 px screen. To show them something, call device_pod_show (a picture goes "
         "on its screen as an image block — never answer with only a link); to make "
-        "or change their home page, call device_pod_home_save.]"
+        "or change their home page, call device_pod_home_save. When their words only mean "
+        "they are finished — \"stop\", \"nothing\", \"that's all for now\", \"never mind\", \"I'm good\" — "
+        "call device_pod_stop_listening and answer with at most two words; never call it for a "
+        "command that merely contains those words, like \"stop the music\".]"
     ),
 }
 
