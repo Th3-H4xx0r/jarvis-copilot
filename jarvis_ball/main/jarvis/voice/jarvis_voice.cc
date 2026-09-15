@@ -153,9 +153,11 @@ void Voice::Trigger(const std::string& text) {
     if (text.empty()) audio_->EnableVoiceProcessing(true);  // start capturing while we connect
 
     if (!EnsureConnected()) {
+        ESP_LOGW(TAG, "turn: could not connect the voice socket");
         FailTurn("Can't reach Jarvis");
         return;
     }
+    ESP_LOGI(TAG, "turn: socket ready (text=%d)", !text.empty());
     BeginTurn();
     turn_start_ms_ = NowMs();
     last_server_ms_ = NowMs();
@@ -179,14 +181,17 @@ void Voice::Trigger(const std::string& text) {
 void Voice::SendMic() {
     mic_pending_ = false;
     if (!audio_) return;
+    static int sent = 0;
     while (auto packet = audio_->PopPacketFromSendQueue()) {
         if (phase_ == Phase::Listening && ws_ && ws_->IsConnected()) {
             ws_->Send(packet->payload.data(), packet->payload.size(), true);
+            if (++sent % 50 == 1) ESP_LOGI(TAG, "mic: %d packets sent (%u bytes last)", sent, (unsigned)packet->payload.size());
         }
     }
 }
 
 void Voice::OnVad(bool speaking) {
+    ESP_LOGI(TAG, "vad: %s (phase %d)", speaking ? "speech" : "silence", static_cast<int>(phase_));
     if (phase_ != Phase::Listening) return;
     if (speaking) {
         speech_seen_ = true;
@@ -201,6 +206,7 @@ void Voice::EndTurn() {
     char msg[96];
     snprintf(msg, sizeof(msg), "{\"type\":\"end_turn\",\"client_ts\":%lld}", static_cast<long long>(NowMs()));
     SendText(msg);
+    ESP_LOGI(TAG, "turn: end_turn sent");
     audio_->EnableVoiceProcessing(false);
     while (audio_->PopPacketFromSendQueue()) {}
     phase_ = Phase::Thinking;
@@ -274,6 +280,7 @@ void Voice::HandleJson(const std::string& text) {
     std::string t = cJSON_IsString(type) ? type->valuestring : "";
     std::string s = cJSON_IsString(body) ? body->valuestring : "";
     last_server_ms_ = NowMs();
+    ESP_LOGI(TAG, "server: %s %.60s", t.c_str(), s.c_str());
 
     if (discard_audio_) {
         // Frames of the interrupted reply are still arriving until its end_turn.
@@ -328,6 +335,7 @@ void Voice::Tick() {
         if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
             EndTurn();
         } else if (!speech_seen_ && now - turn_start_ms_ >= (follow_up_ ? kFollowUpMs : kNoSpeechMs)) {
+            ESP_LOGI(TAG, "turn: no speech heard, going idle");
             GoIdle();
         } else if (now - turn_start_ms_ >= kMaxTurnMs) {
             EndTurn();

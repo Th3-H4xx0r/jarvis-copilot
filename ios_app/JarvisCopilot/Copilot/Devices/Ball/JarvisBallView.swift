@@ -9,16 +9,16 @@ struct JarvisBallCard: View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
-                BallGlyph(size: 104)
-                    .padding(.trailing, 22)
+                VoiceOrb(state: .idle, amplitude: 0, size: 112, animating: false)
+                    .frame(width: 112, height: 112)
+                    .padding(.trailing, 18)
+                    .allowsHitTesting(false)
             }
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(ball.name).font(.title3.weight(.semibold)).lineLimit(1)
-                Text("Jarvis Ball").font(.caption).foregroundStyle(.secondary).padding(.top, 3)
-                if let status, ball.bridgeConnected {
-                    Text("Home: \(status.homeTitle)").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
-                }
+                Text(ball.bridgeConnected ? "Home: \(status?.homeTitle ?? "Orb")" : "Jarvis Ball")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     if ball.bridgeConnected {
@@ -26,9 +26,6 @@ struct JarvisBallCard: View {
                         if let level = status?.battery {
                             MetricPill(icon: status?.charging == true ? "bolt.fill" : "battery.75", label: "Battery",
                                        value: "\(level)%", tint: JcTheme.success)
-                        }
-                        if let rssi = status?.rssi {
-                            MetricPill(icon: "wifi", label: "Wi-Fi", value: "\(rssi) dBm", tint: JcTheme.accent)
                         }
                     } else {
                         DisconnectedPill()
@@ -46,21 +43,7 @@ struct JarvisBallCard: View {
     }
 }
 
-/// A small static orb in the accent: the ball's signature look.
-struct BallGlyph: View {
-    var size: CGFloat
-    var body: some View {
-        ZStack {
-            Circle().fill(JcTheme.accent.opacity(0.18)).frame(width: size, height: size)
-            Circle().fill(JcTheme.accent.opacity(0.35)).frame(width: size * 0.72, height: size * 0.72)
-            Circle().fill(JcAccent.bright).frame(width: size * 0.44, height: size * 0.44)
-                .shadow(color: JcTheme.accent.opacity(0.8), radius: size * 0.12)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// The ball's settings page, pushed from the card. Every control is a `ball_*` skill.
+/// The ball's page, pushed from the card. Every control is a `ball_*` skill.
 struct JarvisBallView: View {
     let ballID: String
     @State private var store = JarvisBallStore.shared
@@ -77,54 +60,48 @@ struct JarvisBallView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                header
-                if !online {
-                    Text(offlineText)
-                        .font(.subheadline)
-                        .foregroundStyle(JcTheme.muted)
-                }
+            VStack(alignment: .leading, spacing: 26) {
+                hero
                 if let error = store.error {
-                    Text(error).font(.footnote).foregroundStyle(JcTheme.danger)
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote).foregroundStyle(JcTheme.danger)
                 }
                 homeSection
-                section("Display & sound") {
+                group("Display & sound") {
                     slider("Brightness", "sun.max.fill", value: $brightness) { v in
                         Task { await store.update(ballID, ["brightness": Int(v)]) }
                     }
+                    divider
                     slider("Volume", "speaker.wave.2.fill", value: $volume) { v in
                         Task { await store.update(ballID, ["volume": Int(v)]) }
                     }
                 }
-                section("Voice") {
-                    Toggle(isOn: Binding(get: { settings?.wakeWord ?? true },
-                                         set: { on in Task { await store.update(ballID, ["wake_word": on]) } })) {
-                        Label("Wake word \u{201C}Jarvis\u{201D}", systemImage: "waveform").foregroundStyle(JcTheme.text)
-                    }
-                    .tint(JcTheme.accent)
-                }
-                section("Clock") {
-                    Toggle(isOn: Binding(get: { settings?.clock24h ?? JarvisBallLook.clock24h },
-                                         set: { on in Task { await store.update(ballID, ["clock_24h": on]) } })) {
-                        Label("24-hour time", systemImage: "clock").foregroundStyle(JcTheme.text)
-                    }
-                    .tint(JcTheme.accent)
+                group("Voice & clock") {
+                    toggle("Wake word", "Say \u{201C}Jarvis\u{201D} to start talking", "waveform",
+                           isOn: Binding(get: { settings?.wakeWord ?? true },
+                                         set: { on in Task { await store.update(ballID, ["wake_word": on]) } }))
+                    divider
+                    toggle("24-hour time", "For the clock home screen", "clock",
+                           isOn: Binding(get: { settings?.clock24h ?? JarvisBallLook.clock24h },
+                                         set: { on in Task { await store.update(ballID, ["clock_24h": on]) } }))
                 }
                 deviceSection
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 28)
             .disabled(!online)
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(ball?.name ?? "Jarvis Ball")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Restart", systemImage: "arrow.clockwise") { confirmReboot = true }
                     Button("Set up again", systemImage: "qrcode") { showSetupHelp = true }
                     Button("Revoke", systemImage: "xmark.octagon", role: .destructive) { confirmRevoke = true }
                 } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(JcTheme.accent)
+                    Image(systemName: "ellipsis").foregroundStyle(JcTheme.accent)
                 }
             }
         }
@@ -158,104 +135,213 @@ struct JarvisBallView: View {
         }
     }
 
-    private var offlineText: String {
-        if let note = DisconnectedPill.lastSeenNote(ball?.lastSeen) { return "The ball is offline, last seen \(note)." }
-        return "The ball is offline."
-    }
+    // MARK: Hero
 
-    private var header: some View {
-        HStack(spacing: 16) {
-            BallGlyph(size: 64)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ball?.name ?? "Jarvis Ball").font(.title3.weight(.semibold)).foregroundStyle(JcTheme.text)
-                Text(headerLine).font(.subheadline).foregroundStyle(online ? JcTheme.accent : JcTheme.muted)
-            }
-        }
-    }
-
-    private var headerLine: String {
-        guard online else { return "Offline" }
-        var parts = ["Connected"]
-        if let level = status?.battery { parts.append("\(level)%") }
-        if let ssid = status?.ssid, !ssid.isEmpty { parts.append(ssid) }
-        return parts.joined(separator: " · ")
-    }
-
-    private var homeSection: some View {
-        section("Home screen") {
-            let homes = store.homes[ballID] ?? [JarvisBallHome(id: "orb", title: "Orb", builtin: true),
-                                                 JarvisBallHome(id: "clock", title: "Clock", builtin: true)]
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(homes) { home in
-                    let selected = (settings?.home ?? status?.home) == home.id
-                    Button {
-                        Task { await store.update(ballID, ["home": home.id]) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Image(systemName: home.id == "orb" ? "circle.circle.fill" : home.id == "clock" ? "clock.fill" : "sparkles")
-                                .font(.title2)
-                                .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
-                            Text(home.title).font(.subheadline.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
-                            Text(home.builtin ? "Built in" : "Made by Jarvis").font(.caption).foregroundStyle(JcTheme.muted)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .background(selected ? JcTheme.accent.opacity(0.14) : JcTheme.surface,
-                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(selected ? JcTheme.accent : .white.opacity(0.06), lineWidth: selected ? 1.5 : 1))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if !home.builtin {
-                            Button("Delete", systemImage: "trash", role: .destructive) {
-                                Task { await store.deleteHome(ballID, home: home.id) }
-                            }
-                        }
-                    }
+    private var hero: some View {
+        VStack(spacing: 14) {
+            VoiceOrb(state: online ? .idle : .error, amplitude: 0, size: 168, animating: online)
+                .frame(height: 168)
+                .opacity(online ? 1 : 0.55)
+            Text(ball?.name ?? "Jarvis Ball")
+                .font(.title.weight(.bold))
+                .foregroundStyle(JcTheme.text)
+            HStack(spacing: 8) {
+                chip(online ? "Connected" : offlineText, symbol: online ? "circle.fill" : "moon.zzz.fill",
+                     tint: online ? JcTheme.accent : JcTheme.muted)
+                if online, let level = status?.battery {
+                    chip("\(level)%", symbol: status?.charging == true ? "bolt.fill" : batterySymbol(level), tint: JcTheme.success)
+                }
+                if online, let rssi = status?.rssi {
+                    chip(signalText(rssi), symbol: "wifi", tint: JcTheme.text)
                 }
             }
-            Text("Ask Jarvis to design a new home page, by voice or chat.")
-                .font(.footnote).foregroundStyle(JcTheme.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
+    private func chip(_ text: String, symbol: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.caption2.weight(.bold)).foregroundStyle(tint)
+            Text(text).font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .jcLiquidGlass(in: Capsule())
+    }
+
+    private var offlineText: String {
+        if let note = DisconnectedPill.lastSeenNote(ball?.lastSeen) { return "Offline · \(note)" }
+        return "Offline"
+    }
+
+    private func batterySymbol(_ level: Int) -> String {
+        switch level {
+        case 88...: return "battery.100"
+        case 63...: return "battery.75"
+        case 38...: return "battery.50"
+        case 13...: return "battery.25"
+        default: return "battery.0"
         }
     }
+
+    private func signalText(_ rssi: Int) -> String {
+        rssi >= -60 ? "Strong" : rssi >= -72 ? "Good" : "Weak"
+    }
+
+    // MARK: Home screen
+
+    private var homeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header("Home screen", trailing: "Ask Jarvis for a new one")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    let homes = store.homes[ballID] ?? [JarvisBallHome(id: "orb", title: "Orb", builtin: true),
+                                                        JarvisBallHome(id: "clock", title: "Clock", builtin: true)]
+                    ForEach(homes) { home in
+                        homeTile(home, selected: (settings?.home ?? status?.home) == home.id)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .scrollClipDisabled()
+        }
+    }
+
+    private func homeTile(_ home: JarvisBallHome, selected: Bool) -> some View {
+        Button {
+            Task { await store.update(ballID, ["home": home.id]) }
+        } label: {
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(Color.white.opacity(0.05))
+                    homePreview(home)
+                }
+                .frame(width: 92, height: 92)
+                .overlay(Circle().strokeBorder(selected ? JcTheme.accent : Color.white.opacity(0.1), lineWidth: selected ? 2.5 : 1))
+                .shadow(color: selected ? JcTheme.accent.opacity(0.35) : .clear, radius: 12)
+                VStack(spacing: 2) {
+                    Text(home.title).font(.subheadline.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
+                    Text(selected ? "Current" : home.builtin ? "Built in" : "Made by Jarvis")
+                        .font(.caption).foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
+                }
+            }
+            .frame(width: 108)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if !home.builtin {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    Task { await store.deleteHome(ballID, home: home.id) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func homePreview(_ home: JarvisBallHome) -> some View {
+        switch home.id {
+        case "orb":
+            VoiceOrb(state: .idle, amplitude: 0, size: 64, animating: false).frame(width: 64, height: 64)
+        case "clock":
+            VStack(spacing: 1) {
+                Text(Date.now, format: .dateTime.hour().minute())
+                    .font(.system(size: 19, weight: .semibold, design: .rounded))
+                    .foregroundStyle(JcTheme.text)
+                Text(Date.now, format: .dateTime.weekday(.abbreviated))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(JcTheme.muted)
+            }
+        default:
+            Image(systemName: "sparkles").font(.system(size: 26, weight: .medium)).foregroundStyle(JcTheme.accent)
+        }
+    }
+
+    // MARK: Device
 
     private var deviceSection: some View {
-        section("Device") {
-            infoRow("Wi-Fi", status.map { $0.ssid.isEmpty ? "—" : "\($0.ssid)\($0.rssi.map { " · \($0) dBm" } ?? "")" } ?? "—")
-            infoRow("Battery", status?.battery.map { "\($0)%\(status?.charging == true ? " · charging" : "")" } ?? "—")
-            infoRow("Firmware", status?.firmware ?? "—")
-            infoRow("IP address", status?.ip.isEmpty == false ? status!.ip : "—")
-            Button("Restart", systemImage: "arrow.clockwise") { confirmReboot = true }
-                .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
+        group("Device") {
+            info("wifi", "Wi-Fi", status.map { $0.ssid.isEmpty ? "—" : "\($0.ssid)\($0.rssi.map { " · \($0) dBm" } ?? "")" } ?? "—")
+            divider
+            info("battery.75", "Battery", status?.battery.map { "\($0)%\(status?.charging == true ? " · charging" : "")" } ?? "—")
+            divider
+            info("cpu", "Firmware", status?.firmware ?? "—")
+            divider
+            info("network", "IP address", status?.ip.isEmpty == false ? status!.ip : "—")
         }
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.muted).textCase(.uppercase)
-            content()
-        }
-    }
+    // MARK: Building blocks
 
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).foregroundStyle(JcTheme.muted)
+    private func header(_ title: String, trailing: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.headline).foregroundStyle(JcTheme.text)
             Spacer()
-            Text(value).foregroundStyle(JcTheme.text).lineLimit(1)
+            if let trailing { Text(trailing).font(.caption).foregroundStyle(JcTheme.muted) }
         }
-        .font(.subheadline)
+        .padding(.horizontal, 4)
     }
 
-    private func slider(_ title: String, _ icon: String, value: Binding<Double>, onCommit: @escaping (Double) -> Void) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).foregroundStyle(JcTheme.accent).frame(width: 22)
-            Text(title).foregroundStyle(JcTheme.text).frame(width: 84, alignment: .leading)
+    private func group<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header(title)
+            GlassCard(padding: 0) {
+                VStack(spacing: 0) { content() }
+            }
+        }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.leading, 52)
+    }
+
+    private func iconTile(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(JcTheme.accent)
+            .frame(width: 30, height: 30)
+            .background(JcTheme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private func slider(_ title: String, _ symbol: String, value: Binding<Double>, onCommit: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                iconTile(symbol)
+                Text(title).font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                Spacer()
+                Text("\(Int(value.wrappedValue))%").font(.subheadline.monospacedDigit()).foregroundStyle(JcTheme.muted)
+            }
             Slider(value: value, in: 0...100, step: 1) { editing in
                 if !editing { onCommit(value.wrappedValue) }
             }
             .tint(JcTheme.accent)
-            Text("\(Int(value.wrappedValue))%").font(.caption.monospacedDigit()).foregroundStyle(JcTheme.muted).frame(width: 40)
+            .padding(.leading, 42)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+    }
+
+    private func toggle(_ title: String, _ subtitle: String, _ symbol: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            iconTile(symbol)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                Text(subtitle).font(.caption).foregroundStyle(JcTheme.muted)
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().tint(JcTheme.accent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private func info(_ symbol: String, _ label: String, _ value: String) -> some View {
+        HStack(spacing: 12) {
+            iconTile(symbol)
+            Text(label).font(.body).foregroundStyle(JcTheme.text)
+            Spacer()
+            Text(value).font(.subheadline).foregroundStyle(JcTheme.muted).lineLimit(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }

@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <ctime>
 
+#include "assets.h"
 #include "board.h"
 #include "display.h"
 #include "jarvis/board_caps.h"
@@ -71,6 +72,9 @@ void Application::Initialize() {
     }
 
     jarvis::store::MountPages();
+    // The wake-word model lives in the assets partition; upstream loaded it via Assets::Apply
+    // (which hands it to AudioService). Without this there is no "Jarvis" detector.
+    if (auto& assets = Assets::GetInstance(); assets.partition_valid()) assets.Apply(false);
     audio_service_.Initialize(board.GetAudioCodec());
     audio_service_.Start();
     AudioServiceCallbacks callbacks;
