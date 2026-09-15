@@ -16,9 +16,10 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     output_sample_rate_ = output_sample_rate;
     pa_pin_ = pa_pin;
     pa_inverted_ = pa_inverted;
-    // JARVIS: 36 dB. 30 needed shouting; at 42 normal speech averaged -9 dBFS a metre away, so
-    // louder words clipped. Distance is evened out by the AFE's AGC (afe_audio_engine.cc).
-    input_gain_ = 36;
+    // JARVIS: 42 dB (the PGA's top step) — what WakeNet needs to hear "Jarvis" at speaking
+    // volume. 36 meant shouting. The -9 dBFS that once looked like clipping was measured on
+    // recordings the server had already peak-normalised, not on the mic.
+    input_gain_ = 42;
 
     assert(input_sample_rate_ == output_sample_rate_);
     CreateDuplexChannels(mclk, bclk, ws, dout, din);
