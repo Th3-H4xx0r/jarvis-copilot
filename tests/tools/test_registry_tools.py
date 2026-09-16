@@ -106,7 +106,8 @@ def test_every_tool_is_registered_in_one_toolset():
     from tools.registry import registry as tool_registry
 
     names = ["registry_catalog", "registry_get", "registry_put",
-             "registry_append", "registry_query", "registry_describe"]
+             "registry_append", "registry_query", "registry_describe",
+             "integration_plan_propose"]
     for name in names:
         entry = tool_registry.get_entry(name)
         assert entry is not None, f"{name} is not registered"
