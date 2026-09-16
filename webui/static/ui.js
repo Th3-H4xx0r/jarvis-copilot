@@ -6143,6 +6143,12 @@ function toolIcon(name){
 }
 
 function buildToolCard(tc){
+  // An integration plan isn't a tool result to skim — it's a card the user acts
+  // on, so it replaces the generic card entirely. See integrations.js.
+  if(tc && tc.name==='integration_plan_propose' && typeof buildIntegrationPlanCard==='function'){
+    const planCard=buildIntegrationPlanCard(tc);
+    if(planCard) return planCard;
+  }
   const row=document.createElement('div');
   row.className='tool-card-row';
   const icon=toolIcon(tc.name);

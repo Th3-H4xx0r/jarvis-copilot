@@ -138,3 +138,15 @@ def test_the_http_surface(home, sent):
 
     assert plans.handle_post(object(), urlparse("/api/integrations/plans/nope/cancel"), {}) is True
     assert sent["status"] == 404
+
+
+def test_one_plan_is_readable_after_it_is_decided(home, sent):
+    plan = plans.propose(dict(GOOD))
+    plans.approve(plan["id"])
+
+    assert plans.handle_get(object(), urlparse(f"/api/integrations/plans/{plan['id']}")) is True
+    assert sent["body"]["status"] == "approved"
+    assert sent["body"]["name"] == "Gym Sessions"
+
+    assert plans.handle_get(object(), urlparse("/api/integrations/plans/nope")) is True
+    assert sent["status"] == 404

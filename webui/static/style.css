@@ -4611,3 +4611,40 @@ html.mini-voice main.main::before{
   font-family:'SF Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.45;color:var(--text);
   max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 :root:not(.dark) .intg-row{border-color:rgba(0,0,0,.08);background:rgba(0,0,0,.02);}
+
+/* ── Integration plan card ───────────────────────────────────────────────────
+   Shown in the chat when Jarvis proposes an integration. The layout is fixed
+   here, not by the model: header, summary, then Schedules / Data / Skills, then
+   Create or Cancel. Nothing is created until the user presses Create. */
+.plan-card-row{margin:10px 0;}
+.plan-card{border:1px solid var(--border);border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,var(--accent-bg) 0%,transparent 70px);max-width:560px;}
+.plan-card--cancelled{opacity:.6;}
+.plan-card-head{display:flex;align-items:center;gap:9px;padding:12px 14px 10px;
+  border-bottom:1px solid var(--border);}
+.plan-card-icon{font-size:15px;line-height:1;}
+.plan-card-title{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.plan-card-tag{flex:0 0 auto;padding:2px 8px;border-radius:999px;background:var(--accent-bg-strong);
+  color:var(--accent-text);font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.plan-card-body{padding:12px 14px;}
+.plan-card-summary{margin:0 0 14px;font-size:12.5px;line-height:1.5;color:var(--muted);}
+.plan-card-section{margin-bottom:13px;}
+.plan-card-section:last-child{margin-bottom:0;}
+.plan-card-section-label{margin-bottom:6px;font-size:9.5px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);opacity:.8;}
+.plan-card-item{padding:7px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:5px;}
+.plan-card-item:last-child{margin-bottom:0;}
+.plan-card-item-head{display:flex;align-items:baseline;gap:8px;}
+.plan-card-item-name{font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.plan-card-item-when{margin-left:auto;flex:0 0 auto;font-family:'SF Mono',ui-monospace,monospace;
+  font-size:10.5px;color:var(--accent-text);}
+.plan-card-item-note{margin-top:2px;font-size:11px;line-height:1.45;color:var(--muted);}
+.plan-card-foot{display:flex;align-items:center;gap:8px;padding:10px 14px;
+  border-top:1px solid var(--border);background:rgba(0,0,0,.04);}
+.plan-card-note{flex:1;min-width:0;font-size:11px;color:var(--muted);}
+.plan-card-note--error{color:var(--accent);}
+.plan-card-note code{font-size:10.5px;padding:1px 4px;border-radius:4px;background:var(--code-bg);}
+.intg-btn--primary{border-color:var(--accent);background:var(--accent-bg-strong);color:var(--accent-text);}
+.intg-btn--primary:hover{background:var(--accent);color:var(--bg);}
+:root.dark .plan-card-foot{background:rgba(255,255,255,.03);}

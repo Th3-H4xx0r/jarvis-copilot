@@ -14,6 +14,7 @@ Approving creates the space, its schedules and its catalog; cancelling leaves no
 behind, because nothing was created yet.
 
     GET  /api/integrations/plans            pending plans
+    GET  /api/integrations/plans/<id>       one plan, whatever became of it
     POST /api/integrations/plans/<id>/approve
     POST /api/integrations/plans/<id>/cancel
 """
@@ -226,9 +227,21 @@ def approve(plan_id: str) -> dict:
 def handle_get(handler, parsed) -> bool:
     from api.helpers import j
 
-    if parsed.path != "/api/integrations/plans":
+    if parsed.path == "/api/integrations/plans":
+        j(handler, {"plans": pending()})
+        return True
+    if not parsed.path.startswith("/api/integrations/plans/"):
         return False
-    j(handler, {"plans": pending()})
+    # One plan by id, approved or cancelled included: the card in the chat has to
+    # render the same way when the conversation is scrolled back to months later.
+    plan_id = parsed.path[len("/api/integrations/plans/"):].strip("/")
+    if not plan_id or "/" in plan_id:
+        return False
+    plan = get(plan_id)
+    if plan is None:
+        j(handler, {"error": f"no plan {plan_id!r}"}, status=404)
+        return True
+    j(handler, plan)
     return True
 
 

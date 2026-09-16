@@ -365,3 +365,126 @@ async function _intgDelete(d) {
     showToast(`${d.name} deleted`);
   } catch (e) { showToast('Could not delete it: ' + e.message, 4000); }
 }
+
+// ── the plan card ────────────────────────────────────────────────────────────
+// When Jarvis proposes an integration it does not create one. It calls
+// integration_plan_propose, and that tool call renders here as a card the user
+// acts on: what it is for, the schedules it wants, the data it will keep, the
+// skills it would write, then Create or Cancel. Nothing exists until Create.
+//
+// The layout is fixed on purpose. The model fills the slots with text and
+// nothing else, which is what keeps every card looking like the app rather than
+// like whatever the model felt like emitting that turn.
+
+function _intgPlanIdFrom(tc) {
+  // The tool result starts {"ok": true, "plan": {"id": "...", so the id survives
+  // the 200-character snippet the chat keeps.
+  const m = /"plan"\s*:\s*\{\s*"id"\s*:\s*"([A-Za-z0-9]+)"/.exec(tc && tc.snippet || '');
+  return m ? m[1] : '';
+}
+
+function buildIntegrationPlanCard(tc) {
+  const planId = _intgPlanIdFrom(tc);
+  if (!planId) return null;
+  const row = document.createElement('div');
+  row.className = 'tool-card-row plan-card-row';
+  row.innerHTML = `<div class="plan-card plan-card--loading"><div class="plan-card-body">${esc(t('loading'))}</div></div>`;
+  _intgPlanFill(row, planId);
+  return row;
+}
+
+async function _intgPlanFill(row, planId) {
+  let plan;
+  try {
+    plan = await api('/api/integrations/plans/' + encodeURIComponent(planId));
+  } catch (e) {
+    row.innerHTML = `<div class="plan-card"><div class="plan-card-body">${esc(e.message)}</div></div>`;
+    return;
+  }
+  row.innerHTML = _intgPlanHtml(plan);
+  const act = name => row.querySelector(`[data-plan-act="${name}"]`);
+  const create = act('approve'), cancel = act('cancel'), open = act('open');
+  if (create) create.onclick = () => _intgPlanDecide(row, plan, 'approve');
+  if (cancel) cancel.onclick = () => _intgPlanDecide(row, plan, 'cancel');
+  if (open) open.onclick = () => {
+    if (typeof switchPanel === 'function') switchPanel('tasks');
+    openIntegration(plan.space_id);
+  };
+}
+
+function _intgPlanHtml(plan) {
+  const status = plan.status || 'pending';
+  const schedules = plan.schedules || [], collections = plan.collections || [],
+        skills = plan.skills || [];
+  const section = (label, items, render) => items.length ? `
+    <div class="plan-card-section">
+      <div class="plan-card-section-label">${esc(label)}</div>
+      ${items.map(render).join('')}
+    </div>` : '';
+
+  return `
+    <div class="plan-card plan-card--${esc(status)}">
+      <div class="plan-card-head">
+        <span class="plan-card-icon" aria-hidden="true">${esc(_intgGlyph(plan.icon))}</span>
+        <span class="plan-card-title">${esc(plan.name || '')}</span>
+        <span class="plan-card-tag">${esc(_intgPlanTag(status))}</span>
+      </div>
+      <div class="plan-card-body">
+        <p class="plan-card-summary">${esc(plan.summary || '')}</p>
+        ${section('Schedules', schedules, s => `
+          <div class="plan-card-item">
+            <div class="plan-card-item-head">
+              <span class="plan-card-item-name">${esc(s.name)}</span>
+              <span class="plan-card-item-when">${esc(s.schedule)}</span>
+            </div>
+            <div class="plan-card-item-note">${esc(s.purpose)}</div>
+          </div>`)}
+        ${section('Data', collections, c => `
+          <div class="plan-card-item">
+            <div class="plan-card-item-head"><span class="plan-card-item-name">${esc(c.name)}</span></div>
+            <div class="plan-card-item-note">${esc(c.description)}</div>
+          </div>`)}
+        ${section('Skills', skills, s => `
+          <div class="plan-card-item">
+            <div class="plan-card-item-head"><span class="plan-card-item-name">${esc(s.name)}</span></div>
+            <div class="plan-card-item-note">${esc(s.purpose)}</div>
+          </div>`)}
+      </div>
+      <div class="plan-card-foot">${_intgPlanFootHtml(plan, status)}</div>
+    </div>`;
+}
+
+function _intgPlanTag(status) {
+  if (status === 'approved') return 'Created';
+  if (status === 'cancelled') return 'Cancelled';
+  return 'Proposed';
+}
+
+function _intgPlanFootHtml(plan, status) {
+  if (status === 'approved') {
+    return `<span class="plan-card-note">Running as <code>${esc(plan.space_id)}</code>.</span>
+            <button class="intg-btn" data-plan-act="open">Open it</button>`;
+  }
+  if (status === 'cancelled') {
+    return `<span class="plan-card-note">Nothing was created.</span>`;
+  }
+  return `<span class="plan-card-note">Nothing exists until you say so.</span>
+          <button class="intg-btn" data-plan-act="cancel">Cancel</button>
+          <button class="intg-btn intg-btn--primary" data-plan-act="approve">Create</button>`;
+}
+
+async function _intgPlanDecide(row, plan, action) {
+  const foot = row.querySelector('.plan-card-foot');
+  if (foot) foot.innerHTML = `<span class="plan-card-note">${action === 'approve' ? 'Creating…' : 'Cancelling…'}</span>`;
+  try {
+    await api(`/api/integrations/plans/${encodeURIComponent(plan.id)}/${action}`, { method: 'POST' });
+  } catch (e) {
+    if (foot) foot.innerHTML = `<span class="plan-card-note plan-card-note--error">${esc(e.message)}</span>`;
+    return;
+  }
+  await _intgPlanFill(row, plan.id);
+  if (action === 'approve') {
+    showToast(`${plan.name} created`);
+    if (_currentPanel === 'tasks') loadIntegrations();
+  }
+}
