@@ -56,8 +56,10 @@ struct IntegrationDeleteSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                // The app's glass CTA, in the danger tint — not a solid slab.
-                Button {
+                // The app's CTA, in its danger tint — the same button as everywhere else.
+                GradientButton(working ? "Deleting\u{2026}" : "Delete", symbol: "trash",
+                               busy: working, full: true, danger: true,
+                               action: choice.isEmpty ? nil : {
                     working = true
                     failure = nil
                     Task {
@@ -65,24 +67,7 @@ struct IntegrationDeleteSheet: View {
                         working = false
                         if ok { dismiss() } else { failure = "That did not go through. Try again." }
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        if working {
-                            ProgressView().controlSize(.small).tint(JcTheme.danger)
-                        } else {
-                            JcIcon("trash").font(.system(size: 15, weight: .semibold))
-                        }
-                        Text(working ? "Deleting\u{2026}" : "Delete").font(JcText.label)
-                    }
-                    .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: JcTheme.fieldRadius,
-                                                        style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .opacity(choice.isEmpty ? 0.5 : 1)
-                .disabled(choice.isEmpty || working)
+                })
             }
         }
     }

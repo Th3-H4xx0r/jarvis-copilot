@@ -59,16 +59,10 @@ struct IntegrationSetupSheet: View {
     }
 
     private var closeBar: some View {
-        Button { Task { await leave() } } label: {
-            Text("Close")
-                .font(JcText.label)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(JcTheme.accent, in: RoundedRectangle(cornerRadius: 14,
-                                                                 style: .continuous))
-                .foregroundStyle(JcTheme.bg)
+        // The app's primary CTA, like every other one — not a slab of accent.
+        GradientButton("Close", symbol: "checkmark", full: true) {
+            Task { await leave() }
         }
-        .buttonStyle(.plain)
         .padding(16)
     }
 
