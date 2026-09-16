@@ -105,8 +105,8 @@ struct RingFirmwareSection: View {
                 }
             }
         } message: {
-            Text("Takes a few minutes and cannot be cancelled once started. Keep the ring close to the phone. "
-                 + "The ring keeps its current firmware until the whole image is received and verified, then reboots into the new one.")
+            Text("A few minutes, and cannot be cancelled. Keep the ring close. It "
+                 + "reboots into the new firmware only once the image is verified.")
         }
         .sheet(isPresented: $showSheet) {
             if let image = flashing ?? selected {

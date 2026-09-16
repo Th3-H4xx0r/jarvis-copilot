@@ -61,10 +61,8 @@ struct BridgeSettingsView: View {
 
     @ViewBuilder private var behaviour: some View {
         CardGroup("Bridge",
-                  footer: "Keeps the app, Bluetooth and the Jarvis link alive in the "
-                        + "background so commands arrive instantly. Uses a silent audio "
-                        + "session to stay awake, which costs some battery. Nothing is "
-                        + "audible and your music is not interrupted.") {
+                  footer: "Commands arrive instantly in the background. Uses a silent "
+                        + "audio session, so it costs some battery.") {
             if let at = bridge.lastPushAt {
                 Row {
                     VStack(alignment: .leading, spacing: 2) {
@@ -100,8 +98,7 @@ struct BridgeSettingsView: View {
         CardGroup("Shared with Jarvis",
                   footer: records.isEmpty
                       ? "Turn on \"Share with Jarvis\" in a wearable's settings to expose it."
-                      : "Offline wearables stay listed — Jarvis sees them again as soon as "
-                        + "the app reconnects.") {
+                      : "Offline wearables stay listed.") {
             if records.isEmpty {
                 Row { Text("Nothing shared").foregroundStyle(.secondary) }
             } else {

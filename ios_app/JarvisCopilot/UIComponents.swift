@@ -53,6 +53,11 @@ struct Row<Content: View>: View {
 
     var body: some View {
         content
+            // Vertical padding, not just `minHeight`: a row taller than the
+            // minimum — a two-line caption, a stepper with a note under it —
+            // got none at all, so its last line sat flush against the card's
+            // bottom edge and looked clipped.
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
             .padding(.horizontal, 16)
     }

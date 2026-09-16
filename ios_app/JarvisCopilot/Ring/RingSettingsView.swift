@@ -426,8 +426,7 @@ struct RingSettingsView: View {
     /// own flags, which under-report on this model.
     private var whatItDoes: some View {
         CardGroup("What this ring does",
-                  footer: "Found by asking the ring for each kind of data, because its advertised "
-                      + "feature flags miss things it can actually do.") {
+                  footer: "Found by asking the ring directly — its advertised flags miss things.") {
             ForEach(RingFeature.allCases) { feature in
                 Row(minHeight: 38) {
                     HStack {
@@ -458,8 +457,7 @@ struct RingSettingsView: View {
     /// the protocol carries motion only as steps and sleep — so this is the live sensor set.
     private var liveSensors: some View {
         CardGroup("Live sensors",
-                  footer: "Pushed by the ring as they happen. Start a measurement to see the optical "
-                      + "sensor working. Tap Read accelerometer for a live sample (works on stock firmware).") {
+                  footer: "Pushed by the ring as they happen. Start a measurement to see it work.") {
             infoRow("Heart rate", session.liveHeartRate.map { "\(Int($0.value)) bpm · \(ago($0.date))" } ?? "—")
             RowDivider()
             infoRow("Blood oxygen", session.liveSpO2.map { "\(Int($0.value))% · \(ago($0.date))" } ?? "—")
@@ -500,8 +498,7 @@ struct RingSettingsView: View {
 
     private var deviceInfo: some View {
         let flags = caps.allFlags
-        return CardGroup("Device", footer: "The flags below are what the firmware advertises — "
-                         + "\"What this ring does\" above is what it actually answered.") {
+        return CardGroup("Device", footer: "What the firmware advertises, which is not always what it does.") {
             infoRow("Connection", manager.state.text)
             if let name = manager.connected?.name { RowDivider(); infoRow("Name", name) }
             if let firmware = session.firmware { RowDivider(); infoRow("Firmware", firmware) }

@@ -36,8 +36,7 @@ struct DeviceDetailsView: View {
             CardGroup("Jarvis Copilot",
                       footer: bridge.isPaired
                           ? "Lets Jarvis read this bottle's state and run its commands."
-                          : "Pair with a Jarvis Copilot server first — Settings on the "
-                            + "device list.") {
+                          : "Pair with a server first, from Settings.") {
                 Row {
                     Toggle("Share with Jarvis", isOn: Binding(
                         get: { BridgeClient.isExposed(deviceID) },

@@ -28,10 +28,8 @@ struct RingInputsSection: View {
     var body: some View {
         CardGroup("Ring inputs",
                   footer: inputs.contains(.shake)
-                      ? "This ring feels two things: a tap and a shake. Tap it two or three times — "
-                        + "about a second apart, it cannot feel them faster — for the double and "
-                        + "triple, the way a one-button remote works."
-                      : "Do a gesture and watch which row says it was just seen, then set that one.") {
+                      ? "Tap and shake. Tap twice or three times, about a second apart."
+                      : "Do a gesture and watch which row lights up.") {
             Row {
                 Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
                     ForEach(RingInputMode.allCases) { Text($0.label).tag($0) }
@@ -43,7 +41,7 @@ struct RingInputsSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.wantedMode.detail).font(.caption).foregroundStyle(.secondary)
                     if ready, ringMode != store.wantedMode {
-                        Text("The ring is on \"\(ringMode.label)\" — reconnect or pick again if this sticks.")
+                        Text("The ring is still on \"\(ringMode.label)\".")
                             .font(.caption2)
                             .foregroundStyle(.orange)
                     }
@@ -95,23 +93,22 @@ struct RingInputsSection: View {
                 RowDivider()
                 Row {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Leave about a second between taps: the ring stops listening for one "
-                             + "after every tap it reports, so anything faster reaches Jarvis as a "
-                             + "single press. A double or triple runs the moment its last tap lands. "
-                             + "A single tap has to wait this long to prove it was single — so with "
-                             + "nothing set for a double or triple, it runs immediately instead.")
+                        // The rule, not the reasoning behind it. The measured gap
+                        // below is what people actually tune against.
+                        Text("How long a single tap waits before running. Leave about a "
+                             + "second between taps.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         if let gap = lastPressGap {
                             // The measured gap is the thing to set the window above. Tap twice and
                             // read it, rather than guessing.
-                            Text(String(format: "Last two presses arrived %.1fs apart%@", gap,
-                                        gap > store.pressWindow ? " — longer than the window above" : ""))
+                            Text(String(format: "Last two presses: %.1fs apart%@", gap,
+                                        gap > store.pressWindow ? " — over the window" : ""))
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(gap > store.pressWindow ? AnyShapeStyle(Color.orange)
                                                                          : AnyShapeStyle(.secondary))
                         } else {
-                            Text("Tap the ring twice to see how far apart it reports them.")
+                            Text("Tap twice to measure your own timing.")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -126,10 +123,8 @@ struct RingInputsSection: View {
                         JcIcon(shakeArmed ? "checkmark.circle.fill" : "exclamationmark.circle")
                             .foregroundStyle(shakeArmed ? Color.green : Color.orange)
                         Text(shakeArmed
-                             ? "Shake detector armed. Shake your hand firmly; it waits three seconds "
-                               + "between shakes."
-                             : "Shake detector not armed — the ring refuses this while it is on the "
-                               + "charger, and while gestures are off.")
+                             ? "Armed. Shake firmly; three seconds between shakes."
+                             : "Not armed — the ring refuses this on the charger, or with gestures off.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -179,7 +174,7 @@ struct RingInputsSection: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if gestureFeed.isEmpty {
-                    Text("Nothing yet. Tap the ring and watch this fill in.")
+                    Text("Nothing yet. Tap the ring.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 } else {
@@ -214,11 +209,11 @@ struct RingInputsSection: View {
 
     /// Says whether the ring took the change, rather than leaving a number that never moves.
     private var sensitivityNote: String {
-        guard let sensitivity else { return "The ring hasn't reported this yet." }
+        guard let sensitivity else { return "Not reported yet." }
         if sensitivity == wantedSensitivity {
-            return "Higher needs a firmer tap, which cuts out stray triggers from ordinary hand movement."
+            return "Higher needs a firmer tap, and catches fewer stray ones."
         }
-        return "The ring still reports \(sensitivity) — it may not have taken the change."
+        return "The ring still reports \(sensitivity)."
     }
 
     /// "just seen" on the row the ring last sent, so the right one is obvious.
