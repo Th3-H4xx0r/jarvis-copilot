@@ -76,6 +76,8 @@ def test_a_csv_becomes_records_and_an_object_becomes_a_document(workspace, jobs)
     assert rows[0]["net_cash"] == 115.0                              # a number, not "115.00"
     assert rows[0]["game"] == "BJ, War"                              # quoted comma survives
     assert rows[1]["ts"] < rows[0]["ts"]                             # the date column is the time
+    # A date with no time must land on that date everywhere, not the evening before.
+    assert time.strftime("%Y-%m-%d", time.gmtime(rows[1]["ts"])) == "2026-01-03"
     assert casino.get("summary") == {"net_cash": 157.0}
     assert casino.collections()[0]["description"] == "one casino visit"
 
@@ -173,7 +175,7 @@ def test_a_written_up_summary_becomes_a_dated_record(workspace, jobs):
 
     rows = workspace["reg"].open("vibeforge").records("weekly_summaries", limit=5)
     assert rows[0]["text"].startswith("# Week in music")
-    assert time.strftime("%Y-%m-%d", time.localtime(rows[0]["ts"])) == "2026-09-13"
+    assert time.strftime("%Y-%m-%d", time.gmtime(rows[0]["ts"])) == "2026-09-13"
 
 
 def test_the_marker_document_records_what_it_took(workspace, jobs):

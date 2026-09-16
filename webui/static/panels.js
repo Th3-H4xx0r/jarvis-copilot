@@ -36,7 +36,7 @@ let _logsSeverityFilter = 'all';
 
 // Map of panel names → i18n keys for the app titlebar label.
 const APP_TITLEBAR_KEYS = {
-  chat: 'tab_chat', voice: 'tab_voice', tasks: 'tab_tasks', skills: 'tab_skills',
+  chat: 'tab_chat', voice: 'tab_voice', tasks: 'tab_integrations', skills: 'tab_skills',
   memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
   coding: 'tab_coding',

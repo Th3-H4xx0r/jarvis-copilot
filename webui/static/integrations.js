@@ -106,7 +106,10 @@ async function openIntegration(id) {
 
 function _intgDetailHtml(d) {
   const schedules = d.schedules || [], collections = d.collections || [],
-        documents = d.documents || [], skills = d.skills || [];
+        // imported_files is the one-time migration's own bookkeeping, not data
+        // this integration keeps.
+        documents = (d.documents || []).filter(doc => doc.key !== 'imported_files'),
+        skills = d.skills || [];
   const paused = d.status && d.status !== 'active';
   return `
     <div class="intg-detail">

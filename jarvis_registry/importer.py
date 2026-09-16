@@ -20,6 +20,7 @@ Two rules keep the migration from breaking what it is organising:
 """
 from __future__ import annotations
 
+import calendar
 import csv
 import hashlib
 import io
@@ -284,9 +285,13 @@ def _row_time(body: dict, ts_field: str) -> Optional[float]:
         return float(raw)
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y"):
         try:
-            return time.mktime(time.strptime(str(raw), fmt))
+            parsed = time.strptime(str(raw), fmt)
         except ValueError:
             continue
+        stamp = calendar.timegm(parsed)
+        # A date with no time is midnight UTC, which a browser west of Greenwich
+        # draws as the day before. Noon keeps the calendar day right either way.
+        return stamp + 43200 if fmt in ("%Y-%m-%d", "%m/%d/%Y") else float(stamp)
     return None
 
 
@@ -298,8 +303,8 @@ def _name_time(path: Path) -> Optional[float]:
     if len(tail) == 10:
         return float(tail)
     if len(tail) == 8:
-        try:
-            return time.mktime(time.strptime(tail, "%Y%m%d"))
+        try:                                  # a date, so noon — see _row_time
+            return calendar.timegm(time.strptime(tail, "%Y%m%d")) + 43200
         except ValueError:
             return None
     return None
