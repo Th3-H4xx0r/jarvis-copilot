@@ -32,7 +32,14 @@ struct Integration: Identifiable, Hashable, Sendable {
         recordCount = MoreJSON.int(json["record_count"])
     }
 
-    static func == (l: Integration, r: Integration) -> Bool { l.id == r.id }
+    static func == (l: Integration, r: Integration) -> Bool {
+        l.id == r.id && l.name == r.name && l.summary == r.summary && l.icon == r.icon
+            && l.status == r.status && l.scheduleCount == r.scheduleCount
+            && l.enabledScheduleCount == r.enabledScheduleCount && l.skillCount == r.skillCount
+            && l.collectionCount == r.collectionCount && l.documentCount == r.documentCount
+            && l.recordCount == r.recordCount
+    }
+
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     var isPaused: Bool { status != "active" }
@@ -138,6 +145,9 @@ struct IntegrationRecord: Identifiable, Equatable, Sendable {
     }
 
     private static func display(_ value: Any?) -> String {
+        if let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return number.boolValue ? "true" : "false"
+        }
         if let value, !(value is NSNull),
            JSONSerialization.isValidJSONObject([value]),
            value is [Any] || value is JSONObject,

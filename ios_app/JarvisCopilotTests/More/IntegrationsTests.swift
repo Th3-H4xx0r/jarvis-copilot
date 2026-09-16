@@ -123,3 +123,70 @@ final class IntegrationsTests: XCTestCase {
         XCTAssertFalse(IntegrationPlan(json: ["id": "p", "status": "approved"]).isPending)
     }
 }
+
+/// What the bug sweep found on this screen, kept fixed.
+final class IntegrationsSweepTests: XCTestCase {
+
+    private func row(_ id: String, status: String = "active", records: Int = 0) -> Integration {
+        Integration(json: ["id": id, "name": id, "status": status, "record_count": records])
+    }
+
+    func testTheListNoticesMoreThanTheIDChanging() {
+        // SwiftUI decides whether to redraw a row from this ==, so comparing only
+        // the id meant pausing an integration never showed up until a relaunch.
+        XCTAssertNotEqual(row("casino"), row("casino", status: "paused"))
+        XCTAssertNotEqual(row("casino", records: 17), row("casino", records: 18))
+        XCTAssertEqual(row("casino"), row("casino"))
+        // Still one navigation value, so a push is not invalidated by a count.
+        XCTAssertEqual(row("casino").hashValue, row("casino", records: 18).hashValue)
+    }
+
+    func testABooleanReadsAsTrueNotOne() {
+        let record = IntegrationRecord(json: ["won": true, "lost": false, "hands": 12], index: 0)
+        let fields = Dictionary(uniqueKeysWithValues: record.fields.map { ($0.key, $0.value) })
+        XCTAssertEqual(fields["won"], "true")
+        XCTAssertEqual(fields["lost"], "false")
+        XCTAssertEqual(fields["hands"], "12")
+    }
+
+    @MainActor
+    func testPauseReadsTheLiveCopyNotThePushedOne() async {
+        // The detail screen holds the value it was pushed with forever; deriving
+        // the next status from it made Pause work once and Resume never.
+        let store = IntegrationsStore(api: IntegrationsAPI())
+        XCTAssertNil(store.current("casino"))
+    }
+
+    func testTheRouteCarriesTheIntegrationItWasTappedIn() {
+        // Both cases carry an id because the store's idea of "open" can change
+        // during the push animation.
+        guard case .records(let id, let collection) = IntegrationDataRoute.records("casino", "sessions")
+        else { return XCTFail("not a records route") }
+        XCTAssertEqual(id, "casino")
+        XCTAssertEqual(collection, "sessions")
+        guard case .document(let docID, let key) = IntegrationDataRoute.document("casino", "summary")
+        else { return XCTFail("not a document route") }
+        XCTAssertEqual(docID, "casino")
+        XCTAssertEqual(key, "summary")
+    }
+}
+
+/// The More stack has to hold more than one kind of value.
+///
+/// It used to be `[MoreDestination]`, so a `NavigationLink(value: Integration)`
+/// could not be appended and the push silently did nothing — the whole
+/// Integrations detail screen was unreachable on a device, and no test caught it
+/// because the app built and every model test passed.
+@MainActor
+final class MoreNavigationTests: XCTestCase {
+
+    func testTheStackOpensAScreenThatPushesItsOwnValueTypes() {
+        moreUIAHost(MorePage(initialPath: [.integrations]).environment(AppRouter()))
+    }
+
+    func testEveryDestinationStillOpens() {
+        for destination in MoreDestination.allCases {
+            moreUIAHost(MorePage(initialPath: [destination]).environment(AppRouter()))
+        }
+    }
+}

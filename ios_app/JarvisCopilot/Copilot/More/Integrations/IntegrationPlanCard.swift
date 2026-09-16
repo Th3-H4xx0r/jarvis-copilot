@@ -136,6 +136,7 @@ struct IntegrationPlanCard: View {
     }
 
     private func footerNote(_ plan: IntegrationPlan) -> String {
+        if let errorMessage { return errorMessage }
         switch plan.status {
         case "approved":  return "Running as \(plan.spaceID)."
         case "cancelled": return "Nothing was created."
@@ -145,10 +146,10 @@ struct IntegrationPlanCard: View {
 
     // MARK: Actions
 
-    private func load() async {
+    private func load(clearingError: Bool = true) async {
         do {
             plan = try await api.plan(planID)
-            errorMessage = nil
+            if clearingError { errorMessage = nil }
         } catch {
             errorMessage = apiErrorMessage(error)
         }
@@ -156,12 +157,16 @@ struct IntegrationPlanCard: View {
 
     private func decide(approve: Bool) async {
         working = true
+        var failure: String?
         do {
             if approve { try await api.approvePlan(planID) } else { try await api.cancelPlan(planID) }
         } catch {
-            errorMessage = apiErrorMessage(error)
+            failure = apiErrorMessage(error)
         }
-        await load()
+        // Redraw from the server either way — the plan may have been decided on
+        // another device — but a failure the user has to know about survives it.
+        await load(clearingError: failure == nil)
+        errorMessage = failure
         working = false
     }
 

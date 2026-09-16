@@ -71,14 +71,19 @@ final class IntegrationsStore {
         }
     }
 
-    func records(collection: String) async throws -> [IntegrationRecord] {
-        guard let id = detailID else { return [] }
-        return try await api.records(id, collection: collection)
+    func records(in id: String, collection: String) async throws -> [IntegrationRecord] {
+        try await api.records(id, collection: collection)
     }
 
-    func document(key: String) async throws -> String {
-        guard let id = detailID else { return "" }
-        return try await api.document(id, key: key)
+    func document(in id: String, key: String) async throws -> String {
+        try await api.document(id, key: key)
+    }
+
+    /// The freshest copy of one integration: the list is refetched far more often
+    /// than a detail screen is pushed, so the pushed value goes stale immediately.
+    func current(_ id: String) -> Integration? {
+        detail?.integration.id == id ? detail?.integration
+            : integrations.first { $0.id == id }
     }
 
     // MARK: Mutations
@@ -98,10 +103,13 @@ final class IntegrationsStore {
     }
 
     func togglePause(_ integration: Integration) async {
-        let next = integration.isPaused ? "active" : "paused"
+        // From the freshest copy, not the one the screen was pushed with — that one
+        // never changes, so Pause worked once and Resume was unreachable.
+        let live = current(integration.id) ?? integration
+        let next = live.isPaused ? "active" : "paused"
         do {
-            try await api.setStatus(integration.id, status: next)
-            toast = next == "paused" ? "\(integration.name) paused" : "\(integration.name) resumed"
+            try await api.setStatus(live.id, status: next)
+            toast = next == "paused" ? "\(live.name) paused" : "\(live.name) resumed"
         } catch {
             toast = apiErrorMessage(error)
         }
@@ -110,17 +118,22 @@ final class IntegrationsStore {
     }
 
     /// Removes it and everything inside: its schedules stop, its data is gone.
-    func delete(_ integration: Integration) async {
+    /// Returns whether it is gone, so its screen knows to close itself.
+    @discardableResult
+    func delete(_ integration: Integration) async -> Bool {
         do {
             try await api.delete(integration.id)
             toast = "\(integration.name) deleted"
-            if detailID == integration.id {
-                detailID = nil
-                detail = nil
-            }
         } catch {
             toast = apiErrorMessage(error)
+            await refresh()
+            return false
+        }
+        if detailID == integration.id {
+            detailID = nil
+            detail = nil
         }
         await refresh()
+        return true
     }
 }

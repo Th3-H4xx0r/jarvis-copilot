@@ -7,16 +7,32 @@ import SwiftUI
 /// tapping one has to open the same detail sheet the Tasks screen used, with the
 /// prompt, the run history and the run/pause/edit/delete bar.
 struct IntegrationDetailView: View {
-    let integration: Integration
+    let pushed: Integration
     @Bindable var store: IntegrationsStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var crons = MainActor.assumeIsolated { CronsStore() }
     @State private var route: TasksRoute?
     @State private var pendingDelete: CronJob?
     @State private var confirmingDelete = false
 
+    init(integration: Integration, store: IntegrationsStore) {
+        self.pushed = integration
+        self.store = store
+    }
+
+    /// The value this screen was pushed with never changes; the store's copy does.
+    /// Pause has to read the live one or Resume is unreachable.
+    private var integration: Integration { store.current(pushed.id) ?? pushed }
+
+    /// What the store holds, but only once it holds *this* integration — otherwise
+    /// the previous screen's collections draw under this one's title.
+    private var detail: IntegrationDetail? {
+        store.detailID == pushed.id ? store.detail : nil
+    }
+
     private var schedules: [CronJob] {
-        crons.jobs.filter { $0.integrationID == integration.id }
+        crons.jobs.filter { $0.integrationID == pushed.id }
     }
 
     var body: some View {
@@ -33,13 +49,13 @@ struct IntegrationDetailView: View {
             .padding(.bottom, 32)
         }
         .refreshable {
-            await store.reloadDetail()
+            await store.open(pushed.id)
             await crons.refresh()
         }
         .jcScreen(integration.name)
         .task {
-            await store.open(integration.id)
-            if !crons.hasLoaded { crons.load() }
+            if !crons.hasLoaded { crons.load() }   // its own endpoint; don't wait on the detail
+            await store.open(pushed.id)
         }
         .onDisappear { crons.onDisappear() }
         .moreToast($store.toast)
@@ -55,7 +71,9 @@ struct IntegrationDetailView: View {
         }
         .alert("Delete \(integration.name)?", isPresented: $confirmingDelete) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { Task { await store.delete(integration) } }
+            Button("Delete", role: .destructive) {
+                Task { if await store.delete(integration) { dismiss() } }
+            }
         } message: {
             Text(schedules.isEmpty
                  ? "Everything it has stored goes with it. This cannot be undone."
@@ -103,7 +121,6 @@ struct IntegrationDetailView: View {
 
     @ViewBuilder
     private var dataSection: some View {
-        let detail = store.detail
         IntegrationSection(title: "Data",
                            count: (detail?.collections.count ?? 0) + (detail?.documents.count ?? 0)) {
             if let message = store.detailError {
@@ -113,7 +130,7 @@ struct IntegrationDetailView: View {
                     IntegrationEmptyRow(text: "Nothing stored yet.")
                 } else {
                     ForEach(detail.collections) { collection in
-                        NavigationLink(value: IntegrationDataRoute.records(integration.id, collection.name)) {
+                        NavigationLink(value: IntegrationDataRoute.records(pushed.id, collection.name)) {
                             IntegrationRow(name: collection.name,
                                            note: collection.summary.isEmpty ? "no description yet" : collection.summary,
                                            trailing: collection.count.formatted())
@@ -121,7 +138,7 @@ struct IntegrationDetailView: View {
                         .buttonStyle(.plain)
                     }
                     ForEach(detail.documents) { document in
-                        NavigationLink(value: IntegrationDataRoute.document(integration.id, document.key)) {
+                        NavigationLink(value: IntegrationDataRoute.document(pushed.id, document.key)) {
                             IntegrationRow(name: document.key,
                                            note: document.summary.isEmpty ? "a stored document" : document.summary,
                                            trailing: document.sizeLabel)
@@ -137,16 +154,20 @@ struct IntegrationDetailView: View {
 
     @ViewBuilder
     private var skillsSection: some View {
-        let skills = store.detail?.skills ?? []
-        IntegrationSection(title: "Skills", count: skills.count) {
-            if skills.isEmpty {
-                IntegrationEmptyRow(
-                    text: "No skills claim this integration. A skill joins one by naming it "
-                        + "in its front matter: integration: \(integration.id)")
-            } else {
-                ForEach(skills) { skill in
-                    IntegrationRow(name: skill.name, note: skill.summary, trailing: "")
+        let skills = detail?.skills
+        IntegrationSection(title: "Skills", count: skills?.count ?? 0) {
+            if let skills {
+                if skills.isEmpty {
+                    IntegrationEmptyRow(
+                        text: "No skills claim this integration. A skill joins one by naming it "
+                            + "in its front matter: integration: \(pushed.id)")
+                } else {
+                    ForEach(skills) { skill in
+                        IntegrationRow(name: skill.name, note: skill.summary, trailing: "")
+                    }
                 }
+            } else if store.detailError == nil {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 16)
             }
         }
     }
@@ -177,7 +198,7 @@ struct IntegrationDetailView: View {
                                  skills: form.skills, model: form.model,
                                  profile: form.profile,
                                  toastNotifications: form.toastNotifications,
-                                 integration: integration.id)
+                                 integration: pushed.id)
             }
         case .edit(let job):
             CronFormSheet(existing: job, allSkills: crons.skillOptions(including: Set(job.skills))) { form in

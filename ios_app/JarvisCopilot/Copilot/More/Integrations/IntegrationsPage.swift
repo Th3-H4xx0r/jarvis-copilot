@@ -47,10 +47,10 @@ struct IntegrationsPage: View {
         }
         .navigationDestination(for: IntegrationDataRoute.self) { route in
             switch route {
-            case .records(_, let collection):
-                IntegrationRecordsView(collection: collection, store: store)
-            case .document(_, let key):
-                IntegrationDocumentView(key: key, store: store)
+            case .records(let id, let collection):
+                IntegrationRecordsView(integrationID: id, collection: collection, store: store)
+            case .document(let id, let key):
+                IntegrationDocumentView(integrationID: id, key: key, store: store)
             }
         }
         .alert("New integration", isPresented: $creating) {

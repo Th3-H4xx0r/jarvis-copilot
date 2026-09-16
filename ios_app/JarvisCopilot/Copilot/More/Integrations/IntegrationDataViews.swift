@@ -5,6 +5,9 @@ import SwiftUI
 /// The registry imposes no shape on a record, so there is no fixed column set
 /// to lay out: each record draws the fields it actually carries, under its time.
 struct IntegrationRecordsView: View {
+    /// From the route, not from the store: which integration was open can change
+    /// during the push, and this screen is about the one that was tapped.
+    let integrationID: String
     let collection: String
     @Bindable var store: IntegrationsStore
 
@@ -43,7 +46,7 @@ struct IntegrationRecordsView: View {
 
     private func load() async {
         do {
-            records = try await store.records(collection: collection)
+            records = try await store.records(in: integrationID, collection: collection)
             errorMessage = nil
         } catch {
             errorMessage = apiErrorMessage(error)
@@ -84,6 +87,7 @@ struct IntegrationRecordCard: View {
 
 /// One stored document, as it is: settings, a cursor, a state blob.
 struct IntegrationDocumentView: View {
+    let integrationID: String
     let key: String
     @Bindable var store: IntegrationsStore
 
@@ -120,7 +124,7 @@ struct IntegrationDocumentView: View {
 
     private func load() async {
         do {
-            body_ = try await store.document(key: key)
+            body_ = try await store.document(in: integrationID, key: key)
             errorMessage = nil
         } catch {
             errorMessage = apiErrorMessage(error)
