@@ -291,20 +291,31 @@ final class WearablesHub: ObservableObject {
     /// Record signal for anything the current scan turned up, so a device that drops
     /// out of range keeps a last-known reading to show.
     private func noteWhatWeCanSee() {
+        note(WearableKeepAlive.bottle, connected: bottle.state == .ready,
+             rssi: bottle.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.scale, connected: scale.state == .ready,
+             rssi: scale.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.esp32, connected: esp32.state == .ready,
+             rssi: esp32.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.ring, connected: ring.state == .ready,
+             rssi: ring.discovered.first(where: { $0.rssi != 0 })?.rssi)
+    }
+
+    /// A device is seen when a scan turns it up OR while we hold a link to it.
+    ///
+    /// The second half was missing, and it is the common case: connecting stops
+    /// the scan, so a connected device never shows up in `discovered` again. A
+    /// ring worn for four days straight therefore still read "last seen 4d ago"
+    /// the moment it disconnected — the timestamp was from the last scan that
+    /// happened to catch it before it linked.
+    private func note(_ kind: String, connected: Bool, rssi: Int?) {
+        if connected {
+            WearableIdentity.noteSeenNow(kind)
+            return
+        }
         // An RSSI of 0 is a remembered device put in the list, not a sighting —
         // noting it made "last seen" read "just now" forever.
-        if let r = bottle.discovered.first(where: { $0.rssi != 0 })?.rssi {
-            WearableIdentity.noteSeen(WearableKeepAlive.bottle, rssi: r)
-        }
-        if let r = scale.discovered.first(where: { $0.rssi != 0 })?.rssi {
-            WearableIdentity.noteSeen(WearableKeepAlive.scale, rssi: r)
-        }
-        if let r = esp32.discovered.first(where: { $0.rssi != 0 })?.rssi {
-            WearableIdentity.noteSeen(WearableKeepAlive.esp32, rssi: r)
-        }
-        if let r = ring.discovered.first(where: { $0.rssi != 0 })?.rssi {
-            WearableIdentity.noteSeen(WearableKeepAlive.ring, rssi: r)
-        }
+        if let rssi { WearableIdentity.noteSeen(kind, rssi: rssi) }
     }
 
     /// Register every device the user has already shared, with no live link required,

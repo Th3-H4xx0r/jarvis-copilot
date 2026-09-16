@@ -38,6 +38,16 @@ enum WearableIdentity {
         defaults.set(Date().timeIntervalSince1970, forKey: "jc.lastSeen.\(device)")
     }
 
+    /// Seen, but with no advertisement to read — we are connected to it.
+    ///
+    /// Connecting stops the scan, so a linked device never appears in
+    /// `discovered` again and the RSSI we hold is the last one from before the
+    /// link. Stamping the time without touching that reading is the whole point:
+    /// the alternative is overwriting a real signal strength with a zero.
+    static func noteSeenNow(_ device: String, defaults: UserDefaults = .standard) {
+        defaults.set(Date().timeIntervalSince1970, forKey: "jc.lastSeen.\(device)")
+    }
+
     static func lastRSSI(_ device: String, defaults: UserDefaults = .standard) -> Int? {
         defaults.object(forKey: "jc.lastRSSI.\(device)") as? Int
     }

@@ -77,6 +77,30 @@ final class WearablesAvailabilityTests: XCTestCase {
         XCTAssertNotNil(WearableIdentity.lastSeen(WearableKeepAlive.bottle, defaults: defaults))
     }
 
+    /// Connecting stops the scan, so a linked device never shows up in
+    /// `discovered` again. Without a stamp while connected, a ring worn for four
+    /// days straight still read "last seen 4d ago" the moment it disconnected.
+    func testBeingConnectedCountsAsBeingSeen() {
+        WearableIdentity.noteSeen(WearableKeepAlive.ring, rssi: -61, defaults: defaults)
+        let fromScan = WearableIdentity.lastSeen(WearableKeepAlive.ring, defaults: defaults)
+
+        WearableIdentity.noteSeenNow(WearableKeepAlive.ring, defaults: defaults)
+        let whileLinked = WearableIdentity.lastSeen(WearableKeepAlive.ring, defaults: defaults)
+
+        XCTAssertNotNil(whileLinked)
+        XCTAssertGreaterThanOrEqual(whileLinked!, fromScan!)
+        XCTAssertLessThan(Date().timeIntervalSince(whileLinked!), 5)
+    }
+
+    /// There is no advertisement to read while we hold the link, so the last real
+    /// signal reading has to survive — overwriting it with a zero would make the
+    /// card claim the device is out of range.
+    func testAStampWhileConnectedKeepsTheLastRealSignal() {
+        WearableIdentity.noteSeen(WearableKeepAlive.ring, rssi: -61, defaults: defaults)
+        WearableIdentity.noteSeenNow(WearableKeepAlive.ring, defaults: defaults)
+        XCTAssertEqual(WearableIdentity.lastRSSI(WearableKeepAlive.ring, defaults: defaults), -61)
+    }
+
     func testAnOfflineBottleTakesItsRememberedIdNotThePlaceholder() {
         // `VsitooS1Pro.deviceID` reads the standard defaults directly, so this test
         // borrows the real identity and puts it back.
