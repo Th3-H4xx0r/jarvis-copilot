@@ -11,6 +11,12 @@ struct ChatAssistantTurnCard: View {
     @State private var selecting = false
 
     private var tools: [ToolInvocation] { message.tools }
+    /// A proposed integration isn't a tool result to skim — it's a card the user
+    /// acts on, so it leaves the tool box and draws on its own.
+    private var planIDs: [String] { tools.compactMap(IntegrationPlanCard.planID(in:)) }
+    private var plainTools: [ToolInvocation] {
+        tools.filter { IntegrationPlanCard.planID(in: $0) == nil }
+    }
     private var hasText: Bool { !message.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
@@ -44,9 +50,9 @@ struct ChatAssistantTurnCard: View {
                 ChatReasoningCard(text: message.reasoning, active: message.streaming && !hasText)
             }
 
-            if !tools.isEmpty {
+            if !plainTools.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(tools) { ChatToolRow(tool: $0) }
+                    ForEach(plainTools) { ChatToolRow(tool: $0) }
                 }
                 .padding(12)
                 .background(.white.opacity(0.035),
@@ -54,6 +60,8 @@ struct ChatAssistantTurnCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(.white.opacity(0.06), lineWidth: 0.5))
             }
+
+            ForEach(planIDs, id: \.self) { IntegrationPlanCard(planID: $0) }
 
             ForEach(message.blocks) { block in
                 if let text = block.asText, !text.isEmpty {

@@ -41,6 +41,12 @@ struct CronJob: Identifiable, Equatable, Sendable {
     var isPaused: Bool { Crons.isPaused(raw) }
     var isRunning: Bool { statusKey == "running" }
     var schedule: String { Crons.schedule(raw) }
+    /// Which integration owns this schedule. Untagged jobs belong to General,
+    /// the same rule the server applies.
+    var integrationID: String {
+        let owner = MoreJSON.text(raw["integration"]).trimmingCharacters(in: .whitespaces).lowercased()
+        return owner.isEmpty ? "general" : owner
+    }
 
     func nextRunLabel(now: Date = Date()) -> String {
         Crons.formatTime(raw["next_run"] ?? raw["next_run_at"], now: now)

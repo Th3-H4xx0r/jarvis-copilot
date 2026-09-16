@@ -129,7 +129,8 @@ final class CronsStore {
     @discardableResult
     func save(prompt: String, schedule: String, name: String, deliver: String,
               skills: Set<String>, model: String, profile: String,
-              toastNotifications: Bool, existing: CronJob? = nil) async -> Bool {
+              toastNotifications: Bool, existing: CronJob? = nil,
+              integration: String = "") async -> Bool {
         var body: JSONObject = [
             "prompt": prompt.trimmingCharacters(in: .whitespacesAndNewlines),
             "schedule": schedule.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -137,7 +138,11 @@ final class CronsStore {
             "skills": Array(skills).sorted(),
             "toast_notifications": toastNotifications,
         ]
-        for (key, value) in [("name", name), ("model", model), ("profile", profile)] {
+        for (key, value) in [("name", name), ("model", model), ("profile", profile),
+                             // A schedule started from an integration's screen
+                             // is created inside it; elsewhere the server files
+                             // it under General.
+                             ("integration", integration)] {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { body[key] = trimmed }
         }
