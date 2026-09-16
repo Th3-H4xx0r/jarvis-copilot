@@ -19,7 +19,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-RE='[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'
+# The identifier is whatever sits in the "(UDID)" column — read it, don't guess
+# its shape. Simulators use a 8-4-4-4-12 UUID; a modern iPhone uses 8-16 hex
+# (00008150-001130180232401C), which a UUID pattern silently fails to match.
+udid_of() { sed -E 's/.*[[:space:]]([0-9A-Fa-f][0-9A-Fa-f-]+)[[:space:]]+\(UDID\).*/\1/'; }
 BUNDLE_ID="com.jarviscopilot.jarviscopilotMobileAndIOS"
 APP="build/dd/Build/Products/Release-iphoneos/JarvisCopilot.app"
 WATCH_APP="$APP/Watch/JarvisWatch.app"
@@ -28,9 +31,12 @@ echo "==> Detecting devices"
 DEV="$(xcrun devicectl list devices 2>/dev/null || true)"
 # Only real, paired hardware: the list also carries every simulator, and picking one
 # fails later with "Install Application is not supported by this device".
-REAL="$(printf '%s\n' "$DEV" | grep -v simulated | grep "available")"
-IPHONE_ID="${IPHONE_ID:-$(printf '%s\n' "$REAL" | grep -i iphone | grep -ioE "$RE" | head -1 || true)}"
-WATCH_ID="${WATCH_ID:-$(printf '%s\n' "$REAL" | grep -i watch  | grep -ioE "$RE" | head -1 || true)}"
+# A real device reports "connected" once it is plugged in and trusted, and
+# "available (paired)" over the network — both are installable, and only the
+# simulators carry "simulated". Matching "available" alone missed a cabled phone.
+REAL="$(printf '%s\n' "$DEV" | grep -v simulated | grep -E "available|connected")"
+IPHONE_ID="${IPHONE_ID:-$(printf '%s\n' "$REAL" | grep -i iphone | udid_of | head -1 || true)}"
+WATCH_ID="${WATCH_ID:-$(printf '%s\n' "$REAL" | grep -i watch  | udid_of | head -1 || true)}"
 echo "    iPhone=${IPHONE_ID:-<none>}  Watch=${WATCH_ID:-<none>}"
 [ -n "$IPHONE_ID" ] || { echo "✗ no iPhone connected — unlock it and check Developer Mode"; exit 1; }
 
