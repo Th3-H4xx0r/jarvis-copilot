@@ -34,6 +34,9 @@ MAX_SCHEDULES = 12
 MAX_COLLECTIONS = 12
 MAX_SKILLS = 6
 _MAX_TEXT = 400
+# /api/integrations/<id> belongs to another handler for these, so a space with one of
+# these ids could be listed but never opened, paused or deleted.
+RESERVED_IDS = {"photon", "plans"}
 _PLAN_TTL_SECONDS = 7 * 24 * 3600
 
 _LOCK = threading.Lock()
@@ -83,9 +86,12 @@ def validate(plan: dict) -> dict:
         raise PlanError("the plan must be an object")
 
     name = _text(plan.get("name"), "name", limit=64)
+    space_id = slug(str(plan.get("space_id") or "").strip() or name)
+    if space_id in RESERVED_IDS:
+        raise PlanError(f"{space_id!r} is not available as an integration id")
     out = {
         "id": uuid.uuid4().hex[:12],
-        "space_id": (str(plan.get("space_id") or "").strip().lower() or slug(name)),
+        "space_id": space_id,
         "name": name,
         "summary": _text(plan.get("summary"), "summary"),
         "icon": _text(plan.get("icon"), "icon", required=False, limit=32),
@@ -147,11 +153,20 @@ def propose(plan: dict) -> dict:
     entry = validate(plan)
     with _LOCK:
         plans = [p for p in _load()
-                 if p.get("status") != "pending"
-                 or time.time() - float(p.get("created_at") or 0) < _PLAN_TTL_SECONDS]
+                 if p.get("status") != "pending" or _age(p) < _PLAN_TTL_SECONDS]
         plans.append(entry)
-        _save(plans[-50:])
+        pending_plans = [p for p in plans if p.get("status") == "pending"]
+        decided = [p for p in plans if p.get("status") != "pending"]
+        _save(decided[-50:] + pending_plans)
     return entry
+
+
+def _age(plan: dict) -> float:
+    """Seconds since a plan was proposed. A file edited by hand may have anything."""
+    try:
+        return time.time() - float(plan.get("created_at") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def pending() -> list[dict]:
@@ -182,11 +197,18 @@ def approve(plan_id: str) -> dict:
     from cron.jobs import create_job
     from jarvis_registry.store import shared
 
-    plan = get(plan_id)
-    if plan is None:
-        raise PlanError(f"no plan {plan_id!r}")
-    if plan.get("status") != "pending":
-        raise PlanError(f"that plan was already {plan.get('status')}")
+    # Claim the plan before building anything: check-then-act outside the lock let
+    # two Create presses both pass the pending test and create every job twice.
+    with _LOCK:
+        plans = _load()
+        plan = next((p for p in plans if p.get("id") == plan_id), None)
+        if plan is None:
+            raise PlanError(f"no plan {plan_id!r}")
+        if plan.get("status") != "pending":
+            raise PlanError(f"that plan was already {plan.get('status')}")
+        plan["status"] = "approved"
+        plan["approved_at"] = time.time()
+        _save(plans)
 
     space = shared().space(plan["space_id"], name=plan["name"],
                            description=plan["summary"], icon=plan.get("icon") or "")
@@ -208,8 +230,6 @@ def approve(plan_id: str) -> dict:
         plans = _load()
         for stored in plans:
             if stored.get("id") == plan_id:
-                stored["status"] = "approved"
-                stored["approved_at"] = time.time()
                 stored["created_schedules"] = created_schedules
         _save(plans)
 

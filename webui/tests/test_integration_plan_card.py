@@ -57,3 +57,28 @@ def test_the_card_is_never_hidden_inside_the_collapsed_activity_group():
     assert "toolCards=built.filter(el=>!_isStandaloneCard(el))" in UI_JS
     # And in the plain branch, the Expand all toggle only counts real tool cards.
     assert "frag.querySelectorAll('.tool-card').length>=2" in UI_JS
+
+
+PANELS_JS = (REPO / "static" / "panels.js").read_text(encoding="utf-8")
+MESSAGES_JS = (REPO / "static" / "messages.js").read_text(encoding="utf-8")
+
+
+def test_the_card_draws_during_the_turn_not_only_after_it():
+    """tool_complete carries no result, so the card had no plan id until turn end."""
+    assert "source.addEventListener('tool_result'" in MESSAGES_JS
+    assert "_isStandaloneCard(liveCard)" in UI_JS, (
+        "the live path must keep the card out of the collapsed activity group too"
+    )
+
+
+def test_a_schedule_keeps_its_integration_when_the_first_save_is_rejected():
+    """An unparseable schedule is a 400; the retry must still file it in the same place."""
+    assert "if(_intgPendingForNewJob) body.integration=_intgPendingForNewJob;" in PANELS_JS
+    # Cleared when the form closes, never mid-save.
+    assert "_intgPendingForNewJob = null;   // the integrations page re-sets it right after" in PANELS_JS
+    assert "_intgPendingForNewJob = null;   // a duplicate belongs where the original does" in PANELS_JS
+
+
+def test_a_slow_response_cannot_land_under_a_later_screen():
+    assert "let _intgView = '';" in INTEGRATIONS_JS
+    assert INTEGRATIONS_JS.count("if (_intgView !== mine) return;") >= 3

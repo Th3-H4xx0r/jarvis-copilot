@@ -29,6 +29,7 @@ import logging
 import tarfile
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 IMPORT_MARKER = "imported_files"
 _MAX_RECORDS_PER_FILE = 5000
-_MAX_TEXT_BYTES = 200_000
+_MAX_TEXT_CHARS = 200_000
 BY_NAME = "*"          # document key comes from the file name
 
 
@@ -200,24 +201,60 @@ def import_all(workspace: Path | str, *, delete: bool = True,
 
 # ── one file ─────────────────────────────────────────────────────────────────
 def _import_file(space, path: Path, source: Source, rel: str) -> dict:
-    counts = {"records": 0, "documents": 0}
-    text = path.read_text(encoding="utf-8", errors="replace")
+    """Import one file, or leave the space exactly as it was.
+
+    Rows are appended one at a time, so a file that fails halfway would otherwise
+    leave its first rows behind — and because a failed file is never written into
+    `imported_files`, the next run would append them all over again. Anything this
+    call wrote is taken back out before the error is re-raised.
+    """
+    written: list[int] = []
+    try:
+        return _write_file(space, path, source, rel, written)
+    except Exception:
+        for record_id in written:
+            try:
+                space.delete_record(record_id)
+            except Exception:              # nothing better to do than say so
+                logger.warning("importer: %s left record %s behind", rel, record_id)
+        raise
+
+
+def _write_file(space, path: Path, source: Source, rel: str, written: list[int]) -> dict:
+    counts: dict[str, Any] = {"records": 0, "documents": 0}
+    # No errors="replace": mangling a file into U+FFFD and calling it imported is how
+    # the tarball becomes the only readable copy of a file marked "done".
+    text = path.read_text(encoding="utf-8")
 
     if path.suffix.lower() == ".csv":
-        rows = list(csv.DictReader(io.StringIO(text)))[:_MAX_RECORDS_PER_FILE]
+        all_rows = list(csv.DictReader(io.StringIO(text)))
+        rows = all_rows[:_MAX_RECORDS_PER_FILE]
+        if len(all_rows) > len(rows):
+            counts["truncated"] = len(all_rows) - len(rows)
+            logger.warning("importer: %s has %d rows; kept the first %d",
+                           rel, len(all_rows), len(rows))
         collection = source.collection or _key(rel)
         for row in rows:
             body = {k: _coerce(v) for k, v in row.items() if k}
-            space.append(collection, body, ts=_row_time(body, source.ts_field),
-                         source=f"import:{path.name}")
+            extra = row.get(None)          # columns past the header, kept not dropped
+            if extra:
+                body["_extra_columns"] = [_coerce(v) for v in extra]
+            written.append(space.append(collection, _safe_body(body),
+                                        ts=_row_time(body, source.ts_field),
+                                        source=f"import:{path.name}"))
         counts["records"] = len(rows)
         _describe(space, collection, source.description)
         return counts
 
     if path.suffix.lower() in (".md", ".txt"):
         collection = source.collection or _key(rel)
-        space.append(collection, {"file": path.name, "text": text[:_MAX_TEXT_BYTES]},
-                     ts=_name_time(path), source=f"import:{path.name}")
+        if len(text) > _MAX_TEXT_CHARS:
+            counts["truncated"] = len(text) - _MAX_TEXT_CHARS
+            logger.warning("importer: %s is %d characters; kept the first %d",
+                           rel, len(text), _MAX_TEXT_CHARS)
+        written.append(space.append(collection,
+                                    {"file": path.name, "text": text[:_MAX_TEXT_CHARS]},
+                                    ts=_name_time(path), source=f"import:{path.name}"))
         counts["records"] = 1
         _describe(space, collection, source.description)
         return counts
@@ -233,14 +270,37 @@ def _import_file(space, path: Path, source: Source, rel: str) -> dict:
 
     collection = source.collection or _key(rel)
     items = [data] if source.whole_file or not isinstance(data, list) else data
-    for item in items[:_MAX_RECORDS_PER_FILE]:
+    kept = items[:_MAX_RECORDS_PER_FILE]
+    if len(items) > len(kept):
+        counts["truncated"] = len(items) - len(kept)
+        logger.warning("importer: %s holds %d items; kept the first %d",
+                       rel, len(items), len(kept))
+    for item in kept:
         body = item if isinstance(item, dict) else {"value": item}
-        space.append(collection, {"file": path.name, **body},
-                     ts=_row_time(body, source.ts_field) or _name_time(path),
-                     source=f"import:{path.name}")
-    counts["records"] = min(len(items), _MAX_RECORDS_PER_FILE)
+        written.append(space.append(collection, _safe_body({"file": path.name, **body}),
+                                    ts=_row_time(body, source.ts_field) or _name_time(path),
+                                    source=f"import:{path.name}"))
+    counts["records"] = len(kept)
     _describe(space, collection, source.description)
     return counts
+
+
+def _safe_body(body: dict) -> dict:
+    """Move aside any field that would hide the record's own id, ts or source.
+
+    The store refuses such a body outright, which is right for code being written
+    now — but a workspace file that happens to have a column called `ts` should
+    still import, under a name that does not lie.
+    """
+    from jarvis_registry.store import RESERVED_FIELDS
+
+    clashes = [f for f in RESERVED_FIELDS if f in body]
+    if not clashes:
+        return body
+    out = dict(body)
+    for field_name in clashes:
+        out[f"source_{field_name}"] = out.pop(field_name)
+    return out
 
 
 def _describe(space, collection: str, description: str) -> None:
@@ -251,48 +311,64 @@ def _describe(space, collection: str, description: str) -> None:
 def _key(rel: str) -> str:
     """A document key from the path, so two state.json files stay two documents.
 
-    Keeps the tail — ``india-return-flight-island/state/adaptive_cron_state.json`` and
-    its outbound twin differ at the front, but a long path is distinctive at the end.
+    Built from the tail inward: two long paths usually differ at the end, and
+    ``slug()`` truncates to the first 64 characters, so slugging the whole path
+    first would throw away exactly the part that tells them apart.
     """
+    import re
+
     from jarvis_registry.store import slug
 
-    full = slug(rel.rsplit(".", 1)[0].replace("/", "-"))
-    return full[-64:].strip("-") or "file"
+    flat = re.sub(r"[^a-z0-9]+", "-", rel.rsplit(".", 1)[0].lower()).strip("-")
+    return slug(flat[-64:].strip("-")) or "file"
+
+
+_NUMBER_RE = __import__("re").compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 
 
 def _coerce(value: Any) -> Any:
-    """CSV hands back strings; keep numbers numeric so they can be summed later."""
+    """CSV hands back strings; keep plain numbers numeric so they can be summed.
+
+    Only what looks exactly like a JSON number converts. "007" keeps its zeros (it
+    is an id, not seven), "1_0" stays text (Python's int() would read 10), and
+    "nan"/"inf" stay text because neither is a value JSON can carry.
+    """
     if not isinstance(value, str):
         return value
     text = value.strip()
-    if not text:
-        return ""
-    try:
-        return int(text)
-    except ValueError:
-        pass
-    try:
-        return float(text)
-    except ValueError:
+    if not text or not _NUMBER_RE.match(text):
         return text
+    return float(text) if "." in text else int(text)
 
 
 def _row_time(body: dict, ts_field: str) -> Optional[float]:
     raw = body.get(ts_field) if ts_field else None
     if raw in (None, ""):
         return None
+    if isinstance(raw, bool):
+        return None
     if isinstance(raw, (int, float)):
-        return float(raw)
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y"):
+        return _epoch(float(raw))
+    text = str(raw).strip()
+    if _NUMBER_RE.match(text):                 # JSON state files hold epochs as strings
+        return _epoch(float(text))
+    try:                                       # ISO 8601, with or without a zone
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"):
         try:
-            parsed = time.strptime(str(raw), fmt)
+            # A date with no time is midnight UTC, which a browser west of Greenwich
+            # draws as the day before. Noon keeps the calendar day right either way.
+            return calendar.timegm(time.strptime(text, fmt)) + 43200
         except ValueError:
             continue
-        stamp = calendar.timegm(parsed)
-        # A date with no time is midnight UTC, which a browser west of Greenwich
-        # draws as the day before. Noon keeps the calendar day right either way.
-        return stamp + 43200 if fmt in ("%Y-%m-%d", "%m/%d/%Y") else float(stamp)
     return None
+
+
+def _epoch(value: float) -> float:
+    """Seconds, from seconds or milliseconds. 1e11 is the year 5138 in seconds."""
+    return value / 1000 if abs(value) > 1e11 else value
 
 
 def _name_time(path: Path) -> Optional[float]:
@@ -300,8 +376,8 @@ def _name_time(path: Path) -> Optional[float]:
     tail = path.stem.rsplit("_", 1)[-1]
     if not tail.isdigit():
         return None
-    if len(tail) == 10:
-        return float(tail)
+    if len(tail) in (10, 13):
+        return _epoch(float(tail))
     if len(tail) == 8:
         try:                                  # a date, so noon — see _row_time
             return calendar.timegm(time.strptime(tail, "%Y%m%d")) + 43200

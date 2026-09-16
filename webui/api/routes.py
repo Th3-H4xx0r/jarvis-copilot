@@ -3568,8 +3568,13 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         # The Integrations page (web + phone): what exists, what it holds, what it runs.
         from api.integrations_routes import handle_get as _integrations_get
-        if _integrations_get(handler, parsed):
-            return True
+        from api.profiles import cron_profile_context
+
+        # Wrapped like every other cron entry point: these read and write
+        # jobs.json through cron.jobs, which resolves the profile at call time.
+        with cron_profile_context():
+            if _integrations_get(handler, parsed):
+                return True
 
     if parsed.path in ("/api/devices/pod/recordings", "/api/devices/pod/recordings/audio"):
         # The Jarvis Pod's saved voice turns (list / WAV), for the phone's pod page.
@@ -6269,8 +6274,13 @@ def handle_post(handler, parsed) -> bool:
 
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         from api.integrations_routes import handle_post as _integrations_post
-        if _integrations_post(handler, parsed, body):
-            return True
+        from api.profiles import cron_profile_context
+
+        # Wrapped like every other cron entry point: these read and write
+        # jobs.json through cron.jobs, which resolves the profile at call time.
+        with cron_profile_context():
+            if _integrations_post(handler, parsed, body):
+                return True
 
     # ── Invoke a device-exposed skill ──
     # POST /api/devices/skills/invoke
@@ -6648,8 +6658,13 @@ def handle_delete(handler, parsed) -> bool:
     body = read_body(handler)
     if parsed.path.startswith("/api/integrations/"):
         from api.integrations_routes import handle_delete as _integrations_delete
-        if _integrations_delete(handler, parsed):
-            return True
+        from api.profiles import cron_profile_context
+
+        # Wrapped like every other cron entry point: these read and write
+        # jobs.json through cron.jobs, which resolves the profile at call time.
+        with cron_profile_context():
+            if _integrations_delete(handler, parsed):
+                return True
 
     # ── Coding Sessions (DELETE /api/coding/project/<id>, /session/<id>/delete) ──
     # The coding dispatcher handles its own DELETE routes; it was only wired into
@@ -9244,7 +9259,7 @@ def _handle_cron_create(handler, body):
             deliver=body.get("deliver") or "local",
             skills=body.get("skills") or [],
             model=body.get("model") or None,
-            integration=body.get("integration") or None,
+            integration=_known_integration(body.get("integration")),
         )
         post_create_updates = {}
         if profile is not None:
@@ -9256,6 +9271,25 @@ def _handle_cron_create(handler, body):
         return j(handler, {"ok": True, "job": _cron_job_for_api(job)})
     except Exception as e:
         return j(handler, {"error": str(e)}, status=400)
+
+
+def _known_integration(value):
+    """The integration id, if it names one that exists. Otherwise None (General).
+
+    A job tagged with an id no space has matches no integration in `schedules_for`
+    and is not General either, so it would keep firing while showing up nowhere.
+    """
+    space_id = str(value or "").strip().lower()
+    if not space_id:
+        return None
+    try:
+        from jarvis_registry.store import shared
+
+        if shared().exists(space_id):
+            return space_id
+    except Exception:
+        return None
+    return None
 
 
 def _handle_cron_update(handler, body):

@@ -55,7 +55,11 @@ def skills_for(space_id: str) -> list[dict]:
         if str(meta.get("integration") or "").strip().lower() != space_id:
             continue
         out.append({
-            "name": str(meta.get("name") or skill_md.parent.name),
+            # The directory name, because that is what skill_view() resolves and
+            # what a cron job's `skills` list has to contain. A front-matter `name`
+            # that differs is a label, not an address.
+            "name": skill_md.parent.name,
+            "title": str(meta.get("name") or skill_md.parent.name),
             "description": str(meta.get("description") or "").strip(),
             "path": str(skill_md),
         })
@@ -103,8 +107,8 @@ def _schedule_row(job: dict) -> dict:
         "schedule": job.get("schedule"),
         "enabled": job.get("enabled", True),
         "state": job.get("state"),
-        "last_run": job.get("last_run"),
-        "next_run": job.get("next_run"),
+        "last_run": job.get("last_run_at") or job.get("last_run"),
+        "next_run": job.get("next_run_at") or job.get("next_run"),
     }
 
 
@@ -114,23 +118,53 @@ def overview() -> list[dict]:
 
     out = []
     reg = shared()
+    # One pass over the skills and the job store, not one per space: this runs on
+    # every sidebar render, and there are ~80 skills.
+    jobs_by_space, skills_by_space = _by_space()
     for row in reg.spaces():
-        schedules = schedules_for(row["id"])
+        schedules = jobs_by_space.get(row["id"], [])
         enabled = [s for s in schedules if s.get("enabled", True)]
-        runs = [s.get("last_run") for s in schedules if s.get("last_run")]
+        runs = [job.get("last_run_at") or job.get("last_run")
+                for job in schedules if job.get("last_run_at") or job.get("last_run")]
         space = reg.open(row["id"])
         collections = space.collections()
         out.append({
             **row,
             "schedule_count": len(schedules),
             "enabled_schedule_count": len(enabled),
-            "skill_count": len(skills_for(row["id"])),
+            "skill_count": len(skills_by_space.get(row["id"], [])),
             "collection_count": len(collections),
             "document_count": len(space.documents()),
             "record_count": sum(int(c.get("count") or 0) for c in collections),
             "last_run": max(runs) if runs else None,
         })
     return out
+
+
+def _by_space() -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+    """Every schedule and every skill, grouped by the integration that owns it."""
+    jobs: dict[str, list[dict]] = {}
+    try:
+        from cron.jobs import list_jobs
+
+        for job in list_jobs(include_disabled=True):
+            owner = (job.get("integration") or "").strip().lower() or GENERAL_ID
+            jobs.setdefault(owner, []).append(job)
+    except Exception as exc:
+        logger.warning("integrations: no cron store to read: %s", exc)
+
+    skills: dict[str, list[dict]] = {}
+    for skill_md in _skill_files():
+        try:
+            text = skill_md.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "integration:" not in text:
+            continue
+        owner = str(_front_matter(text).get("integration") or "").strip().lower()
+        if owner:
+            skills.setdefault(owner, []).append({"name": skill_md.parent.name})
+    return jobs, skills
 
 
 def context_block(space_id: str, max_items: int = 20) -> str:

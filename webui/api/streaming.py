@@ -3514,6 +3514,15 @@ def _run_agent_streaming(
             def on_tool_complete(tool_call_id, name, args, function_result):
                 try:
                     _record_live_tool_complete(tool_call_id, name, function_result)
+                    # The head of the result, live. tool_complete carries only a
+                    # preview, which most tools leave empty, so a card that has to
+                    # read the result (the integration plan card) could not draw
+                    # until the turn ended and the stored tool_calls arrived.
+                    put('tool_result', {
+                        'name': str(name or ''),
+                        'tool_call_id': str(tool_call_id or ''),
+                        'snippet': _tool_result_snippet(function_result)[:800],
+                    })
                     _tool_stats = meter().get_stats()
                     _tool_stats['session_id'] = session_id
                     _tool_stats['usage'] = _live_usage_snapshot()

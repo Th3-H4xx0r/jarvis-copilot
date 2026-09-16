@@ -51,11 +51,21 @@ def slug(text: str) -> str:
     return out[:64] or "space"
 
 
+# A record's own columns. A body may not carry these: `records()` returns the two
+# merged, and a body key would otherwise hide the row's real id or time.
+RESERVED_FIELDS = ("id", "ts", "source")
+# One query's worth of records. 200 rows of 256 KB would be 50 MB assembled in
+# memory and serialised into a single response.
+MAX_RESULT_BYTES = 2 * 1024 * 1024
+
+
 def _dumps(body: Any, limit: int, what: str) -> str:
     try:
         # No default= coercion: silently stringifying a set or a datetime is how a
-        # store ends up with "{1, 2, 3}" in a field nobody can query.
-        text = json.dumps(body, ensure_ascii=False)
+        # store ends up with "{1, 2, 3}" in a field nobody can query. allow_nan=False
+        # because NaN and Infinity are not JSON — SQLite tolerates them, JSON.parse
+        # in the browser does not, and one such value breaks a whole collection's view.
+        text = json.dumps(body, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise RegistryError(f"{what} must be JSON-serialisable: {exc}") from exc
     if len(text.encode("utf-8")) > limit:
@@ -140,6 +150,13 @@ class Space:
         """Add one record to a collection. Returns its id."""
         if not _ID_RE.match(collection or ""):
             raise RegistryError(f"collection {collection!r}: lowercase letters, digits, - and _ only")
+        if not isinstance(body, dict):
+            raise RegistryError("a record must be an object; wrap a bare value in one")
+        clashes = [f for f in RESERVED_FIELDS if f in body]
+        if clashes:
+            raise RegistryError(
+                f"a record may not carry {', '.join(clashes)} — those are the record's own "
+                "columns, and a body field would hide the real value when it is read back")
         text = _dumps(body, MAX_RECORD_BYTES, "a record")
         now = time.time()
         self._reg._write(
@@ -173,8 +190,23 @@ class Space:
         sql.append(f"ORDER BY ts {order}, id {order} LIMIT ?")
         args.append(max(1, min(int(limit), 1000)))
         rows = self._reg._all(" ".join(sql), args)
-        return [{"id": r["id"], "ts": r["ts"], "source": r["source"], **json.loads(r["body"])}
-                for r in rows]
+        out, budget = [], MAX_RESULT_BYTES
+        for r in rows:
+            budget -= len(r["body"])
+            if budget < 0 and out:        # always return at least one record
+                break
+            body = json.loads(r["body"])
+            if not isinstance(body, dict):   # a bare value, stored before that was refused
+                body = {"value": body}
+            # Row columns last: they are the record's real identity and time, and a
+            # body that somehow carries one must not hide it.
+            out.append({**body, "id": r["id"], "ts": r["ts"], "source": r["source"]})
+        return out
+
+    def delete_record(self, record_id: int) -> bool:
+        """Remove one record. The importer uses it to undo a half-written file."""
+        return self._reg._write("DELETE FROM records WHERE space_id = ? AND id = ?",
+                                (self.id, int(record_id))) > 0
 
     def count(self, collection: str) -> int:
         row = self._reg._one(
@@ -322,7 +354,9 @@ class Registry:
     def catalog(self, space_id: Optional[str] = None) -> list[dict]:
         """Every space with its documents and collections — what exists, not what's in it."""
         out = []
-        for row in self.spaces():
+        # An archived space is still readable and writable through open(), so the
+        # catalog has to show it: "no such space" would have the agent make a duplicate.
+        for row in self.spaces(include_archived=True):
             if space_id and row["id"] != space_id:
                 continue
             space = Space(self, row["id"])

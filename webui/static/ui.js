@@ -6320,6 +6320,17 @@ function appendLiveToolCard(tc){
   const anchor=children.filter(el=>el.matches('[data-live-assistant="1"],.tool-call-group,.tool-card-row,.agent-activity-thinking')).pop();
   const group=ensureActivityGroup(inner,{live:true,collapsed:true,anchor,activityKey:_activityKeyForLiveTurn()});
   const body=group.querySelector('.tool-call-group-body');
+  // A card the user has to act on goes beside the group, never inside it — the
+  // group starts collapsed. Same rule as renderMessages().
+  const liveCard=buildToolCard(tc);
+  if(_isStandaloneCard(liveCard)){
+    if(tid) liveCard.dataset.liveTid=tid;
+    const prior=tid?inner.querySelector(`.plan-card-row[data-live-tid="${CSS.escape(tid)}"]`):null;
+    if(prior) prior.replaceWith(liveCard);
+    else group.insertAdjacentElement('afterend', liveCard);
+    if(typeof scrollIfPinned==='function') scrollIfPinned();
+    return;
+  }
   // Update existing card in place (tool_complete after tool_start)
   if(tid){
     const existing=body.querySelector(`.tool-card-row[data-live-tid="${CSS.escape(tid)}"]`);

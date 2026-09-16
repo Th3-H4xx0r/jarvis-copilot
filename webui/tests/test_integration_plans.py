@@ -150,3 +150,33 @@ def test_one_plan_is_readable_after_it_is_decided(home, sent):
 
     assert plans.handle_get(object(), urlparse("/api/integrations/plans/nope")) is True
     assert sent["status"] == 404
+
+
+def test_a_space_id_the_model_typed_is_made_usable(home):
+    """It used to pass validation and then make the plan permanently un-approvable."""
+    plan = plans.propose({**GOOD, "space_id": "Gym Sessions"})
+    assert plan["space_id"] == "gym-sessions"
+    assert plans.approve(plan["id"])["space_id"] == "gym-sessions"
+
+
+def test_a_reserved_id_is_refused_at_proposal_time(home):
+    with pytest.raises(plans.PlanError, match="not available"):
+        plans.propose({**GOOD, "name": "Photon"})
+
+
+def test_a_plan_can_only_be_approved_once(home):
+    plan = plans.propose(dict(GOOD))
+    plans.approve(plan["id"])
+    with pytest.raises(plans.PlanError, match="already approved"):
+        plans.approve(plan["id"])
+    assert [j["name"] for j in home["created"]] == ["gym-weekly-summary"]   # not twice
+
+
+def test_a_pending_plan_is_never_trimmed_away(home):
+    """Its card lives in the chat; losing the plan turns the card into an error."""
+    first = plans.propose(dict(GOOD))
+    for i in range(60):
+        decided = plans.propose({**GOOD, "name": f"Thing {i}"})
+        plans.cancel(decided["id"])
+    assert plans.get(first["id"]) is not None
+    assert first["id"] in [p["id"] for p in plans.pending()]

@@ -144,3 +144,30 @@ def test_the_migrations_bookkeeping_is_not_data_the_integration_keeps(reg):
     assert [d["key"] for d in integrations.summary("casino")["documents"]] == ["summary"]
     block = integrations.context_block("casino")
     assert "summary" in block and "imported_files" not in block
+
+
+def test_a_schedule_row_carries_the_times_cron_actually_records(reg, monkeypatch):
+    """Cron writes next_run_at / last_run_at; there are no next_run / last_run keys."""
+    reg.space("casino", name="Casino")
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [
+        {"id": "j1", "name": "nightly", "integration": "casino",
+         "next_run_at": "2026-09-16T01:30:00+00:00",
+         "last_run_at": "2026-09-16T01:15:53+00:00"}])
+
+    row = integrations.summary("casino")["schedules"][0]
+    assert row["next_run"] == "2026-09-16T01:30:00+00:00"
+    assert row["last_run"] == "2026-09-16T01:15:53+00:00"
+    assert next(r for r in integrations.overview() if r["id"] == "casino")["last_run"]
+
+
+def test_a_skill_is_named_the_way_a_run_has_to_address_it(reg, skills_dir, monkeypatch):
+    """skill_view resolves a skill by directory name; a front-matter name is a label."""
+    (skills_dir / "productivity" / "odd-name").mkdir(parents=True)
+    (skills_dir / "productivity" / "odd-name" / "SKILL.md").write_text(
+        "---\nname: a-completely-different-label\ndescription: Does a thing.\n"
+        "integration: casino\n---\n")
+    reg.space("casino", name="Casino")
+
+    skills = {s["name"]: s for s in integrations.skills_for("casino")}
+    assert "odd-name" in skills                       # the directory, which resolves
+    assert skills["odd-name"]["title"] == "a-completely-different-label"

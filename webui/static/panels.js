@@ -727,6 +727,7 @@ function editCurrentCron(){
 }
 function duplicateCurrentCron(){
   if (!_currentCronDetail) return;
+  _intgPendingForNewJob = null;   // a duplicate belongs where the original does
   const job = _currentCronDetail;
   if (typeof switchPanel === 'function' && _currentPanel !== 'tasks') switchPanel('tasks');
   _cronPreFormDetail = { ...job };
@@ -779,6 +780,7 @@ let _cronSkillsCache=null;
 let _cronProfilesCache=null;
 
 function openCronCreate(){
+  _intgPendingForNewJob = null;   // the integrations page re-sets it right after
   if (typeof switchPanel === 'function' && _currentPanel !== 'tasks') switchPanel('tasks');
   _cronPreFormDetail = _currentCronDetail ? { ..._currentCronDetail } : null;
   _editingCronId = null;
@@ -987,13 +989,14 @@ async function saveCronForm(){
       return;
     }
     const body={schedule,prompt,deliver,profile: profile, toast_notifications: toastNotifications};
-    if(_intgPendingForNewJob){ body.integration=_intgPendingForNewJob; _intgPendingForNewJob=null; }
+    if(_intgPendingForNewJob) body.integration=_intgPendingForNewJob;
     if(_cronIsDuplicate) body.enabled=false;
     if(name)body.name=name;
     if(_cronSelectedSkills.length)body.skills=_cronSelectedSkills;
     const res = await api('/api/crons/create',{method:'POST',body:JSON.stringify(body)});
     _cronPreFormDetail = null;
     _cronIsDuplicate = false;
+    _intgPendingForNewJob = null;
     showToast(t('cron_job_created'));
     await loadCrons();
     const newId = res && (res.id || (res.job && res.job.id));

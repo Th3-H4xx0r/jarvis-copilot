@@ -1595,6 +1595,21 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       _scheduleRender();
     });
 
+    // The head of a finished tool's result. Only cards that read the result need
+    // it — the plan card, which cannot find its plan without it.
+    source.addEventListener('tool_result',e=>{
+      const d=JSON.parse(e.data);
+      const inflight=INFLIGHT[activeSid];
+      if(!inflight||!Array.isArray(inflight.toolCalls)) return;
+      const tc=[...inflight.toolCalls].reverse().find(c=>c&&c.name===d.name&&!c.snippet);
+      if(!tc) return;
+      tc.snippet=d.snippet||'';
+      S.toolCalls=inflight.toolCalls;
+      persistInflightState();
+      if(!S.session||S.session.session_id!==activeSid) return;
+      appendLiveToolCard(tc);
+    });
+
     source.addEventListener('tool',e=>{
       const d=JSON.parse(e.data);
       if(d.name==='clarify') return;

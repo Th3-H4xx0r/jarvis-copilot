@@ -115,7 +115,11 @@ def handle_post(handler, parsed, body) -> bool:
             if not name:
                 j(handler, {"error": "name is required"}, status=400)
                 return True
-            space_id = str((body or {}).get("id") or "").strip().lower() or slug(name)
+            space_id = slug(str((body or {}).get("id") or "").strip() or name)
+            if space_id in _NOT_OURS:
+                j(handler, {"error": f"{space_id!r} is not available as an integration id"},
+                  status=400)
+                return True
             space = _registry().space(
                 space_id, name=name,
                 description=str((body or {}).get("description") or ""),

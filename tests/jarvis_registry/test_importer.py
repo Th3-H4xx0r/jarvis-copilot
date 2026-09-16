@@ -183,3 +183,91 @@ def test_the_marker_document_records_what_it_took(workspace, jobs):
     marker = workspace["reg"].open("casino").get(importer.IMPORT_MARKER)
     assert marker["casino-earnings-tracker/ledger.csv"]["records"] == 2
     assert len(marker["casino-earnings-tracker/ledger.csv"]["sha"]) == 32
+
+
+def test_two_long_paths_that_share_a_head_stay_two_documents(workspace, jobs):
+    """slug() keeps the first 64 characters, so the tail is what tells these apart."""
+    ws = workspace["ws"]
+    (ws / "flight-tracking-common" / "state").mkdir(parents=True)
+    for day in ("2026-09-20", "2026-09-27"):
+        (ws / "flight-tracking-common" / "state"
+         / f"flight_notification_state_AA100_{day}.json").write_text(json.dumps({"day": day}))
+
+    plan = Plan("flight", "Flights", "Trips", "airplane",
+                [Source("flight-tracking-common/state/*.json", document=importer.BY_NAME)], [])
+    importer.import_all(ws, plans=[plan])
+
+    space = workspace["reg"].open("flight")
+    days = sorted(space.get(d["key"])["day"] for d in space.documents()
+                  if d["key"] != importer.IMPORT_MARKER)
+    assert days == ["2026-09-20", "2026-09-27"]
+
+
+def test_a_file_that_fails_halfway_leaves_nothing_behind(workspace, jobs):
+    """Otherwise a re-run appends the surviving rows a second time."""
+    ws = workspace["ws"]
+    oversized = "x" * (store.MAX_RECORD_BYTES + 10)
+    (ws / "casino-earnings-tracker" / "ledger.csv").write_text(
+        "session_id,date,notes\na,2026-01-03,ok\nb,2026-01-04,ok\nc,2026-01-05," + oversized + "\n")
+
+    for _ in range(2):
+        report = importer.import_all(ws, plans=PLANS)
+        casino = next(i for i in report["integrations"] if i["id"] == "casino")
+        assert casino["failed"][0]["file"] == "casino-earnings-tracker/ledger.csv"
+    assert workspace["reg"].open("casino").count("sessions") == 0
+
+
+def test_a_column_the_store_reserves_is_kept_under_another_name(workspace, jobs):
+    ws = workspace["ws"]
+    (ws / "casino-earnings-tracker" / "ledger.csv").write_text(
+        "session_id,date,ts,net_cash\na,2026-01-03,my-own-stamp,42\n")
+
+    importer.import_all(ws, plans=PLANS)
+    row = workspace["reg"].open("casino").records("sessions")[0]
+    assert row["source_ts"] == "my-own-stamp"     # kept
+    assert isinstance(row["ts"], float)           # and the record's real time survives
+
+
+def test_bytes_that_are_not_utf8_are_a_failure_not_a_silent_mangling(workspace, jobs):
+    ws = workspace["ws"]
+    (ws / "email-monitor" / "state.json").write_bytes(b'{"who": "caf\xe9"}')
+
+    report = importer.import_all(ws, plans=PLANS)
+    email = next(i for i in report["integrations"] if i["id"] == "email-monitor")
+    assert email["failed"][0]["file"] == "email-monitor/state.json"
+    assert (ws / "email-monitor" / "state.json").exists()
+
+
+def test_truncation_is_reported_rather_than_passed_off_as_the_whole_file(workspace, jobs,
+                                                                        monkeypatch):
+    monkeypatch.setattr(importer, "_MAX_RECORDS_PER_FILE", 2)
+    ws = workspace["ws"]
+    (ws / "casino-earnings-tracker" / "ledger.csv").write_text(
+        "session_id,date\n" + "".join(f"s{i},2026-01-0{i+1}\n" for i in range(5)))
+
+    importer.import_all(ws, plans=PLANS)
+    marker = workspace["reg"].open("casino").get(importer.IMPORT_MARKER)
+    entry = marker["casino-earnings-tracker/ledger.csv"]
+    assert entry["records"] == 2 and entry["truncated"] == 3
+
+
+def test_the_timestamps_real_files_actually_carry(workspace):
+    from jarvis_registry.importer import _row_time
+
+    assert _row_time({"d": "2026-01-03T12:00:00Z"}, "d") == 1767441600.0
+    assert _row_time({"d": "2026-01-03T12:00:00+00:00"}, "d") == 1767441600.0
+    assert _row_time({"d": "1784264441"}, "d") == 1784264441.0      # epoch as a string
+    assert _row_time({"d": 1784264441000}, "d") == 1784264441.0     # milliseconds
+    assert _row_time({"d": True}, "d") is None                      # not a time
+    assert _row_time({"d": "not a date"}, "d") is None
+
+
+def test_a_number_that_only_looks_like_one_stays_text():
+    from jarvis_registry.importer import _coerce
+
+    assert _coerce("007") == "007"        # an id, not seven
+    assert _coerce("1_0") == "1_0"        # int() would read 10
+    assert _coerce("nan") == "nan"        # not a value JSON can carry
+    assert _coerce("inf") == "inf"
+    assert _coerce("-12.5") == -12.5
+    assert _coerce("42") == 42

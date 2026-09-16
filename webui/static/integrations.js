@@ -13,6 +13,9 @@
 
 let _intgList = [];
 let _intgCurrent = null;       // id of the integration shown in the main pane
+// Which screen the main pane is showing. Every async render checks it is still the
+// current one before writing, so a slow response cannot land under a later screen.
+let _intgView = '';
 
 // ── sidebar ──────────────────────────────────────────────────────────────────
 async function loadIntegrations(animate) {
@@ -91,14 +94,17 @@ async function openIntegration(id) {
   if (empty) empty.style.display = 'none';
   if (body) { body.style.display = ''; body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`; }
 
+  _intgView = `integration:${id}`;
+  const mine = _intgView;
   let data;
   try {
     data = await api('/api/integrations/' + encodeURIComponent(id));
   } catch (e) {
+    if (_intgView !== mine) return;
     if (body) body.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message)}</div>`;
     return;
   }
-  if (_intgCurrent !== id) return;                                 // user moved on while loading
+  if (_intgView !== mine) return;                                  // user moved on while loading
   if (title) title.textContent = `${_intgGlyph(data.icon)}  ${data.name || id}`;
   if (body) body.innerHTML = _intgDetailHtml(data);
   _intgBindDetail(data);
@@ -172,7 +178,13 @@ function _intgBindDetail(d) {
   const body = $('taskDetailBody');
   if (!body) return;
   body.querySelectorAll('[data-job]').forEach(row => {
-    row.onclick = () => { if (typeof openCronDetail === 'function') openCronDetail(row.dataset.job); };
+    row.onclick = () => {
+      if (typeof openCronDetail === 'function') openCronDetail(row.dataset.job);
+      // openCronDetail clears .active from every .cron-item and looks for a row
+      // that no longer exists; the integration stays the selected thing.
+      const card = $('intg-' + _intgCurrent);
+      if (card) card.classList.add('active');
+    };
   });
   body.querySelectorAll('[data-collection]').forEach(row => {
     row.onclick = () => openIntegrationRecords(d.id, row.dataset.collection);
@@ -183,8 +195,10 @@ function _intgBindDetail(d) {
   const act = sel => body.querySelector(`[data-act="${sel}"]`);
   const newBtn = act('new-schedule');
   if (newBtn) newBtn.onclick = () => {
-    _intgPendingForNewJob = d.id;
     if (typeof openCronCreate === 'function') openCronCreate();
+    // After openCronCreate, which clears the flag: this form is the one that
+    // belongs to this integration.
+    _intgPendingForNewJob = d.id;
   };
   const toggle = act('toggle');
   if (toggle) toggle.onclick = () => _intgSetStatus(d.id, d.status === 'active' ? 'paused' : 'active');
@@ -242,7 +256,11 @@ function _intgWhen(s) {
 
 function _intgTime(ts) {
   if (!ts) return '';
-  const d = new Date(Number(ts) * (Number(ts) > 1e12 ? 1 : 1000));
+  // Cron records ISO strings (next_run_at); the registry records epoch seconds.
+  const n = Number(ts);
+  const d = Number.isFinite(n) && String(ts).trim() !== ''
+    ? new Date(n * (n > 1e12 ? 1 : 1000))
+    : new Date(String(ts));
   if (isNaN(d.getTime())) return '';
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
@@ -258,14 +276,19 @@ function _intgBytes(n) {
 async function openIntegrationRecords(id, collection) {
   const body = $('taskDetailBody'), title = $('taskDetailTitle');
   if (!body) return;
+  _intgCurrent = id;
+  _intgView = `records:${id}:${collection}`;
+  const mine = _intgView;
   body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`;
   let data;
   try {
     data = await api(`/api/integrations/${encodeURIComponent(id)}/records?collection=${encodeURIComponent(collection)}&limit=100`);
   } catch (e) {
+    if (_intgView !== mine) return;
     body.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message)}</div>`;
     return;
   }
+  if (_intgView !== mine) return;        // the user moved on while this was loading
   if (title) title.textContent = `${collection} — ${id}`;
   const rows = data.records || [];
   // Columns come from the records themselves: the registry does not impose a shape,
@@ -295,14 +318,19 @@ async function openIntegrationRecords(id, collection) {
 async function openIntegrationDocument(id, key) {
   const body = $('taskDetailBody'), title = $('taskDetailTitle');
   if (!body) return;
+  _intgCurrent = id;
+  _intgView = `document:${id}:${key}`;
+  const mine = _intgView;
   body.innerHTML = `<div class="intg-note">${esc(t('loading'))}</div>`;
   let data;
   try {
     data = await api(`/api/integrations/${encodeURIComponent(id)}/documents/${encodeURIComponent(key)}`);
   } catch (e) {
+    if (_intgView !== mine) return;
     body.innerHTML = `<div class="intg-note intg-note--error">${esc(e.message)}</div>`;
     return;
   }
+  if (_intgView !== mine) return;
   if (title) title.textContent = `${key} — ${id}`;
   body.innerHTML = `
     <div class="intg-detail">
@@ -479,8 +507,9 @@ async function _intgPlanDecide(row, plan, action) {
   try {
     await api(`/api/integrations/plans/${encodeURIComponent(plan.id)}/${action}`, { method: 'POST' });
   } catch (e) {
-    if (foot) foot.innerHTML = `<span class="plan-card-note plan-card-note--error">${esc(e.message)}</span>`;
-    return;
+    // Usually "that plan was already approved" — decided on another device. The
+    // card's job is to show what is true, so refetch rather than sit on the error.
+    showToast(e.message, 4000);
   }
   await _intgPlanFill(row, plan.id);
   if (action === 'approve') {

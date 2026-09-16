@@ -145,3 +145,15 @@ def test_a_document_can_be_opened_on_its_own(reg, sent):
 
     assert get("/api/integrations/casino/documents/ghost") is True
     assert sent["status"] == 404
+
+
+def test_an_id_that_belongs_to_another_handler_is_refused(reg, sent):
+    """A space called photon could be listed but never opened, paused or deleted."""
+    assert post("/api/integrations", {"name": "Photon"}) is True
+    assert sent["status"] == 400 and "photon" in sent["body"]["error"]
+    assert reg.exists("photon") is False
+
+
+def test_a_name_becomes_a_usable_id(reg, sent):
+    assert post("/api/integrations", {"name": "Gym Sessions", "id": "Gym Sessions!"}) is True
+    assert sent["body"]["id"] == "gym-sessions"
