@@ -50,13 +50,9 @@ final class IntegrationsStore {
 
     func onDisappear() { loadTask.cancel() }
 
-    /// A request that was cancelled because the screen was left, a refresh
-    /// superseded it, or the tab changed. Nothing went wrong, so nothing is said.
-    static func wasCancelled(_ error: Error) -> Bool {
-        if error is CancellationError { return true }
-        let nsError = error as NSError
-        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
-    }
+    /// See the free `wasCancelled(_:)` in `JarvisAPI.swift`. Kept as a static so
+    /// the call sites below read the same as they always did.
+    static func wasCancelled(_ error: Error) -> Bool { JarvisCopilot.wasCancelled(error) }
 
     // MARK: One integration
 

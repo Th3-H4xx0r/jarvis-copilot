@@ -163,6 +163,17 @@ enum APIError: LocalizedError, Equatable {
     }
 }
 
+/// A request that ended because the caller went away — the screen was left, a
+/// refresh superseded it, the tab changed, or two `.task`s raced at launch and
+/// SwiftUI cancelled one. Nothing went wrong, so nothing should be said: the
+/// alternative is a red banner reading "cancelled", which is the app reporting
+/// its own housekeeping as a failure.
+func wasCancelled(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    let nsError = error as NSError
+    return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+}
+
 /// One user-facing line for any error thrown by the API layer.
 ///
 /// Every swallowed failure in the port funnels through here, so this is also the

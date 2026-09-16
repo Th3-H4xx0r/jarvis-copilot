@@ -75,6 +75,11 @@ final class ChatStore {
     // MARK: Models
 
     var models: ModelCatalog?
+    /// The one in-flight catalogue fetch, so three views asking at launch make
+    /// one request — and so one of them going away cannot cancel it for the
+    /// others. Unstructured on purpose: it must outlive whichever `.task`
+    /// started it. See `loadModels()`.
+    @ObservationIgnored private var modelsLoad: Task<Void, Never>?
     /// nil means "whatever the server's default is".
     private(set) var selectedModelID: String?
     private(set) var selectedProviderID: String?
@@ -551,13 +556,33 @@ final class ChatStore {
 
     // MARK: Models
 
+    /// The catalogue behind the model picker.
+    ///
+    /// Three views want it at launch (`ChatPage`, `ChatConversationView` and the
+    /// picker sheet), and SwiftUI cancels a `.task` whose view goes away while
+    /// the shell is still settling. Two things follow: the work is shared rather
+    /// than run three times, and a cancellation is never reported — that is what
+    /// put "Could not load models: cancelled" on screen at every launch.
     func loadModels() async {
+        if let inFlight = modelsLoad {
+            await inFlight.value
+            return
+        }
+        let task = Task { [weak self] in await self?.performLoadModels() ?? () }
+        modelsLoad = task
+        await task.value
+        modelsLoad = nil
+    }
+
+    private func performLoadModels() async {
         do { models = try await modelsAPI.list() } catch {
             // Keep whatever catalogue we already have — a blank picker is worse
             // than a stale one — and only speak up when there is none
             // (silent-failures M11).
             let line = JcLog.report(JcLog.chat, "load models", error)
-            if models == nil { self.error = "Could not load models: \(line)" }
+            if models == nil, !wasCancelled(error) {
+                self.error = "Could not load models: \(line)"
+            }
         }
     }
 
