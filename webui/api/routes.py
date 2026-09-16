@@ -3565,6 +3565,12 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/pair":
         return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
 
+    if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
+        # The Integrations page (web + phone): what exists, what it holds, what it runs.
+        from api.integrations_routes import handle_get as _integrations_get
+        if _integrations_get(handler, parsed):
+            return True
+
     if parsed.path in ("/api/devices/pod/recordings", "/api/devices/pod/recordings/audio"):
         # The Jarvis Pod's saved voice turns (list / WAV), for the phone's pod page.
         from api.voice_recordings import handle_get as _recordings_get
@@ -6261,6 +6267,11 @@ def handle_post(handler, parsed) -> bool:
         handler.wfile.write(json.dumps({"ok": True}).encode())
         return True
 
+    if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
+        from api.integrations_routes import handle_post as _integrations_post
+        if _integrations_post(handler, parsed, body):
+            return True
+
     # ── Invoke a device-exposed skill ──
     # POST /api/devices/skills/invoke
     # body: {"device_id":"...","skill":"...","args":{...},"timeout":30}
@@ -6635,6 +6646,11 @@ def handle_delete(handler, parsed) -> bool:
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     body = read_body(handler)
+    if parsed.path.startswith("/api/integrations/"):
+        from api.integrations_routes import handle_delete as _integrations_delete
+        if _integrations_delete(handler, parsed):
+            return True
+
     # ── Coding Sessions (DELETE /api/coding/project/<id>, /session/<id>/delete) ──
     # The coding dispatcher handles its own DELETE routes; it was only wired into
     # handle_get/handle_post, so DELETE fell through to a generic 404 "not found"

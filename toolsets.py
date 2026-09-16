@@ -234,6 +234,7 @@ TOOLSETS = {
         "tools": [
             "registry_catalog", "registry_get", "registry_put",
             "registry_append", "registry_query", "registry_describe",
+            "integration_plan_propose",
         ],
         "includes": []
     },

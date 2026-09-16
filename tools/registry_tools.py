@@ -220,6 +220,91 @@ def _h_describe(args=None, **_kw) -> str:
         return _fail(str(exc))
 
 
+_PLAN = {
+    "name": "integration_plan_propose",
+    "description": (
+        "Propose a new integration and show the user a plan card in the chat. Use this "
+        "when they ask for something Jarvis should track or run on a schedule. Nothing "
+        "is created until they approve the card: describe what it is for, the schedules "
+        "you want (with a cron expression or an interval like 'every 15m' and the prompt "
+        "each one runs), the record collections it will keep, and any skill you would "
+        "write. Keep every line short — the card's layout is fixed and only takes text."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "What to call it, e.g. 'Gym Sessions'"},
+            "space_id": {"type": "string", "description": "Optional slug; derived from the name otherwise"},
+            "summary": {"type": "string", "description": "One line: what it does for the user"},
+            "icon": {"type": "string", "description": "Optional one-word icon name"},
+            "schedules": {
+                "type": "array",
+                "description": "Scheduled runs this integration owns",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "schedule": {"type": "string", "description": "'0 7 * * *' or 'every 15m'"},
+                        "purpose": {"type": "string", "description": "One line, for the card"},
+                        "prompt": {"type": "string", "description": "What the run is asked to do"},
+                    },
+                    "required": ["name", "schedule", "purpose", "prompt"],
+                },
+            },
+            "collections": {
+                "type": "array",
+                "description": "Record collections it will keep in the registry",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string", "description": "One line: what a record is"},
+                    },
+                    "required": ["name", "description"],
+                },
+            },
+            "skills": {
+                "type": "array",
+                "description": "Skills you would write for it",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "purpose": {"type": "string"},
+                    },
+                    "required": ["name", "purpose"],
+                },
+            },
+        },
+        "required": ["name", "summary"],
+    },
+}
+
+
+def _h_plan(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        from api.integration_plans import propose
+    except Exception:
+        try:
+            import sys
+            from pathlib import Path
+
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "webui"))
+            from api.integration_plans import propose
+        except Exception as exc:
+            return _fail(f"the integration planner is unavailable: {exc}")
+    try:
+        plan = propose(args)
+    except Exception as exc:
+        return _fail(str(exc))
+    return _ok(plan=plan, card={"kind": "integration_plan", "plan_id": plan["id"]},
+               note="The plan card is in the chat; it only takes effect once the user approves it.")
+
+
+registry.register(name="integration_plan_propose", toolset="registry",
+                  schema=_PLAN, handler=_h_plan, emoji="🧩")
+
 registry.register(name="registry_catalog", toolset="registry",
                   schema=_CATALOG, handler=_h_catalog, emoji="🗂️")
 registry.register(name="registry_get", toolset="registry",
