@@ -134,3 +134,13 @@ def test_a_schedule_row_leaves_the_prompt_behind(reg, monkeypatch):
     assert row == {"id": "j1", "name": "casino-nightly",
                    "schedule": {"kind": "cron", "expr": "0 9 * * *"},
                    "enabled": True, "state": None, "last_run": None, "next_run": 1700}
+
+
+def test_the_migrations_bookkeeping_is_not_data_the_integration_keeps(reg):
+    space = reg.space("casino", name="Casino")
+    space.put("summary", {"net": 157})
+    space.put("imported_files", {"casino/ledger.csv": {"sha": "abc"}})
+
+    assert [d["key"] for d in integrations.summary("casino")["documents"]] == ["summary"]
+    block = integrations.context_block("casino")
+    assert "summary" in block and "imported_files" not in block

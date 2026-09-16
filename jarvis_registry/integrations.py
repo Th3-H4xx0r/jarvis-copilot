@@ -19,6 +19,9 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 GENERAL_ID = "general"
+# The one-time workspace migration's own bookkeeping. It is not data the
+# integration keeps, so neither a run nor the page is told about it.
+BOOKKEEPING_KEYS = {"imported_files"}
 GENERAL_NAME = "General"
 GENERAL_DESCRIPTION = "Schedules and notes that don't belong to a larger integration."
 
@@ -80,7 +83,7 @@ def summary(space_id: str) -> dict:
     return {
         **space.info(),
         "collections": space.collections(),
-        "documents": space.documents(),
+        "documents": [d for d in space.documents() if d["key"] not in BOOKKEEPING_KEYS],
         "skills": skills_for(space_id),
         "schedules": [_schedule_row(job) for job in schedules],
         "schedule_count": len(schedules),
@@ -157,7 +160,7 @@ def context_block(space_id: str, max_items: int = 20) -> str:
         for c in collections:
             described = f" — {c['description']}" if c.get("description") else ""
             lines.append(f"  - {c['name']} ({c['count']} records){described}")
-    documents = space.documents()[:max_items]
+    documents = [d for d in space.documents() if d["key"] not in BOOKKEEPING_KEYS][:max_items]
     if documents:
         lines.append("Documents (registry_get / registry_put):")
         for d in documents:
