@@ -127,6 +127,40 @@ def test_every_schedule_ends_up_in_an_integration(workspace, jobs):
     assert report["integrations"][-1]["jobs_tagged"] == ["Some Other Thing"]
 
 
+def test_same_named_files_in_different_folders_stay_apart(workspace, jobs):
+    """Both flight islands keep a state/adaptive_cron_state.json; neither may win."""
+    ws = workspace["ws"]
+    for trip in ("india", "houston"):
+        (ws / f"{trip}-flight-island" / "state").mkdir(parents=True)
+        (ws / f"{trip}-flight-island" / "state" / "adaptive_cron_state.json").write_text(
+            json.dumps({"trip": trip}))
+
+    plan = Plan("flight", "Flights", "Trips", "airplane",
+                [Source("*-flight-island/state/*.json", document=importer.BY_NAME)], [])
+    importer.import_all(ws, plans=[plan])
+
+    space = workspace["reg"].open("flight")
+    trips = sorted(space.get(d["key"])["trip"] for d in space.documents()
+                   if d["key"] != importer.IMPORT_MARKER)
+    assert trips == ["houston", "india"]
+
+
+def test_a_snapshot_file_is_one_record(workspace, jobs):
+    ws = workspace["ws"]
+    (ws / "snaps").mkdir()
+    (ws / "snaps" / "gym_mode_before_1784264441.json").write_text(
+        json.dumps([{"track": "a"}, {"track": "b"}, {"track": "c"}]))
+
+    plan = Plan("vibeforge", "VibeForge", "Music", "music",
+                [Source("snaps/*.json", collection="playlist_snapshots", whole_file=True)], [])
+    importer.import_all(ws, plans=[plan])
+
+    rows = workspace["reg"].open("vibeforge").records("playlist_snapshots", limit=10)
+    assert len(rows) == 1                                   # one playlist, not three tracks
+    assert [t["track"] for t in rows[0]["value"]] == ["a", "b", "c"]
+    assert rows[0]["ts"] == 1784264441.0                    # the epoch in the file name
+
+
 def test_the_marker_document_records_what_it_took(workspace, jobs):
     importer.import_all(workspace["ws"], plans=PLANS)
     marker = workspace["reg"].open("casino").get(importer.IMPORT_MARKER)

@@ -47,6 +47,7 @@ class Source:
     document: str = ""            # a JSON object becomes this document (BY_NAME: per file)
     description: str = ""
     ts_field: str = ""            # which field carries a record's time
+    whole_file: bool = False      # a JSON list is one record, not one per element
     delete: bool = False          # only for data nothing reads any more
 
 
@@ -77,10 +78,12 @@ PLANS: list[Plan] = [
           Source("vibeforge-spotify/data/last_playlist_update.json", document="last_update",
                  description="when each playlist was last rebuilt"),
           Source("vibeforge-spotify/data/snapshots/*.json", collection="playlist_snapshots",
-                 description="a playlist as it was just before a rebuild", delete=True),
+                 description="a playlist as it stood just before a rebuild",
+                 whole_file=True, delete=True),
           Source("vibeforge-spotify/data/*.pre_clean_start.*.json",
                  collection="playlist_snapshots",
-                 description="a playlist as it was just before a rebuild", delete=True)],
+                 description="a playlist as it stood just before a rebuild",
+                 whole_file=True, delete=True)],
          ["vibeforge-*"]),
 
     Plan("email-monitor", "Email Monitor",
@@ -164,7 +167,7 @@ def import_all(workspace: Path | str, *, delete: bool = True,
                         doomed.append(path)
                     continue
                 try:
-                    counts = _import_file(space, path, source)
+                    counts = _import_file(space, path, source, key)
                 except Exception as exc:
                     # A corrupt file is worth reporting, not worth stopping the migration.
                     logger.warning("importer: %s could not be read: %s", key, exc)
@@ -190,13 +193,13 @@ def import_all(workspace: Path | str, *, delete: bool = True,
 
 
 # ── one file ─────────────────────────────────────────────────────────────────
-def _import_file(space, path: Path, source: Source) -> dict:
+def _import_file(space, path: Path, source: Source, rel: str) -> dict:
     counts = {"records": 0, "documents": 0}
     text = path.read_text(encoding="utf-8", errors="replace")
 
     if path.suffix.lower() == ".csv":
         rows = list(csv.DictReader(io.StringIO(text)))[:_MAX_RECORDS_PER_FILE]
-        collection = source.collection or "records"
+        collection = source.collection or _key(rel)
         for row in rows:
             body = {k: _coerce(v) for k, v in row.items() if k}
             space.append(collection, body, ts=_row_time(body, source.ts_field),
@@ -208,14 +211,14 @@ def _import_file(space, path: Path, source: Source) -> dict:
     data = json.loads(text) if text.strip() else {}
 
     if source.document:
-        key = _document_key(path) if source.document == BY_NAME else source.document
+        key = _key(rel) if source.document == BY_NAME else source.document
         space.put(key, data if isinstance(data, dict) else {"value": data},
                   description=source.description or None)
         counts["documents"] = 1
         return counts
 
-    collection = source.collection or _document_key(path)
-    items = data if isinstance(data, list) else [data]
+    collection = source.collection or _key(rel)
+    items = [data] if source.whole_file or not isinstance(data, list) else data
     for item in items[:_MAX_RECORDS_PER_FILE]:
         body = item if isinstance(item, dict) else {"value": item}
         space.append(collection, {"file": path.name, **body},
@@ -231,10 +234,16 @@ def _describe(space, collection: str, description: str) -> None:
         space.collection(collection).describe(description)
 
 
-def _document_key(path: Path) -> str:
+def _key(rel: str) -> str:
+    """A document key from the path, so two state.json files stay two documents.
+
+    Keeps the tail — ``india-return-flight-island/state/adaptive_cron_state.json`` and
+    its outbound twin differ at the front, but a long path is distinctive at the end.
+    """
     from jarvis_registry.store import slug
 
-    return slug(path.stem)[:64] or "file"
+    full = slug(rel.rsplit(".", 1)[0].replace("/", "-"))
+    return full[-64:].strip("-") or "file"
 
 
 def _coerce(value: Any) -> Any:
@@ -325,11 +334,11 @@ def _archive_and_remove(workspace: Path, paths: list[Path]) -> Path:
     return archive
 
 
-if __name__ == "__main__":  # python -m jarvis_registry.importer /root/workspace [--dry-run]
+if __name__ == "__main__":  # python -m jarvis_registry.importer /root/workspace [--no-delete]
     import sys
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     argv = [a for a in sys.argv[1:] if not a.startswith("-")]
     outcome = import_all(argv[0] if argv else "/root/workspace",
-                         delete="--dry-run" not in sys.argv)
+                         delete="--no-delete" not in sys.argv)
     print(json.dumps(outcome, indent=2))
