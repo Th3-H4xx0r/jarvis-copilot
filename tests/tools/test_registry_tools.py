@@ -107,9 +107,21 @@ def test_every_tool_is_registered_in_one_toolset():
 
     names = ["registry_catalog", "registry_get", "registry_put",
              "registry_append", "registry_query", "registry_describe",
-             "integration_plan_propose"]
+             "integration_plan_propose", "integration_ready"]
     for name in names:
         entry = tool_registry.get_entry(name)
         assert entry is not None, f"{name} is not registered"
         assert entry.toolset == "registry"
     assert set(toolsets.TOOLSETS["registry"]["tools"]) == set(names)
+
+
+def test_ready_refuses_to_declare_an_integration_that_does_not_exist(reg):
+    """It is the sheet's stop signal, so it must not fire before anything is built."""
+    out = call(rt._h_ready, space="gym-sessions")
+    assert out["ok"] is False and "gym-sessions" in out["error"]
+
+    reg.space("gym-sessions", name="Gym Sessions")
+    out = call(rt._h_ready, space="gym-sessions", summary="Logs your workouts.")
+    assert out["ok"] is True
+    assert out["name"] == "Gym Sessions"
+    assert out["card"] == {"kind": "integration_ready", "space": "gym-sessions"}

@@ -171,3 +171,32 @@ def test_a_skill_is_named_the_way_a_run_has_to_address_it(reg, skills_dir, monke
     skills = {s["name"]: s for s in integrations.skills_for("casino")}
     assert "odd-name" in skills                       # the directory, which resolves
     assert skills["odd-name"]["title"] == "a-completely-different-label"
+
+
+def test_a_skill_can_stop_belonging_without_being_deleted(reg, skills_dir):
+    reg.space("casino", name="Casino")
+    assert [s["name"] for s in integrations.skills_for("casino")] == ["casino-earnings-tracker"]
+
+    assert integrations.unlink_skill("casino-earnings-tracker") is True
+    assert integrations.skills_for("casino") == []
+    # The skill itself is untouched.
+    assert integrations.skill_path("casino-earnings-tracker") is not None
+    assert integrations.unlink_skill("casino-earnings-tracker") is False   # already unlinked
+    assert integrations.unlink_skill("no-such-skill") is False
+
+
+def test_a_deleted_skill_is_moved_somewhere_nothing_loads_it(reg, skills_dir, tmp_path,
+                                                             monkeypatch):
+    monkeypatch.setattr(integrations, "_home", lambda: str(tmp_path / "home"))
+    reg.space("casino", name="Casino")
+
+    where = integrations.delete_skill("casino-earnings-tracker")
+    assert where is not None
+    from pathlib import Path
+
+    moved = Path(where)
+    assert (moved / "SKILL.md").exists()          # recoverable, not shredded
+    assert not moved.is_relative_to(skills_dir)   # and out of the tree that gets globbed
+    assert integrations.skill_path("casino-earnings-tracker") is None
+    assert integrations.skills_for("casino") == []
+    assert integrations.delete_skill("casino-earnings-tracker") is None

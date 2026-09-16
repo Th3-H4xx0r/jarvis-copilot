@@ -197,3 +197,17 @@ def test_an_archived_space_is_in_the_catalog_because_it_still_works(reg):
     assert reg.catalog(space_id="casino")[0]["status"] == "archived"
     # It is still writable, which is exactly why hiding it would be a lie.
     reg.open("casino").append("sessions", {"net": 2})
+
+
+def test_a_collection_goes_with_its_records_and_its_catalog_entry(reg):
+    space = reg.space("casino")
+    for net in (10, -20, 30):
+        space.append("sessions", {"net": net})
+    space.collection("sessions").describe("one casino visit")
+    space.append("tips", {"amount": 5})
+
+    assert space.delete_collection("sessions") == 3
+    assert [c["name"] for c in space.collections()] == ["tips"]
+    assert space.records("sessions") == []
+    assert space.delete_collection("sessions") == 0      # already gone
+    assert space.count("tips") == 1                      # the neighbour is untouched

@@ -302,6 +302,41 @@ def _h_plan(args=None, **_kw) -> str:
                note="The plan card is in the chat; it only takes effect once the user approves it.")
 
 
+_READY = {
+    "name": "integration_ready",
+    "description": (
+        "Call this once a new integration is actually built and there is nothing "
+        "left to ask. It tells the setup sheet to stop offering a reply box and "
+        "offer Close instead. Only call it when the space exists and its schedules, "
+        "data and skills are in place — never as a way of ending a conversation "
+        "early."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string", "description": "The integration's space id"},
+            "summary": {"type": "string", "description": "One line: what it now does"},
+        },
+        "required": ["space"],
+    },
+}
+
+
+def _h_ready(args=None, **_kw) -> str:
+    args = args or {}
+    space_id = str(args.get("space") or "").strip().lower()
+    try:
+        info = _reg().open(space_id).info()
+    except Exception as exc:
+        return _fail(f"{exc} — build the integration before saying it is ready")
+    return _ok(space=space_id, name=info.get("name"),
+               summary=str(args.get("summary") or "").strip(),
+               card={"kind": "integration_ready", "space": space_id})
+
+
+registry.register(name="integration_ready", toolset="registry",
+                  schema=_READY, handler=_h_ready, emoji="✅")
+
 registry.register(name="integration_plan_propose", toolset="registry",
                   schema=_PLAN, handler=_h_plan, emoji="🧩")
 

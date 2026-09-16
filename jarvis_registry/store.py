@@ -214,6 +214,17 @@ class Space:
             (self.id, collection))
         return int(row["n"]) if row else 0
 
+    def delete_collection(self, name: str) -> int:
+        """Drop a collection: every record in it, and its entry in the catalog.
+
+        Returns how many records went, so the caller can say what it removed.
+        """
+        gone = self._reg._write("DELETE FROM records WHERE space_id = ? AND collection = ?",
+                                (self.id, name))
+        self._reg._write("DELETE FROM collections WHERE space_id = ? AND name = ?",
+                         (self.id, name))
+        return gone
+
     def collection(self, name: str) -> Collection:
         return Collection(self, name)
 

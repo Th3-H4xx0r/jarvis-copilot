@@ -208,6 +208,61 @@ def context_block(space_id: str, max_items: int = 20) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def skill_path(skill_name: str) -> Optional[Path]:
+    """Where a skill lives, found by directory name — the name a run addresses it by."""
+    for skill_md in _skill_files():
+        if skill_md.parent.name == skill_name:
+            return skill_md
+    return None
+
+
+def unlink_skill(skill_name: str) -> bool:
+    """Stop a skill belonging to any integration. The skill itself is untouched."""
+    skill_md = skill_path(skill_name)
+    if skill_md is None:
+        return False
+    try:
+        lines = skill_md.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return False
+    kept = [line for line in lines if not line.startswith("integration:")]
+    if len(kept) == len(lines):
+        return False
+    skill_md.write_text("".join(kept))
+    return True
+
+
+def delete_skill(skill_name: str) -> Optional[str]:
+    """Take a skill out of service. Returns where it went, or None if it wasn't found.
+
+    Moved, not unlinked: a skill is a folder of prose someone wrote, and deleting the
+    wrong one is a mistake worth being able to undo. It lands in
+    ``~/.jarviscopilot/deleted-skills/<name>-<stamp>/``.
+
+    Outside the skills tree, not in a dot-directory inside it: `_skill_files` globs
+    ``*/*/SKILL.md`` through pathlib, which — unlike shell globbing — happily
+    descends into a folder whose name starts with a dot, so a skill hidden there
+    would go on being loaded.
+    """
+    import shutil
+    import time as _time
+
+    skill_md = skill_path(skill_name)
+    if skill_md is None:
+        return None
+    graveyard = Path(_home()) / "deleted-skills"
+    graveyard.mkdir(parents=True, exist_ok=True)
+    destination = graveyard / f"{skill_name}-{_time.strftime('%Y%m%d-%H%M%S')}"
+    shutil.move(str(skill_md.parent), str(destination))
+    return str(destination)
+
+
+def _home() -> str:
+    from jarviscopilot_constants import get_hermes_home
+
+    return get_hermes_home()
+
+
 def owner_of_skill(skill_name: str) -> Optional[str]:
     """The integration a skill belongs to, or None."""
     for skill_md in _skill_files():

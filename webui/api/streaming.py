@@ -4022,6 +4022,16 @@ def _run_agent_streaming(
                     workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_origin_directive)).strip()
             except Exception:
                 _voice_swap = False
+            # A session opened by the Integrations sheet is doing one job; tell it so.
+            try:
+                from api.integration_setup import directive_for
+
+                _setup_directive = directive_for(s)
+                if _setup_directive:
+                    workspace_system_msg = ((workspace_system_msg or "").rstrip()
+                                            + "\n\n" + _setup_directive).strip()
+            except Exception:
+                logger.debug("integration setup directive not applied", exc_info=True)
             # The agent's token counters are running session totals; snapshot
             # them so this turn's own usage can be reported as a delta.
             # session_prompt_tokens already INCLUDES cache reads/writes (canonical

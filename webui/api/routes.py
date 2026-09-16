@@ -6272,6 +6272,12 @@ def handle_post(handler, parsed) -> bool:
         handler.wfile.write(json.dumps({"ok": True}).encode())
         return True
 
+    if parsed.path == "/api/integrations/setup/start":
+        from api.integration_setup import handle_post as _setup_post
+
+        if _setup_post(handler, parsed, body):
+            return True
+
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         from api.integrations_routes import handle_post as _integrations_post
         from api.profiles import cron_profile_context
@@ -6663,7 +6669,8 @@ def handle_delete(handler, parsed) -> bool:
         # Wrapped like every other cron entry point: these read and write
         # jobs.json through cron.jobs, which resolves the profile at call time.
         with cron_profile_context():
-            if _integrations_delete(handler, parsed):
+            # The body names which parts to remove; absent means all of it.
+            if _integrations_delete(handler, parsed, body):
                 return True
 
     # ── Coding Sessions (DELETE /api/coding/project/<id>, /session/<id>/delete) ──

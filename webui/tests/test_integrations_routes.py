@@ -157,3 +157,78 @@ def test_an_id_that_belongs_to_another_handler_is_refused(reg, sent):
 def test_a_name_becomes_a_usable_id(reg, sent):
     assert post("/api/integrations", {"name": "Gym Sessions", "id": "Gym Sessions!"}) is True
     assert sent["body"]["id"] == "gym-sessions"
+
+
+def test_a_collection_can_be_dropped_on_its_own(reg, sent):
+    space = reg.space("casino", name="Casino")
+    space.append("sessions", {"net": 1})
+    space.append("sessions", {"net": 2})
+    space.append("tips", {"amount": 5})
+
+    assert delete("/api/integrations/casino/collections/sessions") is True
+    assert sent["body"]["records_removed"] == 2
+    assert [c["name"] for c in reg.open("casino").collections()] == ["tips"]
+
+
+def test_a_document_can_be_dropped_on_its_own(reg, sent):
+    space = reg.space("casino", name="Casino")
+    space.put("summary", {"net": 157})
+
+    assert delete("/api/integrations/casino/documents/summary") is True
+    assert sent["body"]["ok"] is True
+    assert reg.open("casino").documents() == []
+
+    assert delete("/api/integrations/casino/documents/summary") is True
+    assert sent["status"] == 404
+
+
+def test_a_skill_is_unlinked_by_default_and_filed_away_on_request(reg, sent, monkeypatch):
+    reg.space("casino", name="Casino")
+    calls: list = []
+    monkeypatch.setattr("jarvis_registry.integrations.unlink_skill",
+                        lambda name: calls.append(("unlink", name)) or True)
+    monkeypatch.setattr("jarvis_registry.integrations.delete_skill",
+                        lambda name: calls.append(("file", name)) or "/somewhere/casino-1")
+
+    assert delete("/api/integrations/casino/skills/casino-earnings-tracker") is True
+    assert sent["body"]["unlinked"] is True
+
+    assert delete("/api/integrations/casino/skills/casino-earnings-tracker?mode=file") is True
+    assert sent["body"]["moved_to"] == "/somewhere/casino-1"
+    assert calls == [("unlink", "casino-earnings-tracker"), ("file", "casino-earnings-tracker")]
+
+    assert delete("/api/integrations/casino/skills/x?mode=shred") is True
+    assert sent["status"] == 400
+
+
+def test_deleting_the_integration_takes_only_the_parts_asked_for(reg, sent, monkeypatch):
+    space = reg.space("casino", name="Casino")
+    space.append("sessions", {"net": 1})
+    space.put("summary", {"net": 1})
+    monkeypatch.setattr("cron.jobs.list_jobs",
+                        lambda include_disabled=False: [
+                            {"id": "abc", "name": "casino-nightly", "integration": "casino"}])
+    removed: list = []
+    monkeypatch.setattr("cron.jobs.remove_job", lambda job_id: removed.append(job_id) or True)
+
+    # Data only: the schedules and the space itself survive.
+    assert routes.handle_delete(object(), urlparse("/api/integrations/casino"),
+                                {"data": True, "schedules": False,
+                                 "skills": False, "space": False}) is True
+    assert sent["body"]["collections_removed"] == ["sessions"]
+    assert removed == []
+    assert reg.exists("casino") is True
+    assert reg.open("casino").collections() == []
+
+
+def test_a_bare_delete_still_takes_everything(reg, sent, monkeypatch):
+    reg.space("casino", name="Casino").append("sessions", {"net": 1})
+    monkeypatch.setattr("cron.jobs.list_jobs",
+                        lambda include_disabled=False: [
+                            {"id": "abc", "name": "casino-nightly", "integration": "casino"}])
+    monkeypatch.setattr("cron.jobs.remove_job", lambda job_id: True)
+
+    assert delete("/api/integrations/casino") is True
+    assert sent["body"]["schedules_removed"] == ["casino-nightly"]
+    assert sent["body"]["deleted"] is True
+    assert reg.exists("casino") is False

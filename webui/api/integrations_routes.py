@@ -11,7 +11,10 @@ integration now.
     GET    /api/integrations/<id>/records        ?collection=&limit=&since=&until=
     GET    /api/integrations/<id>/documents/<key>  one stored document
     POST   /api/integrations/<id>/status         {status: active|paused|archived}
-    DELETE /api/integrations/<id>                remove it and everything in it
+    DELETE /api/integrations/<id>/collections/<name>   drop a collection's records
+    DELETE /api/integrations/<id>/documents/<key>      drop one document
+    DELETE /api/integrations/<id>/skills/<name>?mode=unlink|file
+    DELETE /api/integrations/<id>                remove it, or the parts named in the body
 """
 from __future__ import annotations
 
@@ -149,31 +152,121 @@ def handle_post(handler, parsed, body) -> bool:
     return False
 
 
-def handle_delete(handler, parsed) -> bool:
+def handle_delete(handler, parsed, body=None) -> bool:
     from api.helpers import j
 
     path = parsed.path
     if not path.startswith("/api/integrations/"):
         return False
-    space_id = path[len("/api/integrations/"):].strip("/")
-    if not space_id or "/" in space_id or space_id in _NOT_OURS:
+    rest = path[len("/api/integrations/"):].strip("/")
+    space_id, _, tail = rest.partition("/")
+    if not space_id or space_id in _NOT_OURS:
         return False
+
     try:
         reg = _registry()
-        reg.open(space_id)
-        # The schedules go with it: an orphaned job would keep firing with no
-        # integration to run in.
-        from cron.jobs import remove_job
+        reg.open(space_id)                      # 404s before anything is removed
 
-        removed = []
-        for job in _integrations().schedules_for(space_id):
-            if remove_job(job["id"]):
-                removed.append(job.get("name") or job["id"])
-        reg.delete_space(space_id)
-        j(handler, {"ok": True, "id": space_id, "schedules_removed": removed})
-        return True
+        if tail.startswith("collections/"):
+            name = urllib.parse.unquote(tail[len("collections/"):])
+            gone = reg.open(space_id).delete_collection(name)
+            j(handler, {"ok": True, "collection": name, "records_removed": gone})
+            return True
+
+        if tail.startswith("documents/"):
+            key = urllib.parse.unquote(tail[len("documents/"):])
+            if not reg.open(space_id).delete_document(key):
+                j(handler, {"error": f"no document {key!r}"}, status=404)
+                return True
+            j(handler, {"ok": True, "document": key})
+            return True
+
+        if tail.startswith("skills/"):
+            name = urllib.parse.unquote(tail[len("skills/"):])
+            mode = (urllib.parse.parse_qs(parsed.query).get("mode") or ["unlink"])[0]
+            return _delete_skill(handler, name, mode)
+
+        if tail:
+            return False
+        return _delete_space(handler, space_id, body)
     except Exception as exc:
         return _error(handler, exc)
+
+
+def _delete_skill(handler, name: str, mode: str) -> bool:
+    """Unlink a skill from its integration, or take the skill out of service."""
+    from api.helpers import j
+
+    ints = _integrations()
+    if mode == "file":
+        where = ints.delete_skill(name)
+        if where is None:
+            j(handler, {"error": f"no skill {name!r}"}, status=404)
+            return True
+        j(handler, {"ok": True, "skill": name, "moved_to": where})
+        return True
+    if mode != "unlink":
+        j(handler, {"error": "mode must be 'unlink' or 'file'"}, status=400)
+        return True
+    if not ints.unlink_skill(name):
+        j(handler, {"error": f"{name!r} does not belong to an integration"}, status=404)
+        return True
+    j(handler, {"ok": True, "skill": name, "unlinked": True})
+    return True
+
+
+def _delete_space(handler, space_id: str, body) -> bool:
+    """Remove the integration, or only the parts the body names.
+
+    An absent body means all of it, which is what a bare DELETE has always meant.
+    ``skill_files`` is separate from ``skills`` on purpose: unlinking a skill is
+    cheap to undo, taking it out of service is not.
+    """
+    from api.helpers import j
+    from cron.jobs import remove_job
+
+    body = body if isinstance(body, dict) else {}
+    want = lambda key: bool(body.get(key, True))        # noqa: E731 — absent means all
+    reg = _registry()
+    ints = _integrations()
+    removed: dict = {"id": space_id}
+
+    if want("schedules"):
+        names = []
+        for job in ints.schedules_for(space_id):
+            if remove_job(job["id"]):
+                names.append(job.get("name") or job["id"])
+        removed["schedules_removed"] = names
+
+    if want("skills"):
+        unlinked, filed = [], []
+        for skill in ints.skills_for(space_id):
+            if body.get("skill_files"):
+                if ints.delete_skill(skill["name"]):
+                    filed.append(skill["name"])
+            elif ints.unlink_skill(skill["name"]):
+                unlinked.append(skill["name"])
+        removed["skills_unlinked"] = unlinked
+        removed["skills_deleted"] = filed
+
+    space = reg.open(space_id)
+    if want("data"):
+        collections = [c["name"] for c in space.collections()]
+        documents = [d["key"] for d in space.documents()]
+        for name in collections:
+            space.delete_collection(name)
+        for key in documents:
+            space.delete_document(key)
+        removed["collections_removed"] = collections
+        removed["documents_removed"] = documents
+
+    # Last, so a failure above leaves something to retry against.
+    if want("space"):
+        reg.delete_space(space_id)
+        removed["deleted"] = True
+
+    j(handler, {"ok": True, **removed})
+    return True
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
