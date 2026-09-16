@@ -82,8 +82,26 @@ def summary(space_id: str) -> dict:
         "collections": space.collections(),
         "documents": space.documents(),
         "skills": skills_for(space_id),
-        "schedules": schedules,
+        "schedules": [_schedule_row(job) for job in schedules],
         "schedule_count": len(schedules),
+    }
+
+
+def _schedule_row(job: dict) -> dict:
+    """What the page shows for a schedule.
+
+    Not the whole job: a prompt can run to thousands of words, and the page only
+    needs the line it draws. Run/pause/edit still go through /api/crons/*, which
+    serves the full record.
+    """
+    return {
+        "id": job.get("id"),
+        "name": job.get("name") or job.get("id"),
+        "schedule": job.get("schedule"),
+        "enabled": job.get("enabled", True),
+        "state": job.get("state"),
+        "last_run": job.get("last_run"),
+        "next_run": job.get("next_run"),
     }
 
 
@@ -92,15 +110,21 @@ def overview() -> list[dict]:
     from jarvis_registry.store import shared
 
     out = []
-    for row in shared().spaces():
+    reg = shared()
+    for row in reg.spaces():
         schedules = schedules_for(row["id"])
         enabled = [s for s in schedules if s.get("enabled", True)]
         runs = [s.get("last_run") for s in schedules if s.get("last_run")]
+        space = reg.open(row["id"])
+        collections = space.collections()
         out.append({
             **row,
             "schedule_count": len(schedules),
             "enabled_schedule_count": len(enabled),
             "skill_count": len(skills_for(row["id"])),
+            "collection_count": len(collections),
+            "document_count": len(space.documents()),
+            "record_count": sum(int(c.get("count") or 0) for c in collections),
             "last_run": max(runs) if runs else None,
         })
     return out

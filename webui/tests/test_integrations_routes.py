@@ -126,3 +126,22 @@ def test_paths_that_are_not_ours_fall_through(reg, sent):
     assert get("/api/devices") is False
     assert post("/api/devices", {}) is False
     assert delete("/api/devices/abc") is False
+
+
+def test_the_photon_setup_endpoint_is_not_a_space(reg, sent):
+    """/api/integrations/photon is the iMessage provider's config, not an integration."""
+    assert get("/api/integrations/photon") is False
+    assert post("/api/integrations/photon", {"host": "x"}) is False
+    assert delete("/api/integrations/photon") is False
+
+
+def test_a_document_can_be_opened_on_its_own(reg, sent):
+    space = reg.space("casino", name="Casino")
+    space.put("summary", {"net": 157}, description="totals so far")
+
+    assert get("/api/integrations/casino/documents/summary") is True
+    assert sent["body"]["body"] == {"net": 157}
+    assert sent["body"]["description"] == "totals so far"
+
+    assert get("/api/integrations/casino/documents/ghost") is True
+    assert sent["status"] == 404

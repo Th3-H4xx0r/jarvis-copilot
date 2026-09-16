@@ -1,4 +1,4 @@
-"""Tests for #835 — refresh button in Tasks / Scheduled Jobs panel."""
+"""Tests for #835 — refresh button in the Integrations panel (was Tasks)."""
 import os
 import re
 
@@ -36,26 +36,26 @@ class TestCronRefreshButtonHtml:
             "(native title= or custom data-tooltip= per #1775)"
         )
 
-    def test_refresh_button_calls_load_crons_with_animate(self):
+    def test_refresh_button_calls_load_with_animate(self):
         html = _read("static/index.html")
         m = re.search(r'<button[^>]*id="cronRefreshBtn"[^>]*>', html)
         assert m
         tag = m.group(0)
-        assert 'loadCrons(true)' in tag, (
-            "#cronRefreshBtn must call loadCrons(true) to enable the dim-while-fetching animation"
+        assert 'loadIntegrations(true)' in tag, (
+            "#cronRefreshBtn must pass animate=true to enable the dim-while-fetching animation"
         )
 
-    def test_refresh_button_sits_next_to_new_job_button(self):
-        """Refresh button should appear in the same header row as the New Job
+    def test_refresh_button_sits_next_to_the_create_button(self):
+        """Refresh button should appear in the same header row as the create
         button so the header layout stays tight."""
         html = _read("static/index.html")
         ref_pos = html.find('id="cronRefreshBtn"')
-        newjob_pos = html.find('openCronCreate()')
+        newjob_pos = html.find('openIntegrationCreate()')
         assert ref_pos != -1 and newjob_pos != -1
         # Must be close enough to be in the same header row (single SVG-inline
         # button can be around 500 chars by itself due to inline styles/attrs).
         assert abs(ref_pos - newjob_pos) < 1000, (
-            "Refresh button and New Job button should be in the same header row"
+            "Refresh and create buttons should be in the same header row"
         )
 
 
@@ -99,7 +99,7 @@ class TestCronCreatedEventListener:
             "panels.js must register a window-level 'jarviscopilot:cron_created' event listener"
         )
 
-    def test_listener_triggers_load_crons(self):
+    def test_listener_reloads_the_list(self):
         js = _read("static/panels.js")
         m = re.search(
             r"addEventListener\(\s*['\"]jarviscopilot:cron_created['\"].*?\}\s*\)",
@@ -108,6 +108,7 @@ class TestCronCreatedEventListener:
         )
         assert m, "jarviscopilot:cron_created listener body not found"
         body = m.group(0)
-        assert 'loadCrons' in body, (
-            "jarviscopilot:cron_created listener must call loadCrons() to refresh the list"
+        assert 'loadIntegrations' in body, (
+            "jarviscopilot:cron_created listener must reload the list so the new "
+            "schedule shows up under its integration"
         )

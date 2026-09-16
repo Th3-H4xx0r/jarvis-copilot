@@ -9244,6 +9244,7 @@ def _handle_cron_create(handler, body):
             deliver=body.get("deliver") or "local",
             skills=body.get("skills") or [],
             model=body.get("model") or None,
+            integration=body.get("integration") or None,
         )
         post_create_updates = {}
         if profile is not None:

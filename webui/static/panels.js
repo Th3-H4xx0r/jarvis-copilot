@@ -243,7 +243,7 @@ async function switchPanel(name, opts = {}) {
   // conversation sidebar for full-width content. Mirrors codememory's toggle.
   document.body.classList.toggle('coding-fullwidth', nextPanel === 'coding');
   // Lazy-load panel data
-  if (nextPanel === 'tasks') await loadCrons();
+  if (nextPanel === 'tasks') await loadIntegrations();
   if (nextPanel === 'kanban') await loadKanban();
   if (nextPanel === 'skills') await loadSkills();
   if (nextPanel === 'memory') await loadMemory();
@@ -440,33 +440,7 @@ async function loadCrons(animate) {
     await loadCronProfiles();
     const data = await api('/api/crons');
     _cronList = data.jobs || [];
-    if (!_cronList.length) {
-      box.innerHTML = `<div style="padding:16px;color:var(--muted);font-size:12px">${esc(t('cron_no_jobs'))}</div>`;
-      if (_cronMode !== 'create' && _cronMode !== 'edit') _clearCronDetail();
-      return;
-    }
-    box.innerHTML = '';
-    for (const job of _cronList) {
-      const item = document.createElement('div');
-      item.className = 'cron-item';
-      item.id = 'cron-' + job.id;
-      const status = _cronStatusMeta(job);
-      const isNewRun = _cronNewJobIds.has(String(job.id));
-      const isAgentMode = !job.no_agent;
-      const profileLabel = _cronProfileLabel(job.profile);
-      const profileTitle = _cronProfileTitle(job.profile);
-      item.innerHTML = `
-        <div class="cron-header">
-          ${isNewRun ? '<span class="cron-new-dot" title="New run"></span>' : ''}
-          ${isAgentMode ? '<span class="cron-agent-badge" title="Agent mode">🤖</span>' : ''}
-          <span class="cron-name" title="${esc(job.name)}">${esc(job.name)}</span>
-          <span class="cron-profile-badge" title="${esc(profileTitle)}">${esc(profileLabel)}</span>
-          <span class="cron-status ${status.listClass}">${esc(status.label)}</span>
-        </div>`;
-      item.onclick = () => openCronDetail(job.id, item);
-      if (_currentCronDetail && _currentCronDetail.id === job.id) item.classList.add('active');
-      box.appendChild(item);
-    }
+    await renderIntegrationsSidebar(box);
     // Re-render current detail with fresh data if we have one and we're not in a form
     if (_currentCronDetail && _cronMode !== 'create' && _cronMode !== 'edit') {
       const refreshed = _cronList.find(j => j.id === _currentCronDetail.id);
@@ -974,6 +948,7 @@ function cancelCronForm(){
     return;
   }
   _cronPreFormDetail = null;
+  _intgPendingForNewJob = null;
   _clearCronDetail();
 }
 
@@ -1012,6 +987,7 @@ async function saveCronForm(){
       return;
     }
     const body={schedule,prompt,deliver,profile: profile, toast_notifications: toastNotifications};
+    if(_intgPendingForNewJob){ body.integration=_intgPendingForNewJob; _intgPendingForNewJob=null; }
     if(_cronIsDuplicate) body.enabled=false;
     if(name)body.name=name;
     if(_cronSelectedSkills.length)body.skills=_cronSelectedSkills;
@@ -7295,7 +7271,7 @@ const _cronNewJobIds=new Set();  // track which job IDs had new completions (unr
 // Auto-refresh the cron list when a job is created from chat or any external source.
 // The chat path dispatches this event when the agent response mentions cron creation.
 window.addEventListener('jarviscopilot:cron_created', () => {
-  if ($('cronList')) loadCrons();
+  if ($('cronList')) loadIntegrations();
 });
 
 function startCronPolling(){

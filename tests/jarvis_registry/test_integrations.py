@@ -111,3 +111,26 @@ def test_general_is_created_once(reg):
     integrations.ensure_general()
     assert [s["id"] for s in reg.spaces()] == ["general"]
     assert reg.open("general").info()["name"] == "General"
+
+
+def test_the_list_says_how_much_each_one_holds(reg):
+    space = reg.space("casino", name="Casino")
+    space.put("summary", {"net": 157})
+    space.append("sessions", {"net": 40})
+    space.append("sessions", {"net": -12})
+
+    row = next(r for r in integrations.overview() if r["id"] == "casino")
+    assert (row["collection_count"], row["record_count"], row["document_count"]) == (1, 2, 1)
+
+
+def test_a_schedule_row_leaves_the_prompt_behind(reg, monkeypatch):
+    reg.space("casino", name="Casino")
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [
+        {"id": "j1", "name": "casino-nightly", "integration": "casino",
+         "schedule": {"kind": "cron", "expr": "0 9 * * *"}, "enabled": True,
+         "prompt": "a very long prompt " * 200, "next_run": 1700}])
+
+    row = integrations.summary("casino")["schedules"][0]
+    assert row == {"id": "j1", "name": "casino-nightly",
+                   "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+                   "enabled": True, "state": None, "last_run": None, "next_run": 1700}

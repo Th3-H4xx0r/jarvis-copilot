@@ -9,6 +9,7 @@ integration now.
     POST   /api/integrations                     create one {id?, name, description, icon}
     GET    /api/integrations/<id>                one, with data, skills and schedules
     GET    /api/integrations/<id>/records        ?collection=&limit=&since=&until=
+    GET    /api/integrations/<id>/documents/<key>  one stored document
     POST   /api/integrations/<id>/status         {status: active|paused|archived}
     DELETE /api/integrations/<id>                remove it and everything in it
 """
@@ -20,6 +21,10 @@ import urllib.parse
 logger = logging.getLogger(__name__)
 
 _MAX_RECORDS = 200
+
+# /api/integrations/photon is the iMessage provider's setup endpoint and predates the
+# registry. It is not a space, so it falls through to the handler that owns it.
+_NOT_OURS = {"photon"}
 
 
 def _registry():
@@ -54,12 +59,24 @@ def handle_get(handler, parsed) -> bool:
 
     rest = path[len("/api/integrations/"):].strip("/")
     space_id, _, tail = rest.partition("/")
-    if not space_id:
+    if not space_id or space_id in _NOT_OURS:
         return False
 
     try:
         if tail == "":
             j(handler, _integrations().summary(space_id))
+            return True
+        if tail.startswith("documents/"):
+            key = urllib.parse.unquote(tail[len("documents/"):])
+            space = _registry().open(space_id)
+            body = space.get(key, default=None)
+            if body is None:
+                j(handler, {"error": f"no document {key!r}"}, status=404)
+                return True
+            described = next((d for d in space.documents() if d["key"] == key), {})
+            j(handler, {"space": space_id, "key": key, "body": body,
+                        "description": described.get("description") or "",
+                        "updated_at": described.get("updated_at")})
             return True
         if tail == "records":
             qs = urllib.parse.parse_qs(parsed.query)
@@ -112,6 +129,8 @@ def handle_post(handler, parsed, body) -> bool:
         return False
     rest = path[len("/api/integrations/"):].strip("/")
     space_id, _, tail = rest.partition("/")
+    if space_id in _NOT_OURS:
+        return False
 
     if tail == "status":
         try:
@@ -133,7 +152,7 @@ def handle_delete(handler, parsed) -> bool:
     if not path.startswith("/api/integrations/"):
         return False
     space_id = path[len("/api/integrations/"):].strip("/")
-    if not space_id or "/" in space_id:
+    if not space_id or "/" in space_id or space_id in _NOT_OURS:
         return False
     try:
         reg = _registry()

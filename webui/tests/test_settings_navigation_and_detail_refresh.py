@@ -54,8 +54,17 @@ class TestMasterDetailRefreshClearsRemovedSelections:
     """Refreshes must not leave dead detail panes visible after a selection disappears."""
 
     def test_tasks_clear_empty_state_detail(self):
-        assert "if (_cronMode !== 'create' && _cronMode !== 'edit') _clearCronDetail();" in PANELS_JS, (
-            "loadCrons() must clear the detail pane when the jobs list becomes empty"
+        """No early return may skip the refresh block below.
+
+        An empty job list has to clear an open detail exactly as a deleted job does,
+        and since the sidebar moved to integrations there is only that one block to
+        do it: it looks the open job up in an empty list and finds nothing.
+        """
+        body = re.search(r"async function loadCrons\(.*?\n\}", PANELS_JS, re.DOTALL)
+        assert body, "loadCrons body not found"
+        before_refresh = body.group(0).split("if (_currentCronDetail && _cronMode")[0]
+        assert "return;" not in before_refresh, (
+            "loadCrons() must not return before the block that clears a dead detail pane"
         )
 
     def test_tasks_clear_missing_selected_job(self):

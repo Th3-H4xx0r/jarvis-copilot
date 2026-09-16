@@ -221,7 +221,9 @@ def test_cron_profile_selector_source_hooks_present():
     assert "id=\"cronFormProfile\"" in panels
     assert "profile: profile" in panels
     assert "job.profile" in panels
-    assert "cron-profile-badge" in panels
+    integrations = (REPO / "static" / "integrations.js").read_text(encoding="utf-8")
+    # The badge moved with the list: schedules are shown inside their integration now.
+    assert "cron-profile-badge" in integrations
     assert ".cron-profile-badge" in css
     assert "cron_profile_server_default" in i18n
     assert "cron_profile_server_default_hint" in i18n
