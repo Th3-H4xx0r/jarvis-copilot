@@ -1,31 +1,250 @@
 import SwiftUI
 
-/// What the Integrations screens share: their type scale, their tap-target floor,
-/// the one delete confirmation they all go through, and the card the setup
-/// conversation draws for each thing it creates.
+/// The parts the Integrations screens are built from: a titled section, one
+/// rounded card of hairline-separated rows, and the row itself.
 ///
-/// The rows, groups, separators and disclosure indicators these screens used to
-/// hand-roll are `List` with `.insetGrouped` now — the system draws them, and it
-/// draws them right at every text size.
+/// The row is the whole pattern in one place — tap to open, ⋯ to act on it — so a
+/// schedule, a collection, a document and a skill all behave the same way.
 ///
-/// Type here is Dynamic Type rather than `JcText`, whose fixed point sizes never
-/// grow with the system text setting. The defaults land within a point of the rest
-/// of the app; these screens just also scale.
-
-/// The sizes these screens use, as text styles that scale.
-enum IntegrationType {
-    /// 20pt semibold — a screen or card title.
-    static let title = Font.title3.weight(.semibold)
-    /// 15pt — the default reading size, and a row's name.
-    static let body = Font.subheadline
-    /// 15pt semibold — a control's label.
-    static let label = Font.subheadline.weight(.semibold)
-    /// 13pt — a row's second line, a caption, metadata.
-    static let small = Font.footnote
-}
+/// Type stays on the app's fixed scale (`JcText`) rather than Dynamic Type: these
+/// screens sit next to ones that don't scale, and a section that grows on its own
+/// reads as a different app rather than as a setting being honoured.
 
 /// The smallest a control may be and still be reliably tappable (HIG: 44x44 pt).
 let integrationTapTarget: CGFloat = 44
+
+/// A titled section with a count chip and, optionally, one action on the right.
+struct IntegrationSection<Content: View>: View {
+    let title: String
+    let count: Int
+    /// A word about the section's state — "2 running", "all paused" — where the
+    /// answer belongs: next to the name of the thing it is about.
+    var status: String? = nil
+    var statusColor: Color = JcTheme.success
+    var action: Action? = nil
+    @ViewBuilder var content: Content
+
+    struct Action {
+        let symbol: String
+        let run: () -> Void
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title) {
+                HStack(spacing: 8) {
+                    if let status {
+                        Text(status)
+                            .font(JcText.small)
+                            .foregroundStyle(statusColor)
+                    }
+                    CountChip(count)
+                    if let action {
+                        Button(action: action.run) {
+                            JcIcon(action.symbol, size: 15)
+                                .foregroundStyle(JcTheme.accent)
+                                .fixedSize()
+                                .frame(width: integrationTapTarget, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Add to \(title)")
+                    }
+                }
+            }
+            content
+        }
+    }
+}
+
+/// How many of a thing a section holds.
+struct CountChip: View {
+    let count: Int
+
+    init(_ count: Int) { self.count = count }
+
+    var body: some View {
+        Text("\(count)")
+            .font(JcText.small)
+            .foregroundStyle(JcTheme.accent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(JcTheme.accent.opacity(0.14)))
+    }
+}
+
+/// One rounded card holding a section's rows.
+struct InsetGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GlassCard(padding: 0) { VStack(spacing: 0) { content } }
+    }
+}
+
+/// An `InsetGroup` built from a list, with a separator between each pair.
+struct InsetRows<Item: Identifiable, Row: View>: View {
+    let items: [Item]
+    @ViewBuilder let row: (Item) -> Row
+
+    init(_ items: [Item], @ViewBuilder row: @escaping (Item) -> Row) {
+        self.items = items
+        self.row = row
+    }
+
+    var body: some View {
+        InsetGroup {
+            ForEach(items) { item in
+                row(item)
+                if item.id != items.last?.id { InsetDivider() }
+            }
+        }
+    }
+}
+
+/// The hairline between two rows, inset past the text so it reads as a list.
+struct InsetDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(JcTheme.border)
+            .frame(height: 0.5)
+            .padding(.leading, 16)
+    }
+}
+
+/// One thing inside a section: tap the body to open it, ⋯ to act on it.
+struct IntegrationRow<Menu: View>: View {
+    let name: String
+    let note: String
+    let trailing: String
+    /// State as a shape, not only as a colour: a paused schedule reads as paused
+    /// to someone who cannot tell grey from green.
+    var leading: String? = nil
+    var leadingColor: Color = JcTheme.accent
+    var route: IntegrationDataRoute? = nil
+    var onTap: (() -> Void)? = nil
+    @ViewBuilder var menu: Menu
+
+    init(name: String, note: String, trailing: String,
+         leading: String? = nil, leadingColor: Color = JcTheme.accent,
+         route: IntegrationDataRoute? = nil, onTap: (() -> Void)? = nil,
+         @ViewBuilder menu: () -> Menu) {
+        self.name = name
+        self.note = note
+        self.trailing = trailing
+        self.leading = leading
+        self.leadingColor = leadingColor
+        self.route = route
+        self.onTap = onTap
+        self.menu = menu()
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let route {
+                NavigationLink(value: route) { label }.buttonStyle(.plain)
+            } else if let onTap {
+                Button(action: onTap) { label }.buttonStyle(.plain)
+            } else {
+                label
+            }
+            SwiftUI.Menu {
+                menu
+            } label: {
+                JcIcon("ellipsis", size: 14)
+                    .foregroundStyle(JcTheme.muted)
+                    .frame(width: 40, height: integrationTapTarget)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Actions for \(name)")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
+    }
+
+    private var label: some View {
+        HStack(spacing: 10) {
+            if let leading {
+                JcIcon(leading, size: 11)
+                    .foregroundStyle(leadingColor)
+                    .fixedSize()
+                    .frame(width: 14)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(JcText.body)
+                    .foregroundStyle(JcTheme.text)
+                    .lineLimit(1)
+                if !note.isEmpty {
+                    Text(note)
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            Spacer(minLength: 0)
+            if !trailing.isEmpty {
+                Text(trailing)
+                    .font(JcText.small.monospacedDigit())
+                    .foregroundStyle(JcTheme.muted)
+            }
+            // A row that goes somewhere says so, the way every other row in iOS does.
+            if route != nil || onTap != nil {
+                JcIcon("chevron.right", size: 10)
+                    .foregroundStyle(JcTheme.muted.opacity(0.6))
+                    .fixedSize()
+            }
+        }
+        .padding(.vertical, 11)
+        .frame(minHeight: integrationTapTarget)
+        .contentShape(Rectangle())
+    }
+}
+
+struct IntegrationEmptyRow: View {
+    let text: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    init(text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        self.text = text
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    var body: some View {
+        InsetGroup {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(text)
+                    .font(JcText.small)
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                // An empty section that names what would fill it beats one that
+                // only reports that it is empty.
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .font(JcText.label)
+                        .foregroundStyle(JcTheme.accent)
+                        .frame(minHeight: 32)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+    }
+}
+
+struct IntegrationLoadingRow: View {
+    var body: some View {
+        InsetGroup {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+        }
+    }
+}
 
 // MARK: - Confirming a delete
 
@@ -133,11 +352,11 @@ struct SetupCardView: View {
             JcIcon(symbol, size: 14).foregroundStyle(JcTheme.success).fixedSize()
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.name)
-                    .font(IntegrationType.body)
+                    .font(JcText.body)
                     .foregroundStyle(JcTheme.text)
                 if !card.detail.isEmpty {
                     Text(card.detail)
-                        .font(IntegrationType.small)
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                 }

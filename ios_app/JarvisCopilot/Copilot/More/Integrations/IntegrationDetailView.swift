@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// One integration: what it runs, and then what it keeps and knows.
+/// One integration: what it is, what it runs, what it keeps, what it knows.
 ///
-/// Schedules come first and carry the answer to the only question this screen is
-/// opened with — is it working? The header says so ("2 of 3 running"), and data
-/// and skills collapse into a row each, because they are what the schedules work
-/// with rather than things that happen on their own.
-///
-/// An inset-grouped `List`: swipe a schedule to pause or delete it, and the
-/// integration's own controls (pause, delete) live in the nav bar's ⋯.
+/// Grouped inset cards — each section is a single rounded card with hairline
+/// separators, and every row carries its own ⋯ for Open and Delete. The
+/// integration's own controls (pause, delete) live in the nav bar's ⋯, so the
+/// content starts at the content.
 ///
 /// Schedules come from `/api/crons` rather than the integration payload, because
 /// tapping one opens the same detail sheet the Tasks screen used, with the prompt,
@@ -44,27 +41,26 @@ struct IntegrationDetailView: View {
     }
 
     var body: some View {
-        // A real inset-grouped List, wearing the app's palette: native row metrics,
-        // separators, section headers and footers, swipe actions and Dynamic Type,
-        // none of which a stack of hand-built cards gets for free.
-        List {
-            if !integration.summary.isEmpty {
-                Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                // No identity card: the navigation bar already says the name, and
+                // a box under it repeating the name is the screen's wasted space.
+                if !integration.summary.isEmpty {
                     Text(integration.summary)
-                        .font(IntegrationType.body)
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 8, trailing: 4))
-                        .listRowSeparator(.hidden)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 2)
                 }
+                schedulesSection
+                dataSection
+                skillsSection
             }
-            schedulesSection
-            holdingsSection
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 32)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, integrationTapTarget)
         .refreshable {
             await store.open(pushed.id)
             await crons.refresh()
@@ -89,16 +85,18 @@ struct IntegrationDetailView: View {
                 skillCount: detail?.skills.count ?? 0
             ) { parts in
                 let outcome = await store.delete(integration, parts: parts)
-                await crons.refresh()          // the schedules live in another store
+                // The schedules live in a different store; without this the card
+                // keeps listing jobs that are gone.
+                await crons.refresh()
                 if outcome.spaceRemoved {
-                    // After the sheet dismisses itself: popping the presenter out
-                    // from under a sheet that is still up swallows the pop.
+                    // After the sheet has dismissed itself: popping the presenter
+                    // out from under a sheet that is still up swallows the pop.
                     afterSheetDismissal { dismiss() }
                 }
                 return outcome.succeeded
             }
         }
-        .alert("Delete \(pendingDelete?.name ?? "Schedule")?",
+        .alert("Delete schedule?",
                isPresented: Binding(get: { pendingDelete != nil },
                                     set: { if !$0 { pendingDelete = nil } }),
                presenting: pendingDelete) { job in
@@ -110,8 +108,8 @@ struct IntegrationDetailView: View {
                     await store.refresh()
                 }
             }
-        } message: { _ in
-            Text("It stops running and its history goes with it. This cannot be undone.")
+        } message: { job in
+            Text("\"\(job.name.isEmpty ? job.id : job.name)\" stops running and its history goes with it. This cannot be undone.")
         }
         .integrationConfirm($confirming, store: store)
     }
@@ -126,7 +124,7 @@ struct IntegrationDetailView: View {
                 Label(integration.isPaused ? "Resume" : "Pause",
                       jcIcon: integration.isPaused ? "play.fill" : "pause.fill")
             }
-            Button { route = .create } label: { Label("New Schedule", jcIcon: "plus") }
+            Button { route = .create } label: { Label("New schedule", jcIcon: "plus") }
             Divider()
             Button(role: .destructive) { deletingIntegration = true } label: {
                 Label("Delete\u{2026}", jcIcon: "trash")
@@ -139,93 +137,7 @@ struct IntegrationDetailView: View {
         .accessibilityLabel("Integration actions")
     }
 
-    // MARK: What runs
-
-    /// First, and with its state in the header: an integration is a thing that runs
-    /// for you, and "is it working?" is the question this screen exists to answer.
-    @ViewBuilder
-    private var schedulesSection: some View {
-        Section {
-            if !crons.hasLoaded {
-                ProgressView().frame(maxWidth: .infinity).listRowBackground(rowBackground)
-            } else if schedules.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Nothing runs in this integration yet. A schedule is what does its work.")
-                        .font(IntegrationType.small)
-                        .foregroundStyle(JcTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("New Schedule") { route = .create }
-                        .font(IntegrationType.label)
-                        .foregroundStyle(JcTheme.accent)
-                }
-                .padding(.vertical, 4)
-                .listRowBackground(rowBackground)
-            } else {
-                ForEach(schedules) { job in
-                    Button { route = .detail(job) } label: { scheduleRow(job) }
-                        .buttonStyle(.plain)
-                        .listRowBackground(rowBackground)
-                        // Swipe on a row is how iOS expects this to work.
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { pendingDelete = job } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            Button {
-                                Task { await crons.togglePause(job); await store.refresh() }
-                            } label: {
-                                Label(job.isPaused ? "Resume" : "Pause",
-                                      systemImage: job.isPaused ? "play.fill" : "pause.fill")
-                            }
-                            .tint(JcTheme.accent)
-                        }
-                }
-            }
-        } header: {
-            HStack {
-                Text("Schedules")
-                Spacer()
-                if crons.hasLoaded, !schedules.isEmpty {
-                    Text(runningSummary)
-                        .foregroundStyle(allPaused ? JcTheme.muted : JcTheme.accent)
-                }
-            }
-            .font(IntegrationType.small)
-            .textCase(.uppercase)
-            .foregroundStyle(JcTheme.muted)
-        } footer: {
-            if crons.hasLoaded, allPaused, !schedules.isEmpty {
-                Text("Paused schedules don't run. Swipe a row to resume one.")
-                    .font(IntegrationType.small)
-                    .foregroundStyle(JcTheme.muted)
-            }
-        }
-    }
-
-    private func scheduleRow(_ job: CronJob) -> some View {
-        HStack(spacing: 12) {
-            // State as shape and colour, never colour alone.
-            JcIcon(job.isPaused ? "pause.fill" : "play.fill", size: 11)
-                .foregroundStyle(job.isPaused ? JcTheme.muted : JcTheme.accent)
-                .fixedSize()
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(job.name.isEmpty ? job.id : job.name)
-                    .font(IntegrationType.body)
-                    .foregroundStyle(JcTheme.text)
-                    .lineLimit(1)
-                Text(scheduleLine(job))
-                    .font(IntegrationType.small)
-                    .foregroundStyle(JcTheme.muted)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            JcIcon("chevron.right", size: 11)
-                .foregroundStyle(JcTheme.muted.opacity(0.7))
-                .fixedSize()
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
+    // MARK: Sections
 
     /// "every 15m · next 9:40 PM" — when it runs, and when that next happens.
     private func scheduleLine(_ job: CronJob) -> String {
@@ -243,69 +155,119 @@ struct IntegrationDetailView: View {
         !schedules.isEmpty && schedules.allSatisfy(\.isPaused)
     }
 
-    private var runningSummary: String {
+    /// What the header says instead of the status pill the identity card carried.
+    private var runningSummary: String? {
+        if schedules.isEmpty { return nil }
         let off = schedules.filter(\.isPaused).count
         if off == schedules.count { return schedules.count == 1 ? "paused" : "all paused" }
-        if off > 0 { return "\(schedules.count - off) of \(schedules.count) running" }
-        return schedules.count == 1 ? "running" : "\(schedules.count) running"
+        if off > 0 { return "\(schedules.count - off) running" }
+        return schedules.count == 1 ? "running" : "all running"
     }
 
-    // MARK: What it keeps and knows
-
-    /// Data and skills are what the schedules work with — supporting, so one row
-    /// each rather than two more lists competing with the thing that runs.
     @ViewBuilder
-    private var holdingsSection: some View {
-        let collections = detail?.collections.count ?? integration.collectionCount
-        let documents = detail?.documents.count ?? integration.documentCount
-        let skills = detail?.skills.count ?? integration.skillCount
-
-        Section {
-            NavigationLink(value: IntegrationDataRoute.data(pushed.id)) {
-                holdingRow("Data", note: dataNote(collections: collections, documents: documents),
-                           count: collections + documents)
+    private var schedulesSection: some View {
+        // First, and with its state in the header: an integration is a thing that
+        // runs for you, and "is it working?" is what this screen is opened to answer.
+        IntegrationSection(title: "Schedules", count: schedules.count,
+                           status: crons.hasLoaded ? runningSummary : nil,
+                           statusColor: allPaused ? JcTheme.muted : JcTheme.success,
+                           action: .init(symbol: "plus") { route = .create }) {
+            if !crons.hasLoaded {
+                IntegrationLoadingRow()
+            } else if schedules.isEmpty {
+                IntegrationEmptyRow(text: "Nothing runs in this integration yet — a schedule is what does its work.",
+                                    actionTitle: "New schedule") { route = .create }
+            } else {
+                InsetRows(schedules) { job in
+                    IntegrationRow(name: job.name.isEmpty ? job.id : job.name,
+                                   note: scheduleLine(job),
+                                   trailing: "",
+                                   leading: job.isPaused ? "pause.fill" : "play.fill",
+                                   leadingColor: job.isPaused ? JcTheme.muted : JcTheme.success,
+                                   onTap: { route = .detail(job) }) {
+                        Button { route = .detail(job) } label: { Label("Open", jcIcon: "arrow.right") }
+                        Button {
+                            Task { await crons.togglePause(job); await store.refresh() }
+                        } label: {
+                            Label(job.isPaused ? "Resume" : "Pause",
+                                  jcIcon: job.isPaused ? "play.fill" : "pause.fill")
+                        }
+                        Button(role: .destructive) { pendingDelete = job } label: {
+                            Label("Delete", jcIcon: "trash")
+                        }
+                    }
+                }
             }
-            .listRowBackground(rowBackground)
-            NavigationLink(value: IntegrationDataRoute.skills(pushed.id)) {
-                holdingRow("Skills",
-                           note: skills == 0 ? "Nothing claims this integration yet"
-                                             : "What Jarvis knows about doing this work",
-                           count: skills)
-            }
-            .listRowBackground(rowBackground)
-        } header: {
-            Text("Holdings")
-                .font(IntegrationType.small)
-                .textCase(.uppercase)
-                .foregroundStyle(JcTheme.muted)
         }
     }
 
-    private func holdingRow(_ title: String, note: String, count: Int) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(IntegrationType.body).foregroundStyle(JcTheme.text)
-                Text(note).font(IntegrationType.small).foregroundStyle(JcTheme.muted).lineLimit(1)
+    @ViewBuilder
+    private var dataSection: some View {
+        let collections = detail?.collections ?? []
+        let documents = detail?.documents ?? []
+        IntegrationSection(title: "Data", count: collections.count + documents.count) {
+            if let message = store.detailError {
+                IntegrationEmptyRow(text: message)
+            } else if detail == nil {
+                IntegrationLoadingRow()
+            } else if collections.isEmpty && documents.isEmpty {
+                IntegrationEmptyRow(text: "Nothing stored yet.")
+            } else {
+                InsetGroup {
+                    ForEach(collections) { collection in
+                        IntegrationRow(name: collection.name,
+                                       note: collection.summary.isEmpty
+                                           ? "no description yet" : collection.summary,
+                                       trailing: collection.count.formatted(),
+                                       route: .records(pushed.id, collection.name)) {
+                            Button(role: .destructive) {
+                                confirming = .collection(collection)
+                            } label: { Label("Delete", jcIcon: "trash") }
+                        }
+                        if collection.id != collections.last?.id || !documents.isEmpty {
+                            InsetDivider()
+                        }
+                    }
+                    ForEach(documents) { document in
+                        IntegrationRow(name: document.key,
+                                       note: document.summary.isEmpty
+                                           ? "a stored document" : document.summary,
+                                       trailing: document.sizeLabel,
+                                       route: .document(pushed.id, document.key)) {
+                            Button(role: .destructive) {
+                                confirming = .document(document)
+                            } label: { Label("Delete", jcIcon: "trash") }
+                        }
+                        if document.id != documents.last?.id { InsetDivider() }
+                    }
+                }
             }
-            Spacer(minLength: 0)
-            Text("\(count)")
-                .font(IntegrationType.body.monospacedDigit())
-                .foregroundStyle(JcTheme.muted)
         }
-        .padding(.vertical, 4)
     }
 
-    private func dataNote(collections: Int, documents: Int) -> String {
-        if collections + documents == 0 { return "Nothing stored yet" }
-        var parts: [String] = []
-        if collections > 0 { parts.append("\(collections) collection\(collections == 1 ? "" : "s")") }
-        if documents > 0 { parts.append("\(documents) document\(documents == 1 ? "" : "s")") }
-        return parts.joined(separator: ", ")
-    }
-
-    /// The app's card surface, as a list row background.
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 0).fill(JcTheme.surface)
+    @ViewBuilder
+    private var skillsSection: some View {
+        let skills = detail?.skills
+        IntegrationSection(title: "Skills", count: skills?.count ?? 0) {
+            if let skills {
+                if skills.isEmpty {
+                    IntegrationEmptyRow(
+                        text: "No skills claim this integration. A skill joins one by naming it "
+                            + "in its front matter: integration: \(pushed.id)")
+                } else {
+                    InsetRows(skills) { skill in
+                        IntegrationRow(name: skill.name, note: skill.summary, trailing: "",
+                                       route: .skill(pushed.id, skill.name)) {
+                            Button(role: .destructive) {
+                                confirming = .skill(skill)
+                            } label: { Label("Delete\u{2026}", jcIcon: "trash") }
+                        }
+                    }
+                }
+            } else if store.detailError == nil {
+                IntegrationLoadingRow()
+            }
+        }
     }
 
     // MARK: Schedule sheets — the same ones the Tasks screen used
@@ -351,10 +313,6 @@ struct IntegrationDetailView: View {
 
 /// Where a Data row goes: a collection's records, or one document's contents.
 enum IntegrationDataRoute: Hashable {
-    /// Everything this integration keeps: its collections and its documents.
-    case data(String)
-    /// Every skill that claims it.
-    case skills(String)
     case records(String, String)
     case document(String, String)
     case skill(String, String)

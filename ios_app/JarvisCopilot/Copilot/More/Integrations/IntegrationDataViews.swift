@@ -16,68 +16,32 @@ struct IntegrationRecordsView: View {
     @State private var loaded = false
 
     var body: some View {
-        // One section per record, its time as the header. `LabeledContent` puts the
-        // field name against its value and re-stacks them at accessibility sizes,
-        // which a fixed-width label column cannot do.
-        List {
-            ForEach(records) { record in
-                Section {
-                    ForEach(record.fields, id: \.key) { field in
-                        LabeledContent {
-                            Text(field.value.isEmpty ? "\u{2014}" : field.value)
-                                .font(IntegrationType.small)
-                                .foregroundStyle(JcTheme.text)
-                                .multilineTextAlignment(.trailing)
-                        } label: {
-                            Text(field.key)
-                                .font(IntegrationType.small)
-                                .foregroundStyle(JcTheme.muted)
-                        }
-                        .listRowBackground(JcTheme.surface)
-                    }
-                } header: {
-                    if !record.timeLabel.isEmpty {
-                        Text(record.timeLabel)
-                            .font(IntegrationType.small)
-                            .foregroundStyle(JcTheme.accent)
-                            .textCase(nil)   // a timestamp is not a section name
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if let errorMessage {
+                    CenteredMessage(text: errorMessage, color: JcTheme.danger) { Task { await load() } }
+                        .padding(.top, 80)
+                } else if !loaded {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
+                } else if records.isEmpty {
+                    CenteredMessage(text: "Nothing recorded yet.").padding(.top, 80)
+                } else {
+                    Text("\(records.count) record\(records.count == 1 ? "" : "s"), newest first.")
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
+                        .padding(.bottom, 2)
+                    ForEach(records) { record in
+                        IntegrationRecordCard(record: record)
                     }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 28)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, integrationTapTarget)
-        .overlay { state }
         .refreshable { await load() }
         .jcScreen(collection)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if loaded, !records.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(records.count)")
-                        .font(IntegrationType.small.monospacedDigit())
-                        .foregroundStyle(JcTheme.muted)
-                        .accessibilityLabel("\(records.count) records")
-                }
-            }
-        }
         .task { if !loaded { await load() } }
-    }
-
-    @ViewBuilder
-    private var state: some View {
-        if let errorMessage {
-            CenteredMessage(text: errorMessage, color: JcTheme.danger) { Task { await load() } }
-        } else if !loaded {
-            ProgressView()
-        } else if records.isEmpty {
-            ContentUnavailableView {
-                Label("Nothing Recorded", jcIcon: "folder")
-            } description: {
-                Text("This collection is empty until a schedule appends to it.")
-            }
-        }
     }
 
     private func load() async {
@@ -88,6 +52,36 @@ struct IntegrationRecordsView: View {
             errorMessage = apiErrorMessage(error)
         }
         loaded = true
+    }
+}
+
+struct IntegrationRecordCard: View {
+    let record: IntegrationRecord
+
+    var body: some View {
+        GlassCard(padding: 12) {
+            VStack(alignment: .leading, spacing: 7) {
+                if !record.timeLabel.isEmpty {
+                    Text(record.timeLabel)
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.accent)
+                }
+                ForEach(record.fields, id: \.key) { field in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(field.key)
+                            .font(JcText.small)
+                            .foregroundStyle(JcTheme.muted)
+                            .frame(width: 92, alignment: .leading)
+                        Text(field.value.isEmpty ? "—" : field.value)
+                            .font(JcText.small)
+                            .foregroundStyle(JcTheme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -112,7 +106,7 @@ struct IntegrationDocumentView: View {
                 } else {
                     GlassCard(padding: 12) {
                         Text(body_.isEmpty ? "Empty." : body_)
-                            .font(IntegrationType.small.monospaced())
+                            .font(JcText.small.monospaced())
                             .foregroundStyle(JcTheme.text)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

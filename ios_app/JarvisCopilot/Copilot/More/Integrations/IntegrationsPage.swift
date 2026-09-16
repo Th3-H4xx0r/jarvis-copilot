@@ -21,27 +21,20 @@ struct IntegrationsPage: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            // An inset-grouped List: system row metrics, separators, disclosure
-            // indicators and swipe actions, rather than a stack of cards that has
-            // to reimplement all four and gets the tap targets wrong doing it.
-            List {
-                content
+            ScrollView {
+                VStack(spacing: 10) {
+                    content
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, integrationTapTarget)
             .refreshable { await store.refresh() }
             .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
-            .overlay { emptyState }
             .jcScreen("Integrations")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { settingUp = true } label: {
-                        JcIcon("plus", size: 16)
-                            .frame(width: integrationTapTarget, height: integrationTapTarget)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("New integration")
+                    GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
                 }
             }
             .navigationDestination(for: Integration.self) { integration in
@@ -49,10 +42,6 @@ struct IntegrationsPage: View {
             }
             .navigationDestination(for: IntegrationDataRoute.self) { route in
                 switch route {
-                case .data(let id):
-                    IntegrationDataListView(integrationID: id, store: store)
-                case .skills(let id):
-                    IntegrationSkillsListView(integrationID: id, store: store)
                 case .records(let id, let collection):
                     IntegrationRecordsView(integrationID: id, collection: collection, store: store)
                 case .document(let id, let key):
@@ -75,88 +64,69 @@ struct IntegrationsPage: View {
 
     @ViewBuilder
     private var content: some View {
-        Section {
-            ForEach(store.integrations) { integration in
-                NavigationLink(value: integration) {
-                    IntegrationRowLabel(integration: integration)
-                }
-                .listRowBackground(JcTheme.surface)
-                .swipeActions(edge: .trailing) {
-                    Button {
-                        Task { await store.togglePause(integration) }
-                    } label: {
-                        Label(integration.isPaused ? "Resume" : "Pause",
-                              systemImage: integration.isPaused ? "play.fill" : "pause.fill")
-                    }
-                    .tint(integration.isPaused ? JcTheme.accent : JcTheme.muted)
-                }
-            }
-        } footer: {
-            if !store.integrations.isEmpty {
-                Text("Each one owns its own schedules, what it stores, and the skills written for it.")
-                    .font(IntegrationType.small)
-                    .foregroundStyle(JcTheme.muted)
-            }
-        }
-    }
-
-    /// Loading, failure and emptiness sit over the list rather than inside it, so
-    /// none of them inherits a row's inset and separators.
-    @ViewBuilder
-    private var emptyState: some View {
         if let message = store.errorMessage, store.integrations.isEmpty {
             CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
+                .padding(.top, 100)
         } else if !store.hasLoaded {
-            ProgressView()
+            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
-            ContentUnavailableView {
-                Label("No Integrations", jcIcon: "folder")
-            } description: {
-                Text("Tell Jarvis what you want tracked and it builds one: the schedules that do the work, somewhere to keep the results, and the skills to read them back.")
-            } actions: {
-                Button("New Integration") { settingUp = true }
-                    .buttonStyle(.borderedProminent)
-                    .tint(JcTheme.accent)
+            CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track.")
+                .padding(.top, 100)
+        } else {
+            ForEach(store.integrations) { integration in
+                NavigationLink(value: integration) {
+                    IntegrationCard(integration: integration)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 }
 
-/// One integration in the list. Leads with whether it runs, because that is the
-/// question the list is scanned for; the counts follow.
-struct IntegrationRowLabel: View {
+/// One integration in the list, in the card the rest of the app uses: a round
+/// icon tile, a name, and one line under it. Leads with whether it runs, because
+/// that is what the list is scanned for.
+struct IntegrationCard: View {
     let integration: Integration
 
-    var body: some View {
-        HStack(spacing: 12) {
-            JcIcon(IntegrationIcon.symbol(for: integration.icon), size: 17)
-                .foregroundStyle(integration.isPaused ? JcTheme.muted : JcTheme.accent)
-                .fixedSize()
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(integration.name)
-                    .font(IntegrationType.body)
-                    .foregroundStyle(JcTheme.text)
-                    .lineLimit(1)
-                Text(status)
-                    .font(IntegrationType.small)
-                    .foregroundStyle(JcTheme.muted)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 5)
-    }
+    private var accent: Color { integration.isPaused ? JcTheme.muted : JcTheme.accent }
 
-    /// "2 schedules running · 18 records", or "Paused" when nothing of it runs —
-    /// state as a word, never as a colour on its own.
-    private var status: String {
-        if integration.isPaused { return "Paused · \(integration.subtitle)" }
-        let running = integration.enabledScheduleCount
-        if running == 0 && integration.scheduleCount == 0 {
-            return integration.summary.isEmpty ? integration.subtitle : integration.summary
+    var body: some View {
+        GlassCard(padding: 12, fill: JcTheme.surface,
+                  borderColor: integration.isPaused ? JcTheme.muted.opacity(0.28) : JcTheme.glassBorder) {
+            HStack(spacing: 12) {
+                JcIcon(IntegrationIcon.symbol(for: integration.icon))
+                    .font(.system(size: 19))
+                    .foregroundStyle(accent)
+                    .frame(width: 38, height: 38)
+                    .background(accent.opacity(0.12), in: Circle())
+                    .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(integration.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(JcTheme.text)
+                            .lineLimit(1)
+                        if integration.isPaused {
+                            StatusPill("PAUSED", color: JcTheme.muted, dense: true)
+                        } else if integration.scheduleCount > 0, integration.enabledScheduleCount == 0 {
+                            StatusPill("ALL OFF", color: JcTheme.muted, dense: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    // One line for every row, always the same line — the prose
+                    // description lives on the detail screen, where it has room.
+                    Text(integration.subtitle)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                JcIcon("chevron.right", size: 11)
+                    .foregroundStyle(JcTheme.muted.opacity(0.6))
+                    .fixedSize()
+            }
+            .frame(minHeight: integrationTapTarget)
         }
-        if running == 0 { return "All schedules paused · \(integration.subtitle)" }
-        return integration.subtitle
     }
 }
