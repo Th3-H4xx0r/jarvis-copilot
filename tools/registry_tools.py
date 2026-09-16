@@ -369,6 +369,15 @@ _READY = {
         "properties": {
             "space": {"type": "string", "description": "The integration's space id"},
             "summary": {"type": "string", "description": "One line: what it now does"},
+            "on_request": {
+                "type": "boolean",
+                "description": (
+                    "True only when this integration is meant to run when the user "
+                    "asks, not on its own. Anything the user asked you to watch, "
+                    "track, monitor or tell them about needs a schedule instead — a "
+                    "skill by itself is instructions nobody is following."
+                ),
+            },
         },
         "required": ["space"],
     },
@@ -396,6 +405,18 @@ def _h_ready(args=None, **_kw) -> str:
 
     schedules = schedules_for(space_id)
     skills = skills_for(space_id)
+
+    # A skill is a description of work; a schedule is what does it. "Watch the
+    # Houston airports and tell me" with a skill and no schedule is a document
+    # nobody reads, so saying so out loud is the only way past this.
+    if not schedules and skills and not bool(args.get("on_request")):
+        return _fail(
+            f"{space_id!r} has a skill but no schedule, so nothing will ever run it — "
+            f"a skill is instructions, followed only when someone asks. If the user "
+            f"wants this watched or checked for them, add the schedule that does it "
+            f"(cronjob action=create, passing integration='{space_id}'). If it really "
+            f"is meant to run only when they ask, call this again with on_request=true.")
+
     if not schedules and not skills:
         stored = [d["key"] for d in space.documents()] + [c["name"] for c in space.collections()]
         return _fail(

@@ -6,7 +6,11 @@ import SwiftUI
 /// matters: dropping its data keeps the schedules running against nothing,
 /// removing the schedules leaves the history readable, and taking a skill out of
 /// service reaches beyond this integration entirely. So the sheet asks which,
-/// spells out what that adds up to, and only then offers a red button.
+/// spells out what that adds up to, and only then offers the red word.
+///
+/// Built as a navigation-bar sheet rather than a stack ending in a red slab:
+/// Cancel is a peer of Delete, which is what a destructive, irreversible choice
+/// is owed, and the toggles are plain grouped rows people already know.
 struct IntegrationDeleteSheet: View {
     let integration: Integration
     let scheduleCount: Int
@@ -23,52 +27,72 @@ struct IntegrationDeleteSheet: View {
     @State private var failure: String?
 
     var body: some View {
-        DetailSheet(title: "Delete \(integration.name)") {
-            VStack(alignment: .leading, spacing: 14) {
-                InsetGroup {
+        NavigationStack {
+            List {
+                Section {
                     toggle("Schedules", detail: count(scheduleCount, "schedule"),
                            isOn: $choice.schedules)
-                    InsetDivider()
                     toggle("Data", detail: dataDetail, isOn: $choice.data)
-                    InsetDivider()
                     toggle("Skills", detail: count(skillCount, "skill"), isOn: $choice.skills)
                     if choice.skills && skillCount > 0 {
-                        InsetDivider()
                         toggle("Also delete their files",
                                detail: "Otherwise they just stop belonging here",
-                               isOn: $choice.skillFiles, indented: true)
+                               isOn: $choice.skillFiles)
                     }
-                    InsetDivider()
-                    toggle("The integration itself", detail: integration.id,
-                           isOn: $choice.space)
-                }
-
-                Text(choice.summary(schedules: scheduleCount, collections: collectionCount,
-                                    documents: documentCount, skills: skillCount))
-                    .font(JcText.small)
-                    .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let failure {
-                    Text(failure)
-                        .font(JcText.small)
-                        .foregroundStyle(JcTheme.danger)
+                    toggle("The integration itself", detail: integration.id, isOn: $choice.space)
+                } footer: {
+                    // What the switches above add up to, in one sentence, before
+                    // the word Delete is ever reachable.
+                    Text(choice.summary(schedules: scheduleCount, collections: collectionCount,
+                                        documents: documentCount, skills: skillCount))
+                        .font(IntegrationType.small)
+                        .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                // The app's CTA, in its danger tint — the same button as everywhere else.
-                GradientButton(working ? "Deleting\u{2026}" : "Delete", symbol: "trash",
-                               busy: working, full: true, danger: true,
-                               action: choice.isEmpty ? nil : {
-                    working = true
-                    failure = nil
-                    Task {
-                        let ok = await confirm(choice)
-                        working = false
-                        if ok { dismiss() } else { failure = "That did not go through. Try again." }
+                if let failure {
+                    Section {
+                        Text(failure)
+                            .font(IntegrationType.small)
+                            .foregroundStyle(JcTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .listRowBackground(JcTheme.surface)
                     }
-                })
+                }
             }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, integrationTapTarget)
+            .navigationTitle("Delete \(integration.name)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(working)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if working {
+                        ProgressView()
+                    } else {
+                        Button("Delete", role: .destructive, action: run)
+                            .tint(JcTheme.danger)
+                            .disabled(choice.isEmpty)
+                    }
+                }
+            }
+            .background(JcTheme.bg)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(JcTheme.bg)
+    }
+
+    private func run() {
+        working = true
+        failure = nil
+        Task {
+            let ok = await confirm(choice)
+            working = false
+            if ok { dismiss() } else { failure = "That did not go through. Try again." }
         }
     }
 
@@ -83,21 +107,20 @@ struct IntegrationDeleteSheet: View {
         "\(n) \(noun)\(n == 1 ? "" : "s")"
     }
 
-    private func toggle(_ title: String, detail: String, isOn: Binding<Bool>,
-                        indented: Bool = false) -> some View {
+    private func toggle(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(JcText.body)
+                    .font(IntegrationType.body)
                     .foregroundStyle(JcTheme.text)
                 Text(detail)
-                    .font(JcText.small)
+                    .font(IntegrationType.small)
                     .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .tint(JcTheme.accent)
-        .padding(.leading, indented ? 30 : 16)
-        .padding(.trailing, 16)
-        .padding(.vertical, 12)
+        .listRowBackground(JcTheme.surface)
+        .padding(.vertical, 2)
     }
 }

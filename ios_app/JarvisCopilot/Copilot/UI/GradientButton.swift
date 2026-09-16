@@ -6,9 +6,6 @@ struct GradientButton: View {
     var symbol: String? = nil
     var busy: Bool = false
     var full: Bool = false
-    /// A commit action that destroys something. Same button, danger tint — so a
-    /// destructive CTA is this component too, rather than one hand-rolled per screen.
-    var danger: Bool = false
     /// `nil` renders the button disabled, matching Flutter's nullable `onPressed`.
     var action: (() -> Void)?
 
@@ -16,29 +13,25 @@ struct GradientButton: View {
          symbol: String? = nil,
          busy: Bool = false,
          full: Bool = false,
-         danger: Bool = false,
          action: (() -> Void)? = nil) {
         self.title = title
         self.symbol = symbol
         self.busy = busy
         self.full = full
-        self.danger = danger
         self.action = action
     }
-
-    private var tint: Color { danger ? JcTheme.danger : JcTheme.accent }
 
     var body: some View {
         Button { action?() } label: {
             HStack(spacing: 8) {
                 if busy {
-                    ProgressView().controlSize(.small).tint(tint)
+                    ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else if let symbol {
                     JcIcon(symbol).font(.system(size: 15, weight: .semibold))
                 }
                 Text(title).font(.system(size: 15, weight: .semibold))
             }
-            .foregroundStyle(tint)
+            .foregroundStyle(JcTheme.accent)
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 20)
             .padding(.vertical, 13)

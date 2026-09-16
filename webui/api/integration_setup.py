@@ -52,9 +52,11 @@ already told you something, do not ask again.
 end. The user is watching them appear.
   - Keep your messages short. This is a setup sheet, not a chat.
   - Do NOT call `integration_plan_propose` here. That tool draws a plan card for the user to approve in an ordinary chat; in this sheet you build the thing itself, and a card asking them to approve what you are already doing is only confusing.
-  - An integration is not set up until something RUNS in it: a schedule that does \
-its work, or a skill telling you how to do it on request. A space holding only a \
-settings document does nothing — do not stop there.
+  - An integration is not set up until something RUNS in it. If the user asked you \
+to watch, track, monitor or tell them about something, that means a SCHEDULE — a \
+skill describing the work is instructions nobody is following, and a settings \
+document is not a tracker. Write the skill if it helps you do the work well, then \
+create the schedule that actually does it.
   - When everything is in place, call `integration_ready` with the space id you got \
 from `integration_create` and a one-line summary. It will refuse an integration \
 that has neither a schedule nor a skill, because that one does not work yet. Never \

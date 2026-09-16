@@ -178,11 +178,19 @@ def test_ready_accepts_an_integration_with_something_running(reg, monkeypatch):
     assert out["ok"] is True and out["schedules"] == ["houston-takeoffs"]
 
 
-def test_a_skill_is_enough_to_be_ready(reg, monkeypatch):
-    """Not everything runs on a timer — a skill is how the agent knows to do the work."""
+def test_a_skill_with_no_schedule_is_instructions_nobody_follows(reg, monkeypatch):
+    """Asked to watch the Houston airports, it wrote a skill describing how — and
+    nothing to run it. A skill is followed when someone asks; a schedule is what
+    does the watching."""
     monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [])
     monkeypatch.setattr("jarvis_registry.integrations.skills_for",
-                        lambda space_id: [{"name": "houston-flights"}])
-    reg.space("houston-flight-tracker", name="Houston Flight Tracker")
+                        lambda space_id: [{"name": "houston-takeoff-watch"}])
+    reg.space("houston-flight-watch", name="Houston Flight Watch")
 
-    assert call(rt._h_ready, space="houston-flight-tracker")["ok"] is True
+    out = call(rt._h_ready, space="houston-flight-watch")
+    assert out["ok"] is False
+    assert "nothing will ever run it" in out["error"]
+    assert "cronjob action=create" in out["error"]
+
+    # Unless the agent says out loud that it only runs when asked.
+    assert call(rt._h_ready, space="houston-flight-watch", on_request=True)["ok"] is True

@@ -1,192 +1,31 @@
 import SwiftUI
 
-/// The parts the Integrations screens are built from: a titled section, one
-/// rounded card of hairline-separated rows, and the row itself.
+/// What the Integrations screens share: their type scale, their tap-target floor,
+/// the one delete confirmation they all go through, and the card the setup
+/// conversation draws for each thing it creates.
 ///
-/// The row is the whole pattern in one place — tap to open, ⋯ to act on it — so a
-/// schedule, a collection, a document and a skill all behave the same way.
+/// The rows, groups, separators and disclosure indicators these screens used to
+/// hand-roll are `List` with `.insetGrouped` now — the system draws them, and it
+/// draws them right at every text size.
+///
+/// Type here is Dynamic Type rather than `JcText`, whose fixed point sizes never
+/// grow with the system text setting. The defaults land within a point of the rest
+/// of the app; these screens just also scale.
 
-/// A titled section with a count chip and, optionally, one action on the right.
-struct IntegrationSection<Content: View>: View {
-    let title: String
-    let count: Int
-    var action: Action? = nil
-    @ViewBuilder var content: Content
-
-    struct Action {
-        let symbol: String
-        let run: () -> Void
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title) {
-                HStack(spacing: 8) {
-                    CountChip(count)
-                    if let action {
-                        Button(action: action.run) {
-                            JcIcon(action.symbol, size: 15)
-                                .foregroundStyle(JcTheme.accent)
-                                .fixedSize()
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            content
-        }
-    }
+/// The sizes these screens use, as text styles that scale.
+enum IntegrationType {
+    /// 20pt semibold — a screen or card title.
+    static let title = Font.title3.weight(.semibold)
+    /// 15pt — the default reading size, and a row's name.
+    static let body = Font.subheadline
+    /// 15pt semibold — a control's label.
+    static let label = Font.subheadline.weight(.semibold)
+    /// 13pt — a row's second line, a caption, metadata.
+    static let small = Font.footnote
 }
 
-/// How many of a thing a section holds.
-struct CountChip: View {
-    let count: Int
-
-    init(_ count: Int) { self.count = count }
-
-    var body: some View {
-        Text("\(count)")
-            .font(JcText.small)
-            .foregroundStyle(JcTheme.accent)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(JcTheme.accent.opacity(0.14)))
-    }
-}
-
-/// One rounded card holding a section's rows.
-struct InsetGroup<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        GlassCard(padding: 0) { VStack(spacing: 0) { content } }
-    }
-}
-
-/// An `InsetGroup` built from a list, with a separator between each pair.
-struct InsetRows<Item: Identifiable, Row: View>: View {
-    let items: [Item]
-    @ViewBuilder let row: (Item) -> Row
-
-    init(_ items: [Item], @ViewBuilder row: @escaping (Item) -> Row) {
-        self.items = items
-        self.row = row
-    }
-
-    var body: some View {
-        InsetGroup {
-            ForEach(items) { item in
-                row(item)
-                if item.id != items.last?.id { InsetDivider() }
-            }
-        }
-    }
-}
-
-/// The hairline between two rows, inset past the text so it reads as a list.
-struct InsetDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(JcTheme.border)
-            .frame(height: 0.5)
-            .padding(.leading, 16)
-    }
-}
-
-/// One thing inside a section: tap the body to open it, ⋯ to act on it.
-struct IntegrationRow<Menu: View>: View {
-    let name: String
-    let note: String
-    let trailing: String
-    var route: IntegrationDataRoute? = nil
-    var onTap: (() -> Void)? = nil
-    @ViewBuilder var menu: Menu
-
-    init(name: String, note: String, trailing: String,
-         route: IntegrationDataRoute? = nil, onTap: (() -> Void)? = nil,
-         @ViewBuilder menu: () -> Menu) {
-        self.name = name
-        self.note = note
-        self.trailing = trailing
-        self.route = route
-        self.onTap = onTap
-        self.menu = menu()
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let route {
-                NavigationLink(value: route) { label }.buttonStyle(.plain)
-            } else if let onTap {
-                Button(action: onTap) { label }.buttonStyle(.plain)
-            } else {
-                label
-            }
-            SwiftUI.Menu {
-                menu
-            } label: {
-                JcIcon("ellipsis", size: 14)
-                    .foregroundStyle(JcTheme.muted)
-                    .frame(width: 34, height: 40)
-                    .contentShape(Rectangle())
-            }
-        }
-        .padding(.leading, 16)
-        .padding(.trailing, 4)
-    }
-
-    private var label: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(JcText.body)
-                    .foregroundStyle(JcTheme.text)
-                    .lineLimit(1)
-                if !note.isEmpty {
-                    Text(note)
-                        .font(JcText.small)
-                        .foregroundStyle(JcTheme.muted)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            Spacer(minLength: 0)
-            if !trailing.isEmpty {
-                Text(trailing)
-                    .font(JcText.small.monospacedDigit())
-                    .foregroundStyle(JcTheme.muted)
-            }
-        }
-        .padding(.vertical, 11)
-        .contentShape(Rectangle())
-    }
-}
-
-struct IntegrationEmptyRow: View {
-    let text: String
-
-    var body: some View {
-        InsetGroup {
-            Text(text)
-                .font(JcText.small)
-                .foregroundStyle(JcTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-        }
-    }
-}
-
-struct IntegrationLoadingRow: View {
-    var body: some View {
-        InsetGroup {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-        }
-    }
-}
+/// The smallest a control may be and still be reliably tappable (HIG: 44x44 pt).
+let integrationTapTarget: CGFloat = 44
 
 // MARK: - Confirming a delete
 
@@ -294,11 +133,11 @@ struct SetupCardView: View {
             JcIcon(symbol, size: 14).foregroundStyle(JcTheme.success).fixedSize()
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.name)
-                    .font(JcText.body)
+                    .font(IntegrationType.body)
                     .foregroundStyle(JcTheme.text)
                 if !card.detail.isEmpty {
                     Text(card.detail)
-                        .font(JcText.small)
+                        .font(IntegrationType.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                 }

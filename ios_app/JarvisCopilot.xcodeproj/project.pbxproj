@@ -300,6 +300,7 @@
 		866C098110BCBC597EFF1A7A /* JarvisMemoryModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5B26E96145C5B240F2B336B /* JarvisMemoryModels.swift */; };
 		86A1EE6522BE69E5038B4514 /* BackgroundLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BBB13D7EE9E9DBD3031E26 /* BackgroundLocation.swift */; };
 		8703E8772EB1AF688D193699 /* ChatUIFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863366496127EA732989D701 /* ChatUIFormatTests.swift */; };
+		875EE7DCD4CA555AE87D4919 /* IntegrationHoldingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9DB33F7906196F97F77DD3 /* IntegrationHoldingsViews.swift */; };
 		8874BBEE51233544D14A95A5 /* JarvisMemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EDDD964DC3E96BEC2E2D53B /* JarvisMemoryAPI.swift */; };
 		88CD4B373D65096135F6BC82 /* RingSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB967D41CB1681FEC3E5EFBC /* RingSessionTests.swift */; };
 		8955CEE8412946C04ACA270F /* SkillsPageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10AB262C0BC02FC5A3E2B77F /* SkillsPageModel.swift */; };
@@ -1107,6 +1108,7 @@
 		D94764B8E07BA3B6CDB7B6FB /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		D9AE49D111FC69C08C9C180F /* ChatPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPage.swift; sourceTree = "<group>"; };
 		DA89F6A2747B18365631BFB3 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
+		DA9DB33F7906196F97F77DD3 /* IntegrationHoldingsViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationHoldingsViews.swift; sourceTree = "<group>"; };
 		DB3B263227AE6CB95AF99B5A /* WebViewCookies.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebViewCookies.swift; sourceTree = "<group>"; };
 		DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementPage.swift; sourceTree = "<group>"; };
 		DB59ED4224F14087BA8945D4 /* ColmiR12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColmiR12Tests.swift; sourceTree = "<group>"; };
@@ -1867,6 +1869,7 @@
 				6539DADDC1E6552FB67E6C25 /* IntegrationSetupSheet.swift */,
 				15991A1D7F41088A3118A8B0 /* IntegrationSetupStore.swift */,
 				9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */,
+				DA9DB33F7906196F97F77DD3 /* IntegrationHoldingsViews.swift */,
 			);
 			name = Integrations;
 			path = Integrations;
@@ -3077,6 +3080,7 @@
 				10FD52906D799D859A8F3B77 /* ChatConversationView.swift in Sources */,
 				29BF6A075E91F2C95CA81998 /* ChatFormCard.swift in Sources */,
 				2914B085CC2E03CFFC362080 /* IntegrationSkillView.swift in Sources */,
+				875EE7DCD4CA555AE87D4919 /* IntegrationHoldingsViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

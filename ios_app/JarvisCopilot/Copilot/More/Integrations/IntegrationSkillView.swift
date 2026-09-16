@@ -14,80 +14,87 @@ struct IntegrationSkillView: View {
     @State private var loaded = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let errorMessage {
-                    CenteredMessage(text: errorMessage, color: JcTheme.danger) {
-                        Task { await load() }
+        List {
+            if let skill {
+                Section {
+                    if !skill.description.isEmpty {
+                        Text(skill.description)
+                            .font(IntegrationType.body)
+                            .foregroundStyle(JcTheme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .listRowBackground(JcTheme.surface)
                     }
-                    .padding(.top, 80)
-                } else if !loaded {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 100)
-                } else if let skill {
-                    summary(skill)
-                    if !skill.linkedFiles.isEmpty { files(skill) }
-                    body(skill)
+                    if !skill.tags.isEmpty {
+                        JcWrap(spacing: 6, runSpacing: 6) {
+                            ForEach(skill.tags, id: \.self) { tag in
+                                StatusPill(tag, color: JcTheme.accent, dense: true)
+                            }
+                        }
+                        .listRowBackground(JcTheme.surface)
+                    }
+                } footer: {
+                    if !skill.path.isEmpty {
+                        Text(skill.path)
+                            .font(IntegrationType.small.monospaced())
+                            .foregroundStyle(JcTheme.muted)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .textCase(nil)
+                    }
                 }
+
+                if !skill.linkedFiles.isEmpty {
+                    Section {
+                        ForEach(skill.linkedFiles) { file in
+                            Text(file.name)
+                                .font(IntegrationType.body)
+                                .foregroundStyle(JcTheme.text)
+                                .listRowBackground(JcTheme.surface)
+                        }
+                    } header: { header("Files") } footer: {
+                        footer("Shipped alongside the skill and readable by it.")
+                    }
+                }
+
+                Section {
+                    // The skill's own text — what it actually tells the agent —
+                    // through the same markdown renderer a reply uses.
+                    ChatMarkdownText(text: skill.markdown)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowBackground(JcTheme.surface)
+                } header: { header("What it says") }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, integrationTapTarget)
+        .overlay { state }
         .refreshable { await load() }
         .jcScreen(name)
+        .navigationBarTitleDisplayMode(.inline)
         .task { if !loaded { await load() } }
     }
 
-    private func summary(_ skill: SkillDetail) -> some View {
-        GlassCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 9) {
-                    JcIcon("sparkles", size: 16).foregroundStyle(JcTheme.accent).fixedSize()
-                    Text(skill.name).font(JcText.label).foregroundStyle(JcTheme.text)
-                    Spacer(minLength: 0)
-                }
-                if !skill.description.isEmpty {
-                    Text(skill.description)
-                        .font(JcText.small)
-                        .foregroundStyle(JcTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !skill.tags.isEmpty {
-                    JcWrap(spacing: 6, runSpacing: 6) {
-                        ForEach(skill.tags, id: \.self) { tag in
-                            StatusPill(tag, color: JcTheme.accent, dense: true)
-                        }
-                    }
-                }
-                if !skill.path.isEmpty {
-                    Text(skill.path)
-                        .font(JcText.small.monospaced())
-                        .foregroundStyle(JcTheme.muted.opacity(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var state: some View {
+        if let errorMessage {
+            CenteredMessage(text: errorMessage, color: JcTheme.danger) { Task { await load() } }
+        } else if !loaded {
+            ProgressView()
         }
     }
 
-    private func files(_ skill: SkillDetail) -> some View {
-        IntegrationSection(title: "Files", count: skill.linkedFiles.count) {
-            InsetRows(skill.linkedFiles) { file in
-                IntegrationRow(name: file.name, note: "", trailing: "") { EmptyView() }
-            }
-        }
+    private func header(_ text: String) -> some View {
+        Text(text)
+            .font(IntegrationType.small)
+            .textCase(.uppercase)
+            .foregroundStyle(JcTheme.muted)
     }
 
-    /// The skill's own text — what it actually tells the agent — as markdown,
-    /// through the same renderer a reply uses.
-    private func body(_ skill: SkillDetail) -> some View {
-        IntegrationSection(title: "What it says", count: 0) {
-            GlassCard(padding: 14) {
-                ChatMarkdownText(text: skill.markdown)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+    private func footer(_ text: String) -> some View {
+        Text(text)
+            .font(IntegrationType.small)
+            .foregroundStyle(JcTheme.muted)
     }
 
     private func load() async {

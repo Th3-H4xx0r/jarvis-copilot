@@ -40,13 +40,23 @@ final class IntegrationsStore {
             integrations = try await api.list()
             errorMessage = nil
         } catch {
-            errorMessage = apiErrorMessage(error)
+            // A cancelled request is this screen being left or reloaded, not a
+            // failure — reporting it puts the word "cancelled" where the data goes.
+            if !Self.wasCancelled(error) { errorMessage = apiErrorMessage(error) }
         }
         isLoading = false
         hasLoaded = true
     }
 
     func onDisappear() { loadTask.cancel() }
+
+    /// A request that was cancelled because the screen was left, a refresh
+    /// superseded it, or the tab changed. Nothing went wrong, so nothing is said.
+    static func wasCancelled(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
 
     // MARK: One integration
 
@@ -66,7 +76,7 @@ final class IntegrationsStore {
             detail = loaded
             detailError = nil
         } catch {
-            guard detailID == id else { return }
+            guard detailID == id, !Self.wasCancelled(error) else { return }
             detailError = apiErrorMessage(error)
         }
     }

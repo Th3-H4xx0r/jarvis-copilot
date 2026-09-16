@@ -21,20 +21,27 @@ struct IntegrationsPage: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 10) {
-                    content
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+            // An inset-grouped List: system row metrics, separators, disclosure
+            // indicators and swipe actions, rather than a stack of cards that has
+            // to reimplement all four and gets the tap targets wrong doing it.
+            List {
+                content
             }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, integrationTapTarget)
             .refreshable { await store.refresh() }
             .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
+            .overlay { emptyState }
             .jcScreen("Integrations")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
+                    Button { settingUp = true } label: {
+                        JcIcon("plus", size: 16)
+                            .frame(width: integrationTapTarget, height: integrationTapTarget)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("New integration")
                 }
             }
             .navigationDestination(for: Integration.self) { integration in
@@ -42,6 +49,10 @@ struct IntegrationsPage: View {
             }
             .navigationDestination(for: IntegrationDataRoute.self) { route in
                 switch route {
+                case .data(let id):
+                    IntegrationDataListView(integrationID: id, store: store)
+                case .skills(let id):
+                    IntegrationSkillsListView(integrationID: id, store: store)
                 case .records(let id, let collection):
                     IntegrationRecordsView(integrationID: id, collection: collection, store: store)
                 case .document(let id, let key):
@@ -64,64 +75,88 @@ struct IntegrationsPage: View {
 
     @ViewBuilder
     private var content: some View {
-        if let message = store.errorMessage, store.integrations.isEmpty {
-            CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
-                .padding(.top, 100)
-        } else if !store.hasLoaded {
-            ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
-        } else if store.isEmpty {
-            CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track.")
-                .padding(.top, 100)
-        } else {
+        Section {
             ForEach(store.integrations) { integration in
                 NavigationLink(value: integration) {
-                    IntegrationCard(integration: integration)
+                    IntegrationRowLabel(integration: integration)
                 }
-                .buttonStyle(.plain)
+                .listRowBackground(JcTheme.surface)
+                .swipeActions(edge: .trailing) {
+                    Button {
+                        Task { await store.togglePause(integration) }
+                    } label: {
+                        Label(integration.isPaused ? "Resume" : "Pause",
+                              systemImage: integration.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .tint(integration.isPaused ? JcTheme.accent : JcTheme.muted)
+                }
+            }
+        } footer: {
+            if !store.integrations.isEmpty {
+                Text("Each one owns its own schedules, what it stores, and the skills written for it.")
+                    .font(IntegrationType.small)
+                    .foregroundStyle(JcTheme.muted)
+            }
+        }
+    }
+
+    /// Loading, failure and emptiness sit over the list rather than inside it, so
+    /// none of them inherits a row's inset and separators.
+    @ViewBuilder
+    private var emptyState: some View {
+        if let message = store.errorMessage, store.integrations.isEmpty {
+            CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
+        } else if !store.hasLoaded {
+            ProgressView()
+        } else if store.isEmpty {
+            ContentUnavailableView {
+                Label("No Integrations", jcIcon: "folder")
+            } description: {
+                Text("Tell Jarvis what you want tracked and it builds one: the schedules that do the work, somewhere to keep the results, and the skills to read them back.")
+            } actions: {
+                Button("New Integration") { settingUp = true }
+                    .buttonStyle(.borderedProminent)
+                    .tint(JcTheme.accent)
             }
         }
     }
 }
 
-/// One integration in the list: what it is, and how much of it there is.
-struct IntegrationCard: View {
+/// One integration in the list. Leads with whether it runs, because that is the
+/// question the list is scanned for; the counts follow.
+struct IntegrationRowLabel: View {
     let integration: Integration
 
     var body: some View {
-        GlassCard(padding: 14,
-                  borderColor: integration.isPaused ? JcTheme.muted.opacity(0.35) : nil) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 10) {
-                    JcIcon(IntegrationIcon.symbol(for: integration.icon), size: 16)
-                        .foregroundStyle(JcTheme.accent)
-                        .fixedSize()
-                    Text(integration.name)
-                        .font(JcText.label)
-                        .foregroundStyle(JcTheme.text)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if integration.isPaused {
-                        StatusPill(integration.status.uppercased(),
-                                   color: JcTheme.muted, dense: true)
-                    }
-                    JcIcon("chevron.right", size: 11)
-                        .foregroundStyle(JcTheme.muted.opacity(0.6))
-                        .fixedSize()
-                }
-                if !integration.summary.isEmpty {
-                    Text(integration.summary)
-                        .font(JcText.small)
-                        .foregroundStyle(JcTheme.muted)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .padding(.top, 8)
-                }
-                Text(integration.subtitle)
-                    .font(JcText.small)
-                    .foregroundStyle(JcTheme.muted.opacity(0.8))
-                    .padding(.top, 9)
+        HStack(spacing: 12) {
+            JcIcon(IntegrationIcon.symbol(for: integration.icon), size: 17)
+                .foregroundStyle(integration.isPaused ? JcTheme.muted : JcTheme.accent)
+                .fixedSize()
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(integration.name)
+                    .font(IntegrationType.body)
+                    .foregroundStyle(JcTheme.text)
+                    .lineLimit(1)
+                Text(status)
+                    .font(IntegrationType.small)
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 5)
+    }
+
+    /// "2 schedules running · 18 records", or "Paused" when nothing of it runs —
+    /// state as a word, never as a colour on its own.
+    private var status: String {
+        if integration.isPaused { return "Paused · \(integration.subtitle)" }
+        let running = integration.enabledScheduleCount
+        if running == 0 && integration.scheduleCount == 0 {
+            return integration.summary.isEmpty ? integration.subtitle : integration.summary
+        }
+        if running == 0 { return "All schedules paused · \(integration.subtitle)" }
+        return integration.subtitle
     }
 }

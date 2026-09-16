@@ -21,21 +21,31 @@ struct IntegrationSetupSheet: View {
         NavigationStack {
             ChatConversationView(store: chat,
                                  placeholder: "Tell Jarvis what to track\u{2026}",
-                                 // Close replaces the composer only once there is
+                                 // The composer goes away only once there is
                                  // nothing left to say.
                                  showsComposer: setup.finished == nil) {
-                if setup.finished != nil { closeBar }
+                if setup.finished != nil { doneNote }
             }
             .jcScreen("New integration")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { close(askFirst: true) }
-                        .foregroundStyle(JcTheme.muted)
+                // Once it is built there is nothing to cancel, and the way out
+                // becomes Done — where a sheet's way out belongs.
+                if setup.finished == nil {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { close(askFirst: true) }
+                            .foregroundStyle(JcTheme.muted)
+                    }
+                    // The same capsule and picker the Chat tab has, over this session.
+                    ToolbarItem(placement: .topBarTrailing) { ChatModelButton(store: chat) }
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { Task { await leave() } }
+                            .fontWeight(.semibold)
+                            .tint(JcTheme.accent)
+                    }
                 }
-                // The same capsule and picker the Chat tab has, over this session.
-                ToolbarItem(placement: .topBarTrailing) { ChatModelButton(store: chat) }
             }
         }
         .task { await begin() }
@@ -58,12 +68,14 @@ struct IntegrationSetupSheet: View {
         }
     }
 
-    private var closeBar: some View {
-        // The app's primary CTA, like every other one — not a slab of accent.
-        GradientButton("Close", symbol: "checkmark", full: true) {
-            Task { await leave() }
-        }
-        .padding(16)
+    /// Where the composer was: a line saying it is done, not a slab of a button.
+    /// Done is in the navigation bar, which is where a sheet's way out lives.
+    private var doneNote: some View {
+        Label("Set up and running", jcIcon: "checkmark")
+            .font(IntegrationType.small)
+            .foregroundStyle(JcTheme.success)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
     }
 
     private func begin() async {

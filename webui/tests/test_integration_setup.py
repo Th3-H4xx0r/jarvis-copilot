@@ -130,4 +130,6 @@ def test_the_directive_says_an_integration_has_to_actually_run():
     scoped.integration_setup = True
     directive = setup.directive_for(scoped)
     assert "something RUNS in it" in directive
-    assert "do not stop there" in directive
+    # Watching something means a schedule, not a skill describing the watching.
+    assert "that means a SCHEDULE" in directive
+    assert "instructions nobody is following" in directive
