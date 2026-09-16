@@ -107,7 +107,7 @@ def test_every_tool_is_registered_in_one_toolset():
 
     names = ["registry_catalog", "registry_get", "registry_put",
              "registry_append", "registry_query", "registry_describe",
-             "integration_plan_propose", "integration_ready"]
+             "integration_plan_propose", "integration_ready", "integration_create"]
     for name in names:
         entry = tool_registry.get_entry(name)
         assert entry is not None, f"{name} is not registered"
@@ -125,3 +125,26 @@ def test_ready_refuses_to_declare_an_integration_that_does_not_exist(reg):
     assert out["ok"] is True
     assert out["name"] == "Gym Sessions"
     assert out["card"] == {"kind": "integration_ready", "space": "gym-sessions"}
+
+
+def test_a_new_integration_needs_somewhere_to_go(reg):
+    """Every other registry tool writes into a space that exists; this makes one."""
+    out = call(rt._h_create, name="Gym Sessions", description="Logs workouts.", icon="bolt")
+    assert out["ok"] is True and out["space"] == "gym-sessions"
+    assert out["already_existed"] is False
+    assert reg.open("gym-sessions").info()["icon"] == "bolt"
+
+    again = call(rt._h_create, name="Gym Sessions")
+    assert again["already_existed"] is True     # and says so rather than pretending
+
+    assert call(rt._h_create, name="")["ok"] is False
+
+
+def test_the_catch_all_is_not_a_new_integration(reg):
+    """Building in `general` is what happens when there is no tool to make a space."""
+    out = call(rt._h_create, name="General")
+    assert out["ok"] is False and "general" in out["error"]
+
+    reg.space("general", name="General")
+    ready = call(rt._h_ready, space="general")
+    assert ready["ok"] is False and "integration_create" in ready["error"]

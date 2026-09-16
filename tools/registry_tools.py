@@ -302,6 +302,58 @@ def _h_plan(args=None, **_kw) -> str:
                note="The plan card is in the chat; it only takes effect once the user approves it.")
 
 
+_CREATE = {
+    "name": "integration_create",
+    "description": (
+        "Make a new integration and return its space id. Call this FIRST when you are "
+        "setting one up — every other registry tool writes into a space that already "
+        "exists, so without this there is nowhere to put anything and the work ends up "
+        "in 'general', which is the catch-all for things that belong nowhere. Give it "
+        "the name the user would call it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "What to call it, e.g. 'Gym Sessions'"},
+            "description": {"type": "string", "description": "One line: what it does"},
+            "icon": {"type": "string",
+                     "description": "One word: music, envelope, house, airplane, chips, "
+                                    "chart, clock, bolt, book, heart"},
+            "id": {"type": "string", "description": "Optional slug; derived from the name otherwise"},
+        },
+        "required": ["name"],
+    },
+}
+
+
+def _h_create(args=None, **_kw) -> str:
+    args = args or {}
+    from jarvis_registry.store import slug
+
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return _fail("an integration needs a name")
+    space_id = slug(str(args.get("id") or "").strip() or name)
+    if space_id in _RESERVED_IDS:
+        return _fail(f"{space_id!r} is not available as an integration id")
+    try:
+        reg = _reg()
+        existed = reg.exists(space_id)
+        space = reg.space(space_id, name=name,
+                          description=str(args.get("description") or "").strip(),
+                          icon=str(args.get("icon") or "").strip())
+    except Exception as exc:
+        return _fail(str(exc))
+    return _ok(space=space.id, name=name, already_existed=existed,
+               note=("That integration already existed; you are adding to it."
+                     if existed else "Use this space id for everything else you create."))
+
+
+# general is the catch-all for schedules that belong nowhere; photon is the iMessage
+# setup endpoint. Neither is a new integration.
+_RESERVED_IDS = {"general", "photon", "plans"}
+
+
 _READY = {
     "name": "integration_ready",
     "description": (
@@ -325,6 +377,11 @@ _READY = {
 def _h_ready(args=None, **_kw) -> str:
     args = args or {}
     space_id = str(args.get("space") or "").strip().lower()
+    if space_id in _RESERVED_IDS:
+        return _fail(
+            f"{space_id!r} is not a new integration — it is where things that belong "
+            "nowhere else go. Call integration_create to make one, put the work in it, "
+            "and say that space is ready instead.")
     try:
         info = _reg().open(space_id).info()
     except Exception as exc:
@@ -333,6 +390,9 @@ def _h_ready(args=None, **_kw) -> str:
                summary=str(args.get("summary") or "").strip(),
                card={"kind": "integration_ready", "space": space_id})
 
+
+registry.register(name="integration_create", toolset="registry",
+                  schema=_CREATE, handler=_h_create, emoji="✨")
 
 registry.register(name="integration_ready", toolset="registry",
                   schema=_READY, handler=_h_ready, emoji="✅")

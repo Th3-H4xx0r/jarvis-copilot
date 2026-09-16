@@ -92,3 +92,12 @@ def test_the_directive_rules_out_the_plan_card():
     scoped.integration_setup = True
     directive = setup.directive_for(scoped)
     assert "Do NOT call `integration_plan_propose`" in directive
+
+
+def test_the_directive_sends_it_to_make_a_space_first():
+    """Without this it writes into `general` — there is no other way to make one."""
+    scoped = FakeSession()
+    scoped.integration_setup = True
+    directive = setup.directive_for(scoped)
+    assert "`integration_create` FIRST" in directive
+    assert 'never for "general"' in directive
