@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import tarfile
+import time
 
 import pytest
 
@@ -159,6 +160,20 @@ def test_a_snapshot_file_is_one_record(workspace, jobs):
     assert len(rows) == 1                                   # one playlist, not three tracks
     assert [t["track"] for t in rows[0]["value"]] == ["a", "b", "c"]
     assert rows[0]["ts"] == 1784264441.0                    # the epoch in the file name
+
+
+def test_a_written_up_summary_becomes_a_dated_record(workspace, jobs):
+    ws = workspace["ws"]
+    (ws / "snaps").mkdir()
+    (ws / "snaps" / "weekly_summary_20260913.md").write_text("# Week in music\nTop artist: X\n")
+
+    plan = Plan("vibeforge", "VibeForge", "Music", "music",
+                [Source("snaps/*.md", collection="weekly_summaries")], [])
+    importer.import_all(ws, plans=[plan])
+
+    rows = workspace["reg"].open("vibeforge").records("weekly_summaries", limit=5)
+    assert rows[0]["text"].startswith("# Week in music")
+    assert time.strftime("%Y-%m-%d", time.localtime(rows[0]["ts"])) == "2026-09-13"
 
 
 def test_the_marker_document_records_what_it_took(workspace, jobs):

@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 IMPORT_MARKER = "imported_files"
 _MAX_RECORDS_PER_FILE = 5000
+_MAX_TEXT_BYTES = 200_000
 BY_NAME = "*"          # document key comes from the file name
 
 
@@ -77,6 +78,10 @@ PLANS: list[Plan] = [
                  description="the most recent week in music: top artists, labels, changes"),
           Source("vibeforge-spotify/data/last_playlist_update.json", document="last_update",
                  description="when each playlist was last rebuilt"),
+          Source("vibeforge-spotify/data/snapshots/weekly_summary_*.md",
+                 collection="weekly_summaries",
+                 description="the week in music, as it was written up that Sunday",
+                 delete=True),
           Source("vibeforge-spotify/data/snapshots/*.json", collection="playlist_snapshots",
                  description="a playlist as it stood just before a rebuild",
                  whole_file=True, delete=True),
@@ -208,6 +213,14 @@ def _import_file(space, path: Path, source: Source, rel: str) -> dict:
         _describe(space, collection, source.description)
         return counts
 
+    if path.suffix.lower() in (".md", ".txt"):
+        collection = source.collection or _key(rel)
+        space.append(collection, {"file": path.name, "text": text[:_MAX_TEXT_BYTES]},
+                     ts=_name_time(path), source=f"import:{path.name}")
+        counts["records"] = 1
+        _describe(space, collection, source.description)
+        return counts
+
     data = json.loads(text) if text.strip() else {}
 
     if source.document:
@@ -278,10 +291,17 @@ def _row_time(body: dict, ts_field: str) -> Optional[float]:
 
 
 def _name_time(path: Path) -> Optional[float]:
-    """Snapshot files carry their epoch in the name: gym_mode_before_1784264441.json."""
+    """The time is in the name: gym_mode_before_1784264441, weekly_summary_20260913."""
     tail = path.stem.rsplit("_", 1)[-1]
-    if tail.isdigit() and len(tail) == 10:
+    if not tail.isdigit():
+        return None
+    if len(tail) == 10:
         return float(tail)
+    if len(tail) == 8:
+        try:
+            return time.mktime(time.strptime(tail, "%Y%m%d"))
+        except ValueError:
+            return None
     return None
 
 
