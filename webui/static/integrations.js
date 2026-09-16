@@ -123,7 +123,7 @@ function _intgDetailHtml(d) {
       <div class="intg-detail-actions">
         <button class="intg-btn" data-act="new-schedule">New schedule</button>
         <button class="intg-btn" data-act="toggle">${paused ? 'Resume' : 'Pause'} integration</button>
-        <button class="intg-btn intg-btn--danger" data-act="delete">Delete</button>
+        <button class="intg-btn intg-btn--danger" data-act="delete">Delete…</button>
       </div>
 
       <section class="intg-section">
@@ -135,6 +135,7 @@ function _intgDetailHtml(d) {
               <span class="intg-row-sub">${esc(_intgWhen(s))}</span>
             </div>
             ${_intgProfileBadge(s)}${_intgStatusPill(s)}
+            ${_intgDeleteButton('schedule', s.id, s.name || s.id)}
           </div>`).join('') : `<div class="intg-empty-row">No schedules yet.</div>`}
       </section>
 
@@ -147,6 +148,7 @@ function _intgDetailHtml(d) {
               <span class="intg-row-sub">${esc(c.description || 'no description yet')}</span>
             </div>
             <span class="intg-row-count">${Number(c.count || 0).toLocaleString()}</span>
+            ${_intgDeleteButton('collection', c.name, c.name, Number(c.count || 0))}
           </div>`).join('')}
         ${documents.map(doc => `
           <div class="intg-row intg-row--click" data-document="${esc(doc.key)}">
@@ -155,6 +157,7 @@ function _intgDetailHtml(d) {
               <span class="intg-row-sub">${esc(doc.description || 'a stored document')}</span>
             </div>
             <span class="intg-row-count">${_intgBytes(doc.bytes)}</span>
+            ${_intgDeleteButton('document', doc.key, doc.key)}
           </div>`).join('')}
         ${!collections.length && !documents.length ? `<div class="intg-empty-row">Nothing stored yet.</div>` : ''}
       </section>
@@ -167,11 +170,19 @@ function _intgDetailHtml(d) {
               <span class="intg-row-name">${esc(s.name)}</span>
               <span class="intg-row-sub">${esc(s.description || '')}</span>
             </div>
+            ${_intgDeleteButton('skill', s.name, s.name)}
           </div>`).join('')
         : `<div class="intg-empty-row">No skills claim this integration. A skill joins one by
              naming it in its front matter: <code>integration: ${esc(d.id)}</code>.</div>`}
       </section>
     </div>`;
+}
+
+// A row's delete. `what` decides which confirmation it opens.
+function _intgDeleteButton(what, id, label, count) {
+  return `<button class="intg-row-del" title="Delete ${esc(label)}"
+    data-del="${esc(what)}" data-del-id="${esc(id)}" data-del-label="${esc(label)}"
+    data-del-count="${Number(count || 0)}" aria-label="Delete ${esc(label)}">×</button>`;
 }
 
 function _intgBindDetail(d) {
@@ -184,6 +195,12 @@ function _intgBindDetail(d) {
       // that no longer exists; the integration stays the selected thing.
       const card = $('intg-' + _intgCurrent);
       if (card) card.classList.add('active');
+    };
+  });
+  body.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = event => {
+      event.stopPropagation();          // the row behind it opens on click
+      _intgDeleteRow(d, btn.dataset);
     };
   });
   body.querySelectorAll('[data-collection]').forEach(row => {
@@ -349,19 +366,32 @@ function _intgCell(value) {
 }
 
 // ── create / pause / delete ──────────────────────────────────────────────────
+/// Setting one up is a conversation, not a form.
+///
+/// The server opens a session pinned to this one job — the registry, cron and
+/// skill tools, and a directive telling it to ask for what it needs and build
+/// each piece as it is settled — and we hand the user to the chat panel, which
+/// already streams that, draws its tool cards and lets them answer. The phone
+/// does the same thing inside a full-screen sheet.
 async function openIntegrationCreate() {
-  const name = await showPromptDialog({
-    title: 'New integration',
-    message: 'What should Jarvis call it? It gets its own data, schedules and skills.',
-    placeholder: 'Gym Sessions',
-  });
-  if (!name) return;
+  let setup;
   try {
-    const made = await api('/api/integrations', { method: 'POST', body: JSON.stringify({ name }) });
-    await loadIntegrations();
-    if (made && made.id) openIntegration(made.id);
-    showToast(`${name} created`);
-  } catch (e) { showToast('Could not create it: ' + e.message, 4000); }
+    setup = await api('/api/integrations/setup/start', {
+      method: 'POST', body: JSON.stringify({ name: '' }),
+    });
+  } catch (e) {
+    showToast('Could not start: ' + e.message, 4000);
+    return;
+  }
+  if (typeof switchPanel === 'function') switchPanel('chat');
+  if (typeof loadSession === 'function') await loadSession(setup.session_id);
+  const composer = $('msg');
+  if (composer) {
+    composer.value = 'Help me set up a new integration.';
+    composer.focus();
+    composer.setSelectionRange(composer.value.length, composer.value.length);
+  }
+  showToast('Tell Jarvis what you want it to track');
 }
 
 async function _intgSetStatus(id, status) {
@@ -373,25 +403,193 @@ async function _intgSetStatus(id, status) {
   } catch (e) { showToast('Could not change it: ' + e.message, 4000); }
 }
 
-async function _intgDelete(d) {
-  const count = (d.schedules || []).length;
+/// One row's delete: confirm in the row's own terms, then do it and redraw.
+async function _intgDeleteRow(d, data) {
+  const label = data.delLabel, id = data.delId;
+  if (data.del === 'skill') return _intgDeleteSkill(d, id, label);
+
+  const message = data.del === 'collection'
+    ? `Every record in it goes — ${Number(data.delCount).toLocaleString()} of them. This cannot be undone.`
+    : data.del === 'schedule'
+      ? 'It stops running and its history goes with it. This cannot be undone.'
+      : 'What it holds goes with it. This cannot be undone.';
   const ok = await showConfirmDialog({
-    title: `Delete ${d.name}?`,
-    message: count
-      ? `Its ${count} schedule${count === 1 ? '' : 's'} and everything it has stored go with it. This cannot be undone.`
-      : 'Everything it has stored goes with it. This cannot be undone.',
-    confirmLabel: 'Delete',
-    danger: true,
-    focusCancel: true,
+    title: `Delete ${label}?`, message, confirmLabel: 'Delete', danger: true, focusCancel: true,
   });
   if (!ok) return;
   try {
-    await api('/api/integrations/' + encodeURIComponent(d.id), { method: 'DELETE' });
+    if (data.del === 'schedule') {
+      await api('/api/crons/delete', { method: 'POST', body: JSON.stringify({ job_id: id }) });
+    } else {
+      const part = data.del === 'collection' ? 'collections' : 'documents';
+      await api(`/api/integrations/${encodeURIComponent(d.id)}/${part}/${encodeURIComponent(id)}`,
+                { method: 'DELETE' });
+    }
+    showToast(`${label} deleted`);
+  } catch (e) { showToast('Could not delete it: ' + e.message, 4000); }
+  await loadIntegrations();
+  openIntegration(d.id);
+}
+
+/// A skill gets a choice, not a yes/no: unlinking it is cheap to undo, taking it
+/// out of service is not, and the two must never be one button.
+async function _intgDeleteSkill(d, name, label) {
+  const mode = await showChoiceDialog({
+    title: `Delete ${label}?`,
+    message: 'Removing it from this integration leaves the skill alone. '
+           + 'Deleting it takes it out of service everywhere.',
+    choices: [
+      { value: 'unlink', label: 'Remove from this integration' },
+      { value: 'file', label: 'Delete the skill entirely', danger: true },
+    ],
+  });
+  if (!mode) return;
+  try {
+    await api(`/api/integrations/${encodeURIComponent(d.id)}/skills/${encodeURIComponent(name)}?mode=${mode}`,
+              { method: 'DELETE' });
+    showToast(mode === 'file' ? `${label} deleted` : `${label} removed from ${d.name}`);
+  } catch (e) { showToast('Could not delete it: ' + e.message, 4000); }
+  await loadIntegrations();
+  openIntegration(d.id);
+}
+
+/// Deleting an integration asks which parts.
+///
+/// The four mean different things: dropping the data leaves the schedules running
+/// against nothing, removing the schedules leaves the history readable, and taking
+/// a skill out of service reaches past this integration entirely. So the sheet asks,
+/// says what the answer adds up to, and only then offers a red button.
+async function _intgDelete(d) {
+  const counts = {
+    schedules: (d.schedules || []).length,
+    collections: (d.collections || []).length,
+    documents: (d.documents || []).length,
+    skills: (d.skills || []).length,
+  };
+  const parts = await _intgDeleteSheet(d, counts);
+  if (!parts) return;
+  try {
+    await api('/api/integrations/' + encodeURIComponent(d.id),
+              { method: 'DELETE', body: JSON.stringify(parts) });
+    showToast(parts.space ? `${d.name} deleted` : 'Removed');
+  } catch (e) {
+    showToast('Could not delete it: ' + e.message, 4000);
+    return;
+  }
+  if (parts.space) {
     _intgCurrent = null;
     if (typeof _clearCronDetail === 'function') _clearCronDetail();
     await loadIntegrations();
-    showToast(`${d.name} deleted`);
-  } catch (e) { showToast('Could not delete it: ' + e.message, 4000); }
+  } else {
+    await loadIntegrations();
+    openIntegration(d.id);
+  }
+}
+
+function _intgDeleteSheet(d, counts) {
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+  const dataDetail = counts.collections + counts.documents
+    ? [counts.collections ? plural(counts.collections, 'collection') : '',
+       counts.documents ? plural(counts.documents, 'document') : ''].filter(Boolean).join(', ')
+    : 'Nothing stored';
+  const rows = [
+    ['schedules', 'Schedules', plural(counts.schedules, 'schedule'), true],
+    ['data', 'Data', dataDetail, true],
+    ['skills', 'Skills', plural(counts.skills, 'skill'), true],
+    ['skill_files', 'Also delete their files',
+     'Otherwise they just stop belonging here', false, true],
+    ['space', 'The integration itself', d.id, true],
+  ];
+  return _intgModal({
+    title: `Delete ${d.name}`,
+    bodyHtml: `<div class="intg-choice-list">${rows.map(([key, label, note, on, indented]) => `
+        <label class="intg-choice${indented ? ' intg-choice--sub' : ''}">
+          <input type="checkbox" data-part="${esc(key)}" ${on ? 'checked' : ''}>
+          <span><span class="intg-choice-name">${esc(label)}</span>
+            <span class="intg-choice-note">${esc(note)}</span></span>
+        </label>`).join('')}</div>
+      <div class="intg-choice-summary" data-summary></div>`,
+    confirmLabel: 'Delete',
+    danger: true,
+    wire: (root, setEnabled) => {
+      const read = () => {
+        const parts = {};
+        root.querySelectorAll('[data-part]').forEach(box => { parts[box.dataset.part] = box.checked; });
+        return parts;
+      };
+      const refresh = () => {
+        const parts = read();
+        const bits = [];
+        if (parts.schedules && counts.schedules) bits.push(plural(counts.schedules, 'schedule'));
+        const data = counts.collections + counts.documents;
+        if (parts.data && data) bits.push(plural(data, 'data set'));
+        if (parts.skills && counts.skills) {
+          bits.push(plural(counts.skills, 'skill') + (parts.skill_files ? ' (and their files)' : ''));
+        }
+        if (parts.space) bits.push('the integration itself');
+        const summary = root.querySelector('[data-summary]');
+        const nothing = !parts.schedules && !parts.data && !parts.skills && !parts.space;
+        summary.textContent = nothing ? 'Nothing selected.'
+          : `This removes ${bits.slice(0, -1).join(', ')}${bits.length > 1 ? ' and ' : ''}${bits[bits.length - 1]}. It cannot be undone.`;
+        summary.classList.toggle('intg-choice-summary--live', !nothing);
+        setEnabled(!nothing);
+      };
+      root.querySelectorAll('[data-part]').forEach(box => { box.onchange = refresh; });
+      refresh();
+      return read;
+    },
+  });
+}
+
+/// A dialog with one button per choice, for a decision that is not yes/no.
+function showChoiceDialog({ title, message, choices }) {
+  return _intgModal({
+    title,
+    bodyHtml: `<p class="intg-modal-msg">${esc(message)}</p>`,
+    buttons: choices.map(c => ({ value: c.value, label: c.label, danger: c.danger })),
+  });
+}
+
+/// The one modal these dialogs are built from. Resolves with the chosen value, or
+/// null when it is dismissed.
+function _intgModal({ title, bodyHtml, confirmLabel, danger, wire, buttons }) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'intg-modal-overlay';
+    const actions = buttons
+      ? buttons.map((b, i) => `<button class="intg-btn${b.danger ? ' intg-btn--danger' : ''}" data-choice="${i}">${esc(b.label)}</button>`).join('')
+      : `<button class="intg-btn intg-btn--danger" data-confirm>${esc(confirmLabel || 'OK')}</button>`;
+    overlay.innerHTML = `
+      <div class="intg-modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+        <div class="intg-modal-title">${esc(title)}</div>
+        <div class="intg-modal-body">${bodyHtml}</div>
+        <div class="intg-modal-actions">
+          <button class="intg-btn" data-cancel>Cancel</button>
+          ${actions}
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = value => {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = e => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    overlay.onclick = e => { if (e.target === overlay) close(null); };
+    overlay.querySelector('[data-cancel]').onclick = () => close(null);
+
+    const confirmBtn = overlay.querySelector('[data-confirm]');
+    let read = () => true;
+    if (wire) read = wire(overlay, on => { if (confirmBtn) confirmBtn.disabled = !on; });
+    if (confirmBtn) confirmBtn.onclick = () => close(read());
+    overlay.querySelectorAll('[data-choice]').forEach(btn => {
+      btn.onclick = () => close(buttons[Number(btn.dataset.choice)].value);
+    });
+    setTimeout(() => (overlay.querySelector('[data-confirm],[data-choice]') || overlay
+      .querySelector('[data-cancel]')).focus(), 0);
+  });
 }
 
 // ── the plan card ────────────────────────────────────────────────────────────

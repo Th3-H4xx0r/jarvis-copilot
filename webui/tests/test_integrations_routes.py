@@ -232,3 +232,14 @@ def test_a_bare_delete_still_takes_everything(reg, sent, monkeypatch):
     assert sent["body"]["schedules_removed"] == ["casino-nightly"]
     assert sent["body"]["deleted"] is True
     assert reg.exists("casino") is False
+
+
+def test_every_part_of_an_integration_has_its_own_delete_in_the_ui():
+    """The panel has to be able to remove one thing without removing the rest."""
+    js = (Path(__file__).resolve().parents[1] / "static" / "integrations.js").read_text()
+    for what in ("'collection'", "'document'", "'schedule'", "'skill'"):
+        assert f"data.del === {what}" in js or f"_intgDeleteButton({what}" in js, what
+    # A skill is a choice, never a single destructive button.
+    assert "showChoiceDialog" in js and "Remove from this integration" in js
+    # And the whole-integration delete asks which parts.
+    assert "_intgDeleteSheet" in js and '"space"' not in js.split("_intgDeleteSheet")[0][-200:]

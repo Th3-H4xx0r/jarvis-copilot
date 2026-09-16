@@ -76,3 +76,11 @@ def test_every_toolset_it_asks_for_actually_exists():
 
     for name in setup.SETUP_TOOLSETS:
         assert name in toolsets.TOOLSETS, f"{name!r} is not a real toolset"
+
+
+def test_the_web_plus_button_starts_the_same_conversation():
+    """No name prompt: the + opens a scoped session and hands it to the chat panel."""
+    js = (Path(__file__).resolve().parents[1] / "static" / "integrations.js").read_text()
+    assert "/api/integrations/setup/start" in js
+    assert "showPromptDialog" not in js, "the + must not fall back to asking for a name"
+    assert "loadSession(setup.session_id)" in js
