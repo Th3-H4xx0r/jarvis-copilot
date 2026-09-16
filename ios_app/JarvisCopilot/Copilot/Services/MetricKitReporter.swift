@@ -23,8 +23,10 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
 
     func didReceive(_ payloads: [MXMetricPayload]) {
         for payload in payloads {
+            var report = EnergyReport(received: Date())
             if let cpu = payload.cpuMetrics {
                 log.info("cpu.cumulativeCPUTime=\(cpu.cumulativeCPUTime.description, privacy: .public)")
+                report.cpuSeconds = cpu.cumulativeCPUTime.converted(to: .seconds).value
             }
             if let run = payload.applicationTimeMetrics {
                 log.info("""
@@ -33,7 +35,15 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
                 bgAudio=\(run.cumulativeBackgroundAudioTime.description, privacy: .public) \
                 bgLocation=\(run.cumulativeBackgroundLocationTime.description, privacy: .public)
                 """)
+                report.foregroundSeconds = run.cumulativeForegroundTime.converted(to: .seconds).value
+                report.backgroundSeconds = run.cumulativeBackgroundTime.converted(to: .seconds).value
+                report.backgroundAudioSeconds = run.cumulativeBackgroundAudioTime.converted(to: .seconds).value
+                report.backgroundLocationSeconds = run.cumulativeBackgroundLocationTime.converted(to: .seconds).value
             }
+            // Kept so Settings can show it. `log show` needs a Mac, a cable and
+            // root; the number that decides whether a battery change worked
+            // should be readable on the phone that has the battery.
+            report.save()
             // No `privacy: .public` on the raw payloads: they carry the bundle's
             // signposts, launch times and (for diagnostics) crash call stacks,
             // and a `.public` string is readable by anything that can stream

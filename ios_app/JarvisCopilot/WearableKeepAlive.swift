@@ -22,9 +22,16 @@ enum WearableKeepAlive {
 
     private static func key(_ device: String) -> String { "jc.keepAlive.\(device)" }
 
-    /// Defaults to ON so an existing install behaves exactly as before.
+    /// Defaults to OFF, because holding a BLE link for a device nobody is using
+    /// runs all day for the rare command that arrives — and with the background
+    /// keepalive on, "all day" is literal. The on-demand path (`ensureConnected`)
+    /// covers the same commands at the cost of a second or two of connect time,
+    /// and ring gestures keep their link regardless (`holdsLinkForInputs`).
+    ///
+    /// Someone who toggled it on keeps it on: only an install that never touched
+    /// the switch changes behaviour here.
     static func isOn(_ device: String, defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: key(device)) as? Bool ?? true
+        defaults.object(forKey: key(device)) as? Bool ?? false
     }
 
     static func set(_ on: Bool, for device: String, defaults: UserDefaults = .standard) {

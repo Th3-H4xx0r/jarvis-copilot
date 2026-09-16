@@ -85,7 +85,7 @@ final class AudioSessionArbiterTests: XCTestCase {
     /// added without deciding where it sits.
     func testEveryCombinationResolvesToTheStrongestClaim() {
         let expected: [(Set<AudioSessionClient>, AudioSessionPlan)] = [
-            ([], .init(category: .playback, mode: .default, options: [.mixWithOthers], active: false)),
+            ([], AudioSessionArbiter.idlePlan),
             ([.keepalive], AudioSessionArbiter.keepalivePlan),
             ([.recording], AudioSessionArbiter.recordingPlan),
             ([.voice], AudioSessionArbiter.voicePlan),
@@ -310,6 +310,10 @@ final class MockAudioSessionApplying: AudioSessionApplying {
     private(set) var mode: AVAudioSession.Mode = .default
     private(set) var categoryOptions: AVAudioSession.CategoryOptions = []
     private(set) var isActive = false
+    /// What the arbiter last asked the hardware for. The keepalive's whole battery
+    /// fix is that these change with the plan.
+    private(set) var preferredSampleRate: Double?
+    private(set) var preferredIOBufferDuration: TimeInterval?
 
     var categoryError: Error?
     var activateError: Error?
@@ -328,6 +332,12 @@ final class MockAudioSessionApplying: AudioSessionApplying {
         if active, let activateError { throw activateError }
         calls.append(.active(active, options))
         isActive = active
+    }
+
+    func setPreferredSampleRate(_ rate: Double) throws { preferredSampleRate = rate }
+
+    func setPreferredIOBufferDuration(_ duration: TimeInterval) throws {
+        preferredIOBufferDuration = duration
     }
 
     /// The audio daemon restarted: every setting is back to the process default

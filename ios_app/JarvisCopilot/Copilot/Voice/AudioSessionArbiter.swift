@@ -41,12 +41,43 @@ enum AudioSessionClient: CaseIterable, Sendable {
 #if os(iOS)
 
 /// The session configuration one set of claims adds up to.
+///
+/// `sampleRate` and `ioBufferDuration` are what the session COSTS to hold, and
+/// every plan states both rather than leaving them at whatever the last holder
+/// asked for. They are hardware-wide: a keepalive that quietly left the session
+/// at 8 kHz would have the next voice turn capturing the mic at 8 kHz, because
+/// `AudioInputEngine` reads `inputFormat(forBus:)` and converts from whatever it
+/// finds there.
 struct AudioSessionPlan: Equatable, Sendable {
     var category: AVAudioSession.Category
     var mode: AVAudioSession.Mode
     var options: AVAudioSession.CategoryOptions
     var active: Bool
+    /// What the hardware should run at while this plan holds.
+    var sampleRate: Double
+    /// How much audio each render callback covers. This is the wakeup rate: the
+    /// audio thread runs once per buffer, so 5 ms costs 200 CPU wakeups a second
+    /// and 100 ms costs 10. iOS clamps the request to what the route allows.
+    var ioBufferDuration: TimeInterval
 }
+
+/// The pair of hardware requests a plan carries, compared as one value so an
+/// unchanged plan re-states neither.
+struct AudioSessionPreferences: Equatable, Sendable {
+    var sampleRate: Double
+    var ioBufferDuration: TimeInterval
+}
+
+extension AudioSessionPlan {
+    var preferences: AudioSessionPreferences {
+        AudioSessionPreferences(sampleRate: sampleRate, ioBufferDuration: ioBufferDuration)
+    }
+}
+
+/// What a plan that is doing real work asks for: 48 kHz, and a buffer short
+/// enough that a conversation does not feel laggy.
+private let liveSampleRate: Double = 48_000
+private let liveBufferDuration: TimeInterval = 0.02
 
 /// The `AVAudioSession` boundary, behind a protocol so the arbitration is
 /// testable without CoreAudio (`MockAudioSessionApplying` in the tests).
@@ -59,6 +90,8 @@ protocol AudioSessionApplying: AnyObject {
                      mode: AVAudioSession.Mode,
                      options: AVAudioSession.CategoryOptions) throws
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws
+    func setPreferredSampleRate(_ rate: Double) throws
+    func setPreferredIOBufferDuration(_ duration: TimeInterval) throws
 }
 
 @MainActor
@@ -78,6 +111,14 @@ final class SystemAudioSession: AudioSessionApplying {
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
         try session.setActive(active, options: options)
     }
+
+    func setPreferredSampleRate(_ rate: Double) throws {
+        try session.setPreferredSampleRate(rate)
+    }
+
+    func setPreferredIOBufferDuration(_ duration: TimeInterval) throws {
+        try session.setPreferredIOBufferDuration(duration)
+    }
 }
 
 #endif
@@ -96,13 +137,25 @@ final class AudioSessionArbiter {
         category: .playAndRecord,
         mode: .videoChat,
         options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .mixWithOthers],
-        active: true)
+        active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
     /// `.playback` is what earns background execution; `.mixWithOthers` keeps us
     /// from ducking whatever the user is actually listening to and from taking
     /// over the lock-screen media controls.
+    ///
+    /// 8 kHz and a tenth of a second per buffer because this plan renders SILENCE
+    /// and nothing else: iOS grants the background allowance for rendering audio,
+    /// not for rendering it often or well. At the default buffer the silent engine
+    /// woke the CPU 40-200 times a second for as long as the app was backgrounded,
+    /// which is most of a day; this asks for ten.
     static let keepalivePlan = AudioSessionPlan(
-        category: .playback, mode: .default, options: [.mixWithOthers], active: true)
+        category: .playback, mode: .default, options: [.mixWithOthers], active: true,
+        sampleRate: keepaliveSampleRate, ioBufferDuration: 0.1)
+
+    /// The rate the silent engine renders at, so its buffer matches the hardware
+    /// and the mixer has no rate conversion to do.
+    static let keepaliveSampleRate: Double = 8_000
 
     /// A `record_audio` clip. `.playAndRecord` rather than `.record` so a capture
     /// doesn't tear down the keepalive's silent playback, `.default` because a
@@ -111,12 +164,14 @@ final class AudioSessionArbiter {
     /// and `.mixWithOthers` for the same reason it is in every other plan.
     static let recordingPlan = AudioSessionPlan(
         category: .playAndRecord, mode: .default,
-        options: [.mixWithOthers, .defaultToSpeaker], active: true)
+        options: [.mixWithOthers, .defaultToSpeaker], active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
     /// Nobody wants the session. The category is irrelevant while inactive; only
     /// `active` is acted on.
     static let idlePlan = AudioSessionPlan(
-        category: .playback, mode: .default, options: [.mixWithOthers], active: false)
+        category: .playback, mode: .default, options: [.mixWithOthers], active: false,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
     /// The union rule, as a pure function.
     ///
@@ -154,6 +209,10 @@ final class AudioSessionArbiter {
     }
 
     var plan: AudioSessionPlan { Self.plan(for: holders) }
+
+    /// The last rate/buffer pair we asked for, so an unchanged plan does not
+    /// re-request them on every hold and release.
+    private var appliedPreferences: AudioSessionPreferences?
 
     #endif
 
@@ -212,6 +271,17 @@ final class AudioSessionArbiter {
         // session that already matches is a no-op inside CoreAudio anyway.
         if !matches(plan) {
             try session.setCategory(plan.category, mode: plan.mode, options: plan.options)
+        }
+        // Preferences, not commands: iOS clamps both to what the current route
+        // allows and may ignore them outright, so they are never compared against
+        // the live session — only re-stated whenever the plan changes. Applied
+        // before activation, which is when they take effect. A refusal is not
+        // fatal: the wrong buffer size costs battery, a throw here would cost the
+        // whole claim.
+        if appliedPreferences != plan.preferences {
+            try? session.setPreferredSampleRate(plan.sampleRate)
+            try? session.setPreferredIOBufferDuration(plan.ioBufferDuration)
+            appliedPreferences = plan.preferences
         }
         if forceActivation || !isActive {
             try session.setActive(true, options: [])

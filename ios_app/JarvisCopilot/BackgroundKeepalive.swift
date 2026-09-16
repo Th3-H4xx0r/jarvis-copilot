@@ -85,6 +85,12 @@ final class BackgroundKeepalive {
     /// the session on `.playAndRecord` instead of yanking it back to `.playback`.
     private func resume() {
         guard isRunning else { return }
+        // Logged because this is the one path that can chatter: a route change
+        // posts a configuration change, `setActive(true)` can cause a route
+        // change, and a loop between the two would be continuous CPU with nothing
+        // on screen to show for it. If the field logs show this firing more than
+        // a handful of times an hour, that is the bug.
+        JcLog.devices.debug("keepalive: reasserting (engine running: \(self.engine.isRunning, privacy: .public))")
         try? arbiter.hold(.keepalive, reassert: true)
         guard !engine.isRunning else { return }
         _ = engine.start()
@@ -188,7 +194,12 @@ final class SilentAudioEngine: KeepaliveAudioEngine {
         let player = AVAudioPlayerNode()
         engine.attach(player)
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+        // The rate the keepalive plan asks the hardware for, so the mixer has no
+        // rate conversion to do and each render callback covers a tenth of a
+        // second instead of a few milliseconds. This is silence — there is
+        // nothing to lose by rendering it as cheaply as the session allows.
+        let format = AVAudioFormat(standardFormatWithSampleRate: AudioSessionArbiter.keepaliveSampleRate,
+                                   channels: 1)!
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.mainMixerNode.outputVolume = 0
 

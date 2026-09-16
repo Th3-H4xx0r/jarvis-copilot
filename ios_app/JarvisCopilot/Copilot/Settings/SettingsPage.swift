@@ -33,6 +33,7 @@ struct SettingsPage: View {
                 hero
                 identity
                 assistant
+                battery
                 navigation
                 danger
             }
@@ -117,6 +118,53 @@ struct SettingsPage: View {
     }
 
     // MARK: Assistant
+
+    // MARK: Battery
+
+    /// What the app costs, from iOS's own daily energy report.
+    ///
+    /// The app deliberately holds a silent audio session so Jarvis can reach the
+    /// phone without a push hop, which means it is never suspended and "Background"
+    /// in iOS Settings reads as most of a day. That is expected; what matters is
+    /// how much CPU it burns while it sits there, and this is the only place that
+    /// number is visible without a Mac, a cable and root.
+    @ViewBuilder
+    private var battery: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Battery")
+            GlassGroup {
+                if let snapshot = EnergyReport.load() {
+                    InfoRow(symbol: "bolt.fill", title: "CPU while running",
+                            value: cpuRateText(snapshot))
+                    InfoRow(symbol: "moon.fill", title: "Background",
+                            value: hours(snapshot.backgroundSeconds))
+                    InfoRow(symbol: "speaker.slash.fill", title: "Of that, silent audio",
+                            value: hours(snapshot.backgroundAudioSeconds), last: true)
+                } else {
+                    InfoRow(symbol: "clock", title: "No report yet",
+                            value: "iOS sends one daily", last: true)
+                }
+            }
+            Text("iOS measures this itself and delivers it about once a day, so a "
+               + "change here takes a day to show up. Lower CPU for the same "
+               + "background hours is the win.")
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private func cpuRateText(_ snapshot: EnergyReport) -> String {
+        guard let rate = snapshot.cpuSecondsPerHour else { return "\u{2014}" }
+        return String(format: "%.0f s / hour", rate)
+    }
+
+    private func hours(_ seconds: Double) -> String {
+        if seconds < 3600 { return "\(Int(seconds / 60)) min" }
+        return String(format: "%.1f h", seconds / 3600)
+    }
 
     private var assistant: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -237,6 +285,22 @@ private struct SwitchRow: View {
             Toggle("", isOn: Binding(get: { isOn }, set: onChange))
                 .labelsHidden()
                 .tint(JcTheme.accent)
+        }
+    }
+}
+
+/// A row that only reports a number — the Battery section's whole vocabulary.
+private struct InfoRow: View {
+    let symbol: String
+    let title: String
+    let value: String
+    var last: Bool = false
+
+    var body: some View {
+        GlassRow(symbol: symbol, title: title, last: last) {
+            Text(value)
+                .font(.system(size: 14, weight: .medium).monospacedDigit())
+                .foregroundStyle(JcTheme.muted)
         }
     }
 }

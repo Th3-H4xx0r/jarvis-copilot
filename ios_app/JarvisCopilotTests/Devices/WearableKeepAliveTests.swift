@@ -17,10 +17,14 @@ final class WearableKeepAliveTests: XCTestCase {
         super.tearDown()
     }
 
-    func testItDefaultsToOnSoNothingChangesForAnExistingInstall() {
-        XCTAssertTrue(WearableKeepAlive.isOn(WearableKeepAlive.bottle, defaults: defaults))
-        XCTAssertTrue(WearableKeepAlive.isOn(WearableKeepAlive.scale, defaults: defaults))
-        XCTAssertTrue(WearableKeepAlive.isOn(WearableKeepAlive.esp32, defaults: defaults))
+    /// Holding a BLE link all day for a device nobody is using is the kind of
+    /// cost that only shows up in Settings > Battery a day later. On-demand
+    /// connect covers the same commands.
+    func testItDefaultsToOffSoAnUntouchedInstallHoldsNoLinks() {
+        XCTAssertFalse(WearableKeepAlive.isOn(WearableKeepAlive.bottle, defaults: defaults))
+        XCTAssertFalse(WearableKeepAlive.isOn(WearableKeepAlive.scale, defaults: defaults))
+        XCTAssertFalse(WearableKeepAlive.isOn(WearableKeepAlive.esp32, defaults: defaults))
+        XCTAssertFalse(WearableKeepAlive.isOn(WearableKeepAlive.ring, defaults: defaults))
     }
 
     func testTheSettingRoundTrips() {
@@ -31,6 +35,8 @@ final class WearableKeepAliveTests: XCTestCase {
     }
 
     func testEachDeviceIsIndependent() {
+        WearableKeepAlive.set(true, for: WearableKeepAlive.bottle, defaults: defaults)
+        WearableKeepAlive.set(true, for: WearableKeepAlive.scale, defaults: defaults)
         WearableKeepAlive.set(false, for: WearableKeepAlive.bottle, defaults: defaults)
         XCTAssertFalse(WearableKeepAlive.isOn(WearableKeepAlive.bottle, defaults: defaults))
         XCTAssertTrue(WearableKeepAlive.isOn(WearableKeepAlive.scale, defaults: defaults),

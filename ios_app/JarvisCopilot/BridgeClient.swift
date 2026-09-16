@@ -84,7 +84,19 @@ final class BridgeClient: NSObject, ObservableObject {
     /// on background and every invoke goes through the silent push. `AppServices`
     /// also calls this at launch, since the setters only sync on a change.
     func syncKeepalive() {
-        BackgroundKeepalive.shared.sync(active: enabled && backgroundKeepalive && isPaired)
+        BackgroundKeepalive.shared.sync(active: enabled && backgroundKeepalive && isPaired
+                                        && !isInSustainedOutage)
+    }
+
+    /// How long the socket may stay down before the keepalive is not worth its
+    /// battery. Long enough to ride out a lift, a tunnel or a server restart.
+    static let outageGraceSeconds: TimeInterval = 300
+
+    /// The socket has been down long enough that holding the background allowance
+    /// is pure cost. `connect()` clears it the moment the server says hello.
+    private var isInSustainedOutage: Bool {
+        guard let outageStartedAt else { return false }
+        return Date().timeIntervalSince(outageStartedAt) >= Self.outageGraceSeconds
     }
 
     // MARK: Per-device exposure
@@ -140,6 +152,10 @@ final class BridgeClient: NSObject, ObservableObject {
     }()
     private var pingTask: Task<Void, Never>?
     private var reconnectAttempt = 0
+    /// When the socket last carried anything inbound. See `startPings()`.
+    private var lastInboundAt = Date()
+    /// When the current run of failed connections began, or nil while connected.
+    private var outageStartedAt: Date?
 
     private override init() { super.init() }
 
@@ -366,6 +382,9 @@ final class BridgeClient: NSObject, ObservableObject {
                     self.handleDrop(error.localizedDescription)
                 case .success(let message):
                     self.lastActivity = Date()
+                    // Anything at all counts as liveness, which is what lets the
+                    // ping task stay silent on a healthy socket.
+                    self.lastInboundAt = Date()
                     if case .string(let text) = message { self.handle(text) }
                     else if case .data(let d) = message,
                             let text = String(data: d, encoding: .utf8) { self.handle(text) }
@@ -384,6 +403,14 @@ final class BridgeClient: NSObject, ObservableObject {
         guard enabled, isPaired else { status = .off; return }
         status = .failed(reason)
         reconnectAttempt = min(reconnectAttempt + 1, 6)
+        if outageStartedAt == nil { outageStartedAt = Date() }
+        // A keepalive exists to keep a LIVE socket alive. Once the socket has
+        // been gone for minutes — aeroplane mode, no signal, server down — the
+        // silent audio is buying nothing and still costing a full day of battery,
+        // so hand the background allowance back and let invokes arrive by push,
+        // which is the fallback this whole path already has. Re-armed by the next
+        // successful connect, or by the next foregrounding.
+        syncKeepalive()
         let delay = UInt64(pow(2.0, Double(reconnectAttempt))) * 1_000_000_000
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
@@ -401,6 +428,8 @@ final class BridgeClient: NSObject, ObservableObject {
         switch type {
         case "hello":
             reconnectAttempt = 0
+            outageStartedAt = nil
+            syncKeepalive()      // back online: the allowance is worth holding again
             status = .online
             sendRegistration()
         case "registered":
@@ -441,16 +470,45 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
+    /// Liveness, driven by what we RECEIVE rather than by the clock.
+    ///
+    /// The server already sends every device a text ping every 18 s
+    /// (`device_bridge.py:_PING_INTERVAL`), because Cloudflare reaps a connection
+    /// with no data frames after ~51 s. So a healthy socket is proving itself
+    /// twice a minute without us saying anything, and the old unconditional ping
+    /// every 25 s was ~3,500 radio transmissions a day that told us nothing we
+    /// did not already know. On LTE each one drags the radio out of idle and the
+    /// RRC tail holds it there for another 10-20 s, so at 25 s spacing the radio
+    /// never got to sleep at all.
+    ///
+    /// Now we only speak when the server has gone quiet — which also detects a
+    /// dead socket properly, instead of shouting into one.
     private func startPings() {
         pingTask?.cancel()
+        lastInboundAt = Date()
         pingTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 25_000_000_000)
-                guard !Task.isCancelled else { return }
-                self?.send(["type": "ping"])
+                try? await Task.sleep(nanoseconds: Self.pingCheckEvery)
+                guard !Task.isCancelled, let self else { return }
+                guard Date().timeIntervalSince(self.lastInboundAt) >= Self.inboundSilenceLimit else {
+                    continue
+                }
+                // Silent for longer than the server's own cadence allows: either
+                // it stopped talking or the path is gone. One ping settles it —
+                // the send failure handler drops and reconnects.
+                JcLog.devices.debug("bridge: no traffic for \(Self.inboundSilenceLimit, privacy: .public)s, pinging")
+                self.send(["type": "ping"])
+                self.lastInboundAt = Date()
             }
         }
     }
+
+    /// How often the check runs. A CPU wakeup with nothing sent, which is orders
+    /// of magnitude cheaper than a cellular transmit.
+    private static let pingCheckEvery: UInt64 = 30_000_000_000
+    /// Well clear of the server's 18 s cadence, so an ordinary jitter or a missed
+    /// ping does not make us talk.
+    private static let inboundSilenceLimit: TimeInterval = 55
 
     // MARK: Background queue
 
