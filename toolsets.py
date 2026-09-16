@@ -223,6 +223,21 @@ TOOLSETS = {
         "includes": []
     },
 
+    # The central registry: long-lived integration data (tools/registry_tools.py).
+    # Always available — an integration that can't read its own history is useless.
+    "registry": {
+        "description": (
+            "The central registry: every integration's long-lived data. Catalog what "
+            "exists, read and write documents (settings, state), append and query "
+            "records (history). Live data still comes from the normal tools."
+        ),
+        "tools": [
+            "registry_catalog", "registry_get", "registry_put",
+            "registry_append", "registry_query", "registry_describe",
+        ],
+        "includes": []
+    },
+
     "coding_sessions": {
         "description": "Launch and drive interactive Claude Code coding sessions (tmux-backed): launch in a project dir, list, status, send a message, stop; plus register/list projects.",
         "tools": [

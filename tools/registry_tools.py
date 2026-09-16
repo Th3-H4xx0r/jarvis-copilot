@@ -1,0 +1,234 @@
+"""Agent tools over the central registry (``jarvis_registry``).
+
+Long-lived data an integration keeps — a casino session, an email digest, the
+"last seen" cursor of a monitor — lives in the registry instead of a JSON file in
+the workspace. These tools are how any chat, voice or scheduled turn reads and
+writes it; every one of them runs on the server.
+
+Start with ``registry_catalog``: it lists the spaces and what each holds, in a few
+hundred tokens, so a query can be aimed rather than guessed.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from tools.registry import registry
+
+_MAX_RESULT_RECORDS = 200
+
+
+def _reg():
+    from jarvis_registry.store import shared  # import cost stays off startup
+
+    return shared()
+
+
+def _fail(message: str) -> str:
+    return json.dumps({"ok": False, "error": message})
+
+
+def _ok(**body: Any) -> str:
+    return json.dumps({"ok": True, **body}, ensure_ascii=False, default=str)
+
+
+# ── catalog ──────────────────────────────────────────────────────────────────
+_CATALOG = {
+    "name": "registry_catalog",
+    "description": (
+        "What the central registry holds: every integration's space, its documents "
+        "and its record collections, each with a one-line description and a row "
+        "count. Read this before querying so you know what exists. Optionally pass "
+        "`space` for one integration."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"space": {"type": "string", "description": "One space id, e.g. 'casino'"}},
+    },
+}
+
+
+def _h_catalog(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        return _ok(spaces=_reg().catalog(space_id=(args.get("space") or "").strip() or None))
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+# ── documents ────────────────────────────────────────────────────────────────
+_GET = {
+    "name": "registry_get",
+    "description": (
+        "Read one document from an integration's space — settings, state, a cursor. "
+        "Documents are overwritten in place; for history use registry_query."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "key": {"type": "string"},
+        },
+        "required": ["space", "key"],
+    },
+}
+
+
+def _h_get(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        space = _reg().open(str(args.get("space") or ""))
+        return _ok(space=space.id, key=args.get("key"), body=space.get(str(args.get("key") or "")))
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+_PUT = {
+    "name": "registry_put",
+    "description": (
+        "Write a document into an integration's space, replacing what was there. Use "
+        "for settings and state, not for history. Give `description` the first time so "
+        "the catalog explains it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "key": {"type": "string"},
+            "body": {"type": "object", "description": "Any JSON object"},
+            "description": {"type": "string"},
+        },
+        "required": ["space", "key", "body"],
+    },
+}
+
+
+def _h_put(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        space = _reg().open(str(args.get("space") or ""))
+        space.put(str(args.get("key") or ""), args.get("body"), description=args.get("description"))
+        return _ok(space=space.id, key=args.get("key"))
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+# ── records ──────────────────────────────────────────────────────────────────
+_APPEND = {
+    "name": "registry_append",
+    "description": (
+        "Append one record to a collection — a casino session, an email digest, a "
+        "workout. Records are the history: never rewrite one, append a correction. "
+        "`ts` defaults to now (epoch seconds)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "collection": {"type": "string"},
+            "body": {"type": "object", "description": "Any JSON object"},
+            "ts": {"type": "number", "description": "Epoch seconds; defaults to now"},
+        },
+        "required": ["space", "collection", "body"],
+    },
+}
+
+
+def _h_append(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        space = _reg().open(str(args.get("space") or ""))
+        record_id = space.append(str(args.get("collection") or ""), args.get("body"),
+                                 ts=args.get("ts"), source="agent")
+        return _ok(space=space.id, collection=args.get("collection"), id=record_id)
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+_QUERY = {
+    "name": "registry_query",
+    "description": (
+        "Records from a collection, newest first. Narrow with `since`/`until` (epoch "
+        "seconds) and `where` (exact matches on top-level fields). This is how one "
+        "integration reads another's history."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "collection": {"type": "string"},
+            "since": {"type": "number"},
+            "until": {"type": "number"},
+            "where": {"type": "object", "description": 'e.g. {"game": "blackjack"}'},
+            "limit": {"type": "integer", "description": f"1-{_MAX_RESULT_RECORDS}, default 50"},
+            "oldest_first": {"type": "boolean"},
+        },
+        "required": ["space", "collection"],
+    },
+}
+
+
+def _h_query(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        space = _reg().open(str(args.get("space") or ""))
+        limit = min(int(args.get("limit") or 50), _MAX_RESULT_RECORDS)
+        rows = space.records(
+            str(args.get("collection") or ""),
+            since=args.get("since"), until=args.get("until"),
+            where=args.get("where") or None, limit=limit,
+            newest_first=not bool(args.get("oldest_first")),
+        )
+        return _ok(space=space.id, collection=args.get("collection"), count=len(rows), records=rows)
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+# ── catalog upkeep ───────────────────────────────────────────────────────────
+_DESCRIBE = {
+    "name": "registry_describe",
+    "description": (
+        "Explain a collection (or the space itself) in the catalog, so later turns and "
+        "other integrations know what the data means. Say it in one line, and name the "
+        "fields that matter."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "space": {"type": "string"},
+            "collection": {"type": "string", "description": "Omit to describe the space"},
+            "description": {"type": "string"},
+            "fields": {"type": "object", "description": 'e.g. {"net": "dollars won"}'},
+        },
+        "required": ["space", "description"],
+    },
+}
+
+
+def _h_describe(args=None, **_kw) -> str:
+    args = args or {}
+    try:
+        space = _reg().open(str(args.get("space") or ""))
+        description = str(args.get("description") or "")
+        collection = (args.get("collection") or "").strip()
+        if collection:
+            space.collection(collection).describe(description, fields=args.get("fields") or None)
+        else:
+            space.describe(description)
+        return _ok(space=space.id, collection=collection or None)
+    except Exception as exc:
+        return _fail(str(exc))
+
+
+registry.register(name="registry_catalog", toolset="registry",
+                  schema=_CATALOG, handler=_h_catalog, emoji="🗂️")
+registry.register(name="registry_get", toolset="registry",
+                  schema=_GET, handler=_h_get, emoji="📄")
+registry.register(name="registry_put", toolset="registry",
+                  schema=_PUT, handler=_h_put, emoji="📝")
+registry.register(name="registry_append", toolset="registry",
+                  schema=_APPEND, handler=_h_append, emoji="➕")
+registry.register(name="registry_query", toolset="registry",
+                  schema=_QUERY, handler=_h_query, emoji="🔎")
+registry.register(name="registry_describe", toolset="registry",
+                  schema=_DESCRIBE, handler=_h_describe, emoji="🏷️")
