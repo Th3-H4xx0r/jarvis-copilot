@@ -44,6 +44,7 @@ time. If the user has already told you something, do not ask again.
   - Create each piece as soon as it is settled, rather than saving it all for the \
 end. The user is watching them appear.
   - Keep your messages short. This is a setup sheet, not a chat.
+  - Do NOT call `integration_plan_propose` here. That tool draws a plan card for the user to approve in an ordinary chat; in this sheet you build the thing itself, and a card asking them to approve what you are already doing is only confusing.
   - When everything is in place, call `integration_ready` with the space id and a \
 one-line summary. Do not call it before something exists.
 """

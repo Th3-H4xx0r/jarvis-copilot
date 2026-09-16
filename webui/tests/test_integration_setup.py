@@ -84,3 +84,11 @@ def test_the_web_plus_button_starts_the_same_conversation():
     assert "/api/integrations/setup/start" in js
     assert "showPromptDialog" not in js, "the + must not fall back to asking for a name"
     assert "loadSession(setup.session_id)" in js
+
+
+def test_the_directive_rules_out_the_plan_card():
+    """The plan tool is in the same toolset and invites proposing instead of building."""
+    scoped = FakeSession()
+    scoped.integration_setup = True
+    directive = setup.directive_for(scoped)
+    assert "Do NOT call `integration_plan_propose`" in directive
