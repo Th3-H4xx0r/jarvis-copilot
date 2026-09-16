@@ -44,3 +44,16 @@ def test_a_decided_plan_still_renders():
 def test_the_card_layout_is_fixed_in_css_not_by_the_model():
     for cls in ("plan-card-head", "plan-card-section-label", "plan-card-item", "plan-card-foot"):
         assert f".{cls}" in CSS, f"{cls} has no style, so the card would render unstyled"
+
+
+def test_the_card_is_never_hidden_inside_the_collapsed_activity_group():
+    """It asks for a decision, so it cannot need unfolding to be seen.
+
+    With simplified tool calling every tool card goes into an activity group that
+    starts collapsed; the plan card is placed after that group instead.
+    """
+    assert "function _isStandaloneCard(el)" in UI_JS
+    assert "planCards=built.filter(_isStandaloneCard)" in UI_JS
+    assert "toolCards=built.filter(el=>!_isStandaloneCard(el))" in UI_JS
+    # And in the plain branch, the Expand all toggle only counts real tool cards.
+    assert "frag.querySelectorAll('.tool-card').length>=2" in UI_JS

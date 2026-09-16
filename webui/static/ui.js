@@ -5956,16 +5956,25 @@ function renderMessages(options){
           anchorParent.insertBefore(thinkingNode, anchorRow);
         }
         if(!cards.length) continue;
-        const group=ensureActivityGroup(anchorParent,{collapsed:true,anchor:insertAfterNode,activityKey:`assistant:${aIdx}`});
-        const sourceMsg=S.messages[aIdx]||{};
-        if(sourceMsg._turnDuration!==undefined) group.setAttribute('data-turn-duration', String(sourceMsg._turnDuration));
-        const body=group&&group.querySelector('.tool-call-group-body');
-        if(!body) continue;
-        for(const tc of cards){
-          body.appendChild(buildToolCard(tc));
+        const built=cards.map(buildToolCard);
+        const planCards=built.filter(_isStandaloneCard);
+        const toolCards=built.filter(el=>!_isStandaloneCard(el));
+        let lastNode=insertAfterNode;
+        if(toolCards.length){
+          const group=ensureActivityGroup(anchorParent,{collapsed:true,anchor:insertAfterNode,activityKey:`assistant:${aIdx}`});
+          const sourceMsg=S.messages[aIdx]||{};
+          if(sourceMsg._turnDuration!==undefined) group.setAttribute('data-turn-duration', String(sourceMsg._turnDuration));
+          const body=group&&group.querySelector('.tool-call-group-body');
+          if(!body) continue;
+          for(const card of toolCards) body.appendChild(card);
+          _syncToolCallGroupSummary(group);
+          lastNode=group;
         }
-        _syncToolCallGroupSummary(group);
-        if(anchorRow) anchorInsertAfter.set(anchorRow, group);
+        for(const card of planCards){
+          anchorParent.insertBefore(card, lastNode ? lastNode.nextSibling : null);
+          lastNode=card;
+        }
+        if(anchorRow&&lastNode) anchorInsertAfter.set(anchorRow, lastNode);
       }
     }else if(S.toolCalls && S.toolCalls.length){
       for(const [key, cards] of Object.entries(byAssistant)){
@@ -5986,7 +5995,7 @@ function renderMessages(options){
           lastInsertedNode=card;
         }
         // Add expand/collapse toggle for groups with 2+ cards
-        if(cards.length>=2){
+        if(frag.querySelectorAll('.tool-card').length>=2){
           const toggle=document.createElement('div');
           toggle.className='tool-cards-toggle';
           // Collect card elements before they get moved to DOM
@@ -6140,6 +6149,12 @@ function toolIcon(name){
     subagent_progress:li('shuffle'),
   };
   return icons[name]||li('wrench');
+}
+
+/// A card that must never be tucked inside a collapsed activity group: it asks
+/// the user for a decision, so it has to be visible without being unfolded.
+function _isStandaloneCard(el){
+  return !!(el && el.classList && el.classList.contains('plan-card-row'));
 }
 
 function buildToolCard(tc){
