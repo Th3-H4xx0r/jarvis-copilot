@@ -319,6 +319,31 @@ final class ShellSnapshotTests: XCTestCase {
                        "the bar should carry the root and the pushed item")
     }
 
+    /// Settings was the one destination this was ever checked against, so Skills
+    /// kept the `NavigationStack` it owned back when it was a tab and nobody
+    /// noticed until it was pushed into More's. A nested stack breaks the pushed
+    /// screen's chrome AND leaves the grid's own tiles dead after Back, because
+    /// the outer stack no longer owns the navigation it thinks it does.
+    ///
+    /// So: every tile, not just the one that was reported.
+    func testEveryMoreDestinationPushesIntoTheGridsOwnStack() {
+        for destination in MoreDestination.allCases {
+            let harness = Harness(MorePage(initialPath: [destination]).environment(AppRouter()))
+            harness.settle(0.6)
+
+            let stacks = navigationControllers(in: harness)
+            XCTAssertEqual(stacks.count, 1,
+                           "\(destination.rawValue) brings its own NavigationStack; it is pushed, "
+                           + "so it must use the grid's")
+            XCTAssertEqual(stacks.first?.viewControllers.count, 2,
+                           "\(destination.rawValue) should be pushed onto the grid")
+            XCTAssertEqual(navigationBars(in: harness).count, 1,
+                           "\(destination.rawValue) shows a second navigation bar")
+            XCTAssertEqual(backButtonMarkers(in: harness).count, 1,
+                           "\(destination.rawValue) should show exactly one back chevron")
+        }
+    }
+
     /// The report was about Settings *inside the shell*, so push it into the real
     /// navigation controller the More tab owns: same stack the app runs, with the
     /// pill on screen underneath it.

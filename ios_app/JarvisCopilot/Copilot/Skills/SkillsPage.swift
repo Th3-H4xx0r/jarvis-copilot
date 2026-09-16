@@ -19,26 +19,31 @@ struct SkillsPage: View {
         _model = State(initialValue: model ?? MainActor.assumeIsolated { SkillsPageModel() })
     }
 
+    /// No `NavigationStack` here. Skills used to be a tab and owned one; it is
+    /// pushed from the More grid now, so a stack of its own would nest inside
+    /// More's — which breaks this screen's chrome AND leaves More's own tiles
+    /// dead after you come back, because the outer stack no longer owns the
+    /// navigation it thinks it does. The title and the search field attach to
+    /// the navigation bar this screen was pushed into.
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    SkillsRunnerCard(paused: model.paused) { model.setPaused($0) }
-                    catalogue
-                    SkillsInvokeLog(rows: model.log) { model.reloadLog() }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SkillsRunnerCard(paused: model.paused) { model.setPaused($0) }
+                catalogue
+                SkillsInvokeLog(rows: model.log) { model.reloadLog() }
             }
-            // Under the navigation bar, not iOS 26's default floating bar: that
-            // one docks to the bottom of the screen, where it stacks on top of
-            // the shell's own floating nav pill and covers a skill row.
-            .searchable(text: searchText,
-                        placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Search skills")
-            .jcScreen("Skills")
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
         }
+        // Under the navigation bar, not iOS 26's default floating bar: that
+        // one docks to the bottom of the screen, where it stacks on top of
+        // the shell's own floating nav pill and covers a skill row.
+        .searchable(text: searchText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search skills")
+        .jcScreen("Skills")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear { model.reload() }
         .sheet(item: $testing) { item in
             SkillTestSheet(model: model, skill: item)
