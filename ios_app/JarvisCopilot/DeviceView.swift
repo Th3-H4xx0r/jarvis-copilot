@@ -97,7 +97,9 @@ struct DeviceView: View {
             }
         }
         .toolbar {
-            Button("Refresh", jcIcon: "arrow.clockwise") { manager.send(.status) }
+            WearableToolbarButton(title: "Refresh", icon: "arrow.clockwise") {
+                manager.send(.status)
+            }
             WearableMoreMenu { renaming = true }
         }
     }

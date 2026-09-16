@@ -222,20 +222,23 @@ struct IntegrationPlan: Identifiable, Equatable, Sendable {
 /// One glyph per integration. `icon` is a plain word so each platform draws it
 /// its own way; on the phone that means a Phosphor icon.
 enum IntegrationIcon {
+    /// Every name here is a real icon in the app's pack (`Assets.xcassets/JcIcons`).
+    /// A name that is not falls through `JcIcon` to an Apple symbol, which is drawn
+    /// in a different hand and reads as borrowed from another app.
     static func symbol(for icon: String) -> String {
         switch icon.lowercased() {
-        case "music":    return "music.note"
-        case "envelope": return "envelope"
-        case "house":    return "house"
-        case "airplane": return "airplane"
-        case "chips":    return "dice"
+        case "music":    return "waveform"
+        case "envelope": return "bubble.left"
+        case "house":    return "lock.fill"
+        case "airplane": return "paperplane.fill"
+        case "chips":    return "largecircle.fill.circle"
         case "chart":    return "chart.line.uptrend.xyaxis"
         case "clock":    return "clock"
-        case "bolt":     return "bolt"
-        case "book":     return "book"
-        case "heart":    return "heart"
+        case "bolt":     return "bolt.fill"
+        case "book":     return "scroll"
+        case "heart":    return "sparkles"
         case "dots":     return "ellipsis"
-        default:         return "square.grid.2x2"
+        default:         return "folder"
         }
     }
 }

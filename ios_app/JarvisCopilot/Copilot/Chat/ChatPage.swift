@@ -16,7 +16,6 @@ struct ChatPage: View {
     @State private var store: ChatStore
     @State private var dashboard: ChatDashboardStore
     @State private var showSessions = false
-    @State private var showModels = false
 
     /// `store` is injected by tests; the app takes the default. Built here rather
     /// than in `body` so the store outlives a re-render, and with
@@ -92,7 +91,6 @@ struct ChatPage: View {
             }
         }
         .sheet(isPresented: $showSessions) { ChatSessionsSheet(store: store) }
-        .sheet(isPresented: $showModels) { ChatModelPickerSheet(store: store) }
     }
 
     // MARK: Chrome
@@ -119,7 +117,7 @@ struct ChatPage: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
         }
-        ToolbarItem(placement: .topBarTrailing) { modelCapsule }
+        ToolbarItem(placement: .topBarTrailing) { ChatModelButton(store: store) }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 // The conversation view clears its own draft when the session changes.
@@ -129,21 +127,6 @@ struct ChatPage: View {
         }
     }
 
-    private var modelCapsule: some View {
-        Button { showModels = true } label: {
-            HStack(spacing: 6) {
-                JcIcon("sparkles")
-                    .foregroundStyle(JcTheme.accent)
-                Text(ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? ""))
-                    .lineLimit(1)
-            }
-            .font(.system(size: 14, weight: .medium))
-            .frame(maxWidth: 112)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(JcTheme.text)
-        .accessibilityLabel("Chat model")
-    }
 
     // MARK: Transcript
 

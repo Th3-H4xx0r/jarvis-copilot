@@ -46,6 +46,8 @@ struct IntegrationsPage: View {
                     IntegrationRecordsView(integrationID: id, collection: collection, store: store)
                 case .document(let id, let key):
                     IntegrationDocumentView(integrationID: id, key: key, store: store)
+                case .skill(_, let name):
+                    IntegrationSkillView(name: name)
                 }
             }
         }
@@ -94,7 +96,7 @@ struct IntegrationCard: View {
                         .foregroundStyle(JcTheme.accent)
                         .fixedSize()
                     Text(integration.name)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(JcText.label)
                         .foregroundStyle(JcTheme.text)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -108,14 +110,14 @@ struct IntegrationCard: View {
                 }
                 if !integration.summary.isEmpty {
                     Text(integration.summary)
-                        .font(.system(size: 13))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .padding(.top, 8)
                 }
                 Text(integration.subtitle)
-                    .font(.system(size: 11.5))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted.opacity(0.8))
                     .padding(.top, 9)
             }

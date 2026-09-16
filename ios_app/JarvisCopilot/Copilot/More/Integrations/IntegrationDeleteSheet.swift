@@ -45,17 +45,18 @@ struct IntegrationDeleteSheet: View {
 
                 Text(choice.summary(schedules: scheduleCount, collections: collectionCount,
                                     documents: documentCount, skills: skillCount))
-                    .font(.system(size: 12.5))
+                    .font(JcText.small)
                     .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let failure {
                     Text(failure)
-                        .font(.system(size: 12.5))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // The app's glass CTA, in the danger tint — not a solid slab.
                 Button {
                     working = true
                     failure = nil
@@ -66,17 +67,21 @@ struct IntegrationDeleteSheet: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        if working { ProgressView().controlSize(.small) }
-                        Text(working ? "Deleting\u{2026}" : "Delete")
-                            .font(.system(size: 15, weight: .semibold))
+                        if working {
+                            ProgressView().controlSize(.small).tint(JcTheme.danger)
+                        } else {
+                            JcIcon("trash").font(.system(size: 15, weight: .semibold))
+                        }
+                        Text(working ? "Deleting\u{2026}" : "Delete").font(JcText.label)
                     }
+                    .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(JcTheme.danger.opacity(choice.isEmpty ? 0.12 : 0.9),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .foregroundStyle(choice.isEmpty ? JcTheme.muted : Color.white)
+                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: JcTheme.fieldRadius,
+                                                        style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .opacity(choice.isEmpty ? 0.5 : 1)
                 .disabled(choice.isEmpty || working)
             }
         }
@@ -98,16 +103,16 @@ struct IntegrationDeleteSheet: View {
         Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: indented ? .regular : .medium))
+                    .font(JcText.body)
                     .foregroundStyle(JcTheme.text)
                 Text(detail)
-                    .font(.system(size: 11.5))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
             }
         }
-        .tint(JcTheme.danger)
-        .padding(.leading, indented ? 28 : 14)
-        .padding(.trailing, 14)
-        .padding(.vertical, 10)
+        .tint(JcTheme.accent)
+        .padding(.leading, indented ? 30 : 16)
+        .padding(.trailing, 16)
+        .padding(.vertical, 12)
     }
 }

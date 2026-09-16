@@ -27,7 +27,7 @@ struct IntegrationRecordsView: View {
                     CenteredMessage(text: "Nothing recorded yet.").padding(.top, 80)
                 } else {
                     Text("\(records.count) record\(records.count == 1 ? "" : "s"), newest first.")
-                        .font(.system(size: 12))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .padding(.bottom, 2)
                     ForEach(records) { record in
@@ -63,17 +63,17 @@ struct IntegrationRecordCard: View {
             VStack(alignment: .leading, spacing: 7) {
                 if !record.timeLabel.isEmpty {
                     Text(record.timeLabel)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.accent)
                 }
                 ForEach(record.fields, id: \.key) { field in
                     HStack(alignment: .top, spacing: 10) {
                         Text(field.key)
-                            .font(.system(size: 12))
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.muted)
                             .frame(width: 92, alignment: .leading)
                         Text(field.value.isEmpty ? "—" : field.value)
-                            .font(.system(size: 12.5))
+                            .font(JcText.small)
                             .foregroundStyle(JcTheme.text)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -106,7 +106,7 @@ struct IntegrationDocumentView: View {
                 } else {
                     GlassCard(padding: 12) {
                         Text(body_.isEmpty ? "Empty." : body_)
-                            .font(.system(size: 11.5, design: .monospaced))
+                            .font(JcText.small.monospaced())
                             .foregroundStyle(JcTheme.text)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

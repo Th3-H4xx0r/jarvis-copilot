@@ -79,10 +79,10 @@ struct RingDeviceView: View {
             RingSettingsView(manager: manager)
         }
         .toolbar {
-            Button("Sync week", jcIcon: "arrow.triangle.2.circlepath") {
+            WearableToolbarButton(title: "Sync week", icon: "arrow.triangle.2.circlepath",
+                                  disabled: !ready || sync.isSyncing) {
                 Task { await sync.sync(days: sync.historyDays) }
             }
-            .disabled(!ready || sync.isSyncing)
             WearableMoreMenu { renaming = true }
         }
     }

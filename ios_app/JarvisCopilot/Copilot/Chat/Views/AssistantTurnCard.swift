@@ -10,6 +10,10 @@ struct ChatAssistantTurnCard: View {
     @State private var copied = false
     @State private var selecting = false
 
+    /// Sends a filled-in form on as the user's reply. Nil where a turn is being
+    /// read rather than continued.
+    var onFormSubmit: ((String) -> Void)?
+
     private var tools: [ToolInvocation] { message.tools }
     /// A proposed integration isn't a tool result to skim — it's a card the user
     /// acts on, so it leaves the tool box and draws on its own.
@@ -20,8 +24,15 @@ struct ChatAssistantTurnCard: View {
     private var built: [SetupCard] {
         tools.compactMap { $0.done ? SetupCard(toolName: $0.name, args: $0.args) : nil }
     }
+    /// A form the agent drew; the user fills it in and their answers come back as
+    /// their next message.
+    private var formIDs: [String] { tools.compactMap(ChatForm.formID(in:)) }
     private var plainTools: [ToolInvocation] {
-        tools.filter { IntegrationPlanCard.planID(in: $0) == nil && SetupCard(toolName: $0.name, args: $0.args) == nil }
+        tools.filter {
+            IntegrationPlanCard.planID(in: $0) == nil
+                && ChatForm.formID(in: $0) == nil
+                && SetupCard(toolName: $0.name, args: $0.args) == nil
+        }
     }
     private var hasText: Bool { !message.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -68,6 +79,10 @@ struct ChatAssistantTurnCard: View {
             }
 
             ForEach(planIDs, id: \.self) { IntegrationPlanCard(planID: $0) }
+
+            ForEach(formIDs, id: \.self) { formID in
+                ChatFormCard(formID: formID) { reply in onFormSubmit?(reply) }
+            }
 
             if !built.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {

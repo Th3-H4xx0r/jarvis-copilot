@@ -3565,6 +3565,13 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/pair":
         return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
 
+    if parsed.path.startswith("/api/forms/"):
+        # A form the agent drew in the conversation.
+        from api.forms import handle_get as _forms_get
+
+        if _forms_get(handler, parsed):
+            return True
+
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         # The Integrations page (web + phone): what exists, what it holds, what it runs.
         from api.integrations_routes import handle_get as _integrations_get
@@ -6271,6 +6278,12 @@ def handle_post(handler, parsed) -> bool:
         handler.end_headers()
         handler.wfile.write(json.dumps({"ok": True}).encode())
         return True
+
+    if parsed.path.startswith("/api/forms/"):
+        from api.forms import handle_post as _forms_post
+
+        if _forms_post(handler, parsed, body):
+            return True
 
     if parsed.path == "/api/integrations/setup/start":
         from api.integration_setup import handle_post as _setup_post

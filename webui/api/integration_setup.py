@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # filesystem or the network while doing it.
 # The real toolset keys — a name that is not a key in TOOLSETS is dropped without
 # a word, and the session would quietly have no way to make a schedule.
-SETUP_TOOLSETS = ["registry", "cronjob", "skills"]
+SETUP_TOOLSETS = ["registry", "cronjob", "skills", "forms"]
 
 DIRECTIVE = """\
 You are setting up ONE new Jarvis integration with the user, in a dedicated sheet \
@@ -43,8 +43,11 @@ integration's space id
 `integration: <space id>` in its front matter so it belongs here
 
 How to run the conversation:
-  - Ask for what you genuinely need and nothing more. One short question at a \
-time. If the user has already told you something, do not ask again.
+  - Ask for what you genuinely need and nothing more. When you need more than \
+one answer, or an answer is a choice from a short list, call `form_ask` and let \
+them fill in boxes — it is far less work than answering a paragraph of questions. \
+One short question in prose is fine when there is only one. If the user has \
+already told you something, do not ask again.
   - Create each piece as soon as it is settled, rather than saving it all for the \
 end. The user is watching them appear.
   - Keep your messages short. This is a setup sheet, not a chat.

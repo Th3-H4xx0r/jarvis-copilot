@@ -19,8 +19,10 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     let emptyState: (CGFloat) -> Empty
     let footer: Footer
 
-    /// Set when the host passes a footer; the composer is hidden in that case.
-    private let hasFooter: Bool
+    /// Whether the composer is offered. A host that passes a footer may still want
+    /// it — the footer is only a replacement while this is false, so a footer that
+    /// renders conditionally does not silently take the keyboard away.
+    private let showsComposer: Bool
 
     @State private var draft = ""
     /// Bumped on send so the multi-line field is recreated — clearing its binding
@@ -33,20 +35,20 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
 
     init(store: ChatStore,
          placeholder: String = "Message Jarvis",
+         showsComposer: Bool = true,
          @ViewBuilder emptyState: @escaping (CGFloat) -> Empty,
          @ViewBuilder footer: () -> Footer) {
-        self.init(store: store, placeholder: placeholder,
-                  emptyState: emptyState, footer: footer(), hasFooter: true)
+        self.init(store: store, placeholder: placeholder, showsComposer: showsComposer,
+                  emptyState: emptyState, footer: footer())
     }
 
-    fileprivate init(store: ChatStore, placeholder: String,
-                     emptyState: @escaping (CGFloat) -> Empty,
-                     footer: Footer, hasFooter: Bool) {
+    fileprivate init(store: ChatStore, placeholder: String, showsComposer: Bool,
+                     emptyState: @escaping (CGFloat) -> Empty, footer: Footer) {
         self.store = store
         self.placeholder = placeholder
+        self.showsComposer = showsComposer
         self.emptyState = emptyState
         self.footer = footer
-        self.hasFooter = hasFooter
     }
 
     var body: some View {
@@ -58,9 +60,8 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     Task { await store.respondClarify(answer) }
                 }
             }
-            if hasFooter {
-                footer
-            } else {
+            footer
+            if showsComposer {
                 ChatComposer(store: store, placeholder: placeholder, draft: $draft,
                              generation: composerGeneration, focused: $focused,
                              onSend: send, onStop: stop)
@@ -91,7 +92,10 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                 isFirst: index == 0,
                                 onCopy: { UIPasteboard.general.string = row.message.plainText },
                                 onRetryOnServer: row.message.onDevice
-                                    ? { Task { await store.retryOnServer(row.message) } } : nil)
+                                    ? { Task { await store.retryOnServer(row.message) } } : nil,
+                                // A submitted form becomes the user's next message,
+                                // so the turn after it reads the answers normally.
+                                onFormSubmit: { reply in Task { await store.send(reply) } })
                                 .id(row.id)
                         }
                         Color.clear.frame(height: 1).id(Self.bottomAnchor)
@@ -99,7 +103,13 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                     .padding(.vertical, 14)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onTapGesture { focused = false }
+                .onTapGesture {
+                    // Whatever holds the keyboard — the composer, or a box in a
+                    // form card the agent drew.
+                    focused = false
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                    to: nil, from: nil, for: nil)
+                }
                 .onAppear { jump(proxy) }
                 // A tick, not the transcript: `onChange(of: store.messages)` compares
                 // every message in the thread on every streamed token
@@ -175,27 +185,56 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
     private func stop() { Task { await store.cancel() } }
 }
 
+/// The model this conversation runs on, and a tap to change it.
+///
+/// A toolbar item rather than part of the conversation, because where it belongs
+/// depends on the screen — but the same capsule and the same picker sheet
+/// everywhere, over the same `ChatStore`.
+struct ChatModelButton: View {
+    let store: ChatStore
+    @State private var picking = false
+
+    var body: some View {
+        Button { picking = true } label: {
+            HStack(spacing: 6) {
+                JcIcon("sparkles").foregroundStyle(JcTheme.accent)
+                Text(ChatUIFormat.shortModelName(store.selectedModel?.label
+                                                 ?? store.selectedModelID ?? ""))
+                    .lineLimit(1)
+            }
+            .font(JcText.body)
+            .frame(maxWidth: 112)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(JcTheme.text)
+        .accessibilityLabel("Chat model")
+        .sheet(isPresented: $picking) { ChatModelPickerSheet(store: store) }
+        .task { if store.models == nil { await store.loadModels() } }
+    }
+}
+
 extension ChatConversationView where Footer == EmptyView {
     /// A conversation with the ordinary composer.
     init(store: ChatStore, placeholder: String = "Message Jarvis",
          @ViewBuilder emptyState: @escaping (CGFloat) -> Empty) {
-        self.init(store: store, placeholder: placeholder, emptyState: emptyState,
-                  footer: EmptyView(), hasFooter: false)
+        self.init(store: store, placeholder: placeholder, showsComposer: true,
+                  emptyState: emptyState, footer: EmptyView())
     }
 }
 
 extension ChatConversationView where Empty == EmptyView {
     /// A conversation with nothing in place of an empty transcript.
     init(store: ChatStore, placeholder: String = "Message Jarvis",
+         showsComposer: Bool = true,
          @ViewBuilder footer: () -> Footer) {
-        self.init(store: store, placeholder: placeholder, emptyState: { _ in EmptyView() },
-                  footer: footer(), hasFooter: true)
+        self.init(store: store, placeholder: placeholder, showsComposer: showsComposer,
+                  emptyState: { _ in EmptyView() }, footer: footer())
     }
 }
 
 extension ChatConversationView where Empty == EmptyView, Footer == EmptyView {
     init(store: ChatStore, placeholder: String = "Message Jarvis") {
-        self.init(store: store, placeholder: placeholder, emptyState: { _ in EmptyView() },
-                  footer: EmptyView(), hasFooter: false)
+        self.init(store: store, placeholder: placeholder, showsComposer: true,
+                  emptyState: { _ in EmptyView() }, footer: EmptyView())
     }
 }

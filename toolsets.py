@@ -29,6 +29,8 @@ from typing import List, Dict, Any, Set, Optional
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
 _HERMES_CORE_TOOLS = [
+    # Asking with boxes rather than prose
+    "form_ask",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -221,6 +223,16 @@ TOOLSETS = {
         "description": "Native tools auto-generated per skill advertised by a connected device (phone/Mac/watch): open apps, control media, browser actions, and any other device-specific skill.",
         "tools": [],
         "includes": []
+    },
+
+    # Asking the user something with boxes instead of prose (tools/form_tools.py).
+    "forms": {
+        "description": (
+            "Ask several things at once as a form in the chat: a card with real "
+            "input boxes the user fills in and submits. Their answers come back as "
+            "their next message."
+        ),
+        "tools": ["form_ask"],
     },
 
     # The central registry: long-lived integration data (tools/registry_tools.py).
@@ -447,6 +459,8 @@ TOOLSETS = {
     "hermes-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
+            # Asking with boxes rather than prose
+            "form_ask",
             # Web
             "web_search", "web_extract",
             # Terminal + process management

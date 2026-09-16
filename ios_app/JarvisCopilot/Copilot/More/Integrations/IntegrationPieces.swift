@@ -19,31 +19,38 @@ struct IntegrationSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(title.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
-                    .kerning(0.8)
-                    .foregroundStyle(JcTheme.muted)
-                Text("\(count)")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(JcTheme.accent)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1.5)
-                    .background(Capsule().fill(JcTheme.accent.opacity(0.12)))
-                Spacer(minLength: 0)
-                if let action {
-                    Button(action: action.run) {
-                        JcIcon(action.symbol, size: 13)
-                            .foregroundStyle(JcTheme.accent)
-                            .frame(width: 28, height: 28)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title) {
+                HStack(spacing: 8) {
+                    CountChip(count)
+                    if let action {
+                        Button(action: action.run) {
+                            JcIcon(action.symbol, size: 15)
+                                .foregroundStyle(JcTheme.accent)
+                                .fixedSize()
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 2)
             content
         }
+    }
+}
+
+/// How many of a thing a section holds.
+struct CountChip: View {
+    let count: Int
+
+    init(_ count: Int) { self.count = count }
+
+    var body: some View {
+        Text("\(count)")
+            .font(JcText.small)
+            .foregroundStyle(JcTheme.accent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(JcTheme.accent.opacity(0.14)))
     }
 }
 
@@ -52,10 +59,7 @@ struct InsetGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(spacing: 0) { content }
-            .background(JcTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(JcTheme.border, lineWidth: 0.5))
+        GlassCard(padding: 0) { VStack(spacing: 0) { content } }
     }
 }
 
@@ -85,7 +89,7 @@ struct InsetDivider: View {
         Rectangle()
             .fill(JcTheme.border)
             .frame(height: 0.5)
-            .padding(.leading, 14)
+            .padding(.leading, 16)
     }
 }
 
@@ -127,20 +131,20 @@ struct IntegrationRow<Menu: View>: View {
                     .contentShape(Rectangle())
             }
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 2)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
     }
 
     private var label: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(JcText.body)
                     .foregroundStyle(JcTheme.text)
                     .lineLimit(1)
                 if !note.isEmpty {
                     Text(note)
-                        .font(.system(size: 12))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -149,7 +153,7 @@ struct IntegrationRow<Menu: View>: View {
             Spacer(minLength: 0)
             if !trailing.isEmpty {
                 Text(trailing)
-                    .font(.system(size: 12).monospacedDigit())
+                    .font(JcText.small.monospacedDigit())
                     .foregroundStyle(JcTheme.muted)
             }
         }
@@ -164,12 +168,12 @@ struct IntegrationEmptyRow: View {
     var body: some View {
         InsetGroup {
             Text(text)
-                .font(.system(size: 12.5))
+                .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 13)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
         }
     }
 }
@@ -278,8 +282,8 @@ struct SetupCardView: View {
 
     private var symbol: String {
         switch card.kind {
-        case .integration: return "square.grid.2x2"
-        case .data:        return "tray.full"
+        case .integration: return "folder"
+        case .data:        return "doc.text"
         case .schedule:    return "clock"
         case .skill:       return "sparkles"
         }
@@ -290,25 +294,21 @@ struct SetupCardView: View {
             JcIcon(symbol, size: 14).foregroundStyle(JcTheme.success).fixedSize()
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.name)
-                    .font(.system(size: 13.5, weight: .medium))
+                    .font(JcText.body)
                     .foregroundStyle(JcTheme.text)
                 if !card.detail.isEmpty {
                     Text(card.detail)
-                        .font(.system(size: 11.5))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                 }
             }
             Spacer(minLength: 0)
-            Text(card.kind.rawValue.uppercased())
-                .font(.system(size: 9, weight: .bold))
-                .kerning(0.7)
-                .foregroundStyle(JcTheme.muted)
+            StatusPill(card.kind.rawValue.uppercased(), color: JcTheme.success, dense: true)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(JcTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(JcTheme.success.opacity(0.25), lineWidth: 0.5))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(JcTheme.success.opacity(0.07),
+                    in: RoundedRectangle(cornerRadius: JcTheme.fieldRadius, style: .continuous))
     }
 }

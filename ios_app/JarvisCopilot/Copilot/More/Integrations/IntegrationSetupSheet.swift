@@ -20,7 +20,10 @@ struct IntegrationSetupSheet: View {
     var body: some View {
         NavigationStack {
             ChatConversationView(store: chat,
-                                 placeholder: "Tell Jarvis what to track\u{2026}") {
+                                 placeholder: "Tell Jarvis what to track\u{2026}",
+                                 // Close replaces the composer only once there is
+                                 // nothing left to say.
+                                 showsComposer: setup.finished == nil) {
                 if setup.finished != nil { closeBar }
             }
             .jcScreen("New integration")
@@ -31,6 +34,8 @@ struct IntegrationSetupSheet: View {
                     Button("Cancel") { close(askFirst: true) }
                         .foregroundStyle(JcTheme.muted)
                 }
+                // The same capsule and picker the Chat tab has, over this session.
+                ToolbarItem(placement: .topBarTrailing) { ChatModelButton(store: chat) }
             }
         }
         .task { await begin() }
@@ -56,7 +61,7 @@ struct IntegrationSetupSheet: View {
     private var closeBar: some View {
         Button { Task { await leave() } } label: {
             Text("Close")
-                .font(.system(size: 16, weight: .semibold))
+                .font(JcText.label)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 15)
                 .background(JcTheme.accent, in: RoundedRectangle(cornerRadius: 14,

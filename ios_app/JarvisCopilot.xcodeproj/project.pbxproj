@@ -100,9 +100,11 @@
 		27C476A6C1AB62D5BB1D99D9 /* DeviceDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */; };
 		282A9291D4315EEB3EBF66EA /* VoiceOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE132EB6D237CEF1D190BA1E /* VoiceOrb.swift */; };
 		28E4C79541F41CBA5C89AB30 /* MoreGapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA8341C7336CAEB461139EA /* MoreGapTests.swift */; };
+		2914B085CC2E03CFFC362080 /* IntegrationSkillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */; };
 		2925241893EFAB10621386B6 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A2101217A4D1C9AC81A28B7C /* Fonts */; };
 		2978E3A3EC4690B7582597B2 /* PhoneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65A58A48AEC3E6A49DA9FF47 /* PhoneCommand.swift */; };
 		29818DC37B8DAF5BCEE25605 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AC7565B5245A07F935338195 /* SwiftUI.framework */; };
+		29BF6A075E91F2C95CA81998 /* ChatFormCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */; };
 		2A2E210CC5D33E179A64033C /* BottleProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB41EB73741A77002320B13 /* BottleProtocol.swift */; };
 		2A4A6A75346A4EC684FA5C0F /* WearablesDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83932DC6F3E44032B3655D15 /* WearablesDevice.swift */; };
 		2AC42558DA523D2FCBC4882F /* GradientButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F4338E72F1443806778AE7 /* GradientButton.swift */; };
@@ -940,6 +942,7 @@
 		96A22A70581DCA427A6D14AB /* IntegrationDataViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDataViews.swift; sourceTree = "<group>"; };
 		96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatLinkGuard.swift; sourceTree = "<group>"; };
 		9711C75711CD06B21F08800F /* MemoryKeyValueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryKeyValueStore.swift; sourceTree = "<group>"; };
+		9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationSkillView.swift; sourceTree = "<group>"; };
 		9842E7C2B666413BF841A0CB /* LocalCommandMatcher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalCommandMatcher.swift; sourceTree = "<group>"; };
 		99007A8FDBB3E8969C37916F /* PcmChunker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcmChunker.swift; sourceTree = "<group>"; };
 		9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesPage.swift; sourceTree = "<group>"; };
@@ -991,6 +994,7 @@
 		AABB00AA00000000ICON0001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AABB00BB00000000AEBA0001 /* OrbShader.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = OrbShader.metal; sourceTree = "<group>"; };
 		AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCore.swift; sourceTree = "<group>"; };
+		AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatFormCard.swift; sourceTree = "<group>"; };
 		AB48288B87C0636CA786EEF6 /* PhotonUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotonUITests.swift; sourceTree = "<group>"; };
 		AB967D41CB1681FEC3E5EFBC /* RingSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSessionTests.swift; sourceTree = "<group>"; };
 		AB99238B6A3CE53FEC44B720 /* QuotaCardUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCardUITests.swift; sourceTree = "<group>"; };
@@ -1862,6 +1866,7 @@
 				CCAAEDE67B6C83A137FDF70D /* IntegrationPieces.swift */,
 				6539DADDC1E6552FB67E6C25 /* IntegrationSetupSheet.swift */,
 				15991A1D7F41088A3118A8B0 /* IntegrationSetupStore.swift */,
+				9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */,
 			);
 			name = Integrations;
 			path = Integrations;
@@ -2155,6 +2160,7 @@
 				D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */,
 				96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */,
 				7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */,
+				AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -3069,6 +3075,8 @@
 				2C8017116DE9CBDD864D2AC9 /* IntegrationSetupSheet.swift in Sources */,
 				1DBCF300105C38297EC1FEE7 /* IntegrationSetupStore.swift in Sources */,
 				10FD52906D799D859A8F3B77 /* ChatConversationView.swift in Sources */,
+				29BF6A075E91F2C95CA81998 /* ChatFormCard.swift in Sources */,
+				2914B085CC2E03CFFC362080 /* IntegrationSkillView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

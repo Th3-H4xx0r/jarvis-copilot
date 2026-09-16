@@ -59,15 +59,14 @@ struct Esp32DeviceView: View {
             Text(linkMessage ?? "")
         }
         .toolbar {
-            Button("Refresh", jcIcon: "arrow.clockwise") {
+            WearableToolbarButton(title: "Refresh", icon: "arrow.clockwise", disabled: !ready) {
                 manager.perform { try await manager.refreshState(); try await manager.refreshWifi() }
             }
-            .disabled(!ready)
-            Button("Disconnect", jcIcon: "xmark.circle") {
+            WearableToolbarButton(title: "Disconnect", icon: "xmark.circle",
+                                  disabled: manager.connected?.id != board.id) {
                 manager.disconnect()
                 dismiss()
             }
-            .disabled(manager.connected?.id != board.id)
             WearableMoreMenu { renaming = true }
         }
     }

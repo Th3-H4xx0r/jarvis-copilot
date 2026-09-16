@@ -133,7 +133,7 @@ struct IntegrationDetailView: View {
                         .foregroundStyle(JcTheme.accent)
                         .fixedSize()
                     Text(integration.name)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(JcText.title)
                         .foregroundStyle(JcTheme.text)
                     Spacer(minLength: 0)
                     StatusPill(integration.isPaused ? integration.status.uppercased() : "ACTIVE",
@@ -142,12 +142,12 @@ struct IntegrationDetailView: View {
                 }
                 if !integration.summary.isEmpty {
                     Text(integration.summary)
-                        .font(.system(size: 13))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Text(integration.subtitle)
-                    .font(.system(size: 11.5))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted.opacity(0.75))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,7 +235,8 @@ struct IntegrationDetailView: View {
                             + "in its front matter: integration: \(pushed.id)")
                 } else {
                     InsetRows(skills) { skill in
-                        IntegrationRow(name: skill.name, note: skill.summary, trailing: "") {
+                        IntegrationRow(name: skill.name, note: skill.summary, trailing: "",
+                                       route: .skill(pushed.id, skill.name)) {
                             Button(role: .destructive) {
                                 confirming = .skill(skill)
                             } label: { Label("Delete\u{2026}", jcIcon: "trash") }
@@ -293,4 +294,5 @@ struct IntegrationDetailView: View {
 enum IntegrationDataRoute: Hashable {
     case records(String, String)
     case document(String, String)
+    case skill(String, String)
 }

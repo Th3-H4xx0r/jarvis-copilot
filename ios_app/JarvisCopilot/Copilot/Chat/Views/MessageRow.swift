@@ -12,6 +12,8 @@ struct ChatMessageRow: View {
     var isFirst = false
     var onCopy: (() -> Void)?
     var onRetryOnServer: (() -> Void)?
+    /// Sends a filled-in form on as the user's reply.
+    var onFormSubmit: ((String) -> Void)?
 
     var body: some View {
         content.padding(.top, isFirst ? 0 : (row.continuesSpeaker ? 6 : 26))
@@ -22,7 +24,8 @@ struct ChatMessageRow: View {
             ChatUserBubble(message: row.message, onCopy: onCopy)
         } else {
             ChatAssistantTurnCard(message: row.message, onCopy: onCopy,
-                                  onRetryOnServer: onRetryOnServer)
+                                  onRetryOnServer: onRetryOnServer,
+                                  onFormSubmit: onFormSubmit)
         }
     }
 }

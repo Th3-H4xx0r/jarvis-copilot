@@ -28,7 +28,7 @@ struct IntegrationPlanCard: View {
                     footer(plan)
                 } else if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 12.5))
+                        .font(JcText.small)
                         .foregroundStyle(JcTheme.danger)
                         .padding(14)
                 } else {
@@ -48,17 +48,11 @@ struct IntegrationPlanCard: View {
                 .foregroundStyle(JcTheme.accent)
                 .fixedSize()
             Text(plan.name)
-                .font(.system(size: 15, weight: .semibold))
+                .font(JcText.label)
                 .foregroundStyle(JcTheme.text)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Text(plan.statusLabel)
-                .font(.system(size: 9.5, weight: .bold))
-                .kerning(0.7)
-                .foregroundStyle(JcTheme.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(JcTheme.accent.opacity(0.14)))
+            StatusPill(plan.statusLabel, color: JcTheme.accent, dense: true)
         }
         .padding(.horizontal, 14)
         .padding(.top, 13)
@@ -70,7 +64,7 @@ struct IntegrationPlanCard: View {
         VStack(alignment: .leading, spacing: 14) {
             if !plan.summary.isEmpty {
                 Text(plan.summary)
-                    .font(.system(size: 13))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -104,9 +98,9 @@ struct IntegrationPlanCard: View {
     private func slot<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .kerning(0.9)
-                .foregroundStyle(JcTheme.muted.opacity(0.85))
+                .font(JcText.small)
+                .kerning(0.8)
+                .foregroundStyle(JcTheme.muted)
             content()
         }
     }
@@ -115,16 +109,16 @@ struct IntegrationPlanCard: View {
     private func footer(_ plan: IntegrationPlan) -> some View {
         HStack(spacing: 10) {
             Text(footerNote(plan))
-                .font(.system(size: 11.5))
+                .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
                 .lineLimit(2)
             Spacer(minLength: 0)
             if plan.isPending {
                 Button("Cancel") { Task { await decide(approve: false) } }
-                    .font(.system(size: 13, weight: .medium))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                 Button("Create") { Task { await decide(approve: true) } }
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.accent)
             }
         }
@@ -205,19 +199,19 @@ private struct PlanRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(name)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if !trailing.isEmpty {
                     Text(trailing)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(JcText.small.monospaced())
                         .foregroundStyle(JcTheme.accent)
                 }
             }
             if !note.isEmpty {
                 Text(note)
-                    .font(.system(size: 11.5))
+                    .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)

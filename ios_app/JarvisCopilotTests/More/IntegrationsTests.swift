@@ -377,3 +377,111 @@ final class ChatConversationReuseTests: XCTestCase {
         )
     }
 }
+
+/// Forms the agent draws in the conversation.
+@MainActor
+final class ChatFormCardTests: XCTestCase {
+
+    private func form(_ extra: JSONObject = [:]) -> ChatForm {
+        ChatForm(json: [
+            "id": "f1", "title": "Gym Sessions", "intro": "A few details.",
+            "submit_label": "Create", "status": "open",
+            "fields": [
+                ["key": "name", "label": "What should I call it?", "type": "text",
+                 "required": true, "placeholder": "Gym Sessions"],
+                ["key": "cadence", "label": "How often?", "type": "choice",
+                 "options": ["Daily", "Weekly"]],
+                ["key": "notify", "label": "Tell me when it runs?", "type": "toggle"],
+            ],
+        ].merging(extra) { _, new in new })
+    }
+
+    func testTheCardDrawsWhatTheAgentAskedFor() {
+        let drawn = form()
+        XCTAssertEqual(drawn.submitLabel, "Create")
+        XCTAssertEqual(drawn.fields.map(\.kind), [.text, .choice, .toggle])
+        XCTAssertEqual(drawn.fields[1].options, ["Daily", "Weekly"])
+        XCTAssertTrue(drawn.fields[0].required)
+        XCTAssertFalse(drawn.isAnswered)
+    }
+
+    func testAnUnknownFieldTypeFallsBackToABox() {
+        let odd = ChatForm(json: ["id": "f", "title": "T",
+                                  "fields": [["key": "a", "label": "A", "type": "slider"]]])
+        XCTAssertEqual(odd.fields.first?.kind, .text)
+    }
+
+    func testAnAnsweredFormKeepsWhatWasEntered() {
+        // Scrolling back should show what you said, not an empty form.
+        let done = form(["status": "answered",
+                         "values": ["name": "Gym", "cadence": "Weekly", "notify": true]])
+        XCTAssertTrue(done.isAnswered)
+        XCTAssertEqual(done.shownValue(for: done.fields[0]), "Gym")
+        XCTAssertEqual(done.shownValue(for: done.fields[2]), "Yes")
+        let blank = form(["status": "answered", "values": [:]])
+        XCTAssertEqual(blank.shownValue(for: blank.fields[0]), "—")
+    }
+
+    func testTheFormIDComesOutOfTheToolThatAskedForIt() {
+        let tool = ToolInvocation(
+            name: "form_ask",
+            result: #"{"ok": true, "form_id": "abc123def456", "card": {"kind": "form"}}"#)
+        XCTAssertEqual(ChatForm.formID(in: tool), "abc123def456")
+        XCTAssertNil(ChatForm.formID(in: ToolInvocation(name: "form_ask")))
+        // Another tool is never a form, whatever its result happens to contain.
+        XCTAssertNil(ChatForm.formID(in: ToolInvocation(
+            name: "registry_put", result: #"{"form_id": "nope"}"#)))
+    }
+
+    func testItRendersInAConversation() {
+        moreUIAHost(ChatFormCard(formID: "f1", onSubmit: { _ in }))
+    }
+}
+
+/// A skill, in full, when you tap its row.
+final class IntegrationSkillViewTests: XCTestCase {
+
+    func testTheFrontMatterIsNotPartOfWhatTheSkillSays() {
+        // It is metadata, and the header above already shows the parts worth reading.
+        let raw = """
+        ---
+        name: casino-earnings-tracker
+        integration: casino
+        description: Log casino sessions.
+        ---
+
+        # Casino earnings
+
+        Use the ledger.
+        """
+        let skill = SkillDetail(json: ["name": "casino-earnings-tracker", "content": raw])
+        XCTAssertTrue(skill.markdown.hasPrefix("# Casino earnings"))
+        XCTAssertFalse(skill.markdown.contains("integration: casino"))
+    }
+
+    func testABodyWithNoFrontMatterIsLeftAlone() {
+        let plain = "# Just a skill\n\nDo the thing."
+        XCTAssertEqual(SkillDetail.withoutFrontMatter(plain), plain)
+        // An opening fence that never closes is not front matter either.
+        let unclosed = "---\nname: x\n\n# Body"
+        XCTAssertEqual(SkillDetail.withoutFrontMatter(unclosed), unclosed)
+    }
+
+    func testItReadsWhatTheEndpointReturns() {
+        let skill = SkillDetail(json: [
+            "name": "gym-logger", "description": "Log a workout.",
+            "skill_dir": "/root/.jarviscopilot/skills/productivity/gym-logger",
+            "tags": ["fitness", "logging"],
+            "linked_files": ["reference.md": "…", "script.py": "…"],
+            "content": "# Gym logger",
+        ])
+        XCTAssertEqual(skill.tags, ["fitness", "logging"])
+        XCTAssertEqual(skill.linkedFiles.map(\.name), ["reference.md", "script.py"])
+        XCTAssertTrue(skill.path.hasSuffix("gym-logger"))
+    }
+
+    @MainActor
+    func testTheRowOpensIt() {
+        moreUIAHost(IntegrationSkillView(name: "casino-earnings-tracker"))
+    }
+}

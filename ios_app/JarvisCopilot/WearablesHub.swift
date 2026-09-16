@@ -55,6 +55,29 @@ extension View {
 }
 
 /// The ⋯ button at the top of a wearable's page.
+/// One action in a wearable screen's toolbar.
+///
+/// Icon only, the same shape as the ⋯ beside it. A `Button(title, jcIcon:)` here
+/// carries its title into the bar, and the system stretches it into a wide pill
+/// around a single glyph — next to a plain icon it reads as a different kind of
+/// control entirely.
+struct WearableToolbarButton: View {
+    let title: String
+    let icon: String
+    var disabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            JcIcon(icon, size: 17)
+                .foregroundStyle(JcTheme.accent)
+                .fixedSize()            // or the bar stretches it to its own height
+        }
+        .disabled(disabled)
+        .accessibilityLabel(title)
+    }
+}
+
 struct WearableMoreMenu: View {
     let onRename: () -> Void
 
