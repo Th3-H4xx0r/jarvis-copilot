@@ -359,9 +359,10 @@ _READY = {
     "description": (
         "Call this once a new integration is actually built and there is nothing "
         "left to ask. It tells the setup sheet to stop offering a reply box and "
-        "offer Close instead. Only call it when the space exists and its schedules, "
-        "data and skills are in place — never as a way of ending a conversation "
-        "early."
+        "offer Close instead. An integration is built when something RUNS in it — "
+        "a schedule, or a skill that tells you how to do its work. A space with "
+        "only a settings document does nothing at all, and this will refuse it. "
+        "Never call this as a way of ending a conversation early."
     ),
     "parameters": {
         "type": "object",
@@ -383,10 +384,30 @@ def _h_ready(args=None, **_kw) -> str:
             "nowhere else go. Call integration_create to make one, put the work in it, "
             "and say that space is ready instead.")
     try:
-        info = _reg().open(space_id).info()
+        space = _reg().open(space_id)
+        info = space.info()
     except Exception as exc:
         return _fail(f"{exc} — build the integration before saying it is ready")
+
+    # An integration that nothing runs in is a name and a description. The sheet
+    # closing on one is how a user ends up with an empty shell they have to work
+    # out for themselves, so this is refused here rather than asked for in a prompt.
+    from jarvis_registry.integrations import schedules_for, skills_for
+
+    schedules = schedules_for(space_id)
+    skills = skills_for(space_id)
+    if not schedules and not skills:
+        stored = [d["key"] for d in space.documents()] + [c["name"] for c in space.collections()]
+        return _fail(
+            f"{space_id!r} has no schedules and no skills, so nothing in it runs — "
+            + (f"it only holds {', '.join(stored)}. " if stored else "it is empty. ")
+            + "Add the schedule that does its work (cronjob action=create, passing "
+              f"integration='{space_id}'), or write a skill with "
+              f"`integration: {space_id}` in its front matter, then say it is ready.")
+
     return _ok(space=space_id, name=info.get("name"),
+               schedules=[j.get("name") or j["id"] for j in schedules],
+               skills=[k["name"] for k in skills],
                summary=str(args.get("summary") or "").strip(),
                card={"kind": "integration_ready", "space": space_id})
 

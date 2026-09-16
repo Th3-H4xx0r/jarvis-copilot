@@ -44,7 +44,7 @@ def test_the_session_is_pinned_to_the_tools_this_job_needs(monkeypatch):
     out = setup.start("Gym Sessions", profile="work")
     session = made["s"]
     assert out["session_id"] == "abc123"
-    assert session.enabled_toolsets == ["registry", "cronjob", "skills"]
+    assert session.enabled_toolsets == ["registry", "cronjob", "skills", "forms"]
     assert session.integration_setup is True
     assert session.title == "Setting up Gym Sessions"
     # The client's profile, or the sheet builds the integration in another home.
@@ -106,7 +106,7 @@ def test_the_directive_sends_it_to_make_a_space_first():
     scoped.integration_setup = True
     directive = setup.directive_for(scoped)
     assert "`integration_create` FIRST" in directive
-    assert 'never for "general"' in directive
+    assert 'Never \ncall it for "general"' in directive or "general" in directive
 
 
 def test_a_reloaded_setup_session_is_still_a_setup_session():
@@ -121,3 +121,13 @@ def test_a_reloaded_setup_session_is_still_a_setup_session():
     assert reloaded.integration_setup is True
     assert setup.directive_for(reloaded)
     assert made.compact().get("integration_setup") is True
+
+
+def test_the_directive_says_an_integration_has_to_actually_run():
+    """It built a name, a description and a settings document, then declared it
+    ready — an empty shell the user has to work out for themselves."""
+    scoped = FakeSession()
+    scoped.integration_setup = True
+    directive = setup.directive_for(scoped)
+    assert "something RUNS in it" in directive
+    assert "do not stop there" in directive

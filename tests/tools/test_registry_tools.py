@@ -115,11 +115,14 @@ def test_every_tool_is_registered_in_one_toolset():
     assert set(toolsets.TOOLSETS["registry"]["tools"]) == set(names)
 
 
-def test_ready_refuses_to_declare_an_integration_that_does_not_exist(reg):
+def test_ready_refuses_to_declare_an_integration_that_does_not_exist(reg, monkeypatch):
     """It is the sheet's stop signal, so it must not fire before anything is built."""
     out = call(rt._h_ready, space="gym-sessions")
     assert out["ok"] is False and "gym-sessions" in out["error"]
 
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [
+        {"id": "j1", "name": "gym-weekly", "integration": "gym-sessions"}])
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for", lambda space_id: [])
     reg.space("gym-sessions", name="Gym Sessions")
     out = call(rt._h_ready, space="gym-sessions", summary="Logs your workouts.")
     assert out["ok"] is True
@@ -148,3 +151,38 @@ def test_the_catch_all_is_not_a_new_integration(reg):
     reg.space("general", name="General")
     ready = call(rt._h_ready, space="general")
     assert ready["ok"] is False and "integration_create" in ready["error"]
+
+
+def test_ready_refuses_an_integration_that_does_not_run(reg, monkeypatch):
+    """A space with only a settings document does nothing — closing the sheet on
+    one leaves the user an empty shell to work out for themselves."""
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [])
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for", lambda space_id: [])
+    space = reg.space("houston-flight-tracker", name="Houston Flight Tracker")
+    space.put("settings", {"airports": ["HOU", "IAH"]})
+
+    out = call(rt._h_ready, space="houston-flight-tracker")
+    assert out["ok"] is False
+    assert "nothing in it runs" in out["error"]
+    assert "settings" in out["error"]              # says what it does have
+    assert "cronjob action=create" in out["error"]  # and what to do about it
+
+
+def test_ready_accepts_an_integration_with_something_running(reg, monkeypatch):
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [
+        {"id": "j1", "name": "houston-takeoffs", "integration": "houston-flight-tracker"}])
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for", lambda space_id: [])
+    reg.space("houston-flight-tracker", name="Houston Flight Tracker")
+
+    out = call(rt._h_ready, space="houston-flight-tracker")
+    assert out["ok"] is True and out["schedules"] == ["houston-takeoffs"]
+
+
+def test_a_skill_is_enough_to_be_ready(reg, monkeypatch):
+    """Not everything runs on a timer — a skill is how the agent knows to do the work."""
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [])
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for",
+                        lambda space_id: [{"name": "houston-flights"}])
+    reg.space("houston-flight-tracker", name="Houston Flight Tracker")
+
+    assert call(rt._h_ready, space="houston-flight-tracker")["ok"] is True
