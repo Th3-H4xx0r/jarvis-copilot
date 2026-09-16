@@ -268,3 +268,47 @@ private struct IntegrationConfirmModifier: ViewModifier {
         }
     }
 }
+
+/// A piece of an integration, the moment it exists.
+///
+/// Drawn wherever the conversation is shown — the setup sheet and the Chat tab
+/// both get it, because both are the same view.
+struct SetupCardView: View {
+    let card: SetupCard
+
+    private var symbol: String {
+        switch card.kind {
+        case .integration: return "square.grid.2x2"
+        case .data:        return "tray.full"
+        case .schedule:    return "clock"
+        case .skill:       return "sparkles"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            JcIcon(symbol, size: 14).foregroundStyle(JcTheme.success).fixedSize()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(card.name)
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(JcTheme.text)
+                if !card.detail.isEmpty {
+                    Text(card.detail)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+            Text(card.kind.rawValue.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .kerning(0.7)
+                .foregroundStyle(JcTheme.muted)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(JcTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(JcTheme.success.opacity(0.25), lineWidth: 0.5))
+    }
+}

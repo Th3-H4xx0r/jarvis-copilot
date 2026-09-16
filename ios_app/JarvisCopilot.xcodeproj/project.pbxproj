@@ -49,6 +49,7 @@
 		0EF5FC37A0A94387FDEF2139 /* SpeechAnalyzerServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */; };
 		0F940F8BB8B243893DCF1CD5 /* CodeMasterSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25159CEA86AB41F696FDEA56 /* CodeMasterSettingsPage.swift */; };
 		1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
+		10FD52906D799D859A8F3B77 /* ChatConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */; };
 		117D6F7BA8B87E4A3045ACE1 /* ProfilesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA6255BEA379704AED580E9 /* ProfilesAPI.swift */; };
 		12DE347B3BD69D365E123B9A /* ChatAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66380555B64440FBD1EBC697 /* ChatAttachments.swift */; };
 		13682FFE53560B9D0C42D8A5 /* VoiceTurnMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F729A9BCD2E7FE28C7F1435 /* VoiceTurnMachine.swift */; };
@@ -875,6 +876,7 @@
 		78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushHandlerTests.swift; sourceTree = "<group>"; };
 		79F1DBB8FD844D28B35DC2EA /* WearableIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableIdentity.swift; sourceTree = "<group>"; };
 		79F4CC1F87D060BCF1EF9F8D /* CodingProjectModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingProjectModels.swift; sourceTree = "<group>"; };
+		7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatConversationView.swift; sourceTree = "<group>"; };
 		7AF92EB81DA500125FDC74C1 /* CodingProjectSheets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingProjectSheets.swift; sourceTree = "<group>"; };
 		7BB6FB8DF96DF15354DEBB91 /* VoicePageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePageTests.swift; sourceTree = "<group>"; };
 		7C07DE7D137AE52D58065960 /* IslandDesignsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDesignsUITests.swift; sourceTree = "<group>"; };
@@ -2152,6 +2154,7 @@
 				8EA9D4EC439F17779A618B99 /* SessionsSheet.swift */,
 				D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */,
 				96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */,
+				7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -3065,6 +3068,7 @@
 				6EF72D6912653D3F13510BF9 /* IntegrationPieces.swift in Sources */,
 				2C8017116DE9CBDD864D2AC9 /* IntegrationSetupSheet.swift in Sources */,
 				1DBCF300105C38297EC1FEE7 /* IntegrationSetupStore.swift in Sources */,
+				10FD52906D799D859A8F3B77 /* ChatConversationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

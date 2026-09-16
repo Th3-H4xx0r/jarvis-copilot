@@ -4,6 +4,9 @@ import SwiftUI
 /// errors grow above the field; the surrounding page reserves its layout space.
 struct ChatComposer: View {
     let store: ChatStore
+    /// What the empty field says. A screen that uses the chat for one job asks
+    /// for that job rather than for anything at all.
+    var placeholder: String = "Message Jarvis"
     @Binding var draft: String
     /// Bumped on every send: a multi-line `TextField` keeps stale text on screen
     /// when its binding is cleared while focused, so the field is recreated.
@@ -42,8 +45,8 @@ struct ChatComposer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 AttachControl(sink: store, enabled: !store.streaming)
-                TextField("Message Jarvis", text: $draft,
-                          prompt: Text("Message Jarvis").foregroundStyle(JcTheme.muted), axis: .vertical)
+                TextField(placeholder, text: $draft,
+                          prompt: Text(placeholder).foregroundStyle(JcTheme.muted), axis: .vertical)
                     .id(generation)
                     .font(.body)
                     .foregroundStyle(JcTheme.text)

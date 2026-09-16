@@ -14,8 +14,14 @@ struct ChatAssistantTurnCard: View {
     /// A proposed integration isn't a tool result to skim — it's a card the user
     /// acts on, so it leaves the tool box and draws on its own.
     private var planIDs: [String] { tools.compactMap(IntegrationPlanCard.planID(in:)) }
+    /// A tool that built a piece of an integration draws as that piece. It reads
+    /// as what happened rather than as a row of arguments, here and anywhere else
+    /// the conversation is shown.
+    private var built: [SetupCard] {
+        tools.compactMap { $0.done ? SetupCard(toolName: $0.name, args: $0.args) : nil }
+    }
     private var plainTools: [ToolInvocation] {
-        tools.filter { IntegrationPlanCard.planID(in: $0) == nil }
+        tools.filter { IntegrationPlanCard.planID(in: $0) == nil && SetupCard(toolName: $0.name, args: $0.args) == nil }
     }
     private var hasText: Bool { !message.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -62,6 +68,12 @@ struct ChatAssistantTurnCard: View {
             }
 
             ForEach(planIDs, id: \.self) { IntegrationPlanCard(planID: $0) }
+
+            if !built.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(built) { SetupCardView(card: $0) }
+                }
+            }
 
             ForEach(message.blocks) { block in
                 if let text = block.asText, !text.isEmpty {

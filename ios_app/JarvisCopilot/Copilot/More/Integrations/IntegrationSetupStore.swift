@@ -1,135 +1,48 @@
 import Foundation
 import Observation
 
-/// The conversation behind the + button.
+/// What the setup sheet knows that an ordinary chat does not.
 ///
-/// A session pinned to one job — building a single integration — talking to the
-/// real agent over the ordinary chat stream. Follow-up questions are just its
-/// turns. Each piece is created as it is settled, and the tools it calls become
-/// the "created" cards the sheet shows, so the user watches it being built.
-///
-/// It is finished when the agent calls `integration_ready`; nothing else ends it.
+/// The conversation itself is a `ChatStore` like any other — this only opens the
+/// scoped session, watches the transcript for the tools that build an
+/// integration, and can take back what was built if the user changes their mind.
 @Observable
 @MainActor
 final class IntegrationSetupStore {
-    private let api: ChatAPI
-    private let setupAPI: IntegrationsAPI
-    private let streamTask = TaskHandle()
+    private let api: IntegrationsAPI
 
-    private(set) var sessionID: String?
-    private(set) var turns: [SetupTurn] = []
-    private(set) var streaming = false
     private(set) var errorMessage: String?
-    /// Set when the agent says the integration is built. The composer becomes Close.
+    /// Set when the agent calls `integration_ready`. The composer becomes Close.
     private(set) var finished: SetupFinish?
-    private var activeStreamID: String?
+    /// The space the conversation made, so backing out can offer to undo it.
+    private(set) var createdSpaceID: String?
 
-    init(api: ChatAPI = ChatAPI(), setupAPI: IntegrationsAPI = IntegrationsAPI()) {
-        self.api = api
-        self.setupAPI = setupAPI
-    }
+    init(api: IntegrationsAPI = IntegrationsAPI()) { self.api = api }
 
-    deinit { streamTask.cancel() }
-
-    var canSend: Bool { sessionID != nil && !streaming && finished == nil }
-    /// The sheet could not open a session; the composer says so instead of eating
-    /// what is typed into it.
-    var needsRetry: Bool { sessionID == nil && !streaming }
-
-    /// Anything created so far, so backing out can offer to undo it.
-    var createdSpaceID: String? {
-        if let id = finished?.spaceID, !id.isEmpty { return id }
-        if let touched = turns.compactMap(\.spaceTouched).last { return touched }
-        // integration_create names the space rather than passing an id; the server
-        // slugs the name the same way, so this is the id it was given.
-        return turns.flatMap(\.cards).last { $0.kind == .integration }
-            .map { Self.slug($0.name) }
-    }
-
-    /// `jarvis_registry.store.slug`, so the sheet and the server agree on the id.
-    nonisolated static func slug(_ text: String) -> String {
-        let lowered = text.lowercased()
-        var out = ""
-        var pendingDash = false
-        for character in lowered {
-            if character.isLetter && character.isASCII || character.isNumber && character.isASCII {
-                if pendingDash && !out.isEmpty { out.append("-") }
-                pendingDash = false
-                out.append(character)
-            } else {
-                pendingDash = true
-            }
-        }
-        return String(out.prefix(64))
-    }
-
-    func begin() async {
-        guard sessionID == nil, !streaming else { return }
-        streaming = true                       // no composer while the session opens
+    /// Opens a session pinned to this job. Returns its id, or nil if it could not.
+    func begin() async -> String? {
         do {
-            sessionID = try await setupAPI.startSetup()
+            errorMessage = nil
+            return try await api.startSetup()
         } catch {
             errorMessage = apiErrorMessage(error)
-            streaming = false
-            return
+            return nil
         }
-        streaming = false
-        // The agent opens, so the sheet is never a blank box with a cursor.
-        await send("Help me set up a new integration.", visible: false)
     }
 
-    /// Run a send as the store's own task, so closing the sheet cancels it.
-    func startSend(_ text: String) {
-        streamTask.replace(Task { [weak self] in await self?.send(text) })
-    }
-
-    func send(_ text: String, visible: Bool = true) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let sessionID, !trimmed.isEmpty, canSend else { return }
-        if visible { turns.append(SetupTurn(role: .user, text: trimmed)) }
-        streaming = true
-        errorMessage = nil
-        var reply = SetupTurn(role: .assistant, text: "")
-        turns.append(reply)
-
-        do {
-            let started = try await api.startMessage(sessionID: sessionID, text: trimmed)
-            guard let streamID = started["stream_id"] as? String else {
-                throw APIError.badResponse("the server did not start a turn")
+    /// Read the transcript for the two things this screen cares about: which space
+    /// is being built, and whether the agent has said it is done.
+    func noticeReady(in messages: [ChatMessage]) {
+        for message in messages {
+            for tool in message.tools {
+                if let space = SetupCard(toolName: tool.name, args: tool.args)?.spaceID {
+                    createdSpaceID = space
+                }
+                guard tool.name == "integration_ready", tool.done else { continue }
+                let space = Self.spaceID(inResultOf: tool) ?? createdSpaceID ?? ""
+                if !space.isEmpty { createdSpaceID = space }
+                finished = SetupFinish(spaceID: space, summary: "")
             }
-            activeStreamID = streamID
-            for try await event in api.streamEvents(streamID) {
-                if Task.isCancelled { break }      // the sheet closed under us
-                apply(event, to: &reply)
-                turns[turns.count - 1] = reply
-            }
-            activeStreamID = nil
-        } catch {
-            errorMessage = apiErrorMessage(error)
-        }
-        if reply.isEmpty { turns.removeLast() }
-        streaming = false
-    }
-
-    private func apply(_ event: SSEEvent, to reply: inout SetupTurn) {
-        switch event.event {
-        case "token", "delta", "text":
-            reply.text += event.string("delta") ?? event.string("text")
-                ?? event.string("content") ?? ""
-        case "tool", "tool_start", "tool_call":
-            if let card = SetupCard(toolName: event.string("name") ?? "",
-                                    args: JSONValue(event["args"] ?? event["input"]).objectValue ?? [:]) {
-                reply.cards.append(card)
-            }
-        case "tool_complete", "tool_end":
-            if let name = event.string("name"), name == "integration_ready" {
-                finished = SetupFinish(spaceID: event.string("space") ?? createdSpaceID ?? "",
-                                       summary: event.string("summary") ?? "")
-            }
-        case "error", "apperror":
-            errorMessage = event.string("error") ?? event.string("message") ?? "Something went wrong."
-        default:
-            break
         }
     }
 
@@ -143,7 +56,7 @@ final class IntegrationSetupStore {
         var everything = IntegrationDeleteChoice()
         everything.skillFiles = true
         do {
-            try await setupAPI.deleteParts(id, everything)
+            try await api.deleteParts(id, everything)
             return true
         } catch {
             errorMessage = apiErrorMessage(error)
@@ -151,38 +64,30 @@ final class IntegrationSetupStore {
         }
     }
 
-    /// Stop the turn in flight. The agent creates as it goes, so a sheet that
-    /// closes while it is still running goes on building — and "delete what was
-    /// created" would race whatever it writes next.
-    func close() async {
-        streamTask.cancel()
-        streaming = false
-        guard let streamID = activeStreamID else { return }
-        activeStreamID = nil
-        _ = try? await api.cancel(streamID)
+    /// `{"ok": true, "space": "gym-sessions", …}` — the id the tool confirmed.
+    nonisolated static func spaceID(inResultOf tool: ToolInvocation) -> String? {
+        for text in [tool.result, tool.preview].compactMap({ $0 }) {
+            guard let range = text.range(of: "\"space\"") else { continue }
+            let tail = text[range.upperBound...]
+            guard let open = tail.firstIndex(of: "\""),
+                  case let start = tail.index(after: open),
+                  let close = tail[start...].firstIndex(of: "\"") else { continue }
+            let value = String(tail[start..<close])
+            if !value.isEmpty { return value }
+        }
+        return nil
     }
 }
 
-/// One side of the setup conversation, plus whatever it created along the way.
-struct SetupTurn: Identifiable, Equatable, Sendable {
-    enum Role: Sendable { case user, assistant }
-
-    let id = UUID()
-    var role: Role
-    var text: String
-    var cards: [SetupCard] = []
-
-    var isEmpty: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && cards.isEmpty
-    }
-
-    /// The space this turn touched, if its tools named one.
-    var spaceTouched: String? {
-        cards.compactMap(\.spaceID).last
-    }
+struct SetupFinish: Equatable, Sendable {
+    var spaceID: String
+    var summary: String
 }
 
-/// A piece of the integration, as it is created.
+/// A piece of an integration, as the agent creates it.
+///
+/// Built from the tool call that made it, so the chat can draw it as the thing it
+/// is rather than as a row of JSON. The tools that only read do not earn a card.
 struct SetupCard: Identifiable, Equatable, Sendable {
     enum Kind: String, Sendable { case integration, data, schedule, skill }
 
@@ -192,15 +97,10 @@ struct SetupCard: Identifiable, Equatable, Sendable {
     var detail: String
     var spaceID: String?
 
-    /// The tools that build an integration, read as the thing they built. Anything
-    /// else the agent calls is plumbing and does not earn a card.
-    init?(toolName: String, args: JSONObject) {
-        let text: (String) -> String = { MoreJSON.text(args[$0]) }
+    init?(toolName: String, args: [String: JSONValue]) {
+        let text: (String) -> String = { args[$0]?.displayText ?? "" }
         switch toolName {
         case "integration_create":
-            // The first thing built, and the only one that names the space. Without
-            // it the sheet cannot see what it has created, so backing out skips the
-            // confirmation and leaves an empty integration behind.
             kind = .integration
             name = text("name")
             detail = text("description")
@@ -230,13 +130,27 @@ struct SetupCard: Identifiable, Equatable, Sendable {
         default:
             return nil
         }
-        spaceID = MoreJSON.nonEmpty(args["space"]) ?? MoreJSON.nonEmpty(args["integration"])
-            ?? MoreJSON.nonEmpty(args["id"])
+        spaceID = [text("space"), text("integration"), text("id")].first { !$0.isEmpty }
+        if kind == .integration, spaceID == nil, !name.isEmpty {
+            // integration_create names the space; the server slugs that name.
+            spaceID = Self.slug(name)
+        }
         if name.isEmpty { return nil }
     }
-}
 
-struct SetupFinish: Equatable, Sendable {
-    var spaceID: String
-    var summary: String
+    /// `jarvis_registry.store.slug`, so the app and the server agree on the id.
+    static func slug(_ text: String) -> String {
+        var out = ""
+        var pendingDash = false
+        for character in text.lowercased() {
+            if character.isASCII && (character.isLetter || character.isNumber) {
+                if pendingDash && !out.isEmpty { out.append("-") }
+                pendingDash = false
+                out.append(character)
+            } else {
+                pendingDash = true
+            }
+        }
+        return String(out.prefix(64))
+    }
 }

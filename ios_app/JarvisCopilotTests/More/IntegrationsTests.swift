@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import XCTest
 @testable import JarvisCopilot
 
@@ -249,69 +250,130 @@ final class IntegrationDeleteTests: XCTestCase {
 }
 
 /// The conversation behind the + button.
+///
+/// The conversation itself is an ordinary `ChatStore` now — this covers the two
+/// things the sheet adds: reading the transcript for what was built, and knowing
+/// when the agent has said it is done.
 final class IntegrationSetupTests: XCTestCase {
 
-    private func card(_ tool: String, _ args: JSONObject) -> SetupCard? {
+    private func card(_ tool: String, _ args: [String: JSONValue]) -> SetupCard? {
         SetupCard(toolName: tool, args: args)
     }
 
+    private func tool(_ name: String, _ args: [String: JSONValue] = [:],
+                      result: String? = nil, done: Bool = true) -> ToolInvocation {
+        ToolInvocation(name: name, args: args, result: result, done: done)
+    }
+
     func testTheToolsThatBuildSomethingBecomeCards() {
-        let data = card("registry_append", ["space": "gym", "collection": "sessions"])
+        let made = card("integration_create", ["name": .string("Gym Sessions"),
+                                               "description": .string("Logs workouts.")])
+        XCTAssertEqual(made?.kind, .integration)
+        XCTAssertEqual(made?.spaceID, "gym-sessions")   // the id the server will slug
+
+        let data = card("registry_append", ["space": .string("gym"),
+                                            "collection": .string("sessions")])
         XCTAssertEqual(data?.kind, .data)
         XCTAssertEqual(data?.name, "sessions")
         XCTAssertEqual(data?.spaceID, "gym")
 
-        let schedule = card("cronjob", ["action": "create", "name": "gym-weekly",
-                                        "schedule": "0 19 * * 0", "integration": "gym"])
+        let schedule = card("cronjob", ["action": .string("create"),
+                                        "name": .string("gym-weekly"),
+                                        "schedule": .string("0 19 * * 0"),
+                                        "integration": .string("gym")])
         XCTAssertEqual(schedule?.kind, .schedule)
         XCTAssertEqual(schedule?.detail, "0 19 * * 0")
 
-        let skill = card("skill_manage", ["action": "create", "name": "gym-logger",
-                                          "category": "productivity"])
+        let skill = card("skill_manage", ["action": .string("create"),
+                                          "name": .string("gym-logger"),
+                                          "category": .string("productivity")])
         XCTAssertEqual(skill?.kind, .skill)
-        XCTAssertEqual(skill?.name, "gym-logger")
     }
 
     func testPlumbingDoesNotEarnACard() {
-        // Reading is not building.
-        XCTAssertNil(card("registry_query", ["space": "gym", "collection": "sessions"]))
+        XCTAssertNil(card("registry_query", ["space": .string("gym"),
+                                             "collection": .string("sessions")]))
         XCTAssertNil(card("skills_list", [:]))
-        // Neither is any cronjob action other than making one.
-        XCTAssertNil(card("cronjob", ["action": "list"]))
-        XCTAssertNil(card("skill_manage", ["action": "delete", "name": "gym-logger"]))
-        // Nor a call with nothing to name.
-        XCTAssertNil(card("registry_append", ["space": "gym"]))
-    }
-
-    func testATurnRemembersWhichSpaceItTouched() {
-        var turn = SetupTurn(role: .assistant, text: "made it")
-        XCTAssertNil(turn.spaceTouched)
-        turn.cards = [card("registry_put", ["space": "gym", "key": "config"])!]
-        XCTAssertEqual(turn.spaceTouched, "gym")
-    }
-
-    @MainActor
-    func testNothingCanBeSentBeforeThereIsASessionToSendItTo() {
-        // The composer used to be enabled with no session: every message typed
-        // while the sheet was opening — or after it failed to — vanished silently.
-        let store = IntegrationSetupStore()
-        XCTAssertFalse(store.canSend)
-        XCTAssertTrue(store.needsRetry)
-        XCTAssertNil(store.finished)
+        XCTAssertNil(card("cronjob", ["action": .string("list")]))
+        XCTAssertNil(card("skill_manage", ["action": .string("delete"),
+                                           "name": .string("gym-logger")]))
+        XCTAssertNil(card("registry_append", ["space": .string("gym")]))
     }
 
     func testTheIDTheSheetInfersMatchesTheOneTheServerWouldMake() {
-        // integration_create names the space; the server slugs that name. The sheet
-        // has to arrive at the same id or it cannot clean up what it built.
-        XCTAssertEqual(IntegrationSetupStore.slug("Gym Sessions"), "gym-sessions")
-        XCTAssertEqual(IntegrationSetupStore.slug("  Casino Earnings!  "), "casino-earnings")
-        XCTAssertEqual(IntegrationSetupStore.slug("Market & Stocks"), "market-stocks")
+        XCTAssertEqual(SetupCard.slug("Gym Sessions"), "gym-sessions")
+        XCTAssertEqual(SetupCard.slug("  Casino Earnings!  "), "casino-earnings")
+        XCTAssertEqual(SetupCard.slug("Market & Stocks"), "market-stocks")
     }
 
-    func testTheIntegrationItselfIsOneOfThePiecesYouWatchAppear() {
-        let card = SetupCard(toolName: "integration_create",
-                             args: ["name": "Gym Sessions", "description": "Logs workouts."])
-        XCTAssertEqual(card?.kind, .integration)
-        XCTAssertEqual(card?.name, "Gym Sessions")
+    @MainActor
+    func testItLearnsWhichSpaceIsBeingBuiltFromTheTranscript() {
+        let store = IntegrationSetupStore()
+        XCTAssertNil(store.createdSpaceID)
+
+        var message = ChatMessage(role: .assistant, blocks: [])
+        message.startTool(tool("integration_create", ["name": .string("Gym Sessions")]))
+        store.noticeReady(in: [message])
+        // Without this, backing out cannot offer to remove what was made.
+        XCTAssertEqual(store.createdSpaceID, "gym-sessions")
+        XCTAssertNil(store.finished)
+    }
+
+    @MainActor
+    func testOnlyTheAgentSayingSoEndsTheConversation() {
+        let store = IntegrationSetupStore()
+        var message = ChatMessage(role: .assistant, blocks: [])
+
+        // A call still running is not a finished integration.
+        message.startTool(tool("integration_ready", result: #"{"ok": true, "space": "gym"}"#,
+                               done: false))
+        store.noticeReady(in: [message])
+        XCTAssertNil(store.finished)
+
+        message.completeTool(name: "integration_ready",
+                             result: #"{"ok": true, "space": "gym-sessions"}"#)
+        store.noticeReady(in: [message])
+        XCTAssertEqual(store.finished?.spaceID, "gym-sessions")
+    }
+
+    func testTheSpaceIDIsReadOutOfWhatTheToolConfirmed() {
+        let confirmed = ToolInvocation(name: "integration_ready",
+                                       result: #"{"ok": true, "space": "gym-sessions", "name": "Gym"}"#)
+        XCTAssertEqual(IntegrationSetupStore.spaceID(inResultOf: confirmed), "gym-sessions")
+        XCTAssertNil(IntegrationSetupStore.spaceID(inResultOf:
+            ToolInvocation(name: "integration_ready")))
+    }
+}
+
+
+/// One conversation view, used everywhere a conversation is shown.
+///
+/// The setup sheet started as a hand-rolled transcript — its own bubbles, its own
+/// composer, its own scrolling — while the real chat sat next to it with markdown,
+/// tool cards and streaming already working. Both are `ChatConversationView` now,
+/// and nothing should quietly grow a second one.
+@MainActor
+final class ChatConversationReuseTests: XCTestCase {
+
+    func testTheChatTabAndTheSetupSheetRenderTheSameConversation() {
+        moreUIAHost(ChatConversationView(store: ChatStore.production()))
+        moreUIAHost(IntegrationSetupSheet(onFinish: {}))
+        moreUIAHost(ChatPage().environment(AppRouter()))
+    }
+
+    func testAHostCanReplaceTheComposerAndTheEmptyState() {
+        // The two things a screen needs to change: what fills an empty transcript,
+        // and a way out when there is nothing left to say.
+        moreUIAHost(
+            ChatConversationView(store: ChatStore.production(),
+                                 placeholder: "Tell Jarvis what to track…") {
+                Text("done")
+            }
+        )
+        moreUIAHost(
+            ChatConversationView(store: ChatStore.production()) { _ in
+                Text("nothing here yet")
+            }
+        )
     }
 }

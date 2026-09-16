@@ -15,16 +15,8 @@ struct ChatPage: View {
 
     @State private var store: ChatStore
     @State private var dashboard: ChatDashboardStore
-    @State private var draft = ""
-    /// Bumped on send so the multi-line field is recreated — clearing its binding
-    /// while it is focused otherwise leaves the old text on screen.
-    @State private var composerGeneration = 0
     @State private var showSessions = false
     @State private var showModels = false
-    @FocusState private var focused: Bool
-
-    private static let bottomAnchor = "chat.bottom"
-    private static let welcomeAnchor = "chat.welcome"
 
     /// `store` is injected by tests; the app takes the default. Built here rather
     /// than in `body` so the store outlives a re-render, and with
@@ -54,21 +46,13 @@ struct ChatPage: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if let error = store.error { banner(error) }
-                transcript
-                if let clarify = store.pendingClarify {
-                    ChatClarifyBar(prompt: clarify) { answer in
-                        Task { await store.respondClarify(answer) }
-                    }
-                }
-                ChatComposer(store: store, draft: $draft, generation: composerGeneration,
-                             focused: $focused, onSend: send, onStop: stop)
+            ChatConversationView(store: store) { height in
+                ChatEmptyState(compact: height < 520,
+                               dashboard: dashboard,
+                               visible: router.selectedTab == .chat && scenePhase == .active,
+                               onOpen: open)
             }
             .jcScreen()
-            // Markdown links in a reply are model output; anything that is not
-            // http/https/mailto has to be confirmed (security M5).
-            .chatLinkGuard()
             .navigationBarTitleDisplayMode(.inline)
             // Transparent chrome so the aurora runs behind the bar, as the
             // Flutter page does with `extendBodyBehindAppBar`.
@@ -138,8 +122,7 @@ struct ChatPage: View {
         ToolbarItem(placement: .topBarTrailing) { modelCapsule }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
-                draft = ""
-                composerGeneration += 1
+                // The conversation view clears its own draft when the session changes.
                 store.startNewSession()
             } label: { JcIcon("square.and.pencil").foregroundStyle(JcTheme.accent) }
             .accessibilityLabel("New chat")
@@ -162,111 +145,14 @@ struct ChatPage: View {
         .accessibilityLabel("Chat model")
     }
 
-    private func banner(_ text: String) -> some View {
-        HStack(spacing: 10) {
-            JcIcon("exclamationmark.triangle.fill").foregroundStyle(JcTheme.danger)
-            Text(text).font(.footnote).foregroundStyle(JcTheme.text)
-            Spacer(minLength: 0)
-            Button { store.error = nil } label: {
-                JcIcon("xmark", size: 11, weight: .semibold)
-                    .foregroundStyle(JcTheme.muted)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(12)
-        .background(JcTheme.danger.opacity(0.12))
-    }
-
     // MARK: Transcript
 
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if store.historyLoading && store.messages.isEmpty {
-                            ProgressView().padding(.vertical, 40).frame(maxWidth: .infinity)
-                        } else if store.messages.isEmpty {
-                            ChatEmptyState(compact: geometry.size.height < 520,
-                                           dashboard: dashboard,
-                                           visible: router.selectedTab == .chat && scenePhase == .active,
-                                           onOpen: open)
-                            .frame(minHeight: max(0, geometry.size.height - 29))
-                            .id(Self.welcomeAnchor)
-                        }
-                        ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
-                            ChatMessageRow(
-                                row: row,
-                                isFirst: index == 0,
-                                onCopy: { UIPasteboard.general.string = row.message.plainText },
-                                onRetryOnServer: row.message.onDevice
-                                    ? { Task { await store.retryOnServer(row.message) } } : nil)
-                                .id(row.id)
-                        }
-                        Color.clear.frame(height: 1).id(Self.bottomAnchor)
-                    }
-                    .padding(.vertical, 14)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onTapGesture { focused = false }
-                .onAppear { jump(proxy) }
-                // A tick, not the transcript: `onChange(of: store.messages)` compares
-                // every message in the thread on every streamed token
-                // (swift-correctness H9).
-                .onChange(of: store.messagesTick) { _, _ in
-                    guard !store.messages.isEmpty else { jump(proxy); return }
-                    withAnimation(.smooth(duration: 0.25)) {
-                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                    }
-                }
-                // Opening or switching a chat lands at the newest message, however
-                // far up the previous thread was scrolled.
-                .onChange(of: store.sessionID) { _, _ in jump(proxy) }
-                .onChange(of: store.historyLoading) { _, loading in if !loading { jump(proxy) } }
-                .onChange(of: focused) { _, isFocused in
-                    if isFocused, !store.messages.isEmpty {
-                        withAnimation { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
-                    }
-                }
-            }
-        }
-    }
-
-    /// A single scroll lands short: the thread keeps growing taller across frames
-    /// as markdown, tool rows and images lay out. Re-pin on the next runloop turn,
-    /// which is what the Flutter page's `_pinToBottom` retry loop is for.
-    @MainActor private func jump(_ proxy: ScrollViewProxy) {
-        let empty = store.messages.isEmpty
-        proxy.scrollTo(empty ? Self.welcomeAnchor : Self.bottomAnchor, anchor: empty ? .top : .bottom)
-        // Structured rather than `DispatchQueue.main.async`, so the hop stays on
-        // the actor SwiftUI actually runs on (swift-correctness M31).
-        Task { @MainActor in
-            let empty = store.messages.isEmpty
-            proxy.scrollTo(empty ? Self.welcomeAnchor : Self.bottomAnchor, anchor: empty ? .top : .bottom)
-        }
-    }
 
     // MARK: Actions
 
-    private func send() {
-        let text = draft
-        let clarifying = store.pendingClarify != nil
-        guard store.canSend(draft: text) ||
-                (clarifying && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        else { return }
-        draft = ""
-        composerGeneration += 1
-        Task { await store.send(text) }
-    }
-
-    private func stop() {
-        Task { await store.cancel() }
-    }
 
     /// A dashboard card, into the screen that owns its data.
     private func open(_ destination: ChatDashboardDestination) {
-        focused = false
         switch destination {
         case .wearables: router.openDevices(.wearables)
         case .devices:   router.openDevices(.server)
