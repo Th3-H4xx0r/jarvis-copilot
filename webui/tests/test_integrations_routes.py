@@ -185,6 +185,8 @@ def test_a_document_can_be_dropped_on_its_own(reg, sent):
 def test_a_skill_is_unlinked_by_default_and_filed_away_on_request(reg, sent, monkeypatch):
     reg.space("casino", name="Casino")
     calls: list = []
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for",
+                        lambda space_id: [{"name": "casino-earnings-tracker"}])
     monkeypatch.setattr("jarvis_registry.integrations.unlink_skill",
                         lambda name: calls.append(("unlink", name)) or True)
     monkeypatch.setattr("jarvis_registry.integrations.delete_skill",
@@ -243,3 +245,64 @@ def test_every_part_of_an_integration_has_its_own_delete_in_the_ui():
     assert "showChoiceDialog" in js and "Remove from this integration" in js
     # And the whole-integration delete asks which parts.
     assert "_intgDeleteSheet" in js and '"space"' not in js.split("_intgDeleteSheet")[0][-200:]
+
+
+def test_an_integration_can_only_delete_its_own_skills(reg, sent, monkeypatch):
+    """A skill is addressed by directory name, so without this check any skill on
+    the machine could be filed away through any integration's URL."""
+    reg.space("casino", name="Casino")
+    monkeypatch.setattr("jarvis_registry.integrations.skills_for",
+                        lambda space_id: [{"name": "casino-earnings-tracker"}])
+    touched: list = []
+    monkeypatch.setattr("jarvis_registry.integrations.delete_skill",
+                        lambda name: touched.append(name) or "/gone")
+
+    assert delete("/api/integrations/casino/skills/deep-research?mode=file") is True
+    assert sent["status"] == 404
+    assert touched == []
+
+
+def test_a_body_that_could_not_be_read_does_not_mean_delete_everything(reg, sent, monkeypatch):
+    """read_body() hands {} to the handler for malformed JSON."""
+    reg.space("casino", name="Casino").append("sessions", {"net": 1})
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [])
+
+    # A body that names nothing is the bare DELETE: all of it.
+    assert routes.handle_delete(object(), urlparse("/api/integrations/casino"), {}) is True
+    assert sent["body"]["deleted"] is True
+
+    # A body that names one part takes only that part.
+    reg.space("casino", name="Casino").append("sessions", {"net": 1})
+    assert routes.handle_delete(object(), urlparse("/api/integrations/casino"),
+                                {"data": True}) is True
+    assert sent["body"].get("deleted") is None
+    assert reg.exists("casino") is True
+
+
+def test_deleting_the_space_admits_it_takes_the_data_with_it(reg, sent, monkeypatch):
+    """The rows cascade off the space, so "keep the data" was never possible."""
+    space = reg.space("casino", name="Casino")
+    space.append("sessions", {"net": 1})
+    space.put("summary", {"net": 1})
+    monkeypatch.setattr("cron.jobs.list_jobs", lambda include_disabled=False: [])
+
+    assert routes.handle_delete(object(), urlparse("/api/integrations/casino"),
+                                {"data": False, "space": True}) is True
+    assert sent["body"]["collections_removed"] == ["sessions"]
+    assert sent["body"]["documents_removed"] == ["summary"]
+
+
+def test_a_kept_schedule_goes_home_rather_than_firing_into_nothing(reg, sent, monkeypatch):
+    """Tagged with a space that no longer exists, it would run and show up nowhere."""
+    reg.space("casino", name="Casino")
+    monkeypatch.setattr("cron.jobs.list_jobs",
+                        lambda include_disabled=False: [
+                            {"id": "abc", "name": "casino-nightly", "integration": "casino"}])
+    moved: list = []
+    monkeypatch.setattr("cron.jobs.update_job",
+                        lambda job_id, updates: moved.append((job_id, updates)))
+
+    assert routes.handle_delete(object(), urlparse("/api/integrations/casino"),
+                                {"schedules": False, "space": True}) is True
+    assert sent["body"]["schedules_moved_to_general"] == ["casino-nightly"]
+    assert moved == [("abc", {"integration": ""})]

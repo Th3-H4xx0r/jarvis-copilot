@@ -377,7 +377,9 @@ async function openIntegrationCreate() {
   let setup;
   try {
     setup = await api('/api/integrations/setup/start', {
-      method: 'POST', body: JSON.stringify({ name: '' }),
+      method: 'POST',
+      // The profile this tab is on, like every other session we create.
+      body: JSON.stringify({ name: '', profile: (typeof _cronProfile !== 'undefined' && _cronProfile) || (S && S.profile) || '' }),
     });
   } catch (e) {
     showToast('Could not start: ' + e.message, 4000);

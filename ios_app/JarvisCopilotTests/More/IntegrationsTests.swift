@@ -291,9 +291,27 @@ final class IntegrationSetupTests: XCTestCase {
     }
 
     @MainActor
-    func testTheComposerStaysOpenUntilTheAgentSaysItIsDone() {
+    func testNothingCanBeSentBeforeThereIsASessionToSendItTo() {
+        // The composer used to be enabled with no session: every message typed
+        // while the sheet was opening — or after it failed to — vanished silently.
         let store = IntegrationSetupStore()
-        XCTAssertTrue(store.canSend)
+        XCTAssertFalse(store.canSend)
+        XCTAssertTrue(store.needsRetry)
         XCTAssertNil(store.finished)
+    }
+
+    func testTheIDTheSheetInfersMatchesTheOneTheServerWouldMake() {
+        // integration_create names the space; the server slugs that name. The sheet
+        // has to arrive at the same id or it cannot clean up what it built.
+        XCTAssertEqual(IntegrationSetupStore.slug("Gym Sessions"), "gym-sessions")
+        XCTAssertEqual(IntegrationSetupStore.slug("  Casino Earnings!  "), "casino-earnings")
+        XCTAssertEqual(IntegrationSetupStore.slug("Market & Stocks"), "market-stocks")
+    }
+
+    func testTheIntegrationItselfIsOneOfThePiecesYouWatchAppear() {
+        let card = SetupCard(toolName: "integration_create",
+                             args: ["name": "Gym Sessions", "description": "Logs workouts."])
+        XCTAssertEqual(card?.kind, .integration)
+        XCTAssertEqual(card?.name, "Gym Sessions")
     }
 }

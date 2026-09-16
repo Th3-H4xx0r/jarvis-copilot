@@ -16,6 +16,7 @@ and offer Close instead.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,23 @@ exists, and never for "general".
 """
 
 
-def start(name: str = "") -> dict:
-    """A session pinned to this job. Returns what the sheet needs to talk to it."""
+def start(name: str = "", profile: Optional[str] = None) -> dict:
+    """A session pinned to this job. Returns what the sheet needs to talk to it.
+
+    The profile comes from the client that opened the sheet, like every other
+    session: two tabs on different profiles must not clobber each other, and the
+    run resolves its home from it — a session on the wrong profile builds the
+    integration somewhere the page that asked for it will never look.
+    """
     from api.models import new_session
 
-    session = new_session()
+    session = new_session(profile=profile or None)
     session.enabled_toolsets = list(SETUP_TOOLSETS)
     session.integration_setup = True
     session.title = f"Setting up {name}" if name else "New integration"
-    session.save()
+    # Deliberately not saved: new_session() keeps a session in memory until its
+    # first message precisely so an abandoned one leaves nothing behind, and the
+    # + button is easy to tap and change your mind about.
     return {"session_id": session.session_id, "title": session.title}
 
 
@@ -78,7 +87,9 @@ def handle_post(handler, parsed, body) -> bool:
     if parsed.path != "/api/integrations/setup/start":
         return False
     try:
-        j(handler, start(str((body or {}).get("name") or "").strip()), status=201)
+        body = body or {}
+        j(handler, start(str(body.get("name") or "").strip(),
+                         profile=str(body.get("profile") or "").strip() or None), status=201)
     except Exception as exc:
         logger.warning("integration setup could not start", exc_info=True)
         j(handler, {"error": str(exc)}, status=500)

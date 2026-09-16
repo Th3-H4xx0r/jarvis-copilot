@@ -3426,8 +3426,14 @@ def _run_agent_streaming(
 
                 args_snap = {}
                 if isinstance(args, dict):
-                    for k, v in list(args.items())[:4]:
-                        s2 = str(v)
+                    # The keys that say WHICH thing a call is about come first, so a
+                    # card built from the arguments still knows what it is looking at
+                    # when the rest is cut. Without this the space id fell off the end.
+                    _identifying = ('space', 'integration', 'id', 'name', 'collection', 'key')
+                    _ordered = [k for k in _identifying if k in args]
+                    _ordered += [k for k in args if k not in _identifying]
+                    for k in _ordered[:8]:
+                        s2 = str(args[k])
                         args_snap[k] = s2[:120] + ('...' if len(s2) > 120 else '')
 
                 if event_type in (None, 'tool.started'):

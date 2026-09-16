@@ -279,16 +279,26 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     /// the result arrives on its own event, ahead of the completion.
     @discardableResult
     mutating func fillToolResult(id: String?, name: String?, result: String) -> Bool {
-        for index in blocks.indices.reversed() {
-            guard case .tool(var tool) = blocks[index] else { continue }
-            let matches = (id != nil && tool.id == id)
-                || (id == nil && (name == nil || tool.name == name))
-            guard matches, (tool.result ?? "").isEmpty else { continue }
-            tool.result = result
-            blocks[index] = .tool(tool)
-            return true
-        }
-        return false
+        // By id first. The id only matches when the start event carried one — it
+        // does not today, so the block holds a locally made UUID while the result
+        // carries the provider's id. Falling back to the name is what makes this
+        // work at all; without it the whole event was a no-op.
+        if let id, fill(result, into: blocks.indices.reversed().first {
+            if case .tool(let tool) = blocks[$0] { return tool.id == id || tool.callID == id }
+            return false
+        }) { return true }
+        guard let name else { return false }
+        return fill(result, into: blocks.indices.reversed().first {
+            if case .tool(let tool) = blocks[$0] { return tool.name == name && (tool.result ?? "").isEmpty }
+            return false
+        })
+    }
+
+    private mutating func fill(_ result: String, into index: Int?) -> Bool {
+        guard let index, case .tool(var tool) = blocks[index] else { return false }
+        tool.result = result
+        blocks[index] = .tool(tool)
+        return true
     }
 
     mutating func completeTool(id: String? = nil, name: String? = nil, durationSec: Double? = nil,

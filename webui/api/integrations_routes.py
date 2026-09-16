@@ -184,7 +184,7 @@ def handle_delete(handler, parsed, body=None) -> bool:
         if tail.startswith("skills/"):
             name = urllib.parse.unquote(tail[len("skills/"):])
             mode = (urllib.parse.parse_qs(parsed.query).get("mode") or ["unlink"])[0]
-            return _delete_skill(handler, name, mode)
+            return _delete_skill(handler, space_id, name, mode)
 
         if tail:
             return False
@@ -193,20 +193,28 @@ def handle_delete(handler, parsed, body=None) -> bool:
         return _error(handler, exc)
 
 
-def _delete_skill(handler, name: str, mode: str) -> bool:
-    """Unlink a skill from its integration, or take the skill out of service."""
+def _delete_skill(handler, space_id: str, name: str, mode: str) -> bool:
+    """Unlink a skill from this integration, or take the skill out of service.
+
+    Only a skill this integration owns: the name is a directory name, so without
+    the check any skill on the machine could be filed away through any
+    integration's URL.
+    """
     from api.helpers import j
 
+    if mode not in ("unlink", "file"):       # about the request, not the resource
+        j(handler, {"error": "mode must be 'unlink' or 'file'"}, status=400)
+        return True
     ints = _integrations()
+    if name not in {s["name"] for s in ints.skills_for(space_id)}:
+        j(handler, {"error": f"{name!r} does not belong to {space_id!r}"}, status=404)
+        return True
     if mode == "file":
         where = ints.delete_skill(name)
         if where is None:
             j(handler, {"error": f"no skill {name!r}"}, status=404)
             return True
         j(handler, {"ok": True, "skill": name, "moved_to": where})
-        return True
-    if mode != "unlink":
-        j(handler, {"error": "mode must be 'unlink' or 'file'"}, status=400)
         return True
     if not ints.unlink_skill(name):
         j(handler, {"error": f"{name!r} does not belong to an integration"}, status=404)
@@ -226,7 +234,18 @@ def _delete_space(handler, space_id: str, body) -> bool:
     from cron.jobs import remove_job
 
     body = body if isinstance(body, dict) else {}
-    want = lambda key: bool(body.get(key, True))        # noqa: E731 — absent means all
+    # A body that names no part at all is the bare DELETE that has always meant
+    # "all of it". A body that names any part means only the parts it names —
+    # read_body() hands us {} for malformed JSON, and "I could not read your
+    # request" must never resolve to "so I deleted everything".
+    named = [key for key in ("schedules", "data", "skills", "space") if key in body]
+    want = (lambda key: bool(body.get(key))) if named else (lambda _key: True)
+
+    # The rows cascade off the space, so deleting it takes the data whatever the
+    # body said. Say so rather than reporting data that survived when it did not.
+    if want("space") and named:
+        body = {**body, "data": True}
+        want = lambda key: bool(body.get(key))          # noqa: E731
     reg = _registry()
     ints = _integrations()
     removed: dict = {"id": space_id}
@@ -262,6 +281,17 @@ def _delete_space(handler, space_id: str, body) -> bool:
 
     # Last, so a failure above leaves something to retry against.
     if want("space"):
+        if not want("schedules"):
+            # Kept schedules would be tagged with a space that no longer exists:
+            # still firing, and invisible everywhere, since schedules_for only
+            # matches a live id. Send them home to the catch-all instead.
+            from cron.jobs import update_job
+
+            rehomed = []
+            for job in ints.schedules_for(space_id):
+                update_job(job["id"], {"integration": ""})
+                rehomed.append(job.get("name") or job["id"])
+            removed["schedules_moved_to_general"] = rehomed
         reg.delete_space(space_id)
         removed["deleted"] = True
 

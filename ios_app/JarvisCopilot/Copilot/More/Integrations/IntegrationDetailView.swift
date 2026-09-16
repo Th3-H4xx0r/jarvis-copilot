@@ -75,7 +75,16 @@ struct IntegrationDetailView: View {
                 documentCount: detail?.documents.count ?? 0,
                 skillCount: detail?.skills.count ?? 0
             ) { parts in
-                if await store.delete(integration, parts: parts) { dismiss() }
+                let outcome = await store.delete(integration, parts: parts)
+                // The schedules live in a different store; without this the card
+                // keeps listing jobs that are gone.
+                await crons.refresh()
+                if outcome.spaceRemoved {
+                    // After the sheet has dismissed itself: popping the presenter
+                    // out from under a sheet that is still up swallows the pop.
+                    afterSheetDismissal { dismiss() }
+                }
+                return outcome.succeeded
             }
         }
         .alert("Delete task?",
@@ -83,7 +92,13 @@ struct IntegrationDetailView: View {
                                     set: { if !$0 { pendingDelete = nil } }),
                presenting: pendingDelete) { job in
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { Task { await crons.delete(job) } }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await crons.delete(job)
+                    await store.reloadDetail()   // the identity card counts schedules
+                    await store.refresh()
+                }
+            }
         } message: { job in
             Text("This removes \"\(job.name.isEmpty ? job.id : job.name)\" permanently.")
         }

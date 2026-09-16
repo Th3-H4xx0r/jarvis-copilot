@@ -1601,7 +1601,10 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       const d=JSON.parse(e.data);
       const inflight=INFLIGHT[activeSid];
       if(!inflight||!Array.isArray(inflight.toolCalls)) return;
-      const tc=[...inflight.toolCalls].reverse().find(c=>c&&c.name===d.name&&!c.snippet);
+      // By id when the event carries one: a parallel batch has two cards of the
+      // same name open at once, and matching by name lands each result on the other.
+      const byId=d.tool_call_id?inflight.toolCalls.find(c=>c&&(c.tid===d.tool_call_id||c.callID===d.tool_call_id)):null;
+      const tc=byId||[...inflight.toolCalls].reverse().find(c=>c&&c.name===d.name&&!c.snippet);
       if(!tc) return;
       tc.snippet=d.snippet||'';
       S.toolCalls=inflight.toolCalls;

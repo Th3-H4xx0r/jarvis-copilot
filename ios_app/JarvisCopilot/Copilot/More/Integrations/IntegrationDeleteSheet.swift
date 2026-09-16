@@ -13,11 +13,14 @@ struct IntegrationDeleteSheet: View {
     let collectionCount: Int
     let documentCount: Int
     let skillCount: Int
-    let confirm: (IntegrationDeleteChoice) async -> Void
+    /// Returns whether it worked. A failed delete keeps the sheet open, with the
+    /// choices intact — closing would lose them and hide the reason behind itself.
+    let confirm: (IntegrationDeleteChoice) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var choice = IntegrationDeleteChoice()
     @State private var working = false
+    @State private var failure: String?
 
     var body: some View {
         DetailSheet(title: "Delete \(integration.name)") {
@@ -46,12 +49,20 @@ struct IntegrationDeleteSheet: View {
                     .foregroundStyle(choice.isEmpty ? JcTheme.muted : JcTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if let failure {
+                    Text(failure)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(JcTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Button {
                     working = true
+                    failure = nil
                     Task {
-                        await confirm(choice)
+                        let ok = await confirm(choice)
                         working = false
-                        dismiss()
+                        if ok { dismiss() } else { failure = "That did not go through. Try again." }
                     }
                 } label: {
                     HStack(spacing: 8) {

@@ -349,6 +349,7 @@ def cronjob(
     context_from: Optional[Union[str, List[str]]] = None,
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
+    integration: Optional[str] = None,
     profile: Optional[str] = None,
     no_agent: Optional[bool] = None,
     task_id: str = None,
@@ -418,6 +419,7 @@ def cronjob(
                 workdir=_normalize_optional_job_value(workdir),
                 profile=_normalize_optional_job_value(profile),
                 no_agent=_no_agent,
+                integration=_normalize_optional_job_value(integration),
             )
             return json.dumps(
                 {
@@ -547,6 +549,9 @@ def cronjob(
                 updates["context_from"] = refs or None
             if enabled_toolsets is not None:
                 updates["enabled_toolsets"] = enabled_toolsets or None
+            if integration is not None:
+                # Empty string moves the job back to general, the catch-all.
+                updates["integration"] = _normalize_optional_job_value(integration) or ""
             if workdir is not None:
                 # Empty string clears the field (restores old behaviour);
                 # otherwise pass raw — update_job() validates / normalizes.
@@ -703,6 +708,10 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Optional list of toolset names to restrict the job's agent to (e.g. [\"web\", \"terminal\", \"file\", \"delegation\"]). When set, only tools from these toolsets are loaded, significantly reducing input token overhead. When omitted, all default tools are loaded. Infer from the job's prompt — e.g. use \"web\" if it calls web_search, \"terminal\" if it runs scripts, \"file\" if it reads files, \"delegation\" if it calls delegate_task. On update, pass an empty array to clear."
+            },
+            "integration": {
+                "type": "string",
+                "description": "The space id of the integration this schedule belongs to (e.g. \"casino\", \"gym-sessions\"). A job without one is filed under \"general\", the catch-all, and will not appear on its integration's page. Always pass it when the job is part of an integration you are building or extending — the run is then handed that integration's data and skills. On update, pass an empty string to move the job back to general."
             },
             "workdir": {
                 "type": "string",

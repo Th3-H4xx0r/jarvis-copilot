@@ -57,3 +57,34 @@ def test_a_job_with_no_integration_is_unchanged(casino):
     prompt = _build_job_prompt({"id": "2", "name": "Reminder", "prompt": "Ping me."})
     assert "Integration:" not in prompt
     assert "Ping me." in prompt
+
+
+def test_the_cronjob_tool_files_a_schedule_under_its_integration(monkeypatch):
+    """Without this the setup agent's schedules all land in `general` and never
+    appear on the integration it just built.
+
+    Asserts the value reaches create_job, not what the tool answers — the reply is
+    built from the stored job, which is not what this is about.
+    """
+    import tools.cronjob_tools as ct
+
+    captured: dict = {}
+
+    def fake_create_job(**kwargs):
+        captured.update(kwargs)
+        return {"id": "j1", "name": kwargs.get("name")}
+
+    # cronjob_tools imports create_job at module level, so patch it there.
+    monkeypatch.setattr("tools.cronjob_tools.create_job", fake_create_job)
+    ct.cronjob(action="create", prompt="Summarise the week.", schedule="every 30m",
+               name="gym-weekly", integration="gym-sessions")
+    assert captured["integration"] == "gym-sessions"
+
+
+def test_the_tool_advertises_the_parameter_it_reads():
+    """A parameter the model cannot see is a parameter it will never pass."""
+    from tools.registry import discover_builtin_tools, registry
+
+    discover_builtin_tools()
+    props = (registry.get_schema("cronjob") or {}).get("parameters", {}).get("properties", {})
+    assert "integration" in props

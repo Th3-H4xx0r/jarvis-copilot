@@ -228,7 +228,9 @@ def unlink_skill(skill_name: str) -> bool:
     kept = [line for line in lines if not line.startswith("integration:")]
     if len(kept) == len(lines):
         return False
-    skill_md.write_text("".join(kept))
+    # Explicit utf-8: the read above is, and under a C locale the default encoder
+    # truncates the file first and then raises, leaving the skill at zero bytes.
+    skill_md.write_text("".join(kept), encoding="utf-8")
     return True
 
 
@@ -252,7 +254,12 @@ def delete_skill(skill_name: str) -> Optional[str]:
         return None
     graveyard = Path(_home()) / "deleted-skills"
     graveyard.mkdir(parents=True, exist_ok=True)
-    destination = graveyard / f"{skill_name}-{_time.strftime('%Y%m%d-%H%M%S')}"
+    stamp = _time.strftime("%Y%m%d-%H%M%S")
+    destination = graveyard / f"{skill_name}-{stamp}"
+    suffix = 1
+    while destination.exists():          # else shutil.move nests it inside the first
+        destination = graveyard / f"{skill_name}-{stamp}-{suffix}"
+        suffix += 1
     shutil.move(str(skill_md.parent), str(destination))
     return str(destination)
 

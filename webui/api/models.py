@@ -422,6 +422,7 @@ class Session:
                  input_tokens: int=0, output_tokens: int=0, estimated_cost=None,
                  cache_read_tokens: int=0, cache_write_tokens: int=0,
                  personality=None,
+                 integration_setup: bool=False,
                  active_stream_id: str=None,
                  pending_user_message: str=None,
                  pending_attachments=None,
@@ -489,6 +490,11 @@ class Session:
         self.source_label = kwargs.get('source_label')
         self.read_only = bool(kwargs.get('read_only', False))
         self.enabled_toolsets = enabled_toolsets  # List[str] or None — per-session toolset override
+        # Opened by the Integrations sheet to build one integration. A real field,
+        # not a stray attribute: __init__ swallows unknown kwargs, so a flag set
+        # only on the object is dropped the first time the session is reloaded —
+        # and the next save() then strips it from disk for good.
+        self.integration_setup = bool(integration_setup)
         self.composer_draft = composer_draft if isinstance(composer_draft, dict) else {}
         self._metadata_message_count = None
 
@@ -721,6 +727,7 @@ class Session:
             'source_label': self.source_label,
             'read_only': self.read_only,
             'enabled_toolsets': self.enabled_toolsets,
+            'integration_setup': self.integration_setup,
             'composer_draft': self.composer_draft if isinstance(self.composer_draft, dict) else {},
             'is_streaming': _is_streaming_session(
                 self.active_stream_id, active_stream_ids

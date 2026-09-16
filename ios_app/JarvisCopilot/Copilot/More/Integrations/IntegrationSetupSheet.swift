@@ -37,12 +37,15 @@ struct IntegrationSetupSheet: View {
                             titleVisibility: .visible) {
             Button("Delete what was created", role: .destructive) {
                 Task {
+                    // Stop the agent first: it creates as it goes, so anything it
+                    // writes after this would land in a space we are removing.
+                    await store.close()
                     await store.discard()
                     await onFinish()
                     dismiss()
                 }
             }
-            Button("Keep it") { Task { await onFinish(); dismiss() } }
+            Button("Keep it") { Task { await store.close(); await onFinish(); dismiss() } }
             Button("Carry on", role: .cancel) {}
         } message: {
             Text("Some of this integration already exists — it is built as you go, not at the end.")
@@ -92,7 +95,7 @@ struct IntegrationSetupSheet: View {
     private var footer: some View {
         if store.finished != nil {
             Button {
-                Task { await onFinish(); dismiss() }
+                Task { await store.close(); await onFinish(); dismiss() }
             } label: {
                 Text("Close")
                     .font(.system(size: 16, weight: .semibold))
@@ -118,11 +121,19 @@ struct IntegrationSetupSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(JcTheme.border, lineWidth: 0.5))
                     .disabled(!store.canSend)
+                    .overlay(alignment: .trailing) {
+                        if store.needsRetry {
+                            Button("Retry") { Task { await store.begin() } }
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(JcTheme.accent)
+                                .padding(.trailing, 12)
+                        }
+                    }
 
                 Button {
                     let text = draft
                     draft = ""
-                    Task { await store.send(text) }
+                    store.startSend(text)
                 } label: {
                     JcIcon("arrow.up", size: 16)
                         .foregroundStyle(JcTheme.bg)
@@ -146,7 +157,7 @@ struct IntegrationSetupSheet: View {
         if askFirst, store.createdSpaceID != nil, store.finished == nil {
             confirmingExit = true
         } else {
-            Task { await onFinish(); dismiss() }
+            Task { await store.close(); await onFinish(); dismiss() }
         }
     }
 }
@@ -183,9 +194,10 @@ struct SetupCardView: View {
 
     private var symbol: String {
         switch card.kind {
-        case .data:     return "tray.full"
-        case .schedule: return "clock"
-        case .skill:    return "sparkles"
+        case .integration: return "square.grid.2x2"
+        case .data:        return "tray.full"
+        case .schedule:    return "clock"
+        case .skill:       return "sparkles"
         }
     }
 

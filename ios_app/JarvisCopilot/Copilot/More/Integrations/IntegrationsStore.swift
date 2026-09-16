@@ -133,10 +133,18 @@ final class IntegrationsStore {
         await mutate(done) { try await self.api.deleteSkill(id, name: name, mode: mode) }
     }
 
-    /// Removes only the parts chosen. Returns whether the integration itself went,
-    /// so its screen knows whether to close.
+    /// Removes only the parts chosen.
+    ///
+    /// Two different questions, and the screen needs both: whether it worked (so a
+    /// failure can keep the sheet open with the choices intact) and whether the
+    /// integration itself went (so the screen knows to close).
+    struct DeleteOutcome: Equatable, Sendable {
+        var succeeded: Bool
+        var spaceRemoved: Bool
+    }
+
     @discardableResult
-    func delete(_ integration: Integration, parts: IntegrationDeleteChoice) async -> Bool {
+    func delete(_ integration: Integration, parts: IntegrationDeleteChoice) async -> DeleteOutcome {
         do {
             try await api.deleteParts(integration.id, parts)
             toast = parts.space ? "\(integration.name) deleted" : "Removed"
@@ -144,7 +152,7 @@ final class IntegrationsStore {
             toast = apiErrorMessage(error)
             await refresh()
             await reloadDetail()
-            return false
+            return DeleteOutcome(succeeded: false, spaceRemoved: false)
         }
         if parts.space, detailID == integration.id {
             detailID = nil
@@ -152,7 +160,7 @@ final class IntegrationsStore {
         }
         await refresh()
         if !parts.space { await reloadDetail() }
-        return parts.space
+        return DeleteOutcome(succeeded: true, spaceRemoved: parts.space)
     }
 
     /// Runs a change, says what happened, and reloads what the screen is showing.
