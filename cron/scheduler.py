@@ -1036,6 +1036,19 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
                 logger.warning("context_from: failed to read output for job %r: %s", source_job_id, e)
                 # silent skip — do not pollute the prompt with error messages
 
+    # The integration this job belongs to: tell the run where its data lives and
+    # which skills are its own, so the prompt doesn't have to repeat any of it.
+    integration_id = (job.get("integration") or "").strip().lower()
+    if integration_id:
+        try:
+            from jarvis_registry.integrations import context_block
+
+            block = context_block(integration_id)
+            if block:
+                prompt = f"{block}\n\n{prompt}"
+        except Exception:
+            logger.debug("cron: no integration context for %r", integration_id, exc_info=True)
+
     # Always prepend cron execution guidance so the agent knows how
     # delivery works and can suppress delivery when appropriate.
     cron_hint = (
@@ -1057,6 +1070,16 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
         skills = [skills]
 
     skill_names = [str(name).strip() for name in skills if str(name).strip()]
+    # An integration's own skills come along with it, without every job listing them.
+    if integration_id:
+        try:
+            from jarvis_registry.integrations import skills_for
+
+            for owned in skills_for(integration_id):
+                if owned["name"] not in skill_names:
+                    skill_names.append(owned["name"])
+        except Exception:
+            logger.debug("cron: could not load skills for %r", integration_id, exc_info=True)
     if not skill_names:
         return _scan_assembled_cron_prompt(prompt, job)
 

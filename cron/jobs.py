@@ -524,6 +524,7 @@ def create_job(
     workdir: Optional[str] = None,
     profile: Optional[str] = None,
     no_agent: bool = False,
+    integration: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a new cron job.
@@ -640,6 +641,9 @@ def create_job(
         "script": normalized_script,
         "no_agent": normalized_no_agent,
         "context_from": context_from,
+        # The integration this schedule belongs to (a registry space id). Untagged
+        # jobs read as "general" — every schedule has a home on the Integrations page.
+        "integration": (integration or "").strip().lower() or "general",
         "schedule": parsed_schedule,
         "schedule_display": parsed_schedule.get("display", schedule),
         "repeat": {
@@ -750,6 +754,9 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
                 updates["profile"] = None
             else:
                 updates["profile"] = _normalize_profile(_profile)
+
+        if "integration" in updates:
+            updates["integration"] = (str(updates["integration"] or "")).strip().lower() or "general"
 
         updated = _apply_skill_fields({**job, **updates})
         schedule_changed = "schedule" in updates
