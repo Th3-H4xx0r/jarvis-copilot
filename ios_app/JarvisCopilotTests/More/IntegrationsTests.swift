@@ -171,22 +171,129 @@ final class IntegrationsSweepTests: XCTestCase {
     }
 }
 
-/// The More stack has to hold more than one kind of value.
+/// A stack that presents more than one kind of value has to be type-erased.
 ///
-/// It used to be `[MoreDestination]`, so a `NavigationLink(value: Integration)`
-/// could not be appended and the push silently did nothing — the whole
-/// Integrations detail screen was unreachable on a device, and no test caught it
-/// because the app built and every model test passed.
+/// The More stack used to be `[MoreDestination]`, and while Integrations lived
+/// inside it a `NavigationLink(value: Integration)` could not be appended — the
+/// push silently did nothing and the whole detail screen was unreachable on a
+/// device, with the app building and every model test passing. Integrations owns
+/// its own stack now; both are `NavigationPath`, and both stay that way.
 @MainActor
 final class MoreNavigationTests: XCTestCase {
 
-    func testTheStackOpensAScreenThatPushesItsOwnValueTypes() {
-        moreUIAHost(MorePage(initialPath: [.integrations]).environment(AppRouter()))
+    func testTheIntegrationsTabPushesItsOwnValueTypes() {
+        moreUIAHost(IntegrationsPage().environment(AppRouter()))
     }
 
-    func testEveryDestinationStillOpens() {
+    func testEveryMoreDestinationStillOpens() {
         for destination in MoreDestination.allCases {
             moreUIAHost(MorePage(initialPath: [destination]).environment(AppRouter()))
         }
+    }
+}
+
+/// Deleting parts of an integration, and the sheet that asks which parts.
+final class IntegrationDeleteTests: XCTestCase {
+
+    func testEverythingButTheSkillFilesIsOnByDefault() {
+        let choice = IntegrationDeleteChoice()
+        XCTAssertTrue(choice.schedules && choice.data && choice.skills && choice.space)
+        // Unlinking a skill is cheap to undo; removing it is a separate decision.
+        XCTAssertFalse(choice.skillFiles)
+        XCTAssertFalse(choice.isEmpty)
+    }
+
+    func testTheBodyNamesEveryPartSoTheServerNeverGuesses() {
+        var choice = IntegrationDeleteChoice()
+        choice.data = false
+        let body = choice.body
+        XCTAssertEqual(body["data"] as? Bool, false)
+        XCTAssertEqual(body["schedules"] as? Bool, true)
+        XCTAssertEqual(body["skill_files"] as? Bool, false)
+        XCTAssertEqual(body["space"] as? Bool, true)
+    }
+
+    func testTheSummarySaysExactlyWhatGoes() {
+        var choice = IntegrationDeleteChoice()
+        XCTAssertEqual(
+            choice.summary(schedules: 2, collections: 1, documents: 1, skills: 1),
+            "This removes 2 schedules, 2 data sets, 1 skill and the integration itself. "
+            + "It cannot be undone.")
+
+        choice.skillFiles = true
+        XCTAssertTrue(choice.summary(schedules: 0, collections: 0, documents: 0, skills: 1)
+            .contains("1 skill (and their files)"))
+
+        choice = IntegrationDeleteChoice(schedules: false, data: true, skills: false,
+                                         skillFiles: false, space: false)
+        XCTAssertEqual(choice.summary(schedules: 0, collections: 3, documents: 0, skills: 0),
+                       "This removes 3 data sets. It cannot be undone.")
+    }
+
+    func testNothingSelectedIsNothingToDo() {
+        let choice = IntegrationDeleteChoice(schedules: false, data: false, skills: false,
+                                             skillFiles: false, space: false)
+        XCTAssertTrue(choice.isEmpty)
+        XCTAssertEqual(choice.summary(schedules: 2, collections: 2, documents: 0, skills: 1),
+                       "Nothing selected.")
+    }
+
+    func testOneConfirmationValueDrivesEveryRow() {
+        let collection = IntegrationCollection(json: ["name": "sessions", "count": 18])
+        XCTAssertEqual(IntegrationConfirm.collection(collection).id, "collection:sessions")
+        XCTAssertEqual(IntegrationConfirm.document(
+            IntegrationDocument(json: ["key": "summary"])).id, "document:summary")
+        XCTAssertEqual(IntegrationConfirm.skill(
+            IntegrationSkill(json: ["name": "gym-logger"])).id, "skill:gym-logger")
+    }
+}
+
+/// The conversation behind the + button.
+final class IntegrationSetupTests: XCTestCase {
+
+    private func card(_ tool: String, _ args: JSONObject) -> SetupCard? {
+        SetupCard(toolName: tool, args: args)
+    }
+
+    func testTheToolsThatBuildSomethingBecomeCards() {
+        let data = card("registry_append", ["space": "gym", "collection": "sessions"])
+        XCTAssertEqual(data?.kind, .data)
+        XCTAssertEqual(data?.name, "sessions")
+        XCTAssertEqual(data?.spaceID, "gym")
+
+        let schedule = card("cronjob", ["action": "create", "name": "gym-weekly",
+                                        "schedule": "0 19 * * 0", "integration": "gym"])
+        XCTAssertEqual(schedule?.kind, .schedule)
+        XCTAssertEqual(schedule?.detail, "0 19 * * 0")
+
+        let skill = card("skill_manage", ["action": "create", "name": "gym-logger",
+                                          "category": "productivity"])
+        XCTAssertEqual(skill?.kind, .skill)
+        XCTAssertEqual(skill?.name, "gym-logger")
+    }
+
+    func testPlumbingDoesNotEarnACard() {
+        // Reading is not building.
+        XCTAssertNil(card("registry_query", ["space": "gym", "collection": "sessions"]))
+        XCTAssertNil(card("skills_list", [:]))
+        // Neither is any cronjob action other than making one.
+        XCTAssertNil(card("cronjob", ["action": "list"]))
+        XCTAssertNil(card("skill_manage", ["action": "delete", "name": "gym-logger"]))
+        // Nor a call with nothing to name.
+        XCTAssertNil(card("registry_append", ["space": "gym"]))
+    }
+
+    func testATurnRemembersWhichSpaceItTouched() {
+        var turn = SetupTurn(role: .assistant, text: "made it")
+        XCTAssertNil(turn.spaceTouched)
+        turn.cards = [card("registry_put", ["space": "gym", "key": "config"])!]
+        XCTAssertEqual(turn.spaceTouched, "gym")
+    }
+
+    @MainActor
+    func testTheComposerStaysOpenUntilTheAgentSaysItIsDone() {
+        let store = IntegrationSetupStore()
+        XCTAssertTrue(store.canSend)
+        XCTAssertNil(store.finished)
     }
 }

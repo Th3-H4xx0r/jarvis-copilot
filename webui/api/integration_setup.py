@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Enough to build an integration, and nothing that could wander off into the
 # filesystem or the network while doing it.
-SETUP_TOOLSETS = ["registry", "cron", "skills"]
+# The real toolset keys — a name that is not a key in TOOLSETS is dropped without
+# a word, and the session would quietly have no way to make a schedule.
+SETUP_TOOLSETS = ["registry", "cronjob", "skills"]
 
 DIRECTIVE = """\
 You are setting up ONE new Jarvis integration with the user, in a dedicated sheet \
@@ -31,9 +33,9 @@ An integration is a named space in the central registry plus the schedules and \
 skills that belong to it. Build it with the tools you have:
   - registry_put / registry_append / registry_describe to create its space and say \
 what each collection holds
-  - the cron tools to create the schedules it needs, always passing this \
+  - `cronjob` with action=create to add the schedules it needs, always passing this \
 integration's space id
-  - the skill authoring tools to write a skill when one would help, with \
+  - `skill_manage` with action=create to write a skill when one would help, with \
 `integration: <space id>` in its front matter so it belongs here
 
 How to run the conversation:

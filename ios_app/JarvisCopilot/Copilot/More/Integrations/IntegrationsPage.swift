@@ -4,61 +4,59 @@ import SwiftUI
 ///
 /// This is where the Tasks (cron) screen went. A schedule no longer stands on
 /// its own: it belongs to an integration, next to the data that integration
-/// keeps in the registry and the skills written for it. Tapping one opens
-/// `IntegrationDetailView`; tapping a schedule there opens the same cron detail
-/// sheet the Tasks screen used, so run/pause/edit are unchanged.
+/// keeps in the registry and the skills written for it.
+///
+/// The tab owns its stack, and the stack is type-erased: the screens inside push
+/// their own value types (an `Integration`, then an `IntegrationDataRoute`), and
+/// a typed path can only hold one of them — a link carrying anything else
+/// silently does nothing.
 struct IntegrationsPage: View {
     @State private var store: IntegrationsStore
-    @State private var creating = false
-    @State private var newName = ""
+    @State private var path = NavigationPath()
+    @State private var settingUp = false
 
     init(store: IntegrationsStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { IntegrationsStore() })
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                content
+        NavigationStack(path: $path) {
+            ScrollView {
+                VStack(spacing: 10) {
+                    content
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
-        }
-        .refreshable { await store.refresh() }
-        .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
-        .jcScreen("Integrations")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) {
-                    newName = ""
-                    creating = true
+            .refreshable { await store.refresh() }
+            .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
+            .jcScreen("Integrations")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
+                }
+            }
+            .navigationDestination(for: Integration.self) { integration in
+                IntegrationDetailView(integration: integration, store: store)
+            }
+            .navigationDestination(for: IntegrationDataRoute.self) { route in
+                switch route {
+                case .records(let id, let collection):
+                    IntegrationRecordsView(integrationID: id, collection: collection, store: store)
+                case .document(let id, let key):
+                    IntegrationDocumentView(integrationID: id, key: key, store: store)
                 }
             }
         }
         .task { if !store.hasLoaded { store.load() } }
-        .onTabVisibilityChange(.more) { visible in
+        .onTabVisibilityChange(.integrations) { visible in
             if !visible { store.onDisappear() }
             else if store.hasLoaded { Task { await store.refresh() } }
         }
         .moreToast($store.toast)
-        .navigationDestination(for: Integration.self) { integration in
-            IntegrationDetailView(integration: integration, store: store)
-        }
-        .navigationDestination(for: IntegrationDataRoute.self) { route in
-            switch route {
-            case .records(let id, let collection):
-                IntegrationRecordsView(integrationID: id, collection: collection, store: store)
-            case .document(let id, let key):
-                IntegrationDocumentView(integrationID: id, key: key, store: store)
-            }
-        }
-        .alert("New integration", isPresented: $creating) {
-            TextField("Gym Sessions", text: $newName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { Task { await store.create(name: newName) } }
-        } message: {
-            Text("It gets its own data, schedules and skills.")
+        .fullScreenCover(isPresented: $settingUp) {
+            IntegrationSetupSheet { await store.refresh() }
         }
     }
 
@@ -70,7 +68,7 @@ struct IntegrationsPage: View {
         } else if !store.hasLoaded {
             ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
         } else if store.isEmpty {
-            CenteredMessage(text: "No integrations yet. Ask Jarvis for one, or add it here.")
+            CenteredMessage(text: "No integrations yet. Tap + and tell Jarvis what to track.")
                 .padding(.top, 100)
         } else {
             ForEach(store.integrations) { integration in
@@ -104,6 +102,9 @@ struct IntegrationCard: View {
                         StatusPill(integration.status.uppercased(),
                                    color: JcTheme.muted, dense: true)
                     }
+                    JcIcon("chevron.right", size: 11)
+                        .foregroundStyle(JcTheme.muted.opacity(0.6))
+                        .fixedSize()
                 }
                 if !integration.summary.isEmpty {
                     Text(integration.summary)

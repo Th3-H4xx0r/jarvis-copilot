@@ -1597,7 +1597,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
 
     // The head of a finished tool's result. Only cards that read the result need
     // it — the plan card, which cannot find its plan without it.
-    source.addEventListener('tool_result',e=>{
+    source.addEventListener('tool_snippet',e=>{
       const d=JSON.parse(e.data);
       const inflight=INFLIGHT[activeSid];
       if(!inflight||!Array.isArray(inflight.toolCalls)) return;

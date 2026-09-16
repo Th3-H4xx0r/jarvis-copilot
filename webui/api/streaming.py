@@ -3518,7 +3518,7 @@ def _run_agent_streaming(
                     # preview, which most tools leave empty, so a card that has to
                     # read the result (the integration plan card) could not draw
                     # until the turn ended and the stored tool_calls arrived.
-                    put('tool_result', {
+                    put('tool_snippet', {
                         'name': str(name or ''),
                         'tool_call_id': str(tool_call_id or ''),
                         'snippet': _tool_result_snippet(function_result)[:800],

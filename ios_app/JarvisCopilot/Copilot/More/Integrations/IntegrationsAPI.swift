@@ -52,6 +52,41 @@ struct IntegrationsAPI {
         _ = try await api.delete("/api/integrations/\(escaped(id))")
     }
 
+    // MARK: Deleting parts of one
+
+    /// Drops a collection: its records and its entry in the catalog.
+    func deleteCollection(_ id: String, name: String) async throws {
+        _ = try await api.delete("/api/integrations/\(escaped(id))/collections/\(escaped(name))")
+    }
+
+    func deleteDocument(_ id: String, key: String) async throws {
+        _ = try await api.delete("/api/integrations/\(escaped(id))/documents/\(escaped(key))")
+    }
+
+    /// `unlink` stops the skill belonging here; `file` takes it out of service.
+    func deleteSkill(_ id: String, name: String, mode: SkillDeleteMode) async throws {
+        _ = try await api.delete("/api/integrations/\(escaped(id))/skills/\(escaped(name))",
+                                 query: ["mode": mode.rawValue])
+    }
+
+    /// Removes only the parts named. Everything absent from `parts` is left alone.
+    func deleteParts(_ id: String, _ parts: IntegrationDeleteChoice) async throws {
+        _ = try await api.delete("/api/integrations/\(escaped(id))", json: parts.body)
+    }
+
+    // MARK: Building one by talking
+
+    /// Opens a session pinned to setting up one integration. Returns its id; the
+    /// sheet then talks to it over the ordinary chat stream.
+    func startSetup(name: String = "") async throws -> String {
+        let body = try await api.post("/api/integrations/setup/start",
+                                      json: ["name": name]).object()
+        guard let sessionID = body["session_id"] as? String, !sessionID.isEmpty else {
+            throw APIError.badResponse("the server did not open a setup session")
+        }
+        return sessionID
+    }
+
     // MARK: Plans
 
     func plan(_ planID: String) async throws -> IntegrationPlan {

@@ -41,7 +41,7 @@ def test_the_session_is_pinned_to_the_tools_this_job_needs(monkeypatch):
 
     out = setup.start("Gym Sessions")
     assert out["session_id"] == "abc123"
-    assert made.enabled_toolsets == ["registry", "cron", "skills"]
+    assert made.enabled_toolsets == ["registry", "cronjob", "skills"]
     assert made.integration_setup is True
     assert made.title == "Setting up Gym Sessions"
     assert made.saved is True
@@ -67,3 +67,12 @@ def test_the_http_surface(monkeypatch, sent):
                              {"name": "Gym"}) is True
     assert sent["status"] == 201 and sent["body"]["session_id"] == "abc123"
     assert setup.handle_post(object(), urlparse("/api/integrations"), {}) is False
+
+
+def test_every_toolset_it_asks_for_actually_exists():
+    """A name that is not a key in TOOLSETS is dropped without a word — the session
+    would quietly have no way to make a schedule."""
+    import toolsets
+
+    for name in setup.SETUP_TOOLSETS:
+        assert name in toolsets.TOOLSETS, f"{name!r} is not a real toolset"

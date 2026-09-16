@@ -239,3 +239,51 @@ enum IntegrationIcon {
         }
     }
 }
+
+/// What "delete this skill" means. Unlinking is cheap to undo; taking it out of
+/// service moves its folder somewhere nothing loads it.
+enum SkillDeleteMode: String, Sendable {
+    case unlink
+    case file
+}
+
+/// Which parts of an integration a delete should take. Everything is on by
+/// default except the skills' files, because unlinking a skill is recoverable and
+/// removing it is a separate decision.
+struct IntegrationDeleteChoice: Equatable, Sendable {
+    var schedules = true
+    var data = true
+    var skills = true
+    var skillFiles = false
+    var space = true
+
+    var body: JSONObject {
+        ["schedules": schedules, "data": data, "skills": skills,
+         "skill_files": skillFiles, "space": space]
+    }
+
+    /// Nothing selected means nothing to do — the Delete button stays disabled.
+    var isEmpty: Bool { !schedules && !data && !skills && !space }
+
+    /// One line naming what will go, so the confirmation is specific.
+    func summary(schedules scheduleCount: Int, collections: Int,
+                 documents: Int, skills skillCount: Int) -> String {
+        var parts: [String] = []
+        if schedules && scheduleCount > 0 {
+            parts.append("\(scheduleCount) \(scheduleCount == 1 ? "schedule" : "schedules")")
+        }
+        if data && (collections + documents) > 0 {
+            let total = collections + documents
+            parts.append("\(total) \(total == 1 ? "data set" : "data sets")")
+        }
+        if skills && skillCount > 0 {
+            parts.append("\(skillCount) \(skillCount == 1 ? "skill" : "skills")"
+                         + (skillFiles ? " (and their files)" : ""))
+        }
+        if space { parts.append("the integration itself") }
+        if parts.isEmpty { return "Nothing selected." }
+        if parts.count == 1 { return "This removes \(parts[0]). It cannot be undone." }
+        let last = parts.removeLast()
+        return "This removes \(parts.joined(separator: ", ")) and \(last). It cannot be undone."
+    }
+}

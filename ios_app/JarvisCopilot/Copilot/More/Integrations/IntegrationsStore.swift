@@ -117,23 +117,54 @@ final class IntegrationsStore {
         await reloadDetail()
     }
 
-    /// Removes it and everything inside: its schedules stop, its data is gone.
-    /// Returns whether it is gone, so its screen knows to close itself.
+    func deleteCollection(_ name: String) async {
+        guard let id = detailID else { return }
+        await mutate("\(name) deleted") { try await self.api.deleteCollection(id, name: name) }
+    }
+
+    func deleteDocument(_ key: String) async {
+        guard let id = detailID else { return }
+        await mutate("\(key) deleted") { try await self.api.deleteDocument(id, key: key) }
+    }
+
+    func deleteSkill(_ name: String, mode: SkillDeleteMode) async {
+        guard let id = detailID else { return }
+        let done = mode == .file ? "\(name) deleted" : "\(name) removed from this integration"
+        await mutate(done) { try await self.api.deleteSkill(id, name: name, mode: mode) }
+    }
+
+    /// Removes only the parts chosen. Returns whether the integration itself went,
+    /// so its screen knows whether to close.
     @discardableResult
-    func delete(_ integration: Integration) async -> Bool {
+    func delete(_ integration: Integration, parts: IntegrationDeleteChoice) async -> Bool {
         do {
-            try await api.delete(integration.id)
-            toast = "\(integration.name) deleted"
+            try await api.deleteParts(integration.id, parts)
+            toast = parts.space ? "\(integration.name) deleted" : "Removed"
         } catch {
             toast = apiErrorMessage(error)
             await refresh()
+            await reloadDetail()
             return false
         }
-        if detailID == integration.id {
+        if parts.space, detailID == integration.id {
             detailID = nil
             detail = nil
         }
         await refresh()
-        return true
+        if !parts.space { await reloadDetail() }
+        return parts.space
     }
+
+    /// Runs a change, says what happened, and reloads what the screen is showing.
+    private func mutate(_ done: String, _ work: () async throws -> Void) async {
+        do {
+            try await work()
+            toast = done
+        } catch {
+            toast = apiErrorMessage(error)
+        }
+        await reloadDetail()
+        await refresh()
+    }
+
 }

@@ -12,7 +12,7 @@ final class AppRouterTests: XCTestCase {
     }
 
     func testSixTabsInFlutterOrder() {
-        XCTAssertEqual(AppTab.allCases, [.chat, .voice, .skills, .devices, .coding, .more])
+        XCTAssertEqual(AppTab.allCases, [.chat, .voice, .integrations, .devices, .coding, .more])
         for tab in AppTab.allCases {
             XCTAssertFalse(tab.title.isEmpty, "\(tab) has no title")
             XCTAssertFalse(tab.symbol.isEmpty, "\(tab) has no symbol")

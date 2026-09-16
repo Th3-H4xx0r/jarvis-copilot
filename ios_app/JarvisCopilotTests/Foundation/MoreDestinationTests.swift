@@ -8,7 +8,7 @@ final class MoreDestinationTests: XCTestCase {
 
     func testEveryTileFromTheFlutterGridIsPresent() {
         XCTAssertEqual(MoreDestination.allCases, [
-            .integrations, .kanban, .memory, .codeMemory, .longTermMemory, .workspaces,
+            .skills, .kanban, .memory, .codeMemory, .longTermMemory, .workspaces,
             .profiles, .todos, .insights, .selfImprovement, .serverLogs,
             .islandDesigns, .photon, .appleWatch, .settings,
         ])

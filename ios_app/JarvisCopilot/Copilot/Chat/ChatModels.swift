@@ -272,6 +272,25 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
 
     /// Mark the most recent unfinished tool block as complete. `id` wins when the
     /// server sent one; `name` is the fallback (older servers send no ids).
+    /// Put a finished tool's result on it without finishing it.
+    ///
+    /// Some cards are built from what a tool returned rather than from its
+    /// arguments — the integration plan card cannot find its plan without it — and
+    /// the result arrives on its own event, ahead of the completion.
+    @discardableResult
+    mutating func fillToolResult(id: String?, name: String?, result: String) -> Bool {
+        for index in blocks.indices.reversed() {
+            guard case .tool(var tool) = blocks[index] else { continue }
+            let matches = (id != nil && tool.id == id)
+                || (id == nil && (name == nil || tool.name == name))
+            guard matches, (tool.result ?? "").isEmpty else { continue }
+            tool.result = result
+            blocks[index] = .tool(tool)
+            return true
+        }
+        return false
+    }
+
     mutating func completeTool(id: String? = nil, name: String? = nil, durationSec: Double? = nil,
                                isError: Bool = false, preview: String? = nil, result: String? = nil) {
         for index in blocks.indices.reversed() {

@@ -65,7 +65,8 @@ MESSAGES_JS = (REPO / "static" / "messages.js").read_text(encoding="utf-8")
 
 def test_the_card_draws_during_the_turn_not_only_after_it():
     """tool_complete carries no result, so the card had no plan id until turn end."""
-    assert "source.addEventListener('tool_result'" in MESSAGES_JS
+    # Its own event name: tool_result already means the call is over.
+    assert "source.addEventListener('tool_snippet'" in MESSAGES_JS
     assert "_isStandaloneCard(liveCard)" in UI_JS, (
         "the live path must keep the card out of the collapsed activity group too"
     )

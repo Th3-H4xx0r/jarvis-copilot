@@ -3,7 +3,7 @@ import Foundation
 /// Everything the More grid can open, in tile order. `MorePage` turns a case
 /// into a screen in a single `switch`.
 enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
-    case integrations
+    case skills
     case kanban
     case memory
     case codeMemory
@@ -23,7 +23,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .integrations:    return "Integrations"
+        case .skills:          return "Skills"
         case .kanban:          return "Kanban"
         case .memory:          return "Memory"
         case .codeMemory:      return "Code memory"
@@ -43,7 +43,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
-        case .integrations:    return "square.grid.2x2"
+        case .skills:          return "sparkles"
         case .kanban:          return "rectangle.split.3x1"
         case .memory:          return "memorychip"
         case .codeMemory:      return "point.3.connected.trianglepath.dotted"

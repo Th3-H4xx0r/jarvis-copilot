@@ -91,6 +91,17 @@ enum ChatStreamReducer {
                 preview: object.string("preview")))
             return true
 
+        // The head of a finished tool's result, sent on its own because
+        // tool_complete carries only a preview and most tools leave that empty.
+        // It fills the result in and nothing else: `tool_result` already means the
+        // call is over, and closing a call here would lose its duration and could
+        // close the wrong row when the two arrive out of order.
+        case "tool_snippet":
+            guard let snippet = object.string("snippet"), !snippet.isEmpty else { return false }
+            return state.message.fillToolResult(id: toolID(in: object),
+                                                name: object.string("name"),
+                                                result: snippet)
+
         case "tool_complete", "tool_end", "tool_result":
             let name = object.string("name")
             guard name != "clarify" else { return false }
