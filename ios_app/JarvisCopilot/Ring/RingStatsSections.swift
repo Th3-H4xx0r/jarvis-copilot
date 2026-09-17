@@ -117,6 +117,7 @@ struct RingStatsSections: View {
                     RingDonut(slices: stageSlices(night))
                     if let sleep = scores?.sleep, !sleep.points.isEmpty {
                         contributions(sleep)
+                            .padding(.bottom, 4)
                     }
                     Chart {
                         ForEach(stageSegments(night)) { segment in
@@ -351,7 +352,7 @@ struct RingStatsSections: View {
                 RingDonut(slices: shares.map {
                     RingDonut.Slice(label: $0.band.label, value: $0.percent, color: $0.band.color,
                                     detail: $0.minutes > 0 ? "\($0.minutes)m" : "")
-                }, lineWidth: 12, diameter: 84)
+                })
             }
         }
     }

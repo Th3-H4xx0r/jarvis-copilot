@@ -97,9 +97,9 @@ struct RingDeviceView: View {
                         stale: health.isStale(dayKey),
                         ringUnreachable: health.serverSaidStale(dayKey),
                         age: health.age(of: dayKey),
-                        isRefreshing: health.isRefreshing) {
-            askJarvisAboutTheDay()
-        }
+                        isRefreshing: health.isRefreshing,
+                        onAsk: { askJarvisAboutTheDay() },
+                        onRerun: { Task { _ = await health.runNow(date: dayKey) } })
     }
 
     /// Open a chat about this day, with the numbers already in the question so

@@ -15,14 +15,14 @@ struct RingDonut: View {
     }
 
     let slices: [Slice]
-    var lineWidth: CGFloat = 14
-    var diameter: CGFloat = 96
+    var lineWidth: CGFloat = 10
+    var diameter: CGFloat = 64
 
     private var total: Double { slices.reduce(0) { $0 + $1.value } }
 
     var body: some View {
         if total > 0 {
-            HStack(alignment: .center, spacing: 18) {
+            HStack(alignment: .center, spacing: 16) {
                 ZStack {
                     ForEach(Array(offsets.enumerated()), id: \.element.slice.id) { _, item in
                         Circle()
@@ -33,20 +33,26 @@ struct RingDonut: View {
                 }
                 .frame(width: diameter, height: diameter)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 5) {
                     ForEach(slices) { slice in
-                        HStack(spacing: 7) {
-                            Circle().fill(slice.color).frame(width: 7, height: 7)
+                        HStack(spacing: 6) {
+                            Circle().fill(slice.color).frame(width: 6, height: 6)
                             Text(slice.label).font(.caption)
-                            Spacer(minLength: 6)
+                            Spacer(minLength: 4)
                             Text(percent(slice.value)).font(.caption.weight(.semibold)).monospacedDigit()
                             if !slice.detail.isEmpty {
-                                Text(slice.detail).font(.caption2).foregroundStyle(.secondary)
+                                Text(slice.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 46, alignment: .trailing)
                             }
                         }
                     }
                 }
             }
+            // The ring needs air above and below: it sat against the numbers
+            // over it and the stage timeline under it.
+            .padding(.vertical, 10)
         }
     }
 

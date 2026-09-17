@@ -28,7 +28,36 @@ def state_dir() -> Path:
 
 
 def base_url() -> str:
-    return os.environ.get("JC_WEBUI_URL") or "http://127.0.0.1:8765"
+    """Where the local webui listens.
+
+    The default port is 8787, not 8765 — and TLS is detected from the cert on
+    disk rather than an env var, because a call made from the gateway or a cron
+    script does not inherit the webui's own environment. This mirrors
+    `devices.py::_webui_origin`, which is the version known to work.
+    """
+    override = os.environ.get("JC_WEBUI_URL")
+    if override:
+        return override.rstrip("/")
+    host = os.environ.get("HERMES_WEBUI_HOST", "127.0.0.1")
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    port = os.environ.get("HERMES_WEBUI_PORT", "8787")
+    scheme = "https" if _tls_enabled() else "http"
+    return f"{scheme}://{host}:{port}"
+
+
+def _tls_enabled() -> bool:
+    """Whether the webui serves HTTPS, read from the stable on-disk cert.
+
+    `HERMES_WEBUI_TLS_CERT` only exists inside the webui process, so a cron
+    script or a gateway-spawned call has to look at the cert itself — guessing
+    http against an HTTPS socket is reset by TLS (Errno 104).
+    """
+    if os.environ.get("HERMES_WEBUI_TLS_CERT"):
+        return True
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    home = Path(env_home) if env_home else (Path.home() / ".jarviscopilot")
+    return (home / "webui-tls" / "cert.pem").exists()
 
 
 def _key() -> Optional[bytes]:
@@ -60,11 +89,18 @@ def _headers(method: str, path: str, body: bytes) -> dict[str, str]:
 
 def request(method: str, path: str, body: Optional[dict] = None, timeout: float = _DEFAULT_TIMEOUT) -> tuple[int, dict]:
     payload = json.dumps(body or {}).encode() if body is not None else b""
-    req = urllib.request.Request(base_url() + path, data=payload or None, method=method)
+    url = base_url() + path
+    req = urllib.request.Request(url, data=payload or None, method=method)
     for name, value in _headers(method, path, payload).items():
         req.add_header(name, value)
+    context = None
+    if url.startswith("https://"):
+        import ssl
+
+        # The webui's cert is self-signed and this call never leaves loopback.
+        context = ssl._create_unverified_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
             raw = response.read().decode() or "{}"
             return response.status, json.loads(raw)
     except urllib.error.HTTPError as exc:

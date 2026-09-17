@@ -54,10 +54,10 @@ enum HealthMetricChoice: String, AppEnum {
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Health metric"
     static var caseDisplayRepresentations: [HealthMetricChoice: DisplayRepresentation] = [
-        .health: "Health score",
+        .health: "Body battery",
         .sleep: "Sleep",
         .recovery: "Recovery",
-        .body: "Body",
+        .body: "Vitals",
         .activity: "Activity",
     ]
 
@@ -140,7 +140,7 @@ struct HealthWidgetView: View {
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .foregroundStyle(entry.isStale ? .secondary : .primary)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Health").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    Text("Body battery").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                     Text(entry.snapshot?.band ?? "").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -151,7 +151,7 @@ struct HealthWidgetView: View {
             HStack(spacing: 14) {
                 part("Sleep", entry.snapshot?.sleep)
                 part("Recovery", entry.snapshot?.recovery)
-                part("Body", entry.snapshot?.body)
+                part("Vitals", entry.snapshot?.body)
                 part("Activity", entry.snapshot?.activity)
             }
         }
@@ -178,8 +178,8 @@ struct HealthWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
                 .widgetURL(URL(string: "jarviscopilot://devices"))
         }
-        .configurationDisplayName("Ring health")
-        .description("A health number from your ring: the score, sleep, recovery, body or activity.")
+        .configurationDisplayName("Body battery")
+        .description("A number from your ring: body battery, sleep, recovery, vitals or activity.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryInline])
     }
 }

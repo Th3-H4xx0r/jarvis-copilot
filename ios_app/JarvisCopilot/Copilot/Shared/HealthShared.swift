@@ -51,10 +51,10 @@ enum HealthWidgetMetric: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .health: return "Health"
+        case .health: return "Body battery"
         case .sleep: return "Sleep"
         case .recovery: return "Recovery"
-        case .body: return "Body"
+        case .body: return "Vitals"
         case .activity: return "Activity"
         }
     }

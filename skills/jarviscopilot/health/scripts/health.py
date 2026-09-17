@@ -34,8 +34,31 @@ from zoneinfo import ZoneInfo
 # lives under ~/.jarviscopilot/skills, where `jarvis_health` is not importable.
 # The host carve-out is small enough to carry, exactly as devices.py does.
 _STATE = Path(os.environ.get("HERMES_WEBUI_STATE_DIR") or (Path.home() / ".jarviscopilot" / "webui"))
-_BASE = os.environ.get("JC_WEBUI_URL") or "http://127.0.0.1:8765"
 _key_cache: dict = {"key": None}
+
+
+def _cert() -> Path:
+    """The webui's TLS cert, at HERMES_HOME/webui-tls/cert.pem when it serves HTTPS."""
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    home = Path(env_home) if env_home else (Path.home() / ".jarviscopilot")
+    return home / "webui-tls" / "cert.pem"
+
+
+def _origin() -> str:
+    """Where the local webui listens: port 8787, TLS read from the cert on disk.
+
+    A skill run from the gateway or a cron job does not inherit the webui's
+    environment, so the scheme cannot come from HERMES_WEBUI_TLS_CERT alone.
+    """
+    override = os.environ.get("JC_WEBUI_URL")
+    if override:
+        return override.rstrip("/")
+    host = os.environ.get("HERMES_WEBUI_HOST", "127.0.0.1")
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    port = os.environ.get("HERMES_WEBUI_PORT", "8787")
+    tls = bool(os.environ.get("HERMES_WEBUI_TLS_CERT")) or _cert().exists()
+    return f"{'https' if tls else 'http'}://{host}:{port}"
 
 
 def _signing_key():
@@ -50,15 +73,22 @@ def _signing_key():
 def request(method: str, path: str, body: dict | None = None, timeout: float = 45):
     """One loopback call to the webui, signed the way api/auth.py verifies."""
     payload = json.dumps(body or {}).encode() if body is not None else b""
-    req = urllib.request.Request(_BASE + path, data=payload or None, method=method)
+    url = _origin() + path
+    req = urllib.request.Request(url, data=payload or None, method=method)
     req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
     key = _signing_key()
     if key:
         stamp = int(time.time())
         message = f"{method}\n{path}\n{stamp}".encode()
         req.add_header("X-JC-Host-Sig", f"{stamp}.{hmac.new(key, message, hashlib.sha256).hexdigest()}")
+    context = None
+    if url.startswith("https://"):
+        import ssl
+
+        context = ssl._create_unverified_context()   # self-signed, loopback only
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
             return response.status, json.loads(response.read().decode() or "{}")
     except urllib.error.HTTPError as exc:
         try:

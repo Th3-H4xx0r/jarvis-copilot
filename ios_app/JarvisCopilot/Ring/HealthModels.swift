@@ -51,8 +51,11 @@ struct HealthScores: Codable, Equatable {
         case baselineDays = "baseline_days"
     }
 
+    /// The four parts, with the names they carry on screen. The wire keys stay
+    /// `sleep`/`recovery`/`body`/`activity`; "Body" reads as Vitals here because
+    /// the overall score is called Body battery.
     var parts: [(name: String, score: ScorePart)] {
-        [("Sleep", sleep), ("Recovery", recovery), ("Body", body), ("Activity", activity)]
+        [("Sleep", sleep), ("Recovery", recovery), ("Vitals", body), ("Activity", activity)]
     }
 
     /// The contribution that cost the most across every part — the one worth naming.
