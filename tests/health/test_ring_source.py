@@ -113,3 +113,35 @@ def test_identity_names_the_device_and_its_kind():
     assert ident["kind"] == "ring"
     assert ident["device_id"] == "dev-1"
     assert ident["name"] == "R12_7E04"
+
+
+def test_the_bridge_prefers_the_in_process_path_inside_the_webui(monkeypatch):
+    """A loopback call made while handling a request waits on itself.
+
+    Inside the webui the bridge is importable and authoritative, so the call
+    goes straight to it; a run that went out over HTTP instead timed out and
+    reported a ring that had answered perfectly well.
+    """
+    import sys
+    import types
+
+    from jarvis_health import bridge
+
+    calls = []
+    fake = types.ModuleType("api.device_bridge")
+    fake.in_process_available = lambda: True
+    fake.invoke_skill = lambda device_id, skill, args, timeout=30: (
+        calls.append((device_id, skill)) or {"ok": True, "result": {"in_process": True}}
+    )
+    api = types.ModuleType("api")
+    api.device_bridge = fake
+    monkeypatch.setitem(sys.modules, "api", api)
+    monkeypatch.setitem(sys.modules, "api.device_bridge", fake)
+
+    def explode(*a, **k):
+        raise AssertionError("must not go over loopback inside the webui")
+
+    monkeypatch.setattr(bridge, "request", explode)
+
+    assert bridge.invoke("phone-1", "ring_get_status", {}, 10)["result"]["in_process"] is True
+    assert calls == [("phone-1", "ring_get_status")]

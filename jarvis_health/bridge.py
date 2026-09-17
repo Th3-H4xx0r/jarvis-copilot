@@ -11,10 +11,13 @@ import hmac
 import json
 import os
 import time
+import logging
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 45
 _signing_key: dict[str, Optional[bytes]] = {"key": None}
@@ -113,7 +116,22 @@ def request(method: str, path: str, body: Optional[dict] = None, timeout: float 
 
 
 def invoke(device_id: str, skill: str, args: Optional[dict] = None, timeout: float = 30) -> dict[str, Any]:
-    """Run one device skill. The reply is the bridge's own {ok, result|error}."""
+    """Run one device skill. The reply is the bridge's own {ok, result|error}.
+
+    Two paths, as `tools/device_skill_tools.py` documents: when this process IS
+    the webui, call the bridge directly — a loopback request made while handling
+    a request waits on a server that is busy waiting on us, and times out as a
+    device that never answered. Everywhere else (a cron script, the gateway),
+    the host-signed loopback call is the only way in.
+    """
+    try:
+        from api import device_bridge
+
+        if device_bridge.in_process_available():
+            return device_bridge.invoke_skill(device_id, skill, args or {}, timeout=timeout)
+    except Exception as exc:
+        logger.debug("health: in-process bridge unavailable (%s); using loopback", exc)
+
     status, data = request(
         "POST",
         "/api/devices/skills/invoke",
