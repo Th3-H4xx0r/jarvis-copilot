@@ -3572,6 +3572,14 @@ def handle_get(handler, parsed) -> bool:
         if _forms_get(handler, parsed):
             return True
 
+    if parsed.path == "/api/health/devices" or "/health" in parsed.path:
+        # Wearable health: scores, days and settings. Checked before the
+        # Integrations routes, which would read "health" as a space's tail.
+        from api.health_routes import handle_get as _health_get
+
+        if _health_get(handler, parsed):
+            return True
+
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):
         # The Integrations page (web + phone): what exists, what it holds, what it runs.
         from api.integrations_routes import handle_get as _integrations_get
@@ -6289,6 +6297,12 @@ def handle_post(handler, parsed) -> bool:
         from api.integration_setup import handle_post as _setup_post
 
         if _setup_post(handler, parsed, body):
+            return True
+
+    if "/health" in parsed.path:
+        from api.health_routes import handle_post as _health_post
+
+        if _health_post(handler, parsed, body):
             return True
 
     if parsed.path == "/api/integrations" or parsed.path.startswith("/api/integrations/"):

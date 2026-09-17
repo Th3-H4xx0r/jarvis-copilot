@@ -101,55 +101,63 @@ class RingSource:
 
     # ── mapping ─────────────────────────────────────────────────────────────
     def _day_from(self, raw: dict, date: str, tz: str) -> HealthDay:
-        midnight = local_midnight_utc(date, tz)
+        return day_from_ring_json(raw, date, tz)
 
-        def series(payload: Any, default_interval: int) -> Optional[Series]:
-            if not isinstance(payload, dict):
-                return None
-            values = payload.get("values")
-            if not isinstance(values, list) or not values:
-                return None
-            return Series(
-                start=midnight,
-                interval_minutes=int(payload.get("interval_minutes") or default_interval),
-                values=[float(v or 0) for v in values],
-            )
 
-        sessions = []
-        for night in raw.get("sleep") or []:
-            if not isinstance(night, dict):
-                continue
-            stages = [
-                (int(s.get("stage", 0)), int(s.get("minutes", 0)))
-                for s in (night.get("stages") or [])
-                if isinstance(s, dict)
-            ]
-            sessions.append(
-                SleepSession(start=night.get("start", ""), end=night.get("end", ""), stages=stages)
-            )
+def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
+    """The ring skills' day JSON as a HealthDay.
 
-        return HealthDay(
-            date=date,
-            timezone=tz,
-            utc_offset=utc_offset_for(date, tz),
-            sleep=sessions,
-            heart_rate=series(raw.get("heart_rate"), 5),
-            hrv=series(raw.get("hrv"), 30),
-            stress=series(raw.get("stress"), 30),
-            spo2=self._spo2(raw.get("spo2"), midnight),
-            temperature=series(raw.get("temperature"), 60),
-            activity=dict(raw.get("activity") or {}),
-            measurements=list(raw.get("measurements") or []),
-            battery={
-                "percent": raw.get("battery_percent"),
-                "charging": bool(raw.get("charging")),
-            },
-            synced_at=utc_now(),
-            source=self.kind,
+    Module-level because the phone pushes this exact shape straight to the
+    server, and both paths must agree on what it means.
+    """
+    midnight = local_midnight_utc(date, tz)
+
+    def series(payload: Any, default_interval: int) -> Optional[Series]:
+        if not isinstance(payload, dict):
+            return None
+        values = payload.get("values")
+        if not isinstance(values, list) or not values:
+            return None
+        return Series(
+            start=midnight,
+            interval_minutes=int(payload.get("interval_minutes") or default_interval),
+            values=[float(v or 0) for v in values],
         )
 
-    @staticmethod
-    def _spo2(payload: Any, midnight: str) -> Optional[Series]:
+    sessions = []
+    for night in raw.get("sleep") or []:
+        if not isinstance(night, dict):
+            continue
+        stages = [
+            (int(s.get("stage", 0)), int(s.get("minutes", 0)))
+            for s in (night.get("stages") or [])
+            if isinstance(s, dict)
+        ]
+        sessions.append(
+            SleepSession(start=night.get("start", ""), end=night.get("end", ""), stages=stages)
+        )
+
+    return HealthDay(
+        date=date,
+        timezone=tz,
+        utc_offset=utc_offset_for(date, tz),
+        sleep=sessions,
+        heart_rate=series(raw.get("heart_rate"), 5),
+        hrv=series(raw.get("hrv"), 30),
+        stress=series(raw.get("stress"), 30),
+        spo2=_spo2(raw.get("spo2"), midnight),
+        temperature=series(raw.get("temperature"), 60),
+        activity=dict(raw.get("activity") or {}),
+        measurements=list(raw.get("measurements") or []),
+        battery={
+            "percent": raw.get("battery_percent"),
+            "charging": bool(raw.get("charging")),
+        },
+        synced_at=utc_now(),
+        source="ring",
+    )
+
+def _spo2(payload: Any, midnight: str) -> Optional[Series]:
         """The ring reports SpO₂ as hourly min/max; a score wants one number."""
         if not isinstance(payload, dict):
             return None
