@@ -35,11 +35,11 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                // Which day, then what you can do, then the day's data: the
-                // picker decides what every card below it is showing, so it
-                // belongs above them rather than buried among them.
-                dayPicker
+                // What you can do, then which day you are looking at, then that
+                // day's data: the picker governs every card below it, so it
+                // sits directly above them rather than buried among them.
                 actions
+                dayPicker
                 if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
                     Text(actionError)
