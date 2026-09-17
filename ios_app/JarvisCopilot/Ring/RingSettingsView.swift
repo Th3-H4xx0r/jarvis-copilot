@@ -190,15 +190,11 @@ struct RingSettingsView: View {
             if caps.anyTemperature {
                 RowDivider()
                 Row {
+                    // On this firmware temperature is a plain on/off: its setting command stores
+                    // one flag and ignores an interval, so offering one only ever showed "—".
                     Toggle("Temperature", isOn: Binding(
                         get: { s.temperature?.enabled ?? false },
                         set: { on in apply { try await session.setTemperatureMonitoring(enabled: on, intervalMinutes: nil) } }))
-                }
-                RowDivider()
-                Row {
-                    intervalPicker("Temperature interval", options: [10, 30, 60, 120], current: s.temperature?.intervalMinutes) { minutes in
-                        apply { try await session.setTemperatureMonitoring(enabled: s.temperature?.enabled ?? true, intervalMinutes: minutes) }
-                    }
                 }
             }
         }

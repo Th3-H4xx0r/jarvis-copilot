@@ -152,6 +152,8 @@ enum RingOp {
     static let findRing: UInt8 = 0x50
     static let measure: UInt8 = 0x69
     static let stopMeasure: UInt8 = 0x6A
+    /// The `0x69` measurement type real-time mode runs under, on the request and on its replies.
+    static let realtimeHeartRateType: UInt8 = 6
     static let ecgData: UInt8 = 0x6D
     /// Raw optical-sensor samples, pushed while a reading runs. The ring has no
     /// accelerometer or gyroscope stream — motion only reaches the phone as steps and sleep.

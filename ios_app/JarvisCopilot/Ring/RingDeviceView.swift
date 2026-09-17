@@ -61,17 +61,10 @@ struct RingDeviceView: View {
             manager.screenIsOpen = true
             if manager.connected?.id != ring.id || !manager.linkIsUp { manager.connect(ring) }
         }
-        // The wear status is only live while the ring's optical sensor is running, so it runs
-        // while this screen is up and stops the moment it isn't.
-        .task(id: ready) {
-            guard ready else { return }
-            await session.startWearWatch()
-        }
         .onDisappear {
             // Settings is a push from here and comes straight back, so keep the sensor running
             // across it rather than stopping and restarting.
             guard !showingSettings else { return }
-            Task { await session.stopWearWatch() }
             manager.screenIsOpen = false
             manager.releaseIfIdle()
         }
@@ -121,34 +114,10 @@ struct RingDeviceView: View {
                 Text("· synced \(last, style: .relative) ago")
             }
             Spacer()
-            wearStatus
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 24)
-    }
-
-    /// On a finger, off it, or on the charger — live while this screen is open.
-    ///
-    /// The ring has no flag to poll: it will only say whether it is being worn while its optical
-    /// sensor is running, so the screen turns on the ring's real-time heart-rate mode and turns
-    /// it off again on the way out.
-    @ViewBuilder private var wearStatus: some View {
-        let state = session.wearState
-        HStack(spacing: 5) {
-            JcIcon(icon(for: state))
-            Text(state.label)
-        }
-        .foregroundStyle(state == .unknown ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-    }
-
-    private func icon(for state: RingWearState) -> String {
-        switch state {
-        case .onFinger: return "hand.point.up.left.fill"
-        case .offFinger: return "hand.point.up.left"
-        case .charging: return "bolt.fill"
-        case .unknown: return "questionmark.circle"
-        }
     }
 
     // MARK: Actions

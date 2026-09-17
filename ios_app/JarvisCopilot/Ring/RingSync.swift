@@ -308,24 +308,36 @@ final class RingSync: ObservableObject {
 
     private func syncHeartRate(_ store: RingHistoryStore, days: Int, now: Date) async throws {
         for daysAgo in 0...days where needsHistory(store, daysAgo: daysAgo, now: now) {
-            let series: RingSeries?
+            var series: RingSeries?
             if session.probe.works(.heartRateSeries) ?? session.capabilities.realTimeHeartRate {
                 series = try await intervalSeries(RingRequest.bigIntervalHeartRate(dayOffset:packet:),
                                                   dayOffset: daysAgo, wide: false)
-            } else {
-                // The legacy request carries the day's midnight in local seconds.
-                let midnight = RingDates.midnight(daysAgo: daysAgo, now: now, calendar: calendar)
-                let local = midnight.timeIntervalSince1970 + TimeInterval(calendar.timeZone.secondsFromGMT(for: midnight))
-                var count = 0
-                let frames = try await session.transport.perform(
-                    .heartRateHistory(timestamp: UInt32(clamping: Int64(local))),
-                    until: .packets { RingDecode.isDaySeriesLast($0.payload, count: &count) })
-                series = RingDecode.heartRateHistory(frames.map(\.payload))
             }
-            if let series, series.values.contains(where: { $0 > 0 }) {
+            // This firmware answers the large-data series with an empty packet and keeps the
+            // day's real readings on 0x15 — so an empty answer is not an answer, and the ring
+            // looked like it had recorded no heart rate for days.
+            if !hasReadings(series) {
+                series = try? await legacyHeartRate(daysAgo: daysAgo, now: now)
+            }
+            if let series, hasReadings(series) {
                 store.update(dayKey(daysAgo, now)) { $0.heartRate = series }
             }
         }
+    }
+
+    private func hasReadings(_ series: RingSeries?) -> Bool {
+        series?.values.contains { $0 > 0 } ?? false
+    }
+
+    /// The day's 5-minute heart-rate array. The request carries midnight in local seconds.
+    private func legacyHeartRate(daysAgo: Int, now: Date) async throws -> RingSeries? {
+        let midnight = RingDates.midnight(daysAgo: daysAgo, now: now, calendar: calendar)
+        let local = midnight.timeIntervalSince1970 + TimeInterval(calendar.timeZone.secondsFromGMT(for: midnight))
+        var count = 0
+        let frames = try await session.transport.perform(
+            .heartRateHistory(timestamp: UInt32(clamping: Int64(local))),
+            until: .packets { RingDecode.isDaySeriesLast($0.payload, count: &count) })
+        return RingDecode.heartRateHistory(frames.map(\.payload))
     }
 
     private func syncDaySeries(_ store: RingHistoryStore, hrv: Bool, days: Int, now: Date) async throws {

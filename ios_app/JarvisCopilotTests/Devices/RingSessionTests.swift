@@ -217,61 +217,60 @@ final class RingSessionTests: XCTestCase {
         XCTAssertTrue(restored.capabilities.stress)
     }
 
-    // MARK: Wear watch
+    // MARK: Real-time mode
 
     /// The action byte of every real-time heart-rate command written: 1 start, 4 stop.
     private func realtimeActions() -> [UInt8] {
         link.payloads(0x69).filter { $0.first == 6 }.map { $0[1] }
     }
 
-    /// The ring's firmware keeps real-time mode running across a disconnect, so a stop that
-    /// never reached it has to go out on the next link, or the sensor runs until the battery dies.
-    func testAWearWatchStopTheRingNeverGotIsSentOnTheNextLink() async {
-        await session.startWearWatch()
-        link.isLinkReady = false
-        await session.stopWearWatch()
-        XCTAssertEqual(realtimeActions(), [1], "no link, so nothing could be written")
-
+    /// Nothing in the app starts real-time mode any more, but a ring left streaming by an
+    /// older build is still running: setup owes it a stop, and pays it on the next link.
+    func testARealtimeSessionLeftRunningIsStoppedOnTheNextLink() async {
+        session.noteRealtimeOwed()
         link.isLinkReady = true
+
         await session.runSetup()
 
-        XCTAssertEqual(realtimeActions(), [1, 4])
+        XCTAssertEqual(realtimeActions(), [4])
     }
 
-    func testAStopTheRingAnsweredIsNotSentAgain() async {
-        await session.startWearWatch()
-        link.script(0x69, [RingProtocol.frame(0x69, [6, 0, 0])])
-        await session.stopWearWatch()
-
+    func testSetupSendsNoStopWhenNothingIsOwed() async {
         await session.runSetup()
 
-        XCTAssertEqual(realtimeActions(), [1, 4])
+        XCTAssertEqual(realtimeActions(), [])
     }
 
     func testAnOwedStopSurvivesTheAppBeingKilled() async {
-        await session.startWearWatch()
+        session.noteRealtimeOwed()
 
         let relaunched = RingSession(transport: makeRingTransport(link), defaults: defaults)
         await relaunched.runSetup()
 
-        XCTAssertEqual(realtimeActions(), [1, 4])
+        XCTAssertEqual(realtimeActions(), [4])
     }
 
-    func testSetupLeavesAWatchThatIsStillWantedRunning() async {
-        await session.startWearWatch()
+    func testARealtimeReadingIsNotTakenForAOneShotMeasurement() async throws {
+        try await session.startMeasurement(.heartRate)
 
-        await session.runSetup()
+        link.deliver(RingProtocol.frame(0x69, [6, 0, 78]))
 
-        XCTAssertEqual(realtimeActions(), [1])
-        XCTAssertTrue(session.wearWatching)
+        XCTAssertEqual(session.measurement?.phase, .measuring)
+        XCTAssertNil(session.measurement?.value)
     }
 
-    func testNoWatchStartsWhileTheAppIsInTheBackground() async {
-        session.wearWatchAllowed = false
+    func testARealtimeReadingStillUpdatesTheLiveHeartRate() {
+        link.deliver(RingProtocol.frame(0x69, [6, 0, 78]))
 
-        await session.startWearWatch()
+        XCTAssertEqual(session.liveHeartRate?.value, 78)
+    }
 
-        XCTAssertEqual(realtimeActions(), [])
-        XCTAssertFalse(session.wearWatching)
+    func testARealtimeReadingDoesNotFinishAOneShotMeasurement() async throws {
+        try await session.startMeasurement(.heartRate)
+
+        link.deliver(RingProtocol.frame(0x69, [6, 0, 78]))
+
+        XCTAssertEqual(session.measurement?.phase, .measuring)
+        XCTAssertNil(session.measurement?.value)
     }
 }

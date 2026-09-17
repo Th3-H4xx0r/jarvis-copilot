@@ -52,6 +52,16 @@ enum RingChartScrub {
     }
 
     /// "2:15 PM" for a minute of the day.
+    /// A chart hour as the phone's own clock: "6 PM" here, "18" where the locale is 24-hour.
+    static func hourLabel(_ hour: Double, locale: Locale = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("j")
+        let clamped = min(23, max(0, Int(hour.rounded()) % 24))
+        let date = Calendar.current.startOfDay(for: Date()).addingTimeInterval(TimeInterval(clamped * 3600))
+        return formatter.string(from: date)
+    }
+
     static func clock(minute: Int) -> String {
         Calendar.current.startOfDay(for: Date())
             .addingTimeInterval(TimeInterval(minute * 60))

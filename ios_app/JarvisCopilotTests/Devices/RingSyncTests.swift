@@ -59,6 +59,27 @@ final class RingSyncTests: XCTestCase {
         XCTAssertNil(sync.lastFullSync)
     }
 
+    /// This firmware answers the large-data heart-rate series with an empty packet and keeps its
+    /// real history on 0x15, so an empty answer has to fall through to the legacy request.
+    func testAnEmptyIntervalSeriesFallsBackToTheLegacyHeartRateHistory() async throws {
+        let a = [UInt8](repeating: 0, count: 14)
+        var b = [UInt8](repeating: 0, count: 14)
+        b[7] = 0b1000
+        session.setCapabilities(RingCapabilities(blockA: a, blockB: b))
+        link.script(0x75, on: .bigData, [RingProtocol.bigDataFrame(0x75, [0])])
+        link.script(0x15, [RingProtocol.frame(0x15, [0, 2, 5]),
+                           RingProtocol.frame(0x15, [1, 0x80, 0x2D, 0xAB, 0x6A, 70, 72])])
+
+        _ = await sync.sync(days: 0)
+
+        // The ring pads its last packet, and a zero means "no reading", so the
+        // readings are what matter rather than the packet's length.
+        let day = store.day("2026-09-11")
+        XCTAssertEqual(day.heartRate?.values.prefix(2).map { $0 }, [70, 72])
+        XCTAssertTrue(day.heartRate?.values.dropFirst(2).allSatisfy { $0 == 0 } ?? false)
+        XCTAssertEqual(day.heartRate?.intervalMinutes, 5)
+    }
+
     func testGatedMetricsAreSkippedAndAFailureDoesNotStopTheRest() async throws {
         var a = [UInt8](repeating: 0, count: 14)
         a[13] = 0b10_0000

@@ -362,24 +362,7 @@ final class RingManager: NSObject, ObservableObject {
     func enterBackground() {
         isBackgrounded = true
         stopScan()
-        // A ring screen left open does not disappear when the app goes to the background, so its
-        // wear watch would run on. Nobody can see the status from here, and the ring keeps
-        // real-time mode going until it is told to stop, link or no link: stop it first, then
-        // let the link go.
-        session.wearWatchAllowed = false
-        guard session.wearWatching else {
-            releaseLinkForBackground()
-            return
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            if await self.session.stopWearWatch() {
-                // The answer can be a reading that was already on its way; give the stop time to
-                // go out before the link does.
-                try? await Task.sleep(for: .seconds(1))
-            }
-            if self.isBackgrounded { self.releaseLinkForBackground() }
-        }
+        releaseLinkForBackground()
     }
 
     /// Gestures need the link in the background — that is the whole point of them. Bridge
@@ -395,7 +378,6 @@ final class RingManager: NSObject, ObservableObject {
 
     func enterForeground() {
         isBackgrounded = false
-        session.wearWatchAllowed = true
         session.noteAppBecameActive()
         if let ring = wasConnectedBeforeBackground {
             wasConnectedBeforeBackground = nil
@@ -404,7 +386,6 @@ final class RingManager: NSObject, ObservableObject {
             if keepAliveEnabled || screenIsOpen { connect(ring) }
         } else if state == .ready {
             sync.syncIfStale()
-            if screenIsOpen { Task { await session.startWearWatch() } }
         }
     }
 }

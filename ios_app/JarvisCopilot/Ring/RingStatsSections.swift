@@ -292,7 +292,7 @@ struct RingStatsSections: View {
     private var hourAxis: some AxisContent {
         AxisMarks(values: [0.0, 6, 12, 18, 24]) { value in
             AxisGridLine()
-            AxisValueLabel { Text("\(Int(value.as(Double.self) ?? 0))h") }
+            AxisValueLabel { Text(RingChartScrub.hourLabel(value.as(Double.self) ?? 0)) }
         }
     }
 

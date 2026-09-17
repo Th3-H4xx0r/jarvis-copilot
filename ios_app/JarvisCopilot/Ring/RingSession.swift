@@ -48,24 +48,6 @@ struct RingCalibrationState: Equatable {
     var results: [Int: Int] = [:]
 }
 
-/// Whether the ring is on a finger, as far as anything it has actually told us goes.
-///
-/// The ring has no "worn" flag to read — the protocol only ever says so in passing, so this is
-/// inferred from what does arrive: a measurement that comes back `not worn`, a real reading
-/// (nothing reads a pulse off a bedside table), or the battery reporting the charger.
-enum RingWearState: String, Codable, Equatable {
-    case unknown, onFinger, offFinger, charging
-
-    var label: String {
-        switch self {
-        case .unknown: return "Not known"
-        case .onFinger: return "On finger"
-        case .offFinger: return "Off finger"
-        case .charging: return "On charger"
-        }
-    }
-}
-
 /// A value the ring pushed on its own, stamped when it arrived.
 struct RingLiveReading: Codable, Equatable {
     var value: Double
@@ -96,14 +78,6 @@ final class RingSession: ObservableObject {
     @Published private(set) var accelerometerSupported: Bool?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
-    /// On a finger, off it, or on the charger.
-    @Published private(set) var wearState: RingWearState = .unknown
-    @Published private(set) var wearStateAt: Date?
-    /// True while the ring's real-time heart-rate mode is running to keep the status live.
-    @Published private(set) var wearWatching = false
-    /// False while the app is in the background, where nobody can see the status.
-    var wearWatchAllowed = true
-    private var wearWatchTimeout: Task<Void, Never>?
     /// The last tap or swipe, whichever channel it arrived on.
     @Published private(set) var lastInput: RingInputEvent?
     /// What the ring's taps and swipes are currently set to drive, as read back from the ring.
@@ -188,10 +162,10 @@ final class RingSession: ObservableObject {
         if let reply = try? await transport.perform(.deviceSupport, until: .single).first {
             capabilities.blockB = reply.payload
         }
-        if realtimeStopOwed, !wearWatching {
+        if realtimeStopOwed {
             let answered = await sendRealtimeStop()
-            log.note("Ring wear watch", answered ? "stopped real-time mode left running on an earlier link"
-                                                 : "stop still owed; the ring did not answer")
+            log.note("Ring sensor", answered ? "stopped real-time mode left running on an earlier link"
+                                             : "stop still owed; the ring did not answer")
         }
         await refreshBattery()
         await refreshSettings()
@@ -539,10 +513,18 @@ final class RingSession: ObservableObject {
         }
     }
 
+    /// A reading from real-time mode. Nothing in the app asks for these now, but a ring left
+    /// streaming by an older build still sends them, and a real pulse is worth keeping.
+    private func handleRealtime(_ reading: RingMeasurementReading) {
+        guard reading.errorCode == 0, reading.value > 0 else { return }
+        let live = RingLiveReading(value: Double(reading.value), date: Date())
+        liveHeartRate = live
+        onLiveReading?(.heartRate, live)
+    }
+
     private func handleMeasurement(_ reading: RingMeasurementReading) {
         guard var running = measurement, running.isActive, reading.type == running.type.rawValue else { return }
         if reading.errorCode == 1 {
-            noteWear(.offFinger)
             finishMeasurement(.notWorn, detail: "the ring is not being worn")
             return
         }
@@ -552,8 +534,6 @@ final class RingSession: ObservableObject {
         }
         let hasValue = running.type == .bloodPressure ? reading.systolic > 0 : reading.value > 0
         guard hasValue else { return }
-        // Nothing reads a pulse off a bedside table.
-        noteWear(.onFinger)
         running.value = reading.value
         if reading.systolic > 0 { running.systolic = reading.systolic }
         if reading.diastolic > 0 { running.diastolic = reading.diastolic }
@@ -624,7 +604,15 @@ final class RingSession: ObservableObject {
         case RingOp.deviceEvent:
             handle(RingDecode.deviceEvent(inbound.payload))
         case RingOp.measure:
-            if let reading = RingDecode.measurement(inbound.payload) { handleMeasurement(reading) }
+            guard let reading = RingDecode.measurement(inbound.payload) else { return }
+            // Real-time mode answers on the same opcode, but it is not a one-shot measurement:
+            // nothing is waiting on these, and dropping them left the wear status and the live
+            // heart rate empty while the ring was pushing a reading a second.
+            if reading.type == RingOp.realtimeHeartRateType {
+                handleRealtime(reading)
+            } else {
+                handleMeasurement(reading)
+            }
         case RingOp.calibration:
             // Subtype 3 of the 0xA1 telemetry burst is the newest accelerometer sample.
             if let a = RingDecode.accelFromTelemetry(inbound.payload) {
@@ -649,7 +637,6 @@ final class RingSession: ObservableObject {
             }
         case RingOp.ppgData:
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
-            if inbound.payload.contains(where: { $0 > 0 }) { noteWear(.onFinger) }
         case RingOp.musicCommand:
             // In the ring's music mode every tap and swipe arrives as one of these.
             if let input = RingInput(musicAction: Int(inbound.payload.first ?? 0)) { noteInput(input) }
@@ -777,68 +764,25 @@ final class RingSession: ObservableObject {
         gap.map { String(format: "%.1fs after the last", $0) } ?? "first"
     }
 
-    private func noteWear(_ state: RingWearState) {
-        // Charging outranks everything: the ring is demonstrably not on a finger.
-        if wearState == .charging, state == .onFinger, battery?.charging == true { return }
-        wearStateAt = state == .unknown ? nil : Date()
-        guard state != wearState else { return }
-        wearState = state
-    }
-
-    // MARK: Wear watch
-
-    /// Keeps the wear status live by running the ring's real-time heart-rate mode.
-    ///
-    /// There is no flag on the ring to poll: it will only say whether it is being worn while its
-    /// optical sensor is actually running. Real-time mode pushes a reading every couple of
-    /// seconds — a number when it can see a finger, a zero when it cannot — so the status is
-    /// live for as long as this is on. It costs the sensor, so it runs only while a screen is
-    /// showing the status and is stopped the moment that screen goes away.
-    func startWearWatch() async {
-        guard wearWatchAllowed, !wearWatching, transport.link?.isLinkReady == true else { return }
-        // A one-shot measurement owns the sensor; don't fight it for the hardware.
-        guard measurement?.isActive != true else { return }
-        if battery?.charging == true { noteWear(.charging); return }
-        wearWatching = true
-        realtimeStopOwed = true
-        _ = try? await transport.perform(.realtimeHeartRate(true), until: .none)
-        log.note("Ring wear watch", "real-time heart rate on")
-        // Nothing at all coming back is itself an answer, but only after a fair wait.
-        wearWatchTimeout?.cancel()
-        wearWatchTimeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(14))
-            guard !Task.isCancelled, let self, self.wearWatching else { return }
-            if self.wearState == .unknown { self.noteWear(.offFinger) }
-        }
-    }
-
-    /// Returns whether a stop was sent, i.e. whether the watch was running.
-    @discardableResult
-    func stopWearWatch() async -> Bool {
-        wearWatchTimeout?.cancel()
-        wearWatchTimeout = nil
-        guard wearWatching else { return false }
-        wearWatching = false
-        let answered = await sendRealtimeStop()
-        log.note("Ring wear watch", answered ? "off" : "off; the ring did not answer, so it is stopped on the next link")
-        return true
-    }
-
-    /// The ring's firmware keeps real-time mode, and its optical sensor, running until it is told
-    /// to stop. A dropped link does not stop it: a phone that let go mid-watch left the sensor
-    /// on all night. So a stop the ring never answered is owed, kept across launches, and sent
-    /// on the next link.
+    /// The ring's firmware keeps real-time heart-rate mode — and its optical sensor —
+    /// running until it is told to stop; a dropped link does not stop it. Nothing in the app
+    /// starts that mode any more, but a build that did may have left the ring streaming, so a
+    /// stop is owed until one is acknowledged, and the debt survives a relaunch.
     private var realtimeStopOwed: Bool {
         get { defaults.bool(forKey: "jc.ring.realtimeStopOwed") }
         set { defaults.set(newValue, forKey: "jc.ring.realtimeStopOwed") }
     }
 
-    /// Stops real-time mode and waits for the ring's answer, so a caller about to drop the link
-    /// knows the sensor is off first.
+    /// Records that the ring may be streaming — used by the tests, and by any future
+    /// caller that turns real-time mode on.
+    func noteRealtimeOwed() {
+        realtimeStopOwed = true
+    }
+
+    /// Stops real-time mode and waits for the ring's answer.
     private func sendRealtimeStop() async -> Bool {
         let answered = (try? await transport.perform(.realtimeHeartRate(false), until: .single)) != nil
-        // A watch started while this was in flight needs a stop of its own.
-        realtimeStopOwed = wearWatching || !answered
+        realtimeStopOwed = !answered
         return answered
     }
 
@@ -853,8 +797,6 @@ final class RingSession: ObservableObject {
             onDataUpdated?(metric)
         case .battery(let value):
             battery = value
-            // Coming off the charger says nothing about where it went, so it goes back to unknown.
-            if value.charging { noteWear(.charging) } else if wearState == .charging { noteWear(.unknown) }
             if value.charging, calibration?.phase == .running {
                 calibration?.phase = .failed("charging — calibration needs the ring off the charger")
             }
@@ -878,20 +820,12 @@ final class RingSession: ObservableObject {
         case .press(let input):
             noteInput(input)
         case .instantHeartRate(let bpm):
-            // In real-time mode the ring pushes a zero when it cannot see a finger, which is
-            // the only live wear signal it has. Outside that mode a zero says nothing.
-            if bpm > 0 {
-                noteWear(.onFinger)
-            } else if wearWatching {
-                noteWear(.offFinger)
-            }
             guard bpm > 0 else { return }
             let reading = RingLiveReading(value: Double(bpm), date: Date())
             liveHeartRate = reading
             onLiveReading?(.heartRate, reading)
         case .instantSpO2(let percent):
             guard percent > 0 else { return }
-            noteWear(.onFinger)
             let reading = RingLiveReading(value: Double(percent), date: Date())
             liveSpO2 = reading
             onLiveReading?(.spo2, reading)

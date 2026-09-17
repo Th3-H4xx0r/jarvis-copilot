@@ -14,6 +14,23 @@ final class RingChartScrubTests: XCTestCase {
         XCTAssertEqual(RingChartScrub.nearest(readings, hour: 10.1, toleranceMinutes: 15)?.value, 60) // 10:06 → 10:00
     }
 
+    /// Chart hours read as the clock on the phone, not as "18h".
+    ///
+    /// iOS puts a narrow no-break space before AM/PM, so the comparison normalises
+    /// spacing rather than pinning the exact character Apple chose.
+    func testHourLabelsUseThePhonesOwnClock() {
+        func label(_ hour: Double, _ identifier: String) -> String {
+            RingChartScrub.hourLabel(hour, locale: Locale(identifier: identifier))
+                .replacingOccurrences(of: "\u{202F}", with: " ")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+        }
+
+        XCTAssertEqual(label(0, "en_US"), "12 AM")
+        XCTAssertEqual(label(18, "en_US"), "6 PM")
+        XCTAssertEqual(label(24, "en_US"), "12 AM")
+        XCTAssertEqual(label(18, "en_GB"), "18")
+    }
+
     func testAGapShowsNoReadingRatherThanOneFromHoursAway() {
         let readings = [RingTimedValue(minute: 600, value: 60)]
         XCTAssertNil(RingChartScrub.nearest(readings, hour: 14, toleranceMinutes: 15))
