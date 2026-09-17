@@ -12,14 +12,15 @@ from typing import Callable, Optional
 
 from .metrics import Baseline, HealthDay
 
-PROMPT_RULES = """You write two or three plain sentences about someone's day of wearable data.
+PROMPT_RULES = """You write at most two short sentences about someone's day of wearable data.
 
 Rules:
 - Use only the numbers given to you. Do not invent, estimate or recompute any figure.
-- Cite the two or three figures that most explain the scores, with their units.
+- Cite the one or two figures that most explain the scores, with their units.
 - Say what stood out and what held the score down. No advice, no diagnosis, no
   medical claims, no suggestions to see a doctor.
-- No greeting, no sign-off, no lists, no markdown. Plain sentences.
+- No greeting, no sign-off, no lists, no markdown. Two sentences at most, and
+  keep the whole thing under 200 characters — it sits on a phone card.
 """
 
 
@@ -108,7 +109,7 @@ def write_analysis(
 
     kwargs = {
         "messages": build_prompt(day, scores, baseline),
-        "max_tokens": 220,
+        "max_tokens": 110,
         "temperature": 0.3,
     }
     if (settings or {}).get("model"):

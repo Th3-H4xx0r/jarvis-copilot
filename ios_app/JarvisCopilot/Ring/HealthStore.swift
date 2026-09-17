@@ -50,6 +50,9 @@ final class HealthStore: ObservableObject {
         fetchedAt[date].map { Date().timeIntervalSince($0) }
     }
 
+    /// When this day's scores were last read from the server.
+    func lastRefreshed(for date: String) -> Date? { fetchedAt[date] }
+
     /// Fetch a day's scores. On failure the cache stands and the error is kept
     /// for the card to mention, rather than thrown away or thrown at the user.
     func refresh(date: String) async {

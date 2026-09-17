@@ -94,28 +94,9 @@ struct RingDeviceView: View {
 
     private var healthCard: some View {
         HealthScoreCard(scores: health.scores(for: dayKey),
-                        stale: health.isStale(dayKey),
-                        ringUnreachable: health.serverSaidStale(dayKey),
-                        age: health.age(of: dayKey),
+                        lastRefreshed: health.lastRefreshed(for: dayKey),
                         isRefreshing: health.isRefreshing,
-                        onAsk: { askJarvisAboutTheDay() },
-                        onRerun: { Task { _ = await health.runNow(date: dayKey) } })
-    }
-
-    /// Open a chat about this day, with the numbers already in the question so
-    /// the model is reading the same figures the card is showing.
-    private func askJarvisAboutTheDay() {
-        guard let scores = health.scores(for: dayKey) else { return }
-        var lines = ["About my ring data for \(scores.date):"]
-        if let value = scores.health.value { lines.append("health \(value) (\(scores.health.band))") }
-        for part in scores.parts where part.score.value != nil {
-            lines.append("\(part.name.lowercased()) \(part.score.value!)")
-        }
-        if let worst = scores.biggestLoss {
-            lines.append("biggest loss: \(worst.name) — \(worst.detail)")
-        }
-        lines.append("What stands out, and what should I watch?")
-        ChatLaunchBus.shared.request(lines.joined(separator: "\n"))
+                        onRefresh: { Task { _ = await health.runNow(date: dayKey) } })
     }
 
     // MARK: Hero
