@@ -37,9 +37,12 @@ class Score:
     missing: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
+        # Band from the *published* number: "85 · Good" would be a contradiction
+        # on the card, and the table says 85 is Excellent.
+        shown = None if self.value is None else round(self.value)
         return {
-            "value": None if self.value is None else round(self.value),
-            "band": band(self.value),
+            "value": shown,
+            "band": band(shown),
             "points": [
                 {"name": c.name, "earned": round(c.earned, 1), "possible": c.possible, "detail": c.detail}
                 for c in self.points
@@ -165,11 +168,16 @@ def recovery_score(day: HealthDay, baseline: Baseline) -> Score:
             )
         )
 
+    # Sleep is context here, not evidence: it already carries its own weight in
+    # the health score, so on its own it cannot stand in for recovery.
+    if not points:
+        return Score(None, [], ["hrv", "resting_hr"])
+
     sleep = sleep_score(day, baseline)
     if sleep.value is not None:
         points.append(Contribution("Sleep", sleep.value / 100 * 20, 20, f"sleep score {round(sleep.value)}"))
 
-    return _score(points) if points else Score(None, [], ["recovery"])
+    return _score(points)
 
 
 def body_score(day: HealthDay, baseline: Baseline) -> Score:
@@ -223,16 +231,25 @@ def health_score(parts: dict[str, Score]) -> Score:
 
 
 def stress_band_shares(values: list[float]) -> dict[str, float]:
-    """Percentage of the day's stress samples in each band."""
+    """Percentage of the day's stress readings in each band.
+
+    The ring's samples are raw bytes, so a garbled one can land outside 0–100
+    and a real one can be fractional. Anything off the scale is not a reading
+    and leaves the denominator, which keeps the four shares summing to 100.
+    """
     shares = {name: 0.0 for name, _, _ in STRESS_BANDS}
-    if not values:
-        return shares
+    counted = 0
     for value in values:
+        if value is None or value < 0 or value > 100:
+            continue
+        counted += 1
         for name, low, high in STRESS_BANDS:
-            if low <= value <= high:
+            if low <= value < high + 1:
                 shares[name] += 1
                 break
-    return {name: count / len(values) * 100 for name, count in shares.items()}
+    if not counted:
+        return shares
+    return {name: count / counted * 100 for name, count in shares.items()}
 
 
 def _mean(values: list[float]) -> Optional[float]:

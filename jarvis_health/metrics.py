@@ -149,6 +149,11 @@ class Baseline:
     sleep_minutes: Optional[float] = None
     temperature: Optional[float] = None
     days_used: int = 0
+    #: Days that actually produced each value. A stored day is not a measured
+    #: one — backfilled days carry steps and nothing else — so readiness counts
+    #: the metric, not the file.
+    hrv_days: int = 0
+    resting_hr_days: int = 0
     window: int = 14
 
     #: Below this many days a baseline-relative score would be noise.
@@ -156,7 +161,8 @@ class Baseline:
 
     @property
     def is_ready(self) -> bool:
-        return self.days_used >= self.READY_DAYS
+        """Whether anything here is worth comparing a day against."""
+        return max(self.hrv_days, self.resting_hr_days) >= self.READY_DAYS
 
 
 def to_json(day: HealthDay) -> dict:

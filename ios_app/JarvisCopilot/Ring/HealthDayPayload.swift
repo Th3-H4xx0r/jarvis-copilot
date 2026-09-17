@@ -30,15 +30,20 @@ enum HealthDayPayload {
         if let hrv = day.hrv { out["hrv"] = wire(hrv) }
         if let stress = day.stress { out["stress"] = wire(stress) }
         if let temperature = day.temperature { out["temperature"] = wire(temperature) }
+        // Hourly lows and highs both travel: the score wants the day's real
+        // minimum, and an average of the two would hide an 86% dip behind a 98%
+        // high in the same hour.
         if let spo2 = day.spo2 { out["spo2"] = ["min": spo2.min, "max": spo2.max] }
 
+        // Only today carries `activity` totals; earlier days keep their steps in
+        // the 15-minute slots, which is why the summary falls back to them and
+        // why this must too — otherwise every past day scores as "no activity".
+        let summary = day.summary
         var activity: [String: Any] = [:]
-        if let totals = day.activity {
-            activity["steps"] = totals.steps
-            activity["active_minutes"] = totals.sportMinutes
-            activity["kilocalories"] = Double(totals.calories) / 1000
-            activity["distance_meters"] = totals.distanceMeters
-        }
+        if let steps = summary.steps { activity["steps"] = steps }
+        if let minutes = summary.activeMinutes { activity["active_minutes"] = minutes }
+        if let kcal = summary.kilocalories { activity["kilocalories"] = kcal }
+        if let metres = summary.distanceMeters { activity["distance_meters"] = metres }
         if !activity.isEmpty { out["activity"] = activity }
 
         if !day.measurements.isEmpty {
@@ -50,6 +55,13 @@ enum HealthDayPayload {
             }
         }
         if let synced = day.syncedAt { out["synced_at"] = iso(synced) }
+        // Whether this day holds anything at all. The store synthesises an empty
+        // day for a date it has never seen, and the server must not overwrite a
+        // good copy of that date with this hollow one.
+        out["has_data"] = day.syncedAt != nil
+            && (!day.sleep.isEmpty || day.heartRate != nil || day.hrv != nil || day.stress != nil
+                || day.spo2 != nil || day.temperature != nil || !activity.isEmpty
+                || !day.measurements.isEmpty)
         return out
     }
 

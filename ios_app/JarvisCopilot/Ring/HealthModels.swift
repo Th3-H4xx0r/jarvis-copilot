@@ -130,6 +130,14 @@ struct HealthDevice: Codable, Equatable {
     }
 }
 
+/// Which wearables report enough to be worth scoring.
+///
+/// Mirrors `ELIGIBLE_KINDS` in `jarvis_health/sources/__init__.py`: a device kind
+/// only belongs here once an adapter on the server can read a day out of it.
+enum HealthEligibility {
+    static let kinds: Set<String> = [WearableKeepAlive.ring]
+}
+
 /// The registry space a wearable's health integration lives in.
 ///
 /// The server derives the same id from the same device id — `space_id_for` in

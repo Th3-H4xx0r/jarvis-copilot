@@ -42,6 +42,10 @@ final class HealthStore: ObservableObject {
         return Date().timeIntervalSince(at) > Self.freshFor
     }
 
+    /// The server itself scored older data, as opposed to our copy being old.
+    /// The two read differently on the card: one blames the ring, one does not.
+    func serverSaidStale(_ date: String) -> Bool { scores[date]?.stale == true }
+
     func age(of date: String) -> TimeInterval? {
         fetchedAt[date].map { Date().timeIntervalSince($0) }
     }
@@ -57,7 +61,9 @@ final class HealthStore: ObservableObject {
                 fetchedAt[date] = Date()
                 lastError = nil
                 write(fresh, for: date)
-                publishSnapshot(fresh)
+                // The widget is about today. Scrolling the day picker must not
+                // put a past day's score on the home screen as a current one.
+                if date == RingDates.dayKey(Date()) { publishSnapshot(fresh) }
             } else {
                 lastError = nil
             }

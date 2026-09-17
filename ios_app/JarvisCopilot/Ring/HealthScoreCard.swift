@@ -8,6 +8,8 @@ import SwiftUI
 struct HealthScoreCard: View {
     let scores: HealthScores?
     let stale: Bool
+    /// The server scored older data, as opposed to this phone holding an old copy.
+    let ringUnreachable: Bool
     let age: TimeInterval?
     let isRefreshing: Bool
     let onAsk: () -> Void
@@ -106,11 +108,19 @@ struct HealthScoreCard: View {
     }
 
     private var staleNote: String {
-        guard let age, age > 60 else { return "The ring could not be reached, so these are older readings." }
-        let hours = Int(age / 3600)
-        let minutes = Int(age / 60) % 60
-        let when = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
-        return "From \(when) ago — the ring could not be reached since."
+        let when = age.map(ago) ?? ""
+        if ringUnreachable {
+            return when.isEmpty
+                ? "The ring could not be reached, so these are older readings."
+                : "From \(when) — the ring could not be reached since."
+        }
+        return when.isEmpty ? "Pull to refresh for the latest." : "Last read \(when)."
+    }
+
+    private func ago(_ seconds: TimeInterval) -> String {
+        let hours = Int(seconds / 3600)
+        let minutes = max(1, Int(seconds / 60) % 60)
+        return hours > 0 ? "\(hours)h \(minutes)m ago" : "\(minutes)m ago"
     }
 
     private func tint(_ part: ScorePart) -> Color {

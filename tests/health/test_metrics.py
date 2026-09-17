@@ -61,6 +61,8 @@ def test_local_midnight_is_expressed_in_utc_for_the_stored_zone():
     assert local_midnight_utc("2026-01-17", "America/Chicago") == "2026-01-17T06:00:00Z"
 
 
-def test_a_baseline_knows_how_thin_it_is():
+def test_a_baseline_is_only_ready_for_what_it_actually_measured():
     assert Baseline(days_used=2).is_ready is False
-    assert Baseline(hrv=45, resting_hr=58, days_used=4).is_ready is True
+    # Days on file are not days measured: a backfilled day carries steps only.
+    assert Baseline(days_used=14).is_ready is False
+    assert Baseline(hrv=45, days_used=4, hrv_days=4).is_ready is True

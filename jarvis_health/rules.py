@@ -81,6 +81,44 @@ def release_time(settings: dict) -> str:
     return str(quiet.get("end") or "08:00")
 
 
+def sustained_high_stress(day: HealthDay) -> int:
+    """The longest unbroken stretch of waking minutes at medium stress or above.
+
+    Two things the spec asks for and a sample count cannot give: *sustained*
+    means consecutive, so isolated spikes do not add up, and sleep is excluded —
+    the ring reads high while you are asleep and there is nothing to alert about.
+    """
+    series = day.stress
+    if series is None or not series.values:
+        return 0
+
+    interval = max(1, series.interval_minutes)
+    night = day.main_sleep
+    asleep: tuple[int, int] | None = None
+    if night is not None and night.start and series.start:
+        try:
+            offset = int((parse_instant(night.start) - parse_instant(series.start)).total_seconds() // 60)
+            asleep = (offset, offset + night.time_in_bed_minutes)
+        except (TypeError, ValueError):
+            asleep = None
+
+    longest = 0
+    run = 0
+    for index, value in enumerate(series.values):
+        minute = index * interval
+        if asleep and asleep[0] <= minute <= asleep[1]:
+            run = 0
+            continue
+        if value and value >= STRESS_MEDIUM:
+            run += interval
+            longest = max(longest, run)
+        else:
+            # A gap in the readings breaks the stretch as surely as a calm one:
+            # nothing was measured, so nothing was sustained.
+            run = 0
+    return longest
+
+
 def evaluate(
     day: HealthDay,
     scores: dict,
@@ -158,7 +196,9 @@ def evaluate(
             fire("spo2_low", f"Blood oxygen dipped to {round(low)}%.", round(low, 1), limit, "warning")
 
     night = day.main_sleep
-    if night is not None:
+    # A day the scorer calls sleepless has no sleep to complain about: the ring
+    # was on a charger, or recorded a nap and nothing else.
+    if night is not None and night.asleep_minutes > 0:
         hours = night.asleep_minutes / 60
         limit = threshold_for("short_sleep", 5)
         if hours < limit:
@@ -175,16 +215,13 @@ def evaluate(
         if health.value < limit:
             fire("health_low", f"Health score {round(health.value)}.", round(health.value), limit)
 
-    stress_values = day.stress.nonzero() if day.stress else []
-    if stress_values and day.stress:
-        high_minutes = sum(1 for v in stress_values if v >= STRESS_MEDIUM) * day.stress.interval_minutes
+    if day.stress and day.stress.values:
+        high_minutes = sustained_high_stress(day)
         limit = threshold_for("stress_sustained", 60)
         if high_minutes >= limit:
-            shares = stress_band_shares(stress_values)
             fire(
                 "stress_sustained",
-                f"{high_minutes} minutes at medium stress or above "
-                f"({round(shares['Medium'] + shares['High'])}% of the day).",
+                f"{high_minutes} unbroken minutes at medium stress or above while awake.",
                 high_minutes,
                 limit,
             )

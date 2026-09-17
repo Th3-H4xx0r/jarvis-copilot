@@ -6,7 +6,7 @@ struct RingSettingsView: View {
     @ObservedObject private var session: RingSession
     @StateObject private var bridge = BridgeClient.shared
     @StateObject private var flasher = RingFirmwareFlasher()
-    @StateObject private var health: HealthStore
+    @ObservedObject private var health: HealthStore
 
     @State private var error: String?
     @State private var working = false
@@ -37,11 +37,12 @@ struct RingSettingsView: View {
         var metric = true
     }
 
-    init(manager: RingManager) {
+    /// `health` comes from the ring screen that pushed this one, so a settings
+    /// change and the card it affects are the same store — and the same space.
+    init(manager: RingManager, health: HealthStore) {
         self.manager = manager
         _session = ObservedObject(wrappedValue: manager.session)
-        _health = StateObject(wrappedValue: HealthStore(
-            spaceID: HealthSpace.id(forRing: manager.deviceID ?? "unknown")))
+        _health = ObservedObject(wrappedValue: health)
     }
 
     private var ready: Bool { manager.state == .ready }

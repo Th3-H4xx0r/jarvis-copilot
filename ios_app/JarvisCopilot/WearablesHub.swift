@@ -329,6 +329,27 @@ final class WearablesHub: ObservableObject {
         ring.publishRemembered()
         DeviceRegistry.shared.register(WearablesDevice())
         BridgeClient.shared.sendRegistration()
+        registerHealthIntegrations()
+    }
+
+    /// Tell the server which wearables report enough to be scored.
+    ///
+    /// This is what brings a health integration into existence: without it the
+    /// server has no space for the ring and every health call 404s. Idempotent,
+    /// so running it on each launch and pairing is free.
+    func registerHealthIntegrations() {
+        let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
+        guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
+        let payload = eligible.map { entry -> [String: Any] in
+            ["kind": entry.kind, "device_id": entry.deviceID, "name": entry.name]
+        }
+        Task {
+            do {
+                _ = try await HealthClient.register(payload)
+            } catch {
+                JcLog.services.notice("health: could not register wearables — \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Bring one paired device's link up on request. Only devices the user has already

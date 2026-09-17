@@ -13,32 +13,54 @@ from .metrics import Baseline, HealthDay, parse_instant
 
 
 def resting_hr(day: HealthDay) -> Optional[float]:
-    """The lowest rolling ten-minute mean inside the night.
+    """The lowest ten-minute mean inside the night.
 
-    A single low sample is noise; ten quiet minutes is a resting heart rate.
+    Ten *contiguous* minutes, not ten readings that happen to sit next to each
+    other in the list: the ring writes a zero for "no reading", and averaging
+    two lone samples two hours apart would report a dip that never happened.
     """
     night = day.main_sleep
     series = day.heart_rate
-    if night is None or series is None or not series.values:
+    if night is None or series is None or not series.values or not series.start:
         return None
 
-    start = parse_instant(series.start)
-    first = int((parse_instant(night.start) - start).total_seconds() // 60)
+    try:
+        start = parse_instant(series.start)
+        first = int((parse_instant(night.start) - start).total_seconds() // 60)
+    except (TypeError, ValueError):
+        # A session the device sent without a usable start: no window to read.
+        return None
+
     last = first + night.time_in_bed_minutes
-    window = max(1, 10 // max(1, series.interval_minutes))
+    interval = max(1, series.interval_minutes)
+    window = max(10, interval)
 
     samples = [
-        (index * series.interval_minutes, value)
+        (index * interval, float(value))
         for index, value in enumerate(series.values)
-        if value and value > 0 and first <= index * series.interval_minutes <= last
+        if value and value > 0 and first <= index * interval <= last
     ]
-    if len(samples) < window:
+    if not samples:
         return None
 
-    means = [
-        sum(v for _, v in samples[i : i + window]) / window
-        for i in range(0, len(samples) - window + 1)
-    ]
+    means: list[float] = []
+    for i, (minute, _) in enumerate(samples):
+        # Walk forward only while the readings stay gapless: a missing sample
+        # ends the window, because unmeasured minutes were not quiet ones.
+        run: list[float] = []
+        previous = minute
+        for m, value in samples[i:]:
+            if m - previous > interval:
+                break
+            if m - minute > window:
+                break
+            run.append(value)
+            previous = m
+        span = previous - minute
+        if span < window and interval < window:
+            continue
+        means.append(sum(run) / len(run))
+
     return round(min(means), 1) if means else None
 
 
@@ -84,6 +106,8 @@ def baseline_from(days: list[HealthDay], window: int = 14) -> Baseline:
     return Baseline(
         hrv=median(hrvs) if hrvs else None,
         resting_hr=median(rhrs) if rhrs else None,
+        hrv_days=len(hrvs),
+        resting_hr_days=len(rhrs),
         bedtime_minute=bedtime_minute_median(bedtimes),
         sleep_minutes=median(sleeps) if sleeps else None,
         temperature=median(temps) if temps else None,

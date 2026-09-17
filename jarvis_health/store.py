@@ -160,5 +160,32 @@ class HealthStore:
                 out.add(body["rule"])
         return out
 
+    # ── held alerts ─────────────────────────────────────────────────────────
+    #
+    # An alert raised inside quiet hours is not dropped and not pushed at 2am:
+    # it waits here and goes out on the first run after the window ends. It has
+    # to be a document rather than a collection because the queue is drained.
+
+    def held_alerts(self) -> list[dict]:
+        raw = self._space.get("held_alerts") or {}
+        held = raw.get("alerts") if isinstance(raw, dict) else None
+        return list(held or [])
+
+    def hold_alerts(self, alerts: list[dict]) -> None:
+        if not alerts:
+            return
+        self._space.put(
+            "held_alerts",
+            {"alerts": self.held_alerts() + list(alerts), "updated_at": utc_now()},
+            description="Alerts waiting for quiet hours to end.",
+        )
+
+    def take_held_alerts(self) -> list[dict]:
+        """Everything waiting, removed from the queue in the same breath."""
+        held = self.held_alerts()
+        if held:
+            self._space.put("held_alerts", {"alerts": [], "updated_at": utc_now()})
+        return held
+
     def log_measurement(self, body: dict) -> int:
         return self._space.append("measurements", body, source="jarvis_health")

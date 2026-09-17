@@ -81,4 +81,6 @@ def ready_baseline(hrv=45, resting_hr=58, bedtime_minute=1410, sleep_minutes=450
         sleep_minutes=sleep_minutes,
         temperature=temperature,
         days_used=14,
+        hrv_days=14,
+        resting_hr_days=14,
     )

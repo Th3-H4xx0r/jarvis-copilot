@@ -19,7 +19,11 @@ struct RingDeviceView: View {
         self.ring = ring
         _session = ObservedObject(wrappedValue: manager.session)
         _sync = ObservedObject(wrappedValue: manager.sync)
-        _health = StateObject(wrappedValue: HealthStore(spaceID: HealthSpace.id(forRing: manager.deviceID ?? ring.id.uuidString)))
+        // One store for this screen and the settings it pushes to, addressed by
+        // the remembered device id — the same id the server derives its space
+        // from. `ring.id` is the fallback only until the ring is remembered.
+        _health = StateObject(wrappedValue: HealthStore(
+            spaceID: HealthSpace.id(forRing: manager.deviceID ?? ring.id.uuidString)))
     }
 
     private var ready: Bool { manager.state == .ready }
@@ -77,7 +81,7 @@ struct RingDeviceView: View {
             manager.releaseIfIdle()
         }
         .navigationDestination(isPresented: $showingSettings) {
-            RingSettingsView(manager: manager)
+            RingSettingsView(manager: manager, health: health)
         }
         .toolbar {
             WearableToolbarButton(title: "Sync week", icon: "arrow.triangle.2.circlepath",
@@ -91,6 +95,7 @@ struct RingDeviceView: View {
     private var healthCard: some View {
         HealthScoreCard(scores: health.scores(for: dayKey),
                         stale: health.isStale(dayKey),
+                        ringUnreachable: health.serverSaidStale(dayKey),
                         age: health.age(of: dayKey),
                         isRefreshing: health.isRefreshing) {
             askJarvisAboutTheDay()

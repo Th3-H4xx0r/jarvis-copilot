@@ -69,6 +69,8 @@ def run(
     scores = {"sleep": sleep, "recovery": recovery, "body": body, "activity": activity}
     scores["health"] = health_score(scores)
 
+    # Anything held from a night-time run goes out first, now that it is morning.
+    released = _release_held(store, settings, now, day, notify)
     alerts = evaluate(day, scores, baseline, settings, now, store.fired_today(day.date), stale=stale)
     analysis = write_analysis(day, scores, baseline, settings, call=call)
 
@@ -86,10 +88,15 @@ def run(
     }
     store.put_scores(day.date, payload)
 
+    due = [a for a in alerts if not a.hold_until]
+    held = [a for a in alerts if a.hold_until]
     for alert in alerts:
-        store.log_alert(alert.to_json(day.date))
-    if alerts:
-        notify(alerts, space_id, settings)
+        record = alert.to_json(day.date)
+        record["delivered"] = alert.hold_until is None
+        store.log_alert(record)
+    store.hold_alerts([a.to_json(day.date) for a in held])
+    if due:
+        notify(due, space_id, settings)
 
     out = {
         "space": space_id,
@@ -99,6 +106,8 @@ def run(
         "scores": {name: score.to_json() for name, score in scores.items()},
         "analysis": analysis,
         "alerts": [a.to_json(day.date) for a in alerts],
+        "held": [a.to_json(day.date) for a in held],
+        "released": released,
         "duration_ms": int((time.monotonic() - started) * 1000),
     }
     store.log_run(
@@ -109,10 +118,40 @@ def run(
             "health": payload["health"]["value"],
             "band": band(scores["health"].value),
             "alerts": [a.rule for a in alerts],
+            "released": [a.get("rule") for a in released],
             "duration_ms": out["duration_ms"],
         }
     )
     return out
+
+
+def _release_held(store: HealthStore, settings: dict, now: str, day, notify) -> list[dict]:
+    """Push whatever was held overnight, once the quiet hours have passed.
+
+    Without this a held alert is stored, suppressed by the one-per-day rule on
+    the next run, and never seen — which is most body alerts, because the ticks
+    that first read last night's data land inside the quiet window.
+    """
+    from .rules import in_quiet_hours
+
+    if in_quiet_hours(now, settings, day):
+        return []
+    held = store.take_held_alerts()
+    if not held:
+        return []
+
+    class _Held:
+        def __init__(self, record: dict) -> None:
+            self.rule = record.get("rule", "")
+            self.message = record.get("message", "")
+            self.hold_until = None
+
+    # The run's own notifier, so a release is delivered — and observed — exactly
+    # the way a fresh alert is.
+    notify([_Held(record) for record in held], store.space_id, settings)
+    for record in held:
+        store.log_alert({**record, "delivered": True, "released": True})
+    return held
 
 
 def _zone_of(store: HealthStore) -> Optional[str]:

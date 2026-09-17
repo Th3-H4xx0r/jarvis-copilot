@@ -103,3 +103,35 @@ def test_alerts_fire_once_and_are_pushed(tmp_registry):
     second = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T18:00:00Z")
     assert second["alerts"] == []
     assert sent == []
+
+
+def test_an_alert_held_for_quiet_hours_goes_out_on_the_first_run_after(tmp_registry):
+    """The bug this pins: held, then suppressed by the one-per-day rule, never seen."""
+    short = day(asleep=120)
+    sent, notify = pushes()
+
+    # 02:00 local — inside quiet hours, so nothing may be pushed yet.
+    night = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+                now="2026-09-17T07:00:00Z")
+    assert [a["rule"] for a in night["held"]] == ["short_sleep"]
+    assert sent == []
+
+    # 12:00 local — the window has passed, so the held alert arrives.
+    sent.clear()
+    morning = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+                  now="2026-09-17T17:00:00Z")
+    assert [a["rule"] for a in morning["released"]] == ["short_sleep"]
+    assert [a.rule for a in sent] == ["short_sleep"]
+
+
+def test_a_released_alert_is_not_released_twice(tmp_registry):
+    short = day(asleep=120)
+    sent, notify = pushes()
+    run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T07:00:00Z")
+    run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
+
+    sent.clear()
+    again = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+                now="2026-09-17T18:00:00Z")
+    assert again["released"] == []
+    assert sent == []

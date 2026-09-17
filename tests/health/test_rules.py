@@ -71,3 +71,37 @@ def test_quiet_hours_hold_an_alert_until_morning():
 def test_an_alert_outside_quiet_hours_goes_out_immediately():
     alerts = evaluate(day(asleep=120), scores(), ready_baseline(), SETTINGS, noon(), set())
     assert alerts and all(a.hold_until is None for a in alerts)
+
+
+def test_sustained_stress_means_consecutive_readings_not_a_count_of_spikes():
+    from jarvis_health.rules import sustained_high_stress
+
+    spikes = [20] * 48
+    spikes[10] = 65
+    spikes[40] = 61          # two lone 30-minute samples, fifteen hours apart
+    assert sustained_high_stress(day(stress=spikes)) == 30
+    assert "stress_sustained" not in fired(evaluate(day(stress=spikes), scores(), ready_baseline(), SETTINGS, noon(), set()))
+
+    run = [20] * 48
+    run[20:24] = [70] * 4    # two unbroken hours while awake
+    assert sustained_high_stress(day(stress=run)) == 120
+    assert "stress_sustained" in fired(evaluate(day(stress=run), scores(), ready_baseline(), SETTINGS, noon(), set()))
+
+
+def test_high_stress_while_asleep_is_not_an_alert():
+    asleep = [20] * 48
+    asleep[4:12] = [70] * 8  # 02:00-05:30, inside the night the fixture records
+    assert "stress_sustained" not in fired(
+        evaluate(day(stress=asleep), scores(), ready_baseline(), SETTINGS, noon(), set()))
+
+
+def test_a_day_with_no_real_sleep_does_not_get_a_zero_hour_sleep_alert():
+    from jarvis_health.metrics import STAGE_AWAKE, HealthDay, SleepSession
+
+    charging = HealthDay(
+        date="2026-09-17", timezone="America/Chicago", utc_offset=-18000,
+        sleep=[SleepSession(start="2026-09-17T09:00:00Z", end="2026-09-17T09:25:00Z",
+                            stages=[(STAGE_AWAKE, 25)])],
+    )
+    assert "short_sleep" not in fired(
+        evaluate(charging, scores(), ready_baseline(), SETTINGS, noon(), set()))

@@ -52,8 +52,17 @@ def test_sleep_with_no_night_recorded_has_no_value_at_all():
 
 
 def test_recovery_waits_for_a_baseline_it_can_trust():
-    assert recovery_score(day(), Baseline(hrv=45, resting_hr=58, days_used=2)).value is None
+    assert recovery_score(day(), Baseline(hrv=45, resting_hr=58, days_used=2, hrv_days=2)).value is None
+    # Days stored without HRV or a resting rate are not a baseline either.
+    assert recovery_score(day(), Baseline(days_used=14)).value is None
     assert recovery_score(day(), ready_baseline()).value is not None
+
+
+def test_recovery_needs_a_physiological_reading_not_just_last_nights_sleep():
+    # Sleep already carries 0.35 of the health score; recovery must not become a
+    # second copy of it when the ring recorded no HRV and no resting rate.
+    blind = day(hrv=0, hr=[0] * 100)
+    assert recovery_score(blind, ready_baseline()).value is None
 
 
 def test_recovery_rewards_hrv_above_your_own_baseline():
@@ -97,3 +106,19 @@ def test_bands_name_the_score():
     assert band(60) == "Fair"
     assert band(40) == "Low"
     assert band(None) == "—"
+
+
+def test_a_reading_off_the_scale_leaves_the_stress_denominator():
+    from jarvis_health.scoring import stress_band_shares
+
+    # The ring's samples are raw bytes; a garbled 255 is not a relaxed minute.
+    shares = stress_band_shares([20] * 24 + [255] * 24)
+    assert round(sum(shares.values())) == 100
+    assert shares["Relax"] == 100
+
+
+def test_the_band_agrees_with_the_number_beside_it():
+    assert Score(84.6).to_json()["value"] == 85
+    assert Score(84.6).to_json()["band"] == "Excellent"
+    assert Score(54.7).to_json()["band"] == "Fair"
+    assert Score(69.8).to_json()["band"] == "Good"
