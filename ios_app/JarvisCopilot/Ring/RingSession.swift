@@ -101,6 +101,8 @@ final class RingSession: ObservableObject {
     @Published private(set) var wearStateAt: Date?
     /// True while the ring's real-time heart-rate mode is running to keep the status live.
     @Published private(set) var wearWatching = false
+    /// False while the app is in the background, where nobody can see the status.
+    var wearWatchAllowed = true
     private var wearWatchTimeout: Task<Void, Never>?
     /// The last tap or swipe, whichever channel it arrived on.
     @Published private(set) var lastInput: RingInputEvent?
@@ -142,9 +144,12 @@ final class RingSession: ObservableObject {
     private var stillTimeCounter = 0
     private var cacheOwner: (deviceID: String, defaults: UserDefaults)?
 
-    init(transport: RingTransport? = nil) {
+    private let defaults: UserDefaults
+
+    init(transport: RingTransport? = nil, defaults: UserDefaults = .standard) {
         let transport = transport ?? RingTransport()
         self.transport = transport
+        self.defaults = defaults
         transport.onUnsolicited = { [weak self] inbound in self?.handleUnsolicited(inbound) }
         transport.onFrame = { [log] frame in log.record(frame) }
     }
@@ -182,6 +187,11 @@ final class RingSession: ObservableObject {
         }
         if let reply = try? await transport.perform(.deviceSupport, until: .single).first {
             capabilities.blockB = reply.payload
+        }
+        if realtimeStopOwed, !wearWatching {
+            let answered = await sendRealtimeStop()
+            log.note("Ring wear watch", answered ? "stopped real-time mode left running on an earlier link"
+                                                 : "stop still owed; the ring did not answer")
         }
         await refreshBattery()
         await refreshSettings()
@@ -785,11 +795,12 @@ final class RingSession: ObservableObject {
     /// live for as long as this is on. It costs the sensor, so it runs only while a screen is
     /// showing the status and is stopped the moment that screen goes away.
     func startWearWatch() async {
-        guard !wearWatching, transport.link?.isLinkReady == true else { return }
+        guard wearWatchAllowed, !wearWatching, transport.link?.isLinkReady == true else { return }
         // A one-shot measurement owns the sensor; don't fight it for the hardware.
         guard measurement?.isActive != true else { return }
         if battery?.charging == true { noteWear(.charging); return }
         wearWatching = true
+        realtimeStopOwed = true
         _ = try? await transport.perform(.realtimeHeartRate(true), until: .none)
         log.note("Ring wear watch", "real-time heart rate on")
         // Nothing at all coming back is itself an answer, but only after a fair wait.
@@ -801,13 +812,34 @@ final class RingSession: ObservableObject {
         }
     }
 
-    func stopWearWatch() async {
+    /// Returns whether a stop was sent, i.e. whether the watch was running.
+    @discardableResult
+    func stopWearWatch() async -> Bool {
         wearWatchTimeout?.cancel()
         wearWatchTimeout = nil
-        guard wearWatching else { return }
+        guard wearWatching else { return false }
         wearWatching = false
-        _ = try? await transport.perform(.realtimeHeartRate(false), until: .none)
-        log.note("Ring wear watch", "off")
+        let answered = await sendRealtimeStop()
+        log.note("Ring wear watch", answered ? "off" : "off; the ring did not answer, so it is stopped on the next link")
+        return true
+    }
+
+    /// The ring's firmware keeps real-time mode, and its optical sensor, running until it is told
+    /// to stop. A dropped link does not stop it: a phone that let go mid-watch left the sensor
+    /// on all night. So a stop the ring never answered is owed, kept across launches, and sent
+    /// on the next link.
+    private var realtimeStopOwed: Bool {
+        get { defaults.bool(forKey: "jc.ring.realtimeStopOwed") }
+        set { defaults.set(newValue, forKey: "jc.ring.realtimeStopOwed") }
+    }
+
+    /// Stops real-time mode and waits for the ring's answer, so a caller about to drop the link
+    /// knows the sensor is off first.
+    private func sendRealtimeStop() async -> Bool {
+        let answered = (try? await transport.perform(.realtimeHeartRate(false), until: .single)) != nil
+        // A watch started while this was in flight needs a stop of its own.
+        realtimeStopOwed = wearWatching || !answered
+        return answered
     }
 
     private func deliver(_ input: RingInput) {
