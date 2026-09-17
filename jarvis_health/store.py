@@ -22,6 +22,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quiet_hours": {"start": "22:00", "end": "08:00"},
     "rules": DEFAULT_RULES,
     "goals": {"steps": 10000, "active_minutes": 30},
+    #: Who this integration is about, filled in when the phone registers it.
+    "device_id": "",            # the wearable's own id
+    "bridge_device_id": "",     # the phone whose bridge reaches it
+    "kind": "",
+    "device_name": "",
+    "timezone": "",
+    #: Created for a wearable, so it is not the user's to delete.
     "protected": True,
 }
 

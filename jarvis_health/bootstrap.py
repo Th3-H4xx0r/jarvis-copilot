@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 from .sources import ELIGIBLE_KINDS
@@ -57,10 +58,69 @@ def ensure_wearable_integrations(roster: list[dict[str, Any]]) -> list[str]:
         space_id = space_id_for(kind, device_id)
         name = entry.get("name") or kind.title()
         store = HealthStore(space_id, name=_space_name(name))
-        settings = store.put_settings({"device_id": device_id, "kind": kind, "device_name": name})
+        # Two identities and a zone: the wearable itself, the phone whose bridge
+        # reaches it, and the timezone whose days this wearable's data is in.
+        settings = store.put_settings({
+            "device_id": device_id,
+            "kind": kind,
+            "device_name": name,
+            "bridge_device_id": entry.get("bridge_device_id") or entry.get("phone_id") or "",
+            "timezone": entry.get("timezone") or "",
+        })
         ensure_schedule(space_id, settings, device_id=device_id, kind=kind)
         created.append(space_id)
     return created
+
+
+#: The runner script written per integration. The scheduler runs a *file* in
+#: HERMES_HOME/scripts with no arguments and no shell, so a command line with
+#: flags silently never executes — the parameters are baked in instead.
+_SCRIPT_TEMPLATE = "\n".join([
+    '#!/usr/bin/env python3',
+    "# Runs one wearable's health analysis. Written by jarvis_health.bootstrap.",
+    '#',
+    "# Regenerated whenever the integration's settings change — edit the settings,",
+    '# not this file. The cron scheduler execs a file inside HERMES_HOME/scripts',
+    '# with the current interpreter, no shell and no arguments, which is why the',
+    '# space and the devices are written in rather than passed.',
+    'import json',
+    'import sys',
+    '',
+    'sys.path.insert(0, {repo!r})',
+    '',
+    'from jarvis_health.runner import run',
+    'from jarvis_health.sources import source_for',
+    '',
+    "out = run({space_id!r}, source_for({kind!r}, {bridge!r}, {wearable!r}), trigger='cron')",
+    'print(json.dumps(out, default=str))',
+    "sys.exit(0 if not out.get('error') else 1)",
+    '',
+])
+
+
+def _write_runner_script(space_id: str, settings: dict, wearable_id: str, kind: str) -> Optional[str]:
+    """Put a no-argument runner for this integration in HERMES_HOME/scripts."""
+    try:
+        from cron.scheduler import _get_hermes_home
+
+        scripts = Path(_get_hermes_home()) / "scripts"
+    except Exception:
+        scripts = Path.home() / ".jarviscopilot" / "scripts"
+
+    name = f"health_{space_id.replace('-', '_')}.py"
+    try:
+        scripts.mkdir(parents=True, exist_ok=True)
+        (scripts / name).write_text(_SCRIPT_TEMPLATE.format(
+            repo=str(Path(__file__).resolve().parents[1]),
+            space_id=space_id,
+            kind=kind,
+            bridge=settings.get("bridge_device_id") or "",
+            wearable=wearable_id,
+        ))
+        return name
+    except OSError as exc:
+        logger.warning("health: could not write the runner script for %s: %s", space_id, exc)
+        return None
 
 
 def ensure_schedule(space_id: str, settings: dict, device_id: str, kind: str = "ring") -> Optional[dict]:
@@ -70,7 +130,9 @@ def ensure_schedule(space_id: str, settings: dict, device_id: str, kind: str = "
     except Exception:  # pragma: no cover - cron is always present in the app
         return None
 
-    script = f"python3 -m jarvis_health.runner --space {space_id} --device {device_id} --kind {kind}"
+    script = _write_runner_script(space_id, settings, device_id, kind)
+    if not script:
+        return None
     schedule = schedule_for(settings.get("frequency"))
     enabled = bool(settings.get("enabled", True)) and (settings.get("frequency") or "") != "manual"
 

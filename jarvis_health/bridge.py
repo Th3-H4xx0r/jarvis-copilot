@@ -41,15 +41,20 @@ def _key() -> Optional[bytes]:
 
 
 def _headers(method: str, path: str, body: bytes) -> dict[str, str]:
+    """The host carve-out header, exactly as `webui/api/auth.py` verifies it.
+
+    `X-JC-Host-Sig: <unix_ts>.<hex hmac>` over `METHOD\nPATH\nTIMESTAMP` with
+    the webui's signing key, from loopback, within a ±60s skew. The body is not
+    part of the message — signing it here would fail every request.
+    """
     headers = {"Content-Type": "application/json"}
     key = _key()
     if not key:
         return headers
-    stamp = str(int(time.time()))
-    digest = hashlib.sha256(body).hexdigest()
-    message = f"{method}\n{path}\n{stamp}\n{digest}".encode()
-    headers["X-JC-Host-Timestamp"] = stamp
-    headers["X-JC-Host-Signature"] = hmac.new(key, message, hashlib.sha256).hexdigest()
+    stamp = int(time.time())
+    message = f"{method}\n{path}\n{stamp}".encode("utf-8")
+    signature = hmac.new(key, message, hashlib.sha256).hexdigest()
+    headers["X-JC-Host-Sig"] = f"{stamp}.{signature}"
     return headers
 
 

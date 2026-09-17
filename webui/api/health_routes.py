@@ -30,10 +30,25 @@ def _store(space_id: str):
     return HealthStore(space_id)
 
 
+#: Health spaces are named by `jarvis_health.store.space_id_for`. Anything else
+#: — `general`, an integration the user made — is not ours to write into.
+_SPACE_PREFIX = "wearable-"
+
+
 def _exists(space_id: str) -> bool:
     from jarvis_registry.store import shared
 
     return shared().exists(space_id)
+
+
+def _is_health_space(space_id: str) -> bool:
+    """Whether this id names a wearable's health space, and not just any space.
+
+    Without this, every registry space reachable from the Integrations list was
+    a valid target: a POST could rewrite `general`'s settings document with
+    health defaults and hang a cron job off it.
+    """
+    return space_id.startswith(_SPACE_PREFIX) and _exists(space_id)
 
 
 def _split(path: str) -> tuple[str, str]:
@@ -60,7 +75,7 @@ def handle_get(handler, parsed) -> bool:
     if not space_id:
         return False
 
-    if not _exists(space_id):
+    if not _is_health_space(space_id):
         j(handler, {"error": f"no health integration {space_id!r}"}, status=404)
         return True
 
@@ -126,11 +141,11 @@ def handle_post(handler, parsed, body) -> bool:
     if not space_id:
         return False
 
-    if not _exists(space_id):
+    if not _is_health_space(space_id):
         j(handler, {"error": f"no health integration {space_id!r}"}, status=404)
         return True
 
-    body = body if isinstance(body, dict) else {}
+    body = body_dict
 
     try:
         store = _store(space_id)
@@ -165,15 +180,17 @@ def handle_post(handler, parsed, body) -> bool:
         if tail == "run":
             settings = store.settings()
             kind = settings.get("kind") or "ring"
-            device_id = settings.get("device_id") or ""
-            if not device_id:
-                j(handler, {"error": "this integration has no device yet"}, status=409)
+            wearable_id = settings.get("device_id") or ""
+            bridge_id = settings.get("bridge_device_id") or ""
+            if not wearable_id or not bridge_id:
+                j(handler, {"error": "this integration has no paired phone yet"}, status=409)
                 return True
 
             import jarvis_health.runner as runner
             from jarvis_health.sources import source_for
 
-            out = runner.run(space_id, source_for(kind, device_id), trigger=body.get("trigger") or "manual")
+            out = runner.run(space_id, source_for(kind, bridge_id, wearable_id),
+                             trigger=body.get("trigger") or "manual")
             j(handler, {"run": out})
             return True
     except Exception as exc:

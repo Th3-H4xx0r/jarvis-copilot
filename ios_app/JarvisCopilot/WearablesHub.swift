@@ -340,8 +340,25 @@ final class WearablesHub: ObservableObject {
     func registerHealthIntegrations() {
         let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
+        // Without the phone's own id the server has nothing to invoke through,
+        // so there is no point registering yet; the next launch tries again.
+        guard let phone = UserDefaults.standard.string(forKey: PushHandler.deviceIDKey), !phone.isEmpty else {
+            JcLog.services.notice("health: no paired device id yet; registering wearables later")
+            return
+        }
+        // Three things the server cannot work out for itself: the wearable's own
+        // id (which its space is named from), the phone whose bridge reaches it,
+        // and the timezone whose days its data is bucketed by.
+        // The server-issued id for this phone, which is what the device bridge
+        // routes a skill call to.
         let payload = eligible.map { entry -> [String: Any] in
-            ["kind": entry.kind, "device_id": entry.deviceID, "name": entry.name]
+            [
+                "kind": entry.kind,
+                "device_id": entry.deviceID,
+                "name": entry.name,
+                "bridge_device_id": phone,
+                "timezone": TimeZone.current.identifier,
+            ]
         }
         Task {
             do {

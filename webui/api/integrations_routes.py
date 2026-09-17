@@ -54,7 +54,12 @@ def handle_get(handler, parsed) -> bool:
     if path == "/api/integrations":
         ints = _integrations()
         ints.ensure_general()
-        j(handler, {"integrations": ints.overview()})
+        rows = ints.overview()
+        for row in rows:
+            # So the page can leave the delete button off rather than offer one
+            # that 409s.
+            row["protected"] = _is_protected(row.get("id") or "")
+        j(handler, {"integrations": rows})
         return True
 
     if not path.startswith("/api/integrations/"):
@@ -223,6 +228,15 @@ def _delete_skill(handler, space_id: str, name: str, mode: str) -> bool:
     return True
 
 
+def _is_protected(space_id: str) -> bool:
+    """Whether this space's own settings say it may not be deleted."""
+    try:
+        settings = _registry().open(space_id).get("settings")
+    except Exception:
+        return False
+    return bool(isinstance(settings, dict) and settings.get("protected"))
+
+
 def _delete_space(handler, space_id: str, body) -> bool:
     """Remove the integration, or only the parts the body names.
 
@@ -234,6 +248,18 @@ def _delete_space(handler, space_id: str, body) -> bool:
     from cron.jobs import remove_job
 
     body = body if isinstance(body, dict) else {}
+
+    # Some integrations are not the user's to delete: a wearable's health space
+    # is created for it automatically and holds the only copy of its history.
+    # It can be paused, re-tuned or have its data cleared — not removed.
+    if _is_protected(space_id):
+        j(handler, {
+            "error": "this integration belongs to a wearable and cannot be deleted",
+            "protected": True,
+            "space": space_id,
+        }, status=409)
+        return True
+
     # A body that names no part at all is the bare DELETE that has always meant
     # "all of it". A body that names any part means only the parts it names —
     # read_body() hands us {} for malformed JSON, and "I could not read your

@@ -122,3 +122,19 @@ def test_the_band_agrees_with_the_number_beside_it():
     assert Score(84.6).to_json()["band"] == "Excellent"
     assert Score(54.7).to_json()["band"] == "Fair"
     assert Score(69.8).to_json()["band"] == "Good"
+
+
+def test_a_day_the_ring_recorded_nothing_for_is_not_a_day_of_zero_steps():
+    """An absent activity dict used to score 0 and fire a low-score alert."""
+    from jarvis_health.metrics import HealthDay
+
+    empty = HealthDay(date="2026-09-17", timezone="America/Chicago", utc_offset=-18000)
+    assert activity_score(empty, {"steps": 10000, "active_minutes": 30}).value is None
+
+    parts = {
+        "sleep": sleep_score(empty, ready_baseline()),
+        "recovery": recovery_score(empty, ready_baseline()),
+        "body": body_score(empty, ready_baseline()),
+        "activity": activity_score(empty, {"steps": 10000, "active_minutes": 30}),
+    }
+    assert health_score(parts).value is None, "nothing measurable is not a score of zero"

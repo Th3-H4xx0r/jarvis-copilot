@@ -200,6 +200,12 @@ def body_score(day: HealthDay, baseline: Baseline) -> Score:
 
 
 def activity_score(day: HealthDay, goals: dict) -> Score:
+    # A day the ring recorded nothing for is not a day of no movement. Scoring
+    # an absent activity dict as a real zero turned an unreachable ring into
+    # "health 0 · Low" and pushed a low-score alert about it.
+    if not day.activity:
+        return Score(None, [], ["activity"])
+
     steps_goal = float(goals.get("steps") or 0)
     minutes_goal = float(goals.get("active_minutes") or 0)
     points: list[Contribution] = []

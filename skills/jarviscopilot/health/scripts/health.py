@@ -18,18 +18,55 @@ Exit codes: 0 success, 1 error (a JSON object on stderr).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
+import os
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-ROOT = Path(__file__).resolve()
-for parent in ROOT.parents:
-    if (parent / "jarvis_health").is_dir():
-        sys.path.insert(0, str(parent))
-        break
+# Stdlib only, and no import from the repo: the installed copy of this skill
+# lives under ~/.jarviscopilot/skills, where `jarvis_health` is not importable.
+# The host carve-out is small enough to carry, exactly as devices.py does.
+_STATE = Path(os.environ.get("HERMES_WEBUI_STATE_DIR") or (Path.home() / ".jarviscopilot" / "webui"))
+_BASE = os.environ.get("JC_WEBUI_URL") or "http://127.0.0.1:8765"
+_key_cache: dict = {"key": None}
 
-from jarvis_health.bridge import request  # noqa: E402
+
+def _signing_key():
+    if _key_cache["key"] is None:
+        try:
+            _key_cache["key"] = (_STATE.expanduser().resolve() / ".signing_key").read_bytes()
+        except OSError:
+            return None
+    return _key_cache["key"]
+
+
+def request(method: str, path: str, body: dict | None = None, timeout: float = 45):
+    """One loopback call to the webui, signed the way api/auth.py verifies."""
+    payload = json.dumps(body or {}).encode() if body is not None else b""
+    req = urllib.request.Request(_BASE + path, data=payload or None, method=method)
+    req.add_header("Content-Type", "application/json")
+    key = _signing_key()
+    if key:
+        stamp = int(time.time())
+        message = f"{method}\n{path}\n{stamp}".encode()
+        req.add_header("X-JC-Host-Sig", f"{stamp}.{hmac.new(key, message, hashlib.sha256).hexdigest()}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.status, json.loads(response.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode() or "{}")
+        except Exception:
+            return exc.code, {"error": str(exc)}
+    except Exception as exc:
+        return 0, {"error": str(exc)}
 
 
 def fail(message: str) -> int:
@@ -64,12 +101,23 @@ def pick(wanted: str | None) -> dict | None:
 
 
 def today_for(device: dict) -> str:
-    """The device's own local day, from the offset its last stored day carried."""
+    """The wearer's own local day — the key a day is stored under.
+
+    The zone comes from the integration, which the phone filled in when it
+    registered; the server's own clock may be UTC and would name the wrong day
+    for most of the evening.
+    """
     status, data = request("GET", f"/api/integrations/{device['space_id']}/health/settings")
-    offset = 0
+    zone = ""
     if status == 200:
-        offset = int(((data.get("settings") or {}).get("utc_offset")) or 0)
-    return (datetime.now(timezone.utc) + timedelta(seconds=offset)).strftime("%Y-%m-%d")
+        zone = str((data.get("settings") or {}).get("timezone") or "")
+    now = datetime.now(timezone.utc)
+    if zone:
+        try:
+            return now.astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return now.astimezone().strftime("%Y-%m-%d")
 
 
 def cmd_devices(args) -> int:

@@ -57,9 +57,13 @@ def health(tmp_path, monkeypatch):
 
     from jarvis_health.bootstrap import ensure_wearable_integrations
 
-    space_id = ensure_wearable_integrations(
-        [{"kind": "ring", "device_id": "B6CE93C4-5680", "name": "R12_7E04"}]
-    )[0]
+    space_id = ensure_wearable_integrations([{
+        "kind": "ring",
+        "device_id": "B6CE93C4-5680",
+        "name": "R12_7E04",
+        "bridge_device_id": "iphone-1",
+        "timezone": "America/Chicago",
+    }])[0]
     return space_id
 
 
@@ -77,6 +81,15 @@ def post(path, body):
     handler = FakeHandler()
     claimed = health_routes.handle_post(handler, urlparse(path), body)
     return claimed, handler
+
+
+def test_a_run_without_a_paired_phone_says_so_rather_than_guessing(health):
+    from jarvis_health.store import HealthStore
+
+    HealthStore(health).put_settings({"bridge_device_id": ""})
+    claimed, handler = post(f"/api/integrations/{health}/health/run", {})
+    assert claimed and handler.status == 409
+    assert "phone" in handler.payload["error"]
 
 
 def test_the_phone_can_register_its_wearables_and_repeats_are_idempotent(tmp_path, monkeypatch):
@@ -212,6 +225,7 @@ def test_run_now_reports_what_the_run_did(health, monkeypatch):
     import jarvis_health.runner as runner
 
     monkeypatch.setattr(runner, "run", lambda *a, **k: {"scored_date": "2026-09-17", "stale": False})
+    # The run needs both identities; the roster supplied them.
     claimed, handler = post(f"/api/integrations/{health}/health/run", {"source": "wearable-settings"})
     assert claimed and handler.status == 200
     assert handler.payload["run"]["scored_date"] == "2026-09-17"
@@ -220,3 +234,47 @@ def test_run_now_reports_what_the_run_did(health, monkeypatch):
 def test_an_unknown_space_is_a_404_not_a_crash(health):
     claimed, handler = get("/api/integrations/wearable-ring-nope/health/settings")
     assert claimed and handler.status == 404
+
+
+def test_a_protected_wearable_integration_cannot_be_deleted(health):
+    from api import integrations_routes
+
+    handler = FakeHandler()
+    claimed = integrations_routes.handle_delete(handler, urlparse(f"/api/integrations/{health}"), {})
+    assert claimed
+    assert handler.status == 409
+    assert handler.payload["protected"] is True
+
+    from jarvis_registry.store import shared
+
+    assert shared().exists(health), "the space and its history survive"
+
+
+def test_the_integration_list_says_which_ones_are_protected(health):
+    from api import integrations_routes
+
+    handler = FakeHandler()
+    integrations_routes.handle_get(handler, urlparse("/api/integrations"))
+    rows = {row["id"]: row for row in handler.payload["integrations"]}
+    assert rows[health]["protected"] is True
+    assert rows.get("general", {}).get("protected") in (False, None)
+
+
+def test_health_writes_are_refused_for_a_space_that_is_not_a_wearables(health):
+    from jarvis_registry.store import shared
+
+    shared().space("general", name="General", description="not a wearable")
+
+    claimed, handler = post("/api/integrations/general/health/settings",
+                            {"source": "wearable-settings", "device_id": "PWN", "kind": "ring"})
+    assert claimed and handler.status == 404
+
+    claimed, day = post("/api/integrations/general/health/day", {"day": {"date": "2026-09-17"}})
+    assert claimed and day.status == 404
+
+    claimed, run = post("/api/integrations/general/health/run", {})
+    assert claimed and run.status == 404
+
+    import cron.jobs as jobs
+
+    assert not [j for j in jobs.load_jobs() if j.get("integration") == "general"]

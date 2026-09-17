@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import time
 from datetime import timedelta
@@ -20,6 +21,8 @@ from .rules import evaluate
 from .scoring import activity_score, band, body_score, health_score, recovery_score, sleep_score
 from .sources import SourceUnreachable
 from .store import HealthStore
+
+logger = logging.getLogger(__name__)
 
 
 def local_date(now_utc: str, utc_offset: int) -> str:
@@ -48,8 +51,10 @@ def run(
     stale = False
     day = None
     try:
+        # No date: the phone answers with its own local day, which is the only
+        # place that knows it. A stored zone is only a fallback for display.
         zone = tz or _zone_of(store) or "UTC"
-        day = source.fetch_day(local_date(now, _offset_of(store, zone)), zone)
+        day = source.fetch_day(None, zone)
         store.put_day(day)
     except SourceUnreachable as exc:
         stale = True
@@ -171,33 +176,60 @@ def _offset_of(store: HealthStore, zone: str) -> int:
         return 0
 
 
-def push_alerts(alerts, space_id: str, settings: dict) -> None:
-    """Send what fired. Held alerts wait for the quiet hours to end."""
-    due = [a for a in alerts if not a.hold_until]
+def push_alerts(alerts, space_id: str, settings: dict) -> int:
+    """Send what fired to every paired phone. Returns how many got it.
+
+    Failures are logged rather than swallowed: an alert nobody receives is the
+    whole feature not working, and the silence is what hid it before.
+    """
+    due = [a for a in alerts if not getattr(a, "hold_until", None)]
     if not due:
-        return
+        return 0
     title = "Health alert" if len(due) == 1 else f"{len(due)} health alerts"
     body = " ".join(a.message for a in due)[:300]
-    try:
-        from api import push  # webui's iOS push helper
 
-        push.send_to_all(title=title, body=body, thread=space_id)
-    except Exception:
-        # A missing push path must not fail a run; the alert is already stored.
-        pass
+    try:
+        from api import push as push_mod
+        from api.pairing import list_devices
+    except Exception as exc:
+        logger.warning("health: no push path available (%s); alerts are stored only", exc)
+        return 0
+
+    sent = 0
+    for device in list_devices() or []:
+        token = (device.get("push_token") or "").strip()
+        kind = (device.get("push_kind") or "").strip().lower()
+        if not token or kind != "apns":
+            continue
+        if not (device.get("kind") or "").strip().lower().startswith("mobile"):
+            continue
+        try:
+            result = push_mod.send(kind, token, {"type": "health", "space": space_id},
+                                   alert={"title": title, "body": body})
+            if result.get("ok"):
+                sent += 1
+            else:
+                logger.warning("health: push refused for %s: %s", device.get("id"), result.get("error"))
+        except Exception as exc:
+            logger.warning("health: push failed for %s: %s", device.get("id"), exc)
+    if not sent:
+        logger.warning("health: %d alert(s) fired but no phone received them", len(due))
+    return sent
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run one wearable health analysis.")
     parser.add_argument("--space", required=True, help="registry space id, e.g. wearable-ring-b6ce93c4")
-    parser.add_argument("--device", required=True, help="device id the skills are invoked on")
+    parser.add_argument("--device", required=True, help="the phone the skills are invoked on")
+    parser.add_argument("--wearable", default="", help="the wearable's own id, if it differs")
     parser.add_argument("--kind", default="ring")
     parser.add_argument("--trigger", default="cron")
     args = parser.parse_args(argv)
 
     from .sources import source_for
 
-    out = run(args.space, source_for(args.kind, args.device), trigger=args.trigger)
+    out = run(args.space, source_for(args.kind, args.device, args.wearable or args.device),
+              trigger=args.trigger)
     print(json.dumps(out, indent=2, default=str))
     return 0 if not out.get("error") else 1
 

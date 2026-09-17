@@ -38,22 +38,32 @@ RING_STAGES = {
 
 
 class RingSource:
+    """The ring, reached through the phone it is paired to.
+
+    Two identities, and mixing them up means nothing works: `bridge_device_id`
+    is the *phone* the device bridge routes skills to, while `wearable_id` is
+    the ring's own BLE identifier, which is what `wearables_connect` needs and
+    what the integration's space id is derived from.
+    """
+
     kind = "ring"
 
-    def __init__(self, device_id: str, invoke: Optional[Callable[..., dict]] = None) -> None:
-        self.device_id = device_id
+    def __init__(self, bridge_device_id: str, wearable_id: str = "",
+                 invoke: Optional[Callable[..., dict]] = None) -> None:
+        self.bridge_device_id = bridge_device_id
+        self.wearable_id = wearable_id or bridge_device_id
         self._invoke = invoke or bridge_invoke
 
     # ── plumbing ────────────────────────────────────────────────────────────
     def _call(self, skill: str, args: Optional[dict] = None, timeout: float = 30) -> dict:
-        reply = self._invoke(self.device_id, skill, args or {}, timeout) or {}
+        reply = self._invoke(self.bridge_device_id, skill, args or {}, timeout) or {}
         if not reply.get("ok"):
             return {}
         result = reply.get("result")
         return result if isinstance(result, dict) else {}
 
     def _call_or_raise(self, skill: str, args: Optional[dict] = None, timeout: float = 30) -> dict:
-        reply = self._invoke(self.device_id, skill, args or {}, timeout) or {}
+        reply = self._invoke(self.bridge_device_id, skill, args or {}, timeout) or {}
         if not reply.get("ok"):
             raise SourceUnreachable(reply.get("error") or f"{skill} failed")
         result = reply.get("result")
@@ -64,7 +74,8 @@ class RingSource:
         status = self._call("ring_get_status", timeout=20)
         return {
             "kind": self.kind,
-            "device_id": self.device_id,
+            "device_id": self.wearable_id,
+            "bridge_device_id": self.bridge_device_id,
             "name": status.get("name") or status.get("model") or "Ring",
             "model": status.get("model") or "",
             "firmware": status.get("firmware_version") or "",
@@ -77,22 +88,29 @@ class RingSource:
         status = self._call("ring_get_status", timeout=20)
         return {"percent": status.get("battery_percent"), "charging": bool(status.get("charging"))}
 
-    def fetch_day(self, date: str, tz: str) -> HealthDay:
+    def fetch_day(self, date: Optional[str], tz: str) -> HealthDay:
         """Bring the ring up to date over BLE, then read the day back."""
-        # Connecting is best effort: the link may already be up, and the sync
-        # below is the real test of whether the ring answered.
-        self._invoke(self.device_id, "wearables_connect", {"device_id": self.device_id}, 20)
+        # Best effort: the link may already be up, and the sync below is the
+        # real test of whether the ring answered. The hub's argument is
+        # `wearable_id` — it refuses `device_id`, which the bridge injects.
+        self._invoke(self.bridge_device_id, "wearables_connect", {"wearable_id": self.wearable_id}, 20)
         self._call_or_raise("ring_sync", {"days": 0}, timeout=60)
-        raw = self._call_or_raise("ring_get_health_day", {"date": date}, timeout=40)
-        return day_from_ring_json(raw or {"date": date}, date, raw.get("timezone") or tz)
+        # No date: the phone knows which local day it is, and answers with the
+        # date and zone it used, so the first run cannot ask for a UTC tomorrow.
+        raw = self._call_or_raise("ring_get_health_day", {} if date is None else {"date": date}, timeout=40)
+        answered = raw.get("date") or date or ""
+        return day_from_ring_json(raw or {}, answered, raw.get("timezone") or tz)
 
     def backfill(self, days: int) -> list[HealthDay]:
+        """Whatever history the phone still holds, in one window.
+
+        `ring_get_history` takes a day count and no cursor, so asking twice
+        returns the same window — there is no paging to do, only a cap.
+        """
         out: list[HealthDay] = []
-        remaining = max(1, days)
-        while remaining > 0:
-            chunk = min(HISTORY_CHUNK, remaining)
-            history = self._call("ring_get_history", {"days": chunk}, timeout=90)
-            rows = history.get("days") or []
+        history = self._call("ring_get_history", {"days": min(HISTORY_CHUNK, max(1, days))}, timeout=90)
+        rows = history.get("days") or []
+        if True:
             for row in rows:
                 date = row.get("date")
                 if not date:
@@ -108,9 +126,6 @@ class RingSource:
                     source=self.kind,
                 )
                 out.append(day)
-            if len(rows) < chunk:
-                break
-            remaining -= chunk
         return out
 
 
