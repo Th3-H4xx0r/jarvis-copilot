@@ -30,6 +30,8 @@ final class RingSync: ObservableObject {
 
     private let session: RingSession
     private let storeProvider: () -> RingHistoryStore?
+    /// The ring this sync belongs to, for the server's space id. Set by the manager.
+    var deviceIDForHealth: String?
     private var running: (id: UUID, days: Int, task: Task<RingSyncReport, Never>)?
     private var pendingMetrics = Set<RingMetric>()
     private var metricDebounce: Task<Void, Never>?
@@ -207,6 +209,11 @@ final class RingSync: ObservableObject {
         }
         if days >= historyDays { store.prune(now: today, calendar: calendar) }
         lastReport = report
+        // The server is the record; hand it every day this sync touched.
+        if !report.updated.isEmpty {
+            let keys = Set(historyWanted.map { dayKey($0, today) })
+            Task { [weak self] in await self?.pushDays(keys) }
+        }
         return report
     }
 
@@ -351,6 +358,27 @@ final class RingSync: ObservableObject {
                   series.values.contains(where: { $0 > 0 }) else { continue }
             store.update(dayKey(daysAgo, now)) { day in
                 if hrv { day.hrv = series } else { day.stress = series }
+            }
+        }
+    }
+
+    /// Hand the server every day this sync touched.
+    ///
+    /// The server is the system of record; this phone's store is the offline
+    /// copy. Best effort on purpose: a day it misses is picked up by the next
+    /// scheduled run, which reads the same history back off the phone.
+    private func pushDays(_ keys: Set<String>) async {
+        guard let deviceID = deviceIDForHealth, !keys.isEmpty else { return }
+        let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
+        guard let store = storeProvider() else { return }
+        for key in keys.sorted() {
+            let day = store.day(key)
+            guard day.syncedAt != nil else { continue }
+            do {
+                try await client.pushDay(HealthDayPayload.make(day, key: key, battery: session.battery))
+            } catch {
+                JcLog.devices.notice("ring: could not push \(key, privacy: .public) to the server")
+                return
             }
         }
     }

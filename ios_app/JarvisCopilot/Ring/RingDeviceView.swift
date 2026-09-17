@@ -12,12 +12,14 @@ struct RingDeviceView: View {
     @State private var showingSettings = false
     @State private var findToken = 0
     @State private var actionError: String?
+    @StateObject private var health: HealthStore
 
     init(manager: RingManager, ring: DiscoveredRing) {
         self.manager = manager
         self.ring = ring
         _session = ObservedObject(wrappedValue: manager.session)
         _sync = ObservedObject(wrappedValue: manager.sync)
+        _health = StateObject(wrappedValue: HealthStore(spaceID: HealthSpace.id(forRing: manager.deviceID ?? ring.id.uuidString)))
     }
 
     private var ready: Bool { manager.state == .ready }
@@ -29,6 +31,7 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
+                healthCard
                 actions
                 if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
@@ -40,7 +43,8 @@ struct RingDeviceView: View {
                 }
                 dayPicker
                 if let store = manager.store {
-                    RingStatsSections(store: store, dayKey: dayKey, capabilities: session.capabilities)
+                    RingStatsSections(store: store, dayKey: dayKey, capabilities: session.capabilities,
+                                      scores: health.scores(for: dayKey))
                 } else {
                     CardGroup {
                         Row { Text("Connect the ring once to start collecting its data.").foregroundStyle(.secondary) }
@@ -51,7 +55,11 @@ struct RingDeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .refreshable { await sync.sync(days: dayOffset) }
+        .refreshable {
+            await sync.sync(days: dayOffset)
+            await health.refresh(date: dayKey)
+        }
+        .task(id: dayKey) { await health.refresh(date: dayKey) }
         .navigationTitle(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name))
         .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name)) {
             WearableNames.shared.rename(WearableKeepAlive.ring, to: $0)
@@ -78,6 +86,31 @@ struct RingDeviceView: View {
             }
             WearableMoreMenu { renaming = true }
         }
+    }
+
+    private var healthCard: some View {
+        HealthScoreCard(scores: health.scores(for: dayKey),
+                        stale: health.isStale(dayKey),
+                        age: health.age(of: dayKey),
+                        isRefreshing: health.isRefreshing) {
+            askJarvisAboutTheDay()
+        }
+    }
+
+    /// Open a chat about this day, with the numbers already in the question so
+    /// the model is reading the same figures the card is showing.
+    private func askJarvisAboutTheDay() {
+        guard let scores = health.scores(for: dayKey) else { return }
+        var lines = ["About my ring data for \(scores.date):"]
+        if let value = scores.health.value { lines.append("health \(value) (\(scores.health.band))") }
+        for part in scores.parts where part.score.value != nil {
+            lines.append("\(part.name.lowercased()) \(part.score.value!)")
+        }
+        if let worst = scores.biggestLoss {
+            lines.append("biggest loss: \(worst.name) — \(worst.detail)")
+        }
+        lines.append("What stands out, and what should I watch?")
+        ChatLaunchBus.shared.request(lines.joined(separator: "\n"))
     }
 
     // MARK: Hero

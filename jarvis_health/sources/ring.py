@@ -10,6 +10,10 @@ from typing import Any, Callable, Optional
 
 from ..bridge import invoke as bridge_invoke
 from ..metrics import (
+    STAGE_AWAKE,
+    STAGE_DEEP,
+    STAGE_LIGHT,
+    STAGE_REM,
     HealthDay,
     Series,
     SleepSession,
@@ -21,6 +25,16 @@ from . import SourceUnreachable
 
 #: `ring_get_history` takes at most 30 days in one call.
 HISTORY_CHUNK = 30
+
+#: The ring's own stage codes onto the SDK's. Getting this backwards would swap
+#: deep and light sleep and silently wreck every sleep score, so it is a table
+#: rather than an assumption: the device numbering lives here and nowhere else.
+RING_STAGES = {
+    2: STAGE_LIGHT,
+    3: STAGE_DEEP,
+    4: STAGE_REM,
+    5: STAGE_AWAKE,
+}
 
 
 class RingSource:
@@ -69,8 +83,8 @@ class RingSource:
         # below is the real test of whether the ring answered.
         self._invoke(self.device_id, "wearables_connect", {"device_id": self.device_id}, 20)
         self._call_or_raise("ring_sync", {"days": 0}, timeout=60)
-        raw = self._call_or_raise("ring_get_day", {"date": date}, timeout=30)
-        return self._day_from(raw or {"date": date}, date, tz)
+        raw = self._call_or_raise("ring_get_health_day", {"date": date}, timeout=40)
+        return day_from_ring_json(raw or {"date": date}, date, raw.get("timezone") or tz)
 
     def backfill(self, days: int) -> list[HealthDay]:
         out: list[HealthDay] = []
@@ -99,10 +113,6 @@ class RingSource:
             remaining -= chunk
         return out
 
-    # ── mapping ─────────────────────────────────────────────────────────────
-    def _day_from(self, raw: dict, date: str, tz: str) -> HealthDay:
-        return day_from_ring_json(raw, date, tz)
-
 
 def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
     """The ring skills' day JSON as a HealthDay.
@@ -129,7 +139,7 @@ def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
         if not isinstance(night, dict):
             continue
         stages = [
-            (int(s.get("stage", 0)), int(s.get("minutes", 0)))
+            (RING_STAGES.get(int(s.get("stage", 0)), 0), int(s.get("minutes", 0)))
             for s in (night.get("stages") or [])
             if isinstance(s, dict)
         ]
@@ -157,16 +167,17 @@ def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
         source="ring",
     )
 
+
 def _spo2(payload: Any, midnight: str) -> Optional[Series]:
-        """The ring reports SpO₂ as hourly min/max; a score wants one number."""
-        if not isinstance(payload, dict):
-            return None
-        if isinstance(payload.get("values"), list) and payload["values"]:
-            return Series(start=midnight, interval_minutes=60, values=[float(v or 0) for v in payload["values"]])
-        lows = payload.get("min") or []
-        highs = payload.get("max") or []
-        if not lows and not highs:
-            return None
-        pairs = list(zip(lows, highs)) if lows and highs else [(v, v) for v in (lows or highs)]
-        values = [((float(lo) + float(hi)) / 2 if lo and hi else float(lo or hi or 0)) for lo, hi in pairs]
-        return Series(start=midnight, interval_minutes=60, values=values)
+    """The ring reports SpO₂ as hourly min/max; a score wants one number."""
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("values"), list) and payload["values"]:
+        return Series(start=midnight, interval_minutes=60, values=[float(v or 0) for v in payload["values"]])
+    lows = payload.get("min") or []
+    highs = payload.get("max") or []
+    if not lows and not highs:
+        return None
+    pairs = list(zip(lows, highs)) if lows and highs else [(v, v) for v in (lows or highs)]
+    values = [((float(lo) + float(hi)) / 2 if lo and hi else float(lo or hi or 0)) for lo, hi in pairs]
+    return Series(start=midnight, interval_minutes=60, values=values)

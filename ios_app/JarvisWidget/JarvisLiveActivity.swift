@@ -208,6 +208,10 @@ struct JarvisWidgetBundle: WidgetBundle {
         // Dynamic Island / Lock Screen Live Activity.
         JarvisLiveActivity()
         JarvisStopwatchActivity()
+        // Ring health: any of the server's scores on the home or lock screen.
+        if #available(iOS 17.0, *) {
+            HealthWidget()
+        }
         // AlarmKit alarm / timer countdown (iOS 26+). The type only exists
         // when the SDK has AlarmKit, so the availability check is not enough.
         #if canImport(AlarmKit)

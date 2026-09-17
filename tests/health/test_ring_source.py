@@ -1,16 +1,24 @@
 """The ring adapter: skill JSON in, a HealthDay out."""
 import pytest
 
+from jarvis_health.metrics import STAGE_AWAKE, STAGE_DEEP, STAGE_LIGHT
 from jarvis_health.sources import ELIGIBLE_KINDS, SourceUnreachable
 from jarvis_health.sources.ring import RingSource
 
+# The ring's own stage codes: 2 light, 3 deep, 4 REM, 5 awake.
 DAY = {
     "date": "2026-09-17",
+    "timezone": "America/Chicago",
     "sleep": [
         {
             "start": "2026-09-17T05:23:00Z",
             "end": "2026-09-17T11:59:00Z",
-            "stages": [{"stage": 2, "minutes": 68}, {"stage": 3, "minutes": 273}, {"stage": 4, "minutes": 48}],
+            "stages": [
+                {"stage": 3, "minutes": 68},
+                {"stage": 2, "minutes": 273},
+                {"stage": 4, "minutes": 48},
+                {"stage": 5, "minutes": 7},
+            ],
         }
     ],
     "heart_rate": {"interval_minutes": 5, "values": [0, 70, 72]},
@@ -40,15 +48,19 @@ def test_ring_source_maps_skill_json_onto_a_health_day():
     src = RingSource("dev-1", invoke=fake_invoke({
         "wearables_connect": {"ok": True, "result": {"connected": True}},
         "ring_sync": {"ok": True, "result": {"updated": ["sleep"]}},
-        "ring_get_day": {"ok": True, "result": DAY},
+        "ring_get_health_day": {"ok": True, "result": DAY},
     }))
     day = src.fetch_day("2026-09-17", "America/Chicago")
 
     assert day.date == "2026-09-17"
     assert day.timezone == "America/Chicago"
     assert day.utc_offset == -18000
-    assert day.main_sleep.stage_minutes(2) == 68
+    # Translated onto the SDK's vocabulary: the ring's 3 is deep, its 2 is light.
+    assert day.main_sleep.stage_minutes(STAGE_DEEP) == 68
+    assert day.main_sleep.stage_minutes(STAGE_LIGHT) == 273
+    assert day.main_sleep.stage_minutes(STAGE_AWAKE) == 7
     assert day.main_sleep.asleep_minutes == 389
+    assert day.main_sleep.awakenings == 1
     assert day.heart_rate.interval_minutes == 5
     assert day.heart_rate.start == "2026-09-17T05:00:00Z"
     assert day.hrv.values == [40, 44]
@@ -63,7 +75,7 @@ def test_a_ring_that_cannot_be_reached_is_unreachable_not_an_empty_day():
     src = RingSource("dev-1", invoke=fake_invoke({
         "wearables_connect": {"ok": False, "error": "not connected"},
         "ring_sync": {"ok": False, "error": "ring is not connected over Bluetooth"},
-        "ring_get_day": {"ok": False, "error": "not connected"},
+        "ring_get_health_day": {"ok": False, "error": "not connected"},
     }))
     with pytest.raises(SourceUnreachable):
         src.fetch_day("2026-09-17", "America/Chicago")
@@ -72,7 +84,7 @@ def test_a_ring_that_cannot_be_reached_is_unreachable_not_an_empty_day():
 def test_a_ring_that_answers_without_data_still_gives_a_day():
     src = RingSource("dev-1", invoke=fake_invoke({
         "ring_sync": {"ok": True, "result": {}},
-        "ring_get_day": {"ok": True, "result": {"date": "2026-09-17"}},
+        "ring_get_health_day": {"ok": True, "result": {"date": "2026-09-17"}},
     }))
     day = src.fetch_day("2026-09-17", "America/Chicago")
     assert day.has("sleep") is False

@@ -61,6 +61,14 @@ final class ColmiR12: WearableDevice {
                     + "measurement, and today's summary. Works while the ring is away (cached).",
                 inputSchema: DeviceCapability.schema()),
             DeviceCapability(
+                name: "ring_get_health_day",
+                description: "One local day of this ring's data in the health SDK's wire shape — "
+                    + "sleep sessions with stages, heart-rate/HRV/stress/temperature series, hourly SpO₂, "
+                    + "activity totals, spot measurements and the battery.",
+                inputSchema: DeviceCapability.schema([
+                    "date": ["type": "string", "description": "YYYY-MM-DD, default today."],
+                ])),
+            DeviceCapability(
                 name: "ring_get_day",
                 description: "One day of ring data — steps, calories, distance, sleep stages, heart rate, SpO₂, "
                     + "HRV, stress, temperature — as a summary, plus full series when detail is true. Syncs "
@@ -216,6 +224,7 @@ final class ColmiR12: WearableDevice {
         switch name {
         case "ring_get_status": return status()
         case "ring_get_day": return try await day(args)
+        case "ring_get_health_day": return try await healthDay(args)
         case "ring_get_history": return try history(args)
         case "ring_sync": return try await syncNow(args)
         case "ring_measure": return try await measure(args)
@@ -314,6 +323,21 @@ final class ColmiR12: WearableDevice {
         if let synced = value.syncedAt { out["synced_at"] = iso(synced) }
         if detail { out["detail"] = detailJSON(value, metrics: metrics) }
         return out
+    }
+
+    /// A day in the health SDK's wire shape, synced first when it is today's.
+    private func healthDay(_ args: [String: Any]) async throws -> [String: Any] {
+        let key = (args["date"] as? String)?.trimmingCharacters(in: .whitespaces) ?? RingDates.dayKey(Date())
+        guard let daysAgo = RingDates.daysAgo(key: key) else {
+            throw DeviceError.badArgument("'date' must be YYYY-MM-DD")
+        }
+        guard let store = backend.store else {
+            throw DeviceError.notConnected
+        }
+        if (0...backend.sync.historyDays).contains(daysAgo), backend.isConnected, backend.sync.isStale {
+            _ = await runBounded(25) { [backend] in _ = await backend.sync.sync(days: daysAgo) }
+        }
+        return HealthDayPayload.make(store.day(key), key: key, battery: session.battery)
     }
 
     /// The decoded log, so gesture behaviour can be read from here rather than relayed by hand.

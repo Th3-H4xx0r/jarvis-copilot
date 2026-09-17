@@ -6,6 +6,7 @@ struct RingSettingsView: View {
     @ObservedObject private var session: RingSession
     @StateObject private var bridge = BridgeClient.shared
     @StateObject private var flasher = RingFirmwareFlasher()
+    @StateObject private var health: HealthStore
 
     @State private var error: String?
     @State private var working = false
@@ -39,6 +40,8 @@ struct RingSettingsView: View {
     init(manager: RingManager) {
         self.manager = manager
         _session = ObservedObject(wrappedValue: manager.session)
+        _health = StateObject(wrappedValue: HealthStore(
+            spaceID: HealthSpace.id(forRing: manager.deviceID ?? "unknown")))
     }
 
     private var ready: Bool { manager.state == .ready }
@@ -55,6 +58,7 @@ struct RingSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 sharing
+                healthSection
                 monitoring
                 if let inputs = manager.inputs {
                     RingInputsSection(store: inputs, ready: ready, lastInput: session.lastInput,
@@ -211,6 +215,12 @@ struct RingSettingsView: View {
                 Text(minutes == 0 ? "—" : "\(minutes) min").tag(minutes)
             }
         }
+    }
+
+    // MARK: Health
+
+    private var healthSection: some View {
+        HealthSettingsSection(health: health, today: RingDates.dayKey(Date()))
     }
 
     // MARK: Goals & profile

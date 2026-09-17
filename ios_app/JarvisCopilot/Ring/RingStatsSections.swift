@@ -6,6 +6,16 @@ struct RingStatsSections: View {
     @ObservedObject var store: RingHistoryStore
     let dayKey: String
     let capabilities: RingCapabilities
+    /// The server's scores for this day, when it has any: the sleep card shows
+    /// the score and what each contributor earned. Nothing is computed here.
+    var scores: HealthScores?
+
+    init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil) {
+        self.store = store
+        self.dayKey = dayKey
+        self.capabilities = capabilities
+        self.scores = scores
+    }
 
     var body: some View {
         let day = store.day(dayKey)
@@ -23,9 +33,7 @@ struct RingStatsSections: View {
                        format: { "\(Int($0.rounded())) ms" })
             }
             if capabilities.stress || day.stress != nil {
-                series("Stress", unit: "", color: JcTheme.amber, values: day.stress, extra: [],
-                       stats: [("Latest", summary.stressLatest.map(String.init)), ("Average", summary.stressAvg.map(String.init))],
-                       format: { "\(Int($0.rounded()))" })
+                stress(day, summary)
             }
             if capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty {
                 series("Temperature", unit: "°C", color: .orange, values: day.temperature, extra: day.instantTemperature,
@@ -88,6 +96,10 @@ struct RingStatsSections: View {
                 RingStat(label: "REM", value: s.remMinutes.map(duration)),
                 RingStat(label: "Awake", value: s.awakeMinutes.map(duration)),
                 RingStat(label: "Naps", value: day.naps.isEmpty ? nil : String(day.naps.count)),
+                RingStat(label: "In bed", value: night.map { duration($0.stages.reduce(0) { $0 + $1.minutes }) }),
+                RingStat(label: "Efficiency", value: efficiency(night)),
+                RingStat(label: "Awakenings", value: night.map { String($0.stages.filter { $0.stage == RingSleepStage.awake }.count) }),
+                RingStat(label: "Sleep score", value: scores?.sleep.value.map { "\($0) · \(scores?.sleep.band ?? "")" }),
             ],
             emptyText: night == nil ? noNight : nil,
             readout: { (date: Date) -> RingScrubReadout? in
@@ -102,6 +114,10 @@ struct RingStatsSections: View {
                     Text("\(time(night.start)) – \(time(night.end))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    RingDonut(slices: stageSlices(night))
+                    if let sleep = scores?.sleep, !sleep.points.isEmpty {
+                        contributions(sleep)
+                    }
                     Chart {
                         ForEach(stageSegments(night)) { segment in
                             BarMark(xStart: .value("Start", segment.start), xEnd: .value("End", segment.end),
@@ -285,6 +301,98 @@ struct RingStatsSections: View {
                 }
             }
         }
+    }
+
+    /// Stress with the bands the ring's own app uses: the chart coloured by band,
+    /// and how much of the day sat in each.
+    private func stress(_ day: RingDay, _ s: RingDaySummary) -> some View {
+        let readings = timed(day.stress)
+        let shares = StressBand.shares(of: day.stress)
+        let latest = s.stressLatest
+        return RingMetricCard(
+            title: "Stress",
+            headline: RingStat(label: "Latest", value: latest.map { "\($0) · \(StressBand.of(Double($0)).label)" }),
+            details: [
+                RingStat(label: "Average", value: s.stressAvg.map(String.init)),
+                RingStat(label: "Lowest", value: readings.map { Int($0.value) }.min().map(String.init)),
+                RingStat(label: "Highest", value: readings.map { Int($0.value) }.max().map(String.init)),
+                RingStat(label: "Sample interval", value: day.stress.map { "\($0.intervalMinutes) min" }),
+            ],
+            emptyText: readings.isEmpty ? "No stress readings for this day" : nil,
+            readout: { (hour: Double) -> RingScrubReadout? in
+                guard let reading = RingChartScrub.nearest(readings, hour: hour, toleranceMinutes: 30) else { return nil }
+                let band = StressBand.of(reading.value)
+                return RingScrubReadout(value: "\(Int(reading.value.rounded())) · \(band.label)",
+                                        caption: RingChartScrub.clock(minute: reading.minute))
+            }
+        ) { selected, selection in
+            VStack(alignment: .leading, spacing: 10) {
+                Chart {
+                    ForEach(StressBand.allCases) { band in
+                        RectangleMark(
+                            xStart: .value("Start", 0.0), xEnd: .value("End", 24.0),
+                            yStart: .value("Low", band.range.lowerBound), yEnd: .value("High", band.range.upperBound)
+                        )
+                        .foregroundStyle(band.color.opacity(0.07))
+                    }
+                    ForEach(readings, id: \.minute) { reading in
+                        BarMark(x: .value("Hour", Double(reading.minute) / 60),
+                                y: .value("Stress", reading.value), width: 3)
+                            .foregroundStyle(StressBand.of(reading.value).color)
+                    }
+                    if let selected { RingScrubRule(x: selected) }
+                }
+                .chartYScale(domain: 0...100)
+                .chartXScale(domain: 0.0...24.0)
+                .chartXAxis { hourAxis }
+                .chartXSelection(value: selection)
+                .frame(height: 130)
+
+                RingDonut(slices: shares.map {
+                    RingDonut.Slice(label: $0.band.label, value: $0.percent, color: $0.band.color,
+                                    detail: $0.minutes > 0 ? "\($0.minutes)m" : "")
+                }, lineWidth: 12, diameter: 84)
+            }
+        }
+    }
+
+    /// What each contributor earned, so a score reads as a reason not a verdict.
+    private func contributions(_ part: ScorePart) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(part.points) { point in
+                HStack(spacing: 8) {
+                    Text(point.name).font(.caption2).foregroundStyle(.secondary)
+                    Spacer(minLength: 6)
+                    if !point.detail.isEmpty {
+                        Text(point.detail).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Text("\(Int(point.earned.rounded()))/\(Int(point.possible))")
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(point.lost > point.possible / 2 ? JcTheme.amber : .secondary)
+                }
+            }
+        }
+    }
+
+    private func stageSlices(_ night: RingSleepSession) -> [RingDonut.Slice] {
+        let pairs: [(String, Int, Color)] = [
+            ("Deep", night.minutes(of: RingSleepStage.deep), JcTheme.primaryBlue),
+            ("Light", night.minutes(of: RingSleepStage.light), JcTheme.accent),
+            ("REM", night.minutes(of: RingSleepStage.rem), JcTheme.accentAlt),
+            ("Awake", night.minutes(of: RingSleepStage.awake), .orange),
+        ]
+        return pairs.compactMap { name, minutes, color in
+            minutes > 0 ? RingDonut.Slice(label: name, value: Double(minutes), color: color,
+                                          detail: duration(minutes)) : nil
+        }
+    }
+
+    private func efficiency(_ night: RingSleepSession?) -> String? {
+        guard let night else { return nil }
+        let inBed = night.stages.reduce(0) { $0 + $1.minutes }
+        guard inBed > 0 else { return nil }
+        return "\(Int((Double(night.asleepMinutes) / Double(inBed) * 100).rounded()))%"
     }
 
     // MARK: Helpers

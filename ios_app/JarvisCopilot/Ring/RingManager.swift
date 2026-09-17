@@ -33,7 +33,11 @@ final class RingManager: NSObject, ObservableObject {
     }
 
     let session = RingSession()
-    private(set) lazy var sync = RingSync(session: session, store: { [weak self] in self?.store })
+    private(set) lazy var sync: RingSync = {
+        let sync = RingSync(session: session, store: { [weak self] in self?.store })
+        sync.deviceIDForHealth = deviceID
+        return sync
+    }()
 
     /// True while a ring screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {
@@ -316,7 +320,10 @@ final class RingManager: NSObject, ObservableObject {
         state = .ready
         UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastPeripheralKey)
         publishToRegistry()
-        if let id = deviceID { session.loadCache(deviceID: id) }
+        if let id = deviceID {
+            session.loadCache(deviceID: id)
+            sync.deviceIDForHealth = id
+        }
         setupTask?.cancel()
         setupTask = Task { [weak self] in
             guard let self else { return }
@@ -353,7 +360,10 @@ final class RingManager: NSObject, ObservableObject {
             guard WearableIdentity.remembered(WearableKeepAlive.ring) != nil else { return }
             exposedDevice = ColmiR12(manager: self)
         }
-        if let id = deviceID { session.loadCache(deviceID: id) }
+        if let id = deviceID {
+            session.loadCache(deviceID: id)
+            sync.deviceIDForHealth = id
+        }
         refreshRegistryMembership()
     }
 
