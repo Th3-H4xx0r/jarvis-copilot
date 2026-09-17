@@ -35,7 +35,10 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                healthCard
+                // Which day, then what you can do, then the day's data: the
+                // picker decides what every card below it is showing, so it
+                // belongs above them rather than buried among them.
+                dayPicker
                 actions
                 if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
@@ -45,7 +48,7 @@ struct RingDeviceView: View {
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                dayPicker
+                healthCard
                 if let store = manager.store {
                     RingStatsSections(store: store, dayKey: dayKey, capabilities: session.capabilities,
                                       scores: health.scores(for: dayKey))
