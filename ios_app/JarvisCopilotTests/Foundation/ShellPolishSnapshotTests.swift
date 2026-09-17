@@ -257,9 +257,12 @@ final class ShellPolishSnapshotTests: XCTestCase {
     }
 
     /// Coding's Launch capsule is its bottom-most control, and the same blue.
+    ///
+    /// Reached through the More grid now rather than a tab of its own — which is
+    /// also the point: a pushed screen still has to clear the pill.
     func testCodingLaunchButtonSitsJustAboveTheNavPill() {
         let router = AppRouter()
-        router.selectedTab = .coding
+        router.openMore(.coding)
         let harness = polishShell(router)
         harness.settle(0.8)
         let image = harness.snapshot("coding-in-shell")

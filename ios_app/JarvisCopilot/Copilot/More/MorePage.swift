@@ -65,6 +65,8 @@ struct MorePage: View {
             CodeMemoryPage()
         case .kanban:
             KanbanPage()
+        case .coding:
+            CodingPage()
         case .skills:
             SkillsPage()
         case .workspaces:

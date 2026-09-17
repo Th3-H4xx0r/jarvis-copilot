@@ -79,10 +79,13 @@ final class AppDeepLinkTests: XCTestCase {
         XCTAssertNil(targets.consumeChat(), "the latch is taken exactly once")
     }
 
-    func testCodingLinkSelectsTheTabAndLatchesTheSession() {
+    /// Coding moved into the More grid, so the link has to open More AND ask for
+    /// the Coding screen — selecting the tab alone would land on the grid.
+    func testCodingLinkOpensTheCodingScreenInMoreAndLatchesTheSession() {
         let (deepLinks, appRouter, targets) = router()
         XCTAssertTrue(deepLinks.open(.coding(session: "s1")))
-        XCTAssertEqual(appRouter.selectedTab, .coding)
+        XCTAssertEqual(appRouter.selectedTab, .more)
+        XCTAssertEqual(appRouter.consumeMoreDestination(), .coding)
         XCTAssertEqual(targets.consumeCoding(), "s1")
     }
 

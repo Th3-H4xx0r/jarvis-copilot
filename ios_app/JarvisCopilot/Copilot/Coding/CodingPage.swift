@@ -4,12 +4,16 @@ import SwiftUI
 /// Port of `pages/coding_page.dart`'s shell — the Projects→Sessions fleet, the
 /// approval banner, the launch/project sheets, and the push into one session.
 ///
-/// Every tab stays alive for the life of the shell, so all network work is gated
-/// on `router.selectedTab == .coding && scenePhase == .active` (the Flutter
-/// build's `activeTabIndex` + `AppLifecycle.isForeground` gate). Where Flutter
-/// swapped the body between list and detail, this pushes a real screen so the
-/// system back gesture works — the selection still lives in the store, so the
-/// detail poll and the terminal attach/detach behave exactly as before.
+/// Pushed from the More grid, so it brings no `NavigationStack` of its own —
+/// a stack nested inside More's swallows the push entirely and leaves the grid's
+/// tiles dead when you come back (see `SkillsPage`, which had the same bug).
+///
+/// Every screen stays alive for the life of the shell, so all network work is
+/// gated rather than torn down. The gate is three things: the More tab is the
+/// selected one, this screen is the one showing inside it, and the app is
+/// foreground. Tab selection alone is not enough now — More's grid is also the
+/// More tab — and being on screen alone is not either, since a pushed screen
+/// gets no `onDisappear` when you switch tabs away from underneath it.
 struct CodingPage: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
@@ -20,6 +24,8 @@ struct CodingPage: View {
     @State private var launch: CodingLaunchTarget?
     @State private var newProject = false
     @State private var projectSettings: CodingProject?
+    /// Whether this screen, rather than the More grid, is what More is showing.
+    @State private var onScreen = false
 
     /// `store` is injectable for tests; the production path builds one whose
     /// visibility closure reads `flag`, which the view keeps in step with the
@@ -32,36 +38,37 @@ struct CodingPage: View {
         })
     }
 
-    private var visible: Bool { router.selectedTab == .coding && scenePhase == .active }
+    /// See the note above: all three, or the polls run behind another tab.
+    private var visible: Bool {
+        router.selectedTab == .more && onScreen && scenePhase == .active
+    }
 
     private var visibility: CodingVisibility { CodingVisibility(flag: flag, store: store) }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                CodingApprovalBanner(store: store)
-                if let error = store.error, !store.sessions.isEmpty {
-                    CodingInlineError(message: error).padding(.horizontal, 16).padding(.top, 8)
-                }
-                CodingFleetList(
-                    store: store,
-                    usage: usage,
-                    onSelect: { id in Task { await store.select(id) } },
-                    onResume: { id in await resume(id) },
-                    onNewSession: { launch = .project($0) },
-                    onProjectSettings: { projectSettings = $0 })
+        VStack(spacing: 0) {
+            CodingApprovalBanner(store: store)
+            if let error = store.error, !store.sessions.isEmpty {
+                CodingInlineError(message: error).padding(.horizontal, 16).padding(.top, 8)
             }
-            .overlay(alignment: .bottomTrailing) { actionButtons }
-            .jcScreen("Coding")
-            .toolbar { toolbar }
-            .navigationDestination(item: Binding(
-                get: { store.selectedId },
-                // Swiping back is a deselect: it hands the single-viewer PTY
-                // back and stops the detail poll.
-                set: { if $0 == nil { store.deselect() } })) { id in
-                    CodingSessionRoute(sessionId: id, coding: store)
-                }
+            CodingFleetList(
+                store: store,
+                usage: usage,
+                onSelect: { id in Task { await store.select(id) } },
+                onResume: { id in await resume(id) },
+                onNewSession: { launch = .project($0) },
+                onProjectSettings: { projectSettings = $0 })
         }
+        .overlay(alignment: .bottomTrailing) { actionButtons }
+        .jcScreen("Coding")
+        .toolbar { toolbar }
+        .navigationDestination(item: Binding(
+            get: { store.selectedId },
+            // Swiping back is a deselect: it hands the single-viewer PTY
+            // back and stops the detail poll.
+            set: { if $0 == nil { store.deselect() } })) { id in
+                CodingSessionRoute(sessionId: id, coding: store)
+            }
         .sheet(item: $launch) { target in
             CodingLaunchSheet(store: store, project: target.project)
         }
@@ -75,7 +82,11 @@ struct CodingPage: View {
             visibility.set(isVisible)
             if isVisible { Task { await appear() } }
         }
-        .onDisappear { visibility.set(false) }
+        .onAppear { onScreen = true }
+        .onDisappear {
+            onScreen = false
+            visibility.set(false)
+        }
         .onChange(of: DeepLinkTargets.shared.generation, initial: true) { _, _ in
             if let id = DeepLinkTargets.shared.consumeCoding() {
                 Task { await store.select(id) }

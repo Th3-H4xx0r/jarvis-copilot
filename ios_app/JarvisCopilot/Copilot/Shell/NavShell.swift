@@ -83,7 +83,6 @@ struct NavShell: View {
         case .voice:   VoicePage()
         case .integrations: IntegrationsPage()
         case .devices: DevicesPage()
-        case .coding:  CodingPage()
         case .more:    MorePage()
         }
     }

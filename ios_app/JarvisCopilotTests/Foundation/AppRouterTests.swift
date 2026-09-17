@@ -12,8 +12,8 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(router.voiceLaunchGeneration, 0)
     }
 
-    func testSixTabsInFlutterOrder() {
-        XCTAssertEqual(AppTab.allCases, [.chat, .voice, .integrations, .devices, .coding, .more])
+    func testFiveTabsInFlutterOrder() {
+        XCTAssertEqual(AppTab.allCases, [.chat, .voice, .integrations, .devices, .more])
         for tab in AppTab.allCases {
             XCTAssertFalse(tab.title.isEmpty, "\(tab) has no title")
             XCTAssertFalse(tab.symbol.isEmpty, "\(tab) has no symbol")
@@ -125,9 +125,16 @@ final class GlassNavBarLayoutTests: XCTestCase {
         }
     }
 
-    /// Six slots is what the arithmetic above assumes.
-    func testTheBarStillHasSixTabs() {
-        XCTAssertEqual(AppTab.allCases.count, 6)
+    /// The slot arithmetic above divides by this, so a tab arriving or leaving
+    /// has to come past the label-fit test.
+    func testTheBarStillHasFiveTabs() {
+        XCTAssertEqual(AppTab.allCases.count, 5)
+    }
+
+    /// Coding lives in the More grid now, not the bar.
+    func testCodingIsAMoreDestinationAndNotATab() {
+        XCTAssertFalse(AppTab.allCases.contains { $0.rawValue == "coding" })
+        XCTAssertTrue(MoreDestination.allCases.contains(.coding))
     }
 
 }

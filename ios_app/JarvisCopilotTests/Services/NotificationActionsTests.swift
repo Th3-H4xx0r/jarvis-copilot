@@ -120,7 +120,9 @@ final class NotificationActionsTests: XCTestCase {
         await handler.handle(NotificationAction(verdict: .open, requestID: "req-4",
                                                 sessionID: "sess-4", text: ""))
         XCTAssertTrue(transport.requests.isEmpty, "the in-app card takes the verdict")
-        XCTAssertEqual(router.selectedTab, .coding)
+        XCTAssertEqual(router.selectedTab, .more)
+        XCTAssertEqual(router.consumeMoreDestination(), .coding,
+                       "a tapped approval must land on Coding, not the More grid")
     }
 
     func testADeferredActionTapEnqueuesTheSkill() async {

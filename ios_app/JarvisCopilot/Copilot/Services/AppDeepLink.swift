@@ -119,7 +119,7 @@ struct AppDeepLinkRouter {
             targets.requestChat(session: session)
             return true
         case .coding(let session):
-            router.selectedTab = .coding
+            router.openMore(.coding)
             targets.requestCoding(session: session)
             return true
         case .island:

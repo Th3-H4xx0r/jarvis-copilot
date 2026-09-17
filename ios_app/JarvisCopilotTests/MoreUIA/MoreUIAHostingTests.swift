@@ -377,7 +377,14 @@ final class MoreUIAHostingTests: XCTestCase {
 @MainActor
 func moreUIAHost(_ view: some View, file: StaticString = #filePath, line: UInt = #line) {
     let frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-    let controller = UIHostingController(rootView: NavigationStack { view })
+    // The router goes on the WRAPPING stack, not on `view`. This helper presents
+    // destinations from its own NavigationStack, so a screen pushed out of a
+    // MorePage inside it is hosted as a sibling of `view` and never sees
+    // modifiers applied to `view` — which is how CodingPage, whose
+    // `@Environment(AppRouter.self)` is not optional, trapped here while being
+    // perfectly safe in the app (RootView injects the router above NavShell).
+    let controller = UIHostingController(
+        rootView: NavigationStack { view }.environment(AppRouter()))
     let window = UIWindow(frame: frame)
     window.rootViewController = controller
     window.isHidden = false

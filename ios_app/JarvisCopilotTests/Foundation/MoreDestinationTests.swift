@@ -6,11 +6,13 @@ import XCTest
 /// that the table is complete, unambiguous and presentable.
 final class MoreDestinationTests: XCTestCase {
 
+    /// Coding leads: it left the tab bar for this grid, and it is the tile people
+    /// reach for most.
     func testEveryTileFromTheFlutterGridIsPresent() {
         XCTAssertEqual(MoreDestination.allCases, [
-            .skills, .kanban, .memory, .codeMemory, .longTermMemory, .workspaces,
-            .profiles, .todos, .insights, .selfImprovement, .serverLogs,
-            .islandDesigns, .photon, .appleWatch, .settings,
+            .coding, .skills, .kanban, .memory, .codeMemory, .longTermMemory,
+            .workspaces, .profiles, .todos, .insights, .selfImprovement,
+            .serverLogs, .islandDesigns, .photon, .appleWatch, .settings,
         ])
     }
 
