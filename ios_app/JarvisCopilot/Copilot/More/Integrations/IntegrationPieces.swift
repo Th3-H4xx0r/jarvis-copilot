@@ -3,6 +3,13 @@ import SwiftUI
 /// The parts the Integrations screens are built from: a titled section, one
 /// rounded card of hairline-separated rows, and the row itself.
 ///
+/// These are the WEARABLES screens' parts, wearing the Integrations pattern on
+/// top. `CardGroup`, `Row` and `RowDivider` (`UIComponents.swift`) own the look —
+/// the small-caps title, the glass fill and hairline border, the 48pt row with
+/// 16/10 padding, the left-inset separator — and everything here only adds what
+/// a section of Integrations needs that a section of ring settings does not: a
+/// count, a state word, an add button, and the per-row ⋯ menu.
+///
 /// The row is the whole pattern in one place — tap to open, ⋯ to act on it — so a
 /// schedule, a collection, a document and a skill all behave the same way.
 ///
@@ -30,21 +37,23 @@ struct IntegrationSection<Content: View>: View {
     }
 
     var body: some View {
+        // `SectionHeader` over a card — the Insights register, which is the app's
+        // register. Everything this adds sits in the header's trailing slot.
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(title) {
                 HStack(spacing: 8) {
                     if let status {
                         Text(status)
-                            .font(JcText.small)
+                            .font(.system(size: 11.5))
                             .foregroundStyle(statusColor)
                     }
                     CountChip(count)
                     if let action {
                         Button(action: action.run) {
-                            JcIcon(action.symbol, size: 15)
+                            JcIcon(action.symbol, size: 14)
                                 .foregroundStyle(JcTheme.accent)
                                 .fixedSize()
-                                .frame(width: integrationTapTarget, height: 30)
+                                .frame(width: integrationTapTarget, height: 26)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -57,7 +66,9 @@ struct IntegrationSection<Content: View>: View {
     }
 }
 
-/// How many of a thing a section holds.
+/// How many of a thing a section holds. Quiet, like everything else in a
+/// wearables section header — the accent capsule it used to be was the loudest
+/// thing on a screen where nothing else shouts.
 struct CountChip: View {
     let count: Int
 
@@ -65,20 +76,22 @@ struct CountChip: View {
 
     var body: some View {
         Text("\(count)")
-            .font(JcText.small)
-            .foregroundStyle(JcTheme.accent)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(JcTheme.accent.opacity(0.14)))
+            .font(.system(size: 11.5).monospacedDigit())
+            .foregroundStyle(JcTheme.muted)
     }
 }
 
-/// One rounded card holding a section's rows.
+/// One rounded card holding a section's rows — the same glass fill, border and
+/// radius `CardGroup` draws on the wearables screens.
 struct InsetGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        GlassCard(padding: 0) { VStack(spacing: 0) { content } }
+        VStack(spacing: 0) { content }
+            .background(JcTheme.glassFill,
+                        in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+                .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
     }
 }
 
@@ -102,14 +115,10 @@ struct InsetRows<Item: Identifiable, Row: View>: View {
     }
 }
 
-/// The hairline between two rows, inset past the text so it reads as a list.
+/// The hairline between two rows. `RowDivider` is the wearables one; this name
+/// stays because every Integrations call site reads better with it.
 struct InsetDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(JcTheme.border)
-            .frame(height: 0.5)
-            .padding(.leading, 16)
-    }
+    var body: some View { RowDivider() }
 }
 
 /// One thing inside a section: tap the body to open it, ⋯ to act on it.
@@ -196,8 +205,10 @@ struct IntegrationRow<Menu: View>: View {
                     .fixedSize()
             }
         }
-        .padding(.vertical, 11)
-        .frame(minHeight: integrationTapTarget)
+        // `Row`'s metrics: 10pt vertical inside a 48pt minimum, which is a touch
+        // taller than the 44pt tap floor so the content breathes.
+        .padding(.vertical, 10)
+        .frame(minHeight: 48)
         .contentShape(Rectangle())
     }
 }
@@ -215,23 +226,20 @@ struct IntegrationEmptyRow: View {
 
     var body: some View {
         InsetGroup {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(text)
-                    .font(JcText.small)
-                    .foregroundStyle(JcTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 10) {
+                CardEmptyBlock(text)
                 // An empty section that names what would fill it beats one that
                 // only reports that it is empty.
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)
-                        .font(JcText.label)
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(JcTheme.accent)
                         .frame(minHeight: 32)
+                        .padding(.bottom, 6)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
         }
     }
 }

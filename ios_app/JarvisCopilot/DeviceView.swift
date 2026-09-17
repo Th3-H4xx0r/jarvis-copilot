@@ -44,7 +44,7 @@ struct DeviceView: View {
     // screen no matter what listRowInsets said.
     var body: some View {
         ScrollView {
-            VStack(spacing: 26) {
+            VStack(spacing: 20) {
                 hero
                 quickActions
                 everydayControls

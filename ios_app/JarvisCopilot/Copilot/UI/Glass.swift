@@ -226,14 +226,11 @@ struct GlassQuietLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
 
+    /// One register for every section title in the app: `SectionHeader`'s, which
+    /// is the one Insights uses. This wrapper stays because Settings reads better
+    /// with the name.
     var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .tracking(1.1)
-            .foregroundStyle(JcTheme.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 6)
-            .padding(.bottom, 10)
+        SectionHeader(text)
     }
 }
 

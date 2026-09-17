@@ -2,6 +2,11 @@ import SwiftUI
 
 /// A grouped section, sized and spaced like an inset-grouped list rather than a dense
 /// stack: rows carry their own height and padding, separators are inset from the left.
+///
+/// The header, the glass, the radius and the 16pt page margin are the Insights
+/// screen's — `SectionHeader` over a card, which is the one register the whole
+/// app uses now. Anything built from `CardGroup` inherits it; a screen that
+/// hand-rolls its own header is the thing to fix, not this.
 struct CardGroup<Content: View>: View {
     let title: String?
     var footer: String?
@@ -14,16 +19,8 @@ struct CardGroup<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let title {
-                // Same register as the settings screens: quiet small caps.
-                Text(title.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.1)
-                    .foregroundStyle(JcTheme.muted)
-                    .padding(.leading, 6)
-                    .padding(.bottom, 3)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            if let title { SectionHeader(title) }
             VStack(spacing: 0) { content }
                 .background(JcTheme.glassFill,
                             in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
@@ -31,13 +28,44 @@ struct CardGroup<Content: View>: View {
                     .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
             if let footer {
                 Text(footer)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.top, 4)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 8)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
+    }
+}
+
+/// The empty state that belongs INSIDE a card: an icon and a line, quiet and
+/// centred, instead of a bare sentence where the content should be. Lifted out
+/// of Insights, which is where the app's look is defined now.
+struct CardEmptyBlock: View {
+    let symbol: String
+    let text: String
+
+    init(symbol: String = "tray", text: String) {
+        self.symbol = symbol
+        self.text = text
+    }
+
+    /// The common case, where the default tray icon is the right one.
+    init(_ text: String, symbol: String = "tray") {
+        self.init(symbol: symbol, text: text)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.muted)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
     }
 }
 

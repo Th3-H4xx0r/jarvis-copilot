@@ -15,7 +15,7 @@ struct IntegrationSkillView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 if let errorMessage {
                     CenteredMessage(text: errorMessage, color: JcTheme.danger) {
                         Task { await load() }

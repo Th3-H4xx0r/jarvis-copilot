@@ -154,17 +154,4 @@ struct InsightsPeriodSelector: View {
     }
 }
 
-/// Icon + text empty state for a card body.
-struct InsightsEmptyBlock: View {
-    let symbol: String
-    let text: String
 
-    var body: some View {
-        HStack(spacing: 8) {
-            JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.muted)
-            Text(text).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-    }
-}

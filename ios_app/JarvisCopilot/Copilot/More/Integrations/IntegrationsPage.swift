@@ -92,7 +92,7 @@ struct IntegrationCard: View {
     private var accent: Color { integration.isPaused ? JcTheme.muted : JcTheme.accent }
 
     var body: some View {
-        GlassCard(padding: 12, fill: JcTheme.surface,
+        GlassCard(padding: 12,
                   borderColor: integration.isPaused ? JcTheme.muted.opacity(0.28) : JcTheme.glassBorder) {
             HStack(spacing: 12) {
                 JcIcon(IntegrationIcon.symbol(for: integration.icon))

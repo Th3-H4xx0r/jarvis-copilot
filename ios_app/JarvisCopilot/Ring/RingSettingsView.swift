@@ -46,7 +46,7 @@ struct RingSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 22) {
+            VStack(spacing: 20) {
                 if let error {
                     Text(error)
                         .font(.footnote)

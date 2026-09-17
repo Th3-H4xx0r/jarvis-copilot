@@ -14,7 +14,7 @@ struct InsightsDailyTokensCard: View {
     var body: some View {
         GlassCard {
             if !InsightsUI.hasUsage(bars) {
-                InsightsEmptyBlock(symbol: "chart.bar", text: "No token usage recorded.")
+                CardEmptyBlock(symbol: "chart.bar", text: "No token usage recorded.")
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Chart {
@@ -166,7 +166,7 @@ struct InsightsMessagesCard: View {
     var body: some View {
         GlassCard {
             if messages.isEmpty {
-                InsightsEmptyBlock(symbol: "bubble.left", text: "No messages recorded yet.")
+                CardEmptyBlock(symbol: "bubble.left", text: "No messages recorded yet.")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     header

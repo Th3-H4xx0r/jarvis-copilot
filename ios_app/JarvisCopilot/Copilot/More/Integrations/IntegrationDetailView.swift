@@ -42,7 +42,7 @@ struct IntegrationDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 20) {
                 // No identity card: the navigation bar already says the name, and
                 // a box under it repeating the name is the screen's wasted space.
                 if !integration.summary.isEmpty {

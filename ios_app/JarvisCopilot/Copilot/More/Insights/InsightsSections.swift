@@ -19,7 +19,7 @@ struct InsightsHealthCard: View {
     var body: some View {
         GlassCard {
             if rows.isEmpty {
-                InsightsEmptyBlock(symbol: "speedometer", text: "Host metrics unavailable.")
+                CardEmptyBlock(symbol: "speedometer", text: "Host metrics unavailable.")
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Current VPS resource usage")
@@ -244,8 +244,7 @@ struct InsightsModelsCard: View {
     var body: some View {
         GlassCard {
             if models.isEmpty {
-                InsightsEmptyBlock(symbol: "square.stack.3d.up",
-                                   text: "No model usage in this period.")
+                CardEmptyBlock(symbol: "square.stack.3d.up", text: "No model usage in this period.")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
