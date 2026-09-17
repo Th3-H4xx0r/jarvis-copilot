@@ -115,6 +115,36 @@ struct GlassNavBar: View {
     /// floor every page's bottom clearance has to meet.
     static var reservedHeight: CGFloat { barHeight + bottomClearance }
 
+    // MARK: Item widths
+    //
+    // Named rather than inline because a tab label has to FIT one of these, and
+    // "Integrations" did not: the test that guards that reads these numbers.
+
+    /// Between the bar and the screen edge. Tighter than it was, because the
+    /// width for the longest label had to come from somewhere and the
+    /// alternative was 7.5pt text beside five labels at 10.
+    static let outerPadding: CGFloat = 12
+    /// Between the bar's glass and its first and last item.
+    static let innerPadding: CGFloat = 5
+    /// Between an item's label and the ends of its capsule.
+    static let itemInset: CGFloat = 2
+    /// How far a label may shrink before it would rather truncate. SwiftUI only
+    /// shrinks as far as it must, so "Integrations" lands near 9pt on a modern
+    /// phone and this floor is only reached on a 4.7" screen.
+    static let labelMinimumScale: CGFloat = 0.85
+    static let labelSize: CGFloat = 10
+
+    /// The width one tab gets, on a screen this wide.
+    static func slotWidth(screenWidth: CGFloat) -> CGFloat {
+        let inner = screenWidth - outerPadding * 2 - innerPadding * 2
+        return inner / CGFloat(AppTab.allCases.count)
+    }
+
+    /// The room a label actually has inside its slot.
+    static func labelWidth(screenWidth: CGFloat) -> CGFloat {
+        slotWidth(screenWidth: screenWidth) - itemInset * 2
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases) { tab in
@@ -122,9 +152,9 @@ struct GlassNavBar: View {
             }
         }
         .frame(height: Self.barHeight)
-        .padding(.horizontal, 5)
+        .padding(.horizontal, Self.innerPadding)
         .jcLiquidGlass(in: Capsule())
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Self.outerPadding)
         // Sit low — a small clearance above the home indicator rather than the
         // whole safe-area inset, so the bar hugs the bottom edge.
         .padding(.bottom, Self.bottomClearance + bottomInset * Self.insetFraction)
@@ -142,10 +172,19 @@ struct GlassNavBar: View {
                     .font(.system(size: 20, weight: .medium))
                     .frame(height: 25)
                 Text(tab.title)
-                    .font(.system(size: 10, weight: active ? .semibold : .medium))
+                    .font(.system(size: Self.labelSize, weight: active ? .semibold : .medium))
                     .lineLimit(1)
+                    // Six equal slots, and "Integrations" is intrinsically wider
+                    // than one of them at 10pt. Without these the label kept its
+                    // width and drew straight out of the selected capsule, past
+                    // its neighbours. Now it shrinks to fit its own slot.
+                    .minimumScaleFactor(Self.labelMinimumScale)
+                    .allowsTightening(true)
             }
             .foregroundStyle(active ? JcTheme.cyan : JcTheme.text.opacity(0.75))
+            // Inset the content from the capsule's ends so a full-width label
+            // never touches the edge it sits in.
+            .padding(.horizontal, Self.itemInset)
             .frame(maxWidth: .infinity)
             .frame(height: 56)
             .background {
@@ -156,6 +195,8 @@ struct GlassNavBar: View {
                         .matchedGeometryEffect(id: "selected-tab", in: selectionAnimation)
                 }
             }
+            // The capsule is the item, so nothing can render outside it.
+            .clipShape(Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

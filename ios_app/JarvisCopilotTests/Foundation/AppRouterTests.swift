@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import JarvisCopilot
 
@@ -100,6 +101,33 @@ final class GlassNavBarLayoutTests: XCTestCase {
     func testReservedHeightMatchesTheBarFootprint() {
         XCTAssertEqual(GlassNavBar.reservedHeight, GlassNavBar.barHeight + GlassNavBar.bottomClearance)
         XCTAssertEqual(GlassNavBar.reservedHeight, 74)
+    }
+
+    /// "Integrations" is intrinsically wider than one sixth of the bar at 10pt,
+    /// so it kept its width and drew straight out of the selected capsule and
+    /// across its neighbours. It shrinks to fit now — but only down to
+    /// `labelMinimumScale`, so a longer tab title would leak all over again.
+    ///
+    /// The narrowest phone the app supports is the 4.7" family at 375pt.
+    func testEveryTabLabelFitsItsSlotOnTheNarrowestPhone() {
+        for width in [375.0, 393.0, 430.0] as [CGFloat] {
+            let room = GlassNavBar.labelWidth(screenWidth: width)
+            for tab in AppTab.allCases {
+                // Semibold is the selected weight, which is the wider one.
+                let font = UIFont.systemFont(ofSize: GlassNavBar.labelSize, weight: .semibold)
+                let natural = (tab.title as NSString).size(withAttributes: [.font: font]).width
+                let smallest = natural * GlassNavBar.labelMinimumScale
+                XCTAssertLessThanOrEqual(
+                    smallest, room,
+                    "\"\(tab.title)\" cannot shrink into its \(room)pt slot at \(width)pt wide "
+                    + "— it needs \(smallest)pt. Shorten the title or the bar has to change.")
+            }
+        }
+    }
+
+    /// Six slots is what the arithmetic above assumes.
+    func testTheBarStillHasSixTabs() {
+        XCTAssertEqual(AppTab.allCases.count, 6)
     }
 
 }
