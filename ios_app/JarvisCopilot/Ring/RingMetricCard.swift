@@ -11,10 +11,21 @@ struct RingStat {
 /// small beneath it, and a chart you can scrub. While a finger is on the chart the
 /// headline becomes the reading at that moment, captioned with when it was; letting
 /// go puts the day's number back.
+/// A second headline number, shown at the card's top right in its own colour.
+struct RingBadge: Equatable {
+    var label: String
+    var value: String
+    var caption: String?
+    var tint: Color
+}
+
 struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     let title: String
     let headline: RingStat
     var details: [RingStat] = []
+    /// A second number for the top-right corner — a score the card is judged by,
+    /// set apart from the headline by colour so the two never read as one value.
+    var badge: RingBadge?
     /// Shown in place of the chart when there is nothing to plot.
     var emptyText: String?
     /// The reading under the finger, or nil for a gap.
@@ -50,19 +61,44 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     }
 
     private var headlineBlock: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(scrubbed?.caption ?? headline.label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(scrubbed == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
-                .lineLimit(1)
-            Text(scrubbed?.value ?? headline.value ?? "—")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scrubbed?.caption ?? headline.label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(scrubbed == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+                    .lineLimit(1)
+                Text(scrubbed?.value ?? headline.value ?? "—")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+            }
+            .animation(.snappy(duration: 0.18), value: scrubbed)
+
+            if let badge {
+                Spacer(minLength: 12)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(badge.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(badge.value)
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(badge.tint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    if let caption = badge.caption {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
-        .animation(.snappy(duration: 0.18), value: scrubbed)
     }
 
     /// Only the stats the ring actually has: a small grid of dashes was noise.

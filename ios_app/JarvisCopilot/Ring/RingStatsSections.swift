@@ -91,16 +91,11 @@ struct RingStatsSections: View {
             title: "Sleep",
             headline: RingStat(label: "Asleep", value: s.sleepMinutes.map(duration)),
             details: [
-                RingStat(label: "Deep", value: s.deepMinutes.map(duration)),
-                RingStat(label: "Light", value: s.lightMinutes.map(duration)),
-                RingStat(label: "REM", value: s.remMinutes.map(duration)),
-                RingStat(label: "Awake", value: s.awakeMinutes.map(duration)),
-                RingStat(label: "Naps", value: day.naps.isEmpty ? nil : String(day.naps.count)),
                 RingStat(label: "In bed", value: night.map { duration($0.stages.reduce(0) { $0 + $1.minutes }) }),
                 RingStat(label: "Efficiency", value: efficiency(night)),
                 RingStat(label: "Awakenings", value: night.map { String($0.stages.filter { $0.stage == RingSleepStage.awake }.count) }),
-                RingStat(label: "Sleep score", value: scores?.sleep.value.map { "\($0) · \(scores?.sleep.band ?? "")" }),
             ],
+            badge: sleepBadge,
             emptyText: night == nil ? noNight : nil,
             readout: { (date: Date) -> RingScrubReadout? in
                 guard let night, let at = RingChartScrub.stage(in: night, at: date) else { return nil }
@@ -115,10 +110,6 @@ struct RingStatsSections: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     RingDonut(slices: stageSlices(night))
-                    if let sleep = scores?.sleep, !sleep.points.isEmpty {
-                        contributions(sleep)
-                            .padding(.bottom, 4)
-                    }
                     Chart {
                         ForEach(stageSegments(night)) { segment in
                             BarMark(xStart: .value("Start", segment.start), xEnd: .value("End", segment.end),
@@ -131,7 +122,7 @@ struct RingStatsSections: View {
                                                 "Light": JcTheme.accent, "Deep": JcTheme.primaryBlue])
                     .chartLegend(.hidden)
                     .chartXSelection(value: selection)
-                    .frame(height: 130)
+                    .frame(height: 170)
                 }
             }
         }
@@ -357,22 +348,18 @@ struct RingStatsSections: View {
         }
     }
 
-    /// What each contributor earned, so a score reads as a reason not a verdict.
-    private func contributions(_ part: ScorePart) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(part.points) { point in
-                HStack(spacing: 8) {
-                    Text(point.name).font(.caption2).foregroundStyle(.secondary)
-                    Spacer(minLength: 6)
-                    if !point.detail.isEmpty {
-                        Text(point.detail).font(.caption2).foregroundStyle(.tertiary)
-                    }
-                    Text("\(Int(point.earned.rounded()))/\(Int(point.possible))")
-                        .font(.caption2.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(point.lost > point.possible / 2 ? JcTheme.amber : .secondary)
-                }
-            }
+    /// The sleep score, in the corner, in the colour of its band.
+    private var sleepBadge: RingBadge? {
+        guard let sleep = scores?.sleep, let value = sleep.value else { return nil }
+        return RingBadge(label: "Score", value: String(value), caption: sleep.band, tint: bandTint(sleep.band))
+    }
+
+    private func bandTint(_ band: String) -> Color {
+        switch band {
+        case "Excellent": return JcTheme.accentAlt
+        case "Good": return JcTheme.accent
+        case "Fair": return JcTheme.amber
+        default: return .orange
         }
     }
 
