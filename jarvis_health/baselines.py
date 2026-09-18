@@ -92,6 +92,31 @@ def bedtime_minute_median(values: list[float]) -> Optional[float]:
     return min(values, key=lambda v: min(abs(v - minute), 1440 - abs(v - minute)))
 
 
+#: Sleeping HRV is judged against the last week of nights, the window HRV
+#: monitoring research uses (Plews/Buchheit: a 7-day rolling log-RMSSD).
+HRV_NIGHTS = 7
+
+
+def sleeping_hrv(day: HealthDay) -> Optional[float]:
+    """Mean HRV inside the main sleep — the only HRV a recovery reading should use.
+
+    Daytime HRV moves with posture, talking and caffeine; the night's is the
+    clean signal, which is why every recovery product reads it asleep.
+    """
+    night, series = day.main_sleep, day.hrv
+    if night is None or series is None or not series.values or not series.start:
+        return None
+    try:
+        start = parse_instant(series.start)
+        first = (parse_instant(night.start) - start).total_seconds() / 60
+        last = (parse_instant(night.end) - start).total_seconds() / 60
+    except (TypeError, ValueError):
+        return None
+    interval = max(1, series.interval_minutes)
+    return _mean([float(v) for i, v in enumerate(series.values)
+                  if v and v > 0 and first <= i * interval < last])
+
+
 def baseline_from(days: list[HealthDay], window: int = 14) -> Baseline:
     recent = [d for d in sorted(days, key=lambda d: d.date, reverse=True)][:window]
     if not recent:
@@ -103,7 +128,15 @@ def baseline_from(days: list[HealthDay], window: int = 14) -> Baseline:
     sleeps = [d.main_sleep.asleep_minutes for d in recent if d.main_sleep]
     temps = [v for d in recent for v in ((_mean(d.temperature.nonzero()) if d.temperature else None),) if v]
 
+    nightly = [v for d in recent for v in (sleeping_hrv(d),) if v][:HRV_NIGHTS]
+    logs = [math.log(v) for v in nightly]
+    ln_mean = (sum(logs) / len(logs)) if logs else None
+    ln_sd = math.sqrt(sum((x - ln_mean) ** 2 for x in logs) / len(logs)) if len(logs) >= 2 else None
+
     return Baseline(
+        ln_hrv_mean=ln_mean,
+        ln_hrv_sd=ln_sd,
+        hrv_nights=len(logs),
         hrv=median(hrvs) if hrvs else None,
         resting_hr=median(rhrs) if rhrs else None,
         hrv_days=len(hrvs),

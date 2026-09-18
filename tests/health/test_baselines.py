@@ -68,3 +68,29 @@ def test_a_night_the_device_sent_without_a_start_is_not_a_crash():
     )
     assert resting_hr(broken) is None
     assert baseline_from([broken]).resting_hr is None
+
+
+def test_sleeping_hrv_reads_only_the_night():
+    from jarvis_health.baselines import sleeping_hrv
+
+    d = day(hrv=40)
+    # The fixture's night ends 07:37 local: 30-minute slots 0–15 are asleep.
+    d.hrv.values = [40.0] * 16 + [90.0] * 32
+    assert sleeping_hrv(d) == 40.0
+
+
+def test_the_log_baseline_uses_the_last_seven_nights():
+    import math
+
+    values = [30, 30, 30, 40, 50, 40, 50, 40, 50, 45]
+    days = [day(date=f"2026-09-{i + 1:02d}", hrv=h) for i, h in enumerate(values)]
+    base = baseline_from(days)
+    recent = [45, 50, 40, 50, 40, 50, 40]
+    assert base.hrv_nights == 7
+    assert abs(base.ln_hrv_mean - sum(math.log(v) for v in recent) / 7) < 1e-9
+    assert base.ln_hrv_sd > 0
+
+
+def test_one_night_gives_a_mean_but_no_spread():
+    base = baseline_from([day(hrv=45)])
+    assert base.hrv_nights == 1 and base.ln_hrv_sd is None
