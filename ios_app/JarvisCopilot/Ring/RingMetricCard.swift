@@ -26,6 +26,9 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     /// A second number for the top-right corner — a score the card is judged by,
     /// set apart from the headline by colour so the two never read as one value.
     var badge: RingBadge?
+    /// A Measure button for a reading taken now; while it runs, the headline
+    /// is the ring's live number.
+    var measure: RingCardMeasure?
     /// Shown in place of the chart when there is nothing to plot.
     var emptyText: String?
     /// The reading under the finger, or nil for a gap.
@@ -60,23 +63,43 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
         .sensoryFeedback(.selection, trigger: scrubbed)
     }
 
+    /// What the headline says right now: the scrubbed reading, a measurement
+    /// in progress or just finished, or the day's number.
+    private var shown: (label: String, value: String, highlighted: Bool, placeholder: Bool) {
+        if let scrubbed { return (scrubbed.caption, scrubbed.value, true, false) }
+        switch measure?.state {
+        case .measuring(let live)?: return ("Measuring…", live ?? "--", true, live == nil)
+        case .result(let value)?: return ("Just now", value, true, false)
+        case .failed(let why)?: return (why, headline.value ?? "—", false, false)
+        default: return (headline.label, headline.value ?? "—", false, false)
+        }
+    }
+
     private var headlineBlock: some View {
-        HStack(alignment: .top) {
+        let shown = shown
+        return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(scrubbed?.caption ?? headline.label)
+                Text(shown.label)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(scrubbed == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+                    .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
-                Text(scrubbed?.value ?? headline.value ?? "—")
+                // The same rolling digits whether a finger is scrubbing or the
+                // ring is sending: "--" while the sensor warms up.
+                Text(shown.value)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .monospacedDigit()
+                    .foregroundStyle(shown.placeholder ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
             }
             .animation(.snappy(duration: 0.18), value: scrubbed)
+            .animation(.snappy(duration: 0.25), value: shown.value)
 
-            if let badge {
+            if let measure {
+                Spacer(minLength: 12)
+                RingMeasureButton(measure: measure)
+            } else if let badge {
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(badge.label)
@@ -120,6 +143,25 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                         .minimumScaleFactor(0.7)
                 }
             }
+        }
+    }
+}
+
+/// Measure, or Stop while the reading runs: a small glass capsule in the
+/// card's top corner, where Apple puts a card's one action.
+struct RingMeasureButton: View {
+    let measure: RingCardMeasure
+
+    var body: some View {
+        if case .measuring = measure.state {
+            Button("Stop", action: measure.stop)
+                .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
+                .accessibilityLabel("Stop measuring")
+        } else {
+            Button("Measure", action: measure.start)
+                .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
+                .disabled(!measure.enabled)
+                .accessibilityHint("Takes a reading with your ring now")
         }
     }
 }

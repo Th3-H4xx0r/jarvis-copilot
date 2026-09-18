@@ -116,9 +116,17 @@ struct HealthBattery: Codable, Equatable {
     var partial: Bool?
     var noSleep: Bool?
     var recoveryFactor: Double?
+    /// When the night began and ended, and the level it began at — shaded on
+    /// the curve so the climb reads as sleep.
+    var bedLevel: Double?
+    var bedAt: Date?
+    var wakeAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case level, band, charged, drained, drains, curve, calibrating, partial
+        case bedLevel = "bed_level"
+        case bedAt = "bed_at"
+        case wakeAt = "wake_at"
         case wakeLevel = "wake_level"
         case biggestDrain = "biggest_drain"
         case noSleep = "no_sleep"
@@ -126,7 +134,8 @@ struct HealthBattery: Codable, Equatable {
     }
 }
 
-/// Everything since the last wake.
+/// Today: from falling asleep last night to now. `start` is bedtime, or
+/// midnight when no night was recorded (`noWake`).
 struct HealthNow: Codable, Equatable {
     var start: Date
     var end: Date
@@ -134,9 +143,11 @@ struct HealthNow: Codable, Equatable {
     var noWake: Bool
     var day: HealthWireDay?
     var battery: HealthBattery
+    /// When last night ended.
+    var wake: Date? = nil
 
     enum CodingKeys: String, CodingKey {
-        case start, end, minutes, day, battery
+        case start, end, minutes, day, battery, wake
         case noWake = "no_wake"
     }
 }

@@ -37,6 +37,25 @@ final class HealthWireTests: XCTestCase {
         XCTAssertEqual(now.battery.curve.count, 1)
         XCTAssertEqual(now.battery.biggestDrain?.points, 1.6)
         XCTAssertEqual(now.minutes, 443)
+        XCTAssertNil(now.wake, "an older server sends no wake")
+    }
+
+    /// Today runs from bedtime: the server says when the night ended and
+    /// where the battery stood at each end of it.
+    func testTodayCarriesTheNightItOpensWith() throws {
+        let json = """
+        {"start":"2026-09-17T04:30:00Z","end":"2026-09-17T20:00:00Z","wake":"2026-09-17T12:37:00Z",
+         "minutes":930,"no_wake":false,"day":null,
+         "battery":{"level":84.0,"band":"High","bed_level":39.5,"wake_level":90.0,"charged":50.5,"drained":6.0,
+                    "bed_at":"2026-09-17T04:30:00Z","wake_at":"2026-09-17T12:37:00Z","no_sleep":false,
+                    "curve":[{"at":"2026-09-17T04:30:00Z","level":39.5}]}}
+        """
+        let now = try HealthClient.decodeForTests(HealthNow.self, json: json)
+        XCTAssertEqual(now.wake, now.battery.wakeAt)
+        XCTAssertEqual(now.battery.bedAt, now.start)
+        XCTAssertEqual(now.battery.bedLevel, 39.5)
+        XCTAssertEqual(now.battery.charged, 50.5)
+        XCTAssertEqual(HealthTabModel.scoresDate(now), RingDates.dayKey(now.wake!))
     }
 
     func testTheDayUploadCarriesAStepsSeriesAndItsDevice() {
@@ -53,5 +72,25 @@ final class HealthWireTests: XCTestCase {
     func testEveryWearableTalksToTheOneSharedIntegration() {
         XCTAssertEqual(HealthSpace.id(forRing: "B6CE93C4-5680"), "jarvis-health")
         XCTAssertEqual(HealthClient.settingsSource, "health-settings")
+    }
+}
+
+/// Measure results live in the ring's own history, not the server's day: the
+/// Health tab moves them onto today's clock, which starts the midnight before bedtime.
+final class HealthSpotReadingTests: XCTestCase {
+    func testTheRingsReadingsMoveOntoTodaysClock() {
+        var ringToday = RingDay(date: "2026-09-18")
+        ringToday.instantHeartRate = [RingTimedValue(minute: 600, value: 74)]
+        var ringYesterday = RingDay(date: "2026-09-17")
+        ringYesterday.manualSpO2 = [RingTimedValue(minute: 600, value: 97),        // before bedtime: not today
+                                    RingTimedValue(minute: 1420, value: 96)]       // in bed at 23:30
+
+        var window = RingDay(date: "today")
+        window.addSpots(from: ringYesterday, shift: 0, from: 1410)
+        window.addSpots(from: ringToday, shift: 1440, from: 1410)
+
+        XCTAssertEqual(window.instantHeartRate, [RingTimedValue(minute: 2040, value: 74)])
+        XCTAssertEqual(window.manualSpO2, [RingTimedValue(minute: 1420, value: 96)])
+        XCTAssertEqual(window.summary.heartRateLatest, 74, "a reading just taken is the card's latest")
     }
 }

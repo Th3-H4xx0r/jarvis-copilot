@@ -22,7 +22,7 @@ struct HealthTabSettings: View {
                                       primary: model.health.settings?.primaryDevice ?? "",
                                       onToggle: { key, linked in
                                           Task {
-                                              await model.setLinked(key, linked, reload: .sinceWake)
+                                              await model.setLinked(key, linked, reload: .today)
                                               devices = await model.devices()
                                           }
                                       },

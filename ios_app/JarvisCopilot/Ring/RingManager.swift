@@ -38,6 +38,8 @@ final class RingManager: NSObject, ObservableObject {
         sync.deviceIDForHealth = deviceID
         return sync
     }()
+    /// On-demand readings, shared by the ring screen and the Health tab.
+    private(set) lazy var measure = RingMeasureController(manager: self)
 
     /// True while a ring screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {

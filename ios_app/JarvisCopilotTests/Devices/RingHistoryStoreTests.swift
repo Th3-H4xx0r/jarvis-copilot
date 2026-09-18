@@ -51,6 +51,16 @@ final class RingHistoryStoreTests: XCTestCase {
                                         reportedStartMinute: 0, stages: [RingSleepStage(stage: 2, minutes: 122)]))
         XCTAssertEqual(day.sleep.count, 1)
         XCTAssertEqual(day.sleep.first?.stages.first?.stage, 2)
+
+        // The ring reports a night again as it grows: same start, a later end.
+        // The longer copy replaces it rather than sitting beside it.
+        let bed = end.addingTimeInterval(20_000)
+        day.mergeSleep(RingSleepSession(start: bed, end: bed.addingTimeInterval(6 * 3600), reportedStartMinute: 0,
+                                        stages: [RingSleepStage(stage: 2, minutes: 360)]))
+        day.mergeSleep(RingSleepSession(start: bed, end: bed.addingTimeInterval(7.8 * 3600), reportedStartMinute: 0,
+                                        stages: [RingSleepStage(stage: 2, minutes: 468)]))
+        XCTAssertEqual(day.sleep.count, 2)
+        XCTAssertEqual(day.sleep.last?.asleepMinutes, 468)
     }
 
     func testOlderFilesWithMissingFieldsStillDecode() throws {

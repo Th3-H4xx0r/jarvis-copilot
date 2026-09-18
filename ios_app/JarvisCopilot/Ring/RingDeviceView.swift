@@ -11,11 +11,7 @@ struct RingDeviceView: View {
     @State private var showingSettings = false
     @State private var findToken = 0
     @State private var actionError: String?
-    /// The measurement waiting for the ring to be worn, if any.
-    @State private var wearPrompt: RingMeasurementType?
-    @State private var wearRetry: Task<Void, Never>?
-    /// Clears the measurement card a few seconds after the reading lands.
-    @State private var measurementFade: Task<Void, Never>?
+    @ObservedObject private var measure: RingMeasureController
     @StateObject private var health: HealthStore
 
     init(manager: RingManager, ring: DiscoveredRing) {
@@ -23,6 +19,7 @@ struct RingDeviceView: View {
         self.ring = ring
         _session = ObservedObject(wrappedValue: manager.session)
         _sync = ObservedObject(wrappedValue: manager.sync)
+        _measure = ObservedObject(wrappedValue: manager.measure)
         // One store for this screen and the settings it pushes to, addressed by
         // the remembered device id — the same id the server derives its space
         // from. `ring.id` is the fallback only until the ring is remembered.
@@ -41,7 +38,6 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
                     Text(actionError)
                         .font(.footnote)
@@ -49,6 +45,7 @@ struct RingDeviceView: View {
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                measureCard
                 // Sleep, heart, stress and the battery are the person's, not the
                 // ring's: they live in the Health tab, merged with every other
                 // wearable. This screen is about the device.
@@ -81,45 +78,13 @@ struct RingDeviceView: View {
             guard !showingSettings else { return }
             manager.screenIsOpen = false
             manager.releaseIfIdle()
+            measure.leave(.ring)
         }
-        // "Put the ring on", as a bottom sheet: swipe it away, tap outside it,
-        // or use the button — and it leaves by itself when a reading lands.
-        .sheet(item: $wearPrompt) { type in
-            RingWearPrompt(metric: type.label) { dismissWearPrompt() }
-                .presentationDetents([.height(430)])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground(RingWearPrompt.sheetBackground)
-                .presentationCornerRadius(34)
-                .interactiveDismissDisabled(false)
-                .onDisappear {
-                    // Swiped or tapped away rather than dismissed by a reading.
-                    if wearPrompt != nil { dismissWearPrompt() }
-                }
-        }
-        .onChange(of: session.measurement?.phase) { _, phase in
-            guard let phase, let type = session.measurement?.type else { return }
-            switch phase {
-            case .notWorn where wearPrompt == nil:
-                showWearPrompt(for: type)
-            case .done:
-                closeWearPrompt()
-                fadeMeasurementCard()
-            case .failed, .cancelled, .timedOut, .notWorn:
-                fadeMeasurementCard()
-            default:
-                break
-            }
-        }
-        .onDisappear {
-            wearRetry?.cancel()
-            measurementFade?.cancel()
-            session.clearFinishedMeasurement()
-        }
+        .ringWearSheet(measure, on: .ring)
         .navigationDestination(isPresented: $showingSettings) {
             RingSettingsView(manager: manager, health: health)
         }
         .toolbar {
-            measureMenu
             WearableToolbarButton(title: "Sync week", icon: "arrow.triangle.2.circlepath",
                                   disabled: !ready || sync.isSyncing) {
                 Task { await sync.sync(days: sync.historyDays) }
@@ -205,123 +170,6 @@ struct RingDeviceView: View {
 
     // MARK: Actions
 
-    /// The measurements this ring can take, as a toolbar menu.
-    ///
-    /// They were a row of capsules above the day pills, which put two rows of
-    /// the same shape on top of each other. Actions belong on the toolbar with
-    /// the rest of what acts on this view (`toolbars.md`), and the day pills
-    /// get the row back.
-    private var measureMenu: some View {
-        let measurements: [RingMeasurementType] = session.capabilities.isKnown
-            ? session.capabilities.supportedMeasurements : [.heartRate, .spo2]
-        return Menu {
-            if session.measurement?.isActive == true {
-                Button("Stop measuring", jcIcon: "stop.circle") { session.cancelMeasurement() }
-            } else {
-                ForEach(measurements, id: \.self) { type in
-                    Button(type.label, jcIcon: type.icon) {
-                        run {
-                            // The link drops whenever the ring is idle or on its
-                            // charger; bring it up on the way rather than leaving
-                            // the action dead.
-                            if !ready { _ = await manager.ensureConnected(timeout: 12) }
-                            try await session.startMeasurement(type)
-                        }
-                    }
-                }
-            }
-        } label: {
-            if session.measurement?.isActive == true {
-                ProgressView().controlSize(.mini)
-            } else {
-                JcIcon("waveform.path.ecg").foregroundStyle(JcTheme.accent)
-            }
-        }
-        .accessibilityLabel("Measure")
-    }
-
-    /// Keep asking until the ring is on a finger, then take the sheet away and
-    /// let the reading carry on underneath it.
-    ///
-    /// Off a finger the ring accepts a reading and then says "not worn" 3–7 s
-    /// in. So an attempt that has run `wornAfter` without that is on a finger —
-    /// the sheet goes then, rather than waiting ~17 s for the sensor to warm up
-    /// and report skin (`skinContactAt`), which is what left it up while the
-    /// ring was plainly measuring. Closing it never cancels the reading.
-    private func showWearPrompt(for type: RingMeasurementType) {
-        wearPrompt = type
-        wearRetry?.cancel()
-        wearRetry = Task { @MainActor in
-            while !Task.isCancelled, wearPrompt != nil {
-                if session.measurement?.isActive != true {
-                    // The ring is usually on its charger when this appears, so
-                    // the link is down; bring it up before asking again.
-                    if !ready { _ = await manager.ensureConnected(timeout: 10) }
-                    guard !Task.isCancelled, wearPrompt != nil else { return }
-                    try? await session.startMeasurement(type)
-                }
-
-                let liveBefore = session.liveHeartRate?.date
-                // Long enough for the ring to actually get there.
-                for _ in 0..<150 {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled, wearPrompt != nil else { return }
-
-                    let state = session.measurement
-                    let unrefused = state.map { $0.isActive && Date().timeIntervalSince($0.startedAt) >= Self.wornAfter } ?? false
-                    let onFinger = unrefused || state?.skinContactAt != nil || (state?.value ?? 0) > 0
-                        || state?.phase == .done
-                    let gotLive = session.liveHeartRate?.date != liveBefore
-                    if onFinger || gotLive {
-                        closeWearPrompt()
-                        return
-                    }
-                    // Charging, refused, or timed out: fall out and ask again.
-                    if let phase = state?.phase, phase != .measuring { break }
-                    if state == nil { break }
-                    // The ring only reports skin contact in a reading's first
-                    // 25 s; one that has gone past that without it will never
-                    // see a finger that arrives now. Start a fresh one.
-                    if let m = state, m.skinContactAt == nil, Date().timeIntervalSince(m.startedAt) > 30 {
-                        session.cancelMeasurement()
-                        break
-                    }
-                }
-                // Straight back in: every second here is a second the sheet
-                // stays up after the ring has gone on.
-                try? await Task.sleep(for: .milliseconds(400))
-            }
-        }
-    }
-
-    /// Longer than the ring has ever taken to say "not worn" (3–7 s).
-    static let wornAfter: TimeInterval = 8
-
-    /// Leave the result up long enough to read, then take the card away.
-    private func fadeMeasurementCard() {
-        measurementFade?.cancel()
-        measurementFade = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(8))
-            guard !Task.isCancelled else { return }
-            session.clearFinishedMeasurement()
-        }
-    }
-
-    /// "Not now", a swipe or a tap outside: the person has given up on this
-    /// reading, so the attempt waiting behind the sheet stops too.
-    private func dismissWearPrompt() {
-        let wasShowing = wearPrompt != nil
-        closeWearPrompt()
-        if wasShowing, session.measurement?.isActive == true { session.cancelMeasurement() }
-    }
-
-    /// The ring is on: the sheet goes and the measurement keeps running.
-    private func closeWearPrompt() {
-        wearRetry?.cancel()
-        wearRetry = nil
-        wearPrompt = nil
-    }
-
     private func run(_ work: @escaping () async throws -> Void) {
         actionError = nil
         Task {
@@ -333,96 +181,16 @@ struct RingDeviceView: View {
         }
     }
 
-    private func measurementCard(_ m: RingMeasurementState) -> some View {
-        CardGroup("Measurement") {
-            Row(minHeight: 64) {
-                HStack(spacing: 14) {
-                    JcIcon(m.type.icon)
-                        .font(.title2)
-                        .foregroundStyle(m.type.tint)
-                        .frame(width: 34)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.type.label).font(.headline)
-                        Text(measurementText(m)).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    // What the ring is sending right now, not just what it
-                    // concluded: the same rolling digits the charts scrub with.
-                    // "--" while the sensor warms up, then each value the ring
-                    // sends rolls in with the same digits the charts scrub with.
-                    if let shown = liveReading(for: m) ?? (m.isActive ? "--" : nil) {
-                        Text(shown)
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(shown == "--" ? AnyShapeStyle(.tertiary) : AnyShapeStyle(m.type.tint))
-                            .contentTransition(.numericText())
-                            .animation(.snappy(duration: 0.25), value: shown)
-                    }
-                    if m.isActive {
-                        ProgressView()
-                        Button("Stop") { session.cancelMeasurement() }
-                            .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
-                    }
-                }
-            }
-        }
-    }
+    // MARK: Measure
 
-    /// The newest number for this measurement: the ring's own live pushes while
-    /// it works, and the result once it has one.
-    private func liveReading(for m: RingMeasurementState) -> String? {
-        if let value = m.value, value > 0 {
-            return m.type == .temperature
-                ? m.celsius.map { String(format: "%.1f°", TemperatureUnit.current.value($0)) } : "\(value)"
-        }
-        guard m.isActive else { return nil }
-        switch m.type {
-        case .heartRate:
-            return session.liveHeartRate.map { "\(Int($0.value))" }
-        case .spo2:
-            return session.liveSpO2.map { "\(Int($0.value))%" }
-        case .temperature:
-            return session.liveTemperature.map { String(format: "%.1f°", TemperatureUnit.current.value($0.value)) }
-        default:
-            return nil
-        }
+    /// On-demand readings, one row each — the list Settings would use, rather
+    /// than a menu hiding in the toolbar.
+    private var measureCard: some View {
+        RingMeasureList(items: measure.types.map { type in
+            RingMeasureList.Item(type: type, state: measure.state(of: type), last: measure.lastReading(type),
+                                 control: measure.card(type, from: .ring))
+        })
     }
-
-    private func measurementText(_ m: RingMeasurementState) -> String {
-        switch m.phase {
-        case .measuring:
-            return "Hold still — measuring…"
-        case .notWorn:
-            return "Put the ring on and try again."
-        case .failed:
-            return m.detail ?? "The measurement failed."
-        case .cancelled:
-            return "Stopped."
-        case .timedOut:
-            return "No reading — wear the ring snugly and keep still."
-        case .done:
-            switch m.type {
-            case .bloodPressure:
-                return "\(m.systolic ?? 0)/\(m.diastolic ?? 0) mmHg"
-            case .temperature:
-                return m.celsius.map(TemperatureUnit.current.format) ?? "—"
-            case .heartRate:
-                return "\(m.value ?? 0) bpm"
-            case .spo2:
-                return "\(m.value ?? 0)%"
-            case .hrv:
-                return "\(m.value ?? 0) ms"
-            case .healthCheck:
-                var parts = ["\(m.value ?? 0)"]
-                if let sys = m.systolic, let dia = m.diastolic { parts.append("\(sys)/\(dia) mmHg") }
-                return parts.joined(separator: " · ")
-            case .stress, .bloodSugar:
-                return "\(m.value ?? 0)"
-            }
-        }
-    }
-
-    // MARK: Days
 
     // MARK: Live
 

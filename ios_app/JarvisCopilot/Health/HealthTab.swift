@@ -2,25 +2,42 @@ import SwiftUI
 
 /// Jarvis Health: the person's day from every linked wearable.
 ///
-/// Since wake is the default view — the stretch that matters now, which does
-/// not reset at midnight. Calendar days sit beside it. Everything here comes
-/// from the shared integration on the server; wearable screens keep only what
-/// belongs to the device.
+/// Today is the default view: from falling asleep last night to now, so the
+/// night, what it charged and the waking day read as one stretch that does
+/// not reset at midnight. Yesterday and the days before are calendar days.
+/// Everything here comes from the shared integration on the server; wearable
+/// screens keep only what belongs to the device.
 struct HealthTab: View {
     @StateObject private var model: HealthTabModel
-    @State private var selection: HealthSelection = .sinceWake
+    /// Readings taken now, from the cards: the ring is the wearable that can.
+    @ObservedObject private var measure: RingMeasureController
+    @State private var selection: HealthSelection = .today
     @State private var showingSettings = false
 
-    init(model: HealthTabModel? = nil) {
-        _model = StateObject(wrappedValue: model ?? HealthTabModel())
+    init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
+        let ring = ring ?? WearablesHub.shared.ring
+        _model = StateObject(wrappedValue: model ?? HealthTabModel(spots: { ring.store }))
+        _measure = ObservedObject(wrappedValue: ring.measure)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    dayRow
+                    VStack(alignment: .leading, spacing: 8) {
+                        dayRow
+                        if let windowCaption {
+                            Text(windowCaption)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .padding(.horizontal, 24)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: selection)
                     BatteryCard(battery: model.battery(for: selection),
+                                window: selection == .today,
                                 analysis: analysis,
                                 lastRefreshed: model.loadedAt[selection.cacheKey],
                                 isRefreshing: model.isRefreshing,
@@ -29,7 +46,11 @@ struct HealthTab: View {
                     RingStatsSections(store: model.cache, dayKey: selection.cacheKey,
                                       capabilities: RingCapabilities(),
                                       scores: scores,
-                                      hourDomain: hourDomain)
+                                      hourDomain: hourDomain,
+                                      measure: { type in
+                                          // A reading taken now belongs to today, not a day gone.
+                                          selection == .today ? measure.card(type, from: .health) : nil
+                                      })
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 40)
@@ -47,6 +68,11 @@ struct HealthTab: View {
                 HealthTabSettings(model: model)
                     .presentationDetents([.large])
             }
+            .ringWearSheet(measure, on: .health)
+            .onChange(of: measure.finished) {
+                // The reading is in the ring's history now; put it on the card.
+                model.mergeSpots(selection)
+            }
         }
         .onTabVisibilityChange(.health) { visible in
             if visible { Task { await model.refresh(selection) } }
@@ -58,8 +84,8 @@ struct HealthTab: View {
     private var dayRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                pill(sinceWakeLabel, for: .sinceWake)
-                ForEach(0..<7, id: \.self) { offset in
+                pill("Today", for: .today)
+                ForEach(1..<7, id: \.self) { offset in
                     pill(dayLabel(offset), for: .day(RingDates.dayKey(RingDates.midnight(daysAgo: offset))))
                 }
             }
@@ -81,16 +107,19 @@ struct HealthTab: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var sinceWakeLabel: String {
-        guard let now = model.now else { return "Since wake" }
-        if now.noWake { return "Today so far" }
-        let hours = now.minutes / 60, minutes = now.minutes % 60
-        return hours > 0 ? "Since wake · \(hours)h \(minutes)m" : "Since wake · \(minutes)m"
+    /// What "Today" covers, said once under the pills: since bedtime, or since
+    /// midnight when the ring recorded no night.
+    private var windowCaption: String? {
+        guard selection == .today, let now = model.now else { return nil }
+        let length = now.minutes >= 60 ? "\(now.minutes / 60)h \(now.minutes % 60)m" : "\(now.minutes)m"
+        if now.noWake { return "Since midnight · no sleep recorded last night" }
+        let bedtime = now.start.formatted(date: .omitted, time: .shortened)
+        let evening = !Calendar.current.isDate(now.start, inSameDayAs: now.end)
+        return "Since \(bedtime)\(evening ? " last night" : "") · \(length)"
     }
 
     private func dayLabel(_ offset: Int) -> String {
         switch offset {
-        case 0: return "Today"
         case 1: return "Yesterday"
         default: return RingDates.midnight(daysAgo: offset).formatted(.dateTime.weekday(.abbreviated).day())
         }
@@ -100,15 +129,15 @@ struct HealthTab: View {
 
     private var scores: HealthScores? {
         if case .day(let date) = selection { return model.health.scores(for: date) }
-        return model.health.scores(for: RingDates.dayKey(Date()))
+        return model.health.scores(for: HealthTabModel.scoresDate(model.now))
     }
 
     private var analysis: String? { scores?.analysis }
 
-    /// A calendar day spans 0–24. The window runs from the wake hour on its own
+    /// A calendar day spans 0–24. Today runs from the bedtime hour on its own
     /// day to now, which is past 24 once it has crossed midnight.
     private var hourDomain: ClosedRange<Double> {
-        guard case .sinceWake = selection, let now = model.now else { return 0...24 }
+        guard case .today = selection, let now = model.now else { return 0...24 }
         let midnight = Calendar.current.startOfDay(for: now.start)
         let from = now.start.timeIntervalSince(midnight) / 3600
         let to = max(from + 1, from + Double(now.minutes) / 60)

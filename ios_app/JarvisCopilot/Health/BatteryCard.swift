@@ -8,6 +8,9 @@ import SwiftUI
 /// took it" is visible before anything is read.
 struct BatteryCard: View {
     let battery: HealthBattery?
+    /// Today's window (bedtime to now) rather than a calendar day: its figures
+    /// are the night's charge and the day's drain since waking.
+    var window = false
     let analysis: String?
     let lastRefreshed: Date?
     let isRefreshing: Bool
@@ -86,6 +89,17 @@ struct BatteryCard: View {
     private func curve(_ battery: HealthBattery) -> some View {
         let tint = Self.tint(battery.band)
         return Chart {
+            // The night, shaded: the climb is sleep, not a number going up.
+            if let bed = battery.bedAt, let wake = battery.wakeAt, let first = battery.curve.first?.at, wake > first {
+                RectangleMark(xStart: .value("Asleep", max(bed, first)), xEnd: .value("Woke", wake))
+                    .foregroundStyle(Color.primary.opacity(0.06))
+                    .annotation(position: .overlay, alignment: .topLeading, spacing: 0) {
+                        Image(systemName: "moon.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
+                    }
+            }
             if let drain = battery.biggestDrain {
                 RectangleMark(xStart: .value("From", drain.start), xEnd: .value("To", drain.end))
                     .foregroundStyle(JcTheme.danger.opacity(0.16))
@@ -119,21 +133,35 @@ struct BatteryCard: View {
     }
 
     /// Four figures, whichever this battery has: a day's charge and drains, or
-    /// the window's level at wake and what it has lost since.
+    /// today's charge overnight, the level at wake and what has gone since.
     private func parts(_ battery: HealthBattery) -> some View {
+        partsRow(window ? windowParts(battery) : dayParts(battery))
+    }
+
+    private func windowParts(_ battery: HealthBattery) -> [(String, String, Color?)] {
+        var items: [(String, String, Color?)] = []
+        if let charged = battery.charged { items.append(("Charged", "+\(Int(charged.rounded()))", Self.tint("High"))) }
+        if let wake = battery.wakeLevel { items.append(("At wake", "\(Int(wake.rounded()))", nil)) }
+        if let drained = battery.drained {
+            items.append((battery.noSleep == true ? "Since midnight" : "Drained", "−\(Int(drained.rounded()))", nil))
+        }
+        if let steepest = battery.biggestDrain {
+            items.append(("Steepest", "−\(String(format: "%.1f", steepest.points))", JcTheme.danger))
+        }
+        return items
+    }
+
+    private func dayParts(_ battery: HealthBattery) -> [(String, String, Color?)] {
         var items: [(String, String, Color?)] = []
         if let charged = battery.charged { items.append(("Charged", "+\(Int(charged.rounded()))", Self.tint("High"))) }
         if let factor = battery.recoveryFactor { items.append(("Recovery", "\(Int((factor * 100).rounded()))%", nil)) }
         if let stress = battery.drains?["stress"] { items.append(("Stress", "−\(Int(stress.rounded()))", nil)) }
         if let activity = battery.drains?["activity"] { items.append(("Activity", "−\(Int(activity.rounded()))", nil)) }
-        if battery.charged == nil {
-            if let wake = battery.wakeLevel { items.append(("At wake", "\(Int(wake.rounded()))", nil)) }
-            if let drained = battery.drained { items.append(("Drained", "−\(Int(drained.rounded()))", nil)) }
-            if let steepest = battery.biggestDrain {
-                items.append(("Steepest", "−\(String(format: "%.1f", steepest.points))", JcTheme.danger))
-            }
-        }
-        return HStack(alignment: .top, spacing: 12) {
+        return items
+    }
+
+    private func partsRow(_ items: [(String, String, Color?)]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
             ForEach(Array(items.prefix(4).enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.0.uppercased())
@@ -167,7 +195,9 @@ struct BatteryCard: View {
 
     /// The one caveat worth saying, when there is one.
     private func note(_ battery: HealthBattery) -> String? {
-        if battery.noSleep == true { return "No sleep recorded, so nothing charged." }
+        if battery.noSleep == true {
+            return window ? "No sleep recorded last night, so nothing charged." : "No sleep recorded, so nothing charged."
+        }
         if let calibrating = battery.calibrating {
             return "Calibrating · \(calibrating.nights) of \(calibrating.needed) nights"
         }

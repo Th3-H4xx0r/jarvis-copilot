@@ -14,14 +14,18 @@ struct RingStatsSections: View {
     /// The hours the charts span. A calendar day is 0–24; the window since
     /// waking runs from the wake hour past midnight (26 is 2 AM the next day).
     var hourDomain: ClosedRange<Double>
+    /// A card's Measure control, for the metrics a wearable can read on demand.
+    var measure: (RingMeasurementType) -> RingCardMeasure?
 
     init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil,
-         hourDomain: ClosedRange<Double> = 0...24) {
+         hourDomain: ClosedRange<Double> = 0...24,
+         measure: @escaping (RingMeasurementType) -> RingCardMeasure? = { _ in nil }) {
         self.store = store
         self.dayKey = dayKey
         self.capabilities = capabilities
         self.scores = scores
         self.hourDomain = hourDomain
+        self.measure = measure
     }
 
     var body: some View {
@@ -35,7 +39,7 @@ struct RingStatsSections: View {
                 spo2(day, summary)
             }
             if capabilities.hrv || day.hrv != nil {
-                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [],
+                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [], measuring: .hrv,
                        stats: [("Latest", summary.hrvLatest.map { "\($0) ms" }), ("Average", summary.hrvAvg.map { "\($0) ms" })],
                        format: { "\(Int($0.rounded())) ms" })
             }
@@ -52,6 +56,7 @@ struct RingStatsSections: View {
                 }
                 series("Temperature", unit: unit.label, color: .orange, values: converted,
                        extra: day.instantTemperature.map { RingTimedValue(minute: $0.minute, value: unit.value($0.value)) },
+                       measuring: .temperature,
                        stats: [("Latest", summary.temperatureLatest.map(unit.format)),
                                ("Average", summary.temperatureAvg.map(unit.format))],
                        format: { String(format: "%.1f %@", $0, unit.label) })
@@ -153,6 +158,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Sample interval", value: day.heartRate.map { "\($0.intervalMinutes) min" }),
                 RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
             ],
+            measure: measure(.heartRate),
             emptyText: line.isEmpty && points.isEmpty ? "No heart-rate readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(line + points, hour: hour, toleranceMinutes: tolerance)
@@ -192,6 +198,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Lowest", value: s.spo2Min.map { "\($0)%" }),
                 RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
             ],
+            measure: measure(.spo2),
             emptyText: hours.isEmpty && points.isEmpty ? "No SpO₂ readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 if let spot = RingChartScrub.nearest(points, hour: hour, toleranceMinutes: 15) {
@@ -228,7 +235,8 @@ struct RingStatsSections: View {
     /// A single time series (HRV, stress, temperature). The first of `stats` is the
     /// headline; `format` renders a scrubbed reading.
     private func series(_ title: String, unit: String, color: Color, values: RingSeries?, extra: [RingTimedValue],
-                        stats: [(String, String?)], format: @escaping (Double) -> String) -> some View {
+                        measuring: RingMeasurementType, stats: [(String, String?)],
+                        format: @escaping (Double) -> String) -> some View {
         let line = timed(values)
         let tolerance = max(15, values?.intervalMinutes ?? 0)
         let all = stats.map { RingStat(label: $0.0, value: $0.1) }
@@ -237,6 +245,7 @@ struct RingStatsSections: View {
             title: title,
             headline: all[0],
             details: Array(all.dropFirst()),
+            measure: measure(measuring),
             emptyText: line.isEmpty && extra.isEmpty ? "No \(title.lowercased()) readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(line + extra, hour: hour, toleranceMinutes: tolerance)
@@ -309,6 +318,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Highest", value: readings.map { Int($0.value) }.max().map(String.init)),
                 RingStat(label: "Sample interval", value: day.stress.map { "\($0.intervalMinutes) min" }),
             ],
+            measure: measure(.stress),
             emptyText: readings.isEmpty ? "No stress readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(readings, hour: hour, toleranceMinutes: 30) else { return nil }

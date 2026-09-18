@@ -79,9 +79,17 @@ struct RingDay: Codable, Equatable {
         stepSlots = bySlot.values.sorted { $0.slot < $1.slot }
     }
 
-    /// A re-synced night replaces the copy that ended within five minutes of it.
+    /// A re-synced night replaces the copy that ended within five minutes of
+    /// it, and a night that grew — the ring reports it again with the same
+    /// start and a later end — replaces the shorter copy.
     mutating func mergeSleep(_ session: RingSleepSession) {
-        sleep.removeAll { abs($0.end.timeIntervalSince(session.end)) < 300 }
+        // An older, shorter copy arriving late never replaces the grown night.
+        if sleep.contains(where: {
+            abs($0.start.timeIntervalSince(session.start)) < 300 && $0.end.timeIntervalSince(session.end) >= 300
+        }) { return }
+        sleep.removeAll {
+            abs($0.end.timeIntervalSince(session.end)) < 300 || abs($0.start.timeIntervalSince(session.start)) < 300
+        }
         sleep.append(session)
         sleep.sort { $0.end < $1.end }
     }
