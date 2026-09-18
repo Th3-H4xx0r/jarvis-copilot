@@ -138,11 +138,44 @@ final class RingSessionTests: XCTestCase {
         XCTAssertEqual(link.payloads(0x6A).first.map { Array($0.prefix(3)) }, [1, 78, 0])
     }
 
-    func testAChargingRingSaysSo() async throws {
-        link.script(0x69, [RingProtocol.frame(0x69, [1, 1, 0])])
+    func testAHeartRateSwitchesToLiveValuesAfterTheWearCheck() async throws {
+        session.heartRateWearCheck = 0.05
+        session.measurementLimit = 5
         try await session.startMeasurement(.heartRate)
-        let result = await session.awaitMeasurement(timeout: 1)
-        XCTAssertEqual(result?.detail, "the ring is on its charger")
+        try await settle()
+        XCTAssertEqual(realtimeActions(), [1], "no 'not worn' in the wear check: real-time mode starts")
+
+        link.deliver(RingProtocol.frame(0x69, [6, 0, 79]))
+        XCTAssertEqual(session.measurement?.value, 79)
+        XCTAssertNotNil(session.measurement?.skinContactAt)
+        link.deliver(RingProtocol.frame(0x69, [6, 0, 83]))
+        XCTAssertEqual(session.measurement?.value, 83, "each second's bpm is shown as it lands")
+        XCTAssertEqual(session.measurement?.phase, .measuring)
+
+        let result = await session.awaitMeasurement(timeout: 2)
+        try await settle()
+        XCTAssertEqual(result?.phase, .done)
+        XCTAssertEqual(result?.value, 83)
+        XCTAssertEqual(realtimeActions(), [1, 4], "real-time mode is always stopped")
+    }
+
+    func testANotWornReplyEndsAHeartRateBeforeItSwitches() async throws {
+        session.heartRateWearCheck = 0.2
+        try await session.startMeasurement(.heartRate)
+        link.deliver(RingProtocol.frame(0x69, [1, 1, 0]))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(session.measurement?.phase, .notWorn)
+        XCTAssertEqual(realtimeActions(), [], "a ring off the finger never goes into real-time mode")
+    }
+
+    func testANotWornReplyAfterMeasuringStillEndsIt() async throws {
+        // As the ring does it: accepted, zeros, then "not worn" a few seconds in.
+        try await session.startMeasurement(.heartRate)
+        link.deliver(RingProtocol.frame(0x69, measuring()))
+        XCTAssertEqual(session.measurement?.phase, .measuring)
+        link.deliver(RingProtocol.frame(0x69, [1, 1, 0]))
+        XCTAssertEqual(session.measurement?.phase, .notWorn)
+        XCTAssertEqual(session.measurement?.detail, "the ring is not on a finger")
     }
 
     func testANotWornReplyEndsTheMeasurement() async throws {

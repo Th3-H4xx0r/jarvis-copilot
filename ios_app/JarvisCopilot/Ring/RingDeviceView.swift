@@ -119,16 +119,6 @@ struct RingDeviceView: View {
                 break
             }
         }
-        // Off a finger the ring does not refuse — it measures nothing. Twenty
-        // seconds of no signal is past its warm-up (it reads skin within about
-        // fifteen), so by then the ring is not on: ask for it.
-        .task(id: session.measurement?.startedAt) {
-            guard let started = session.measurement?.startedAt, session.measurement?.isActive == true else { return }
-            try? await Task.sleep(for: .seconds(max(0, 20 - Date().timeIntervalSince(started))))
-            guard !Task.isCancelled, wearPrompt == nil, let m = session.measurement, m.startedAt == started,
-                  m.isActive, m.skinContactAt == nil, m.usesOpticalSensor else { return }
-            showWearPrompt(for: m.type)
-        }
         .onDisappear {
             wearRetry?.cancel()
             measurementFade?.cancel()
@@ -243,11 +233,11 @@ struct RingDeviceView: View {
     /// Keep asking until the ring is on a finger, then take the sheet away and
     /// let the reading carry on underneath it.
     ///
-    /// The ring rarely says "not worn": off a finger it answers zeros. The first
-    /// sign it is on is the optical signal coming up (`skinContactAt`), about
-    /// ten seconds before there is a number — waiting for the number is what
-    /// left the sheet up while the ring was plainly measuring. Closing it must
-    /// not cancel the measurement it was waiting for.
+    /// Off a finger the ring accepts a reading and then says "not worn" 3–7 s
+    /// in. So an attempt that has run `wornAfter` without that is on a finger —
+    /// the sheet goes then, rather than waiting ~17 s for the sensor to warm up
+    /// and report skin (`skinContactAt`), which is what left it up while the
+    /// ring was plainly measuring. Closing it never cancels the reading.
     private func showWearPrompt(for type: RingMeasurementType) {
         wearPrompt = type
         wearRetry?.cancel()
@@ -268,7 +258,8 @@ struct RingDeviceView: View {
                     guard !Task.isCancelled, wearPrompt != nil else { return }
 
                     let state = session.measurement
-                    let onFinger = state?.skinContactAt != nil || (state?.value ?? 0) > 0
+                    let unrefused = state.map { $0.isActive && Date().timeIntervalSince($0.startedAt) >= Self.wornAfter } ?? false
+                    let onFinger = unrefused || state?.skinContactAt != nil || (state?.value ?? 0) > 0
                         || state?.phase == .done
                     let gotLive = session.liveHeartRate?.date != liveBefore
                     if onFinger || gotLive {
@@ -286,10 +277,15 @@ struct RingDeviceView: View {
                         break
                     }
                 }
-                try? await Task.sleep(for: .seconds(2))
+                // Straight back in: every second here is a second the sheet
+                // stays up after the ring has gone on.
+                try? await Task.sleep(for: .milliseconds(400))
             }
         }
     }
+
+    /// Longer than the ring has ever taken to say "not worn" (3–7 s).
+    static let wornAfter: TimeInterval = 8
 
     /// Leave the result up long enough to read, then take the card away.
     private func fadeMeasurementCard() {
@@ -342,13 +338,15 @@ struct RingDeviceView: View {
                     Spacer()
                     // What the ring is sending right now, not just what it
                     // concluded: the same rolling digits the charts scrub with.
-                    if let live = liveReading(for: m) {
-                        Text(live)
+                    // "--" while the sensor warms up, then each value the ring
+                    // sends rolls in with the same digits the charts scrub with.
+                    if let shown = liveReading(for: m) ?? (m.isActive ? "--" : nil) {
+                        Text(shown)
                             .font(.system(size: 22, weight: .semibold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(m.type.tint)
+                            .foregroundStyle(shown == "--" ? AnyShapeStyle(.tertiary) : AnyShapeStyle(m.type.tint))
                             .contentTransition(.numericText())
-                            .animation(.snappy(duration: 0.2), value: live)
+                            .animation(.snappy(duration: 0.25), value: shown)
                     }
                     if m.isActive {
                         ProgressView()
@@ -384,7 +382,7 @@ struct RingDeviceView: View {
         case .measuring:
             return "Hold still — measuring…"
         case .notWorn:
-            return "Take the ring off its charger and put it on."
+            return "Put the ring on and try again."
         case .failed:
             return m.detail ?? "The measurement failed."
         case .cancelled:
