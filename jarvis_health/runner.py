@@ -69,7 +69,7 @@ def run(
 
     sleep = sleep_score(day, baseline)
     recovery = recovery_score(day, baseline)
-    body = body_score(day, baseline)
+    body = body_score(day, baseline, unit=settings.get("temperature_unit") or "celsius")
     activity = activity_score(day, settings.get("goals") or {})
     scores = {"sleep": sleep, "recovery": recovery, "body": body, "activity": activity}
     scores["health"] = health_score(scores)

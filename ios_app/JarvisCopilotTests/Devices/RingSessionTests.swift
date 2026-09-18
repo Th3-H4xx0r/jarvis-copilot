@@ -259,6 +259,27 @@ final class RingSessionTests: XCTestCase {
         XCTAssertEqual(session.settings.goals?.steps, 10000, "the ring's reply, not the requested value")
     }
 
+    /// A goal the ring did not confirm is the person's all the same: kept,
+    /// shown, and written again on the next link.
+    func testAGoalTheRingMissedIsKeptAndWrittenOnTheNextLink() async throws {
+        link.script(0x21, [])
+        link.script(0x21, [])
+        let saved = await session.saveGoals(someGoals)
+        XCTAssertFalse(saved)
+        XCTAssertEqual(session.settings.goals, someGoals, "shown as chosen")
+        XCTAssertEqual(session.pending.goals, someGoals)
+
+        // Next link: setup reads the ring's stale goals, then writes the kept ones.
+        let confirm = [UInt8(1), 0x28, 0x23, 0, 0xE0, 0x93, 0x04, 0x88, 0x13, 0, 60, 0, 0xE0, 0x01]
+        link.script(0x21, [RingProtocol.frame(0x21, goalsReply)])
+        link.script(0x21, [RingProtocol.frame(0x21, [2])])
+        link.script(0x21, [RingProtocol.frame(0x21, confirm)])
+        await session.runSetup()
+
+        XCTAssertNil(session.pending.goals, "confirmed on the next link")
+        XCTAssertEqual(session.settings.goals?.steps, 9000)
+    }
+
     /// The bug that made goals look saved: no answer to the read-back used to
     /// fall back to the requested value, which reverted on the next refresh.
     func testAGoalWriteTheRingNeverConfirmsIsAnError() async throws {

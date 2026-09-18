@@ -180,7 +180,7 @@ def recovery_score(day: HealthDay, baseline: Baseline) -> Score:
     return _score(points)
 
 
-def body_score(day: HealthDay, baseline: Baseline) -> Score:
+def body_score(day: HealthDay, baseline: Baseline, unit: str = "celsius") -> Score:
     points: list[Contribution] = []
 
     if day.stress and day.stress.nonzero():
@@ -194,7 +194,9 @@ def body_score(day: HealthDay, baseline: Baseline) -> Score:
 
     if day.temperature and day.temperature.nonzero() and baseline.temperature:
         off = abs(_mean(day.temperature.nonzero()) - baseline.temperature)
-        points.append(Contribution("Temperature", ramp(off, 0, 0.3, -1, 1.5, 20), 20, f"{off:.1f}°C off"))
+        # Scored in Celsius; described in the unit the person reads.
+        shown = f"{off * 1.8:.1f}°F" if unit == "fahrenheit" else f"{off:.1f}°C"
+        points.append(Contribution("Temperature", ramp(off, 0, 0.3, -1, 1.5, 20), 20, f"{shown} off"))
 
     return _score(points) if points else Score(None, [], ["body"])
 

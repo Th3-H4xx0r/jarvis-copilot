@@ -22,6 +22,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quiet_hours": {"start": "22:00", "end": "08:00"},
     "rules": DEFAULT_RULES,
     "goals": {"steps": 10000, "active_minutes": 30},
+    #: Display unit for temperatures in prose; the data is always Celsius.
+    "temperature_unit": "celsius",
+    #: From the wearable's profile screen; heart-rate zones need age.
+    "profile": {"sex": "", "age": 0, "height_cm": 0, "weight_kg": 0},
     #: Who this integration is about, filled in when the phone registers it.
     "device_id": "",            # the wearable's own id
     "bridge_device_id": "",     # the phone whose bridge reaches it

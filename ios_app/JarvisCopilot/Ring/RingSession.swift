@@ -191,6 +191,7 @@ final class RingSession: ObservableObject {
         }
         await refreshBattery()
         await refreshSettings()
+        await flushPending()
         setupCompletedAt = Date()
     }
 
@@ -288,6 +289,10 @@ final class RingSession: ObservableObject {
         if let v = await read(.readProfile, RingDecode.profile) { settings.profile = v }
         if let v = await read(.readWearHand, RingDecode.wearHand) { settings.wearHand = v }
         if caps.sedentary, let v = await read(.readSedentary, RingDecode.sedentary) { settings.sedentary = v }
+        // What the person chose outranks what a ring that has not caught up reports.
+        if let g = pending.goals { settings.goals = g }
+        if let p = pending.profile { settings.profile = p }
+        if let c = pending.celsius { settings.temperatureUnit = RingTemperatureUnit(enabled: true, celsius: c) }
     }
 
     /// Waits for the reply that decodes and passes `accept`: a late ack for an earlier write, or
@@ -373,6 +378,61 @@ final class RingSession: ObservableObject {
         try await write(.writeGesture(appType: mode.rawValue, strength: value))
         settings.gesture = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch })
             ?? RingTouchSettings(isTouch: false, mode: mode.rawValue, sleepTime: 0, touchSleep: false, strength: value)
+    }
+
+    // MARK: Settings the person chose
+    //
+    // Goals, profile and unit are the person's, not the ring's: they are kept
+    // and shown whatever the ring does, the app and the server hold them, and a
+    // ring that did not confirm one gets it again on the next link.
+
+    struct PendingSettings: Codable, Equatable {
+        var goals: RingGoals?
+        var profile: RingProfile?
+        var celsius: Bool?
+        var isEmpty: Bool { goals == nil && profile == nil && celsius == nil }
+    }
+
+    /// Chosen, kept, and not yet confirmed by the ring.
+    @Published private(set) var pending = PendingSettings()
+
+    /// Keeps the goals; true when the ring confirmed them too.
+    @discardableResult
+    func saveGoals(_ goals: RingGoals) async -> Bool {
+        let confirmed = (try? await setGoals(goals)) != nil
+        pending.goals = confirmed ? nil : goals
+        if !confirmed { settings.goals = goals }
+        persistCache()
+        return confirmed
+    }
+
+    /// Keeps the profile; true when the ring confirmed it too.
+    @discardableResult
+    func saveProfile(_ profile: RingProfile) async -> Bool {
+        let confirmed = (try? await setProfile(profile)) != nil
+        pending.profile = confirmed ? nil : profile
+        if !confirmed { settings.profile = profile }
+        persistCache()
+        return confirmed
+    }
+
+    /// Sends the unit to the ring. The app's own display follows the app
+    /// preference whatever the ring answers, so this is only the ring's copy.
+    @discardableResult
+    func saveTemperatureUnit(celsius: Bool) async -> Bool {
+        let confirmed = (try? await setTemperatureUnit(celsius: celsius)) != nil
+        pending.celsius = confirmed ? nil : celsius
+        if !confirmed { settings.temperatureUnit = RingTemperatureUnit(enabled: true, celsius: celsius) }
+        persistCache()
+        return confirmed
+    }
+
+    /// Writes whatever the ring has not confirmed yet; keeps what it still refuses.
+    private func flushPending() async {
+        guard !pending.isEmpty else { return }
+        if let goals = pending.goals { await saveGoals(goals) }
+        if let profile = pending.profile { await saveProfile(profile) }
+        if let celsius = pending.celsius { await saveTemperatureUnit(celsius: celsius) }
     }
 
     // Goals, profile and unit count as saved only when the ring reads them back.
@@ -961,6 +1021,7 @@ final class RingSession: ObservableObject {
         var hardware: String?
         var battery: RingBattery?
         var probe: RingProbe?
+        var pending: PendingSettings?
     }
 
     private static func cacheKey(_ deviceID: String) -> String { "jc.ring.cache.\(deviceID)" }
@@ -977,11 +1038,12 @@ final class RingSession: ObservableObject {
         hardware = hardware ?? cache.hardware
         battery = battery ?? cache.battery
         if probe.isEmpty, let cached = cache.probe { probe = cached }
+        if pending.isEmpty, let cached = cache.pending { pending = cached }
     }
 
     func saveCache(deviceID: String, defaults: UserDefaults = .standard) {
         let cache = Cache(capabilities: capabilities, settings: settings, firmware: firmware,
-                          hardware: hardware, battery: battery, probe: probe)
+                          hardware: hardware, battery: battery, probe: probe, pending: pending)
         if let data = try? JSONEncoder().encode(cache) { defaults.set(data, forKey: Self.cacheKey(deviceID)) }
         cacheOwner = (deviceID, defaults)
     }

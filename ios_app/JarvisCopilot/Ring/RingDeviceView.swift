@@ -362,7 +362,8 @@ struct RingDeviceView: View {
     /// it works, and the result once it has one.
     private func liveReading(for m: RingMeasurementState) -> String? {
         if let value = m.value, value > 0 {
-            return m.type == .temperature ? m.celsius.map { String(format: "%.1f°", $0) } : "\(value)"
+            return m.type == .temperature
+                ? m.celsius.map { String(format: "%.1f°", TemperatureUnit.current.value($0)) } : "\(value)"
         }
         guard m.isActive else { return nil }
         switch m.type {
@@ -371,7 +372,7 @@ struct RingDeviceView: View {
         case .spo2:
             return session.liveSpO2.map { "\(Int($0.value))%" }
         case .temperature:
-            return session.liveTemperature.map { String(format: "%.1f°", $0.value) }
+            return session.liveTemperature.map { String(format: "%.1f°", TemperatureUnit.current.value($0.value)) }
         default:
             return nil
         }
@@ -394,7 +395,7 @@ struct RingDeviceView: View {
             case .bloodPressure:
                 return "\(m.systolic ?? 0)/\(m.diastolic ?? 0) mmHg"
             case .temperature:
-                return m.celsius.map { String(format: "%.1f °C", $0) } ?? "—"
+                return m.celsius.map(TemperatureUnit.current.format) ?? "—"
             case .heartRate:
                 return "\(m.value ?? 0) bpm"
             case .spo2:
@@ -466,7 +467,7 @@ struct RingDeviceView: View {
         if let hr = session.liveHeartRate { rows.append(("Heart rate", "\(Int(hr.value)) bpm · \(time(hr.date))")) }
         if let spo2 = session.liveSpO2 { rows.append(("SpO₂", "\(Int(spo2.value))% · \(time(spo2.date))")) }
         if let temperature = session.liveTemperature {
-            rows.append(("Temperature", String(format: "%.1f °C · ", temperature.value) + time(temperature.date)))
+            rows.append(("Temperature", TemperatureUnit.current.format(temperature.value) + " · " + time(temperature.date)))
         }
         if let activity = session.liveActivity {
             rows.append(("Live steps", "\(activity.steps) · \(String(format: "%.0f kcal", activity.kilocalories))"))

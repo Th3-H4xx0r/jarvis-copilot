@@ -9,7 +9,11 @@ struct RingSettingsView: View {
     @ObservedObject private var health: HealthStore
 
     @State private var error: String?
+    /// "Saved — the ring gets it when it next connects": kept, not failed.
+    @State private var note: String?
     @State private var working = false
+    /// The app-wide °C/°F choice every temperature in the app is drawn in.
+    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
     @State private var goals = GoalsDraft()
     @State private var profile = ProfileDraft()
     @State private var rawHex = ""
@@ -55,6 +59,13 @@ struct RingSettingsView: View {
                     Text(error)
                         .font(.footnote)
                         .foregroundStyle(.orange)
+                        .padding(.horizontal, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let note {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -247,11 +258,13 @@ struct RingSettingsView: View {
             Row {
                 Button("Save goals") {
                     let draft = goals
-                    apply {
-                        try await session.setGoals(RingGoals(steps: draft.steps, calories: draft.kilocalories * 1000,
-                                                             distanceMeters: draft.distanceMeters,
-                                                             sportMinutes: draft.sportMinutes,
-                                                             sleepMinutes: draft.sleepMinutes))
+                    keep { @MainActor in
+                        _ = await health.updateSettings(["goals": ["steps": draft.steps,
+                                                                   "active_minutes": draft.sportMinutes]])
+                        return await session.saveGoals(RingGoals(steps: draft.steps, calories: draft.kilocalories * 1000,
+                                                                 distanceMeters: draft.distanceMeters,
+                                                                 sportMinutes: draft.sportMinutes,
+                                                                 sleepMinutes: draft.sleepMinutes))
                     }
                 }
             }
@@ -292,7 +305,13 @@ struct RingSettingsView: View {
                     value.use24Hour = draft.use24Hour
                     value.metric = draft.metric
                     let profileToSave = value
-                    apply { try await session.setProfile(profileToSave) }
+                    keep { @MainActor in
+                        _ = await health.updateSettings(["profile": [
+                            "sex": draft.female ? "female" : "male", "age": draft.age,
+                            "height_cm": draft.heightCm, "weight_kg": draft.weightKg,
+                        ]])
+                        return await session.saveProfile(profileToSave)
+                    }
                 }
             }
         }
@@ -307,9 +326,17 @@ struct RingSettingsView: View {
             CardGroup("Preferences") {
                 if caps.anyTemperature {
                     Row {
+                        // The app's unit changes at once; the ring's copy follows
+                        // when it answers, and the server keeps it for the analysis.
                         Picker("Temperature unit", selection: Binding(
-                            get: { s.temperatureUnit?.celsius ?? true },
-                            set: { celsius in apply { try await session.setTemperatureUnit(celsius: celsius) } })) {
+                            get: { temperatureUnit == .celsius },
+                            set: { celsius in
+                                temperatureUnit = celsius ? .celsius : .fahrenheit
+                                keep { @MainActor in
+                                    _ = await health.updateSettings(["temperature_unit": celsius ? "celsius" : "fahrenheit"])
+                                    return await session.saveTemperatureUnit(celsius: celsius)
+                                }
+                            })) {
                             Text("°C").tag(true)
                             Text("°F").tag(false)
                         }
@@ -469,7 +496,7 @@ struct RingSettingsView: View {
             RowDivider()
             infoRow("Blood oxygen", session.liveSpO2.map { "\(Int($0.value))% · \(ago($0.date))" } ?? "—")
             RowDivider()
-            infoRow("Temperature", session.liveTemperature.map { String(format: "%.1f °C · ", $0.value) + ago($0.date) } ?? "—")
+            infoRow("Temperature", session.liveTemperature.map { TemperatureUnit.current.format($0.value) + " · " + ago($0.date) } ?? "—")
             RowDivider()
             infoRow("Steps", session.liveActivity.map { "\($0.steps) · \($0.distanceMeters) m" } ?? "—")
             RowDivider()
@@ -653,6 +680,21 @@ struct RingSettingsView: View {
     }
 
     // MARK: Helpers
+
+    /// Saves something that belongs to the person: kept on the phone and the
+    /// server whatever happens, and on the ring when it answers. `work` returns
+    /// whether the ring confirmed it.
+    private func keep(_ work: @escaping @MainActor () async -> Bool) {
+        working = true
+        error = nil
+        note = nil
+        Task { @MainActor in
+            if !ready { _ = await manager.ensureConnected(timeout: 8) }
+            let confirmed = await work()
+            note = confirmed ? nil : "Saved. The ring gets it the next time it connects."
+            working = false
+        }
+    }
 
     private func apply(_ work: @escaping () async throws -> Void) {
         working = true

@@ -4,6 +4,8 @@ import SwiftUI
 /// Every metric the ring collects for one day, as numbers and charts.
 struct RingStatsSections: View {
     @ObservedObject var store: RingHistoryStore
+    /// The app's °C/°F choice: the ring reports Celsius, the card shows this.
+    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
     let dayKey: String
     let capabilities: RingCapabilities
     /// The server's scores for this day, when it has any: the sleep card shows
@@ -36,10 +38,18 @@ struct RingStatsSections: View {
                 stress(day, summary)
             }
             if capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty {
-                series("Temperature", unit: "°C", color: .orange, values: day.temperature, extra: day.instantTemperature,
-                       stats: [("Latest", summary.temperatureLatest.map { String(format: "%.1f °C", $0) }),
-                               ("Average", summary.temperatureAvg.map { String(format: "%.1f °C", $0) })],
-                       format: { String(format: "%.1f °C", $0) })
+                let unit = temperatureUnit
+                // Converted before charting so the axis reads in the chosen unit;
+                // a zero slot is "no reading" and stays zero.
+                let converted = day.temperature.map { series in
+                    RingSeries(intervalMinutes: series.intervalMinutes,
+                               values: series.values.map { $0 > 0 ? unit.value($0) : 0 })
+                }
+                series("Temperature", unit: unit.label, color: .orange, values: converted,
+                       extra: day.instantTemperature.map { RingTimedValue(minute: $0.minute, value: unit.value($0.value)) },
+                       stats: [("Latest", summary.temperatureLatest.map(unit.format)),
+                               ("Average", summary.temperatureAvg.map(unit.format))],
+                       format: { String(format: "%.1f %@", $0, unit.label) })
             }
             if capabilities.bloodPressure || !day.bloodPressure.isEmpty { bloodPressure(day) }
             if capabilities.bloodSugar || day.bloodSugar != nil { bloodSugar(day) }

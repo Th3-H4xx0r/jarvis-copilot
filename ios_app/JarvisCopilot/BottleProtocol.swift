@@ -37,6 +37,18 @@ enum TemperatureUnit: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var label: String { self == .celsius ? "°C" : "°F" }
+
+    /// The unit the person picked, for code that draws a temperature outside a
+    /// view's `@AppStorage`. Every device reports °C; this is display only.
+    static var current: TemperatureUnit {
+        UserDefaults.standard.string(forKey: "temperatureUnit").flatMap(TemperatureUnit.init) ?? .celsius
+    }
+
+    /// A Celsius reading in this unit.
+    func value(_ celsius: Double) -> Double { self == .celsius ? celsius : celsius * 9 / 5 + 32 }
+
+    /// "36.5 °C" / "97.7 °F".
+    func format(_ celsius: Double) -> String { String(format: "%.1f %@", value(celsius), label) }
 }
 
 /// One entry in a reminder / auto-sterilise schedule.
