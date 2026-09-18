@@ -48,6 +48,7 @@ final class RingManager: NSObject, ObservableObject {
             age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
             location: WorkoutLocation(),
             liveActivity: WorkoutLiveActivity())
+        controller.onEnded = { [weak self] in self?.workoutEnded() }
         controller.onSave = { [weak self] workout in
             let deviceID = self?.deviceID
             Task { await WorkoutUploader.save(workout, deviceID: deviceID) }
@@ -65,6 +66,9 @@ final class RingManager: NSObject, ObservableObject {
     /// Ring gestures need the link up: an action set on the ring is useless if the link goes
     /// when the app leaves the screen, so choosing "Jarvis actions" holds it like Keep Alive.
     var holdsLinkForInputs: Bool { inputs?.wantedMode == .jarvis }
+    /// A workout needs the link the whole time, in the background too: let
+    /// go and the ring loses the phone and pauses its session.
+    var holdsLinkForWorkout: Bool { workout.isActive }
 
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.
@@ -263,7 +267,7 @@ final class RingManager: NSObject, ObservableObject {
 
     /// Releases an on-demand link once the work is done (Keep Alive off, no screen open).
     func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForInputs else { return }
+        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForInputs, !holdsLinkForWorkout else { return }
         idleDropTask?.cancel()
         idleDropTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
@@ -395,12 +399,17 @@ final class RingManager: NSObject, ObservableObject {
     /// Gestures need the link in the background — that is the whole point of them. Bridge
     /// mode + Keep Alive holds it too; otherwise the link is reopened on demand.
     private func releaseLinkForBackground() {
-        guard !holdsLinkForInputs else { return }
+        guard !holdsLinkForInputs, !holdsLinkForWorkout else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
         if connected != nil {
             wasConnectedBeforeBackground = connected
             disconnect()
         }
+    }
+
+    /// The link a workout held in the background goes back to the usual rules.
+    private func workoutEnded() {
+        if isBackgrounded { releaseLinkForBackground() } else { releaseIfIdle() }
     }
 
     func enterForeground() {
@@ -410,7 +419,7 @@ final class RingManager: NSObject, ObservableObject {
             wasConnectedBeforeBackground = nil
             // An open ring screen holds the link whatever Keep Alive says; its wear watch starts
             // again once the link is ready.
-            if keepAliveEnabled || screenIsOpen { connect(ring) }
+            if keepAliveEnabled || screenIsOpen || holdsLinkForWorkout { connect(ring) }
         } else if state == .ready {
             sync.syncIfStale()
         }
@@ -531,7 +540,8 @@ extension RingManager: CBCentralManagerDelegate {
             self.setupTask?.cancel()
             self.setupTask = nil
             self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForInputs else {
+            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForInputs
+                    || self.holdsLinkForWorkout else {
                 JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); keep-alive off")
                 self.connected = nil
                 self.state = .idle

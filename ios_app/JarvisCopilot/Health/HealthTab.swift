@@ -28,6 +28,8 @@ struct HealthTab: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    // A workout under way comes first, above the days.
+                    WorkoutInProgressCard(workout: workout)
                     VStack(alignment: .leading, spacing: 26) {
                         dayRow
                         if let window = model.window(for: selection) {
@@ -38,7 +40,6 @@ struct HealthTab: View {
                     }
                     .padding(.bottom, 6)
                     .animation(.easeOut(duration: 0.2), value: selection)
-                    WorkoutInProgressCard(workout: workout)
                     BatteryCard(battery: model.battery(for: selection),
                                 analysis: analysis,
                                 lastRefreshed: model.loadedAt[selection.cacheKey],

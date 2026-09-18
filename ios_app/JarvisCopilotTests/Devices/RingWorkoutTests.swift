@@ -179,6 +179,18 @@ final class RingWorkoutTests: XCTestCase {
         XCTAssertTrue(controller.showsLive, "Start while one runs brings the running one back")
     }
 
+    /// The link a workout held in the background is handed back when it ends.
+    func testEndingTheWorkoutLetsTheLinkGo() async throws {
+        var ended = 0
+        controller.onEnded = { ended += 1 }
+        try await started()
+        XCTAssertTrue(controller.isActive, "held while it runs")
+        controller.end()
+        deliver(tick(state: 3, elapsed: 5))
+        XCTAssertEqual(ended, 1)
+        XCTAssertFalse(controller.isActive)
+    }
+
     func testZonesAndCadence() async throws {
         XCTAssertEqual(RingWorkoutController.zone(100, age: 30), 1)   // 53%
         XCTAssertEqual(RingWorkoutController.zone(140, age: 30), 3)   // 74%

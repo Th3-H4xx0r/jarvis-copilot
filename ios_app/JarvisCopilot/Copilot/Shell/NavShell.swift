@@ -100,6 +100,9 @@ struct GlassNavBar: View {
     /// The window's home-indicator inset. The bar sits over a fraction of it
     /// rather than above the whole thing, so it hugs the bottom edge.
     var bottomInset: CGFloat = 0
+    /// A workout under way marks the Health tab live: a beating dot on its
+    /// icon and the workout's time in place of its name.
+    @ObservedObject var workout: RingWorkoutController = WearablesHub.shared.ring.workout
 
     /// `nav.dart`: a 68 pt bar with `6 + bottomInset * 0.3` beneath it.
     static let barHeight: CGFloat = 68
@@ -168,19 +171,35 @@ struct GlassNavBar: View {
                 selection = tab
             }
         } label: {
+            let live = tab == .health && workout.isActive
             VStack(spacing: 4) {
                 JcIcon(active ? tab.filledSymbol : tab.symbol)
                     .font(.system(size: 20, weight: .medium))
                     .frame(height: 25)
-                Text(tab.title)
-                    .font(.system(size: Self.labelSize, weight: active ? .semibold : .medium))
-                    .lineLimit(1)
-                    // Six equal slots, and "Integrations" is intrinsically wider
-                    // than one of them at 10pt. Without these the label kept its
-                    // width and drew straight out of the selected capsule, past
-                    // its neighbours. Now it shrinks to fit its own slot.
-                    .minimumScaleFactor(Self.labelMinimumScale)
-                    .allowsTightening(true)
+                    .overlay(alignment: .topTrailing) {
+                        if live { LiveDot().offset(x: 7, y: -1) }
+                    }
+                if live {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
+                        let running = workout.phase == .running
+                        Text(WorkoutLiveView.clock((workout.tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)))
+                            .font(.system(size: Self.labelSize, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(JcTheme.danger)
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text(tab.title)
+                        .font(.system(size: Self.labelSize, weight: active ? .semibold : .medium))
+                        .lineLimit(1)
+                        // Six equal slots, and "Integrations" is intrinsically wider
+                        // than one of them at 10pt. Without these the label kept its
+                        // width and drew straight out of the selected capsule, past
+                        // its neighbours. Now it shrinks to fit its own slot.
+                        .minimumScaleFactor(Self.labelMinimumScale)
+                        .allowsTightening(true)
+                }
             }
             .foregroundStyle(active ? JcTheme.cyan : JcTheme.text.opacity(0.75))
             // Inset the content from the capsule's ends so a full-width label
@@ -201,7 +220,22 @@ struct GlassNavBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab.title)
+        .accessibilityLabel(tab == .health && workout.isActive ? "Health, workout in progress" : tab.title)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// A small red dot that beats: something is live.
+struct LiveDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Circle()
+            .fill(JcTheme.danger)
+            .frame(width: 8, height: 8)
+            .overlay(Circle().strokeBorder(JcTheme.bg, lineWidth: 1.5))
+            .phaseAnimator([false, true]) { dot, beat in
+                dot.scaleEffect(beat && !reduceMotion ? 1.25 : 1).opacity(beat ? 0.6 : 1)
+            } animation: { _ in .easeInOut(duration: 0.7) }
     }
 }

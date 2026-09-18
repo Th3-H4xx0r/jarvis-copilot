@@ -70,6 +70,14 @@ final class WorkoutRenderTests: XCTestCase {
                                 size: CGSize(width: 402, height: 200), name: "workout-in-progress")
     }
 
+    /// The tab bar during a workout: Health carries a beating dot and the
+    /// workout's time instead of its name.
+    func testTheTabBarShowsTheWorkoutLive() throws {
+        running()
+        let bar = GlassNavBar(selection: .constant(.chat), bottomInset: 0, workout: controller)
+        try RenderHarness.write(VStack { Spacer(); bar }, size: CGSize(width: 402, height: 140), name: "workout-tabbar")
+    }
+
     func testTheCountdownCounts() throws {
         try RenderHarness.filmstrip(WorkoutLiveView(workout: controller), size: CGSize(width: 300, height: 420),
                                     name: "workout-countdown", changes: [{ self.controller.start(RingSport.withID(7)) }],

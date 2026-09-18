@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 
 /// A workout on the ring, from the countdown to the summary.
 ///
@@ -51,6 +52,9 @@ final class RingWorkoutController: ObservableObject {
     var endTimeout: TimeInterval = 3
     /// Handed the workout when the summary is saved.
     var onSave: ((RingWorkout) -> Void)?
+    /// The workout is over (finished, failed or closed): the link it held can
+    /// go back to the usual rules.
+    var onEnded: (() -> Void)?
 
     private let session: RingSession
     private let ensureConnected: () async -> Bool
@@ -82,6 +86,31 @@ final class RingWorkoutController: ObservableObject {
         self.location = location
         self.liveActivity = liveActivity
         session.onSportTick = { [weak self] tick in self?.receive(tick) }
+        // Coming forward is when iOS allows the Live Activity a background
+        // request was refused; and one left by a crash with no workout to
+        // follow is cleared once the ring has had time to report.
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.appCameForward() }
+            .store(in: &watching)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard let self, !self.isActive else { return }
+            self.liveActivity?.end()
+        }
+    }
+
+    private func appCameForward() {
+        guard isActive, let tick else { return }
+        liveActivity?.retry()
+        pushLiveActivity(tick)
+    }
+
+    private func pushLiveActivity(_ tick: RingSportTick) {
+        guard let sport, tick.state != .ended else { return }
+        let meters = gpsDistance ?? Double(tick.distanceMeters)
+        liveActivity?.update(sport: sport, running: phase != .paused, elapsed: tick.elapsed,
+                             heartRate: tick.heartRate, distanceKm: meters > 0 ? meters / 1000 : nil,
+                             zone: tick.heartRate.map { Self.zone($0, age: age()) })
     }
 
     /// A workout is under way (the link is held and the measurer steps aside).
@@ -252,12 +281,7 @@ final class RingWorkoutController: ObservableObject {
     private func record(_ tick: RingSportTick) {
         self.tick = tick
         lastTickAt = Date()
-        if let sport, tick.state != .ended {
-            let meters = gpsDistance ?? Double(tick.distanceMeters)
-            liveActivity?.update(sport: sport, running: tick.state == .running, elapsed: tick.elapsed,
-                                 heartRate: tick.heartRate, distanceKm: meters > 0 ? meters / 1000 : nil,
-                                 zone: tick.heartRate.map { Self.zone($0, age: age()) })
-        }
+        pushLiveActivity(tick)
         guard tick.elapsed != lastElapsed else { return }
         let seconds = lastElapsed < 0 ? 1 : max(1, tick.elapsed - lastElapsed)
         lastElapsed = tick.elapsed
@@ -275,6 +299,7 @@ final class RingWorkoutController: ObservableObject {
     private func finish() {
         pending?.cancel()
         showsLive = true
+        defer { onEnded?() }
         location?.stop()
         liveActivity?.end()
         guard let sport, let startedAt else { return reset(to: .idle) }
@@ -294,6 +319,7 @@ final class RingWorkoutController: ObservableObject {
     private func fail(_ message: String) {
         pending?.cancel()
         showsLive = true
+        defer { onEnded?() }
         location?.stop()
         liveActivity?.end()
         phase = .failed(message)
