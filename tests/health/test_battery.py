@@ -73,3 +73,17 @@ def test_levels_stay_between_5_and_100():
     d = day(asleep=600, stress=[0] * 16 + [95] * 32)
     curve = day_battery(d, 95, _ready(), [600] * 3, {}).to_json()["curve"]
     assert all(5 <= p["level"] <= 100 for p in curve)
+
+
+def test_a_few_unmeasured_slots_are_not_partial_data():
+    d = day(asleep=480)
+    # Heart rate stops at 14:20 in the fixture; blank stress for 14:30–15:30
+    # too, and those two slots have nothing at all.
+    d.stress.values[29] = 0
+    d.stress.values[30] = 0
+    assert day_battery(d, 40, _ready(), [480] * 3, {}).partial is False
+
+
+def test_a_mostly_unmeasured_day_is_partial():
+    d = day(asleep=480, stress=[0] * 48, hr=[0] * 288)
+    assert day_battery(d, 40, _ready(), [480] * 3, {}).partial is True

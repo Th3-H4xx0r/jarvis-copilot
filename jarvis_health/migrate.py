@@ -65,8 +65,11 @@ def migrate_wearable_spaces(remove_schedule: Optional[Callable[[str], None]] = N
         # bring their device.
         if first_ever and not moved:
             carried = {k: settings[k] for k in _CARRIED if k in settings}
-            rule = (carried.get("rules") or {}).get("health_low") or {}
-            if rule.get("threshold") == 55:  # the old score's default, not a choice
+            # The rule used to watch a re-weighted score; it now watches the
+            # battery, a different number on a different scale, so no old
+            # threshold — default or chosen — still means what it meant.
+            rule = (carried.get("rules") or {}).get("health_low")
+            if isinstance(rule, dict):
                 rule["threshold"] = 25
             store.put_settings(carried)
         store.upsert_device({"key": key, "kind": kind, "device_id": device_id,

@@ -57,3 +57,12 @@ def test_the_old_default_alert_threshold_moves_to_the_battery_one(tmp_registry):
             rules={"health_low": {"enabled": True, "threshold": 55}})
     migrate_wearable_spaces(remove_schedule=lambda _: None)
     assert HealthStore().settings()["rules"]["health_low"]["threshold"] == 25
+
+
+def test_a_chosen_score_threshold_is_reset_too_because_the_rule_now_watches_the_battery(tmp_registry):
+    _legacy(tmp_registry, "wearable-ring-aaaa0000", "aaaa0000",
+            rules={"health_low": {"enabled": True, "threshold": 70}, "short_sleep": {"threshold": 4}})
+    migrate_wearable_spaces(remove_schedule=lambda _: None)
+    rules = HealthStore().settings()["rules"]
+    assert rules["health_low"]["threshold"] == 25
+    assert rules["short_sleep"]["threshold"] == 4, "other rules keep what was chosen"

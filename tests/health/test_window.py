@@ -54,3 +54,9 @@ def test_with_no_sleep_at_all_the_window_starts_at_midnight(tmp_registry):
     store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
     store.put_day(day(asleep=0), "ring-aaaa0000")
     assert since_wake(store, "2026-09-17T16:00:00Z")["no_wake"] is True
+
+
+def test_without_a_steps_series_the_day_totals_stand_in():
+    today = day(date="2026-09-17", steps=4321)
+    w = window_day({"2026-09-17": today}, _utc("2026-09-17T13:00:00Z"), _utc("2026-09-17T20:00:00Z"))
+    assert w.activity["steps"] == 4321

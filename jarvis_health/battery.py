@@ -40,6 +40,9 @@ REST_GAIN = 0.25
 
 BANDS = ((76, "High"), (51, "Medium"), (26, "Low"), (0, "Very low"))
 
+#: More than this share of waking slots with nothing measured is "partial data".
+PARTIAL_SHARE = 0.25
+
 
 def band(level: Optional[float]) -> str:
     if level is None:
@@ -195,6 +198,7 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
         out.calibrating = {"nights": baseline.hrv_nights, "needed": CALIBRATION_NIGHTS}
     level = max(FLOOR, min(CEIL, float(start_level)))
     worst_cost, worst_at = 0.0, None
+    awake_slots = blank_slots = 0
     cursor = midnight
     while cursor < stop:
         slot_end = cursor + timedelta(minutes=SLOT)
@@ -208,8 +212,9 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
             hr = _slot_value(day.heart_rate, cursor, slot_end)
             steps = _slot_value(day.steps, cursor, slot_end, total=True)
             cost, parts = slot_drain(stress, hr, steps, rest, hr_max)
+            awake_slots += 1
             if stress is None and hr is None and steps is None:
-                out.partial = True
+                blank_slots += 1
             for nap in naps:
                 if cursor <= parse_instant(nap.end) < slot_end:
                     gain = MAX_CHARGE * min(1.0, nap.asleep_minutes / SLEEP_NEED) * NAP_RATE
@@ -225,6 +230,9 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
             out.wake_at, out.wake_level = _iso(wake), round(level, 1)
         cursor = slot_end
         out.curve.append({"at": _iso(cursor), "level": round(level, 1)})
+    # A few unmeasured slots are ordinary (the ring samples every 30 minutes);
+    # "partial" means the day was mostly guessed.
+    out.partial = awake_slots > 0 and blank_slots / awake_slots > PARTIAL_SHARE
     out.level = out.end_level = round(level, 1)
     out.charged, out.drained, out.naps = round(out.charged, 1), round(out.drained, 1), round(out.naps, 1)
     out.drains = {k: round(v, 1) for k, v in out.drains.items()}

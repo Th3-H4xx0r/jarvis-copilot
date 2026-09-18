@@ -67,8 +67,10 @@ def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> He
 
     # Totals: steps are summed from the window's own slots; calories, distance
     # and active minutes only exist per day, so they are shared out by steps.
-    steps = sum(out.steps.nonzero()) if out.steps else 0.0
+    # A wearable that sends no per-slot steps (older phones) gets its day
+    # totals instead: near enough, since a day's steps before waking are few.
     day_steps = sum(float(d.activity.get("steps") or 0) for _, d in ordered)
+    steps = sum(out.steps.nonzero()) if out.steps else day_steps
     share = (steps / day_steps) if day_steps else 0.0
     out.activity = {"steps": int(steps)}
     for key in ("active_minutes", "kilocalories", "distance_meters"):
