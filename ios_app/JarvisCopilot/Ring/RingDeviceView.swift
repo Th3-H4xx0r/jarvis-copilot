@@ -227,12 +227,13 @@ struct RingDeviceView: View {
         .accessibilityLabel("Measure")
     }
 
-    /// Keep asking until the ring answers with a reading, then take the card away.
+    /// Keep asking until the ring produces a reading, then take the card away.
     ///
-    /// The loop does the dismissing itself rather than leaving it to a view
-    /// update: a measurement that runs and finishes between two renders shows
-    /// SwiftUI only the second state, so waiting on the phase to *change* can
-    /// miss the very reading that proves the ring is on.
+    /// A one-shot heart rate answers `6901 00 00` — "measuring", value zero —
+    /// for tens of seconds before it has a number, so waiting for a finished
+    /// phase and restarting every few seconds only ever cancelled the attempt
+    /// that was about to succeed. This waits for the *first sign of a reading*:
+    /// a value on the measurement, or a live value arriving on its own.
     private func showWearPrompt(for type: RingMeasurementType) {
         wearPrompt = type
         wearRetry?.cancel()
@@ -246,11 +247,22 @@ struct RingDeviceView: View {
                     try? await session.startMeasurement(type)
                 }
 
-                let result = await session.awaitMeasurement(timeout: 30)
-                guard !Task.isCancelled, wearPrompt != nil else { return }
-                if result?.phase == .done || (result?.value ?? 0) > 0 {
-                    dismissWearPrompt()
-                    return
+                let liveBefore = session.liveHeartRate?.date
+                // Long enough for the ring to actually get there.
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, wearPrompt != nil else { return }
+
+                    let state = session.measurement
+                    let gotValue = (state?.value ?? 0) > 0 || state?.phase == .done
+                    let gotLive = session.liveHeartRate?.date != liveBefore
+                    if gotValue || gotLive {
+                        dismissWearPrompt()
+                        return
+                    }
+                    // Not worn, refused, or timed out: fall out and ask again.
+                    if let phase = state?.phase, phase != .measuring { break }
+                    if state == nil { break }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -298,6 +310,16 @@ struct RingDeviceView: View {
                         Text(measurementText(m)).font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    // What the ring is sending right now, not just what it
+                    // concluded: the same rolling digits the charts scrub with.
+                    if let live = liveReading(for: m) {
+                        Text(live)
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(m.type.tint)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.2), value: live)
+                    }
                     if m.isActive {
                         ProgressView()
                         Button("Stop") { session.cancelMeasurement() }
@@ -305,6 +327,25 @@ struct RingDeviceView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// The newest number for this measurement: the ring's own live pushes while
+    /// it works, and the result once it has one.
+    private func liveReading(for m: RingMeasurementState) -> String? {
+        if let value = m.value, value > 0 {
+            return m.type == .temperature ? m.celsius.map { String(format: "%.1f°", $0) } : "\(value)"
+        }
+        guard m.isActive else { return nil }
+        switch m.type {
+        case .heartRate:
+            return session.liveHeartRate.map { "\(Int($0.value))" }
+        case .spo2:
+            return session.liveSpO2.map { "\(Int($0.value))%" }
+        case .temperature:
+            return session.liveTemperature.map { String(format: "%.1f°", $0.value) }
+        default:
+            return nil
         }
     }
 

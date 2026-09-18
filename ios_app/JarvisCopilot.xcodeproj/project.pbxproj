@@ -241,6 +241,7 @@
 		66B209556C166D9CF414F994 /* ChatDashboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7E5C33D8FD6554C56055B5 /* ChatDashboardStore.swift */; };
 		675C3FB00E187EEEDE4DEE5E /* IntegrationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0085102BFC2EB8AB8FC68B /* IntegrationsTests.swift */; };
 		6766548F00B140768AD4E35B /* WearablesAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BDEA66F2705401B86302035 /* WearablesAvailabilityTests.swift */; };
+		676DE5AE96CF5217DEE4CC38 /* RingWearPromptRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */; };
 		689A792CAE9E330F4353949F /* PendingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BFBB82CA0EF423335E59D1 /* PendingActions.swift */; };
 		6997ECAF515028D839242519 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F573A48CA3121C4DED2FC /* TerminalBuffer.swift */; };
 		69EB6F91D5084C3029B5A40D /* RingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BFA5645662596C18A8F7236 /* RingModel.swift */; };
@@ -458,6 +459,7 @@
 		C9E33D14B5DFB01F72328B66 /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB31C1D5D1C17CAEA923456 /* SettingsPage.swift */; };
 		CBCA6B57F0CFA107FD12DD05 /* TodosAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C33AE6A0497001C7C380800 /* TodosAPI.swift */; };
 		CCE9804D3DDE02FFC4036297 /* StatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6234845BBEEEB6AC9A2A571D /* StatusPill.swift */; };
+		CD661A1AEC51E10CDC61F78A /* RingHandModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0698FB78E14A24138EE3BAA4 /* RingHandModel.swift */; };
 		CDEF93EE18FAF4FDFD929645 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA89F6A2747B18365631BFB3 /* ActivityKit.framework */; };
 		CE1CDD573F7EABFCC06DAB36 /* IslandAutoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3048AE0F95563C1E6BD0B85 /* IslandAutoTests.swift */; };
 		CE37E3EBC8C5194F836F4A2F /* MediaSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = D423EA754D6A22D606D52198 /* MediaSkills.swift */; };
@@ -660,6 +662,7 @@
 		05C72A8CF81A24BE96BD58A3 /* KeyValueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeyValueStore.swift; sourceTree = "<group>"; };
 		05F5F77BEEDDEDF15B5045CC /* OnDeviceAIMocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAIMocks.swift; sourceTree = "<group>"; };
 		066900F51C7A775F62D17068 /* VoiceStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceStoreTests.swift; sourceTree = "<group>"; };
+		0698FB78E14A24138EE3BAA4 /* RingHandModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingHandModel.swift; sourceTree = "<group>"; };
 		06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSpecTests.swift; sourceTree = "<group>"; };
 		076740BDA9183D9160871727 /* SkillBoundariesUIKit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillBoundariesUIKit.swift; sourceTree = "<group>"; };
 		07894ECE04B91692C8C31BCC /* VoiceSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSettingsTests.swift; sourceTree = "<group>"; };
@@ -1037,6 +1040,7 @@
 		B3048AE0F95563C1E6BD0B85 /* IslandAutoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandAutoTests.swift; sourceTree = "<group>"; };
 		B33FB3FAB1036008A4F39AF9 /* JarvisWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = JarvisWidget.entitlements; path = JarvisWidget/JarvisWidget.entitlements; sourceTree = "<group>"; };
 		B37DF0C3DF7421F1CE6005EC /* PairingPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairingPayload.swift; sourceTree = "<group>"; };
+		B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPromptRenderTests.swift; sourceTree = "<group>"; };
 		B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKeepAlive.swift; sourceTree = "<group>"; };
 		B406EEC86BD8AD9A765E55BC /* RingInputs.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingInputs.swift; sourceTree = "<group>"; };
 		B43F3AA0AC3B28393D27CB98 /* AudioOutputEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioOutputEngine.swift; sourceTree = "<group>"; };
@@ -2248,6 +2252,7 @@
 				1D9ED059DAAEDB954A3DE400 /* PodSetupFlowTests.swift */,
 				2BD0A95997264D8485F52BC0 /* JarvisPodAPITests.swift */,
 				9C5A7C370DA6D077E320E1F2 /* HealthStoreTests.swift */,
+				B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -2331,6 +2336,7 @@
 				EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */,
 				AF3BF55CFE693B3983E29FAC /* HealthSettingsSection.swift */,
 				AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */,
+				0698FB78E14A24138EE3BAA4 /* RingHandModel.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -2735,6 +2741,7 @@
 				A2CE5C18F777C8F63913E4AD /* AudioSessionPowerTests.swift in Sources */,
 				F21885502B901647520C8DF0 /* ChatModelsLoadTests.swift in Sources */,
 				E07989959051D4BDE21EDB47 /* HealthStoreTests.swift in Sources */,
+				676DE5AE96CF5217DEE4CC38 /* RingWearPromptRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3135,6 +3142,7 @@
 				1E18F4882BF3D67E23D0322E /* HealthDayPayload.swift in Sources */,
 				C5C9FBEB42059BCCB2E0BD10 /* HealthSettingsSection.swift in Sources */,
 				E6E64A577F6F8E45C2A7E1D0 /* RingWearPrompt.swift in Sources */,
+				CD661A1AEC51E10CDC61F78A /* RingHandModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

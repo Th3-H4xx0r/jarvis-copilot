@@ -10,6 +10,8 @@ struct SceneCanvas: UIViewRepresentable {
     let camera: SCNNode
     /// A continuous render costs power: only while something is animating.
     let rendersContinuously: Bool
+    /// Half rate by default: the models turn slowly, and several can be on screen.
+    var preferredFramesPerSecond = 30
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -21,8 +23,7 @@ struct SceneCanvas: UIViewRepresentable {
         // The pose is driven entirely by the animations — no manual orbiting.
         view.allowsCameraControl = false
         view.autoenablesDefaultLighting = false
-        // Half rate: the animations are slow, and several models can be on screen.
-        view.preferredFramesPerSecond = 30
+        view.preferredFramesPerSecond = preferredFramesPerSecond
         view.rendersContinuously = rendersContinuously
         return view
     }

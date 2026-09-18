@@ -43,7 +43,6 @@ struct RingStatsSections: View {
             }
             if capabilities.bloodPressure || !day.bloodPressure.isEmpty { bloodPressure(day) }
             if capabilities.bloodSugar || day.bloodSugar != nil { bloodSugar(day) }
-            if !day.measurements.isEmpty { measurements(day) }
         }
     }
 
@@ -280,18 +279,6 @@ struct RingStatsSections: View {
         }
     }
 
-    private func measurements(_ day: RingDay) -> some View {
-        CardGroup("On-demand readings") {
-            ForEach(Array(day.measurements.enumerated().reversed()), id: \.offset) { index, record in
-                if index != day.measurements.count - 1 { RowDivider() }
-                Row {
-                    LabeledContent("\(time(record.time)) · \(record.type.replacingOccurrences(of: "_", with: " "))",
-                                   value: measurementValue(record))
-                }
-            }
-        }
-    }
-
     /// Stress with the bands the ring's own app uses: the chart coloured by band,
     /// and how much of the day sat in each.
     private func stress(_ day: RingDay, _ s: RingDaySummary) -> some View {
@@ -433,10 +420,4 @@ struct RingStatsSections: View {
         date.formatted(date: .omitted, time: .shortened)
     }
 
-    private func measurementValue(_ record: RingMeasurementRecord) -> String {
-        guard record.outcome == "done" else { return record.outcome.replacingOccurrences(of: "_", with: " ") }
-        if let celsius = record.celsius { return String(format: "%.1f °C", celsius) }
-        if let sys = record.systolic, let dia = record.diastolic, record.type == "blood_pressure" { return "\(sys)/\(dia)" }
-        return record.value.map(String.init) ?? "—"
-    }
 }
