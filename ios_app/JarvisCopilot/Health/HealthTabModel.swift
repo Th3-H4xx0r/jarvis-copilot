@@ -25,6 +25,8 @@ struct HealthWindow: Equatable {
     var end: Date
     /// No night was recorded, so the window starts at midnight.
     var noNight: Bool
+    /// When the night that opens it ended.
+    var wake: Date? = nil
 }
 
 /// Loads Jarvis Health for the Health tab and keeps the phone's offline copy.
@@ -75,7 +77,7 @@ final class HealthTabModel: ObservableObject {
 
     private func show(_ fresh: HealthNow) {
         now = fresh
-        windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake)
+        windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake, wake: fresh.wake)
         sleepDebts[Self.windowKey] = fresh.sleepDebt
     }
 
@@ -104,7 +106,7 @@ final class HealthTabModel: ObservableObject {
                 cache.update(date) { $0 = response.day?.ringDay() ?? RingDay(date: date) }
                 batteries[date] = response.battery
                 if let start = response.start, let end = response.end {
-                    windows[date] = HealthWindow(start: start, end: end, noNight: response.wake == nil)
+                    windows[date] = HealthWindow(start: start, end: end, noNight: response.wake == nil, wake: response.wake)
                 }
                 sleepDebts[date] = response.sleepDebt
                 await health.refresh(date: date)

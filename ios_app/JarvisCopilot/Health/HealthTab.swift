@@ -27,11 +27,13 @@ struct HealthTab: View {
                     VStack(alignment: .leading, spacing: 14) {
                         dayRow
                         if let window = model.window(for: selection) {
-                            HealthDayHeader(window: window, isToday: selection == .today)
+                            HealthDayHeader(window: window, isToday: selection == .today,
+                                            slept: model.cache.day(selection.cacheKey).summary.sleepMinutes)
                                 .padding(.horizontal, 24)
                                 .transition(.opacity)
                         }
                     }
+                    .padding(.bottom, 6)
                     .animation(.easeOut(duration: 0.2), value: selection)
                     BatteryCard(battery: model.battery(for: selection),
                                 analysis: analysis,
@@ -137,42 +139,51 @@ struct HealthTab: View {
     }
 }
 
-/// What the selection covers, said big: how long the day has run and from when.
-/// Today's length keeps counting while the tab is open.
+/// The day at a glance, above the battery: how long you have been awake — a
+/// big live number under its own label — and how long you slept, beside it.
+/// Labels sit above their numbers, so no grey line runs into the section
+/// heading below.
 struct HealthDayHeader: View {
     let window: HealthWindow
     let isToday: Bool
+    /// Minutes asleep in the night that opened the day.
+    var slept: Int?
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             let end = isToday ? max(window.end, context.date) : window.end
-            let minutes = max(0, Int(end.timeIntervalSince(window.start) / 60))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Self.length(minutes))
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(minutes)))
-                    .animation(.snappy, value: minutes)
-                Text(caption)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .lastTextBaseline, spacing: 28) {
+                stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
+                     minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
+                if !window.noNight, let slept, slept > 0 {
+                    stat(symbol: "moon.fill", label: "Slept", tint: JcTheme.accentAlt, minutes: slept, size: 26)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
         }
     }
 
-    /// "since 11:17 PM last night", or a finished day's span, bedtime to bedtime.
-    private var caption: String {
-        let time = { (date: Date) in date.formatted(date: .omitted, time: .shortened) }
-        let day = { (date: Date) in date.formatted(.dateTime.weekday(.abbreviated)) }
-        if isToday {
-            if window.noNight { return "since midnight · no sleep recorded last night" }
-            let lastNight = !Calendar.current.isDate(window.start, inSameDayAs: Date())
-            return "since you fell asleep at \(time(window.start))\(lastNight ? " last night" : "")"
+    /// Awake since the night ended; with no night recorded, the day since midnight.
+    private var primaryStart: Date { window.noNight ? window.start : (window.wake ?? window.start) }
+    private var primaryLabel: String { window.noNight ? "Since midnight" : "Awake" }
+    private var primarySymbol: String { window.noNight ? "clock.fill" : "sun.max.fill" }
+
+    private func stat(symbol: String, label: String, tint: Color, minutes: Int, size: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(label)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(tint)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(tint)
+            Text(Self.length(minutes))
+                .font(.system(size: size, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(.numericText(value: Double(minutes)))
+                .animation(.snappy, value: minutes)
         }
-        let from = window.noNight ? "\(day(window.start)) midnight" : "\(day(window.start)) \(time(window.start))"
-        return "\(from) – \(day(window.end)) \(time(window.end))"
+        .accessibilityElement(children: .combine)
     }
 
     static func length(_ minutes: Int) -> String {
