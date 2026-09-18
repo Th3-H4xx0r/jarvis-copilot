@@ -655,6 +655,17 @@ enum RingDecode {
         return RingSeries(intervalMinutes: interval, values: values)
     }
 
+    /// Large-data `0x25`: one day of temperature — days ago, the sample interval
+    /// in minutes, then one byte per slot as `(°C − 20) × 10`, zero for a slot
+    /// with no reading. `25 02 1E …` on the wire is two days ago, every 30 min.
+    static func temperatureDay(_ p: [UInt8]) -> (dayOffset: Int, series: RingSeries)? {
+        guard p.count >= 3, p[1] > 0 else { return nil }
+        let interval = Int(p[1])
+        let cap = 1440 / interval
+        let values = p.dropFirst(2).prefix(cap).map { $0 == 0 ? 0 : Double($0) / 10 + 20 }
+        return (Int(p[0]), RingSeries(intervalMinutes: interval, values: Array(values)))
+    }
+
     /// Large-data interval series packet (`0x75` HR, `0x5F` SpO₂, `0x77` temperature).
     /// Temperature samples are u16 LE hundredths of a degree.
     static func intervalPacket(_ p: [UInt8], wide: Bool)

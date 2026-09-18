@@ -122,6 +122,19 @@ final class RingDecodersTests: XCTestCase {
         XCTAssertNil(RingDecode.hrvOrStress([padded([0xFF])]))
     }
 
+    func testATemperatureDayReadsOneByteASlot() throws {
+        // As the ring sent it: two days ago, every 30 min, 36.8 36.7 then a gap.
+        let day = try XCTUnwrap(RingDecode.temperatureDay([2, 30, 168, 167, 0, 165]))
+        XCTAssertEqual(day.dayOffset, 2)
+        XCTAssertEqual(day.series.intervalMinutes, 30)
+        XCTAssertEqual(day.series.values.count, 4)
+        XCTAssertEqual(day.series.values[0], 36.8, accuracy: 0.001)
+        XCTAssertEqual(day.series.values[1], 36.7, accuracy: 0.001)
+        XCTAssertEqual(day.series.values[2], 0, "an empty slot is no reading, not 20 °C")
+        XCTAssertEqual(day.series.values[3], 36.5, accuracy: 0.001)
+        XCTAssertNil(RingDecode.temperatureDay([0]), "the bare status an unsupported command gets")
+    }
+
     func testIntervalPacketsReadBytesOrHundredths() {
         let narrow = RingDecode.intervalPacket([0, 5, 2, 1, 70, 71, 0, 72], wide: false)
         XCTAssertEqual(narrow?.dayOffset, 0)

@@ -250,6 +250,17 @@ final class RingSync: ObservableObject {
             try await syncDaySeries(store, hrv: false, days: days, now: now)
         case .temperature:
             guard session.probe.works(.temperature) ?? caps.intervalTemperature else { return }
+            // By day first (`0x25`), as QRing does for rings without `0x77`: this
+            // ring's firmware has no `0x77`, which is why the card showed a single
+            // live reading while QRing showed the whole day.
+            var byDay = false
+            for frame in try await session.transport.perform(.bigTemperatureDays(daysBack: days), until: .idle) {
+                guard let day = RingDecode.temperatureDay(frame.payload), day.dayOffset <= days,
+                      day.series.values.contains(where: { $0 > 0 }) else { continue }
+                store.update(dayKey(day.dayOffset, now)) { $0.temperature = day.series }
+                byDay = true
+            }
+            guard !byDay else { return }
             for daysAgo in 0...days where needsHistory(store, daysAgo: daysAgo, now: now) {
                 if let series = try await intervalSeries(RingRequest.bigIntervalTemperature(dayOffset:packet:),
                                                          dayOffset: daysAgo, wide: true),

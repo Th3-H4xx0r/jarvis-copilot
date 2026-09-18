@@ -177,6 +177,10 @@ enum RingOp {
     static let bigIntervalSpO2: UInt8 = 0x5F
     static let bigIntervalHeartRate: UInt8 = 0x75
     static let bigIntervalTemperature: UInt8 = 0x77
+    /// Temperature by day, the way QRing reads rings without `0x77` — which is
+    /// every RT12 on 3.10.06: its large-data dispatcher has no `0x77` case and
+    /// answers a bare status byte.
+    static let bigTemperatureDays: UInt8 = 0x25
 }
 
 enum RingChannel: String, Codable {
@@ -495,5 +499,10 @@ extension RingRequest {
 
     static func bigIntervalTemperature(dayOffset: Int, packet: Int) -> RingRequest {
         .bigData(RingOp.bigIntervalTemperature, [byte(dayOffset), byte(packet)])
+    }
+
+    /// Every day from `daysBack` to today, one reply each (`RingDecode.temperatureDay`).
+    static func bigTemperatureDays(daysBack: Int) -> RingRequest {
+        .bigData(RingOp.bigTemperatureDays, [byte(daysBack)])
     }
 }
