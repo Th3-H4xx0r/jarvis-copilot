@@ -24,21 +24,16 @@ struct BatteryCard: View {
     @State private var curveRevealed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let showAll {
-                SectionHeader(HealthScores.batteryName) { ShowAllLink(action: showAll) }
-            }
-            card
-        }
-    }
-
-    private var card: some View {
-        CardGroup(showAll == nil ? HealthScores.batteryName : nil) {
+        CardGroup(HealthScores.batteryName) {
             if let battery, let level = battery.level {
                 Row(minHeight: 108) {
                     let picked = scrubbed.flatMap { Self.point(near: $0, in: battery.curve) }
                     VStack(alignment: .leading, spacing: 18) {
                         headline(level: level, battery: battery, picked: picked)
+                            // The top corner is free here: Show all sits in it.
+                            .overlay(alignment: .topTrailing) {
+                                if let showAll { ShowAllLink(action: showAll) }
+                            }
                         if battery.curve.count > 1 { curve(battery, picked: picked) }
                         parts(battery)
                     }

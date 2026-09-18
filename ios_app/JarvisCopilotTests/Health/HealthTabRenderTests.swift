@@ -287,6 +287,6 @@ final class HealthTabRenderTests: XCTestCase {
                                   date: RingDates.dayKey(wake), sleepDebt: sleepDebt),
                    day: day)
         try RenderHarness.write(HealthTab(model: model).environment(AppRouter()),
-                                size: CGSize(width: 402, height: 874), name: "health-tab", settle: 3)
+                                size: CGSize(width: 402, height: 1500), name: "health-tab", settle: 3)
     }
 }

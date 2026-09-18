@@ -60,16 +60,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let showAll {
-                SectionHeader(title) { ShowAllLink(action: showAll) }
-            }
-            card
-        }
-    }
-
-    private var card: some View {
-        CardGroup(showAll == nil ? title : nil) {
+        CardGroup(title) {
             VStack(alignment: .leading, spacing: 14) {
                 headlineBlock
                     .onScrolledIntoView { if !revealed { revealed = true } }
@@ -91,6 +82,12 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                     .animation(.easeOut(duration: 0.9), value: chartRevealed)
                     .onScrolledIntoView { if !chartRevealed { chartRevealed = true } }
                     .accessibilityHint("Drag across the chart to see the reading at each time")
+            }
+            // Inside the card, along its foot: its top corner already holds
+            // the goal ring, a score or Measure.
+            if let showAll {
+                RowDivider()
+                ShowAllRow(action: showAll)
             }
         }
         .sensoryFeedback(.selection, trigger: scrubbed)
@@ -200,7 +197,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     }
 }
 
-/// "Show all ›" beside a card's title: the way into its history.
+/// "Show all ›" in a card's free top corner: the way into its history.
 struct ShowAllLink: View {
     let action: () -> Void
 
@@ -210,11 +207,38 @@ struct ShowAllLink: View {
                 Text("Show all")
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(JcTheme.accent)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Show all history")
+    }
+}
+
+/// "Show all" as the last row of a card whose corner is taken — the way
+/// Apple Health ends a card with Show All Data.
+struct ShowAllRow: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Row(minHeight: 46) {
+                HStack {
+                    Text("Show all")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(JcTheme.accent)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show all history")
     }
 }
 
