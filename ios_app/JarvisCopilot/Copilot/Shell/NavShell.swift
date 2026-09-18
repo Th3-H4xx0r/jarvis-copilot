@@ -81,7 +81,7 @@ struct NavShell: View {
         switch tab {
         case .chat:    ChatPage()
         case .voice:   VoicePage()
-        case .integrations: IntegrationsPage()
+        case .health:  HealthTab()
         case .devices: DevicesPage()
         case .more:    MorePage()
         }

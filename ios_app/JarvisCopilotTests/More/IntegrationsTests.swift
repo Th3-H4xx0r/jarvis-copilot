@@ -484,4 +484,10 @@ final class IntegrationSkillViewTests: XCTestCase {
     func testTheRowOpensIt() {
         moreUIAHost(IntegrationSkillView(name: "casino-earnings-tracker"))
     }
+
+    func testIntegrationsOpenFromMoreAndHealthHasTheTab() {
+        XCTAssertEqual(MoreDestination.allCases.first, .integrations)
+        XCTAssertFalse(AppTab.allCases.map(\.rawValue).contains("integrations"))
+        XCTAssertTrue(AppTab.allCases.contains(.health))
+    }
 }

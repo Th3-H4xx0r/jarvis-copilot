@@ -11,8 +11,26 @@ import SwiftUI
 /// a typed path can only hold one of them — a link carrying anything else
 /// silently does nothing.
 struct IntegrationsPage: View {
-    @State private var store: IntegrationsStore
     @State private var path = NavigationPath()
+    private let store: IntegrationsStore?
+
+    init(store: IntegrationsStore? = nil) {
+        self.store = store
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            IntegrationsList(store: store)
+        }
+    }
+}
+
+/// The integrations list without a stack of its own, so More can push it onto
+/// its stack. The screens inside push their own value types (an `Integration`,
+/// then an `IntegrationDataRoute`); the destinations registered here serve
+/// whichever stack the list is in.
+struct IntegrationsList: View {
+    @State private var store: IntegrationsStore
     @State private var settingUp = false
 
     init(store: IntegrationsStore? = nil) {
@@ -20,42 +38,38 @@ struct IntegrationsPage: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 10) {
-                    content
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+        ScrollView {
+            VStack(spacing: 10) {
+                content
             }
-            .refreshable { await store.refresh() }
-            .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
-            .jcScreen("Integrations")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
-                }
-            }
-            .navigationDestination(for: Integration.self) { integration in
-                IntegrationDetailView(integration: integration, store: store)
-            }
-            .navigationDestination(for: IntegrationDataRoute.self) { route in
-                switch route {
-                case .records(let id, let collection):
-                    IntegrationRecordsView(integrationID: id, collection: collection, store: store)
-                case .document(let id, let key):
-                    IntegrationDocumentView(integrationID: id, key: key, store: store)
-                case .skill(_, let name):
-                    IntegrationSkillView(name: name)
-                }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+        }
+        .refreshable { await store.refresh() }
+        .loadErrorBanner(store.errorMessage, hasContent: !store.integrations.isEmpty)
+        .jcScreen("Integrations")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                GlassIconButton(symbol: "plus", size: 34, iconSize: 16) { settingUp = true }
             }
         }
-        .task { if !store.hasLoaded { store.load() } }
-        .onTabVisibilityChange(.integrations) { visible in
-            if !visible { store.onDisappear() }
-            else if store.hasLoaded { Task { await store.refresh() } }
+        .navigationDestination(for: Integration.self) { integration in
+            IntegrationDetailView(integration: integration, store: store)
         }
+        .navigationDestination(for: IntegrationDataRoute.self) { route in
+            switch route {
+            case .records(let id, let collection):
+                IntegrationRecordsView(integrationID: id, collection: collection, store: store)
+            case .document(let id, let key):
+                IntegrationDocumentView(integrationID: id, key: key, store: store)
+            case .skill(_, let name):
+                IntegrationSkillView(name: name)
+            }
+        }
+        .task { if !store.hasLoaded { store.load() } else { await store.refresh() } }
+        // Pushed from More now, not a tab: it pauses when it leaves the screen.
+        .onDisappear { store.onDisappear() }
         .moreToast($store.toast)
         .fullScreenCover(isPresented: $settingUp) {
             IntegrationSetupSheet { await store.refresh() }

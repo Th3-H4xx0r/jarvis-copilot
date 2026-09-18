@@ -102,6 +102,7 @@
 		2745DE46AB58EF90B08F0241 /* JarvisWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		27C476A6C1AB62D5BB1D99D9 /* DeviceDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */; };
 		282A9291D4315EEB3EBF66EA /* VoiceOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE132EB6D237CEF1D190BA1E /* VoiceOrb.swift */; };
+		2844A6A9BEE8AA6F3A134504 /* HealthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F941B5EAA9C62201055E85 /* HealthTab.swift */; };
 		28E4C79541F41CBA5C89AB30 /* MoreGapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA8341C7336CAEB461139EA /* MoreGapTests.swift */; };
 		2914B085CC2E03CFFC362080 /* IntegrationSkillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */; };
 		2925241893EFAB10621386B6 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A2101217A4D1C9AC81A28B7C /* Fonts */; };
@@ -658,6 +659,7 @@
 		01ACE15F407F76B2626D0199 /* CodingPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingPage.swift; sourceTree = "<group>"; };
 		01E8FFC3241FCB2A5D2EF972 /* RingFeatureTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFeatureTests.swift; sourceTree = "<group>"; };
 		01EFFA0F3449BFE8B91287B3 /* SkillBoundariesMedia.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillBoundariesMedia.swift; sourceTree = "<group>"; };
+		01F941B5EAA9C62201055E85 /* HealthTab.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTab.swift; sourceTree = "<group>"; };
 		022844154506DD1C8D094A52 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCoreTests.swift; sourceTree = "<group>"; };
 		034FFC524E870F818694414F /* VoiceReply.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReply.swift; sourceTree = "<group>"; };
@@ -1622,6 +1624,7 @@
 			isa = PBXGroup;
 			children = (
 				5005246D6DE943011DE1BE73 /* HealthWire.swift */,
+				01F941B5EAA9C62201055E85 /* HealthTab.swift */,
 			);
 			name = Health;
 			path = Health;
@@ -3177,6 +3180,7 @@
 				E6E64A577F6F8E45C2A7E1D0 /* RingWearPrompt.swift in Sources */,
 				CD661A1AEC51E10CDC61F78A /* RingHandModel.swift in Sources */,
 				86FF6199917EFD3180EE8ED6 /* HealthWire.swift in Sources */,
+				2844A6A9BEE8AA6F3A134504 /* HealthTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

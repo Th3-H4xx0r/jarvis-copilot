@@ -53,6 +53,8 @@ struct MorePage: View {
     @ViewBuilder
     private func destination(for item: MoreDestination) -> some View {
         switch item {
+        case .integrations:
+            IntegrationsList()
         case .settings:
             SettingsPage()
         case .todos:
