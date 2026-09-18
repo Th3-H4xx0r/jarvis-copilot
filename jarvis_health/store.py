@@ -21,7 +21,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "frequency": "every 6 hours",
     "quiet_hours": {"start": "22:00", "end": "08:00"},
     "rules": DEFAULT_RULES,
-    "goals": {"steps": 10000, "active_minutes": 30},
+    "goals": {"steps": 10000, "active_minutes": 30, "sleep_minutes": 480},
     #: Display unit for temperatures in prose; the data is always Celsius.
     "temperature_unit": "celsius",
     #: From the Health tab's profile; heart-rate zones need age.

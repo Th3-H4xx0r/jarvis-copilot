@@ -131,3 +131,59 @@ def test_the_slot_still_running_is_the_level_now(tmp_registry):
         {"at": "2026-09-17T16:30:00Z", "level": 83.0},
     ]})
     assert today(store, "2026-09-17T16:10:00Z")["battery"]["level"] == 83.0
+
+
+def _up_late():
+    """The 17th's night began 23:30 on the 16th; the 18th's began at 02:00 on the 18th."""
+    return day(date="2026-09-17"), day(date="2026-09-18", bedtime_minute=120, hr=[66] * 288)
+
+
+def test_a_day_runs_to_the_bedtime_after_midnight(tmp_registry):
+    from jarvis_health.window import cycle
+
+    store = HealthStore()
+    yesterday, late = _up_late()
+    _stored(store, yesterday, late)
+    out = cycle(store, "2026-09-17", "2026-09-18T20:00:00Z")
+    assert out["start"] == yesterday.main_sleep.start
+    assert out["end"] == late.main_sleep.start == "2026-09-18T07:00:00Z"
+    # The hours up past midnight (00:00–02:00 on the 18th) are in the 17th.
+    hr = out["day"]["heart_rate"]
+    first = 2 * 288   # the 18th's local midnight, in 5-minute slots from the 16th's
+    assert any(v > 0 for v in hr["values"][first:first + 24])
+    assert out["date"] == "2026-09-17" and out["no_wake"] is False
+
+
+def test_one_day_ends_where_today_begins(tmp_registry):
+    from jarvis_health.window import cycle
+
+    store = HealthStore()
+    _stored(store, *_up_late())
+    now = "2026-09-18T20:00:00Z"
+    current = today(store, now)
+    assert current["date"] == "2026-09-18"
+    assert cycle(store, "2026-09-17", now)["end"] == current["start"]
+
+
+def test_without_the_next_night_a_day_ends_at_midnight(tmp_registry):
+    from jarvis_health.window import cycle
+
+    store = HealthStore()
+    _stored(store, day(date="2026-09-17"))
+    out = cycle(store, "2026-09-17", "2026-09-19T12:00:00Z")
+    assert out["end"] == "2026-09-18T05:00:00Z"
+
+
+def test_a_finished_day_stops_before_the_next_nights_charge(tmp_registry):
+    from jarvis_health.window import cycle
+
+    store = HealthStore()
+    _stored(store, *_up_late())
+    store.put_battery("2026-09-18", {"curve": [
+        {"at": "2026-09-18T06:30:00Z", "level": 40.0},
+        {"at": "2026-09-18T07:00:00Z", "level": 39.5},     # bedtime
+        {"at": "2026-09-18T07:30:00Z", "level": 43.0},     # charging: tomorrow's
+    ]})
+    b = cycle(store, "2026-09-17", "2026-09-18T20:00:00Z")["battery"]
+    assert b["curve"][-1]["at"] == "2026-09-18T07:00:00Z"
+    assert b["level"] == 39.5

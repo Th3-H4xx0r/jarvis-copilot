@@ -1,9 +1,11 @@
-"""Today, the way the body counts it: from falling asleep last night to now.
+"""Days as the body counts them: from falling asleep to falling asleep.
 
-One stretch rather than two: last night's sleep, the charge it put back and
-the waking day since, on one timeline that does not reset at midnight —
-WHOOP's day runs sleep to sleep the same way. With no night in the last day
-(the ring was off) it is the calendar day so far.
+Today runs from last night's bedtime to now; any other day from the bedtime
+of the night that ended on it to the bedtime of the next. So the night, what
+it charged and the waking day read as one stretch, the hours up past
+midnight belong to the day they were lived in, and one day ends exactly
+where the next begins — WHOOP's day runs sleep to sleep the same way. A
+night that was not recorded leaves that edge at midnight.
 
 Series are anchored at the local midnight of the day the window began, so a
 minute past the next midnight is minute 1440, not minute 0 — the phone's
@@ -50,10 +52,12 @@ def _local_midnight(date: str, day: HealthDay) -> datetime:
 def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> HealthDay:
     """One day covering [start, end): series zero outside it, anchored at start's local midnight."""
     ordered = sorted(days.items())
+    first = ordered[0][1]
+    # The local midnight before `start` — the phone draws hours from it — even
+    # when the day it falls on has no record of its own.
     anchor = next((_local_midnight(date, d) for date, d in ordered
                    if _local_midnight(date, d) <= start < _local_midnight(date, d) + timedelta(days=1)),
-                  start.replace(minute=0, second=0, microsecond=0))
-    first = ordered[0][1]
+                  _midnight_at(start, first.utc_offset))
     out = HealthDay(date=ordered[0][0], timezone=first.timezone, utc_offset=first.utc_offset, source="window")
 
     for name in WINDOW_METRICS:
@@ -125,7 +129,7 @@ def _biggest_drain(curve: list[dict]) -> Optional[dict]:
 
 
 def _window_battery(store, start: datetime, end: datetime, night: Optional[SleepSession],
-                    utc_offset: int) -> dict:
+                    utc_offset: int, live: bool = True) -> dict:
     """The battery across the window: the level at bedtime, the night's charge, the day's drain.
 
     Read from the stored daily curves. The point at or before bedtime opens
@@ -140,8 +144,10 @@ def _window_battery(store, start: datetime, end: datetime, night: Optional[Sleep
         for p in (store.battery(date) or {}).get("curve") or []:
             points[p["at"]] = p
     # Points are slot ends: the one at or before bedtime opens the window, and
-    # the slot still running (stamped at its end, just past now) is the level now.
-    opens, closes = start - timedelta(minutes=SLOT), end + timedelta(minutes=SLOT)
+    # the slot still running (stamped at its end, just past now) is the level
+    # now. A finished day stops at its own end, before the next night's charge.
+    opens = start - timedelta(minutes=SLOT)
+    closes = end + (timedelta(minutes=SLOT) if live else timedelta(seconds=1))
     curve = sorted((p for p in points.values() if opens < parse_instant(p["at"]) < closes),
                    key=lambda p: parse_instant(p["at"]))
     level = curve[-1]["level"] if curve else None
@@ -175,8 +181,36 @@ def _window_battery(store, start: datetime, end: datetime, night: Optional[Sleep
     return out
 
 
+def _night(day: Optional[HealthDay]) -> Optional[SleepSession]:
+    """A day's night: its main sleep, when there was one."""
+    night = day.main_sleep if day else None
+    return night if night and night.start and night.end and night.asleep_minutes >= MAIN_SLEEP else None
+
+
+def _window(store, days: dict, start: datetime, end: datetime, night: Optional[SleepSession],
+            utc_offset: int, live: bool) -> dict:
+    """The window's day, its stats and the battery across it."""
+    within = {date: d for date, d in days.items()
+              if _local_midnight(date, d) + timedelta(days=1) > start and _local_midnight(date, d) <= end}
+    wday = window_day(within, start, end) if within and end > start else None
+    return {
+        "start": _iso(start),
+        "end": _iso(end),
+        "wake": night.end if night else None,
+        "no_wake": night is None,
+        "minutes": max(0, int((end - start).total_seconds() // 60)),
+        "day": to_json(wday) if wday else None,
+        "stats": window_stats(wday) if wday else {},
+        "battery": _window_battery(store, start, end, night, utc_offset, live=live),
+    }
+
+
 def today(store, now: str) -> dict:
-    """Everything from falling asleep last night to now: the window's day, its stats, the battery."""
+    """From falling asleep last night to now: the window's day, its stats, the battery.
+
+    `date` is the day it belongs to — the one last night ended on — which is
+    still yesterday's date at 1 AM before bed.
+    """
     from .merge import merged_day
 
     moment = parse_instant(now)
@@ -187,17 +221,29 @@ def today(store, now: str) -> dict:
         night = None
     offset = days[max(days)].utc_offset if days else 0
     start = parse_instant(night.start) if night else _midnight_at(moment, offset)
+    out = _window(store, days, start, moment, night, offset, live=True)
+    out["end"] = now
+    anchor = parse_instant(night.end) if night else moment
+    out["date"] = (anchor + timedelta(seconds=offset)).date().isoformat()
+    return out
 
-    within = {date: d for date, d in days.items()
-              if _local_midnight(date, d) + timedelta(days=1) > start and _local_midnight(date, d) <= moment}
-    wday = window_day(within, start, moment) if within else None
-    return {
-        "start": _iso(start),
-        "end": now,
-        "wake": night.end if night else None,
-        "no_wake": night is None,
-        "minutes": int((moment - start).total_seconds() // 60),
-        "day": to_json(wday) if wday else None,
-        "stats": window_stats(wday) if wday else {},
-        "battery": _window_battery(store, start, moment, night, offset),
-    }
+
+def cycle(store, date: str, now: str) -> dict:
+    """One day, bedtime to bedtime: from the night that ended on `date` to the next one."""
+    from .merge import merged_day
+
+    moment = parse_instant(now)
+    first = datetime.strptime(date, "%Y-%m-%d").date()
+    names = [(first + timedelta(days=k)).isoformat() for k in (-1, 0, 1)]
+    days = {name: merged_day(store, name) for name in names}
+    days = {name: d for name, d in days.items() if d is not None}
+    own = days.get(date)
+    offset = own.utc_offset if own else next((d.utc_offset for d in days.values()), 0)
+    midnight = (_local_midnight(date, own) if own
+                else parse_instant(f"{date}T00:00:00Z") - timedelta(seconds=offset))
+    night, following = _night(own), _night(days.get(names[2]))
+    start = parse_instant(night.start) if night else midnight
+    end = min(moment, parse_instant(following.start) if following else midnight + timedelta(days=1))
+    out = _window(store, days, start, max(start, end), night, offset, live=end >= moment)
+    out["date"] = date
+    return out

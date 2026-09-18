@@ -106,3 +106,23 @@ def test_jarvis_health_cannot_be_deleted(tmp_registry, monkeypatch):
 
     HealthStore().put_settings({})
     assert integrations._is_protected(SHARED_SPACE) is True
+
+
+def test_a_day_runs_bedtime_to_bedtime_and_carries_its_sleep_debt(routes):
+    _with_ring_day()
+    body = _get(routes, f"{BASE}/day?date=2026-09-17").body
+    assert body["start"] == day().main_sleep.start, "from the night that ended on it"
+    assert body["date"] == "2026-09-17"
+    debt = body["sleep_debt"]
+    assert debt["goal"] == 480 and len(debt["nights"]) == 7
+    assert debt["nights"][-1]["asleep"] == 480
+
+
+def test_now_names_its_day_and_carries_the_weeks_sleep_debt(routes):
+    _with_ring_day()
+    body = _get(routes, f"{BASE}/now").body
+    assert body["date"] and "sleep_debt" in body
+
+
+def test_a_day_needs_a_date(routes):
+    assert _get(routes, f"{BASE}/day").status == 400

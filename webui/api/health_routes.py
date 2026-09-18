@@ -9,9 +9,9 @@ second place to edit them.
     POST /api/health/devices                               {devices: [...]} the phone's roster
     GET  /api/integrations/jarvis-health/health/settings   read settings
     POST /api/integrations/jarvis-health/health/settings   {source: "health-settings", ...}
-    GET  /api/integrations/jarvis-health/health/day?date=  the merged day, scores and battery
+    GET  /api/integrations/jarvis-health/health/day?date=  that day bedtime to bedtime: day, scores, battery, sleep debt
     GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
-    GET  /api/integrations/jarvis-health/health/now        today: last night's sleep to now
+    GET  /api/integrations/jarvis-health/health/now        today: last night's bedtime to now, the same shape
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -91,29 +91,24 @@ def handle_get(handler, parsed) -> bool:
         if tail == "day" or tail.startswith("day/"):
             from urllib.parse import parse_qs
 
-            from jarvis_health.merge import merged_day
-            from jarvis_health.metrics import to_json
+            from jarvis_health.metrics import utc_now
+            from jarvis_health.window import cycle
 
             date = tail[len("day/"):] if tail.startswith("day/") else (parse_qs(parsed.query).get("date") or [""])[0]
-            merged = merged_day(store, date) if date else None
-            j(
-                handler,
-                {
-                    "date": date,
-                    "day": to_json(merged) if merged else None,
-                    "scores": store.scores(date) if date else None,
-                    "battery": store.battery(date) if date else None,
-                    "has_data": merged is not None,
-                    "synced_at": merged.synced_at if merged else None,
-                },
-            )
+            if not date:
+                j(handler, {"error": "say which day: ?date=YYYY-MM-DD"}, status=400)
+                return True
+            out = cycle(store, date, utc_now())
+            j(handler, {**out, "scores": store.scores(date), "has_data": out["day"] is not None,
+                        "sleep_debt": _sleep_debt(store, date)})
             return True
 
         if tail == "now":
             from jarvis_health.metrics import utc_now
             from jarvis_health.window import today
 
-            j(handler, today(store, utc_now()))
+            out = today(store, utc_now())
+            j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"])})
             return True
 
         if tail == "runs":
@@ -214,6 +209,12 @@ def handle_post(handler, parsed, body) -> bool:
         return True
 
     return False
+
+
+def _sleep_debt(store, date: str) -> dict:
+    from jarvis_health.sleep_debt import goal_of, week
+
+    return week(store, date, goal_of(store.settings()))
 
 
 def devices() -> list[dict]:
