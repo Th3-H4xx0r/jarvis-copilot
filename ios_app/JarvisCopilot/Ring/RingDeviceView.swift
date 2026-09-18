@@ -12,6 +12,9 @@ struct RingDeviceView: View {
     @State private var showingSettings = false
     @State private var findToken = 0
     @State private var actionError: String?
+    /// The measurement waiting for the ring to be worn, if any.
+    @State private var wearPrompt: RingMeasurementType?
+    @State private var wearRetry: Task<Void, Never>?
     @StateObject private var health: HealthStore
 
     init(manager: RingManager, ring: DiscoveredRing) {
@@ -83,6 +86,32 @@ struct RingDeviceView: View {
             manager.screenIsOpen = false
             manager.releaseIfIdle()
         }
+        // "Put the ring on", in the AirPods vein: it appears when the ring says
+        // nothing is on the finger, and takes itself away when a reading lands.
+        .overlay {
+            if let type = wearPrompt {
+                ZStack {
+                    Color.black.opacity(0.55)
+                        .ignoresSafeArea()
+                        .onTapGesture { dismissWearPrompt() }
+                    RingWearPrompt(metric: type.label) { dismissWearPrompt() }
+                        .transition(.scale(scale: 0.94).combined(with: .opacity))
+                }
+                .animation(.snappy(duration: 0.22), value: wearPrompt)
+            }
+        }
+        .onChange(of: session.measurement?.phase) { _, phase in
+            guard let phase, let type = session.measurement?.type else { return }
+            switch phase {
+            case .notWorn where wearPrompt == nil:
+                showWearPrompt(for: type)
+            case .done:
+                dismissWearPrompt()
+            default:
+                break
+            }
+        }
+        .onDisappear { wearRetry?.cancel() }
         .navigationDestination(isPresented: $showingSettings) {
             RingSettingsView(manager: manager, health: health)
         }
@@ -180,6 +209,28 @@ struct RingDeviceView: View {
         .scrollClipDisabled()
         .disabled(!ready)
         .opacity(ready ? 1 : 0.45)
+    }
+
+    /// Ask again every few seconds while the prompt is up: the ring only says
+    /// it is worn by taking a reading, so the retry is the detector.
+    private func showWearPrompt(for type: RingMeasurementType) {
+        wearPrompt = type
+        wearRetry?.cancel()
+        wearRetry = Task { @MainActor in
+            while !Task.isCancelled, wearPrompt != nil {
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled, wearPrompt != nil, ready else { continue }
+                if session.measurement?.isActive == true { continue }
+                try? await session.startMeasurement(type)
+            }
+        }
+    }
+
+    private func dismissWearPrompt() {
+        wearRetry?.cancel()
+        wearRetry = nil
+        if wearPrompt != nil, session.measurement?.isActive == true { session.cancelMeasurement() }
+        wearPrompt = nil
     }
 
     private func run(_ work: @escaping () async throws -> Void) {

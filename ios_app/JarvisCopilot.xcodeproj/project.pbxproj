@@ -527,6 +527,7 @@
 		E5281B1D6C902D8A4537F5B1 /* ProfilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AE762F2446273A23EDF876A /* ProfilesTests.swift */; };
 		E5715376CB0AB7D6DF884F76 /* InsightsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */; };
 		E64C1674A2CCAA1EB7C1EAB2 /* RingProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE6A435982222E11D399BF /* RingProtocolTests.swift */; };
+		E6E64A577F6F8E45C2A7E1D0 /* RingWearPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */; };
 		E6F4F7B27F50088EF5CF9079 /* ModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */; };
 		E7257FFAA639B6A6101D2A93 /* SkillsGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03A1C8EE55E835D55208BEE /* SkillsGrouping.swift */; };
 		E78EC60BD7F98D4C0E301FBA /* CodingSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A72558C231EA0844646A94 /* CodingSessionStore.swift */; };
@@ -1024,6 +1025,7 @@
 		AC55A5B95B8F19C84D67EF5E /* RingProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProbe.swift; sourceTree = "<group>"; };
 		AC7565B5245A07F935338195 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceModelSelection.swift; sourceTree = "<group>"; };
+		AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPrompt.swift; sourceTree = "<group>"; };
 		AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE7E2F9B2E7F80D2BAF90DA9 /* SkillRegistryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillRegistryTests.swift; sourceTree = "<group>"; };
 		AF3BF55CFE693B3983E29FAC /* HealthSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthSettingsSection.swift; sourceTree = "<group>"; };
@@ -2328,6 +2330,7 @@
 				0A26954813A192B570D6CF9B /* RingDonut.swift */,
 				EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */,
 				AF3BF55CFE693B3983E29FAC /* HealthSettingsSection.swift */,
+				AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -3131,6 +3134,7 @@
 				D14543AD6D944B20E2AD3EAC /* RingDonut.swift in Sources */,
 				1E18F4882BF3D67E23D0322E /* HealthDayPayload.swift in Sources */,
 				C5C9FBEB42059BCCB2E0BD10 /* HealthSettingsSection.swift in Sources */,
+				E6E64A577F6F8E45C2A7E1D0 /* RingWearPrompt.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
