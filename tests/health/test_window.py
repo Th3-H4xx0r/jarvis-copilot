@@ -60,3 +60,13 @@ def test_without_a_steps_series_the_day_totals_stand_in():
     today = day(date="2026-09-17", steps=4321)
     w = window_day({"2026-09-17": today}, _utc("2026-09-17T13:00:00Z"), _utc("2026-09-17T20:00:00Z"))
     assert w.activity["steps"] == 4321
+
+
+def test_the_night_that_opened_the_window_is_part_of_it(tmp_registry):
+    store = HealthStore()
+    store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
+    d = day(asleep=480)
+    store.put_day(d, "ring-aaaa0000")
+    out = since_wake(store, "2026-09-17T20:00:00Z")
+    sleeps = out["day"]["sleep"]
+    assert [s["end"] for s in sleeps] == [d.main_sleep.end], "last night, so the sleep card has it"

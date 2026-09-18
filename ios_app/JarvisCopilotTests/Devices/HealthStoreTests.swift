@@ -43,6 +43,18 @@ final class HealthStoreTests: XCTestCase {
                     directory: directory)
     }
 
+    /// The bug that blanked every calendar day in the Health tab: the date was
+    /// written into the path, its "?" was percent-encoded, and the server saw
+    /// an unknown route.
+    func testADayIsAskedForWithARealQueryParameter() async throws {
+        let transport = FakeHealthTransport()
+        let client = HealthClient(api: transport.api, spaceID: HealthSpace.shared)
+        let response = try await client.day("2026-09-18")
+        XCTAssertEqual(response.date, "2026-09-18")
+        XCTAssertEqual(transport.lastURL?.path, "/api/integrations/jarvis-health/health/day")
+        XCTAssertEqual(transport.lastURL?.query, "date=2026-09-18")
+    }
+
     func testTheDeviceKeyMatchesWhatTheServerDerives() {
         XCTAssertEqual(HealthSpace.id(forRing: "B6CE93C4-5680-B0C5-A3AA-32D3DD349E20"), "jarvis-health")
         XCTAssertEqual(HealthSpace.deviceKey(kind: "ring", deviceID: "B6CE93C4-5680"), "ring-b6ce93c4")
@@ -159,6 +171,7 @@ final class FakeHealthTransport {
     ]
     var failNext = false
     var lastPostBody: [String: Any]?
+    var lastURL: URL?
 
     lazy var api = JarvisAPI(credentials: Credentials(), transport: Transport(owner: self))
 
@@ -174,6 +187,7 @@ final class FakeHealthTransport {
             let path = request.url?.path ?? ""
             let method = request.httpMethod ?? "GET"
             return try await MainActor.run {
+                owner.lastURL = request.url
                 if owner.failNext {
                     owner.failNext = false
                     throw APIError.badResponse("no network")
@@ -189,6 +203,10 @@ final class FakeHealthTransport {
                     payload = ["settings": owner.settings]
                 } else if path.contains("/day/") {
                     payload = ["scores": owner.scores as Any? ?? NSNull()]
+                } else if path.hasSuffix("/day") {
+                    let date = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "date" })?.value ?? ""
+                    payload = ["date": date, "day": NSNull(), "battery": NSNull(), "has_data": false]
                 } else if path.hasSuffix("/run") {
                     payload = ["run": ["scored_date": "2026-09-17"]]
                 } else {

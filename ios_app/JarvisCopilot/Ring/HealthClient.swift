@@ -51,7 +51,9 @@ struct HealthClient {
 
     /// One calendar day, merged across linked wearables.
     func day(_ date: String) async throws -> HealthDayResponse {
-        try Self.decode(HealthDayResponse.self, from: try await api.get("\(base)/day?date=\(date)").object())
+        // A query parameter, not part of the path: a "?" written into the path
+        // is percent-encoded, and the server saw an unknown route.
+        try Self.decode(HealthDayResponse.self, from: try await api.get("\(base)/day", query: ["date": date]).object())
     }
 
     /// Link or unlink a wearable as a data source. Its history is kept either way.

@@ -61,9 +61,10 @@ def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> He
                         values[index] = float(v or 0)
         setattr(out, name, Series(start=_iso(anchor), interval_minutes=interval, values=values))
 
-    # Naps inside the window; the night that opened it is outside by definition.
+    # The night that opened the window (it ends where the window starts) and
+    # any naps inside it: the sleep card shows how you slept before this day.
     out.sleep = [s for _, d in ordered for s in d.sleep
-                 if s.end and start <= parse_instant(s.end) <= end and s.asleep_minutes < MAIN_SLEEP]
+                 if s.end and start <= parse_instant(s.end) <= end]
 
     # Totals: steps are summed from the window's own slots; calories, distance
     # and active minutes only exist per day, so they are shared out by steps.
