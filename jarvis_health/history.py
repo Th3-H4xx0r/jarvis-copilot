@@ -291,6 +291,34 @@ def _highlight(metric: str, range_: str, current: Optional[float], previous: Opt
     return f"{lead}, {_delta(abs(diff), m.kind, unit)} {word} than {before}."
 
 
+#: Metrics with a daily goal: the summary key a day is judged on, and the
+#: settings goal it is judged against.
+GOALS = {"steps": ("steps", "steps", 10000, "steps"), "sleep": ("asleep", "sleep_minutes", 480, "minutes"),
+         "sleep_debt": ("asleep", "sleep_minutes", 480, "minutes")}
+
+
+def _goal(metric: str, buckets: list[dict], days: dict[str, dict], settings: dict) -> Optional[dict]:
+    """Each day's share of its goal, for the goal rings under a day-by-day chart.
+
+    Sleep debt is judged night by night against the sleep goal, like sleep.
+    """
+    if metric not in GOALS:
+        return None
+    key, setting, default, kind = GOALS[metric]
+    target = float(((settings or {}).get("goals") or {}).get(setting) or default)
+    met = measured = 0
+    for bucket in buckets:
+        day = days.get(bucket["start"]) if bucket["start"] == bucket["end"] else None
+        value = day.get(key) if day else None
+        if value is None:
+            bucket["goal_progress"] = None
+            continue
+        bucket["goal_progress"] = round(value / target, 3) if target else None
+        measured += 1
+        met += value >= target
+    return {"value": target, "kind": kind, "met": met, "measured": measured}
+
+
 def history(store, metric: str, range_: str, end: Optional[str], now: str) -> dict:
     """A metric's buckets over the range ending on `end` (default: today), with stats and a highlight."""
     if metric not in METRICS:
@@ -319,6 +347,8 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str) -> di
     before = days_in(prev_first, prev_last)
     head, prev_head = _headline(metric, current), _headline(metric, before)
     days_so_far = len(store.dates(100_000))
+    buckets = [_bucket(metric, days_in(a, b), a, b) for a, b in periods]
+    rings = _goal(metric, buckets, by_date, settings) if RANGES[range_][0] == "day" else None
     return {
         "metric": metric,
         "range": range_,
@@ -326,7 +356,8 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str) -> di
         "kind": METRICS[metric].kind,
         "start": periods[0][0].isoformat(),
         "end": periods[-1][1].isoformat(),
-        "buckets": [_bucket(metric, days_in(a, b), a, b) for a, b in periods],
+        "buckets": buckets,
+        "goal": rings,
         "headline": head,
         "stats": _stats(metric, current, goal),
         "previous": {"average": prev_head["value"], "days": len(_values(before, METRICS[metric].value))},

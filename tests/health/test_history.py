@@ -109,3 +109,23 @@ def test_stats_per_metric(tmp_registry):
     stats = {s["label"]: s for s in history(store, "steps", "W", "2026-09-18", NOW)["stats"]}
     assert {"Total", "Daily average", "Best day", "Days measured"} <= set(stats)
     assert stats["Days measured"]["value"] == 2
+
+
+def test_goal_rings_judge_each_night_against_the_sleep_goal(tmp_registry):
+    store = HealthStore()
+    _stored(store, d2026_09_16={"asleep": 360}, d2026_09_17={"asleep": 500})
+    out = history(store, "sleep_debt", "W", "2026-09-18", NOW)
+    progress = {b["start"]: b["goal_progress"] for b in out["buckets"]}
+    assert progress["2026-09-16"] == 0.75 and progress["2026-09-17"] > 1
+    assert progress["2026-09-12"] is None, "no night, no ring"
+    assert out["goal"] == {"value": 480.0, "kind": "minutes", "met": 1, "measured": 2}
+
+
+def test_steps_are_judged_against_the_step_goal_and_long_ranges_have_no_rings(tmp_registry):
+    store = HealthStore()
+    store.put_settings({"goals": {"steps": 8000}})
+    _stored(store, d2026_09_17={"steps": 4000})
+    week = history(store, "steps", "W", "2026-09-18", NOW)
+    assert week["goal"]["value"] == 8000
+    assert history(store, "steps", "6M", "2026-09-18", NOW)["goal"] is None
+    assert history(store, "heart_rate", "W", "2026-09-18", NOW)["goal"] is None
