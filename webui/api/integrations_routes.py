@@ -254,7 +254,7 @@ def _delete_space(handler, space_id: str, body) -> bool:
     # It can be paused, re-tuned or have its data cleared — not removed.
     if _is_protected(space_id):
         j(handler, {
-            "error": "this integration belongs to a wearable and cannot be deleted",
+            "error": "Jarvis Health keeps your wearables' history and cannot be deleted — pause it or clear its data instead",
             "protected": True,
             "space": space_id,
         }, status=409)

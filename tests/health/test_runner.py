@@ -175,4 +175,5 @@ def test_a_run_stores_the_day_battery_and_chains_from_yesterday(tmp_registry):
     battery = store.battery("2026-09-17")
     assert battery["start_level"] == 30
     assert out["scores"]["health"]["value"] == round(battery["level"])
-    assert store.scores("2026-09-17")["battery"]["band"] == battery["band"]
+    assert out["scores"]["health"]["band"] == battery["band"], "the battery's own bands"
+    assert store.scores("2026-09-17")["health"]["band"] == battery["band"]

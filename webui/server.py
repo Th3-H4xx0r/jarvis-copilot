@@ -468,6 +468,11 @@ def main() -> None:
         moved = migrate_wearable_spaces().get("moved") or []
         if moved:
             print(f"[health] moved {', '.join(moved)} into Jarvis Health", flush=True)
+            # The moved spaces' schedules are gone; the shared one replaces them
+            # now rather than waiting for the phone to register again.
+            from jarvis_health.bootstrap import ensure_schedule
+            from jarvis_health.store import HealthStore
+            ensure_schedule(HealthStore().settings())
     except Exception as exc:
         print(f"[health] migration to Jarvis Health failed: {exc}", flush=True)
 

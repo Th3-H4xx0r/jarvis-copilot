@@ -141,6 +141,9 @@ def run(
         "model": settings.get("model") or "",
         "battery": battery.to_json(),
     }
+    # The headline is a battery level: name it in the battery's bands (High,
+    # Medium, Low, Very low), not the retired score's.
+    payload["health"]["band"] = battery.to_json()["band"]
     store.put_scores(day.date, payload)
 
     due = [a for a in alerts if not a.hold_until]
@@ -158,7 +161,7 @@ def run(
         "trigger": trigger,
         "scored_date": day.date,
         "stale": stale,
-        "scores": {name: score.to_json() for name, score in scores.items()},
+        "scores": {**{name: score.to_json() for name, score in scores.items()}, "health": payload["health"]},
         "analysis": analysis,
         "alerts": [a.to_json(day.date) for a in alerts],
         "held": [a.to_json(day.date) for a in held],
