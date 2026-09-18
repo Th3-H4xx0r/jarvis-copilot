@@ -251,8 +251,15 @@ final class HealthTabRenderTests: XCTestCase {
             HealthRosterDevice(key: "watch-0c1d2e3f", kind: "watch", name: "Apple Watch", linked: false,
                                lastSyncedAt: nil),
         ]
-        try RenderHarness.write(HealthDataSources(devices: devices, onToggle: { _, _ in }),
-                                size: CGSize(width: 402, height: 300), name: "health-sources")
+        let transport = FakeHealthTransport()
+        let health = HealthStore(spaceID: HealthSpace.shared,
+                                 client: HealthClient(api: transport.api, spaceID: HealthSpace.shared),
+                                 directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let sources = HealthDataSources(devices: devices, onToggle: { _, _ in }) {
+            HealthSettingsSection(health: health, today: "2026-09-18", embedded: true)
+        }
+        try RenderHarness.write(ScrollView { sources.padding(.horizontal, 16) },
+                                size: CGSize(width: 402, height: 820), name: "health-sources")
     }
 
     func testTheHealthTabToday() throws {

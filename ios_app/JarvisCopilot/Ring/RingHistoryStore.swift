@@ -290,6 +290,15 @@ final class RingHistoryStore: ObservableObject {
         }
     }
 
+    /// Every day kept on this phone, oldest first.
+    func allKeys() -> [String] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension == "json" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .filter { RingDates.date(forKey: $0) != nil }
+            .sorted()
+    }
+
     func prune(keepDays: Int = 365, now: Date = Date(), calendar: Calendar = .current) {
         guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         else { return }

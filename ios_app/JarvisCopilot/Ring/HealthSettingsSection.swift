@@ -8,15 +8,29 @@ import SwiftUI
 struct HealthSettingsSection: View {
     @ObservedObject var health: HealthStore
     let today: String
+    /// Inside a wearable's own card (under its switch) rather than a card of its own.
+    var embedded = false
     @State private var working = false
     @State private var runMessage: String?
 
     private var settings: HealthSettings? { health.settings }
 
     var body: some View {
-        // Whether anything is analysed is each wearable's own switch under
-        // Data sources; this card is only how, and it hides with none linked.
-        CardGroup("Health analysis") {
+        Group {
+            if embedded {
+                Row { sectionLabel("Analysis") }
+                rows
+                    .tint(JcTheme.accent)
+            } else {
+                CardGroup("Health analysis") { rows }
+            }
+        }
+        .disabled(working)
+        .task { await health.refreshSettings() }
+    }
+
+    /// How the server analyses: its schedule, model and alerts.
+    @ViewBuilder private var rows: some View {
             Row {
                 Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
                     .font(.caption)
@@ -104,9 +118,6 @@ struct HealthSettingsSection: View {
                 RowDivider()
                 Row { Text(error).font(.caption).foregroundStyle(.orange) }
             }
-        }
-        .disabled(working)
-        .task { await health.refreshSettings() }
     }
 
     private func sectionLabel(_ text: String) -> some View {

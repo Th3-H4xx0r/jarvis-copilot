@@ -212,9 +212,27 @@ final class RingSync: ObservableObject {
         // The server is the record; hand it every day this sync touched.
         if !report.updated.isEmpty {
             let keys = Set(historyWanted.map { dayKey($0, today) })
-            Task { [weak self] in await self?.pushDays(keys) }
+            Task { [weak self] in
+                await self?.pushDays(keys)
+                await self?.backfillHealthIfNeeded()
+            }
         }
         return report
+    }
+
+    /// Once per ring: hand the server every day this phone has kept, so
+    /// Jarvis Health's history reaches back to the ring's first sync here
+    /// rather than to the day the shared integration began.
+    func backfillHealthIfNeeded() async {
+        guard let deviceID = deviceIDForHealth, let store = storeProvider() else { return }
+        let flag = "jc.health.backfilled.\(deviceID)"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        let keys = Set(store.allKeys())
+        guard !keys.isEmpty else { return }
+        // Only marked done once every day went; a failure retries next sync.
+        guard await pushDays(keys) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        JcLog.devices.notice("ring: backfilled \(keys.count) days to Jarvis Health")
     }
 
     /// Past days are re-read until a sync lands after the day ended.
@@ -378,10 +396,11 @@ final class RingSync: ObservableObject {
     /// The server is the system of record; this phone's store is the offline
     /// copy. Best effort on purpose: a day it misses is picked up by the next
     /// scheduled run, which reads the same history back off the phone.
-    private func pushDays(_ keys: Set<String>) async {
-        guard let deviceID = deviceIDForHealth, !keys.isEmpty else { return }
+    @discardableResult
+    private func pushDays(_ keys: Set<String>) async -> Bool {
+        guard let deviceID = deviceIDForHealth, !keys.isEmpty else { return false }
         let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
-        guard let store = storeProvider() else { return }
+        guard let store = storeProvider() else { return false }
         for key in keys.sorted() {
             let day = store.day(key)
             guard day.syncedAt != nil else { continue }
@@ -390,9 +409,10 @@ final class RingSync: ObservableObject {
                                                                     battery: session.battery))
             } catch {
                 JcLog.devices.notice("ring: could not push \(key, privacy: .public) to the server")
-                return
+                return false
             }
         }
+        return true
     }
 
     /// Large-data interval series, one packet per request until the last.

@@ -63,6 +63,14 @@ final class RingHistoryStoreTests: XCTestCase {
         XCTAssertEqual(day.sleep.last?.asleepMinutes, 468)
     }
 
+    func testEveryKeptDayIsListedOldestFirst() throws {
+        let store = RingHistoryStore(directory: directory)
+        store.update("2026-09-17") { $0.syncedAt = Date() }
+        store.update("2026-09-03") { $0.syncedAt = Date() }
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("notes.json"))
+        XCTAssertEqual(store.allKeys(), ["2026-09-03", "2026-09-17"])
+    }
+
     func testOlderFilesWithMissingFieldsStillDecode() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(#"{"date":"2026-09-10","manualHeartRate":[{"minute":5,"value":61}]}"#.utf8)

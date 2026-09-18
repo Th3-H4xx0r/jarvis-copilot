@@ -8,8 +8,6 @@ struct HealthTabSettings: View {
     @ObservedObject var model: HealthTabModel
     @Environment(\.dismiss) private var dismiss
     @State private var devices: [HealthRosterDevice] = []
-    /// The roster has answered at least once (so an empty one is really empty).
-    @State private var devicesLoaded = false
     @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
     @State private var stepsGoal = 10_000
     @State private var activeGoal = 30
@@ -35,12 +33,13 @@ struct HealthTabSettings: View {
                                       },
                                       onPrimary: { key in
                                           Task { _ = await model.health.updateSettings(["primary_device": key]) }
+                                      },
+                                      analysis: {
+                                          // How the primary wearable is analysed lives in its own
+                                          // card, under its switch: off, and it folds away.
+                                          HealthSettingsSection(health: model.health, today: RingDates.dayKey(Date()),
+                                                                embedded: true)
                                       })
-                    // Nothing linked, nothing to analyse: the analysis settings go.
-                    if !devicesLoaded || devices.contains(where: \.linked) {
-                        HealthSettingsSection(health: model.health, today: RingDates.dayKey(Date()))
-                            .transition(.opacity)
-                    }
                     personal
                 }
                 .padding(.top, 8)
@@ -53,7 +52,6 @@ struct HealthTabSettings: View {
             }
             .task {
                 devices = await model.devices()
-                devicesLoaded = true
                 await model.health.refreshSettings()
                 if let goals = model.health.settings?.goals {
                     stepsGoal = goals.steps
@@ -110,13 +108,17 @@ struct HealthTabSettings: View {
 
 /// Every wearable feeding Jarvis Health. Unlinking stops its sync and keeps
 /// its data out of your day; its history stays, so relinking loses nothing.
-struct HealthDataSources: View {
+struct HealthDataSources<Analysis: View>: View {
     let devices: [HealthRosterDevice]
     var primary: String = ""
     let onToggle: (String, Bool) -> Void
     var onPrimary: (String) -> Void = { _ in }
+    /// The analysis settings, shown inside the linked primary wearable's card.
+    @ViewBuilder var analysis: () -> Analysis
 
-    private static let footer = "Unlinked wearables keep their history. The primary one decides sleep and heart when two overlap."
+    private static var footer: String {
+        "Unlinked wearables keep their history. The primary one decides sleep and heart when two overlap, and holds how Jarvis Health analyses."
+    }
 
     /// One card per wearable, each with its own switch.
     var body: some View {
@@ -130,7 +132,12 @@ struct HealthDataSources: View {
                     CardGroup(index == 0 ? "Data sources" : nil,
                               footer: index == devices.count - 1 ? Self.footer : nil) {
                         card(device)
+                        if device.linked && device.key == primaryKey {
+                            RowDivider()
+                            analysis()
+                        }
                     }
+                    .animation(.easeInOut(duration: 0.25), value: device.linked)
                 }
             }
         }
@@ -194,5 +201,12 @@ struct HealthDataSources: View {
         case "watch": return "applewatch"
         default: return "sensor"
         }
+    }
+}
+
+extension HealthDataSources where Analysis == EmptyView {
+    init(devices: [HealthRosterDevice], primary: String = "", onToggle: @escaping (String, Bool) -> Void,
+         onPrimary: @escaping (String) -> Void = { _ in }) {
+        self.init(devices: devices, primary: primary, onToggle: onToggle, onPrimary: onPrimary, analysis: { EmptyView() })
     }
 }
