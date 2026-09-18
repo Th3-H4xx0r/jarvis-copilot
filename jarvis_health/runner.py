@@ -20,7 +20,7 @@ from .metrics import parse_instant, utc_now
 from .rules import evaluate
 from .scoring import activity_score, band, body_score, health_score, recovery_score, sleep_score
 from .sources import SourceUnreachable
-from .store import HealthStore
+from .store import SHARED_SPACE, HealthStore
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,36 @@ def local_date(now_utc: str, utc_offset: int) -> str:
     return (parse_instant(now_utc) + timedelta(seconds=utc_offset)).strftime("%Y-%m-%d")
 
 
+def _sources_for(store: HealthStore) -> dict:
+    """The linked wearables the server can reach, keyed by device."""
+    from .sources import source_for
+
+    out = {}
+    for entry in store.linked():
+        if entry.get("bridge_device_id") and entry.get("device_id"):
+            out[entry["key"]] = source_for(entry.get("kind") or "ring",
+                                           entry["bridge_device_id"], entry["device_id"])
+    return out
+
+
 def run(
-    space_id: str,
-    source,
+    space_id: str = SHARED_SPACE,
+    sources: Optional[dict] = None,
     trigger: str = "cron",
     now: Optional[str] = None,
     tz: Optional[str] = None,
     call: Optional[Callable[..., object]] = None,
     notify: Optional[Callable[..., None]] = None,
 ) -> dict:
+    """Sync every linked wearable, then score the person once.
+
+    `sources` maps a device key to its adapter; left out, it is built from the
+    linked roster, which is how the scheduled run is called.
+    """
+    from .merge import merged_day, merged_recent
+    from .migrate import migrate_wearable_spaces
+
+    migrate_wearable_spaces()
     started = time.monotonic()
     now = now or utc_now()
     store = HealthStore(space_id)
@@ -47,23 +68,34 @@ def run(
 
     if not settings.get("enabled", True):
         return {"skipped": "disabled", "space": space_id}
+    if not store.linked():
+        return {"skipped": "no linked wearables", "space": space_id}
+    sources = _sources_for(store) if sources is None else sources
 
-    stale = False
-    day = None
-    try:
-        # No date: the phone answers with its own local day, which is the only
-        # place that knows it. A stored zone is only a fallback for display.
-        zone = tz or _zone_of(store) or "UTC"
-        day = source.fetch_day(None, zone)
-        store.put_day(day)
-    except SourceUnreachable as exc:
-        stale = True
-        day = store.newest_day()
-        if day is None:
-            store.log_run({"trigger": trigger, "skipped": "unreachable", "error": str(exc)})
-            return {"skipped": "unreachable", "error": str(exc), "space": space_id}
+    fetched: list[str] = []
+    unreachable: dict[str, str] = {}
+    zones = {e.get("key"): e.get("timezone") for e in store.roster()}
+    for key, source in sources.items():
+        try:
+            # No date: the phone answers with its own local day, which is the
+            # only place that knows it. The registered zone is only a fallback.
+            fresh = source.fetch_day(None, tz or zones.get(key) or "UTC")
+            store.put_day(fresh, key)
+            store.note_synced(key, now)
+            fetched.append(fresh.date)
+        except SourceUnreachable as exc:
+            unreachable[key] = str(exc)
 
-    history = store.recent_days(14)
+    stale = not fetched
+    newest = store.dates(1)
+    date = max(fetched) if fetched else (newest[0] if newest else None)
+    day = merged_day(store, date) if date else None
+    if day is None:
+        error = "; ".join(unreachable.values()) or "no wearable has reported yet"
+        store.log_run({"trigger": trigger, "skipped": "unreachable", "error": error})
+        return {"skipped": "unreachable", "error": error, "space": space_id}
+
+    history = merged_recent(store, 14)
     baseline = baseline_from(history)
     store.put_baseline(baseline)
 
@@ -159,23 +191,6 @@ def _release_held(store: HealthStore, settings: dict, now: str, day, notify) -> 
     return held
 
 
-def _zone_of(store: HealthStore) -> Optional[str]:
-    day = store.newest_day()
-    return day.timezone if day else None
-
-
-def _offset_of(store: HealthStore, zone: str) -> int:
-    day = store.newest_day()
-    if day:
-        return day.utc_offset
-    from .metrics import utc_offset_for
-
-    try:
-        return utc_offset_for(utc_now()[:10], zone)
-    except Exception:
-        return 0
-
-
 def push_alerts(alerts, space_id: str, settings: dict) -> int:
     """Send what fired to every paired phone. Returns how many got it.
 
@@ -218,18 +233,10 @@ def push_alerts(alerts, space_id: str, settings: dict) -> int:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Run one wearable health analysis.")
-    parser.add_argument("--space", required=True, help="registry space id, e.g. wearable-ring-b6ce93c4")
-    parser.add_argument("--device", required=True, help="the phone the skills are invoked on")
-    parser.add_argument("--wearable", default="", help="the wearable's own id, if it differs")
-    parser.add_argument("--kind", default="ring")
+    parser = argparse.ArgumentParser(description="Run Jarvis Health once.")
     parser.add_argument("--trigger", default="cron")
     args = parser.parse_args(argv)
-
-    from .sources import source_for
-
-    out = run(args.space, source_for(args.kind, args.device, args.wearable or args.device),
-              trigger=args.trigger)
+    out = run(trigger=args.trigger)
     print(json.dumps(out, indent=2, default=str))
     return 0 if not out.get("error") else 1
 

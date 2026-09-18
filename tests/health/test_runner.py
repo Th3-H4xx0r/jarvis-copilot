@@ -1,7 +1,9 @@
 """One run: fetch, store, score, rules, prose, push."""
-from jarvis_health.runner import run
+from jarvis_health.runner import run as _run_all
 from jarvis_health.sources import SourceUnreachable
 from jarvis_health.store import HealthStore
+
+KEY = "ring-aaaa0000"
 
 from .fixtures import day
 
@@ -33,6 +35,14 @@ class FakeSource:
         return {"percent": 60, "charging": False}
 
 
+def run(source, **kwargs):
+    """One run with this source as the ring, registered and linked first."""
+    store = HealthStore()
+    if not store.roster():
+        store.upsert_device({"kind": "ring", "device_id": "aaaa0000", "name": "R12"})
+    return _run_all(sources={KEY: source}, **kwargs)
+
+
 def no_model(**kwargs):
     return "Slept 6h29m, HRV above your usual."
 
@@ -44,32 +54,32 @@ def pushes():
 
 def test_a_run_stores_the_day_scores_and_analysis(tmp_registry):
     sent, notify = pushes()
-    out = run("wearable-ring-test", FakeSource(), trigger="manual", call=no_model, notify=notify,
+    out = run(FakeSource(), trigger="manual", call=no_model, notify=notify,
               now="2026-09-17T17:00:00Z")
 
     assert out["stale"] is False
     assert out["scores"]["health"]["value"] is not None
-    store = HealthStore("wearable-ring-test")
-    assert store.day("2026-09-17") is not None
+    store = HealthStore()
+    assert store.day("2026-09-17", KEY) is not None
     assert store.scores("2026-09-17")["analysis"] == "Slept 6h29m, HRV above your usual."
     assert store.runs(limit=5)[0]["trigger"] == "manual"
 
 
 def test_the_baseline_is_rebuilt_from_stored_days(tmp_registry):
-    store = HealthStore("wearable-ring-test")
+    store = HealthStore()
     for date in ("2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16"):
-        store.put_day(day(date=date, hrv=44))
+        store.put_day(day(date=date, hrv=44), KEY)
     sent, notify = pushes()
-    run("wearable-ring-test", FakeSource(day(hrv=44)), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
-    assert HealthStore("wearable-ring-test").baseline().days_used >= 4
+    run(FakeSource(day(hrv=44)), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
+    assert HealthStore().baseline().days_used >= 4
 
 
 def test_an_unreachable_device_scores_the_newest_stored_day_and_raises_nothing(tmp_registry):
-    store = HealthStore("wearable-ring-test")
-    store.put_day(day(date="2026-09-16"))
+    store = HealthStore()
+    store.put_day(day(date="2026-09-16"), KEY)
     sent, notify = pushes()
 
-    out = run("wearable-ring-test", FakeSource(unreachable=True), call=no_model, notify=notify,
+    out = run(FakeSource(unreachable=True), call=no_model, notify=notify,
               now="2026-09-17T17:00:00Z")
 
     assert out["stale"] is True
@@ -80,14 +90,14 @@ def test_an_unreachable_device_scores_the_newest_stored_day_and_raises_nothing(t
 
 def test_an_unreachable_device_with_nothing_stored_says_so(tmp_registry):
     sent, notify = pushes()
-    out = run("wearable-ring-test", FakeSource(unreachable=True), call=no_model, notify=notify)
+    out = run(FakeSource(unreachable=True), call=no_model, notify=notify)
     assert out["skipped"] == "unreachable"
 
 
 def test_a_disabled_integration_does_nothing(tmp_registry):
-    HealthStore("wearable-ring-test").put_settings({"enabled": False})
+    HealthStore().put_settings({"enabled": False})
     source = FakeSource()
-    out = run("wearable-ring-test", source, call=no_model, notify=lambda *a: None)
+    out = run(source, call=no_model, notify=lambda *a: None)
     assert out["skipped"] == "disabled"
     assert source.fetched == 0
 
@@ -95,12 +105,12 @@ def test_a_disabled_integration_does_nothing(tmp_registry):
 def test_alerts_fire_once_and_are_pushed(tmp_registry):
     short = day(asleep=120)
     sent, notify = pushes()
-    first = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
+    first = run(FakeSource(short), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
     assert "short_sleep" in [a["rule"] for a in first["alerts"]]
     assert sent
 
     sent.clear()
-    second = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T18:00:00Z")
+    second = run(FakeSource(short), call=no_model, notify=notify, now="2026-09-17T18:00:00Z")
     assert second["alerts"] == []
     assert sent == []
 
@@ -111,14 +121,14 @@ def test_an_alert_held_for_quiet_hours_goes_out_on_the_first_run_after(tmp_regis
     sent, notify = pushes()
 
     # 02:00 local — inside quiet hours, so nothing may be pushed yet.
-    night = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+    night = run(FakeSource(short), call=no_model, notify=notify,
                 now="2026-09-17T07:00:00Z")
     assert [a["rule"] for a in night["held"]] == ["short_sleep"]
     assert sent == []
 
     # 12:00 local — the window has passed, so the held alert arrives.
     sent.clear()
-    morning = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+    morning = run(FakeSource(short), call=no_model, notify=notify,
                   now="2026-09-17T17:00:00Z")
     assert [a["rule"] for a in morning["released"]] == ["short_sleep"]
     assert [a.rule for a in sent] == ["short_sleep"]
@@ -127,11 +137,30 @@ def test_an_alert_held_for_quiet_hours_goes_out_on_the_first_run_after(tmp_regis
 def test_a_released_alert_is_not_released_twice(tmp_registry):
     short = day(asleep=120)
     sent, notify = pushes()
-    run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T07:00:00Z")
-    run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
+    run(FakeSource(short), call=no_model, notify=notify, now="2026-09-17T07:00:00Z")
+    run(FakeSource(short), call=no_model, notify=notify, now="2026-09-17T17:00:00Z")
 
     sent.clear()
-    again = run("wearable-ring-test", FakeSource(short), call=no_model, notify=notify,
+    again = run(FakeSource(short), call=no_model, notify=notify,
                 now="2026-09-17T18:00:00Z")
     assert again["released"] == []
     assert sent == []
+
+
+def test_with_every_wearable_unlinked_nothing_runs(tmp_registry):
+    store = HealthStore()
+    store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
+    store.set_linked(KEY, False)
+    out = _run_all(sources={}, call=no_model, notify=lambda *a: None)
+    assert out["skipped"] == "no linked wearables"
+
+
+def test_every_linked_wearable_is_synced(tmp_registry):
+    store = HealthStore()
+    store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
+    store.upsert_device({"kind": "ring", "device_id": "bbbb0000"})
+    a, b = FakeSource(), FakeSource()
+    _run_all(sources={KEY: a, "ring-bbbb0000": b}, call=no_model, notify=lambda *x: None,
+             now="2026-09-17T17:00:00Z")
+    assert (a.fetched, b.fetched) == (1, 1)
+    assert set(store.device_days("2026-09-17")) == {KEY, "ring-bbbb0000"}

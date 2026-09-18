@@ -172,6 +172,7 @@ def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
         stress=series(raw.get("stress"), 30),
         spo2=_spo2(raw.get("spo2"), midnight),
         temperature=series(raw.get("temperature"), 60),
+        steps=series(raw.get("steps"), 15),
         activity=dict(raw.get("activity") or {}),
         measurements=list(raw.get("measurements") or []),
         battery={
