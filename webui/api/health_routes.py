@@ -12,6 +12,7 @@ second place to edit them.
     GET  /api/integrations/jarvis-health/health/day?date=  that day bedtime to bedtime: day, scores, battery, sleep debt
     GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
     GET  /api/integrations/jarvis-health/health/now        today: last night's bedtime to now, the same shape
+    GET  /api/integrations/jarvis-health/health/history?metric=&range=&end=  a metric's W/M/6M/Y history
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -109,6 +110,21 @@ def handle_get(handler, parsed) -> bool:
 
             out = today(store, utc_now())
             j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"])})
+            return True
+
+        if tail == "history":
+            from urllib.parse import parse_qs
+
+            from jarvis_health.history import METRICS, RANGES, history
+            from jarvis_health.metrics import utc_now
+
+            query = parse_qs(parsed.query)
+            metric = (query.get("metric") or [""])[0]
+            range_ = (query.get("range") or ["W"])[0]
+            if metric not in METRICS or range_ not in RANGES:
+                j(handler, {"error": f"metric is one of {sorted(METRICS)}; range one of {list(RANGES)}"}, status=400)
+                return True
+            j(handler, history(store, metric, range_, (query.get("end") or [None])[0], utc_now()))
             return True
 
         if tail == "runs":

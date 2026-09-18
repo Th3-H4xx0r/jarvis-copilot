@@ -56,10 +56,21 @@ def test_with_no_sleep_at_all_the_window_starts_at_midnight(tmp_registry):
     assert today(store, "2026-09-17T16:00:00Z")["no_wake"] is True
 
 
-def test_without_a_steps_series_the_day_totals_stand_in():
-    today = day(date="2026-09-17", steps=4321)
-    w = window_day({"2026-09-17": today}, _utc("2026-09-17T13:00:00Z"), _utc("2026-09-17T20:00:00Z"))
-    assert w.activity["steps"] == 4321
+def test_without_a_steps_series_a_day_counts_the_share_the_window_covers():
+    today = day(date="2026-09-17", steps=4800)
+    w = window_day({"2026-09-17": today}, _utc("2026-09-17T13:00:00Z"), _utc("2026-09-17T19:00:00Z"))
+    assert w.activity["steps"] == 1200, "6 of 24 hours"
+
+
+def test_a_day_with_a_series_and_one_without_both_count():
+    from .fixtures import series
+    with_series = day(date="2026-09-18", steps=960)
+    with_series.steps = series([10] * 96, interval=15, date="2026-09-18")
+    totals_only = day(date="2026-09-17", steps=4800)
+    # 12:00 on the 17th → 06:00 on the 18th, local (UTC−5).
+    w = window_day({"2026-09-17": totals_only, "2026-09-18": with_series},
+                   _utc("2026-09-17T17:00:00Z"), _utc("2026-09-18T11:00:00Z"))
+    assert w.activity["steps"] == 2400 + 240, "half the 17th's total, and the 18th's slots to 06:00"
 
 
 def test_the_night_that_opened_the_window_is_part_of_it(tmp_registry):

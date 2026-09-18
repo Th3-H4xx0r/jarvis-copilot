@@ -126,3 +126,14 @@ def test_now_names_its_day_and_carries_the_weeks_sleep_debt(routes):
 
 def test_a_day_needs_a_date(routes):
     assert _get(routes, f"{BASE}/day").status == 400
+
+
+def test_history_answers_for_a_metric_and_range(routes):
+    _with_ring_day()
+    body = _get(routes, f"{BASE}/history?metric=heart_rate&range=W").body
+    assert len(body["buckets"]) == 7 and body["metric"] == "heart_rate"
+
+
+def test_history_refuses_an_unknown_metric_or_range(routes):
+    assert _get(routes, f"{BASE}/history?metric=nope&range=W").status == 400
+    assert _get(routes, f"{BASE}/history?metric=steps&range=Q").status == 400

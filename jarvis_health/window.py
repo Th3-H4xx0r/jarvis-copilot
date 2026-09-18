@@ -84,18 +84,29 @@ def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> He
     out.sleep = [s for _, d in ordered for s in d.sleep
                  if s.end and start <= parse_instant(s.end) <= end]
 
-    # Totals: steps are summed from the window's own slots; calories, distance
-    # and active minutes only exist per day, so they are shared out by steps.
-    # A wearable that sends no per-slot steps (older phones) gets its day
-    # totals instead: near enough, since a day's steps before waking are few.
-    day_steps = sum(float(d.activity.get("steps") or 0) for _, d in ordered)
-    steps = sum(out.steps.nonzero()) if out.steps else day_steps
-    share = (steps / day_steps) if day_steps else 0.0
-    out.activity = {"steps": int(steps)}
-    for key in ("active_minutes", "kilocalories", "distance_meters"):
-        total = sum(float(d.activity.get(key) or 0) for _, d in ordered)
-        if total:
-            out.activity[key] = round(total * share, 1)
+    # Totals, day by day. A day with a steps series counts the slots inside
+    # the window; one without (older phones pushed totals only) counts its
+    # total in proportion to how much of that day the window covers — never
+    # all of it for a sliver. Calories, distance and active minutes exist only
+    # per day, so each day's are shared out as its steps were.
+    steps, extra = 0.0, {}
+    for date, d in ordered:
+        day_total = float(d.activity.get("steps") or 0)
+        midnight = _local_midnight(date, d)
+        covered = max(0.0, (min(end, midnight + timedelta(days=1)) - max(start, midnight)).total_seconds()) / 86400
+        if d.steps and d.steps.start and d.steps.values:
+            origin, interval = parse_instant(d.steps.start), max(1, d.steps.interval_minutes)
+            counted = sum(float(v or 0) for i, v in enumerate(d.steps.values)
+                          if start <= origin + timedelta(minutes=i * interval) < end)
+        else:
+            counted = day_total * covered
+        share = (counted / day_total) if day_total else covered
+        steps += counted
+        for key in ("active_minutes", "kilocalories", "distance_meters"):
+            value = float(d.activity.get(key) or 0)
+            if value:
+                extra[key] = extra.get(key, 0.0) + value * share
+    out.activity = {"steps": int(round(steps)), **{k: round(v, 1) for k, v in extra.items()}}
     return out
 
 

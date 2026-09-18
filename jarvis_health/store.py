@@ -115,6 +115,10 @@ class HealthStore:
         body["synced_at"] = day.synced_at or utc_now()
         body["device"] = device
         self._space.put(f"{DAY_PREFIX}{device}-{day.date}", body, description=f"{device} on {day.date}.")
+        # History keeps old days' summaries; this one and its neighbours changed.
+        from . import history
+
+        history.forget(self, day.date)
 
     def day(self, date: str, device: str) -> Optional[HealthDay]:
         raw = self._space.get(f"{DAY_PREFIX}{device}-{date}")
