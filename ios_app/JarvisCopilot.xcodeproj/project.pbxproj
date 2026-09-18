@@ -267,6 +267,7 @@
 		6F2F39D13D028E558F85D780 /* DevicesSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195070864CE5E2E428B49E9D /* DevicesSnapshotTests.swift */; };
 		6FCB3623535390BD17C8C6ED /* AppLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D57976E70D77D0DA8B31D6 /* AppLifecycle.swift */; };
 		702F5D0D29C5CE708249FE90 /* AssistantTurnCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 951F9BF6AA0873028186B2A0 /* AssistantTurnCard.swift */; };
+		70323F5FA27A8107375ECB7A /* HealthGoalRings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */; };
 		7034607BAA6AE74E607B4975 /* RingMetricCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6351F42356D9E8EF6FBA3C3E /* RingMetricCard.swift */; };
 		70BC59764BE22E220630B779 /* ChatImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8DE89424B4C397AFD23F9A7 /* ChatImageCache.swift */; };
 		70DAB1788F61BAB0B20C16E9 /* CodingSessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */; };
@@ -746,6 +747,7 @@
 		1AB72620872144EC212B8790 /* BottleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleModel.swift; sourceTree = "<group>"; };
 		1AC17D45E7912672EDE9E317 /* WorkspacesUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesUITests.swift; sourceTree = "<group>"; };
 		1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDesignsPage.swift; sourceTree = "<group>"; };
+		1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthGoalRings.swift; sourceTree = "<group>"; };
 		1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundLocationTests.swift; sourceTree = "<group>"; };
 		1C3E7176C46606A0A20279B7 /* ChatJSONValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatJSONValue.swift; sourceTree = "<group>"; };
 		1C42C38B892C02081FA69717 /* HealthHistoryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthHistoryView.swift; sourceTree = "<group>"; };
@@ -1667,6 +1669,7 @@
 				46A4E46CD442B184301CB829 /* HealthHistory.swift */,
 				438CBFA66B125FE31EA00B31 /* HealthMetric.swift */,
 				1C42C38B892C02081FA69717 /* HealthHistoryView.swift */,
+				1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */,
 			);
 			name = Health;
 			path = Health;
@@ -3249,6 +3252,7 @@
 				B5E15D908A555E272321F8E6 /* RingWorkout.swift in Sources */,
 				AA97EC0CCD97D67E64FEF7C2 /* RingWorkoutController.swift in Sources */,
 				0C983E0CB12FB6F10BDC8DA3 /* WorkoutLocation.swift in Sources */,
+				70323F5FA27A8107375ECB7A /* HealthGoalRings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

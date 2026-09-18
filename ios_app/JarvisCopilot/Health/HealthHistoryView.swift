@@ -102,6 +102,13 @@ struct HealthHistoryView: View {
                 } else {
                     chart(history)
                         .padding(14)
+                    if let goal = history.goal, range == .week || range == .month {
+                        RowDivider()
+                        HealthGoalRings(buckets: history.buckets, goal: goal, range: range,
+                                        noun: metric == .steps ? "days" : "nights", todayInProgress: metric == .steps,
+                                        revealed: revealed)
+                            .padding(16)
+                    }
                 }
             }
             CardGroup("Highlights") {

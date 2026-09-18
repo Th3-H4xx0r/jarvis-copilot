@@ -121,6 +121,28 @@ final class HealthHistoryTests: XCTestCase {
         try render(.battery, .halfYear, h, name: "history-battery-6m")
     }
 
+    func testSleepDebtWeekShowsTheNightsGoalRings() throws {
+        let asleep: [Double?] = [462, 395, nil, 350, 505, 330, 490]
+        var h = history(.sleepDebt, range: .week, kind: "minutes") { i in
+            asleep[i].map { .init(start: "", end: "", value: Double(i * 55), low: nil, high: nil, days: 1, stages: nil,
+                                  goalProgress: $0 / 480) }
+        }
+        h.goal = .init(value: 480, kind: "minutes", met: 2, measured: 6)
+        try render(.sleepDebt, .week, h, name: "history-sleepdebt-goals")
+    }
+
+    func testStepsMonthShowsACalendarOfGoalRings() throws {
+        var h = history(.steps, range: .month, kind: "steps") { i in
+            i % 9 == 4 ? nil : {
+                let steps = 4000 + Double((i * 1370) % 7500)
+                return .init(start: "", end: "", value: steps, low: nil, high: nil, days: 1, stages: nil,
+                             goalProgress: steps / 10_000)
+            }()
+        }
+        h.goal = .init(value: 10_000, kind: "steps", met: 6, measured: 27)
+        try render(.steps, .month, h, name: "history-steps-goals")
+    }
+
     func testAnEmptyRangeSaysSo() throws {
         let h = history(.hrv, range: .year, kind: "ms") { _ in nil }
         try render(.hrv, .year, h, name: "history-empty-year")

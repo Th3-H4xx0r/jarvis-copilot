@@ -18,6 +18,13 @@ struct HealthHistory: Codable, Equatable {
         /// Days measured in it; 0 is a gap, never a zero.
         var days: Int
         var stages: Stages?
+        /// A day's share of its goal (1 = met), for the goal rings.
+        var goalProgress: Double? = nil
+
+        enum CodingKeys: String, CodingKey {
+            case start, end, value, low, high, days, stages
+            case goalProgress = "goal_progress"
+        }
 
         var id: String { start }
         var startDate: Date { RingDates.date(forKey: start) ?? .distantPast }
@@ -38,6 +45,14 @@ struct HealthHistory: Codable, Equatable {
         var kind: String
     }
 
+    /// The daily goal a day-by-day range is judged against, and how it went.
+    struct Goal: Codable, Equatable {
+        var value: Double
+        var kind: String
+        var met: Int
+        var measured: Int
+    }
+
     struct Previous: Codable, Equatable {
         var average: Double?
         var days: Int
@@ -55,9 +70,10 @@ struct HealthHistory: Codable, Equatable {
     var previous: Previous
     var highlight: String
     var daysSoFar: Int
+    var goal: Goal? = nil
 
     enum CodingKeys: String, CodingKey {
-        case metric, range, title, kind, start, end, buckets, headline, stats, previous, highlight
+        case metric, range, title, kind, start, end, buckets, headline, stats, previous, highlight, goal
         case daysSoFar = "days_so_far"
     }
 
