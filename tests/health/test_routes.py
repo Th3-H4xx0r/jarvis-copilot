@@ -137,3 +137,18 @@ def test_history_answers_for_a_metric_and_range(routes):
 def test_history_refuses_an_unknown_metric_or_range(routes):
     assert _get(routes, f"{BASE}/history?metric=nope&range=W").status == 400
     assert _get(routes, f"{BASE}/history?metric=steps&range=Q").status == 400
+
+
+def test_a_saved_workout_shows_on_its_day(routes):
+    _with_ring_day()
+    workout = {"sport": 7, "sport_name": "Run", "start": "2026-09-17T22:00:00Z", "end": "2026-09-17T22:30:00Z",
+               "active_seconds": 1800, "steps": 4200, "heart_rates": [150] * 360}
+    assert _post(routes, f"{BASE}/workouts", {"workout": workout, "device_id": "aaaa0000"}).body["ok"] is True
+    # Saving it again replaces it rather than doubling it.
+    _post(routes, f"{BASE}/workouts", {"workout": workout, "device_id": "aaaa0000"})
+    day = _get(routes, f"{BASE}/day?date=2026-09-17").body
+    assert [w["sport_name"] for w in day["workouts"]] == ["Run"]
+
+
+def test_a_workout_needs_its_times(routes):
+    assert _post(routes, f"{BASE}/workouts", {"workout": {"sport": 7}}).status == 400

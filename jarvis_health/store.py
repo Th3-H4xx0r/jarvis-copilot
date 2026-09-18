@@ -10,7 +10,7 @@ import copy
 import re
 from typing import Any, Optional
 
-from .metrics import Baseline, HealthDay, from_json, to_json, utc_now
+from .metrics import Baseline, HealthDay, from_json, parse_instant, to_json, utc_now
 from .rules import DEFAULT_RULES
 
 #: What a wearable's health integration does before anyone touches a setting.
@@ -45,6 +45,7 @@ _HEX = re.compile(r"[0-9a-f]+")
 DAY_PREFIX = "day-"
 SCORES_PREFIX = "scores-"
 BATTERY_PREFIX = "battery-"
+WORKOUT_PREFIX = "workout-"
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 
 #: The one integration every wearable feeds. Protected: it can be paused or
@@ -189,6 +190,31 @@ class HealthStore:
         self.put_settings({"devices": roster})
 
     # ── battery ─────────────────────────────────────────────────────────────
+    # ── workouts ────────────────────────────────────────────────────────────
+    #
+    # One record per session, keyed by device and start so a re-sent save
+    # replaces its copy instead of doubling it.
+
+    def put_workout(self, workout: dict, device: str) -> dict:
+        body = {**workout, "device": device}
+        # Registry keys allow lowercase, digits, - and _ only: the start's digits.
+        key = f"{WORKOUT_PREFIX}{device}-{''.join(c for c in str(workout['start']) if c.isdigit())}"
+        self._space.put(key, body, description=f"{workout.get('sport_name') or 'Workout'} at {workout['start']}.")
+        return body
+
+    def workouts(self, start: str, end: str) -> list[dict]:
+        """Workouts that began in [start, end), oldest first."""
+        begin, finish = parse_instant(start), parse_instant(end)
+        out = []
+        for doc in self._space.documents():
+            key = str(doc.get("key", ""))
+            if not key.startswith(WORKOUT_PREFIX):
+                continue
+            raw = self._space.get(key)
+            if isinstance(raw, dict) and raw.get("start") and begin <= parse_instant(raw["start"]) < finish:
+                out.append(raw)
+        return sorted(out, key=lambda w: w["start"])
+
     def put_battery(self, date: str, payload: dict) -> None:
         self._space.put(f"{BATTERY_PREFIX}{date}", payload, description=f"Body Battery for {date}.")
 

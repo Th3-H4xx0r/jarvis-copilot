@@ -13,6 +13,7 @@ second place to edit them.
     GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
     GET  /api/integrations/jarvis-health/health/now        today: last night's bedtime to now, the same shape
     GET  /api/integrations/jarvis-health/health/history?metric=&range=&end=  a metric's W/M/6M/Y history
+    POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -101,7 +102,7 @@ def handle_get(handler, parsed) -> bool:
                 return True
             out = cycle(store, date, utc_now())
             j(handler, {**out, "scores": store.scores(date), "has_data": out["day"] is not None,
-                        "sleep_debt": _sleep_debt(store, date)})
+                        "sleep_debt": _sleep_debt(store, date), "workouts": store.workouts(out["start"], out["end"])})
             return True
 
         if tail == "now":
@@ -109,7 +110,8 @@ def handle_get(handler, parsed) -> bool:
             from jarvis_health.window import today
 
             out = today(store, utc_now())
-            j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"])})
+            j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"]),
+                        "workouts": store.workouts(out["start"], "9999-12-31T00:00:00Z")})
             return True
 
         if tail == "history":
@@ -211,6 +213,17 @@ def handle_post(handler, parsed, body) -> bool:
             day = day_from_ring_json(raw, raw["date"], raw.get("timezone") or "UTC")
             store.put_day(day, device_key_for(kind, device_id))
             j(handler, {"ok": True, "date": day.date, "timezone": day.timezone})
+            return True
+
+        if tail == "workouts":
+            workout = body.get("workout") if isinstance(body.get("workout"), dict) else None
+            if not workout or not workout.get("start") or not workout.get("end"):
+                j(handler, {"error": "a workout needs a 'start' and an 'end'"}, status=400)
+                return True
+            from jarvis_health.store import device_key_for
+
+            device = device_key_for(workout.get("source") or "ring", body.get("device_id") or "")
+            j(handler, {"ok": True, "workout": store.put_workout(workout, device)})
             return True
 
         if tail == "run":

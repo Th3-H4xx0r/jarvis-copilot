@@ -186,8 +186,22 @@ class BatteryDay:
         return out
 
 
+def _workout_hr(workouts: list[dict], start: datetime, end: datetime) -> Optional[float]:
+    """Mean heart rate a workout recorded inside the slot (its samples are 5 s apart)."""
+    readings = []
+    for w in workouts or []:
+        if not w.get("start"):
+            continue
+        origin = parse_instant(w["start"])
+        for i, bpm in enumerate(w.get("heart_rates") or []):
+            if bpm and start <= origin + timedelta(seconds=5 * i) < end:
+                readings.append(float(bpm))
+    return sum(readings) / len(readings) if readings else None
+
+
 def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_nights: list[int],
-                profile: dict, now: Optional[str] = None, bedtime: Optional[str] = None) -> BatteryDay:
+                profile: dict, now: Optional[str] = None, bedtime: Optional[str] = None,
+                workouts: Optional[list[dict]] = None) -> BatteryDay:
     """The day's level every 30 minutes from local midnight to midnight, or to `now`.
 
     A night belongs to the day it ends on, all of it: one that began before
@@ -240,6 +254,11 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
         else:
             stress = _slot_value(day.stress, cursor, slot_end)
             hr = _slot_value(day.heart_rate, cursor, slot_end)
+            # The ring's 5-minute history can miss a workout; its own
+            # second-by-second heart rate says what the slot cost.
+            during = _workout_hr(workouts, cursor, slot_end)
+            if during is not None and (hr is None or during > hr):
+                hr = during
             steps = _slot_value(day.steps, cursor, slot_end, total=True)
             cost, parts = slot_drain(stress, hr, steps, rest, hr_max)
             awake_slots += 1

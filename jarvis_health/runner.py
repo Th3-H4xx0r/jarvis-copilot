@@ -109,8 +109,11 @@ def run(
     # The headline is the Body Battery: the parts above still explain the day,
     # but nothing re-weights them into a number any more.
     profile = settings.get("profile") or {}
-    battery = day_battery(day, _close_yesterday(store, day, history, baseline, profile), baseline,
-                          _prior_nights(history, day.date), profile, now=now)
+    start_level = _close_yesterday(store, day, history, baseline, profile)
+    day_start = parse_instant(f"{day.date}T00:00:00Z") - timedelta(hours=14)
+    workouts = store.workouts(day_start.strftime("%Y-%m-%dT%H:%M:%SZ"), now)
+    battery = day_battery(day, start_level, baseline, _prior_nights(history, day.date), profile, now=now,
+                          workouts=workouts)
     store.put_battery(day.date, battery.to_json())
     scores["health"] = Score(
         value=battery.level,

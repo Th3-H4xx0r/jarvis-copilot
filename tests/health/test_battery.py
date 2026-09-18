@@ -106,3 +106,11 @@ def test_a_day_closes_at_bedtime_when_the_next_night_began_before_midnight():
     battery = day_battery(day(asleep=480), 30, _ready(), [480] * 3, {}, bedtime="2026-09-18T03:10:00Z")
     assert battery.curve[-1]["at"] == "2026-09-18T03:00:00Z", "22:10 in bed: the day ends on the 22:00 slot"
     assert battery.end_level == battery.curve[-1]["level"]
+
+
+def test_a_workout_the_ring_history_missed_still_drains():
+    d = day(asleep=480, hr=[0] * 288, stress=[20] * 48)          # a calm, unmeasured-heart day
+    calm = day_battery(d, 60, _ready(), [480] * 3, {"age": 30})
+    run = {"start": "2026-09-17T22:00:00Z", "heart_rates": [165] * 360}   # 30 min at 165
+    hard = day_battery(d, 60, _ready(), [480] * 3, {"age": 30}, workouts=[run])
+    assert hard.drained > calm.drained + 1.5
