@@ -78,11 +78,19 @@ struct WearableToolbarButton: View {
     }
 }
 
-struct WearableMoreMenu: View {
+struct WearableMoreMenu<Extra: View>: View {
     let onRename: () -> Void
+    /// Device-specific items — a ring's "Find", say — above Rename.
+    @ViewBuilder var extra: Extra
+
+    init(onRename: @escaping () -> Void, @ViewBuilder extra: () -> Extra = { EmptyView() }) {
+        self.onRename = onRename
+        self.extra = extra()
+    }
 
     var body: some View {
         Menu {
+            extra
             Button("Rename", jcIcon: "pencil", action: onRename)
         } label: {
             JcIcon("ellipsis").foregroundStyle(JcTheme.accent)

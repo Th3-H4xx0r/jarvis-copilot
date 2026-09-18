@@ -103,6 +103,40 @@ struct RowDivider: View {
 
 /// A circular command button with its name underneath, like the action row on a
 /// contact card. Liquid glass, tinted with its colour while the command is active.
+/// A capsule action: icon and word together, on one line that scrolls.
+///
+/// Replaces a grid of labelled circles, which wrapped to a second row as soon
+/// as a ring reported more than three measurements and clipped at the screen
+/// edge. A row that scrolls cannot wrap, and a label beside its icon reads at a
+/// glance without a caption underneath (`buttons.md` › "Avoid using labels to
+/// introduce square buttons").
+struct ActionChip: View {
+    let title: String
+    let icon: String
+    let isOn: Bool
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                JcIcon(icon)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isOn ? Color.white : tint)
+            .padding(.horizontal, 14)
+            // 44pt tall: the platform's minimum target, met by the control
+            // itself rather than by the space around it.
+            .frame(height: 44)
+            .jcLiquidGlass(in: Capsule(), tint: isOn ? tint.opacity(0.75) : .clear)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ActionButton: View {
     let title: String
     let icon: String

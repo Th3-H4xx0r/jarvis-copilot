@@ -91,7 +91,15 @@ struct RingDeviceView: View {
                                   disabled: !ready || sync.isSyncing) {
                 Task { await sync.sync(days: sync.historyDays) }
             }
-            WearableMoreMenu { renaming = true }
+            WearableMoreMenu(onRename: { renaming = true },
+                             extra: {
+                                 Button("Find ring", jcIcon: "dot.radiowaves.left.and.right") {
+                                     run {
+                                         try await session.findRing()
+                                         findToken += 1
+                                     }
+                                 }
+                             })
         }
     }
 
@@ -144,34 +152,34 @@ struct RingDeviceView: View {
 
     // MARK: Actions
 
+    /// The measurements this ring can take, one scrolling line of them.
+    ///
+    /// Find lives in the ⋯ menu and syncing is the toolbar button, so neither
+    /// takes a slot here: what is left is the set of things the ring measures.
     private var actions: some View {
         let measurements: [RingMeasurementType] = session.capabilities.isKnown
             ? session.capabilities.supportedMeasurements : [.heartRate, .spo2]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 16) {
-            ActionButton(title: "Find", icon: "dot.radiowaves.left.and.right", isOn: false, tint: .orange) {
-                run {
-                    try await session.findRing()
-                    findToken += 1
-                }
-            }
-            ForEach(measurements, id: \.self) { type in
-                ActionButton(title: type.shortLabel, icon: type.icon,
-                             isOn: session.measurement?.isActive == true && session.measurement?.type == type,
-                             tint: type.tint) {
-                    if session.measurement?.isActive == true {
-                        session.cancelMeasurement()
-                    } else {
-                        run { try await session.startMeasurement(type) }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(measurements, id: \.self) { type in
+                    ActionChip(title: type.shortLabel, icon: type.icon,
+                               isOn: session.measurement?.isActive == true && session.measurement?.type == type,
+                               tint: type.tint) {
+                        if session.measurement?.isActive == true {
+                            session.cancelMeasurement()
+                        } else {
+                            run { try await session.startMeasurement(type) }
+                        }
                     }
                 }
             }
-            ActionButton(title: "Sync", icon: "arrow.triangle.2.circlepath", isOn: sync.isSyncing, tint: JcTheme.accent) {
-                Task { await sync.sync(days: dayOffset) }
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 2)
         }
+        // The row scrolls, so it must not be clipped by the card inset it sits in.
+        .scrollClipDisabled()
         .disabled(!ready)
         .opacity(ready ? 1 : 0.45)
-        .padding(.horizontal, 12)
     }
 
     private func run(_ work: @escaping () async throws -> Void) {
