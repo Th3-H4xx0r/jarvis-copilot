@@ -27,8 +27,7 @@ struct HealthTab: View {
                     VStack(alignment: .leading, spacing: 14) {
                         dayRow
                         if let window = model.window(for: selection) {
-                            HealthDayHeader(window: window, isToday: selection == .today,
-                                            slept: model.cache.day(selection.cacheKey).summary.sleepMinutes)
+                            HealthDayHeader(window: window, isToday: selection == .today)
                                 .padding(.horizontal, 24)
                                 .transition(.opacity)
                         }
@@ -139,27 +138,19 @@ struct HealthTab: View {
     }
 }
 
-/// The day at a glance, above the battery: how long you have been awake — a
-/// big live number under its own label — and how long you slept, beside it.
-/// Labels sit above their numbers, so no grey line runs into the section
-/// heading below.
+/// The day at a glance, above the battery: how long you have been awake, a
+/// big live number under its own label. The label sits above the number, so
+/// no grey line runs into the section heading below.
 struct HealthDayHeader: View {
     let window: HealthWindow
     let isToday: Bool
-    /// Minutes asleep in the night that opened the day.
-    var slept: Int?
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             let end = isToday ? max(window.end, context.date) : window.end
-            HStack(alignment: .lastTextBaseline, spacing: 28) {
-                stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
-                     minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
-                if !window.noNight, let slept, slept > 0 {
-                    stat(symbol: "moon.fill", label: "Slept", tint: JcTheme.accentAlt, minutes: slept, size: 26)
-                }
-                Spacer(minLength: 0)
-            }
+            stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
+                 minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
