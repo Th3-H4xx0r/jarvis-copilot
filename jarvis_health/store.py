@@ -200,6 +200,10 @@ class HealthStore:
         # Registry keys allow lowercase, digits, - and _ only: the start's digits.
         key = f"{WORKOUT_PREFIX}{device}-{''.join(c for c in str(workout['start']) if c.isdigit())}"
         self._space.put(key, body, description=f"{workout.get('sport_name') or 'Workout'} at {workout['start']}.")
+        # History keeps old days' summaries; the workout's day changed.
+        from . import history
+
+        history.forget(self, str(workout["start"])[:10])
         return body
 
     def workouts(self, start: str, end: str) -> list[dict]:

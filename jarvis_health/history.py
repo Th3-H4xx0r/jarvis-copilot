@@ -53,6 +53,7 @@ METRICS: dict[str, Metric] = {
     "hrv": Metric("HRV", "hrv", "ms", "Average", "average HRV"),
     "stress": Metric("Stress", "stress_avg", "score", "Average", "average stress"),
     "temperature": Metric("Temperature", "temperature_avg", "celsius", "Average", "average temperature"),
+    "exercise": Metric("Exercise", "exercise_minutes", "minutes", "Daily average", "average exercise a day"),
 }
 
 # ── day summaries ──────────────────────────────────────────────────────────
@@ -87,7 +88,16 @@ def day_summary(store, date: str, now: str, window: Optional[dict] = None) -> di
     out["battery_high"] = max(curve) if curve else None
     out["battery_low"] = min(curve) if curve else None
     out["battery_end"] = curve[-1] if curve else None
+    # Workouts are the phone's own records, not the ring's day: a measured day
+    # with none is 0 minutes of exercise, not a gap.
+    if w.get("start") and w.get("end"):
+        sessions = store.workouts(w["start"], w["end"])
+        out["workouts"] = len(sessions)
+        out["exercise_minutes"] = round(sum(float(s.get("active_seconds") or 0) for s in sessions) / 60, 1)
+        out["exercise_kcal"] = round(sum(float(s.get("kilocalories") or 0) for s in sessions), 1)
     if day is None:
+        if not out.get("workouts"):
+            out.pop("exercise_minutes", None)
         return out
     for key in ("steps", "kilocalories", "distance_meters", "active_minutes", "hr_avg", "hr_min", "hr_max",
                 "stress_avg", "temperature_avg"):
@@ -233,6 +243,11 @@ def _stats(metric: str, days: list[dict], goal: int) -> list[dict]:
         out = [_stat("Average", avg, "ms"), _stat("Highest", hi, "ms"), _stat("Lowest", lo, "ms")]
     elif metric == "stress":
         out = [_stat("Average", avg, "score"), _stat("Calmest day", lo, "score"), _stat("Most stressed", hi, "score")]
+    elif metric == "exercise":
+        out = [_stat("Total", sum(v) if v else None, "minutes"), _stat("Daily average", avg, "minutes"),
+               _stat("Workouts", sum(int(d.get("workouts") or 0) for d in days), "count"),
+               _stat("Longest day", hi, "minutes"),
+               _stat("Calories", sum(_values(days, "exercise_kcal")) or None, "kcal")]
     else:
         out = [_stat("Average", avg, "celsius"), _stat("Highest", hi, "celsius"), _stat("Lowest", lo, "celsius")]
     return out + [_stat("Days measured", len(v), "count")]
@@ -349,7 +364,15 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str) -> di
     days_so_far = len(store.dates(100_000))
     buckets = [_bucket(metric, days_in(a, b), a, b) for a, b in periods]
     rings = _goal(metric, buckets, by_date, settings) if RANGES[range_][0] == "day" else None
+    # Exercise lists every workout in the range, newest first, for its detail.
+    listed = []
+    if metric == "exercise":
+        offset = timedelta(seconds=current_day.get("utc_offset") or 0)
+        first = datetime.combine(periods[0][0], datetime.min.time()) - offset
+        last = datetime.combine(periods[-1][1] + timedelta(days=1), datetime.min.time()) - offset
+        listed = list(reversed(store.workouts(first.strftime("%Y-%m-%dT%H:%M:%SZ"), last.strftime("%Y-%m-%dT%H:%M:%SZ"))))
     return {
+        "workouts": listed,
         "metric": metric,
         "range": range_,
         "title": METRICS[metric].title,

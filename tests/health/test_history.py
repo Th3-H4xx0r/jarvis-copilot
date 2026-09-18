@@ -129,3 +129,18 @@ def test_steps_are_judged_against_the_step_goal_and_long_ranges_have_no_rings(tm
     assert week["goal"]["value"] == 8000
     assert history(store, "steps", "6M", "2026-09-18", NOW)["goal"] is None
     assert history(store, "heart_rate", "W", "2026-09-18", NOW)["goal"] is None
+
+
+def test_exercise_is_the_days_workout_minutes_and_lists_every_workout(tmp_registry):
+    store = HealthStore()
+    _stored(store, d2026_09_16={}, d2026_09_17={})
+    store.put_workout({"sport": 7, "sport_name": "Run", "start": "2026-09-17T22:00:00Z",
+                       "end": "2026-09-17T22:40:00Z", "active_seconds": 2400, "kilocalories": 310}, "ring-aaaa0000")
+    store.put_workout({"sport": 88, "sport_name": "Strength", "start": "2026-09-17T23:00:00Z",
+                       "end": "2026-09-17T23:30:00Z", "active_seconds": 1800, "kilocalories": 150}, "ring-aaaa0000")
+    out = history(store, "exercise", "W", "2026-09-18", NOW)
+    by_day = {b["start"]: b["value"] for b in out["buckets"]}
+    assert by_day["2026-09-17"] == 70.0 and by_day["2026-09-16"] == 0.0, "a measured day with none is 0, not a gap"
+    stats = {s["label"]: s["value"] for s in out["stats"]}
+    assert stats["Workouts"] == 2 and stats["Total"] == 70.0 and stats["Calories"] == 460.0
+    assert [w["sport_name"] for w in out["workouts"]] == ["Strength", "Run"], "newest first"

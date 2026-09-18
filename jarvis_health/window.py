@@ -234,6 +234,7 @@ def today(store, now: str) -> dict:
     start = parse_instant(night.start) if night else _midnight_at(moment, offset)
     out = _window(store, days, start, moment, night, offset, live=True)
     out["end"] = now
+    out["utc_offset"] = offset
     anchor = parse_instant(night.end) if night else moment
     out["date"] = (anchor + timedelta(seconds=offset)).date().isoformat()
     return out
