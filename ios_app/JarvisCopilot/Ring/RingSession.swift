@@ -375,21 +375,36 @@ final class RingSession: ObservableObject {
             ?? RingTouchSettings(isTouch: false, mode: mode.rawValue, sleepTime: 0, touchSleep: false, strength: value)
     }
 
+    // Goals, profile and unit count as saved only when the ring reads them back.
+    // Falling back to the requested value when the read-back failed showed a
+    // setting as saved that never reached the ring — it reverted on the next
+    // refresh. The firmware acknowledges all three writes, so no answer is a
+    // failure, not an "unacknowledged write".
+
     func setGoals(_ goals: RingGoals) async throws {
         try await write(.writeGoals(goals))
-        settings.goals = await read(.readGoals, RingDecode.goals) ?? goals
+        guard let saved = await read(.readGoals, RingDecode.goals) else { throw RingError.timeout(RingOp.goals) }
+        settings.goals = saved
+        guard saved.steps == goals.steps, saved.calories == goals.calories,
+              saved.distanceMeters == goals.distanceMeters else { throw RingError.rejected(RingOp.goals) }
     }
 
     func setProfile(_ profile: RingProfile) async throws {
         try await write(.writeProfile(profile))
-        settings.profile = await read(.readProfile, RingDecode.profile) ?? profile
+        guard let saved = await read(.readProfile, RingDecode.profile) else { throw RingError.timeout(RingOp.profile) }
+        settings.profile = saved
+        guard saved.sex == profile.sex, saved.age == profile.age, saved.heightCm == profile.heightCm,
+              saved.weightKg == profile.weightKg else { throw RingError.rejected(RingOp.profile) }
     }
 
     func setTemperatureUnit(celsius: Bool) async throws {
         try require(capabilities.anyTemperature, "temperature units")
         try await write(.writeTemperatureUnit(celsius: celsius))
-        settings.temperatureUnit = await read(.readTemperatureUnit, RingDecode.temperatureUnit)
-            ?? RingTemperatureUnit(enabled: true, celsius: celsius)
+        guard let saved = await read(.readTemperatureUnit, RingDecode.temperatureUnit) else {
+            throw RingError.timeout(RingOp.temperatureUnit)
+        }
+        settings.temperatureUnit = saved
+        guard saved.celsius == celsius else { throw RingError.rejected(RingOp.temperatureUnit) }
     }
 
     func setDND(_ dnd: RingDND) async throws {

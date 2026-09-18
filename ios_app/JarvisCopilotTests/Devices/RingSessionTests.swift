@@ -249,9 +249,29 @@ final class RingSessionTests: XCTestCase {
         link.script(0x21, [])
         link.script(0x21, [RingProtocol.frame(0x21, [2]), RingProtocol.frame(0x21, goalsReply)])
 
-        try await session.setGoals(someGoals)
+        do {
+            try await session.setGoals(someGoals)
+            XCTFail("the ring still has its old goals, so they were not saved")
+        } catch {
+            XCTAssertEqual(error as? RingError, .rejected(0x21))
+        }
 
         XCTAssertEqual(session.settings.goals?.steps, 10000, "the ring's reply, not the requested value")
+    }
+
+    /// The bug that made goals look saved: no answer to the read-back used to
+    /// fall back to the requested value, which reverted on the next refresh.
+    func testAGoalWriteTheRingNeverConfirmsIsAnError() async throws {
+        link.script(0x21, [])
+        link.script(0x21, [])
+
+        do {
+            try await session.setGoals(someGoals)
+            XCTFail("an unconfirmed write is not a saved one")
+        } catch {
+            XCTAssertEqual(error as? RingError, .timeout(0x21))
+        }
+        XCTAssertNotEqual(session.settings.goals?.steps, 9000, "never shows a value the ring did not confirm")
     }
 
     func testATouchReadSkipsALateGestureReply() async throws {
@@ -275,7 +295,8 @@ final class RingSessionTests: XCTestCase {
         link.script(0x21, [RingProtocol.frame(0x21, [2])])
         link.script(0x21, [RingProtocol.frame(0x21, goalsReply)])
 
-        try await session.setGoals(someGoals)
+        try await session.setGoals(RingGoals(steps: 10000, calories: 500_000, distanceMeters: 5000,
+                                             sportMinutes: 60, sleepMinutes: 480))
 
         let restored = RingSession(transport: makeRingTransport(FakeRingLink()))
         restored.loadCache(deviceID: "ring-2", defaults: defaults)

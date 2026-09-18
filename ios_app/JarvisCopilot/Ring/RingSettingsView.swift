@@ -256,7 +256,7 @@ struct RingSettingsView: View {
                 }
             }
         }
-        .disabled(!ready || working)
+        .disabled(working)
     }
 
     private var profileSection: some View {
@@ -296,7 +296,7 @@ struct RingSettingsView: View {
                 }
             }
         }
-        .disabled(!ready || working)
+        .disabled(working)
     }
 
     // MARK: Preferences
@@ -659,6 +659,9 @@ struct RingSettingsView: View {
         error = nil
         Task {
             do {
+                // The link drops whenever the ring is idle. Writing into a dead
+                // link is what made settings look saved and then revert.
+                if !ready, !(await manager.ensureConnected(timeout: 12)) { throw RingError.notConnected }
                 try await work()
             } catch let failure {
                 error = failure.localizedDescription
