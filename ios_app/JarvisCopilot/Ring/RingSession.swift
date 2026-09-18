@@ -112,6 +112,8 @@ final class RingSession: ObservableObject {
     var onLiveReading: ((RingMetric, RingLiveReading) -> Void)?
     var onLiveActivity: ((RingActivity) -> Void)?
     var onMeasurementFinished: ((RingMeasurementState) -> Void)?
+    /// A workout's live packet, once a second while one runs on the ring.
+    var onSportTick: ((RingSportTick) -> Void)?
     var onFindPhone: ((Bool) -> Void)?
     /// A tap, swipe or press on the ring, for whatever the user set it to run.
     var onInput: ((RingInput) -> Void)?
@@ -803,6 +805,8 @@ final class RingSession: ObservableObject {
             case 1: noteInput(.tap)
             default: break
             }
+        case RingOp.sportEvent:
+            if let tick = RingDecode.sportTick(inbound.payload) { onSportTick?(tick) }
         case RingOp.ppgData:
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
         case RingOp.musicCommand:

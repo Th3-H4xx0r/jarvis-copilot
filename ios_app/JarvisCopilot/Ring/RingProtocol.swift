@@ -159,6 +159,10 @@ enum RingOp {
     /// accelerometer or gyroscope stream — motion only reaches the phone as steps and sleep.
     static let ppgData: UInt8 = 0x6E
     static let deviceEvent: UInt8 = 0x73
+    /// A phone-driven workout: `[status, sport]` (see `RingSportCommand`). The
+    /// same number as the large-data temperature opcode, on the other channel.
+    static let phoneSport: UInt8 = 0x77
+    /// A workout's once-a-second live packet (`RingDecode.sportTick`).
     static let sportEvent: UInt8 = 0x78
     static let phoneStillTime: UInt8 = 0x7E
     static let calibration: UInt8 = 0xA1

@@ -40,6 +40,12 @@ final class RingManager: NSObject, ObservableObject {
     }()
     /// On-demand readings, shared by the ring screen and the Health tab.
     private(set) lazy var measure = RingMeasureController(manager: self)
+    /// Workouts on the ring, started from the Health tab, the ring screen or by voice.
+    private(set) lazy var workout = RingWorkoutController(
+        session: session,
+        ensureConnected: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
+        age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
+        location: WorkoutLocation())
 
     /// True while a ring screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {
@@ -282,6 +288,7 @@ final class RingManager: NSObject, ObservableObject {
 
     private var ringIsWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
+            || workout.isActive
     }
 
     /// Asks for the ring's services and keeps a watchdog on the answer. Discovery can stall
