@@ -128,6 +128,7 @@ final class RingSyncTests: XCTestCase {
 
     func testAFinishedMeasurementIsRecordedForTheDay() async throws {
         link.script(0x69, [RingProtocol.frame(0x69, [1, 0, 70])])
+        session.measurementSettle = 0.2
         try await session.startMeasurement(.heartRate)
         _ = await session.awaitMeasurement(timeout: 1)
 

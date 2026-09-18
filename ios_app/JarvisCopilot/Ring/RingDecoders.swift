@@ -363,6 +363,10 @@ struct RingMeasurementReading: Equatable {
     var value: Int
     var systolic: Int
     var diastolic: Int
+    /// The raw optical signal, little-endian in bytes 5–6. Zero while the sensor
+    /// sees nothing; it comes up the moment the ring is against skin, about ten
+    /// seconds before there is a number — `69 01 00 00 00 00 EA 02` on the wire.
+    var signal: Int = 0
 
     /// A temperature reading arrives as `(°C − 20) × 10` in one byte.
     var celsius: Double { Double(value) / 10 + 20 }
@@ -777,7 +781,8 @@ enum RingDecode {
     static func measurement(_ p: [UInt8]) -> RingMeasurementReading? {
         guard p.count >= 3 else { return nil }
         return RingMeasurementReading(type: p[0], errorCode: p[1], value: at(p, 2),
-                                      systolic: at(p, 3), diastolic: at(p, 4))
+                                      systolic: at(p, 3), diastolic: at(p, 4),
+                                      signal: p.count >= 7 ? Int(p[5]) | Int(p[6]) << 8 : 0)
     }
 
     // Settings replies only carry values when the action byte is a read (1, or 3 for ring reads).

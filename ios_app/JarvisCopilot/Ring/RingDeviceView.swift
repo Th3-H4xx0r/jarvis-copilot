@@ -79,6 +79,9 @@ struct RingDeviceView: View {
             // A result from an earlier visit is history, not a reading.
             session.clearFinishedMeasurement()
             manager.screenIsOpen = true
+            // Load the "put the ring on" hand now, off the main thread, so the
+            // sheet never waits on it.
+            Task.detached(priority: .utility) { _ = RingHandModel.bundled }
             if manager.connected?.id != ring.id || !manager.linkIsUp { manager.connect(ring) }
         }
         .onDisappear {
@@ -108,13 +111,23 @@ struct RingDeviceView: View {
             case .notWorn where wearPrompt == nil:
                 showWearPrompt(for: type)
             case .done:
-                dismissWearPrompt()
+                closeWearPrompt()
                 fadeMeasurementCard()
             case .failed, .cancelled, .timedOut, .notWorn:
                 fadeMeasurementCard()
             default:
                 break
             }
+        }
+        // Off a finger the ring does not refuse — it measures nothing. Twenty
+        // seconds of no signal is past its warm-up (it reads skin within about
+        // fifteen), so by then the ring is not on: ask for it.
+        .task(id: session.measurement?.startedAt) {
+            guard let started = session.measurement?.startedAt, session.measurement?.isActive == true else { return }
+            try? await Task.sleep(for: .seconds(max(0, 20 - Date().timeIntervalSince(started))))
+            guard !Task.isCancelled, wearPrompt == nil, let m = session.measurement, m.startedAt == started,
+                  m.isActive, m.skinContactAt == nil, m.usesOpticalSensor else { return }
+            showWearPrompt(for: m.type)
         }
         .onDisappear {
             wearRetry?.cancel()
@@ -227,13 +240,14 @@ struct RingDeviceView: View {
         .accessibilityLabel("Measure")
     }
 
-    /// Keep asking until the ring produces a reading, then take the card away.
+    /// Keep asking until the ring is on a finger, then take the sheet away and
+    /// let the reading carry on underneath it.
     ///
-    /// A one-shot heart rate answers `6901 00 00` — "measuring", value zero —
-    /// for tens of seconds before it has a number, so waiting for a finished
-    /// phase and restarting every few seconds only ever cancelled the attempt
-    /// that was about to succeed. This waits for the *first sign of a reading*:
-    /// a value on the measurement, or a live value arriving on its own.
+    /// The ring rarely says "not worn": off a finger it answers zeros. The first
+    /// sign it is on is the optical signal coming up (`skinContactAt`), about
+    /// ten seconds before there is a number — waiting for the number is what
+    /// left the sheet up while the ring was plainly measuring. Closing it must
+    /// not cancel the measurement it was waiting for.
     private func showWearPrompt(for type: RingMeasurementType) {
         wearPrompt = type
         wearRetry?.cancel()
@@ -254,15 +268,23 @@ struct RingDeviceView: View {
                     guard !Task.isCancelled, wearPrompt != nil else { return }
 
                     let state = session.measurement
-                    let gotValue = (state?.value ?? 0) > 0 || state?.phase == .done
+                    let onFinger = state?.skinContactAt != nil || (state?.value ?? 0) > 0
+                        || state?.phase == .done
                     let gotLive = session.liveHeartRate?.date != liveBefore
-                    if gotValue || gotLive {
-                        dismissWearPrompt()
+                    if onFinger || gotLive {
+                        closeWearPrompt()
                         return
                     }
-                    // Not worn, refused, or timed out: fall out and ask again.
+                    // Charging, refused, or timed out: fall out and ask again.
                     if let phase = state?.phase, phase != .measuring { break }
                     if state == nil { break }
+                    // The ring only reports skin contact in a reading's first
+                    // 25 s; one that has gone past that without it will never
+                    // see a finger that arrives now. Start a fresh one.
+                    if let m = state, m.skinContactAt == nil, Date().timeIntervalSince(m.startedAt) > 30 {
+                        session.cancelMeasurement()
+                        break
+                    }
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -279,10 +301,18 @@ struct RingDeviceView: View {
         }
     }
 
+    /// "Not now", a swipe or a tap outside: the person has given up on this
+    /// reading, so the attempt waiting behind the sheet stops too.
     private func dismissWearPrompt() {
+        let wasShowing = wearPrompt != nil
+        closeWearPrompt()
+        if wasShowing, session.measurement?.isActive == true { session.cancelMeasurement() }
+    }
+
+    /// The ring is on: the sheet goes and the measurement keeps running.
+    private func closeWearPrompt() {
         wearRetry?.cancel()
         wearRetry = nil
-        if wearPrompt != nil, session.measurement?.isActive == true { session.cancelMeasurement() }
         wearPrompt = nil
     }
 
@@ -354,7 +384,7 @@ struct RingDeviceView: View {
         case .measuring:
             return "Hold still — measuring…"
         case .notWorn:
-            return "Put the ring on and try again."
+            return "Take the ring off its charger and put it on."
         case .failed:
             return m.detail ?? "The measurement failed."
         case .cancelled:

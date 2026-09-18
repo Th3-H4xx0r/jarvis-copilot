@@ -93,23 +93,30 @@ struct RingWearPrompt: View {
 private struct WearStage: View {
     let pinnedSeated: Bool?
     @State private var stage: RingHandModel.Stage?
+    /// Fades the scene in once it exists, so a slow first build never pops.
+    @State private var shown = false
 
     var body: some View {
         Group {
             if let stage {
                 // 60 fps: the glide is the whole point, and the sheet is brief.
+                // Always continuous: the sheet is brief, and an on-demand view
+                // can sit undrawn until something nudges it.
                 SceneCanvas(scene: stage.scene, camera: stage.camera,
-                            rendersContinuously: pinnedSeated == nil, preferredFramesPerSecond: 60)
+                            rendersContinuously: true, preferredFramesPerSecond: 60)
             } else {
                 Color.clear
             }
         }
+        .opacity(shown || pinnedSeated != nil ? 1 : 0)
+        .animation(.easeOut(duration: 0.35), value: shown)
         .onAppear {
-            guard stage == nil else { return }
+            guard stage == nil, let hand = RingHandModel.bundled else { return }
             let ring = RingModel.makeNode()
-            let built = RingHandModel.Stage(ring: ring.pivot, accent: UIColor(JcTheme.accent).cgColor)
+            let built = RingHandModel.Stage(ring: ring.pivot, hand: hand, accent: UIColor(JcTheme.accent).cgColor)
             if let pinnedSeated { built.pose(seated: pinnedSeated) } else { built.play() }
             stage = built
+            shown = true
         }
     }
 }

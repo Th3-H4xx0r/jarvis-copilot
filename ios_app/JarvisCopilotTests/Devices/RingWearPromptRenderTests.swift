@@ -29,7 +29,7 @@ final class RingWearPromptRenderTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.layoutIfNeeded()
         // The ring is a SceneKit view; give it a moment to draw a frame.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.9))
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
 
         let image = UIGraphicsImageRenderer(size: size).image { context in
             if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
@@ -56,7 +56,8 @@ final class RingWearPromptRenderTests: XCTestCase {
     /// cannot always see into a Metal view, and this is the part worth checking.
     func testTheHandAndRingRender() throws {
         for (name, seated) in [("hand-seated", true), ("hand-offstage", false)] {
-            let stage = RingHandModel.Stage(ring: RingModel.makeNode().pivot,
+            let hand = try XCTUnwrap(RingHandModel.bundled, "RingHand.bin ships in the app bundle")
+            let stage = RingHandModel.Stage(ring: RingModel.makeNode().pivot, hand: hand,
                                             accent: UIColor(JcTheme.accent).cgColor)
             stage.pose(seated: seated)
             let renderer = SCNRenderer(device: MTLCreateSystemDefaultDevice(), options: nil)

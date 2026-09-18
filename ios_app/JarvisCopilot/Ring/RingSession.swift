@@ -34,8 +34,17 @@ struct RingMeasurementState: Codable, Equatable {
     var celsius: Double?
     var finishedAt: Date?
     var detail: String?
+    /// When the sensor first read skin: the ring is on the finger. Arrives well
+    /// before the first number, so it is what "put the ring on" waits for.
+    var skinContactAt: Date?
+    /// When the first number arrived; the reading settles for a few seconds after.
+    var firstValueAt: Date?
 
     var isActive: Bool { phase == .measuring }
+
+    /// Whether the reading goes through the optical sensor, which has to be
+    /// against skin — everything but temperature.
+    var usesOpticalSensor: Bool { type != .temperature }
 }
 
 struct RingCalibrationState: Equatable {
@@ -113,6 +122,10 @@ final class RingSession: ObservableObject {
     var measurementLimit: TimeInterval = 60
 
     private var measurementTimer: Task<Void, Never>?
+    /// How long a reading stays live after its first number. The firmware
+    /// sends signal quality for its first 25 s, then values every 500 ms.
+    var measurementSettle: TimeInterval = 10
+    private var settleTimer: Task<Void, Never>?
     private var keepAliveTask: Task<Void, Never>?
     private var calibrationTimer: Task<Void, Never>?
     private var stillTimeCounter = 0
@@ -516,7 +529,8 @@ final class RingSession: ObservableObject {
 
     private func measurementTimedOut() {
         guard let running = measurement, running.isActive else { return }
-        if running.type == .healthCheck, running.value != nil {
+        // A reading that has a number is a result, however long it took to settle.
+        if running.value != nil {
             finishMeasurement(.done)
         } else {
             finishMeasurement(.timedOut, detail: "no reading from the ring")
@@ -534,8 +548,13 @@ final class RingSession: ObservableObject {
 
     private func handleMeasurement(_ reading: RingMeasurementReading) {
         guard var running = measurement, running.isActive, reading.type == running.type.rawValue else { return }
+        // The firmware refuses a measurement with error 1 while the ring is
+        // charging (`cmd69_start_measurement` checks `battery_is_charging()`); it
+        // never checks whether the ring is worn. Off a finger it just reports a
+        // zero signal. `notWorn` is kept as the phase — "put it on" is still the
+        // answer — but the detail says what the ring actually said.
         if reading.errorCode == 1 {
-            finishMeasurement(.notWorn, detail: "the ring is not being worn")
+            finishMeasurement(.notWorn, detail: "the ring is on its charger")
             return
         }
         if reading.errorCode != 0 {
@@ -543,19 +562,40 @@ final class RingSession: ObservableObject {
             return
         }
         let hasValue = running.type == .bloodPressure ? reading.systolic > 0 : reading.value > 0
+        if running.skinContactAt == nil, reading.signal > 0 || hasValue {
+            running.skinContactAt = Date()
+            measurement = running
+        }
         guard hasValue else { return }
         running.value = reading.value
         if reading.systolic > 0 { running.systolic = reading.systolic }
         if reading.diastolic > 0 { running.diastolic = reading.diastolic }
         if running.type == .temperature { running.celsius = reading.celsius }
+        if running.firstValueAt == nil { running.firstValueAt = Date() }
         measurement = running
-        // A health check keeps streaming values until its window closes.
-        if running.type != .healthCheck { finishMeasurement(.done) }
+
+        // A health check streams until its own window closes. Everything else
+        // stays live for `measurementSettle` after its first number — the way a
+        // watch warms up and then shows the reading moving — and finishes on
+        // the latest value. Stopping on the first threw the rest away.
+        if running.type != .healthCheck, settleTimer == nil { armSettleTimer() }
+    }
+
+    /// Ends the live window after the first value.
+    private func armSettleTimer() {
+        let window = measurementSettle
+        settleTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(window * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.measurement?.isActive == true else { return }
+            self.finishMeasurement(.done)
+        }
     }
 
     private func finishMeasurement(_ phase: RingMeasurementState.Phase, detail: String? = nil, sendStop: Bool = true) {
         guard var running = measurement, running.isActive else { return }
         measurementTimer?.cancel()
+        settleTimer?.cancel()
+        settleTimer = nil
         keepAliveTask?.cancel()
         running.phase = phase
         running.detail = detail

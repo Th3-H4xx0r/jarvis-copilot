@@ -15,6 +15,7 @@ final class RingSessionTests: XCTestCase {
         link = FakeRingLink()
         session = RingSession(transport: makeRingTransport(link), defaults: defaults)
         session.measurementLimit = 0.4
+        session.measurementSettle = 0.3
     }
 
     override func tearDown() async throws {
@@ -100,6 +101,48 @@ final class RingSessionTests: XCTestCase {
         XCTAssertEqual(result?.value, 72)
         XCTAssertEqual(finished?.value, 72)
         XCTAssertEqual(link.payloads(0x6A).first.map { Array($0.prefix(3)) }, [1, 72, 0])
+    }
+
+    /// Frames as the ring sends them: type, error, value, 0, 0, then the
+    /// optical signal little-endian in bytes 5–6.
+    private func measuring(value: UInt8 = 0, signal: UInt16 = 0) -> [UInt8] {
+        [1, 0, value, 0, 0, UInt8(signal & 0xFF), UInt8(signal >> 8)]
+    }
+
+    func testTheOpticalSignalMarksTheRingAsOnTheFinger() async throws {
+        try await session.startMeasurement(.heartRate)
+
+        link.deliver(RingProtocol.frame(0x69, measuring()))
+        XCTAssertNil(session.measurement?.skinContactAt, "zeros are a ring that sees nothing")
+
+        link.deliver(RingProtocol.frame(0x69, measuring(signal: 0x02EA)))
+        XCTAssertNotNil(session.measurement?.skinContactAt)
+        XCTAssertNil(session.measurement?.value, "a signal is not yet a number")
+        XCTAssertEqual(session.measurement?.phase, .measuring)
+    }
+
+    func testAHeartRateShowsEachValueAndFinishesOnTheLast() async throws {
+        try await session.startMeasurement(.heartRate)
+
+        link.deliver(RingProtocol.frame(0x69, measuring(value: 81, signal: 0x02A3)))
+        XCTAssertEqual(session.measurement?.value, 81)
+        XCTAssertEqual(session.measurement?.phase, .measuring, "the reading stays live after its first value")
+
+        link.deliver(RingProtocol.frame(0x69, measuring(value: 78, signal: 0x02A3)))
+        XCTAssertEqual(session.measurement?.value, 78)
+
+        let result = await session.awaitMeasurement(timeout: 1)
+        try await settle()
+        XCTAssertEqual(result?.phase, .done)
+        XCTAssertEqual(result?.value, 78)
+        XCTAssertEqual(link.payloads(0x6A).first.map { Array($0.prefix(3)) }, [1, 78, 0])
+    }
+
+    func testAChargingRingSaysSo() async throws {
+        link.script(0x69, [RingProtocol.frame(0x69, [1, 1, 0])])
+        try await session.startMeasurement(.heartRate)
+        let result = await session.awaitMeasurement(timeout: 1)
+        XCTAssertEqual(result?.detail, "the ring is on its charger")
     }
 
     func testANotWornReplyEndsTheMeasurement() async throws {
