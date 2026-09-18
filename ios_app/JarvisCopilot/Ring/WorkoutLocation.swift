@@ -40,7 +40,7 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
         Task { @MainActor in self.take(locations) }
     }
 
-    private func take(_ locations: [CLLocation]) {
+    func take(_ locations: [CLLocation]) {
         for fix in locations where fix.horizontalAccuracy > 0 && fix.horizontalAccuracy <= 20 {
             if let last {
                 let step = fix.distance(from: last)
@@ -51,7 +51,12 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
             last = fix
             marks.append((fix.timestamp, distance))
         }
-        marks.removeAll { distance - $0.1 > 1000 && marks.count > 2 }
+        // Keep the last kilometre. (Reading `marks` inside its own
+        // `removeAll` closure was an exclusivity violation — the crash on
+        // the first GPS fix of an outdoor workout.)
+        while marks.count > 2, let first = marks.first, distance - first.1 > 1000 {
+            marks.removeFirst()
+        }
         var pace: Double?
         if let first = marks.first, let end = marks.last, end.1 - first.1 >= 200 {
             pace = end.0.timeIntervalSince(first.0) / ((end.1 - first.1) / 1000)

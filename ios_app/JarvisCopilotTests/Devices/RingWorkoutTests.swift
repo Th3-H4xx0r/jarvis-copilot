@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import JarvisCopilot
 
@@ -133,6 +134,24 @@ final class RingWorkoutTests: XCTestCase {
         guard case .finished = controller.phase else { return XCTFail("\(controller.phase)") }
     }
 
+    /// The ring kept a workout running that the person ended (the stop was
+    /// lost): its ticks get another stop, and nothing comes back on screen.
+    func testAnEndedWorkoutIsNotBroughtBackByTheRing() async throws {
+        try await started()
+        controller.end()
+        deliver(tick(state: 3, elapsed: 30))
+        controller.close(save: false)
+        deliver(tick(elapsed: 31, hr: 120, steps: 40))
+        XCTAssertEqual(controller.phase, .idle)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(link.payloads(0x77).last?.first, 4, "told to stop again")
+    }
+
+    func testDiscardingAFailedStartStillLetsALaterWorkoutAttach() async throws {
+        deliver(tick(sport: 4, elapsed: 90, hr: 110, steps: 120))
+        XCTAssertEqual(controller.phase, .running, "no workout was ended here, so this one is picked up")
+    }
+
     func testZonesAndCadence() async throws {
         XCTAssertEqual(RingWorkoutController.zone(100, age: 30), 1)   // 53%
         XCTAssertEqual(RingWorkoutController.zone(140, age: 30), 3)   // 74%
@@ -141,5 +160,26 @@ final class RingWorkoutTests: XCTestCase {
         for s in 2...31 { deliver(tick(elapsed: s, hr: 140, steps: s * 3)) }
         XCTAssertEqual(controller.cadence, 180, "3 steps a second")
         XCTAssertEqual(controller.zoneSeconds[2], 30)
+    }
+}
+
+/// The GPS tracker, fed fixes directly: the path that crashed on the first
+/// fix of an outdoor workout (an exclusivity violation) now measures.
+@MainActor
+final class WorkoutLocationTests: XCTestCase {
+    func testFixesAddUpToADistanceWithoutCrashing() {
+        let tracker = WorkoutLocation()
+        var last: (Double, Double?) = (0, nil)
+        tracker.start { last = ($0, $1) }
+        let start = Date()
+        let fixes = (0..<400).map { i in
+            CLLocation(coordinate: CLLocationCoordinate2D(latitude: 30 + Double(i) * 0.00003, longitude: -97),
+                       altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5,
+                       timestamp: start.addingTimeInterval(Double(i)))
+        }
+        tracker.take(fixes)
+        tracker.stop()
+        XCTAssertEqual(last.0, 1332, accuracy: 30, "400 fixes ~3.3 m apart")
+        XCTAssertNotNil(last.1, "a pace once there is enough distance")
     }
 }

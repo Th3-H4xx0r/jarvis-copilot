@@ -36,6 +36,9 @@ final class RingWorkoutController: ObservableObject {
     /// Outdoors: the phone's GPS distance and pace (seconds per km).
     @Published private(set) var gpsDistance: Double?
     @Published private(set) var pace: Double?
+    /// When the ring's last tick arrived: the clock runs on between ticks, and
+    /// a long gap is shown as waiting rather than a frozen screen.
+    @Published private(set) var lastTickAt: Date?
 
     /// Seconds of countdown; tests set 0.
     var countdownSeconds = 3
@@ -56,6 +59,11 @@ final class RingWorkoutController: ObservableObject {
     private var stepMarks: [(elapsed: Int, steps: Int)] = []
     private var lastElapsed = -1
     private var pending: Task<Void, Never>?
+    /// When the person last ended or discarded a workout. Ticks the ring
+    /// sends after that are a session that did not hear the stop — it is told
+    /// again, never brought back on screen.
+    private var endedAt: Date?
+    static let endedGrace: TimeInterval = 120
     private var watching: Set<AnyCancellable> = []
 
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
@@ -104,6 +112,7 @@ final class RingWorkoutController: ObservableObject {
     func start(_ sport: RingSport) {
         guard !isActive else { return }
         reset()
+        endedAt = nil
         self.sport = sport
         pending?.cancel()
         pending = Task { [weak self] in
@@ -121,10 +130,7 @@ final class RingWorkoutController: ObservableObject {
             }
             guard self.phase == .starting else { return }
             _ = try? await self.session.transport.perform(.phoneSport(.start, sport: sport.id), until: .none)
-            if sport.outdoor { self.location?.start { [weak self] distance, pace in
-                self?.gpsDistance = distance
-                self?.pace = pace
-            } }
+            if sport.outdoor { self.startLocation() }
             try? await Task.sleep(for: .seconds(self.startTimeout))
             if self.phase == .starting {
                 self.fail("The ring didn't start — take it off its charger and try again.")
@@ -153,6 +159,7 @@ final class RingWorkoutController: ObservableObject {
 
     func end() {
         guard phase == .running || phase == .paused, let sport else { return }
+        endedAt = Date()
         phase = .ending
         send(.stop, sport)
         pending?.cancel()
@@ -166,6 +173,7 @@ final class RingWorkoutController: ObservableObject {
     /// The summary's Save or Discard.
     func close(save: Bool) {
         if case .finished(let workout) = phase, save { onSave?(workout) }
+        if endedAt == nil, sport != nil { endedAt = Date() }
         reset()
         phase = .idle
     }
@@ -186,9 +194,16 @@ final class RingWorkoutController: ObservableObject {
         case .running, .paused:
             switch phase {
             case .idle:
+                if let endedAt, Date().timeIntervalSince(endedAt) < Self.endedGrace {
+                    // One the person ended that the ring is still running: stop it again.
+                    send(.stop, RingSport.withID(tick.sport))
+                    return
+                }
                 // A workout the ring kept running while the app was away.
-                sport = RingSport.withID(tick.sport)
+                let resumed = RingSport.withID(tick.sport)
+                sport = resumed
                 phase = .running
+                if resumed.outdoor { startLocation() }
             case .finished, .failed, .countdown:
                 // A stray tick after the summary (or before the ring was told).
                 return
@@ -205,8 +220,16 @@ final class RingWorkoutController: ObservableObject {
         }
     }
 
+    private func startLocation() {
+        location?.start { [weak self] distance, pace in
+            self?.gpsDistance = distance
+            self?.pace = pace
+        }
+    }
+
     private func record(_ tick: RingSportTick) {
         self.tick = tick
+        lastTickAt = Date()
         if let sport, tick.state != .ended {
             let meters = gpsDistance ?? Double(tick.distanceMeters)
             liveActivity?.update(sport: sport, running: tick.state == .running, elapsed: tick.elapsed,
@@ -263,6 +286,7 @@ final class RingWorkoutController: ObservableObject {
         zoneSeconds = [0, 0, 0, 0, 0]
         gpsDistance = nil
         pace = nil
+        lastTickAt = nil
         heartRates = []
         stepMarks = []
         lastElapsed = -1

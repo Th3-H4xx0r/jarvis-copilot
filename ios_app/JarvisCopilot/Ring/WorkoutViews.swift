@@ -165,14 +165,28 @@ struct WorkoutLiveView: View {
             .padding(.horizontal, 24)
             .padding(.top, 12)
 
-            Text(Self.clock(tick?.elapsed ?? 0))
-                .font(.system(size: 76, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                .contentTransition(.numericText())
-                .animation(.snappy(duration: 0.2), value: tick?.elapsed)
+            // The ring reports once a second; between reports the phone's
+            // clock carries on, and a long silence says so instead of freezing.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
+                let running = workout.phase == .running
+                let shown = (tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Self.clock(shown))
+                        .font(.system(size: 76, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                        .contentTransition(.numericText())
+                        .animation(.snappy(duration: 0.2), value: shown)
+                    if running, since > 5 {
+                        Label("Waiting for the ring…", systemImage: "antenna.radiowaves.left.and.right")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(JcTheme.amber)
+                    }
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 24)
+            }
 
             heartRate(tick)
 
