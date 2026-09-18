@@ -207,6 +207,43 @@ final class HealthTabRenderTests: XCTestCase {
                                     times: [0.05, 0.2, 0.35, 0.55, 0.8, 1.2])
     }
 
+    /// Scrolling to the end in a real scroll view: what was on screen at load
+    /// has already rolled up; the last card draws in and rolls up as it arrives.
+    func testTheLastCardRevealsWhenScrolledTo() throws {
+        final class Driver: ObservableObject { @Published var target: String? }
+        struct Page: View {
+            @ObservedObject var driver: Driver
+            let store: RingHistoryStore
+            var body: some View {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 22) {
+                            RingStatsSections(store: store, dayKey: "2026-09-17", capabilities: RingCapabilities(),
+                                              stepGoal: 10_000)
+                            Color.clear.frame(height: 1).id("bottom")
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .onChange(of: driver.target) { _, target in
+                        withAnimation(.easeInOut(duration: 0.4)) { proxy.scrollTo(target, anchor: .bottom) }
+                    }
+                }
+            }
+        }
+        let store = RingHistoryStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString))
+        store.update("2026-09-17") { day in
+            day.stepSlots = (28..<80).map { RingStepSlot(slot: $0, steps: 100 + ($0 % 5) * 90, calories: 0, distanceMeters: 0) }
+            day.activity = RingActivity(steps: 7520, runningSteps: 0, calories: 280_000, distanceMeters: 5100, sportMinutes: 31)
+            day.heartRate = RingSeries(intervalMinutes: 30, values: (0..<40).map { 58 + Double($0 % 7) * 6 })
+            day.stress = RingSeries(intervalMinutes: 30, values: (0..<40).map { 20 + Double($0 % 8) * 8 })
+        }
+        let driver = Driver()
+        try RenderHarness.filmstrip(Page(driver: driver, store: store), size: CGSize(width: 402, height: 700),
+                                    name: "health-scroll-to-end", changes: [{ driver.target = "bottom" }],
+                                    times: [0, 0.3, 0.5, 0.8, 1.2, 1.8])
+    }
+
     func testTheSettingsListDataSources() throws {
         let devices = [
             HealthRosterDevice(key: "ring-b6ce93c4", kind: "ring", name: "Colmi R12", linked: true,

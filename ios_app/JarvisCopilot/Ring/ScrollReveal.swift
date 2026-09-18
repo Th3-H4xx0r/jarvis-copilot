@@ -2,19 +2,24 @@ import SwiftUI
 
 extension View {
     /// Calls `reveal` once this view is at least a third on screen, so what is
-    /// inside it (a ring filling, a chart drawing) plays when it is seen, not
-    /// when the screen loads. Outside a scroll view it is on screen at once.
+    /// inside it (a ring filling, a chart drawing, digits rolling) plays when
+    /// it is seen, not when the screen loads. iOS 18 reports it directly; on
+    /// iOS 17 it plays on appear.
     func onScrolledIntoView(_ reveal: @escaping () -> Void) -> some View {
-        onGeometryChange(for: Bool.self) { proxy in
-            // The visible region is the scroll view's own size at its origin;
-            // `frame(in: .scrollView)` is measured against that. (Its bounds
-            // come back in this view's space, which is why they are not used.)
-            guard let size = proxy.bounds(of: .scrollView)?.size else { return true }
-            let frame = proxy.frame(in: .scrollView)
-            let seen = frame.intersection(CGRect(origin: .zero, size: size)).height
-            return seen >= min(frame.height, size.height) * 0.33
-        } action: { visible in
-            if visible { reveal() }
+        modifier(ScrolledIntoView(reveal: reveal))
+    }
+}
+
+private struct ScrolledIntoView: ViewModifier {
+    let reveal: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollVisibilityChange(threshold: 0.33) { visible in
+                if visible { reveal() }
+            }
+        } else {
+            content.onAppear(perform: reveal)
         }
     }
 }
