@@ -6,10 +6,13 @@ extension View {
     /// when the screen loads. Outside a scroll view it is on screen at once.
     func onScrolledIntoView(_ reveal: @escaping () -> Void) -> some View {
         onGeometryChange(for: Bool.self) { proxy in
-            guard let viewport = proxy.bounds(of: .scrollView) else { return true }
+            // The visible region is the scroll view's own size at its origin;
+            // `frame(in: .scrollView)` is measured against that. (Its bounds
+            // come back in this view's space, which is why they are not used.)
+            guard let size = proxy.bounds(of: .scrollView)?.size else { return true }
             let frame = proxy.frame(in: .scrollView)
-            let seen = frame.intersection(viewport).height
-            return seen >= min(frame.height, viewport.height) * 0.33
+            let seen = frame.intersection(CGRect(origin: .zero, size: size)).height
+            return seen >= min(frame.height, size.height) * 0.33
         } action: { visible in
             if visible { reveal() }
         }

@@ -14,13 +14,9 @@ struct HealthSettingsSection: View {
     private var settings: HealthSettings? { health.settings }
 
     var body: some View {
+        // Whether anything is analysed is each wearable's own switch under
+        // Data sources; this card is only how, and it hides with none linked.
         CardGroup("Health analysis") {
-            Row {
-                Toggle("Analyse this ring", isOn: Binding(
-                    get: { settings?.enabled ?? true },
-                    set: { on in write(["enabled": on]) }))
-            }
-            RowDivider()
             Row {
                 Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
                     .font(.caption)

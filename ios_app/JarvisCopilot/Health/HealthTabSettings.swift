@@ -8,6 +8,8 @@ struct HealthTabSettings: View {
     @ObservedObject var model: HealthTabModel
     @Environment(\.dismiss) private var dismiss
     @State private var devices: [HealthRosterDevice] = []
+    /// The roster has answered at least once (so an empty one is really empty).
+    @State private var devicesLoaded = false
     @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
     @State private var stepsGoal = 10_000
     @State private var activeGoal = 30
@@ -23,6 +25,10 @@ struct HealthTabSettings: View {
                                       primary: model.health.settings?.primaryDevice ?? "",
                                       onToggle: { key, linked in
                                           Task {
+                                              // Linking a wearable is asking for it to be analysed.
+                                              if linked, model.health.settings?.enabled == false {
+                                                  _ = await model.health.updateSettings(["enabled": true])
+                                              }
                                               await model.setLinked(key, linked, reload: .today)
                                               devices = await model.devices()
                                           }
@@ -30,11 +36,16 @@ struct HealthTabSettings: View {
                                       onPrimary: { key in
                                           Task { _ = await model.health.updateSettings(["primary_device": key]) }
                                       })
-                    HealthSettingsSection(health: model.health, today: RingDates.dayKey(Date()))
+                    // Nothing linked, nothing to analyse: the analysis settings go.
+                    if !devicesLoaded || devices.contains(where: \.linked) {
+                        HealthSettingsSection(health: model.health, today: RingDates.dayKey(Date()))
+                            .transition(.opacity)
+                    }
                     personal
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 40)
+                .animation(.easeInOut(duration: 0.25), value: devices.contains(where: \.linked))
             }
             .jcScreen("Health settings")
             .toolbar {
@@ -42,6 +53,7 @@ struct HealthTabSettings: View {
             }
             .task {
                 devices = await model.devices()
+                devicesLoaded = true
                 await model.health.refreshSettings()
                 if let goals = model.health.settings?.goals {
                     stepsGoal = goals.steps
@@ -104,14 +116,27 @@ struct HealthDataSources: View {
     let onToggle: (String, Bool) -> Void
     var onPrimary: (String) -> Void = { _ in }
 
+    private static let footer = "Unlinked wearables keep their history. The primary one decides sleep and heart when two overlap."
+
+    /// One card per wearable, each with its own switch.
     var body: some View {
-        CardGroup("Data sources",
-                  footer: "Unlinked wearables keep their history. The primary one decides sleep and heart when two overlap.") {
-            if devices.isEmpty {
+        if devices.isEmpty {
+            CardGroup("Data sources", footer: Self.footer) {
                 CardEmptyBlock(symbol: "applewatch.slash", text: "No wearables yet — pair one in Devices.")
-            } else {
+            }
+        } else {
+            VStack(spacing: 12) {
                 ForEach(Array(devices.enumerated()), id: \.element.id) { index, device in
-                    if index > 0 { RowDivider() }
+                    CardGroup(index == 0 ? "Data sources" : nil,
+                              footer: index == devices.count - 1 ? Self.footer : nil) {
+                        card(device)
+                    }
+                }
+            }
+        }
+    }
+
+    private func card(_ device: HealthRosterDevice) -> some View {
                     Row(minHeight: 60) {
                         HStack(spacing: 12) {
                             JcIcon(icon(device.kind))
@@ -146,9 +171,6 @@ struct HealthDataSources: View {
                             Button("Make primary", systemImage: "star") { onPrimary(device.key) }
                         }
                     }
-                }
-            }
-        }
     }
 
     /// The chosen primary, or the first linked device when none was chosen.
