@@ -275,7 +275,8 @@ def _highlight(metric: str, range_: str, current: Optional[float], previous: Opt
                days_so_far: int, unit: str) -> str:
     m = METRICS[metric]
     if current is None:
-        return f"No {m.title.lower()} recorded in this range yet."
+        name = m.title if m.title.isupper() else m.title.lower()
+        return f"No {name} recorded in this range yet."
     if previous is None:
         plural = "day" if days_so_far == 1 else "days"
         return (f"Jarvis Health has {days_so_far} {plural} of history so far — trends appear once there "

@@ -5,6 +5,7 @@ import SwiftUI
 /// paid back, built up night by night and coloured by how much is owed.
 struct SleepDebtCard: View {
     let debt: HealthSleepDebt
+    var showAll: (() -> Void)? = nil
 
     /// The bands, lowest first, with the hours each covers — the legend reads
     /// the same thresholds the server bands by.
@@ -40,6 +41,7 @@ struct SleepDebtCard: View {
                 RingStat(label: "Short nights", value: debt.measured > 0 ? "\(debt.shortNights) of \(debt.measured)" : nil),
             ],
             badge: RingBadge(label: "Level", value: debt.band, caption: nil, tint: Self.tint(debt.band)),
+            showAll: showAll,
             emptyText: debt.measured == 0 ? "No nights recorded this week" : nil,
             readout: { (date: Date) -> RingScrubReadout? in
                 guard let bar = bars.first(where: { Calendar.current.isDate($0.date, inSameDayAs: date) }) else { return nil }

@@ -101,6 +101,13 @@ struct HealthClient {
         return (try response.object()["run"] as? [String: Any]) ?? [:]
     }
 
+    /// A metric's buckets, stats and highlight over a range (W, M, 6M, Y).
+    func history(metric: String, range: String, end: String? = nil) async throws -> HealthHistory {
+        var query = ["metric": metric, "range": range]
+        if let end { query["end"] = end }
+        return try Self.decode(HealthHistory.self, from: try await api.get("\(base)/history", query: query).object())
+    }
+
     static func decodeForTests<T: Decodable>(_ type: T.Type, json: String) throws -> T {
         try decoder.decode(type, from: Data(json.utf8))
     }

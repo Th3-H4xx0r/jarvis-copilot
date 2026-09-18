@@ -75,6 +75,16 @@ final class HealthTabModel: ObservableObject {
 
     func sleepDebt(for selection: HealthSelection) -> HealthSleepDebt? { sleepDebts[selection.cacheKey] }
 
+    /// The hours a day's charts span: from the bedtime hour, counted from that
+    /// day's midnight, to the window's end — past 24 once it crosses midnight.
+    func hourDomain(for selection: HealthSelection) -> ClosedRange<Double> {
+        guard let window = window(for: selection) else { return 0...24 }
+        let midnight = Calendar.current.startOfDay(for: window.start)
+        let from = window.start.timeIntervalSince(midnight) / 3600
+        let to = max(from + 1, window.end.timeIntervalSince(midnight) / 3600)
+        return from.rounded(.down)...to.rounded(.up)
+    }
+
     private func show(_ fresh: HealthNow) {
         now = fresh
         windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake, wake: fresh.wake)

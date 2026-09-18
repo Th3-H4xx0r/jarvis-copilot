@@ -39,6 +39,8 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     var measure: RingCardMeasure?
     /// A goal the headline counts toward (steps), drawn as a ring in the corner.
     var goal: (value: Int, target: Int)?
+    /// Opens this metric's history; shows "Show all ›" beside the title.
+    var showAll: (() -> Void)?
     /// Shown in place of the chart when there is nothing to plot.
     var emptyText: String?
     /// The reading under the finger, or nil for a gap.
@@ -58,7 +60,16 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     }
 
     var body: some View {
-        CardGroup(title) {
+        VStack(alignment: .leading, spacing: 0) {
+            if let showAll {
+                SectionHeader(title) { ShowAllLink(action: showAll) }
+            }
+            card
+        }
+    }
+
+    private var card: some View {
+        CardGroup(showAll == nil ? title : nil) {
             VStack(alignment: .leading, spacing: 14) {
                 headlineBlock
                     .onScrolledIntoView { if !revealed { revealed = true } }
@@ -186,6 +197,24 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 }
             }
         }
+    }
+}
+
+/// "Show all ›" beside a card's title: the way into its history.
+struct ShowAllLink: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Text("Show all")
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(JcTheme.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

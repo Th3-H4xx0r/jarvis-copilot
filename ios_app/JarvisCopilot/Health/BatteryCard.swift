@@ -13,6 +13,8 @@ struct BatteryCard: View {
     let isRefreshing: Bool
     var error: String? = nil
     let onRefresh: () -> Void
+    /// Opens the battery's history ("Show all ›" beside the title).
+    var showAll: (() -> Void)? = nil
 
     /// Where a finger is on the curve: the card reads the level there.
     @State private var scrubbed: Date?
@@ -22,7 +24,16 @@ struct BatteryCard: View {
     @State private var curveRevealed = false
 
     var body: some View {
-        CardGroup(HealthScores.batteryName) {
+        VStack(alignment: .leading, spacing: 0) {
+            if let showAll {
+                SectionHeader(HealthScores.batteryName) { ShowAllLink(action: showAll) }
+            }
+            card
+        }
+    }
+
+    private var card: some View {
+        CardGroup(showAll == nil ? HealthScores.batteryName : nil) {
             if let battery, let level = battery.level {
                 Row(minHeight: 108) {
                     let picked = scrubbed.flatMap { Self.point(near: $0, in: battery.curve) }

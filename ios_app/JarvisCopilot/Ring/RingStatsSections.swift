@@ -18,14 +18,21 @@ struct RingStatsSections: View {
     var sleepDebt: HealthSleepDebt?
     /// The daily step goal: the activity card's ring counts toward it.
     var stepGoal: Int?
+    /// Opens a metric's history from its card ("Show all ›"); nil hides the links.
+    var showAll: ((HealthMetric) -> Void)?
+    /// Only this metric's card (a history screen's day view).
+    var only: HealthMetric?
     /// A card's Measure control, for the metrics a wearable can read on demand.
     var measure: (RingMeasurementType) -> RingCardMeasure?
 
     init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil,
          hourDomain: ClosedRange<Double> = 0...24, sleepDebt: HealthSleepDebt? = nil, stepGoal: Int? = nil,
+         showAll: ((HealthMetric) -> Void)? = nil, only: HealthMetric? = nil,
          measure: @escaping (RingMeasurementType) -> RingCardMeasure? = { _ in nil }) {
         self.sleepDebt = sleepDebt
         self.stepGoal = stepGoal
+        self.showAll = showAll
+        self.only = only
         self.store = store
         self.dayKey = dayKey
         self.capabilities = capabilities
@@ -38,22 +45,22 @@ struct RingStatsSections: View {
         let day = store.day(dayKey)
         let summary = day.summary
         VStack(spacing: 22) {
-            activity(day, summary)
-            sleep(day, summary)
-            if let sleepDebt { SleepDebtCard(debt: sleepDebt) }
-            heartRate(day, summary)
-            if capabilities.supports(.spo2) || day.spo2 != nil || !day.manualSpO2.isEmpty {
+            if shows(.steps, true) { activity(day, summary) }
+            if shows(.sleep, true) { sleep(day, summary) }
+            if shows(.sleepDebt, true), let sleepDebt { SleepDebtCard(debt: sleepDebt, showAll: link(.sleepDebt)) }
+            if shows(.heartRate, true) { heartRate(day, summary) }
+            if shows(.spo2, capabilities.supports(.spo2) || day.spo2 != nil || !day.manualSpO2.isEmpty) {
                 spo2(day, summary)
             }
-            if capabilities.hrv || day.hrv != nil {
-                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [], measuring: .hrv,
+            if shows(.hrv, capabilities.hrv || day.hrv != nil) {
+                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [], measuring: .hrv, metric: .hrv,
                        stats: [("Latest", summary.hrvLatest.map { "\($0) ms" }), ("Average", summary.hrvAvg.map { "\($0) ms" })],
                        format: { "\(Int($0.rounded())) ms" })
             }
-            if capabilities.stress || day.stress != nil {
+            if shows(.stress, capabilities.stress || day.stress != nil) {
                 stress(day, summary)
             }
-            if capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty {
+            if shows(.temperature, capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty) {
                 let unit = temperatureUnit
                 // Converted before charting so the axis reads in the chosen unit;
                 // a zero slot is "no reading" and stays zero.
@@ -63,14 +70,24 @@ struct RingStatsSections: View {
                 }
                 series("Temperature", unit: unit.label, color: .orange, values: converted,
                        extra: day.instantTemperature.map { RingTimedValue(minute: $0.minute, value: unit.value($0.value)) },
-                       measuring: .temperature,
+                       measuring: .temperature, metric: .temperature,
                        stats: [("Latest", summary.temperatureLatest.map(unit.format)),
                                ("Average", summary.temperatureAvg.map(unit.format))],
                        format: { String(format: "%.1f %@", $0, unit.label) })
             }
-            if capabilities.bloodPressure || !day.bloodPressure.isEmpty { bloodPressure(day) }
-            if capabilities.bloodSugar || day.bloodSugar != nil { bloodSugar(day) }
+            if only == nil, capabilities.bloodPressure || !day.bloodPressure.isEmpty { bloodPressure(day) }
+            if only == nil, capabilities.bloodSugar || day.bloodSugar != nil { bloodSugar(day) }
         }
+    }
+
+    /// A card shows when it is the one asked for, or — showing them all —
+    /// when the wearable has it.
+    private func shows(_ metric: HealthMetric, _ available: Bool) -> Bool {
+        only.map { $0 == metric } ?? available
+    }
+
+    private func link(_ metric: HealthMetric) -> (() -> Void)? {
+        showAll.map { open in { open(metric) } }
     }
 
     // MARK: Sections
@@ -89,6 +106,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Running steps", value: day.activity.map { $0.runningSteps.formatted() }),
             ],
             goal: stepGoal.map { (value: s.steps ?? 0, target: $0) },
+            showAll: link(.steps),
             emptyText: day.stepSlots.isEmpty ? "No step timeline for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 let at = RingChartScrub.steps(day.stepSlots, hour: hour)
@@ -126,6 +144,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Efficiency", value: efficiency(night)),
             ],
             badge: sleepBadge,
+            showAll: link(.sleep),
             emptyText: night == nil ? noNight : nil,
             readout: { (date: Date) -> RingScrubReadout? in
                 guard let night, let at = RingChartScrub.stage(in: night, at: date) else { return nil }
@@ -170,6 +189,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
             ],
             measure: measure(.heartRate),
+            showAll: link(.heartRate),
             emptyText: line.isEmpty && points.isEmpty ? "No heart-rate readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(line + points, hour: hour, toleranceMinutes: tolerance)
@@ -211,6 +231,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
             ],
             measure: measure(.spo2),
+            showAll: link(.spo2),
             emptyText: hours.isEmpty && points.isEmpty ? "No SpO₂ readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 if let spot = RingChartScrub.nearest(points, hour: hour, toleranceMinutes: 15) {
@@ -247,7 +268,7 @@ struct RingStatsSections: View {
     /// A single time series (HRV, stress, temperature). The first of `stats` is the
     /// headline; `format` renders a scrubbed reading.
     private func series(_ title: String, unit: String, color: Color, values: RingSeries?, extra: [RingTimedValue],
-                        measuring: RingMeasurementType, stats: [(String, String?)],
+                        measuring: RingMeasurementType, metric: HealthMetric, stats: [(String, String?)],
                         format: @escaping (Double) -> String) -> some View {
         let line = timed(values)
         let tolerance = max(15, values?.intervalMinutes ?? 0)
@@ -259,6 +280,7 @@ struct RingStatsSections: View {
             headline: all[0],
             details: Array(all.dropFirst()),
             measure: measure(measuring),
+            showAll: link(metric),
             emptyText: line.isEmpty && extra.isEmpty ? "No \(title.lowercased()) readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(line + extra, hour: hour, toleranceMinutes: tolerance)
@@ -333,6 +355,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Sample interval", value: day.stress.map { "\($0.intervalMinutes) min" }),
             ],
             measure: measure(.stress),
+            showAll: link(.stress),
             emptyText: readings.isEmpty ? "No stress readings for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 guard let reading = RingChartScrub.nearest(readings, hour: hour, toleranceMinutes: 30) else { return nil }

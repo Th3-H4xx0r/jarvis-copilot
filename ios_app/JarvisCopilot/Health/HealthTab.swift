@@ -13,6 +13,8 @@ struct HealthTab: View {
     @ObservedObject private var measure: RingMeasureController
     @State private var selection: HealthSelection = .today
     @State private var showingSettings = false
+    /// The metric whose history is open.
+    @State private var historyMetric: HealthMetric?
 
     init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
         let ring = ring ?? WearablesHub.shared.ring
@@ -39,13 +41,15 @@ struct HealthTab: View {
                                 lastRefreshed: model.loadedAt[selection.cacheKey],
                                 isRefreshing: model.isRefreshing,
                                 error: model.error,
-                                onRefresh: { Task { await model.runNow(selection) } })
+                                onRefresh: { Task { await model.runNow(selection) } },
+                                showAll: { historyMetric = .battery })
                     RingStatsSections(store: model.cache, dayKey: selection.cacheKey,
                                       capabilities: RingCapabilities(),
                                       scores: scores,
-                                      hourDomain: hourDomain,
+                                      hourDomain: model.hourDomain(for: selection),
                                       sleepDebt: model.sleepDebt(for: selection),
                                       stepGoal: model.health.settings?.goals.steps ?? 10_000,
+                                      showAll: { historyMetric = $0 },
                                       measure: { type in
                                           // A reading taken now belongs to today, not a day gone.
                                           selection == .today ? measure.card(type, from: .health) : nil
@@ -68,6 +72,9 @@ struct HealthTab: View {
                     .presentationDetents([.large])
             }
             .ringWearSheet(measure, on: .health)
+            .navigationDestination(item: $historyMetric) { metric in
+                HealthHistoryView(metric: metric, tab: model, selection: selection)
+            }
             .onChange(of: measure.finished) {
                 // The reading is in the ring's history now; put it on the card.
                 model.mergeSpots(selection)
@@ -128,15 +135,6 @@ struct HealthTab: View {
 
     private var analysis: String? { scores?.analysis }
 
-    /// The hours the charts span: from the bedtime hour, counted from that
-    /// day's midnight, to the window's end — past 24 once it crosses midnight.
-    private var hourDomain: ClosedRange<Double> {
-        guard let window = model.window(for: selection) else { return 0...24 }
-        let midnight = Calendar.current.startOfDay(for: window.start)
-        let from = window.start.timeIntervalSince(midnight) / 3600
-        let to = max(from + 1, window.end.timeIntervalSince(midnight) / 3600)
-        return from.rounded(.down)...to.rounded(.up)
-    }
 }
 
 /// The day at a glance, above the battery: how long you have been awake, a
