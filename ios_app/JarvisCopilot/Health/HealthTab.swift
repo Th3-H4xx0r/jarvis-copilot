@@ -152,7 +152,10 @@ struct HealthDayHeader: View {
             stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
                  minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onScrolledIntoView { if !revealed { revealed = true } }
+                .onScrolledIntoView {
+                    guard !revealed else { return }
+                    withAnimation(.odometer) { revealed = true }
+                }
         }
     }
 
@@ -175,7 +178,7 @@ struct HealthDayHeader: View {
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(.snappy, value: minutes)
-                .animation(.odometer, value: revealed)
+                .geometryGroup()
         }
         .accessibilityElement(children: .combine)
     }

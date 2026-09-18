@@ -13,7 +13,7 @@ struct HealthHistoryView: View {
     @StateObject private var model: HealthHistoryModel
     @State private var range: HealthRange = .week
     @State private var scrubbed: Date?
-    /// Seen once: the chart has drawn in and the headline has rolled up.
+    /// Seen once: the headline has rolled up from zero.
     @State private var revealed = false
 
     init(metric: HealthMetric, tab: HealthTabModel, selection: HealthSelection, model: HealthHistoryModel? = nil,
@@ -118,7 +118,10 @@ struct HealthHistoryView: View {
             }
             stats(history)
         }
-        .onScrolledIntoView { if !revealed { revealed = true } }
+        .onScrolledIntoView {
+            guard !revealed else { return }
+            withAnimation(.odometer) { revealed = true }
+        }
     }
 
     // MARK: Headline
@@ -147,7 +150,7 @@ struct HealthHistoryView: View {
                 .minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.2), value: value)
-                .animation(.odometer, value: revealed)
+                .geometryGroup()
             Text(bucket.map { "\($0.days) day\($0.days == 1 ? "" : "s") measured" } ?? rangeSpan(history))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -215,12 +218,8 @@ struct HealthHistoryView: View {
         .chartYScale(domain: .automatic(includesZero: metric.style != .line && metric.style != .range))
         .chartXSelection(value: $scrubbed)
         .frame(height: 220)
-        // Room around the plot so the axis labels at its edges are not cut.
-        .mask(alignment: .leading) {
-            Rectangle().padding(-16).scaleEffect(x: revealed ? 1 : 0.001, anchor: .leading)
-        }
-        .animation(.easeOut(duration: 0.8), value: revealed)
         .animation(.snappy(duration: 0.3), value: range)
+        .geometryGroup()
     }
 
     @ChartContentBuilder

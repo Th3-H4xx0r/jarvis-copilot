@@ -20,8 +20,6 @@ struct BatteryCard: View {
     @State private var scrubbed: Date?
     /// The gauge has been seen: it has filled from empty.
     @State private var revealed = false
-    /// The curve has been seen: its line has drawn in, once.
-    @State private var curveRevealed = false
 
     var body: some View {
         CardGroup(HealthScores.batteryName) {
@@ -68,7 +66,10 @@ struct BatteryCard: View {
                 }
             }
         }
-        .onScrolledIntoView { if !revealed { revealed = true } }
+        .onScrolledIntoView {
+            guard !revealed else { return }
+            withAnimation(.odometer) { revealed = true }
+        }
     }
 
     // MARK: Pieces
@@ -141,12 +142,6 @@ struct BatteryCard: View {
             }
         }
         .chartXSelection(value: $scrubbed)
-        // The line draws in from the left the first time the curve is seen.
-        .mask(alignment: .leading) {
-            Rectangle().scaleEffect(x: curveRevealed ? 1 : 0.001, anchor: .leading)
-        }
-        .animation(.easeOut(duration: 0.9), value: curveRevealed)
-        .onScrolledIntoView { if !curveRevealed { curveRevealed = true } }
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
@@ -196,7 +191,6 @@ struct BatteryCard: View {
                         .font(.title3.weight(.semibold))
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                        .animation(.odometer, value: revealed)
                         .foregroundStyle(item.2 ?? .primary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -288,6 +282,7 @@ struct BatteryGauge: View {
             }
             .frame(width: 54, height: 54)
             .animation(.snappy(duration: 0.3), value: level)
+            .geometryGroup()
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Int(level.rounded()))")
@@ -295,6 +290,7 @@ struct BatteryGauge: View {
                     .monospacedDigit()
                     .contentTransition(.numericText(value: level))
                     .animation(.snappy(duration: 0.25), value: Int(level.rounded()))
+                    .geometryGroup()
                 Text(caption)
                     .font(.subheadline.weight(highlighted ? .medium : .regular))
                     .foregroundStyle(highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))

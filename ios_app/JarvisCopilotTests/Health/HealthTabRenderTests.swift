@@ -174,8 +174,8 @@ final class HealthTabRenderTests: XCTestCase {
                                     times: [0, 0.15, 0.3, 0.5, 0.75, 1.1, 1.5])
     }
 
-    /// A card seen for the first time: numbers roll up from zero and the
-    /// line draws in from the left; the card itself stays still.
+    /// A card seen for the first time: numbers roll up from zero and the goal
+    /// ring fills; the card and its chart stay still.
     func testACardRollsUpWhenFirstSeen() throws {
         final class Driver: ObservableObject { @Published var shown = false }
         struct Page: View {
@@ -208,7 +208,7 @@ final class HealthTabRenderTests: XCTestCase {
     }
 
     /// Scrolling to the end in a real scroll view: what was on screen at load
-    /// has already rolled up; the last card draws in and rolls up as it arrives.
+    /// has already rolled up; the last card's numbers roll up as it arrives.
     func testTheLastCardRevealsWhenScrolledTo() throws {
         final class Driver: ObservableObject { @Published var target: String? }
         struct Page: View {
@@ -242,6 +242,35 @@ final class HealthTabRenderTests: XCTestCase {
         try RenderHarness.filmstrip(Page(driver: driver, store: store), size: CGSize(width: 402, height: 700),
                                     name: "health-scroll-to-end", changes: [{ driver.target = "bottom" }],
                                     times: [0, 0.3, 0.5, 0.8, 1.2, 1.8])
+    }
+
+    /// Switching days moves cards (their heights differ) in the same update
+    /// their numbers change. The gauge and the ring must land in their new
+    /// place at once — only their fill and digits animate, nothing glides.
+    func testALayoutShiftDoesNotDragTheGauges() throws {
+        final class Driver: ObservableObject {
+            @Published var tall = false
+            @Published var level = 80.0
+            @Published var steps = 1_600
+        }
+        struct Page: View {
+            @ObservedObject var driver: Driver
+            var body: some View {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: driver.tall ? 160 : 20)
+                    HStack {
+                        BatteryGauge(level: driver.level, band: BatteryCard.band(for: driver.level), caption: "Level")
+                        RingGoalRing(value: driver.steps, goal: 10_000)
+                    }
+                    .padding(.horizontal, 20)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        let driver = Driver()
+        try RenderHarness.filmstrip(Page(driver: driver), size: CGSize(width: 360, height: 280), name: "health-layout-shift",
+                                    changes: [{ driver.tall = true; driver.level = 30; driver.steps = 9_100 }],
+                                    times: [0, 0.05, 0.1, 0.18, 0.3, 0.5])
     }
 
     func testTheSettingsListDataSources() throws {

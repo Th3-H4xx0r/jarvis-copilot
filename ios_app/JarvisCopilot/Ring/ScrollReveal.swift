@@ -5,8 +5,12 @@ extension View {
     /// inside it (a ring filling, a chart drawing, digits rolling) plays when
     /// it is seen, not when the screen loads. iOS 18 reports it directly; on
     /// iOS 17 it plays on appear.
+    ///
+    /// It runs a turn later, after layout has settled, so the caller's
+    /// `withAnimation` animates the reveal alone — never a card that moved in
+    /// the same update (that is what slid lines out of their charts).
     func onScrolledIntoView(_ reveal: @escaping () -> Void) -> some View {
-        modifier(ScrolledIntoView(reveal: reveal))
+        modifier(ScrolledIntoView(reveal: { DispatchQueue.main.async(execute: reveal) }))
     }
 }
 
@@ -42,7 +46,6 @@ struct RingGoalRing: View {
                 .trim(from: 0, to: revealed ? progress : 0)
                 .stroke(tint, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.spring(duration: 1.1, bounce: 0.1), value: revealed)
                 .animation(.snappy, value: progress)
             VStack(spacing: 0) {
                 if remaining == 0 {
@@ -59,7 +62,6 @@ struct RingGoalRing: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .contentTransition(.numericText(value: Double(revealed ? remaining : goal)))
-                        .animation(.spring(duration: 1.1, bounce: 0.1), value: revealed)
                     Text("to go")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -68,6 +70,8 @@ struct RingGoalRing: View {
             .padding(.horizontal, 8)
         }
         .frame(width: 66, height: 66)
+        // Moved by its card as one piece: only the fill and the count animate.
+        .geometryGroup()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(remaining == 0 ? "Step goal met" : "\(remaining.formatted()) steps to your goal of \(goal.formatted())")
     }

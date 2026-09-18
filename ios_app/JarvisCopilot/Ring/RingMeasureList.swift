@@ -40,6 +40,7 @@ struct RingMeasureList: View {
                             .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.type.tint))
                             .contentTransition(.numericText())
                             .animation(.snappy(duration: 0.25), value: live)
+                            .geometryGroup()
                     } else {
                         Text(subtitle(item))
                             .font(.caption)
