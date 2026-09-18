@@ -148,9 +148,10 @@ struct HealthNow: Codable, Equatable {
     /// The day this belongs to: the one last night ended on.
     var date: String? = nil
     var sleepDebt: HealthSleepDebt? = nil
+    var workouts: [RingWorkout]? = nil
 
     enum CodingKeys: String, CodingKey {
-        case start, end, minutes, day, battery, wake, date
+        case start, end, minutes, day, battery, wake, date, workouts
         case sleepDebt = "sleep_debt"
         case noWake = "no_wake"
     }
@@ -167,9 +168,10 @@ struct HealthDayResponse: Codable, Equatable {
     var end: Date?
     var wake: Date?
     var sleepDebt: HealthSleepDebt?
+    var workouts: [RingWorkout]?
 
     enum CodingKeys: String, CodingKey {
-        case date, day, battery, start, end, wake
+        case date, day, battery, start, end, wake, workouts
         case hasData = "has_data"
         case sleepDebt = "sleep_debt"
     }

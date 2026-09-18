@@ -11,6 +11,7 @@ struct RingDeviceView: View {
     @State private var showingSettings = false
     @State private var findToken = 0
     @State private var actionError: String?
+    @State private var choosingWorkout = false
     @ObservedObject private var measure: RingMeasureController
     @StateObject private var health: HealthStore
 
@@ -46,6 +47,7 @@ struct RingDeviceView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 measureCard
+                workoutLink
                 // Sleep, heart, stress and the battery are the person's, not the
                 // ring's: they live in the Health tab, merged with every other
                 // wearable. This screen is about the device.
@@ -98,6 +100,35 @@ struct RingDeviceView: View {
                                      }
                                  }
                              })
+        }
+    }
+
+    /// Start a workout: the ring tracks it with its sensor on the whole time.
+    private var workoutLink: some View {
+        CardGroup {
+            Button { choosingWorkout = true } label: {
+                Row(minHeight: 56) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(JcTheme.accent)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Start a workout").font(.body.weight(.medium))
+                            Text("Heart rate every second, steps and distance")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .sheet(isPresented: $choosingWorkout) {
+            WorkoutPicker { sport in manager.workout.start(sport) }
         }
     }
 

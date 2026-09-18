@@ -42,6 +42,7 @@ final class HealthTabModel: ObservableObject {
     @Published private(set) var batteries: [String: HealthBattery] = [:]
     @Published private(set) var windows: [String: HealthWindow] = [:]
     @Published private(set) var sleepDebts: [String: HealthSleepDebt] = [:]
+    @Published private(set) var workouts: [String: [RingWorkout]] = [:]
     @Published private(set) var loadedAt: [String: Date] = [:]
     @Published private(set) var isRefreshing = false
     @Published private(set) var error: String?
@@ -89,6 +90,7 @@ final class HealthTabModel: ObservableObject {
         now = fresh
         windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake, wake: fresh.wake)
         sleepDebts[Self.windowKey] = fresh.sleepDebt
+        workouts[Self.windowKey] = fresh.workouts ?? []
     }
 
     /// The battery for what is on screen.
@@ -105,6 +107,8 @@ final class HealthTabModel: ObservableObject {
         do {
             switch selection {
             case .today:
+                // A workout the server could not take last time goes first.
+                await WorkoutUploader.flush(client: client)
                 let fresh = try await client.now()
                 show(fresh)
                 cache.update(Self.windowKey) { $0 = fresh.day?.ringDay() ?? RingDay(date: Self.windowKey) }
@@ -121,6 +125,7 @@ final class HealthTabModel: ObservableObject {
                     windows[date] = HealthWindow(start: start, end: end, noNight: response.wake == nil, wake: response.wake)
                 }
                 sleepDebts[date] = response.sleepDebt
+                workouts[date] = response.workouts ?? []
                 await health.refresh(date: date)
             }
             mergeSpots(selection)

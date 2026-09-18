@@ -15,6 +15,8 @@ struct HealthTab: View {
     @State private var showingSettings = false
     /// The metric whose history is open.
     @State private var historyMetric: HealthMetric?
+    @State private var choosingWorkout = false
+    private let workout = WearablesHub.shared.ring.workout
 
     init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
         let ring = ring ?? WearablesHub.shared.ring
@@ -43,6 +45,9 @@ struct HealthTab: View {
                                 error: model.error,
                                 onRefresh: { Task { await model.runNow(selection) } },
                                 showAll: { historyMetric = .battery })
+                    if let list = model.workouts[selection.cacheKey], !list.isEmpty {
+                        HealthWorkoutsCard(workouts: list)
+                    }
                     RingStatsSections(store: model.cache, dayKey: selection.cacheKey,
                                       capabilities: RingCapabilities(),
                                       scores: scores,
@@ -62,6 +67,10 @@ struct HealthTab: View {
             .task(id: selection) { await model.refresh(selection) }
             .jcScreen("Health")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    GlassIconButton(symbol: "figure.run", size: 34, iconSize: 16) { choosingWorkout = true }
+                        .accessibilityLabel("Start a workout")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     GlassIconButton(symbol: "gearshape", size: 34, iconSize: 16) { showingSettings = true }
                         .accessibilityLabel("Health settings")
@@ -72,6 +81,10 @@ struct HealthTab: View {
                     .presentationDetents([.large])
             }
             .ringWearSheet(measure, on: .health)
+            .sheet(isPresented: $choosingWorkout) {
+                WorkoutPicker { sport in workout.start(sport) }
+                    .presentationDetents([.large])
+            }
             .navigationDestination(item: $historyMetric) { metric in
                 HealthHistoryView(metric: metric, tab: model, selection: selection)
             }

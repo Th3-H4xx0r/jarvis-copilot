@@ -208,6 +208,7 @@ struct JarvisWidgetBundle: WidgetBundle {
         // Dynamic Island / Lock Screen Live Activity.
         JarvisLiveActivity()
         JarvisStopwatchActivity()
+        RingWorkoutActivity()
         // Ring health: any of the server's scores on the home or lock screen.
         if #available(iOS 17.0, *) {
             HealthWidget()

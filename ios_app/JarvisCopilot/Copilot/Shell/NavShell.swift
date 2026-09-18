@@ -74,6 +74,8 @@ struct NavShell: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
+        // A workout runs full screen over whichever tab started it.
+        .modifier(RingWorkoutPresenter(workout: WearablesHub.shared.ring.workout))
     }
 
     @ViewBuilder

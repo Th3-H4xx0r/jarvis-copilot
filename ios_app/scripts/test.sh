@@ -11,7 +11,8 @@ SIM="${SIM:-iPhone 17 Pro}"
 LOG="$DD/test.log"; mkdir -p "$DD"
 ARGS=(-project JarvisCopilot.xcodeproj -scheme JarvisCopilot \
       -destination "platform=iOS Simulator,name=$SIM" -derivedDataPath "$DD" \
-      CODE_SIGNING_ALLOWED=NO ENABLE_DEBUG_DYLIB=NO)
+      CODE_SIGNING_ALLOWED=NO ENABLE_DEBUG_DYLIB=NO \
+      -collect-test-diagnostics never)   # a failing run otherwise waits up to 10 min on `simctl diagnose`
 for f in "$@"; do ARGS+=(-only-testing:"JarvisCopilotTests/$f"); done
 xcodebuild "${ARGS[@]}" test > "$LOG" 2>&1
 STATUS=$?

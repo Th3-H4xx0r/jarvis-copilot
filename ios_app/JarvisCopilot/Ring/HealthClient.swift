@@ -94,6 +94,17 @@ struct HealthClient {
         _ = try await api.post("\(base)/day", json: ["day": day])
     }
 
+    /// A finished workout, with ISO times as the server keeps them.
+    func pushWorkout(_ workout: RingWorkout, deviceID: String?) async throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(Self.instant.string(from: date))
+        }
+        let body = try JSONSerialization.jsonObject(with: encoder.encode(workout)) as? [String: Any] ?? [:]
+        _ = try await api.post("\(base)/workouts", json: ["workout": body, "device_id": deviceID ?? ""])
+    }
+
     /// Run the analysis now. Long timeout: it reaches the ring through the phone.
     @discardableResult
     func runNow() async throws -> [String: Any] {

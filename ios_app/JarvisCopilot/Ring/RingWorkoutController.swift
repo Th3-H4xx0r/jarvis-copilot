@@ -50,18 +50,21 @@ final class RingWorkoutController: ObservableObject {
     private let ensureConnected: () async -> Bool
     private let age: () -> Int
     private let location: WorkoutLocationTracking?
-    private var heartRates: [Int] = []
+    private let liveActivity: WorkoutLiveActivity?
+    /// Heart rate every 5 s so far (0 where there was no reading).
+    @Published private(set) var heartRates: [Int] = []
     private var stepMarks: [(elapsed: Int, steps: Int)] = []
     private var lastElapsed = -1
     private var pending: Task<Void, Never>?
     private var watching: Set<AnyCancellable> = []
 
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
-         location: WorkoutLocationTracking? = nil) {
+         location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil) {
         self.session = session
         self.ensureConnected = ensureConnected
         self.age = age
         self.location = location
+        self.liveActivity = liveActivity
         session.onSportTick = { [weak self] tick in self?.receive(tick) }
     }
 
@@ -204,6 +207,12 @@ final class RingWorkoutController: ObservableObject {
 
     private func record(_ tick: RingSportTick) {
         self.tick = tick
+        if let sport, tick.state != .ended {
+            let meters = gpsDistance ?? Double(tick.distanceMeters)
+            liveActivity?.update(sport: sport, running: tick.state == .running, elapsed: tick.elapsed,
+                                 heartRate: tick.heartRate, distanceKm: meters > 0 ? meters / 1000 : nil,
+                                 zone: tick.heartRate.map { Self.zone($0, age: age()) })
+        }
         guard tick.elapsed != lastElapsed else { return }
         let seconds = lastElapsed < 0 ? 1 : max(1, tick.elapsed - lastElapsed)
         lastElapsed = tick.elapsed
@@ -221,6 +230,7 @@ final class RingWorkoutController: ObservableObject {
     private func finish() {
         pending?.cancel()
         location?.stop()
+        liveActivity?.end()
         guard let sport, let startedAt else { return reset(to: .idle) }
         let last = tick
         let readings = heartRates.filter { $0 > 0 }
@@ -238,6 +248,7 @@ final class RingWorkoutController: ObservableObject {
     private func fail(_ message: String) {
         pending?.cancel()
         location?.stop()
+        liveActivity?.end()
         phase = .failed(message)
     }
 

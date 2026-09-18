@@ -121,4 +121,54 @@ struct RingWorkout: Codable, Equatable, Identifiable {
     var zoneSeconds: [Int]
 
     var id: String { ISO8601DateFormatter().string(from: start) }
+
+    enum CodingKeys: String, CodingKey {
+        case sport, start, end, steps, kilocalories
+        case sportName = "sport_name"
+        case activeSeconds = "active_seconds"
+        case distanceMeters = "distance_meters"
+        case distanceSource = "distance_source"
+        case heartRateAverage = "hr_avg"
+        case heartRateMax = "hr_max"
+        case heartRates = "heart_rates"
+        case zoneSeconds = "zone_seconds"
+    }
+}
+
+/// Saves finished workouts to Jarvis Health, keeping any the server could
+/// not take and sending them with the next one (or the next Health refresh).
+@MainActor
+enum WorkoutUploader {
+    private static let key = "jc.workouts.pending"
+
+    struct Pending: Codable {
+        var workout: RingWorkout
+        var deviceID: String?
+    }
+
+    static func save(_ workout: RingWorkout, deviceID: String?) async {
+        var queue = pending()
+        queue.removeAll { $0.workout.start == workout.start }
+        queue.append(Pending(workout: workout, deviceID: deviceID))
+        store(queue)
+        await flush()
+    }
+
+    /// Sends what is waiting; what fails stays for next time.
+    static func flush(client: HealthClient = HealthClient(spaceID: HealthSpace.shared)) async {
+        var left: [Pending] = []
+        for item in pending() {
+            do { try await client.pushWorkout(item.workout, deviceID: item.deviceID) } catch { left.append(item) }
+        }
+        store(left)
+    }
+
+    static func pending() -> [Pending] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([Pending].self, from: data)) ?? []
+    }
+
+    private static func store(_ queue: [Pending]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(queue), forKey: key)
+    }
 }

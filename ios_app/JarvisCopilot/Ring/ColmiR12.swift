@@ -13,9 +13,16 @@ protocol RingBackend: AnyObject {
     func ensureConnected(timeout: TimeInterval) async -> Bool
     func waitForSetup(timeout: TimeInterval) async
     func releaseIfIdle()
+    /// Workouts on the ring, when the backend runs them.
+    var workouts: RingWorkoutController? { get }
+}
+
+extension RingBackend {
+    var workouts: RingWorkoutController? { nil }
 }
 
 extension RingManager: RingBackend {
+    var workouts: RingWorkoutController? { workout }
     var isConnected: Bool { state == .ready }
     var connectionText: String { state.text }
     var displayName: String? { connected?.name }
@@ -102,6 +109,17 @@ final class ColmiR12: WearableDevice {
                                "enum": RingMeasurementType.allCases.map(\.name)],
                     "wait_seconds": ["type": "integer", "description": "How long to wait for the result, 0–25. Default 25."],
                 ], required: ["metric"])),
+            DeviceCapability(
+                name: "ring_workout",
+                description: "Start, pause, resume or end a workout on the ring (heart rate every second, steps, "
+                    + "distance, calories; GPS outdoors), or read the one running. \"Start a run\" is action start, "
+                    + "sport run. Opens the live workout screen on the phone.",
+                inputSchema: DeviceCapability.schema([
+                    "action": ["type": "string", "enum": ["start", "pause", "resume", "end", "status"]],
+                    "sport": ["type": "string",
+                              "description": "For start: " + RingSport.all.map { $0.name.lowercased() }.joined(separator: ", ")
+                                  + ". Default run."],
+                ], required: ["action"])),
             DeviceCapability(
                 name: "ring_find",
                 description: "Make the ring vibrate or flash so the user can find it.",
@@ -228,6 +246,7 @@ final class ColmiR12: WearableDevice {
         case "ring_get_history": return try history(args)
         case "ring_sync": return try await syncNow(args)
         case "ring_measure": return try await measure(args)
+        case "ring_workout": return try workout(args)
         case "ring_find":
             return try await live { _ in
                 try await self.session.findRing()
@@ -382,6 +401,39 @@ final class ColmiR12: WearableDevice {
             }
             return ["finished": true, "days": days, "updated": report.updated, "failed": report.failed]
         }
+    }
+
+    private func workout(_ args: [String: Any]) throws -> [String: Any] {
+        guard let controller = backend.workouts else { throw DeviceError.badArgument("this ring can't run workouts") }
+        switch args["action"] as? String ?? "status" {
+        case "start":
+            let asked = args["sport"] as? String ?? "run"
+            guard let sport = RingSport.named(asked) else {
+                throw DeviceError.badArgument("no sport called \(asked); try " + RingSport.common.map(\.name).joined(separator: ", "))
+            }
+            if controller.isActive { return workoutStatus(controller, note: "a workout is already running") }
+            controller.start(sport)
+            return ["status": "starting", "sport": sport.name, "note": "3-second countdown, then the ring starts"]
+        case "pause": controller.pause()
+        case "resume": controller.resume()
+        case "end": controller.end()
+        default: break
+        }
+        return workoutStatus(controller)
+    }
+
+    private func workoutStatus(_ controller: RingWorkoutController, note: String? = nil) -> [String: Any] {
+        var out: [String: Any] = ["phase": "\(controller.phase)".components(separatedBy: "(").first ?? "idle"]
+        if let sport = controller.sport { out["sport"] = sport.name }
+        if let tick = controller.tick {
+            out["elapsed_seconds"] = tick.elapsed
+            out["steps"] = tick.steps
+            out["kilocalories"] = tick.kilocalories
+            out["distance_m"] = controller.gpsDistance ?? Double(tick.distanceMeters)
+            if let hr = tick.heartRate { out["heart_rate"] = hr }
+        }
+        if let note { out["note"] = note }
+        return out
     }
 
     private func measure(_ args: [String: Any]) async throws -> [String: Any] {

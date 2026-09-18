@@ -219,7 +219,8 @@ final class RingMeasureController: ObservableObject {
 
     /// A card's Measure control for this metric, or nil when the ring can't take it.
     func card(_ type: RingMeasurementType, from screen: Host) -> RingCardMeasure? {
-        guard manager.deviceID != nil, types.contains(type) else { return nil }
+        // A workout has the sensor; readings wait until it ends.
+        guard manager.deviceID != nil, types.contains(type), !manager.workout.isActive else { return nil }
         return RingCardMeasure(state: state(of: type), enabled: !isBusy || isMeasuring(type),
                                start: { [weak self] in self?.start(type, from: screen) },
                                stop: { [weak self] in self?.stop() })

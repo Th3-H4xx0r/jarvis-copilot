@@ -41,11 +41,19 @@ final class RingManager: NSObject, ObservableObject {
     /// On-demand readings, shared by the ring screen and the Health tab.
     private(set) lazy var measure = RingMeasureController(manager: self)
     /// Workouts on the ring, started from the Health tab, the ring screen or by voice.
-    private(set) lazy var workout = RingWorkoutController(
-        session: session,
-        ensureConnected: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
-        age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
-        location: WorkoutLocation())
+    private(set) lazy var workout: RingWorkoutController = {
+        let controller = RingWorkoutController(
+            session: session,
+            ensureConnected: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
+            age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
+            location: WorkoutLocation(),
+            liveActivity: WorkoutLiveActivity())
+        controller.onSave = { [weak self] workout in
+            let deviceID = self?.deviceID
+            Task { await WorkoutUploader.save(workout, deviceID: deviceID) }
+        }
+        return controller
+    }()
 
     /// True while a ring screen is open: the link stays up whatever Keep Alive says.
     var screenIsOpen = false {
