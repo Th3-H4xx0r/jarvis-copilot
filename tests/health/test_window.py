@@ -119,3 +119,15 @@ def test_todays_battery_charges_overnight_then_drains(tmp_registry):
     assert b["drained"] == 6.0
     assert b["bed_at"] == "2026-09-17T04:30:00Z" and b["wake_at"] == "2026-09-17T12:37:00Z"
     assert b["recovery_factor"] == 1.02
+
+
+def test_the_slot_still_running_is_the_level_now(tmp_registry):
+    # A run at 16:10 charts the slot 16:00–16:30 and stamps it 16:30: that is
+    # the level the score reports, so today must end on it too.
+    store = HealthStore()
+    _stored(store, day(asleep=480))
+    store.put_battery("2026-09-17", {"curve": [
+        {"at": "2026-09-17T16:00:00Z", "level": 84.0},
+        {"at": "2026-09-17T16:30:00Z", "level": 83.0},
+    ]})
+    assert today(store, "2026-09-17T16:10:00Z")["battery"]["level"] == 83.0

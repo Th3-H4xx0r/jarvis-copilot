@@ -139,8 +139,10 @@ def _window_battery(store, start: datetime, end: datetime, night: Optional[Sleep
     for date in dates:
         for p in (store.battery(date) or {}).get("curve") or []:
             points[p["at"]] = p
-    opens = start - timedelta(minutes=SLOT)
-    curve = sorted((p for p in points.values() if opens < parse_instant(p["at"]) <= end),
+    # Points are slot ends: the one at or before bedtime opens the window, and
+    # the slot still running (stamped at its end, just past now) is the level now.
+    opens, closes = start - timedelta(minutes=SLOT), end + timedelta(minutes=SLOT)
+    curve = sorted((p for p in points.values() if opens < parse_instant(p["at"]) < closes),
                    key=lambda p: parse_instant(p["at"]))
     level = curve[-1]["level"] if curve else None
 
