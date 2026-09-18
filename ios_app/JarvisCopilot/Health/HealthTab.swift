@@ -145,6 +145,8 @@ struct HealthTab: View {
 struct HealthDayHeader: View {
     let window: HealthWindow
     let isToday: Bool
+    /// Seen once: the digits have rolled up from zero.
+    @State private var revealed = false
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -152,6 +154,7 @@ struct HealthDayHeader: View {
             stat(symbol: primarySymbol, label: primaryLabel, tint: JcTheme.accent,
                  minutes: max(0, Int(end.timeIntervalSince(primaryStart) / 60)), size: 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .onScrolledIntoView { if !revealed { revealed = true } }
         }
     }
 
@@ -169,11 +172,12 @@ struct HealthDayHeader: View {
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
-            Text(Self.length(minutes))
+            Text(revealed ? Self.length(minutes) : Self.length(minutes).odometerZero)
                 .font(.system(size: size, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .contentTransition(.numericText(value: Double(minutes)))
+                .contentTransition(.numericText())
                 .animation(.snappy, value: minutes)
+                .animation(.odometer, value: revealed)
         }
         .accessibilityElement(children: .combine)
     }

@@ -16,8 +16,10 @@ struct BatteryCard: View {
 
     /// Where a finger is on the curve: the card reads the level there.
     @State private var scrubbed: Date?
-    /// Seen at least once: the ring has filled and the curve has drawn in.
+    /// The gauge has been seen: it has filled from empty.
     @State private var revealed = false
+    /// The curve has been seen: its line has drawn in, once.
+    @State private var curveRevealed = false
 
     var body: some View {
         CardGroup(HealthScores.batteryName) {
@@ -61,7 +63,6 @@ struct BatteryCard: View {
             }
         }
         .onScrolledIntoView { if !revealed { revealed = true } }
-        .scrollReveal()
     }
 
     // MARK: Pieces
@@ -134,11 +135,12 @@ struct BatteryCard: View {
             }
         }
         .chartXSelection(value: $scrubbed)
-        // Drawn in from the left the first time the card is seen.
+        // The line draws in from the left the first time the curve is seen.
         .mask(alignment: .leading) {
-            Rectangle().scaleEffect(x: revealed ? 1 : 0.001, anchor: .leading)
+            Rectangle().scaleEffect(x: curveRevealed ? 1 : 0.001, anchor: .leading)
         }
-        .animation(.easeOut(duration: 0.9), value: revealed)
+        .animation(.easeOut(duration: 0.9), value: curveRevealed)
+        .onScrolledIntoView { if !curveRevealed { curveRevealed = true } }
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
@@ -184,9 +186,11 @@ struct BatteryCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    Text(item.1)
+                    Text(revealed ? item.1 : item.1.odometerZero)
                         .font(.title3.weight(.semibold))
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.odometer, value: revealed)
                         .foregroundStyle(item.2 ?? .primary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

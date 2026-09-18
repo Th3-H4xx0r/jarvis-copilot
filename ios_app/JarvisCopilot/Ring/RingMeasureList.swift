@@ -20,7 +20,6 @@ struct RingMeasureList: View {
                 row(item)
             }
         }
-        .scrollReveal()
     }
 
     private func row(_ item: Item) -> some View {

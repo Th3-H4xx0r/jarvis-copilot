@@ -174,27 +174,25 @@ final class HealthTabRenderTests: XCTestCase {
                                     times: [0, 0.15, 0.3, 0.5, 0.75, 1.1, 1.5])
     }
 
-    /// Scrolling the tab: cards rise and fade in, charts draw in from the left.
-    func testCardsRevealAsTheyScrollIn() throws {
-        final class Driver: ObservableObject { @Published var target: String? }
+    /// A card seen for the first time: numbers roll up from zero and the
+    /// line draws in from the left; the card itself stays still.
+    func testACardRollsUpWhenFirstSeen() throws {
+        final class Driver: ObservableObject { @Published var shown = false }
         struct Page: View {
             @ObservedObject var driver: Driver
             let store: RingHistoryStore
             var body: some View {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 22) {
-                            Color.clear.frame(height: 1).id("top")
-                            RingStatsSections(store: store, dayKey: "2026-09-17", capabilities: RingCapabilities(),
-                                              stepGoal: 10_000)
-                            Color.clear.frame(height: 1).id("bottom")
-                        }
-                        .padding(.horizontal, 16)
+                VStack {
+                    if driver.shown {
+                        RingStatsSections(store: store, dayKey: "2026-09-17", capabilities: RingCapabilities(),
+                                          stepGoal: 10_000)
                     }
-                    .onChange(of: driver.target) { _, target in
-                        withAnimation(.easeInOut(duration: 0.6)) { proxy.scrollTo(target, anchor: .bottom) }
-                    }
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 16)
+                .frame(height: 1400, alignment: .top)
+                .frame(height: 250, alignment: .top)
+                .clipped()
             }
         }
         let store = RingHistoryStore(directory: FileManager.default.temporaryDirectory
@@ -202,14 +200,11 @@ final class HealthTabRenderTests: XCTestCase {
         store.update("2026-09-17") { day in
             day.stepSlots = (28..<80).map { RingStepSlot(slot: $0, steps: 100 + ($0 % 5) * 90, calories: 0, distanceMeters: 0) }
             day.activity = RingActivity(steps: 7520, runningSteps: 0, calories: 280_000, distanceMeters: 5100, sportMinutes: 31)
-            day.heartRate = RingSeries(intervalMinutes: 30, values: (0..<40).map { 58 + Double($0 % 7) * 6 })
-            day.stress = RingSeries(intervalMinutes: 30, values: (0..<40).map { 20 + Double($0 % 8) * 8 })
         }
         let driver = Driver()
-        try RenderHarness.filmstrip(Page(driver: driver, store: store), size: CGSize(width: 402, height: 700),
-                                    name: "health-scroll-reveal",
-                                    changes: [{ driver.target = "bottom" }],
-                                    times: [0, 0.2, 0.4, 0.6, 0.9, 1.3])
+        try RenderHarness.filmstrip(Page(driver: driver, store: store), size: CGSize(width: 402, height: 250),
+                                    name: "health-card-rollup", changes: [{ driver.shown = true }],
+                                    times: [0.05, 0.2, 0.35, 0.55, 0.8, 1.2])
     }
 
     func testTheSettingsListDataSources() throws {

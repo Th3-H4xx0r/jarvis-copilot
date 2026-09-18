@@ -1,17 +1,6 @@
 import SwiftUI
 
 extension View {
-    /// Cards rise and fade in as they scroll into view, and ease back a little
-    /// as they leave at the top — the motion stays with the scroll, not a timer.
-    func scrollReveal() -> some View {
-        scrollTransition(.animated(.spring(duration: 0.55, bounce: 0.12)).threshold(.visible(0.12))) { content, phase in
-            content
-                .opacity(phase.isIdentity ? 1 : (phase.value < 0 ? 0.55 : 0))
-                .scaleEffect(phase.isIdentity ? 1 : 0.96)
-                .offset(y: phase.value > 0 ? 28 : 0)
-        }
-    }
-
     /// Calls `reveal` once this view is at least a third on screen, so what is
     /// inside it (a ring filling, a chart drawing) plays when it is seen, not
     /// when the screen loads. Outside a scroll view it is on screen at once.
@@ -74,4 +63,15 @@ struct RingGoalRing: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(remaining == 0 ? "Step goal met" : "\(remaining.formatted()) steps to your goal of \(goal.formatted())")
     }
+}
+
+extension String {
+    /// The same text with every digit at zero — where an odometer starts, so
+    /// `numericText` rolls each digit up to its value ("0,000" → "7,520").
+    var odometerZero: String { String(map { $0.isNumber ? "0" : $0 }) }
+}
+
+extension Animation {
+    /// Long enough to read as digits rolling up, not a flicker.
+    static let odometer = Animation.spring(duration: 1.0, bounce: 0.08)
 }

@@ -47,8 +47,10 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     @ViewBuilder let chart: (_ selected: X?, _ selection: Binding<X?>) -> ChartBody
 
     @State private var selection: X?
-    /// Seen at least once: the chart has drawn in and any ring has filled.
+    /// The headline has been seen: any goal ring has filled.
     @State private var revealed = false
+    /// The chart has been seen: its line has drawn in, once.
+    @State private var chartRevealed = false
 
     private var scrubbed: RingScrubReadout? {
         guard let selection else { return nil }
@@ -59,6 +61,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
         CardGroup(title) {
             VStack(alignment: .leading, spacing: 14) {
                 headlineBlock
+                    .onScrolledIntoView { if !revealed { revealed = true } }
                 if !shownDetails.isEmpty { detailGrid }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -69,17 +72,17 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             } else {
                 chart(selection, $selection)
                     .padding(14)
-                    // Drawn in from the left the first time the card is seen.
+                    // The line draws in from the left the first time the chart
+                    // itself scrolls into view; the card stays put.
                     .mask(alignment: .leading) {
-                        Rectangle().scaleEffect(x: revealed ? 1 : 0.001, anchor: .leading)
+                        Rectangle().scaleEffect(x: chartRevealed ? 1 : 0.001, anchor: .leading)
                     }
-                    .animation(.easeOut(duration: 0.9), value: revealed)
+                    .animation(.easeOut(duration: 0.9), value: chartRevealed)
+                    .onScrolledIntoView { if !chartRevealed { chartRevealed = true } }
                     .accessibilityHint("Drag across the chart to see the reading at each time")
             }
         }
         .sensoryFeedback(.selection, trigger: scrubbed)
-        .onScrolledIntoView { if !revealed { revealed = true } }
-        .scrollReveal()
     }
 
     private var isMeasuring: Bool {
@@ -114,7 +117,9 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                 }
                 // The same rolling digits whether a finger is scrubbing or the
                 // ring is sending: "--" while the sensor warms up.
-                Text(shown.value)
+                // Until the card is first seen every digit sits at zero; then
+                // they roll up to the value, like an odometer.
+                Text(revealed ? shown.value : shown.value.odometerZero)
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(shown.placeholder ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
@@ -124,6 +129,7 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             }
             .animation(.snappy(duration: 0.18), value: scrubbed)
             .animation(.snappy(duration: 0.25), value: shown.value)
+            .animation(.odometer, value: revealed)
 
             if let measure {
                 Spacer(minLength: 12)
@@ -138,12 +144,14 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Text(badge.value)
+                    Text(revealed ? badge.value : badge.value.odometerZero)
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(badge.tint)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                        .animation(.odometer, value: revealed)
                     if let caption = badge.caption {
                         Text(caption)
                             .font(.caption2)
@@ -168,11 +176,13 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Text(shownDetails[index].value ?? "—")
+                    Text(revealed ? shownDetails[index].value ?? "—" : (shownDetails[index].value ?? "—").odometerZero)
                         .font(.system(.subheadline, design: .rounded).weight(.semibold))
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+                        .contentTransition(.numericText())
+                        .animation(.odometer, value: revealed)
                 }
             }
         }
