@@ -161,6 +161,14 @@ def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
         sessions.append(
             SleepSession(start=night.get("start", ""), end=night.get("end", ""), stages=stages)
         )
+    # The ring reports a night again as it grows — same start, a later end —
+    # and older phones kept every copy. One night is its latest copy.
+    latest: dict = {}
+    for session in sessions:
+        kept = latest.get(session.start)
+        if kept is None or session.end > kept.end:
+            latest[session.start] = session
+    sessions = sorted(latest.values(), key=lambda s: s.end)
 
     return HealthDay(
         date=date,

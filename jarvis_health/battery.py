@@ -137,6 +137,16 @@ def _midnight(day: HealthDay) -> datetime:
     return parse_instant(f"{day.date}T00:00:00Z") - timedelta(seconds=day.utc_offset)
 
 
+def grid_floor(moment: datetime, midnight: datetime) -> datetime:
+    """The slot boundary at or before `moment`, on the grid `midnight` sits on."""
+    slots = math.floor((moment - midnight).total_seconds() / 60 / SLOT)
+    return midnight + timedelta(minutes=slots * SLOT)
+
+
+#: A night that began more than this before midnight is not tonight's.
+EVENING = timedelta(hours=12)
+
+
 def _slot_value(series: Optional[Series], start: datetime, end: datetime, total: bool = False) -> Optional[float]:
     if series is None or not series.start or not series.values:
         return None
@@ -153,6 +163,7 @@ def _slot_value(series: Optional[Series], start: datetime, end: datetime, total:
 class BatteryDay:
     date: str
     start_level: float
+    bed_at: Optional[str] = None
     wake_at: Optional[str] = None
     wake_level: Optional[float] = None
     level: float = FIRST_LEVEL
@@ -176,10 +187,18 @@ class BatteryDay:
 
 
 def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_nights: list[int],
-                profile: dict, now: Optional[str] = None) -> BatteryDay:
-    """The day's level every 30 minutes from local midnight to midnight, or to `now`."""
+                profile: dict, now: Optional[str] = None, bedtime: Optional[str] = None) -> BatteryDay:
+    """The day's level every 30 minutes from local midnight to midnight, or to `now`.
+
+    A night belongs to the day it ends on, all of it: one that began before
+    midnight opens this day's curve at bedtime and charges in full, and
+    `bedtime` — when tomorrow's night began — closes this day there, so
+    those hours are neither drained here nor lost from tomorrow's charge.
+    """
     midnight = _midnight(day)
     stop = midnight + timedelta(days=1)
+    if bedtime:
+        stop = min(stop, max(midnight, grid_floor(parse_instant(bedtime), midnight)))
     if now:
         stop = min(stop, parse_instant(now))
     rest = resting_hr(day) or baseline.resting_hr or 60.0
@@ -191,7 +210,18 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
     wake = parse_instant(night.end) if night else None
     naps = [s for s in day.sleep if s is not night and s.end and s.asleep_minutes < MAIN_SLEEP]
 
+    begin = midnight
+    if night is not None and midnight - EVENING < night_start < midnight:
+        begin = grid_floor(night_start, midnight)
+    # The charge is shared across the slots actually spent in bed, so the
+    # whole night lands however the grid cuts it.
+    bed_slots, slot = 0, begin
+    while night is not None and slot < wake:
+        bed_slots += night_start <= slot
+        slot += timedelta(minutes=SLOT)
+
     out = BatteryDay(date=day.date, start_level=start_level, no_sleep=charge.no_sleep,
+                     bed_at=night.start if night else None,
                      sleep_performance=charge.performance if night else None,
                      recovery_factor=charge.factor if night else None)
     if charge.calibrating:
@@ -199,12 +229,12 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
     level = max(FLOOR, min(CEIL, float(start_level)))
     worst_cost, worst_at = 0.0, None
     awake_slots = blank_slots = 0
-    cursor = midnight
+    cursor = begin
     while cursor < stop:
         slot_end = cursor + timedelta(minutes=SLOT)
         if night is not None and night_start <= cursor < wake:
             # The night's charge arrives evenly across the time in bed.
-            gain = charge.points * SLOT / max(1, night.time_in_bed_minutes)
+            gain = charge.points / max(1, bed_slots)
             level = min(CEIL, level + gain)
             out.charged += gain
         else:

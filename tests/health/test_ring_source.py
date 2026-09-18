@@ -145,3 +145,16 @@ def test_the_bridge_prefers_the_in_process_path_inside_the_webui(monkeypatch):
 
     assert bridge.invoke("phone-1", "ring_get_status", {}, 10)["result"]["in_process"] is True
     assert calls == [("phone-1", "ring_get_status")]
+
+
+def test_a_night_the_ring_reported_as_it_grew_is_one_night():
+    from jarvis_health.sources.ring import day_from_ring_json
+
+    def night(end, minutes):
+        return {"start": "2026-09-18T07:03:00Z", "end": end, "stages": [{"stage": 2, "minutes": minutes}]}
+
+    raw = {**DAY, "date": "2026-09-18",
+           "sleep": [night("2026-09-18T13:01:00Z", 358), night("2026-09-18T14:50:00Z", 467),
+                     night("2026-09-18T14:42:00Z", 459)]}
+    day = day_from_ring_json(raw, "2026-09-18", "America/Chicago")
+    assert [(s.start, s.end) for s in day.sleep] == [("2026-09-18T07:03:00Z", "2026-09-18T14:50:00Z")]

@@ -1,4 +1,6 @@
 """Body Battery: charged by sleep, drained by the waking day, judged against you."""
+import pytest
+
 from jarvis_health.battery import band, day_battery, overnight_charge, recovery_factor, slot_drain, sleep_need
 
 from .fixtures import day, ready_baseline
@@ -87,3 +89,20 @@ def test_a_few_unmeasured_slots_are_not_partial_data():
 def test_a_mostly_unmeasured_day_is_partial():
     d = day(asleep=480, stress=[0] * 48, hr=[0] * 288)
     assert day_battery(d, 40, _ready(), [480] * 3, {}).partial is True
+
+
+def test_a_night_that_starts_before_midnight_charges_in_full():
+    # In bed at 22:00: two hours of the night fall on the day before, and
+    # they charge today's battery rather than draining yesterday's.
+    d = day(asleep=480, bedtime_minute=1320)
+    charge = overnight_charge(d, _ready(), [480] * 3)
+    battery = day_battery(d, 30, _ready(), [480] * 3, {})
+    assert battery.charged == pytest.approx(charge.points, abs=0.1)
+    assert battery.curve[0]["at"] == "2026-09-17T03:30:00Z", "the day's curve opens at bedtime"
+    assert battery.bed_at == d.main_sleep.start
+
+
+def test_a_day_closes_at_bedtime_when_the_next_night_began_before_midnight():
+    battery = day_battery(day(asleep=480), 30, _ready(), [480] * 3, {}, bedtime="2026-09-18T03:10:00Z")
+    assert battery.curve[-1]["at"] == "2026-09-18T03:00:00Z", "22:10 in bed: the day ends on the 22:00 slot"
+    assert battery.end_level == battery.curve[-1]["level"]

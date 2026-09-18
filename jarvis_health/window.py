@@ -1,9 +1,13 @@
-"""Since you woke: stats that do not reset at midnight.
+"""Today, the way the body counts it: from falling asleep last night to now.
 
-The window runs from the end of the last main sleep to now, across as many
-midnights as it spans. Its series are anchored at the local midnight of the
-day it began, so a minute past midnight is minute 1440, not minute 0 — the
-phone's charts draw it as one continuous stretch.
+One stretch rather than two: last night's sleep, the charge it put back and
+the waking day since, on one timeline that does not reset at midnight —
+WHOOP's day runs sleep to sleep the same way. With no night in the last day
+(the ring was off) it is the calendar day so far.
+
+Series are anchored at the local midnight of the day the window began, so a
+minute past the next midnight is minute 1440, not minute 0 — the phone's
+charts draw it as one continuous stretch.
 """
 from __future__ import annotations
 
@@ -12,17 +16,27 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .battery import MAIN_SLEEP, SLOT, band as battery_band
-from .metrics import HealthDay, Series, _iso, parse_instant, to_json
+from .metrics import HealthDay, Series, SleepSession, _iso, parse_instant, to_json
 from .scoring import stress_band_shares
 
 WINDOW_METRICS = ("heart_rate", "hrv", "stress", "spo2", "temperature", "steps")
 
+#: A night that ended longer ago than this is not last night: the ring was off
+#: for it, so today starts at midnight instead.
+LAST_NIGHT = timedelta(hours=24)
 
-def last_wake(days: list[HealthDay], now: datetime) -> Optional[datetime]:
-    """The end of the most recent main sleep (≥ 3 h asleep) before now. Naps don't count."""
-    ends = [parse_instant(s.end) for d in days for s in d.sleep
-            if s.end and s.asleep_minutes >= MAIN_SLEEP and parse_instant(s.end) <= now]
-    return max(ends) if ends else None
+
+def last_night(days: list[HealthDay], now: datetime) -> Optional[SleepSession]:
+    """The most recent main sleep (≥ 3 h asleep) that has ended by now. Naps don't count."""
+    nights = [s for d in days for s in d.sleep
+              if s.start and s.end and s.asleep_minutes >= MAIN_SLEEP and parse_instant(s.end) <= now]
+    return max(nights, key=lambda s: parse_instant(s.end), default=None)
+
+
+def _midnight_at(moment: datetime, utc_offset: int) -> datetime:
+    """The local midnight on or before `moment`, as UTC."""
+    local = moment + timedelta(seconds=utc_offset)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(seconds=utc_offset)
 
 
 def _local_midnight(date: str, day: HealthDay) -> datetime:
@@ -110,42 +124,78 @@ def _biggest_drain(curve: list[dict]) -> Optional[dict]:
     return worst
 
 
-def since_wake(store, now: str) -> dict:
-    """Everything since the last wake: the window's day, its stats, and the battery over it."""
+def _window_battery(store, start: datetime, end: datetime, night: Optional[SleepSession],
+                    utc_offset: int) -> dict:
+    """The battery across the window: the level at bedtime, the night's charge, the day's drain.
+
+    Read from the stored daily curves. The point at or before bedtime opens
+    it — the curve's points are slot ends — and a day charted again later
+    overrides the same instant in an older one.
+    """
+    first = (start + timedelta(seconds=utc_offset)).date() - timedelta(days=1)
+    last = (end + timedelta(seconds=utc_offset)).date()
+    dates = [(first + timedelta(days=k)).isoformat() for k in range((last - first).days + 1)]
+    points: dict = {}
+    for date in dates:
+        for p in (store.battery(date) or {}).get("curve") or []:
+            points[p["at"]] = p
+    opens = start - timedelta(minutes=SLOT)
+    curve = sorted((p for p in points.values() if opens < parse_instant(p["at"]) <= end),
+                   key=lambda p: parse_instant(p["at"]))
+    level = curve[-1]["level"] if curve else None
+
+    wake = parse_instant(night.end) if night else None
+    record = store.battery((((wake or end) + timedelta(seconds=utc_offset)).date()).isoformat()) or {}
+    out = {
+        "level": level,
+        "band": battery_band(level),
+        "curve": curve,
+        "biggest_drain": _biggest_drain(curve),
+        "bed_at": night.start if night else None,
+        "wake_at": night.end if night else None,
+        "bed_level": None, "wake_level": None, "charged": None, "drained": None,
+        "no_sleep": night is None,
+        "recovery_factor": record.get("recovery_factor") if night else None,
+        "calibrating": record.get("calibrating"),
+        "partial": record.get("partial"),
+    }
+    if not curve:
+        return out
+    if night is None:
+        out["drained"] = round(max(0.0, curve[0]["level"] - level), 1)
+        return out
+    woke = next((p["level"] for p in curve if parse_instant(p["at"]) >= wake), None)
+    out["bed_level"] = curve[0]["level"]
+    if woke is not None:
+        out["wake_level"] = woke
+        out["charged"] = round(max(0.0, woke - curve[0]["level"]), 1)
+        out["drained"] = round(max(0.0, woke - level), 1)
+    return out
+
+
+def today(store, now: str) -> dict:
+    """Everything from falling asleep last night to now: the window's day, its stats, the battery."""
     from .merge import merged_day
 
     moment = parse_instant(now)
     days = {date: merged_day(store, date) for date in store.dates(5)}
     days = {date: d for date, d in days.items() if d is not None}
-    wake = last_wake(list(days.values()), moment)
-    if wake is not None:
-        start = wake
-    elif days:
-        newest = max(days)
-        start = _local_midnight(newest, days[newest])
-    else:
-        start = moment.replace(hour=0, minute=0, second=0, microsecond=0)
+    night = last_night(list(days.values()), moment)
+    if night is not None and moment - parse_instant(night.end) > LAST_NIGHT:
+        night = None
+    offset = days[max(days)].utc_offset if days else 0
+    start = parse_instant(night.start) if night else _midnight_at(moment, offset)
 
     within = {date: d for date, d in days.items()
               if _local_midnight(date, d) + timedelta(days=1) > start and _local_midnight(date, d) <= moment}
     wday = window_day(within, start, moment) if within else None
-    curve = [p for date in sorted(within) for p in ((store.battery(date) or {}).get("curve") or [])
-             if start <= parse_instant(p["at"]) <= moment]
-    level = curve[-1]["level"] if curve else None
-    wake_level = curve[0]["level"] if curve else None
     return {
         "start": _iso(start),
         "end": now,
-        "no_wake": wake is None,
+        "wake": night.end if night else None,
+        "no_wake": night is None,
         "minutes": int((moment - start).total_seconds() // 60),
         "day": to_json(wday) if wday else None,
         "stats": window_stats(wday) if wday else {},
-        "battery": {
-            "level": level,
-            "wake_level": wake_level,
-            "band": battery_band(level),
-            "drained": round(wake_level - level, 1) if curve else None,
-            "biggest_drain": _biggest_drain(curve),
-            "curve": curve,
-        },
+        "battery": _window_battery(store, start, moment, night, offset),
     }

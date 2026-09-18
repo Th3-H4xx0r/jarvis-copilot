@@ -25,7 +25,7 @@ def series(values, interval=5, date="2026-09-17"):
     return Series(start=local_midnight_utc(date, TZ), interval_minutes=interval, values=list(values))
 
 
-def night(asleep=480, deep=None, rem=None, awake=7, awakenings=1, bedtime_minute=1410):
+def night(asleep=480, deep=None, rem=None, awake=7, awakenings=1, bedtime_minute=1410, date="2026-09-17"):
     """A night of `asleep` minutes with healthy stage shares unless told otherwise."""
     deep = int(asleep * 0.18) if deep is None else deep
     rem = int(asleep * 0.22) if rem is None else rem
@@ -35,7 +35,7 @@ def night(asleep=480, deep=None, rem=None, awake=7, awakenings=1, bedtime_minute
     stages += [(STAGE_AWAKE, per_waking)] * awakenings
     # A bedtime after noon belongs to the previous local day; the stored instant is UTC.
     offset = bedtime_minute - 1440 if bedtime_minute > 720 else bedtime_minute
-    start = parse_instant(local_midnight_utc("2026-09-17", TZ)) + timedelta(minutes=offset)
+    start = parse_instant(local_midnight_utc(date, TZ)) + timedelta(minutes=offset)
     end = start + timedelta(minutes=sum(m for _, m in stages))
     return SleepSession(start=_iso(start), end=_iso(end), stages=stages)
 
@@ -62,12 +62,12 @@ def day(
         date=date,
         timezone=TZ,
         utc_offset=-18000,
-        sleep=[night(asleep, deep, rem, awake, awakenings, bedtime_minute)] if asleep else [],
-        heart_rate=series(hr_values),
-        hrv=series([hrv] * 48 if hrv else [], interval=30),
-        stress=series(stress_values, interval=30),
-        spo2=series([spo2] * 24 if spo2 else [], interval=60),
-        temperature=series([temperature] * 24 if temperature else [], interval=60),
+        sleep=[night(asleep, deep, rem, awake, awakenings, bedtime_minute, date)] if asleep else [],
+        heart_rate=series(hr_values, date=date),
+        hrv=series([hrv] * 48 if hrv else [], interval=30, date=date),
+        stress=series(stress_values, interval=30, date=date),
+        spo2=series([spo2] * 24 if spo2 else [], interval=60, date=date),
+        temperature=series([temperature] * 24 if temperature else [], interval=60, date=date),
         activity={"steps": steps, "active_minutes": active_minutes},
         battery={"percent": 60, "charging": False},
     )

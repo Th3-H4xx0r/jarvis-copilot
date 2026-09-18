@@ -11,7 +11,7 @@ second place to edit them.
     POST /api/integrations/jarvis-health/health/settings   {source: "health-settings", ...}
     GET  /api/integrations/jarvis-health/health/day?date=  the merged day, scores and battery
     GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
-    GET  /api/integrations/jarvis-health/health/now        since the last wake
+    GET  /api/integrations/jarvis-health/health/now        today: last night's sleep to now
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -111,9 +111,9 @@ def handle_get(handler, parsed) -> bool:
 
         if tail == "now":
             from jarvis_health.metrics import utc_now
-            from jarvis_health.window import since_wake
+            from jarvis_health.window import today
 
-            j(handler, since_wake(store, utc_now()))
+            j(handler, today(store, utc_now()))
             return True
 
         if tail == "runs":

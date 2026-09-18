@@ -18,7 +18,7 @@ from .analysis import write_analysis
 from .baselines import baseline_from
 from .metrics import parse_instant, utc_now
 from .rules import evaluate
-from .battery import day_battery
+from .battery import MAIN_SLEEP, day_battery
 from .scoring import Contribution, Score, activity_score, band, body_score, recovery_score, sleep_score
 from .sources import SourceUnreachable
 from .store import SHARED_SPACE, HealthStore
@@ -108,10 +108,9 @@ def run(
 
     # The headline is the Body Battery: the parts above still explain the day,
     # but nothing re-weights them into a number any more.
-    previous = (datetime.strptime(day.date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-    start_level = float((store.battery(previous) or {}).get("end_level") or 50)
-    prior = [d.main_sleep.asleep_minutes for d in history if d.date < day.date and d.main_sleep][:3]
-    battery = day_battery(day, start_level, baseline, prior, settings.get("profile") or {}, now=now)
+    profile = settings.get("profile") or {}
+    battery = day_battery(day, _close_yesterday(store, day, history, baseline, profile), baseline,
+                          _prior_nights(history, day.date), profile, now=now)
     store.put_battery(day.date, battery.to_json())
     scores["health"] = Score(
         value=battery.level,
@@ -210,6 +209,36 @@ def _release_held(store: HealthStore, settings: dict, now: str, day, notify) -> 
     for record in held:
         store.log_alert({**record, "delivered": True, "released": True})
     return held
+
+
+def _day_before(date: str) -> str:
+    return (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _prior_nights(history, date: str) -> list[int]:
+    return [d.main_sleep.asleep_minutes for d in history if d.date < date and d.main_sleep][:3]
+
+
+def _close_yesterday(store: HealthStore, day, history, baseline, profile: dict) -> float:
+    """Re-chart yesterday with everything known now, and return where today starts.
+
+    Yesterday's stored curve stops at its last run, often hours before bed.
+    Charted again it runs to midnight — or to bedtime, when last night began
+    before midnight, since that night charges today in full.
+    """
+    from .merge import merged_day
+
+    previous = _day_before(day.date)
+    stored = float((store.battery(previous) or {}).get("end_level") or 50)
+    yesterday = merged_day(store, previous)
+    if yesterday is None:
+        return stored
+    night = day.main_sleep
+    bedtime = night.start if night and night.asleep_minutes >= MAIN_SLEEP else None
+    start = float((store.battery(_day_before(previous)) or {}).get("end_level") or 50)
+    closed = day_battery(yesterday, start, baseline, _prior_nights(history, previous), profile, bedtime=bedtime)
+    store.put_battery(previous, closed.to_json())
+    return closed.end_level
 
 
 def push_alerts(alerts, space_id: str, settings: dict) -> int:

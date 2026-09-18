@@ -177,3 +177,18 @@ def test_a_run_stores_the_day_battery_and_chains_from_yesterday(tmp_registry):
     assert out["scores"]["health"]["value"] == round(battery["level"])
     assert out["scores"]["health"]["band"] == battery["band"], "the battery's own bands"
     assert store.scores("2026-09-17")["health"]["band"] == battery["band"]
+
+
+def test_yesterday_closes_at_bedtime_and_today_opens_there(tmp_registry):
+    store = HealthStore()
+    store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
+    store.put_battery("2026-09-15", {"end_level": 60})
+    store.put_day(day(date="2026-09-16", asleep=0), KEY)
+    # Tonight's night began at 22:00 on the 16th: it belongs to the 17th.
+    run(FakeSource(day(bedtime_minute=1320)), call=no_model, notify=lambda *a: None,
+        now="2026-09-17T17:00:00Z")
+    yesterday, today = store.battery("2026-09-16"), store.battery("2026-09-17")
+    assert yesterday["start_level"] == 60
+    assert yesterday["curve"][-1]["at"] == "2026-09-17T03:00:00Z", "closed at bedtime, not midnight"
+    assert today["start_level"] == yesterday["end_level"]
+    assert today["curve"][0]["at"] == "2026-09-17T03:30:00Z"
