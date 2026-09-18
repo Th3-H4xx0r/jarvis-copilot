@@ -36,6 +36,8 @@ def _payload(day: HealthDay, scores: dict, baseline: Baseline) -> dict:
             for name, score in scores.items()
             if name != "health" and score.points
         },
+        # The headline number is the Body Battery (the "health" score above).
+        "body_battery": _battery_facts(scores.get("health")),
         "baseline": {
             "hrv": baseline.hrv,
             "resting_hr": baseline.resting_hr,
@@ -61,6 +63,15 @@ def _payload(day: HealthDay, scores: dict, baseline: Baseline) -> dict:
     return out
 
 
+def _battery_facts(health) -> dict:
+    if health is None or health.value is None:
+        return {}
+    facts = {"level": round(health.value)}
+    for c in health.points:
+        facts[c.name.lower().replace(" ", "_")] = round(c.earned, 1)
+    return facts
+
+
 def build_prompt(day: HealthDay, scores: dict, baseline: Baseline) -> list[dict]:
     return [
         {"role": "system", "content": PROMPT_RULES},
@@ -73,7 +84,7 @@ def fallback_analysis(day: HealthDay, scores: dict) -> str:
     parts = []
     health = scores.get("health")
     if health is not None and health.value is not None:
-        parts.append(f"Health {round(health.value)}")
+        parts.append(f"Body Battery {round(health.value)}")
     for name in ("sleep", "recovery", "body", "activity"):
         score = scores.get(name)
         if score is not None and score.value is not None:

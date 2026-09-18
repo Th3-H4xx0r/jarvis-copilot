@@ -131,7 +131,8 @@ def test_an_alert_held_for_quiet_hours_goes_out_on_the_first_run_after(tmp_regis
     morning = run(FakeSource(short), call=no_model, notify=notify,
                   now="2026-09-17T17:00:00Z")
     assert [a["rule"] for a in morning["released"]] == ["short_sleep"]
-    assert [a.rule for a in sent] == ["short_sleep"]
+    # A two-hour night charges nothing, so by noon the battery alert fires too.
+    assert "short_sleep" in [a.rule for a in sent]
 
 
 def test_a_released_alert_is_not_released_twice(tmp_registry):
@@ -164,3 +165,14 @@ def test_every_linked_wearable_is_synced(tmp_registry):
              now="2026-09-17T17:00:00Z")
     assert (a.fetched, b.fetched) == (1, 1)
     assert set(store.device_days("2026-09-17")) == {KEY, "ring-bbbb0000"}
+
+
+def test_a_run_stores_the_day_battery_and_chains_from_yesterday(tmp_registry):
+    store = HealthStore()
+    store.upsert_device({"kind": "ring", "device_id": "aaaa0000"})
+    store.put_battery("2026-09-16", {"end_level": 30})
+    out = run(FakeSource(day()), call=no_model, notify=lambda *a: None, now="2026-09-18T04:59:00Z")
+    battery = store.battery("2026-09-17")
+    assert battery["start_level"] == 30
+    assert out["scores"]["health"]["value"] == round(battery["level"])
+    assert store.scores("2026-09-17")["battery"]["band"] == battery["band"]

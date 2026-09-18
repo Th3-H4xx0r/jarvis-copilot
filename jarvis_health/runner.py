@@ -11,14 +11,15 @@ import json
 import logging
 import sys
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from .analysis import write_analysis
 from .baselines import baseline_from
 from .metrics import parse_instant, utc_now
 from .rules import evaluate
-from .scoring import activity_score, band, body_score, health_score, recovery_score, sleep_score
+from .battery import day_battery
+from .scoring import Contribution, Score, activity_score, band, body_score, recovery_score, sleep_score
 from .sources import SourceUnreachable
 from .store import SHARED_SPACE, HealthStore
 
@@ -104,7 +105,23 @@ def run(
     body = body_score(day, baseline, unit=settings.get("temperature_unit") or "celsius")
     activity = activity_score(day, settings.get("goals") or {})
     scores = {"sleep": sleep, "recovery": recovery, "body": body, "activity": activity}
-    scores["health"] = health_score(scores)
+
+    # The headline is the Body Battery: the parts above still explain the day,
+    # but nothing re-weights them into a number any more.
+    previous = (datetime.strptime(day.date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    start_level = float((store.battery(previous) or {}).get("end_level") or 50)
+    prior = [d.main_sleep.asleep_minutes for d in history if d.date < day.date and d.main_sleep][:3]
+    battery = day_battery(day, start_level, baseline, prior, settings.get("profile") or {}, now=now)
+    store.put_battery(day.date, battery.to_json())
+    scores["health"] = Score(
+        value=battery.level,
+        points=[
+            Contribution("Charged", battery.charged, 65, f"+{round(battery.charged)} overnight"),
+            Contribution("Stress drain", -battery.drains.get("stress", 0.0), 0, "stress"),
+            Contribution("Activity drain", -battery.drains.get("activity", 0.0), 0, "activity"),
+        ],
+        missing=["sleep"] if battery.no_sleep else [],
+    )
 
     # Anything held from a night-time run goes out first, now that it is morning.
     released = _release_held(store, settings, now, day, notify)
@@ -122,6 +139,7 @@ def run(
         "synced_at": day.synced_at,
         "baseline_days": baseline.days_used,
         "model": settings.get("model") or "",
+        "battery": battery.to_json(),
     }
     store.put_scores(day.date, payload)
 
