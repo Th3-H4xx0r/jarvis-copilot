@@ -30,7 +30,7 @@ def test_resting_hr_fires_at_its_threshold_and_not_below():
 
 def test_low_hrv_short_sleep_low_spo2_and_a_low_score_each_fire():
     d = day(hrv=30, asleep=240, spo2=88)
-    alerts = fired(evaluate(d, scores(health=40), ready_baseline(hrv=45), SETTINGS, noon(), set()))
+    alerts = fired(evaluate(d, scores(health=20), ready_baseline(hrv=45), SETTINGS, noon(), set()))
     assert {"hrv_low", "short_sleep", "spo2_low", "health_low"} <= alerts
 
 

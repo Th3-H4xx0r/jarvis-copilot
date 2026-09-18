@@ -19,7 +19,7 @@ DEFAULT_RULES: dict[str, dict] = {
     "hrv_low": {"enabled": True, "threshold": 20},             # percent below baseline
     "spo2_low": {"enabled": True, "threshold": 90},            # percent
     "short_sleep": {"enabled": True, "threshold": 5},          # hours
-    "health_low": {"enabled": True, "threshold": 55},          # score
+    "health_low": {"enabled": True, "threshold": 25},          # Body Battery level
     "stress_sustained": {"enabled": True, "threshold": 60},    # minutes at or above medium
     "battery_low": {"enabled": True, "threshold": 15},         # percent
 }
@@ -211,9 +211,9 @@ def evaluate(
 
     health = scores.get("health")
     if health is not None and getattr(health, "value", None) is not None:
-        limit = threshold_for("health_low", 55)
+        limit = threshold_for("health_low", 25)
         if health.value < limit:
-            fire("health_low", f"Health score {round(health.value)}.", round(health.value), limit)
+            fire("health_low", f"Body Battery {round(health.value)}.", round(health.value), limit)
 
     if day.stress and day.stress.values:
         high_minutes = sustained_high_stress(day)
