@@ -11,6 +11,7 @@ struct HealthTabSettings: View {
     @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
     @State private var stepsGoal = 10_000
     @State private var activeGoal = 30
+    @State private var sleepGoal = 480
     @State private var age = 30
     @State private var saving = false
 
@@ -45,6 +46,7 @@ struct HealthTabSettings: View {
                 if let goals = model.health.settings?.goals {
                     stepsGoal = goals.steps
                     activeGoal = goals.activeMinutes
+                    sleepGoal = goals.sleepMinutes ?? 480
                 }
             }
         }
@@ -53,7 +55,7 @@ struct HealthTabSettings: View {
     /// Units, goals and the one profile figure the battery reads (age sets the
     /// heart-rate reserve its activity drain is measured against).
     private var personal: some View {
-        CardGroup("You", footer: "Goals score your activity; age sets the heart-rate zones the battery drains by.") {
+        CardGroup("You", footer: "Goals score your activity and count your sleep debt; age sets the heart-rate zones the battery drains by.") {
             Row {
                 Picker("Temperature", selection: Binding(
                     get: { temperatureUnit },
@@ -70,6 +72,11 @@ struct HealthTabSettings: View {
             RowDivider()
             Row { Stepper("Active \(activeGoal) min", value: $activeGoal, in: 10...240, step: 5) }
             RowDivider()
+            Row {
+                Stepper("Sleep \(sleepGoal / 60)h\(sleepGoal % 60 == 0 ? "" : " \(sleepGoal % 60)m")",
+                        value: $sleepGoal, in: 300...660, step: 15)
+            }
+            RowDivider()
             Row { Stepper("Age \(age)", value: $age, in: 10...100) }
             RowDivider()
             Row {
@@ -77,7 +84,7 @@ struct HealthTabSettings: View {
                     saving = true
                     Task {
                         _ = await model.health.updateSettings([
-                            "goals": ["steps": stepsGoal, "active_minutes": activeGoal],
+                            "goals": ["steps": stepsGoal, "active_minutes": activeGoal, "sleep_minutes": sleepGoal],
                             "profile": ["age": age],
                         ])
                         saving = false

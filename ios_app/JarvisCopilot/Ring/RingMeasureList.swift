@@ -25,32 +25,39 @@ struct RingMeasureList: View {
     private func row(_ item: Item) -> some View {
         Row(minHeight: 58) {
             HStack(spacing: 12) {
-                JcIcon(item.type.icon)
-                    .font(.system(size: 17))
-                    .foregroundStyle(item.type.tint)
+                RingMetricSymbol(name: item.type.icon, tint: item.type.tint, pulsing: isMeasuring(item))
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.type.label).font(.body.weight(.medium))
-                    Text(subtitle(item))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(item.type.label)
+                        .font(.body.weight(.medium))
                         .lineLimit(1)
+                    if case .measuring(let live) = item.state {
+                        // "--" while the sensor warms up, then each number the
+                        // ring sends rolls in, in the metric's colour.
+                        Text(live ?? "--")
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.type.tint))
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: live)
+                    } else {
+                        Text(subtitle(item))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 8)
-                if case .measuring(let live) = item.state {
-                    // "--" while the sensor warms up, then each number the ring
-                    // sends rolls in.
-                    Text(live ?? "--")
-                        .font(.system(.title3, design: .rounded).weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.type.tint))
-                        .contentTransition(.numericText())
-                        .animation(.snappy(duration: 0.25), value: live)
-                }
                 if let control = item.control { RingMeasureButton(measure: control) }
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func isMeasuring(_ item: Item) -> Bool {
+        if case .measuring = item.state { return true }
+        return false
     }
 
     private func subtitle(_ item: Item) -> String {

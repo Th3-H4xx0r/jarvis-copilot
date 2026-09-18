@@ -510,6 +510,7 @@
 		DC4C27FA27036A47D3281C26 /* CodingPromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21A43FEFD342DDD8E1D67F1 /* CodingPromptSheet.swift */; };
 		DC7A66DDCC07749827975D40 /* RingModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94DED9BEC0FECCC41973C909 /* RingModelRenderTests.swift */; };
 		DD26BE85045163864B8266E7 /* ScaleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A36F3466DF1D868E03D03 /* ScaleModels.swift */; };
+		DD63E14CDF272F8ACD2A0765 /* SleepDebtCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */; };
 		DE8EE766A101DDB164E2D4BB /* HealthWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */; };
 		DECAFCAF16F1680FAA0F3E32 /* ImageViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70499B1F9F6547FD70A78EFD /* ImageViewer.swift */; };
 		DED77038929DE4208090FE52 /* HealthShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 721568243A38A5C9D98D3AD9 /* HealthShared.swift */; };
@@ -745,6 +746,7 @@
 		1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BoardChatTests.swift; sourceTree = "<group>"; };
 		1E2A727BF7FBA5F3BE1F89C0 /* AppSchemeTable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppSchemeTable.swift; sourceTree = "<group>"; };
 		1F4173328AB81A5A728A6B18 /* ToolRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolRow.swift; sourceTree = "<group>"; };
+		20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepDebtCard.swift; sourceTree = "<group>"; };
 		2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesAPI.swift; sourceTree = "<group>"; };
 		2178BAB61B6E8581D0A37620 /* IslandModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandModels.swift; sourceTree = "<group>"; };
 		220197378345D1B7372B1837 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1643,6 +1645,7 @@
 				7A67979591EBDBFB7312432D /* BatteryCard.swift */,
 				4860218388E7A2B6F9AD6C1A /* HealthTabModel.swift */,
 				B29D1AF169D0CE441CDDC9CF /* HealthTabSettings.swift */,
+				20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */,
 			);
 			name = Health;
 			path = Health;
@@ -3209,6 +3212,7 @@
 				8605719C198236E9532FA675 /* HealthTabSettings.swift in Sources */,
 				CA11E0EC541EFC5D50B47989 /* RingMeasureController.swift in Sources */,
 				FB4819B08A7CB5076F2280D3 /* RingMeasureList.swift in Sources */,
+				DD63E14CDF272F8ACD2A0765 /* SleepDebtCard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

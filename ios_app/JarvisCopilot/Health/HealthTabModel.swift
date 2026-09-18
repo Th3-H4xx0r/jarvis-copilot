@@ -5,7 +5,9 @@ enum HealthSelection: Hashable {
     /// From falling asleep last night to now: the night, its charge and the
     /// waking day on one timeline that does not reset at midnight.
     case today
-    /// One local calendar day, `yyyy-MM-dd`.
+    /// An earlier day, `yyyy-MM-dd`, bedtime to bedtime: from the night that
+    /// ended on it to the next, so the hours up past midnight are in it and
+    /// the days meet with no gap.
     case day(String)
 
     /// The key the history cache holds its day under.
@@ -15,6 +17,14 @@ enum HealthSelection: Hashable {
         case .day(let date): return date
         }
     }
+}
+
+/// The stretch a selection covers, as the server drew it.
+struct HealthWindow: Equatable {
+    var start: Date
+    var end: Date
+    /// No night was recorded, so the window starts at midnight.
+    var noNight: Bool
 }
 
 /// Loads Jarvis Health for the Health tab and keeps the phone's offline copy.
@@ -28,6 +38,8 @@ final class HealthTabModel: ObservableObject {
 
     @Published private(set) var now: HealthNow?
     @Published private(set) var batteries: [String: HealthBattery] = [:]
+    @Published private(set) var windows: [String: HealthWindow] = [:]
+    @Published private(set) var sleepDebts: [String: HealthSleepDebt] = [:]
     @Published private(set) var loadedAt: [String: Date] = [:]
     @Published private(set) var isRefreshing = false
     @Published private(set) var error: String?
@@ -50,7 +62,21 @@ final class HealthTabModel: ObservableObject {
         cache = RingHistoryStore(directory: base.appendingPathComponent("days", isDirectory: true))
         health = HealthStore(spaceID: HealthSpace.shared, client: client,
                              directory: base.appendingPathComponent("scores", isDirectory: true))
-        now = Self.readNow(from: base)
+        if let saved = Self.readNow(from: base) { show(saved) }
+    }
+
+    /// The day Today belongs to — the one last night ended on — which the
+    /// other days count back from.
+    var todayDate: String { Self.scoresDate(now) }
+
+    func window(for selection: HealthSelection) -> HealthWindow? { windows[selection.cacheKey] }
+
+    func sleepDebt(for selection: HealthSelection) -> HealthSleepDebt? { sleepDebts[selection.cacheKey] }
+
+    private func show(_ fresh: HealthNow) {
+        now = fresh
+        windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake)
+        sleepDebts[Self.windowKey] = fresh.sleepDebt
     }
 
     /// The battery for what is on screen.
@@ -68,7 +94,7 @@ final class HealthTabModel: ObservableObject {
             switch selection {
             case .today:
                 let fresh = try await client.now()
-                now = fresh
+                show(fresh)
                 cache.update(Self.windowKey) { $0 = fresh.day?.ringDay() ?? RingDay(date: Self.windowKey) }
                 Self.writeNow(fresh, to: directory)
                 // Last night's sleep score and the analysis live on the day it ended.
@@ -77,6 +103,10 @@ final class HealthTabModel: ObservableObject {
                 let response = try await client.day(date)
                 cache.update(date) { $0 = response.day?.ringDay() ?? RingDay(date: date) }
                 batteries[date] = response.battery
+                if let start = response.start, let end = response.end {
+                    windows[date] = HealthWindow(start: start, end: end, noNight: response.wake == nil)
+                }
+                sleepDebts[date] = response.sleepDebt
                 await health.refresh(date: date)
             }
             mergeSpots(selection)
@@ -89,7 +119,7 @@ final class HealthTabModel: ObservableObject {
 
     /// The day whose scores describe today: the one last night ended on.
     nonisolated static func scoresDate(_ now: HealthNow?) -> String {
-        RingDates.dayKey(now?.wake ?? now?.end ?? Date())
+        now?.date ?? RingDates.dayKey(now?.wake ?? now?.end ?? Date())
     }
 
     /// Ask the server to sync every linked wearable and score again, then reload.
@@ -101,33 +131,34 @@ final class HealthTabModel: ObservableObject {
     }
 
     /// The ring's own spot readings — Measure results and the numbers it
-    /// sends while measuring — which the server's day does not carry. Today's
-    /// window is on the clock of the midnight before bedtime, so each of the
-    /// ring's days is moved onto it.
+    /// sends while measuring — which the server's day does not carry. A
+    /// window is on the clock of the midnight before its start, so each of the
+    /// ring's days is moved onto it; today keeps what arrives after the fetch.
     func mergeSpots(_ selection: HealthSelection) {
         guard let ring = spots() else { return }
-        switch selection {
-        case .day(let date):
-            cache.update(date) { $0.addSpots(from: ring.day(date), shift: 0) }
-        case .today:
-            guard let now else { return }
-            let calendar = Calendar.current
-            let anchor = calendar.startOfDay(for: now.start)
-            let first = Int(now.start.timeIntervalSince(anchor) / 60)
-            var midnight = anchor
-            while midnight <= Date() {
-                let shift = Int(midnight.timeIntervalSince(anchor) / 60)
-                let day = ring.day(RingDates.dayKey(midnight))
-                cache.update(Self.windowKey) { $0.addSpots(from: day, shift: shift, from: first) }
-                guard let next = calendar.date(byAdding: .day, value: 1, to: midnight) else { break }
-                midnight = next
-            }
+        let key = selection.cacheKey
+        guard let window = windows[key] else {
+            if case .day(let date) = selection { cache.update(date) { $0.addSpots(from: ring.day(date), shift: 0) } }
+            return
+        }
+        let calendar = Calendar.current
+        let anchor = calendar.startOfDay(for: window.start)
+        let first = Int(window.start.timeIntervalSince(anchor) / 60)
+        let last = selection == .today ? Int.max : Int(window.end.timeIntervalSince(anchor) / 60)
+        let through = selection == .today ? Date() : window.end
+        var midnight = anchor
+        while midnight <= through {
+            let shift = Int(midnight.timeIntervalSince(anchor) / 60)
+            let day = ring.day(RingDates.dayKey(midnight))
+            cache.update(key) { $0.addSpots(from: day, shift: shift, from: first, to: last) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: midnight) else { break }
+            midnight = next
         }
     }
 
     /// Put a window on screen without a server: previews and the render harness.
     func seed(now: HealthNow, day: RingDay) {
-        self.now = now
+        show(now)
         cache.update(Self.windowKey) { $0 = day }
         loadedAt[Self.windowKey] = Date()
     }
@@ -169,11 +200,12 @@ final class HealthTabModel: ObservableObject {
 }
 
 extension RingDay {
-    /// Another day's spot readings, moved onto this day's clock and kept from
-    /// minute `first` on.
-    mutating func addSpots(from other: RingDay, shift: Int, from first: Int = 0) {
+    /// Another day's spot readings, moved onto this day's clock and kept
+    /// between minutes `first` and `last`.
+    mutating func addSpots(from other: RingDay, shift: Int, from first: Int = 0, to last: Int = .max) {
         func moved(_ values: [RingTimedValue]) -> [RingTimedValue] {
-            values.map { RingTimedValue(minute: $0.minute + shift, value: $0.value) }.filter { $0.minute >= first }
+            values.map { RingTimedValue(minute: $0.minute + shift, value: $0.value) }
+                .filter { $0.minute >= first && $0.minute <= last }
         }
         manualHeartRate = RingDay.merged(manualHeartRate, moved(other.manualHeartRate))
         instantHeartRate = RingDay.merged(instantHeartRate, moved(other.instantHeartRate))

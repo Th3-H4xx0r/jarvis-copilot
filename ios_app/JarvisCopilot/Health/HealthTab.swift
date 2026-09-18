@@ -24,20 +24,16 @@ struct HealthTab: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 14) {
                         dayRow
-                        if let windowCaption {
-                            Text(windowCaption)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+                        if let window = model.window(for: selection) {
+                            HealthDayHeader(window: window, isToday: selection == .today)
                                 .padding(.horizontal, 24)
                                 .transition(.opacity)
                         }
                     }
                     .animation(.easeOut(duration: 0.2), value: selection)
                     BatteryCard(battery: model.battery(for: selection),
-                                window: selection == .today,
                                 analysis: analysis,
                                 lastRefreshed: model.loadedAt[selection.cacheKey],
                                 isRefreshing: model.isRefreshing,
@@ -47,6 +43,7 @@ struct HealthTab: View {
                                       capabilities: RingCapabilities(),
                                       scores: scores,
                                       hourDomain: hourDomain,
+                                      sleepDebt: model.sleepDebt(for: selection),
                                       measure: { type in
                                           // A reading taken now belongs to today, not a day gone.
                                           selection == .today ? measure.card(type, from: .health) : nil
@@ -86,7 +83,7 @@ struct HealthTab: View {
             HStack(spacing: 8) {
                 pill("Today", for: .today)
                 ForEach(1..<7, id: \.self) { offset in
-                    pill(dayLabel(offset), for: .day(RingDates.dayKey(RingDates.midnight(daysAgo: offset))))
+                    pill(dayLabel(offset), for: .day(dayKey(offset)))
                 }
             }
             .padding(.horizontal, 20)
@@ -107,40 +104,78 @@ struct HealthTab: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// What "Today" covers, said once under the pills: since bedtime, or since
-    /// midnight when the ring recorded no night.
-    private var windowCaption: String? {
-        guard selection == .today, let now = model.now else { return nil }
-        let length = now.minutes >= 60 ? "\(now.minutes / 60)h \(now.minutes % 60)m" : "\(now.minutes)m"
-        if now.noWake { return "Since midnight · no sleep recorded last night" }
-        let bedtime = now.start.formatted(date: .omitted, time: .shortened)
-        let evening = !Calendar.current.isDate(now.start, inSameDayAs: now.end)
-        return "Since \(bedtime)\(evening ? " last night" : "") · \(length)"
+    /// Days count back from Today's own date — the day last night ended on —
+    /// so at 1 AM before bed, Yesterday is still the day before this one.
+    private func dayDate(_ offset: Int) -> Date {
+        let base = RingDates.date(forKey: model.todayDate) ?? Calendar.current.startOfDay(for: Date())
+        return Calendar.current.date(byAdding: .day, value: -offset, to: base) ?? base
     }
 
+    private func dayKey(_ offset: Int) -> String { RingDates.dayKey(dayDate(offset)) }
+
     private func dayLabel(_ offset: Int) -> String {
-        switch offset {
-        case 1: return "Yesterday"
-        default: return RingDates.midnight(daysAgo: offset).formatted(.dateTime.weekday(.abbreviated).day())
-        }
+        offset == 1 ? "Yesterday" : dayDate(offset).formatted(.dateTime.weekday(.abbreviated).day())
     }
 
     // MARK: What the selection shows
 
     private var scores: HealthScores? {
         if case .day(let date) = selection { return model.health.scores(for: date) }
-        return model.health.scores(for: HealthTabModel.scoresDate(model.now))
+        return model.health.scores(for: model.todayDate)
     }
 
     private var analysis: String? { scores?.analysis }
 
-    /// A calendar day spans 0–24. Today runs from the bedtime hour on its own
-    /// day to now, which is past 24 once it has crossed midnight.
+    /// The hours the charts span: from the bedtime hour, counted from that
+    /// day's midnight, to the window's end — past 24 once it crosses midnight.
     private var hourDomain: ClosedRange<Double> {
-        guard case .today = selection, let now = model.now else { return 0...24 }
-        let midnight = Calendar.current.startOfDay(for: now.start)
-        let from = now.start.timeIntervalSince(midnight) / 3600
-        let to = max(from + 1, from + Double(now.minutes) / 60)
+        guard let window = model.window(for: selection) else { return 0...24 }
+        let midnight = Calendar.current.startOfDay(for: window.start)
+        let from = window.start.timeIntervalSince(midnight) / 3600
+        let to = max(from + 1, window.end.timeIntervalSince(midnight) / 3600)
         return from.rounded(.down)...to.rounded(.up)
+    }
+}
+
+/// What the selection covers, said big: how long the day has run and from when.
+/// Today's length keeps counting while the tab is open.
+struct HealthDayHeader: View {
+    let window: HealthWindow
+    let isToday: Bool
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let end = isToday ? max(window.end, context.date) : window.end
+            let minutes = max(0, Int(end.timeIntervalSince(window.start) / 60))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Self.length(minutes))
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(minutes)))
+                    .animation(.snappy, value: minutes)
+                Text(caption)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// "since 11:17 PM last night", or a finished day's span, bedtime to bedtime.
+    private var caption: String {
+        let time = { (date: Date) in date.formatted(date: .omitted, time: .shortened) }
+        let day = { (date: Date) in date.formatted(.dateTime.weekday(.abbreviated)) }
+        if isToday {
+            if window.noNight { return "since midnight · no sleep recorded last night" }
+            let lastNight = !Calendar.current.isDate(window.start, inSameDayAs: Date())
+            return "since you fell asleep at \(time(window.start))\(lastNight ? " last night" : "")"
+        }
+        let from = window.noNight ? "\(day(window.start)) midnight" : "\(day(window.start)) \(time(window.start))"
+        return "\(from) – \(day(window.end)) \(time(window.end))"
+    }
+
+    static func length(_ minutes: Int) -> String {
+        minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
     }
 }

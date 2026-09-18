@@ -19,8 +19,16 @@ struct RingBadge: Equatable {
     var tint: Color
 }
 
+/// A metric's symbol, in its colour: always on its card, pulsing while the
+/// ring measures it.
+struct RingSymbol: Equatable {
+    let name: String
+    let tint: Color
+}
+
 struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     let title: String
+    var symbol: RingSymbol?
     let headline: RingStat
     var details: [RingStat] = []
     /// A second number for the top-right corner — a score the card is judged by,
@@ -63,6 +71,11 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
         .sensoryFeedback(.selection, trigger: scrubbed)
     }
 
+    private var isMeasuring: Bool {
+        if case .measuring = measure?.state { return true }
+        return false
+    }
+
     /// What the headline says right now: the scrubbed reading, a measurement
     /// in progress or just finished, or the day's number.
     private var shown: (label: String, value: String, highlighted: Bool, placeholder: Bool) {
@@ -79,10 +92,15 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
         let shown = shown
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(shown.label)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let symbol {
+                        RingMetricSymbol(name: symbol.name, tint: symbol.tint, pulsing: isMeasuring, size: 13)
+                    }
+                    Text(shown.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(shown.highlighted ? AnyShapeStyle(JcTheme.accent) : AnyShapeStyle(.secondary))
+                        .lineLimit(1)
+                }
                 // The same rolling digits whether a finger is scrubbing or the
                 // ring is sending: "--" while the sensor warms up.
                 Text(shown.value)
@@ -154,15 +172,51 @@ struct RingMeasureButton: View {
 
     var body: some View {
         if case .measuring = measure.state {
-            Button("Stop", action: measure.stop)
-                .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
-                .accessibilityLabel("Stop measuring")
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+                Button("Stop", action: measure.stop)
+                    .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
+                    .fixedSize()
+                    .accessibilityLabel("Stop measuring")
+            }
         } else {
             Button("Measure", action: measure.start)
                 .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
+                .fixedSize()
                 .disabled(!measure.enabled)
                 .accessibilityHint("Takes a reading with your ring now")
         }
+    }
+}
+
+/// A metric's icon in its colour. While the ring measures that metric it
+/// beats — a gentle swell and fade — and with Reduce Motion it only fades.
+struct RingMetricSymbol: View {
+    let name: String
+    let tint: Color
+    var pulsing = false
+    var size: CGFloat = 17
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let icon = JcIcon(name, size: size).foregroundStyle(tint)
+        Group {
+            // Its own branch, so the beat starts fresh each time a reading
+            // does (an animator whose phases change mid-flight never starts).
+            if pulsing {
+                icon.phaseAnimator([false, true]) { icon, beat in
+                    icon
+                        .scaleEffect(beat && !reduceMotion ? 1.22 : 1)
+                        .opacity(beat ? 0.5 : 1)
+                } animation: { _ in .easeInOut(duration: 0.5) }
+            } else {
+                icon
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

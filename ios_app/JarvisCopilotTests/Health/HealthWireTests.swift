@@ -58,6 +58,22 @@ final class HealthWireTests: XCTestCase {
         XCTAssertEqual(HealthTabModel.scoresDate(now), RingDates.dayKey(now.wake!))
     }
 
+    /// Any day is bedtime to bedtime now, with the week's sleep debt beside it.
+    func testADayCarriesItsWindowAndSleepDebt() throws {
+        let json = """
+        {"date":"2026-09-17","start":"2026-09-17T04:30:00Z","end":"2026-09-18T07:03:00Z",
+         "wake":"2026-09-17T12:37:00Z","minutes":1593,"no_wake":false,"has_data":true,"day":null,
+         "battery":{"level":45.9,"band":"Low","curve":[]},
+         "sleep_debt":{"goal":480,"debt":190,"band":"Low","average":452,"short_nights":3,"measured":6,
+                       "nights":[{"date":"2026-09-17","asleep":null,"debt":190,"band":"Low"}]}}
+        """
+        let day = try HealthClient.decodeForTests(HealthDayResponse.self, json: json)
+        XCTAssertEqual(try XCTUnwrap(day.end).timeIntervalSince(try XCTUnwrap(day.start)), 1593 * 60, accuracy: 60)
+        XCTAssertEqual(day.sleepDebt?.debt, 190)
+        XCTAssertEqual(day.sleepDebt?.shortNights, 3)
+        XCTAssertNil(day.sleepDebt?.nights.first?.asleep, "an unrecorded night is not a sleepless one")
+    }
+
     func testTheDayUploadCarriesAStepsSeriesAndItsDevice() {
         var day = RingDay(date: "2026-09-17")
         day.stepSlots = [RingStepSlot(slot: 4, steps: 120, calories: 5, distanceMeters: 80)]
@@ -92,5 +108,15 @@ final class HealthSpotReadingTests: XCTestCase {
         XCTAssertEqual(window.instantHeartRate, [RingTimedValue(minute: 2040, value: 74)])
         XCTAssertEqual(window.manualSpO2, [RingTimedValue(minute: 1420, value: 96)])
         XCTAssertEqual(window.summary.heartRateLatest, 74, "a reading just taken is the card's latest")
+    }
+
+    /// A finished day ends at the next bedtime: a reading after it is tomorrow's.
+    func testAFinishedDayKeepsOnlyItsOwnReadings() {
+        var ring = RingDay(date: "2026-09-18")
+        ring.instantHeartRate = [RingTimedValue(minute: 60, value: 70),       // 01:00, before bed
+                                 RingTimedValue(minute: 600, value: 80)]      // 10:00, the next day's
+        var yesterday = RingDay(date: "2026-09-17")
+        yesterday.addSpots(from: ring, shift: 1440, from: 0, to: 1440 + 123)  // bed at 02:03
+        XCTAssertEqual(yesterday.instantHeartRate, [RingTimedValue(minute: 1500, value: 70)])
     }
 }

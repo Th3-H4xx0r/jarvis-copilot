@@ -145,23 +145,57 @@ struct HealthNow: Codable, Equatable {
     var battery: HealthBattery
     /// When last night ended.
     var wake: Date? = nil
+    /// The day this belongs to: the one last night ended on.
+    var date: String? = nil
+    var sleepDebt: HealthSleepDebt? = nil
 
     enum CodingKeys: String, CodingKey {
-        case start, end, minutes, day, battery, wake
+        case start, end, minutes, day, battery, wake, date
+        case sleepDebt = "sleep_debt"
         case noWake = "no_wake"
     }
 }
 
-/// One calendar day from the shared integration.
+/// One day from the shared integration, bedtime to bedtime: from the night
+/// that ended on `date` to the next night (midnight where one is missing).
 struct HealthDayResponse: Codable, Equatable {
     var date: String
     var day: HealthWireDay?
     var battery: HealthBattery?
     var hasData: Bool
+    var start: Date?
+    var end: Date?
+    var wake: Date?
+    var sleepDebt: HealthSleepDebt?
 
     enum CodingKeys: String, CodingKey {
-        case date, day, battery
+        case date, day, battery, start, end, wake
         case hasData = "has_data"
+        case sleepDebt = "sleep_debt"
+    }
+}
+
+/// A week of nights against the sleep goal, each with the debt standing after it.
+struct HealthSleepDebt: Codable, Equatable {
+    struct Night: Codable, Equatable {
+        var date: String
+        /// Minutes asleep; nil when nothing was recorded (not a sleepless night).
+        var asleep: Int?
+        var debt: Int
+        var band: String
+    }
+
+    var goal: Int
+    var debt: Int
+    var band: String
+    var nights: [Night]
+    var average: Int?
+    var shortNights: Int
+    var measured: Int
+
+    enum CodingKeys: String, CodingKey {
+        case goal, debt, band, nights, average, measured
+        case shortNights = "short_nights"
     }
 }
 

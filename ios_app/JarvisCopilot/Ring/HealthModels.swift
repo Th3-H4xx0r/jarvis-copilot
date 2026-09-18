@@ -92,10 +92,13 @@ struct HealthSettings: Codable, Equatable {
     struct Goals: Codable, Equatable {
         var steps: Int
         var activeMinutes: Int
+        /// What a night should be; sleep debt is counted against it.
+        var sleepMinutes: Int?
 
         enum CodingKeys: String, CodingKey {
             case steps
             case activeMinutes = "active_minutes"
+            case sleepMinutes = "sleep_minutes"
         }
     }
 

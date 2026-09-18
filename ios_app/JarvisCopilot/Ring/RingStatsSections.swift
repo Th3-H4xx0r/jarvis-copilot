@@ -14,12 +14,15 @@ struct RingStatsSections: View {
     /// The hours the charts span. A calendar day is 0–24; the window since
     /// waking runs from the wake hour past midnight (26 is 2 AM the next day).
     var hourDomain: ClosedRange<Double>
+    /// The week's sleep debt, shown under the sleep card when there is one.
+    var sleepDebt: HealthSleepDebt?
     /// A card's Measure control, for the metrics a wearable can read on demand.
     var measure: (RingMeasurementType) -> RingCardMeasure?
 
     init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil,
-         hourDomain: ClosedRange<Double> = 0...24,
+         hourDomain: ClosedRange<Double> = 0...24, sleepDebt: HealthSleepDebt? = nil,
          measure: @escaping (RingMeasurementType) -> RingCardMeasure? = { _ in nil }) {
+        self.sleepDebt = sleepDebt
         self.store = store
         self.dayKey = dayKey
         self.capabilities = capabilities
@@ -34,6 +37,7 @@ struct RingStatsSections: View {
         VStack(spacing: 22) {
             activity(day, summary)
             sleep(day, summary)
+            if let sleepDebt { SleepDebtCard(debt: sleepDebt) }
             heartRate(day, summary)
             if capabilities.supports(.spo2) || day.spo2 != nil || !day.manualSpO2.isEmpty {
                 spo2(day, summary)
@@ -73,6 +77,7 @@ struct RingStatsSections: View {
     private func activity(_ day: RingDay, _ s: RingDaySummary) -> some View {
         RingMetricCard(
             title: "Activity",
+            symbol: RingSymbol(name: "figure.walk", tint: JcTheme.accent),
             headline: RingStat(label: "Steps", value: s.steps.map { $0.formatted() }),
             details: [
                 RingStat(label: "Calories", value: s.kilocalories.map { String(format: "%.0f kcal", $0) }),
@@ -108,6 +113,7 @@ struct RingStatsSections: View {
             : "\(day.legacySleepSlots.count) legacy sleep slots recorded"
         return RingMetricCard(
             title: "Sleep",
+            symbol: RingSymbol(name: "moon.fill", tint: JcTheme.accentAlt),
             headline: RingStat(label: "Asleep", value: s.sleepMinutes.map(duration)),
             details: [
                 RingStat(label: "Deep", value: s.deepMinutes.map(duration)),
@@ -150,6 +156,7 @@ struct RingStatsSections: View {
         let tolerance = max(15, day.heartRate?.intervalMinutes ?? 0)
         return RingMetricCard(
             title: "Heart rate",
+            symbol: RingSymbol(name: RingMeasurementType.heartRate.icon, tint: RingMeasurementType.heartRate.tint),
             headline: RingStat(label: "Latest", value: s.heartRateLatest.map { "\($0) bpm" }),
             details: [
                 RingStat(label: "Average", value: s.heartRateAvg.map { "\($0) bpm" }),
@@ -192,6 +199,7 @@ struct RingStatsSections: View {
         let points = day.manualSpO2 + day.instantSpO2
         return RingMetricCard(
             title: "Blood oxygen",
+            symbol: RingSymbol(name: RingMeasurementType.spo2.icon, tint: RingMeasurementType.spo2.tint),
             headline: RingStat(label: "Latest", value: s.spo2Latest.map { "\($0)%" }),
             details: [
                 RingStat(label: "Average", value: s.spo2Avg.map { "\($0)%" }),
@@ -243,6 +251,7 @@ struct RingStatsSections: View {
             + [RingStat(label: "Sample interval", value: values.map { "\($0.intervalMinutes) min" })]
         return RingMetricCard(
             title: title,
+            symbol: RingSymbol(name: measuring.icon, tint: measuring.tint),
             headline: all[0],
             details: Array(all.dropFirst()),
             measure: measure(measuring),
@@ -311,6 +320,7 @@ struct RingStatsSections: View {
         let latest = s.stressLatest
         return RingMetricCard(
             title: "Stress",
+            symbol: RingSymbol(name: RingMeasurementType.stress.icon, tint: RingMeasurementType.stress.tint),
             headline: RingStat(label: "Latest", value: latest.map { "\($0) · \(StressBand.of(Double($0)).label)" }),
             details: [
                 RingStat(label: "Average", value: s.stressAvg.map(String.init)),
