@@ -38,10 +38,8 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                // What you can do, then which day you are looking at, then that
-                // day's data: the picker governs every card below it, so it
-                // sits directly above them rather than buried among them.
-                actions
+                // One row of pills on this screen, and it is the day picker.
+                // Measuring is an action, so it lives in the toolbar.
                 dayPicker
                 if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
@@ -116,6 +114,7 @@ struct RingDeviceView: View {
             RingSettingsView(manager: manager, health: health)
         }
         .toolbar {
+            measureMenu
             WearableToolbarButton(title: "Sync week", icon: "arrow.triangle.2.circlepath",
                                   disabled: !ready || sync.isSyncing) {
                 Task { await sync.sync(days: sync.historyDays) }
@@ -182,39 +181,39 @@ struct RingDeviceView: View {
 
     // MARK: Actions
 
-    /// The measurements this ring can take, one scrolling line of them.
+    /// The measurements this ring can take, as a toolbar menu.
     ///
-    /// Find lives in the ⋯ menu and syncing is the toolbar button, so neither
-    /// takes a slot here: what is left is the set of things the ring measures.
-    private var actions: some View {
+    /// They were a row of capsules above the day pills, which put two rows of
+    /// the same shape on top of each other. Actions belong on the toolbar with
+    /// the rest of what acts on this view (`toolbars.md`), and the day pills
+    /// get the row back.
+    private var measureMenu: some View {
         let measurements: [RingMeasurementType] = session.capabilities.isKnown
             ? session.capabilities.supportedMeasurements : [.heartRate, .spo2]
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+        return Menu {
+            if session.measurement?.isActive == true {
+                Button("Stop measuring", jcIcon: "stop.circle") { session.cancelMeasurement() }
+            } else {
                 ForEach(measurements, id: \.self) { type in
-                    ActionChip(title: type.shortLabel, icon: type.icon,
-                               isOn: session.measurement?.isActive == true && session.measurement?.type == type,
-                               tint: type.tint) {
-                        if session.measurement?.isActive == true {
-                            session.cancelMeasurement()
-                        } else {
-                            run {
-                                // The link drops whenever the ring is idle or on
-                                // its charger. That is something to fix on the
-                                // way to the measurement, not a reason to leave
-                                // the button dead.
-                                if !ready { _ = await manager.ensureConnected(timeout: 12) }
-                                try await session.startMeasurement(type)
-                            }
+                    Button(type.label, jcIcon: type.icon) {
+                        run {
+                            // The link drops whenever the ring is idle or on its
+                            // charger; bring it up on the way rather than leaving
+                            // the action dead.
+                            if !ready { _ = await manager.ensureConnected(timeout: 12) }
+                            try await session.startMeasurement(type)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 2)
+        } label: {
+            if session.measurement?.isActive == true {
+                ProgressView().controlSize(.mini)
+            } else {
+                JcIcon("waveform.path.ecg").foregroundStyle(JcTheme.accent)
+            }
         }
-        // The row scrolls, so it must not be clipped by the card inset it sits in.
-        .scrollClipDisabled()
+        .accessibilityLabel("Measure")
     }
 
     /// Ask again every few seconds while the prompt is up: the ring only says
