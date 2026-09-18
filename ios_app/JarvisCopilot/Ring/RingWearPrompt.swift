@@ -3,102 +3,162 @@ import SwiftUI
 /// "Put the ring on" — the sheet a measurement asks for when the ring answers
 /// that nothing is on the finger.
 ///
-/// Modelled on the AirPods pairing card: one instruction, the product itself
-/// shown large and moving, and nothing else competing. It dismisses itself the
-/// moment a reading comes back, so the person never has to acknowledge it.
+/// It shows the gesture rather than a diagram: a finger held still while the
+/// ring comes down over it, which is the motion the person is being asked to
+/// make. The card takes itself away the moment a reading lands.
 struct RingWearPrompt: View {
     let metric: String
-    let onCancel: () -> Void
+    let onDismiss: () -> Void
 
-    @State private var slide = false
-    @State private var pulse = false
+    @State private var seated = false
+    @State private var glow = false
+
+    /// How far above its resting place the ring starts each loop.
+    private let travel: CGFloat = 66
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button(action: onCancel) {
-                    JcIcon("xmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(Color.primary.opacity(0.08)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 16)
-
             Text("Put the ring on")
                 .font(.title2.weight(.semibold))
-                .padding(.top, 2)
+                .padding(.top, 26)
 
-            stage
-                .frame(height: 210)
-                .padding(.vertical, 10)
-
-            Text("Wear the ring on your finger, then it will take your \(metric.lowercased()) reading.")
+            Text("Slide it onto your finger and the \(metric.lowercased()) reading starts on its own.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 26)
+                .padding(.horizontal, 36)
+                .padding(.top, 8)
+
+            stage
+                .frame(height: 190)
+                .padding(.top, 4)
+
+            Button(action: onDismiss) {
+                Text("Not now")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .jcLiquidGlass(in: Capsule(), tint: .clear)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity)
-        .background(JcTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .padding(.horizontal, 22)
-        .onAppear {
-            // Two loops, deliberately out of step so the motion never reads as
-            // one mechanical beat.
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { slide = true }
-            withAnimation(.easeOut(duration: 2.2).repeatForever(autoreverses: false)) { pulse = true }
-        }
     }
 
-    /// The ring, a finger sliding into it, and the blue cue that says "here".
+    // MARK: The gesture
+
     private var stage: some View {
         ZStack {
+            // The cue sits under the finger's tip, where the ring will land.
             ForEach(0..<2, id: \.self) { index in
                 Circle()
-                    .stroke(JcTheme.accent.opacity(0.5), lineWidth: 1.5)
-                    .frame(width: 96, height: 96)
-                    .scaleEffect(pulse ? 1.9 : 0.75)
-                    .opacity(pulse ? 0 : 0.7)
-                    .animation(.easeOut(duration: 2.2).repeatForever(autoreverses: false)
-                                .delay(Double(index) * 1.1), value: pulse)
+                    .stroke(JcTheme.accent.opacity(0.45), lineWidth: 1.5)
+                    .frame(width: 82, height: 82)
+                    .scaleEffect(glow ? 1.8 : 0.8)
+                    .opacity(glow ? 0 : 0.65)
+                    .offset(y: 6)
+                    .animation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)
+                                .delay(Double(index) * 1.2), value: glow)
             }
 
-            RingSceneView(spin: false, entrance: false, pulsing: true, cameraDistance: 5.0)
-                .frame(width: 210, height: 210)
-                .allowsHitTesting(false)
+            FingerView()
+                .frame(width: 72, height: 158)
+                .offset(y: 14)
 
-            finger
-                .offset(y: slide ? -6 : 78)
-                .opacity(slide ? 1 : 0.35)
+            // Above the finger in the stack, so it genuinely passes over it.
+            RingSceneView(spin: false, entrance: false, pulsing: seated, cameraDistance: 5.2)
+                .frame(width: 146, height: 146)
+                .offset(y: seated ? 6 : -travel)
+                .scaleEffect(seated ? 1 : 1.06)
+                .shadow(color: .black.opacity(0.5), radius: 14, y: 10)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) { seated = true }
+            withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) { glow = true }
         }
         .accessibilityHidden(true)
     }
+}
 
-    /// A stylised finger: a soft white capsule with a rounded tip and a nail,
-    /// enough to read as a hand at a glance without pretending to be one.
-    private var finger: some View {
-        VStack(spacing: 0) {
-            Capsule()
-                .fill(
-                    LinearGradient(colors: [Color.white, Color.white.opacity(0.82)],
-                                   startPoint: .top, endPoint: .bottom)
-                )
-                .frame(width: 42, height: 120)
-                .overlay(alignment: .top) {
-                    Capsule()
-                        .fill(Color.white.opacity(0.55))
-                        .frame(width: 20, height: 26)
-                        .padding(.top, 10)
-                        .blendMode(.plusLighter)
-                }
-                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+/// A stylised finger: tapered, domed at the tip, with a nail and a knuckle
+/// crease. Drawn rather than illustrated so it inherits the app's palette and
+/// stays sharp at any size.
+private struct FingerView: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+
+            ZStack(alignment: .top) {
+                FingerShape()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white, Color(white: 0.93), Color(white: 0.78)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        // The soft edge that gives it roundness rather than a cut-out look.
+                        FingerShape()
+                            .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                    )
+                    .overlay(alignment: .topLeading) {
+                        // A highlight down the left, where the light is.
+                        Capsule()
+                            .fill(Color.white.opacity(0.75))
+                            .frame(width: w * 0.16, height: h * 0.42)
+                            .blur(radius: 9)
+                            .offset(x: w * 0.22, y: h * 0.12)
+                    }
+
+                // Nail.
+                RoundedRectangle(cornerRadius: w * 0.16, style: .continuous)
+                    .fill(Color(white: 0.99))
+                    .frame(width: w * 0.36, height: h * 0.13)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: w * 0.16, style: .continuous)
+                            .stroke(Color.black.opacity(0.06), lineWidth: 0.8)
+                    )
+                    .padding(.top, h * 0.05)
+
+                // Knuckle crease, low enough to sit below where the ring lands.
+                Capsule()
+                    .fill(Color.black.opacity(0.07))
+                    .frame(width: w * 0.42, height: 2)
+                    .padding(.top, h * 0.72)
+            }
+            .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
         }
+    }
+}
+
+/// The silhouette: a slight taper towards the tip and a dome on top.
+private struct FingerShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        let tipWidth = w * 0.72
+        let tipInset = (w - tipWidth) / 2
+        let domeHeight = tipWidth * 0.62
+
+        var path = Path()
+        path.move(to: CGPoint(x: tipInset, y: domeHeight))
+        // Dome over the fingertip.
+        path.addQuadCurve(to: CGPoint(x: w - tipInset, y: domeHeight),
+                          control: CGPoint(x: w / 2, y: -domeHeight * 0.55))
+        // Down the right, widening towards the knuckle.
+        path.addQuadCurve(to: CGPoint(x: w, y: h),
+                          control: CGPoint(x: w - tipInset * 0.2, y: h * 0.6))
+        path.addLine(to: CGPoint(x: 0, y: h))
+        // Back up the left.
+        path.addQuadCurve(to: CGPoint(x: tipInset, y: domeHeight),
+                          control: CGPoint(x: tipInset * 0.2, y: h * 0.6))
+        path.closeSubpath()
+        return path
     }
 }

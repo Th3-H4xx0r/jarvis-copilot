@@ -86,19 +86,19 @@ struct RingDeviceView: View {
             manager.screenIsOpen = false
             manager.releaseIfIdle()
         }
-        // "Put the ring on", in the AirPods vein: it appears when the ring says
-        // nothing is on the finger, and takes itself away when a reading lands.
-        .overlay {
-            if let type = wearPrompt {
-                ZStack {
-                    Color.black.opacity(0.55)
-                        .ignoresSafeArea()
-                        .onTapGesture { dismissWearPrompt() }
-                    RingWearPrompt(metric: type.label) { dismissWearPrompt() }
-                        .transition(.scale(scale: 0.94).combined(with: .opacity))
+        // "Put the ring on", as a bottom sheet: swipe it away, tap outside it,
+        // or use the button — and it leaves by itself when a reading lands.
+        .sheet(item: $wearPrompt) { type in
+            RingWearPrompt(metric: type.label) { dismissWearPrompt() }
+                .presentationDetents([.height(420)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.regularMaterial)
+                .presentationCornerRadius(34)
+                .interactiveDismissDisabled(false)
+                .onDisappear {
+                    // Swiped or tapped away rather than dismissed by a reading.
+                    if wearPrompt != nil { dismissWearPrompt() }
                 }
-                .animation(.snappy(duration: 0.22), value: wearPrompt)
-            }
         }
         .onChange(of: session.measurement?.phase) { _, phase in
             guard let phase, let type = session.measurement?.type else { return }
@@ -136,6 +136,7 @@ struct RingDeviceView: View {
         HealthScoreCard(scores: health.scores(for: dayKey),
                         lastRefreshed: health.lastRefreshed(for: dayKey),
                         isRefreshing: health.isRefreshing,
+                        error: health.lastError,
                         onRefresh: { Task { _ = await health.runNow(date: dayKey) } })
     }
 
@@ -197,7 +198,14 @@ struct RingDeviceView: View {
                         if session.measurement?.isActive == true {
                             session.cancelMeasurement()
                         } else {
-                            run { try await session.startMeasurement(type) }
+                            run {
+                                // The link drops whenever the ring is idle or on
+                                // its charger. That is something to fix on the
+                                // way to the measurement, not a reason to leave
+                                // the button dead.
+                                if !ready { _ = await manager.ensureConnected(timeout: 12) }
+                                try await session.startMeasurement(type)
+                            }
                         }
                     }
                 }
@@ -207,8 +215,6 @@ struct RingDeviceView: View {
         }
         // The row scrolls, so it must not be clipped by the card inset it sits in.
         .scrollClipDisabled()
-        .disabled(!ready)
-        .opacity(ready ? 1 : 0.45)
     }
 
     /// Ask again every few seconds while the prompt is up: the ring only says

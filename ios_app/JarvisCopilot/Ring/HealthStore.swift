@@ -64,9 +64,7 @@ final class HealthStore: ObservableObject {
                 fetchedAt[date] = Date()
                 lastError = nil
                 write(fresh, for: date)
-                // The widget is about today. Scrolling the day picker must not
-                // put a past day's score on the home screen as a current one.
-                if date == RingDates.dayKey(Date()) { publishSnapshot(fresh) }
+                publishSnapshotIfToday(fresh, date: date)
             } else {
                 lastError = nil
             }
@@ -96,11 +94,30 @@ final class HealthStore: ObservableObject {
         }
     }
 
+    /// Score this day again: the server reaches the ring through the phone, so
+    /// this takes several seconds. The flag is held for the whole of it, not
+    /// just the fetch at the end — a button that looks idle for seven seconds
+    /// reads as a button that did nothing.
     @discardableResult
     func runNow(date: String) async -> Bool {
+        isRefreshing = true
+        defer { isRefreshing = false }
         do {
             _ = try await client.runNow()
-            await refresh(date: date)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+        // The scores are read back inline rather than through refresh(), which
+        // would clear and re-set the same flag.
+        do {
+            if let fresh = try await client.scores(date: date) {
+                scores[date] = fresh
+                fetchedAt[date] = Date()
+                write(fresh, for: date)
+                publishSnapshotIfToday(fresh, date: date)
+            }
             return true
         } catch {
             lastError = error.localizedDescription
@@ -132,6 +149,13 @@ final class HealthStore: ObservableObject {
     private struct CachedScores: Codable {
         var scores: HealthScores
         var fetchedAt: Date
+    }
+
+    /// The widget is about today: scrolling the day picker must not put a past
+    /// day's score on the home screen as if it were the current one.
+    private func publishSnapshotIfToday(_ scores: HealthScores, date: String) {
+        guard date == RingDates.dayKey(Date()) else { return }
+        publishSnapshot(scores)
     }
 
     // MARK: Widget

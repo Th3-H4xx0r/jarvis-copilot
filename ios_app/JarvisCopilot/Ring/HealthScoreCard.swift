@@ -11,6 +11,9 @@ struct HealthScoreCard: View {
     let scores: HealthScores?
     let lastRefreshed: Date?
     let isRefreshing: Bool
+    /// Surfaced in place of the "updated" line: with the captions gone, a
+    /// failed refresh would otherwise be silent.
+    let error: String?
     let onRefresh: () -> Void
 
     var body: some View {
@@ -36,9 +39,10 @@ struct HealthScoreCard: View {
                 RowDivider()
                 Row {
                     HStack {
-                        Text(updatedText)
+                        Text(error ?? updatedText)
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(error == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange))
+                            .lineLimit(2)
                         Spacer(minLength: 12)
                         refreshButton
                     }
@@ -128,6 +132,8 @@ struct HealthScoreCard: View {
         .controlSize(.small)
         .disabled(isRefreshing)
         .accessibilityLabel("Score this day again")
+        // A run that lands on the same numbers still has to feel like it ran.
+        .sensoryFeedback(.success, trigger: lastRefreshed)
     }
 
     /// When the server last scored this day, in the phone's own words.

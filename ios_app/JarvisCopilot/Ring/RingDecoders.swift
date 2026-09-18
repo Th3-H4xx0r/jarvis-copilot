@@ -25,7 +25,9 @@ enum RingMetric: String, CaseIterable, Codable {
 }
 
 /// The `0x69` measurement types a ring can run on demand.
-enum RingMeasurementType: UInt8, CaseIterable, Codable {
+enum RingMeasurementType: UInt8, CaseIterable, Codable, Identifiable {
+    var id: UInt8 { rawValue }
+
     case heartRate = 1, bloodPressure = 2, spo2 = 3, healthCheck = 5, stress = 8, bloodSugar = 9, hrv = 10, temperature = 11
 
     var name: String {
