@@ -39,6 +39,9 @@ final class RingWorkoutController: ObservableObject {
     /// When the ring's last tick arrived: the clock runs on between ticks, and
     /// a long gap is shown as waiting rather than a frozen screen.
     @Published private(set) var lastTickAt: Date?
+    /// The live sheet is up. Dragging it down hides it — the workout carries
+    /// on, shown as a card on the Health tab that brings it back.
+    @Published var showsLive = false
 
     /// Seconds of countdown; tests set 0.
     var countdownSeconds = 3
@@ -64,6 +67,11 @@ final class RingWorkoutController: ObservableObject {
     /// again, never brought back on screen.
     private var endedAt: Date?
     static let endedGrace: TimeInterval = 120
+    /// Ticks in a row whose active time did not move: three is a pause.
+    private var stillTicks = 0
+    /// When the person last paused or resumed: the ring's next few ticks may
+    /// predate it, so they do not overrule the button for a moment.
+    private var commandAt: Date?
     private var watching: Set<AnyCancellable> = []
 
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
@@ -110,9 +118,10 @@ final class RingWorkoutController: ObservableObject {
     // MARK: Actions
 
     func start(_ sport: RingSport) {
-        guard !isActive else { return }
+        guard !isActive else { showsLive = true; return }
         reset()
         endedAt = nil
+        showsLive = true
         self.sport = sport
         pending?.cancel()
         pending = Task { [weak self] in
@@ -148,12 +157,15 @@ final class RingWorkoutController: ObservableObject {
     func pause() {
         guard phase == .running, let sport else { return }
         phase = .paused
+        commandAt = Date()
         send(.pause, sport)
     }
 
     func resume() {
         guard phase == .paused, let sport else { return }
         phase = .running
+        commandAt = Date()
+        stillTicks = 0
         send(.resume, sport)
     }
 
@@ -175,6 +187,7 @@ final class RingWorkoutController: ObservableObject {
         if case .finished(let workout) = phase, save { onSave?(workout) }
         if endedAt == nil, sport != nil { endedAt = Date() }
         reset()
+        showsLive = false
         phase = .idle
     }
 
@@ -213,8 +226,17 @@ final class RingWorkoutController: ObservableObject {
             if phase == .starting || startedAt == nil {
                 startedAt = Date().addingTimeInterval(-Double(tick.elapsed))
             }
-            if phase == .starting || phase == .running || phase == .paused {
-                phase = tick.state == .paused ? .paused : .running
+            // Running or paused is read from the ring's clock, not its state
+            // byte: this ring reports "paused" while its time runs on (QRing
+            // treats that value as running too). Time moving is running; three
+            // ticks without it is a pause.
+            let moved = lastElapsed < 0 || tick.elapsed > lastElapsed
+            stillTicks = moved ? 0 : stillTicks + 1
+            let settled = commandAt.map { Date().timeIntervalSince($0) > 2.5 } ?? true
+            if phase == .starting {
+                phase = .running
+            } else if settled, phase == .running || phase == .paused {
+                if moved { phase = .running } else if stillTicks >= 3 { phase = .paused }
             }
             record(tick)
         }
@@ -252,6 +274,7 @@ final class RingWorkoutController: ObservableObject {
 
     private func finish() {
         pending?.cancel()
+        showsLive = true
         location?.stop()
         liveActivity?.end()
         guard let sport, let startedAt else { return reset(to: .idle) }
@@ -270,6 +293,7 @@ final class RingWorkoutController: ObservableObject {
 
     private func fail(_ message: String) {
         pending?.cancel()
+        showsLive = true
         location?.stop()
         liveActivity?.end()
         phase = .failed(message)
@@ -290,6 +314,8 @@ final class RingWorkoutController: ObservableObject {
         heartRates = []
         stepMarks = []
         lastElapsed = -1
+        stillTicks = 0
+        commandAt = nil
         if let next { phase = next }
     }
 }

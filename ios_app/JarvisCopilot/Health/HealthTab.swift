@@ -38,6 +38,7 @@ struct HealthTab: View {
                     }
                     .padding(.bottom, 6)
                     .animation(.easeOut(duration: 0.2), value: selection)
+                    WorkoutInProgressCard(workout: workout)
                     BatteryCard(battery: model.battery(for: selection),
                                 analysis: analysis,
                                 lastRefreshed: model.loadedAt[selection.cacheKey],
@@ -45,9 +46,9 @@ struct HealthTab: View {
                                 error: model.error,
                                 onRefresh: { Task { await model.runNow(selection) } },
                                 showAll: { historyMetric = .battery })
-                    if let list = model.workouts[selection.cacheKey], !list.isEmpty {
-                        HealthWorkoutsCard(workouts: list)
-                    }
+                    HealthWorkoutsCard(workouts: model.workouts[selection.cacheKey] ?? [],
+                                       onStart: selection == .today ? { choosingWorkout = true } : nil,
+                                       showAll: { historyMetric = .exercise })
                     RingStatsSections(store: model.cache, dayKey: selection.cacheKey,
                                       capabilities: RingCapabilities(),
                                       scores: scores,
@@ -68,7 +69,10 @@ struct HealthTab: View {
             .jcScreen("Health")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    GlassIconButton(symbol: "figure.run", size: 34, iconSize: 16) { choosingWorkout = true }
+                    GlassIconButton(symbol: "figure.run", size: 34, iconSize: 16) {
+                        // A workout under way reopens; otherwise pick one to start.
+                        if workout.isActive { workout.showsLive = true } else { choosingWorkout = true }
+                    }
                         .accessibilityLabel("Start a workout")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -92,6 +96,12 @@ struct HealthTab: View {
                 // The reading is in the ring's history now; put it on the card.
                 model.mergeSpots(selection)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutSaved)) { note in
+            if let saved = note.object as? RingWorkout { model.noteSaved(saved) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutsSynced)) { _ in
+            Task { await model.refresh(selection) }
         }
         .onTabVisibilityChange(.health) { visible in
             if visible { Task { await model.refresh(selection) } }

@@ -136,6 +136,13 @@ final class HealthTabModel: ObservableObject {
         }
     }
 
+    /// A workout just saved, on today at once — before the server has it.
+    func noteSaved(_ workout: RingWorkout) {
+        var list = workouts[Self.windowKey] ?? []
+        list.removeAll { $0.start == workout.start }
+        workouts[Self.windowKey] = (list + [workout]).sorted { $0.start < $1.start }
+    }
+
     /// The day whose scores describe today: the one last night ended on.
     nonisolated static func scoresDate(_ now: HealthNow?) -> String {
         now?.date ?? RingDates.dayKey(now?.wake ?? now?.end ?? Date())

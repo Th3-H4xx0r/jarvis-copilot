@@ -76,6 +76,8 @@ struct HealthHistoryView: View {
                         onRefresh: { Task { await tab.refresh(selection) } })
         case .sleepDebt:
             if let debt = tab.sleepDebt(for: selection) { SleepDebtCard(debt: debt) }
+        case .exercise:
+            HealthWorkoutsCard(workouts: tab.workouts[selection.cacheKey] ?? [])
         default:
             RingStatsSections(store: tab.cache, dayKey: selection.cacheKey, capabilities: RingCapabilities(),
                               hourDomain: tab.hourDomain(for: selection), only: metric)
@@ -124,6 +126,9 @@ struct HealthHistoryView: View {
                 }
             }
             stats(history)
+            if metric == .exercise, let workouts = history.workouts, !workouts.isEmpty {
+                HealthWorkoutsCard(workouts: workouts, title: "Workouts in this range", showsDate: true)
+            }
         }
         .onScrolledIntoView {
             guard !revealed else { return }
@@ -303,6 +308,7 @@ struct HealthHistoryView: View {
     private func yLabel(_ value: Double) -> String {
         switch metric {
         case .sleep, .sleepDebt: return "\(Int(value.rounded()))h"
+        case .exercise: return "\(Int(value.rounded()))m"
         case .steps: return value >= 1000 ? "\(Int((value / 1000).rounded()))k" : "\(Int(value))"
         case .temperature: return String(format: "%.1f", value)
         default: return "\(Int(value.rounded()))"

@@ -135,6 +135,13 @@ struct RingWorkout: Codable, Equatable, Identifiable {
     }
 }
 
+extension Notification.Name {
+    /// A workout was just saved (object: the `RingWorkout`).
+    static let jcWorkoutSaved = Notification.Name("jc.workout.saved")
+    /// Saved workouts reached the server (or failed and wait for next time).
+    static let jcWorkoutsSynced = Notification.Name("jc.workouts.synced")
+}
+
 /// Saves finished workouts to Jarvis Health, keeping any the server could
 /// not take and sending them with the next one (or the next Health refresh).
 @MainActor
@@ -151,7 +158,10 @@ enum WorkoutUploader {
         queue.removeAll { $0.workout.start == workout.start }
         queue.append(Pending(workout: workout, deviceID: deviceID))
         store(queue)
+        // Shown at once; the day reloads once the server has it.
+        NotificationCenter.default.post(name: .jcWorkoutSaved, object: workout)
         await flush()
+        NotificationCenter.default.post(name: .jcWorkoutsSynced, object: nil)
     }
 
     /// Sends what is waiting; what fails stays for next time.

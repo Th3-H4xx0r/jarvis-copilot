@@ -64,6 +64,12 @@ final class WorkoutRenderTests: XCTestCase {
                                 name: "workout-failed")
     }
 
+    func testTheHealthCardWhileOneRuns() throws {
+        running()
+        try RenderHarness.write(WorkoutInProgressCard(workout: controller).padding(.horizontal, 16),
+                                size: CGSize(width: 402, height: 200), name: "workout-in-progress")
+    }
+
     func testTheCountdownCounts() throws {
         try RenderHarness.filmstrip(WorkoutLiveView(workout: controller), size: CGSize(width: 300, height: 420),
                                     name: "workout-countdown", changes: [{ self.controller.start(RingSport.withID(7)) }],

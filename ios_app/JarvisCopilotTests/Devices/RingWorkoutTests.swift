@@ -152,6 +152,33 @@ final class RingWorkoutTests: XCTestCase {
         XCTAssertEqual(controller.phase, .running, "no workout was ended here, so this one is picked up")
     }
 
+    /// This ring says "paused" (state 1) while its clock runs: running is
+    /// read from the clock, so it never shows paused while time moves.
+    func testAClockThatMovesIsRunningWhateverTheStateByteSays() async throws {
+        try await started()
+        for s in 2...8 { deliver(tick(state: 1, elapsed: s, hr: 120, steps: s * 3)) }
+        XCTAssertEqual(controller.phase, .running)
+    }
+
+    func testAClockThatStopsForThreeTicksIsAPause() async throws {
+        try await started()
+        deliver(tick(elapsed: 2, hr: 120, steps: 6))
+        for _ in 0..<3 { deliver(tick(elapsed: 2, hr: 120, steps: 6)) }
+        XCTAssertEqual(controller.phase, .paused)
+        deliver(tick(elapsed: 3, hr: 120, steps: 9))
+        XCTAssertEqual(controller.phase, .running)
+    }
+
+    func testDraggingTheSheetDownKeepsTheWorkoutGoing() async throws {
+        try await started()
+        XCTAssertTrue(controller.showsLive)
+        controller.showsLive = false
+        deliver(tick(elapsed: 2, hr: 120, steps: 6))
+        XCTAssertEqual(controller.phase, .running)
+        controller.start(RingSport.withID(7))
+        XCTAssertTrue(controller.showsLive, "Start while one runs brings the running one back")
+    }
+
     func testZonesAndCadence() async throws {
         XCTAssertEqual(RingWorkoutController.zone(100, age: 30), 1)   // 53%
         XCTAssertEqual(RingWorkoutController.zone(140, age: 30), 3)   // 74%

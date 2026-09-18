@@ -7,6 +7,8 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
     case sleepDebt = "sleep_debt"
     case heartRate = "heart_rate"
     case spo2, hrv, stress, temperature
+    /// Minutes of workouts a day.
+    case exercise
 
     var id: String { rawValue }
 
@@ -24,6 +26,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .hrv: return "HRV"
         case .stress: return "Stress"
         case .temperature: return "Temperature"
+        case .exercise: return "Exercise"
         }
     }
 
@@ -41,12 +44,13 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .hrv: return RingMeasurementType.hrv.icon
         case .stress: return RingMeasurementType.stress.icon
         case .temperature: return RingMeasurementType.temperature.icon
+        case .exercise: return "figure.run"
         }
     }
 
     var tint: Color {
         switch self {
-        case .battery, .steps: return JcTheme.accent
+        case .battery, .steps, .exercise: return JcTheme.accent
         case .sleep: return JcTheme.accentAlt
         case .sleepDebt: return JcTheme.amber
         case .heartRate: return RingMeasurementType.heartRate.tint
@@ -60,7 +64,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
     var style: Style {
         switch self {
         case .battery, .heartRate, .spo2: return .range
-        case .steps: return .bars
+        case .steps, .exercise: return .bars
         case .sleep: return .stacked
         case .sleepDebt, .stress: return .bandBars
         case .hrv, .temperature: return .line

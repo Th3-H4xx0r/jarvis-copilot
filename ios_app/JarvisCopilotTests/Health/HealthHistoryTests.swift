@@ -85,7 +85,7 @@ final class HealthHistoryTests: XCTestCase {
         let view = NavigationStack {
             HealthHistoryView(metric: metric, tab: tab, selection: .today, model: model, initialRange: range)
         }
-        try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 874), name: name, settle: 3)
+        try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 1300), name: name, settle: 3)
     }
 
     func testHeartRateWeekDrawsRanges() throws {
@@ -141,6 +141,30 @@ final class HealthHistoryTests: XCTestCase {
         }
         h.goal = .init(value: 10_000, kind: "steps", met: 6, measured: 27)
         try render(.steps, .month, h, name: "history-steps-goals")
+    }
+
+    private func workout(_ sport: Int, _ name: String, daysAgo: Int, minutes: Int, hr: Int, kcal: Double) -> RingWorkout {
+        let start = end.addingTimeInterval(Double(-daysAgo * 86_400) - 3600 * 5)
+        return RingWorkout(sport: sport, sportName: name, start: start, end: start.addingTimeInterval(Double(minutes * 60)),
+                           activeSeconds: minutes * 60, steps: minutes * 140, distanceMeters: Double(minutes * 160),
+                           distanceSource: "gps", kilocalories: kcal, heartRateAverage: hr, heartRateMax: hr + 25,
+                           heartRates: [], zoneSeconds: [0, 300, 900, 300, 0])
+    }
+
+    func testExerciseWeekChartsMinutesAndListsTheWorkouts() throws {
+        let minutes: [Double?] = [30, 0, 45, 0, 62, 25, 40]
+        var h = history(.exercise, range: .week, kind: "minutes") { i in
+            minutes[i].map { .init(start: "", end: "", value: $0, low: nil, high: nil, days: 1, stages: nil) }
+        }
+        h.workouts = [workout(7, "Run", daysAgo: 0, minutes: 40, hr: 148, kcal: 380),
+                      workout(88, "Strength", daysAgo: 1, minutes: 25, hr: 118, kcal: 160),
+                      workout(9, "Cycle", daysAgo: 2, minutes: 62, hr: 132, kcal: 520)]
+        try render(.exercise, .week, h, name: "history-exercise")
+    }
+
+    func testTheWorkoutsCardInvitesAStartWhenEmpty() throws {
+        try RenderHarness.write(HealthWorkoutsCard(workouts: [], onStart: {}, showAll: {}).padding(.horizontal, 16),
+                                size: CGSize(width: 402, height: 220), name: "workouts-empty")
     }
 
     func testAnEmptyRangeSaysSo() throws {

@@ -376,7 +376,8 @@ struct WorkoutSummaryView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 44)
+                // Room under the sheet's grabber; a pushed page has its bar.
+                .padding(.top, onSave == nil ? 8 : 44)
 
                 CardGroup("Summary") {
                     LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
@@ -468,29 +469,124 @@ struct WorkoutSummaryView: View {
 
 // MARK: - Presenting
 
-/// Puts a running workout full screen over whichever screen started it.
+/// The workout as a sheet over whichever screen started it. Drag it down and
+/// the workout carries on (the Health tab's card brings it back); a summary
+/// swiped away is saved, a failure closed.
 struct RingWorkoutPresenter: ViewModifier {
     @ObservedObject var workout: RingWorkoutController
 
     func body(content: Content) -> some View {
-        content.fullScreenCover(isPresented: Binding(get: { workout.isPresenting }, set: { _ in })) {
+        content.sheet(isPresented: Binding(
+            get: { workout.showsLive && workout.isPresenting },
+            set: { shown in
+                guard !shown else { return }
+                switch workout.phase {
+                case .finished: workout.close(save: true)
+                case .failed: workout.close(save: false)
+                default: workout.showsLive = false
+                }
+            })) {
             WorkoutLiveView(workout: workout)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(JcTheme.bg)
+                .presentationCornerRadius(34)
+        }
+    }
+}
+
+/// On the Health tab while a workout runs: its sport, time, heart rate and
+/// distance live, and a tap back into the workout.
+struct WorkoutInProgressCard: View {
+    @ObservedObject var workout: RingWorkoutController
+
+    var body: some View {
+        if workout.isActive, let sport = workout.sport {
+            CardGroup("Workout") {
+                Button { workout.showsLive = true } label: {
+                    Row(minHeight: 76) {
+                        HStack(spacing: 14) {
+                            RingMetricSymbol(name: sport.symbol, tint: JcTheme.accent,
+                                             pulsing: workout.phase == .running, size: 22)
+                                .frame(width: 30)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workout.phase == .paused ? "\(sport.name) · Paused" : sport.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(JcTheme.amber) : AnyShapeStyle(.secondary))
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
+                                    let running = workout.phase == .running
+                                    Text(WorkoutLiveView.clock((workout.tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)))
+                                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                                        .monospacedDigit()
+                                        .contentTransition(.numericText())
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                if let hr = workout.tick?.heartRate {
+                                    Label("\(hr)", systemImage: "heart.fill")
+                                        .foregroundStyle(RingMeasurementType.heartRate.tint)
+                                }
+                                let meters = workout.gpsDistance ?? workout.tick.map { Double($0.distanceMeters) }
+                                if let meters, meters > 0 {
+                                    Text(String(format: "%.2f km", meters / 1000)).foregroundStyle(.secondary)
+                                }
+                            }
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .monospacedDigit()
+                            JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }
 
 // MARK: - A day's workouts
 
-/// The workouts on a Health-tab day; each opens its summary.
+/// Workouts, one row each, opening its summary: a day's on the Health tab
+/// (with Start when there are none, and Show all into the exercise history),
+/// or a range's in that history, dated.
 struct HealthWorkoutsCard: View {
     let workouts: [RingWorkout]
-    @State private var open: RingWorkout?
+    var title = "Workouts"
+    /// Rows across several days say which day.
+    var showsDate = false
+    var onStart: (() -> Void)?
+    var showAll: (() -> Void)?
 
     var body: some View {
-        CardGroup("Workouts") {
+        CardGroup(title) {
+            if workouts.isEmpty {
+                Row(minHeight: 58) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 30)
+                        Text("No workouts").foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        if let onStart {
+                            Button("Start", action: onStart)
+                                .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
+                                .fixedSize()
+                        }
+                    }
+                }
+            }
             ForEach(Array(workouts.enumerated()), id: \.element.id) { index, workout in
                 if index > 0 { RowDivider() }
-                Button { open = workout } label: {
+                // Pushed, with a back button, on the Health tab's stack.
+                NavigationLink {
+                    WorkoutSummaryView(workout: workout)
+                        .background(JcTheme.bg)
+                        .navigationTitle(workout.sportName)
+                        .navigationBarTitleDisplayMode(.inline)
+                } label: {
                     Row(minHeight: 58) {
                         HStack(spacing: 12) {
                             Image(systemName: RingSport.withID(workout.sport).symbol)
@@ -499,7 +595,11 @@ struct HealthWorkoutsCard: View {
                                 .frame(width: 30)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(workout.sportName).font(.body.weight(.medium))
-                                Text(workout.start.formatted(date: .omitted, time: .shortened))
+                                Text(showsDate
+                                     ? workout.start.formatted(.dateTime.weekday(.abbreviated).day()) + " · "
+                                        + workout.start.formatted(date: .omitted, time: .shortened)
+                                     : workout.start.formatted(date: .omitted, time: .shortened))
+                                    .lineLimit(1)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -520,11 +620,10 @@ struct HealthWorkoutsCard: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-        .sheet(item: $open) { workout in
-            WorkoutSummaryView(workout: workout)
-                .background(JcTheme.bg)
-                .presentationDetents([.large])
+            if let showAll {
+                RowDivider()
+                ShowAllRow(action: showAll)
+            }
         }
     }
 }

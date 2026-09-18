@@ -71,9 +71,11 @@ struct HealthHistory: Codable, Equatable {
     var highlight: String
     var daysSoFar: Int
     var goal: Goal? = nil
+    /// Exercise: every workout in the range, newest first.
+    var workouts: [RingWorkout]? = nil
 
     enum CodingKeys: String, CodingKey {
-        case metric, range, title, kind, start, end, buckets, headline, stats, previous, highlight, goal
+        case metric, range, title, kind, start, end, buckets, headline, stats, previous, highlight, goal, workouts
         case daysSoFar = "days_so_far"
     }
 

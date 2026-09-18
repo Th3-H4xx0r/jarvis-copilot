@@ -120,3 +120,19 @@ final class HealthSpotReadingTests: XCTestCase {
         XCTAssertEqual(yesterday.instantHeartRate, [RingTimedValue(minute: 1500, value: 70)])
     }
 }
+
+/// A workout just saved shows on today before the server has it.
+@MainActor
+final class HealthSavedWorkoutTests: XCTestCase {
+    func testASavedWorkoutShowsOnTodayAtOnce() {
+        let model = HealthTabModel(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let start = Date()
+        let run = RingWorkout(sport: 7, sportName: "Run", start: start, end: start.addingTimeInterval(1800),
+                              activeSeconds: 1800, steps: 4000, distanceMeters: 4100, distanceSource: "gps",
+                              kilocalories: 300, heartRateAverage: 140, heartRateMax: 165, heartRates: [],
+                              zoneSeconds: [0, 0, 0, 0, 0])
+        model.noteSaved(run)
+        model.noteSaved(run)
+        XCTAssertEqual(model.workouts[HealthTabModel.windowKey]?.count, 1, "saved twice is still one")
+    }
+}
