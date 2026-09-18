@@ -223,9 +223,16 @@ struct RingDeviceView: View {
         wearRetry?.cancel()
         wearRetry = Task { @MainActor in
             while !Task.isCancelled, wearPrompt != nil {
-                try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled, wearPrompt != nil, ready else { continue }
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled, wearPrompt != nil else { return }
                 if session.measurement?.isActive == true { continue }
+                // The ring is often on its charger when this prompt appears, so
+                // the link is down — and a retry that skips on a down link never
+                // gets to notice the ring going back on.
+                if !ready {
+                    _ = await manager.ensureConnected(timeout: 10)
+                    guard !Task.isCancelled, wearPrompt != nil else { return }
+                }
                 try? await session.startMeasurement(type)
             }
         }
