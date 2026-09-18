@@ -216,24 +216,32 @@ struct RingDeviceView: View {
         .accessibilityLabel("Measure")
     }
 
-    /// Ask again every few seconds while the prompt is up: the ring only says
-    /// it is worn by taking a reading, so the retry is the detector.
+    /// Keep asking until the ring answers with a reading, then take the card away.
+    ///
+    /// The loop does the dismissing itself rather than leaving it to a view
+    /// update: a measurement that runs and finishes between two renders shows
+    /// SwiftUI only the second state, so waiting on the phase to *change* can
+    /// miss the very reading that proves the ring is on.
     private func showWearPrompt(for type: RingMeasurementType) {
         wearPrompt = type
         wearRetry?.cancel()
         wearRetry = Task { @MainActor in
             while !Task.isCancelled, wearPrompt != nil {
-                try? await Task.sleep(for: .seconds(3))
-                guard !Task.isCancelled, wearPrompt != nil else { return }
-                if session.measurement?.isActive == true { continue }
-                // The ring is often on its charger when this prompt appears, so
-                // the link is down — and a retry that skips on a down link never
-                // gets to notice the ring going back on.
-                if !ready {
-                    _ = await manager.ensureConnected(timeout: 10)
+                if session.measurement?.isActive != true {
+                    // The ring is usually on its charger when this appears, so
+                    // the link is down; bring it up before asking again.
+                    if !ready { _ = await manager.ensureConnected(timeout: 10) }
                     guard !Task.isCancelled, wearPrompt != nil else { return }
+                    try? await session.startMeasurement(type)
                 }
-                try? await session.startMeasurement(type)
+
+                let result = await session.awaitMeasurement(timeout: 30)
+                guard !Task.isCancelled, wearPrompt != nil else { return }
+                if result?.phase == .done || (result?.value ?? 0) > 0 {
+                    dismissWearPrompt()
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }

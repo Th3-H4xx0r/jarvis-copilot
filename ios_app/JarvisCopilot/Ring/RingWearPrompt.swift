@@ -13,6 +13,7 @@ struct RingWearPrompt: View {
     /// One beat: the ring comes in from the right and seats on the finger.
     @State private var seated = false
     @State private var glow = false
+    @State private var breathe = false
     @State private var loop: Task<Void, Never>?
 
     var body: some View {
@@ -71,6 +72,21 @@ struct RingWearPrompt: View {
             let seatX = geo.size.width * 0.46
 
             ZStack(alignment: .leading) {
+                // A slow bloom of the app's accent behind everything, so the
+                // stage has somewhere to sit on a near-black sheet.
+                Circle()
+                    .fill(
+                        RadialGradient(colors: [JcTheme.accent.opacity(0.30), .clear],
+                                       center: .center, startRadius: 2, endRadius: 150)
+                    )
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 26)
+                    .scaleEffect(breathe ? 1.12 : 0.88)
+                    .opacity(breathe ? 0.9 : 0.45)
+                    .position(x: seatX, y: midY)
+                    .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: breathe)
+                    .allowsHitTesting(false)
+
                 ForEach(0..<2, id: \.self) { index in
                     Circle()
                         .stroke(JcTheme.accent.opacity(0.4), lineWidth: 1.5)
@@ -106,6 +122,7 @@ struct RingWearPrompt: View {
     /// Ring on, hold, back off the right edge, again.
     private func start() {
         withAnimation(.easeOut(duration: 2.1).repeatForever(autoreverses: false)) { glow = true }
+        breathe = true
         loop?.cancel()
         loop = Task { @MainActor in
             while !Task.isCancelled {
