@@ -386,7 +386,8 @@ final class RingSync: ObservableObject {
             let day = store.day(key)
             guard day.syncedAt != nil else { continue }
             do {
-                try await client.pushDay(HealthDayPayload.make(day, key: key, battery: session.battery))
+                try await client.pushDay(HealthDayPayload.make(day, key: key, deviceID: deviceID,
+                                                                    battery: session.battery))
             } catch {
                 JcLog.devices.notice("ring: could not push \(key, privacy: .public) to the server")
                 return

@@ -9,13 +9,16 @@ import Foundation
 /// Stage codes stay the ring's own (2 light, 3 deep, 4 REM, 5 awake) — the SDK's
 /// ring adapter translates them, so no vendor numbering leaks into the scoring.
 enum HealthDayPayload {
-    static func make(_ day: RingDay, key: String, timezone: String = TimeZone.current.identifier) -> [String: Any] {
+    static func make(_ day: RingDay, key: String, timezone: String = TimeZone.current.identifier,
+                     deviceID: String = "") -> [String: Any] {
         var out: [String: Any] = [
             "date": key,
             "timezone": timezone,
             "utc_offset": TimeZone(identifier: timezone)?.secondsFromGMT() ?? TimeZone.current.secondsFromGMT(),
             "source": "ring",
         ]
+        // Jarvis Health files each wearable's days under its own key.
+        if !deviceID.isEmpty { out["device_id"] = deviceID }
 
         if !day.sleep.isEmpty {
             out["sleep"] = day.sleep.map { session -> [String: Any] in
@@ -34,6 +37,13 @@ enum HealthDayPayload {
         // minimum, and an average of the two would hide an 86% dip behind a 98%
         // high in the same hour.
         if let spo2 = day.spo2 { out["spo2"] = ["min": spo2.min, "max": spo2.max] }
+        // Steps per 15-minute slot, so the server can count them from a wake
+        // time rather than only from midnight.
+        if !day.stepSlots.isEmpty {
+            var values = [Int](repeating: 0, count: 96)
+            for slot in day.stepSlots where (0..<96).contains(slot.slot) { values[slot.slot] = slot.steps }
+            out["steps"] = ["interval_minutes": 15, "values": values]
+        }
 
         // Only today carries `activity` totals; earlier days keep their steps in
         // the 15-minute slots, which is why the summary falls back to them and
@@ -68,8 +78,8 @@ enum HealthDayPayload {
     /// The battery belongs to the device rather than the day, but the alert rule
     /// that watches it reads it off the day the run scored.
     static func make(_ day: RingDay, key: String, timezone: String = TimeZone.current.identifier,
-                     battery: RingBattery?) -> [String: Any] {
-        var out = make(day, key: key, timezone: timezone)
+                     deviceID: String = "", battery: RingBattery?) -> [String: Any] {
+        var out = make(day, key: key, timezone: timezone, deviceID: deviceID)
         if let battery {
             out["battery_percent"] = battery.percent
             out["charging"] = battery.charging

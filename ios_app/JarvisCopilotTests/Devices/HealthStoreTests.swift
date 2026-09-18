@@ -43,9 +43,9 @@ final class HealthStoreTests: XCTestCase {
                     directory: directory)
     }
 
-    func testTheSpaceIdMatchesWhatTheServerDerives() {
-        XCTAssertEqual(HealthSpace.id(forRing: "B6CE93C4-5680-B0C5-A3AA-32D3DD349E20"), "wearable-ring-b6ce93c4")
-        XCTAssertEqual(HealthSpace.id(kind: "ring", deviceID: "b6ce93c4"), "wearable-ring-b6ce93c4")
+    func testTheDeviceKeyMatchesWhatTheServerDerives() {
+        XCTAssertEqual(HealthSpace.id(forRing: "B6CE93C4-5680-B0C5-A3AA-32D3DD349E20"), "jarvis-health")
+        XCTAssertEqual(HealthSpace.deviceKey(kind: "ring", deviceID: "B6CE93C4-5680"), "ring-b6ce93c4")
     }
 
     func testARefreshPublishesTheScoresAndTheirContributions() async {

@@ -117,22 +117,6 @@ struct HealthSettings: Codable, Equatable {
     ]
 }
 
-/// A wearable the server scores.
-struct HealthDevice: Codable, Equatable {
-    var spaceID: String
-    var kind: String
-    var deviceID: String
-    var name: String
-    var enabled: Bool
-    var frequency: String?
-
-    enum CodingKeys: String, CodingKey {
-        case kind, name, enabled, frequency
-        case spaceID = "space_id"
-        case deviceID = "device_id"
-    }
-}
-
 /// Which wearables report enough to be worth scoring.
 ///
 /// Mirrors `ELIGIBLE_KINDS` in `jarvis_health/sources/__init__.py`: a device kind
@@ -141,16 +125,17 @@ enum HealthEligibility {
     static let kinds: Set<String> = [WearableKeepAlive.ring]
 }
 
-/// The registry space a wearable's health integration lives in.
-///
-/// The server derives the same id from the same device id — `space_id_for` in
-/// `jarvis_health/store.py` — so both sides name a space without asking.
+/// Jarvis Health is one integration every wearable feeds; a device is a key
+/// inside it, not a space of its own.
 enum HealthSpace {
-    static func id(kind: String, deviceID: String) -> String {
+    static let shared = "jarvis-health"
+
+    /// The key the server files a device's days under: kind plus the head of its id.
+    static func deviceKey(kind: String, deviceID: String) -> String {
         let hex = deviceID.lowercased().split(whereSeparator: { !$0.isHexDigit })
             .first.map(String.init) ?? "unknown"
-        return "wearable-\(kind)-\(String(hex.prefix(8)))"
+        return "\(kind)-\(String(hex.prefix(8)))"
     }
 
-    static func id(forRing deviceID: String) -> String { id(kind: "ring", deviceID: deviceID) }
+    static func id(forRing deviceID: String) -> String { shared }
 }

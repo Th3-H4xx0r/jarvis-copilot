@@ -6,8 +6,9 @@ import Foundation
 /// Nothing here scores anything. The server does that, in one place, so the
 /// phone and the web UI can never disagree about a number.
 struct HealthClient {
-    /// The source every settings write declares. The server refuses any other.
-    static let settingsSource = "wearable-settings"
+    /// The source every settings write declares: the Health tab. The server
+    /// refuses any other.
+    static let settingsSource = "health-settings"
 
     let api: JarvisAPI
     let spaceID: String
@@ -36,11 +37,26 @@ struct HealthClient {
         return f
     }()
 
-    /// Wearables the server has a health integration for.
-    static func devices(api: JarvisAPI = .shared) async throws -> [HealthDevice] {
+    /// Every wearable feeding Jarvis Health, linked or not.
+    static func devices(api: JarvisAPI = .shared) async throws -> [HealthRosterDevice] {
         let response = try await api.get("/api/health/devices")
         let raw = try response.object()["devices"] ?? []
-        return try decode([HealthDevice].self, from: raw)
+        return try decode([HealthRosterDevice].self, from: raw)
+    }
+
+    /// Everything since the last wake.
+    func now() async throws -> HealthNow {
+        try Self.decode(HealthNow.self, from: try await api.get("\(base)/now").object())
+    }
+
+    /// One calendar day, merged across linked wearables.
+    func day(_ date: String) async throws -> HealthDayResponse {
+        try Self.decode(HealthDayResponse.self, from: try await api.get("\(base)/day?date=\(date)").object())
+    }
+
+    /// Link or unlink a wearable as a data source. Its history is kept either way.
+    func setLinked(_ device: String, _ linked: Bool) async throws {
+        _ = try await api.post("\(base)/devices/\(device)", json: ["linked": linked])
     }
 
     /// Tell the server which wearables exist, so an eligible one gets its
@@ -81,6 +97,10 @@ struct HealthClient {
     func runNow() async throws -> [String: Any] {
         let response = try await api.post("\(base)/run", json: ["trigger": "phone"], timeout: 180)
         return (try response.object()["run"] as? [String: Any]) ?? [:]
+    }
+
+    static func decodeForTests<T: Decodable>(_ type: T.Type, json: String) throws -> T {
+        try decoder.decode(type, from: Data(json.utf8))
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {
