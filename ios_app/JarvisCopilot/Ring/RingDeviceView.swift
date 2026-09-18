@@ -88,7 +88,7 @@ struct RingDeviceView: View {
         // or use the button — and it leaves by itself when a reading lands.
         .sheet(item: $wearPrompt) { type in
             RingWearPrompt(metric: type.label) { dismissWearPrompt() }
-                .presentationDetents([.height(440)])
+                .presentationDetents([.height(430)])
                 .presentationDragIndicator(.hidden)
                 .presentationBackground(RingWearPrompt.sheetBackground)
                 .presentationCornerRadius(34)

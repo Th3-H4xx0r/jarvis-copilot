@@ -10,17 +10,22 @@ struct RingWearPrompt: View {
     let metric: String
     let onDismiss: () -> Void
 
-    @State private var seated = false
-    @State private var glow = false
+    /// The loop runs in two beats: the hand arrives, then the ring goes on.
+    private enum Beat { case offstage, handIn, ringOn }
 
-    /// How far above its resting place the ring starts each loop.
-    private let travel: CGFloat = 58
+    @State private var beat: Beat = .offstage
+    @State private var glow = false
+    @State private var loop: Task<Void, Never>?
+
+    /// The finger is held at an angle, as a hand actually is, and the ring
+    /// travels along that same axis so it looks threaded rather than dropped.
+    private let handTilt: Double = -26
 
     var body: some View {
         VStack(spacing: 0) {
             Text("Put the ring on")
-                .font(.title2.weight(.semibold))
-                .padding(.top, 26)
+                .font(.title3.weight(.semibold))
+                .padding(.top, 22)
 
             Text("Slide it onto your finger and the \(metric.lowercased()) reading starts on its own.")
                 .font(.subheadline)
@@ -34,6 +39,8 @@ struct RingWearPrompt: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.top, 10)
 
+            // Sits on the sheet's bottom edge: the home indicator's safe area is
+            // the margin, so adding another one left it floating mid-sheet.
             Button(action: onDismiss) {
                 Text("Not now")
                     .font(.headline)
@@ -45,12 +52,13 @@ struct RingWearPrompt: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 20)
             .padding(.top, 8)
-            .padding(.bottom, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // A shade lighter than the page behind it, so the sheet reads as a
         // layer above the screen rather than a hole in it.
         .background(RingWearPrompt.sheetBackground)
+        .onAppear { start() }
+        .onDisappear { loop?.cancel() }
     }
 
     /// Slightly lighter than the app's black page.
@@ -60,35 +68,52 @@ struct RingWearPrompt: View {
 
     private var stage: some View {
         ZStack {
-            // The cue sits under the finger's tip, where the ring will land.
             ForEach(0..<2, id: \.self) { index in
                 Circle()
-                    .stroke(JcTheme.accent.opacity(0.45), lineWidth: 1.5)
+                    .stroke(JcTheme.accent.opacity(0.4), lineWidth: 1.5)
                     .frame(width: 82, height: 82)
                     .scaleEffect(glow ? 1.8 : 0.8)
-                    .opacity(glow ? 0 : 0.65)
-                    .offset(y: 2)
-                    .animation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)
-                                .delay(Double(index) * 1.2), value: glow)
+                    .opacity(glow ? 0 : (beat == .ringOn ? 0.6 : 0))
+                    .animation(.easeOut(duration: 2.2).repeatForever(autoreverses: false)
+                                .delay(Double(index) * 1.1), value: glow)
             }
 
             FingerView()
-                .frame(width: 66, height: 146)
-                .offset(y: 26)
+                .frame(width: 66, height: 150)
+                .rotationEffect(.degrees(handTilt))
+                // In from the lower right, along the angle it is held at.
+                .offset(x: beat == .offstage ? 190 : 22, y: beat == .offstage ? 120 : 24)
+                .opacity(beat == .offstage ? 0 : 1)
 
-            // Above the finger in the stack, so it genuinely passes over it.
-            RingSceneView(spin: false, entrance: false, pulsing: seated, cameraDistance: 5.2)
-                .frame(width: 140, height: 140)
-                .offset(y: seated ? 2 : -travel)
-                .scaleEffect(seated ? 1 : 1.06)
-                .shadow(color: .black.opacity(0.5), radius: 14, y: 10)
+            // Above the finger in the stack, so it passes over it, and travelling
+            // the same diagonal from the opposite side.
+            RingSceneView(spin: false, entrance: false, pulsing: beat == .ringOn, cameraDistance: 5.2)
+                .frame(width: 138, height: 138)
+                .rotationEffect(.degrees(handTilt / 2))
+                .offset(x: beat == .ringOn ? -2 : -210, y: beat == .ringOn ? -6 : 70)
+                .opacity(beat == .offstage ? 0 : 1)
+                .shadow(color: .black.opacity(0.5), radius: 14, y: 8)
                 .allowsHitTesting(false)
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) { seated = true }
-            withAnimation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)) { glow = true }
-        }
         .accessibilityHidden(true)
+    }
+
+    /// Hand in, ring on, hold, reset — forever, until the sheet goes away.
+    private func start() {
+        withAnimation(.easeOut(duration: 2.2).repeatForever(autoreverses: false)) { glow = true }
+        loop?.cancel()
+        loop = Task { @MainActor in
+            while !Task.isCancelled {
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.82)) { beat = .handIn }
+                try? await Task.sleep(for: .milliseconds(520))
+                guard !Task.isCancelled else { return }
+                withAnimation(.spring(response: 0.7, dampingFraction: 0.78)) { beat = .ringOn }
+                try? await Task.sleep(for: .milliseconds(1700))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeIn(duration: 0.35)) { beat = .offstage }
+                try? await Task.sleep(for: .milliseconds(420))
+            }
+        }
     }
 }
 
