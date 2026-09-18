@@ -35,7 +35,9 @@ struct CardGroup<Content: View>: View {
                     .padding(.top, 8)
             }
         }
-        .padding(.horizontal, 16)
+        // A touch wider than the 16pt the rest of the app uses: these cards are
+        // dense, and the extra margin is what stops them reading as a slab.
+        .padding(.horizontal, 20)
     }
 }
 

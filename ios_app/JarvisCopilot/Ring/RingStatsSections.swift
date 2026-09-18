@@ -91,9 +91,10 @@ struct RingStatsSections: View {
             title: "Sleep",
             headline: RingStat(label: "Asleep", value: s.sleepMinutes.map(duration)),
             details: [
-                RingStat(label: "In bed", value: night.map { duration($0.stages.reduce(0) { $0 + $1.minutes }) }),
+                RingStat(label: "Deep", value: s.deepMinutes.map(duration)),
+                RingStat(label: "Light", value: s.lightMinutes.map(duration)),
+                RingStat(label: "REM", value: s.remMinutes.map(duration)),
                 RingStat(label: "Efficiency", value: efficiency(night)),
-                RingStat(label: "Awakenings", value: night.map { String($0.stages.filter { $0.stage == RingSleepStage.awake }.count) }),
             ],
             badge: sleepBadge,
             emptyText: night == nil ? noNight : nil,
@@ -106,10 +107,6 @@ struct RingStatsSections: View {
         ) { selected, selection in
             if let night {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("\(time(night.start)) – \(time(night.end))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    RingDonut(slices: stageSlices(night))
                     Chart {
                         ForEach(stageSegments(night)) { segment in
                             BarMark(xStart: .value("Start", segment.start), xEnd: .value("End", segment.end),
@@ -360,19 +357,6 @@ struct RingStatsSections: View {
         case "Good": return JcTheme.accent
         case "Fair": return JcTheme.amber
         default: return .orange
-        }
-    }
-
-    private func stageSlices(_ night: RingSleepSession) -> [RingDonut.Slice] {
-        let pairs: [(String, Int, Color)] = [
-            ("Deep", night.minutes(of: RingSleepStage.deep), JcTheme.primaryBlue),
-            ("Light", night.minutes(of: RingSleepStage.light), JcTheme.accent),
-            ("REM", night.minutes(of: RingSleepStage.rem), JcTheme.accentAlt),
-            ("Awake", night.minutes(of: RingSleepStage.awake), .orange),
-        ]
-        return pairs.compactMap { name, minutes, color in
-            minutes > 0 ? RingDonut.Slice(label: name, value: Double(minutes), color: color,
-                                          detail: duration(minutes)) : nil
         }
     }
 
