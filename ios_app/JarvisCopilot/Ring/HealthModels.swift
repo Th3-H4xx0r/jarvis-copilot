@@ -75,6 +75,9 @@ struct HealthSettings: Codable, Equatable {
     var rules: [String: Rule]
     var goals: Goals
     var deviceName: String?
+    /// Whose sleep and heart count when two wearables overlap; empty means the
+    /// first one that reports them.
+    var primaryDevice: String?
 
     struct QuietHours: Codable, Equatable {
         var start: String
@@ -99,6 +102,7 @@ struct HealthSettings: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case enabled, model, provider, frequency, rules, goals
         case quietHours = "quiet_hours"
+        case primaryDevice = "primary_device"
         case deviceName = "device_name"
     }
 

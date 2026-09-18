@@ -70,7 +70,6 @@ struct RingSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 sharing
-                healthSection
                 monitoring
                 if let inputs = manager.inputs {
                     RingInputsSection(store: inputs, ready: ready, lastInput: session.lastInput,
@@ -227,12 +226,6 @@ struct RingSettingsView: View {
                 Text(minutes == 0 ? "—" : "\(minutes) min").tag(minutes)
             }
         }
-    }
-
-    // MARK: Health
-
-    private var healthSection: some View {
-        HealthSettingsSection(health: health, today: RingDates.dayKey(Date()))
     }
 
     // MARK: Goals & profile

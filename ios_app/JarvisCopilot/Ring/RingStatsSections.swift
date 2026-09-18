@@ -11,12 +11,17 @@ struct RingStatsSections: View {
     /// The server's scores for this day, when it has any: the sleep card shows
     /// the score and what each contributor earned. Nothing is computed here.
     var scores: HealthScores?
+    /// The hours the charts span. A calendar day is 0–24; the window since
+    /// waking runs from the wake hour past midnight (26 is 2 AM the next day).
+    var hourDomain: ClosedRange<Double>
 
-    init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil) {
+    init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil,
+         hourDomain: ClosedRange<Double> = 0...24) {
         self.store = store
         self.dayKey = dayKey
         self.capabilities = capabilities
         self.scores = scores
+        self.hourDomain = hourDomain
     }
 
     var body: some View {
@@ -84,7 +89,7 @@ struct RingStatsSections: View {
                 }
                 if let selected { RingScrubRule(x: selected) }
             }
-            .chartXScale(domain: 0.0...24.0)
+            .chartXScale(domain: hourDomain)
             .chartXAxis { hourAxis }
             .chartXSelection(value: selection)
             .frame(height: 120)
@@ -169,7 +174,7 @@ struct RingStatsSections: View {
                 }
                 if let selected { RingScrubRule(x: selected) }
             }
-            .chartXScale(domain: 0.0...24.0)
+            .chartXScale(domain: hourDomain)
             .chartXAxis { hourAxis }
             .chartXSelection(value: selection)
             .frame(height: 150)
@@ -212,7 +217,7 @@ struct RingStatsSections: View {
                 }
                 if let selected { RingScrubRule(x: selected) }
             }
-            .chartXScale(domain: 0.0...24.0)
+            .chartXScale(domain: hourDomain)
             .chartYScale(domain: 80...100)
             .chartXAxis { hourAxis }
             .chartXSelection(value: selection)
@@ -254,7 +259,7 @@ struct RingStatsSections: View {
                 }
                 if let selected { RingScrubRule(x: selected) }
             }
-            .chartXScale(domain: 0.0...24.0)
+            .chartXScale(domain: hourDomain)
             .chartYScale(domain: .automatic(includesZero: false))
             .chartXAxis { hourAxis }
             .chartXSelection(value: selection)
@@ -329,7 +334,7 @@ struct RingStatsSections: View {
                     if let selected { RingScrubRule(x: selected) }
                 }
                 .chartYScale(domain: 0...100)
-                .chartXScale(domain: 0.0...24.0)
+                .chartXScale(domain: hourDomain)
                 .chartXAxis { hourAxis }
                 .chartXSelection(value: selection)
                 .frame(height: 130)
@@ -367,10 +372,18 @@ struct RingStatsSections: View {
     // MARK: Helpers
 
     private var hourAxis: some AxisContent {
-        AxisMarks(values: [0.0, 6, 12, 18, 24]) { value in
+        AxisMarks(values: hourMarks) { value in
             AxisGridLine()
             AxisValueLabel { Text(RingChartScrub.hourLabel(value.as(Double.self) ?? 0)) }
         }
+    }
+
+    /// Every six hours across a day; every three across a shorter window, so a
+    /// morning-to-now span still gets labels.
+    private var hourMarks: [Double] {
+        let step: Double = hourDomain.upperBound - hourDomain.lowerBound > 12 ? 6 : 3
+        let first = (hourDomain.lowerBound / step).rounded(.up) * step
+        return Array(stride(from: first, through: hourDomain.upperBound, by: step))
     }
 
     private func empty(_ text: String) -> some View {

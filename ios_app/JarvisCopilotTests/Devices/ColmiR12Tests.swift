@@ -139,7 +139,9 @@ final class ColmiR12Tests: XCTestCase {
         backend.link.script(0x21, [RingProtocol.frame(0x21, [2])])
         backend.link.script(0x21, [RingProtocol.frame(0x21, [1, 0x10, 0x27, 0, 0x20, 0xA1, 0x07, 0x88, 0x13, 0, 60, 0, 0xE0, 0x01])])
 
-        let result = try await ring.invoke("ring_set_goals", args: ["calories": 500])
+        // A goal counts as saved only when the ring reads back exactly what was
+        // written, so the write matches the scripted reply: 10000 steps, 500 kcal.
+        let result = try await ring.invoke("ring_set_goals", args: ["calories": 500, "steps": 10000])
 
         let goals = (result["settings"] as? [String: Any])?["goals"] as? [String: Any]
         XCTAssertEqual(goals?["kilocalories"] as? Int, 500)

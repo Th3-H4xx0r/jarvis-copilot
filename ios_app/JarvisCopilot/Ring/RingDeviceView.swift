@@ -7,7 +7,6 @@ struct RingDeviceView: View {
     @ObservedObject private var session: RingSession
     @ObservedObject private var sync: RingSync
 
-    @State private var dayOffset = 0
     @State private var renaming = false
     @State private var showingSettings = false
     @State private var findToken = 0
@@ -31,8 +30,10 @@ struct RingDeviceView: View {
             spaceID: HealthSpace.id(forRing: manager.deviceID ?? ring.id.uuidString)))
     }
 
+    /// Optional so previews and tests without the shell still build the screen.
+    @Environment(AppRouter.self) private var router: AppRouter?
+
     private var ready: Bool { manager.state == .ready }
-    private var dayKey: String { RingDates.dayKey(RingDates.midnight(daysAgo: dayOffset)) }
     private var today: RingDaySummary? { manager.store?.day(RingDates.dayKey(Date())).summary }
 
     var body: some View {
@@ -40,9 +41,6 @@ struct RingDeviceView: View {
             VStack(spacing: 20) {
                 hero
                 statusLine
-                // One row of pills on this screen, and it is the day picker.
-                // Measuring is an action, so it lives in the toolbar.
-                dayPicker
                 if let measurement = session.measurement { measurementCard(measurement) }
                 if let actionError {
                     Text(actionError)
@@ -51,25 +49,18 @@ struct RingDeviceView: View {
                         .padding(.horizontal, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                healthCard
-                if let store = manager.store {
-                    RingStatsSections(store: store, dayKey: dayKey, capabilities: session.capabilities,
-                                      scores: health.scores(for: dayKey))
-                } else {
-                    CardGroup {
-                        Row { Text("Connect the ring once to start collecting its data.").foregroundStyle(.secondary) }
-                    }
-                }
+                // Sleep, heart, stress and the battery are the person's, not the
+                // ring's: they live in the Health tab, merged with every other
+                // wearable. This screen is about the device.
+                healthLink
                 liveFromRing
                 settingsLink
             }
             .padding(.bottom, 40)
         }
         .refreshable {
-            await sync.sync(days: dayOffset)
-            await health.refresh(date: dayKey)
+            await sync.sync(days: 0)
         }
-        .task(id: dayKey) { await health.refresh(date: dayKey) }
         .navigationTitle(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name))
         .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name)) {
             WearableNames.shared.rename(WearableKeepAlive.ring, to: $0)
@@ -145,12 +136,31 @@ struct RingDeviceView: View {
         }
     }
 
-    private var healthCard: some View {
-        HealthScoreCard(scores: health.scores(for: dayKey),
-                        lastRefreshed: health.lastRefreshed(for: dayKey),
-                        isRefreshing: health.isRefreshing,
-                        error: health.lastError,
-                        onRefresh: { Task { _ = await health.runNow(date: dayKey) } })
+    /// Where this ring's readings went: the Health tab.
+    private var healthLink: some View {
+        CardGroup {
+            Button {
+                router?.selectedTab = .health
+            } label: {
+                Row(minHeight: 56) {
+                    HStack(spacing: 12) {
+                        JcIcon("heart.text.square.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(JcTheme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Body Battery, sleep and more")
+                                .font(.body.weight(.medium))
+                            Text("In the Health tab, from every linked wearable")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: Hero
@@ -413,35 +423,6 @@ struct RingDeviceView: View {
     }
 
     // MARK: Days
-
-    private var dayPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(0...sync.historyDays, id: \.self) { offset in
-                    Button {
-                        dayOffset = offset
-                    } label: {
-                        Text(dayLabel(offset))
-                            .font(.subheadline.weight(dayOffset == offset ? .semibold : .regular))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(dayOffset == offset ? JcTheme.accent.opacity(0.28) : Color.white.opacity(0.07),
-                                        in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private func dayLabel(_ offset: Int) -> String {
-        switch offset {
-        case 0: return "Today"
-        case 1: return "Yesterday"
-        default: return RingDates.midnight(daysAgo: offset).formatted(.dateTime.weekday(.abbreviated).day())
-        }
-    }
 
     // MARK: Live
 

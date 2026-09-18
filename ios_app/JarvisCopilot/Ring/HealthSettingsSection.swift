@@ -22,7 +22,7 @@ struct HealthSettingsSection: View {
             }
             RowDivider()
             Row {
-                Text("The server scores each day from the ring's readings and writes a short summary. Alerts are thresholds against your own baseline.")
+                Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
