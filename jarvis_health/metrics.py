@@ -121,6 +121,8 @@ class HealthDay:
     stress: Optional[Series] = None
     spo2: Optional[Series] = None
     temperature: Optional[Series] = None
+    #: Steps per 15-minute slot, so a window that starts mid-day can be summed.
+    steps: Optional[Series] = None
     activity: dict[str, Any] = field(default_factory=dict)
     measurements: list[dict] = field(default_factory=list)
     battery: dict[str, Any] = field(default_factory=dict)
@@ -155,6 +157,11 @@ class Baseline:
     hrv_days: int = 0
     resting_hr_days: int = 0
     window: int = 14
+    #: Sleeping HRV as log-RMSSD over the last nights (Plews/Buchheit): the mean
+    #: and spread a night is judged against, and how many nights built them.
+    ln_hrv_mean: Optional[float] = None
+    ln_hrv_sd: Optional[float] = None
+    hrv_nights: int = 0
 
     #: Below this many days a baseline-relative score would be noise.
     READY_DAYS = 4
@@ -199,6 +206,7 @@ def from_json(raw: dict) -> HealthDay:
         stress=_series(raw.get("stress")),
         spo2=_series(raw.get("spo2")),
         temperature=_series(raw.get("temperature")),
+        steps=_series(raw.get("steps")),
         activity=dict(raw.get("activity") or {}),
         measurements=list(raw.get("measurements") or []),
         battery=dict(raw.get("battery") or {}),

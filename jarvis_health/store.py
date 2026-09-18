@@ -24,15 +24,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "goals": {"steps": 10000, "active_minutes": 30},
     #: Display unit for temperatures in prose; the data is always Celsius.
     "temperature_unit": "celsius",
-    #: From the wearable's profile screen; heart-rate zones need age.
+    #: From the Health tab's profile; heart-rate zones need age.
     "profile": {"sex": "", "age": 0, "height_cm": 0, "weight_kg": 0},
-    #: Who this integration is about, filled in when the phone registers it.
-    "device_id": "",            # the wearable's own id
-    "bridge_device_id": "",     # the phone whose bridge reaches it
-    "kind": "",
-    "device_name": "",
+    #: Every wearable that feeds Jarvis Health (see `HealthStore.upsert_device`).
+    "devices": [],
+    #: Whose sleep, heart, HRV, stress, SpO₂ and temperature count when two
+    #: wearables overlap. Empty: the first one that reports them.
+    "primary_device": "",
     "timezone": "",
-    #: Created for a wearable, so it is not the user's to delete.
+    #: The per-wearable spaces this one absorbed (`jarvis_health.migrate`).
+    "migrated_from": [],
+    #: Created automatically for every wearable, so not the user's to delete.
     "protected": True,
 }
 
@@ -42,15 +44,27 @@ _HEX = re.compile(r"[0-9a-f]+")
 # date rides after a dash rather than in a path.
 DAY_PREFIX = "day-"
 SCORES_PREFIX = "scores-"
+BATTERY_PREFIX = "battery-"
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
+
+#: The one integration every wearable feeds. Protected: it can be paused or
+#: cleared, never deleted.
+SHARED_SPACE = "jarvis-health"
+SHARED_NAME = "Jarvis Health"
 
 
-def space_id_for(kind: str, device_id: str) -> str:
-    """A short, stable id: the device kind plus the head of its identifier."""
+def device_key_for(kind: str, device_id: str) -> str:
+    """The kind plus the head of the device's own id: `ring-b6ce93c4`."""
     head = ""
     for chunk in _HEX.findall((device_id or "").lower()):
         head = chunk
         break
-    return f"wearable-{kind}-{(head or 'unknown')[:8]}"
+    return f"{kind}-{(head or 'unknown')[:8]}"
+
+
+def space_id_for(kind: str, device_id: str) -> str:
+    """The space a wearable had to itself before Jarvis Health (migration only)."""
+    return f"wearable-{device_key_for(kind, device_id)}"
 
 
 def _merge(base: dict, updates: dict) -> dict:
@@ -65,17 +79,17 @@ def _merge(base: dict, updates: dict) -> dict:
 
 
 class HealthStore:
-    """One integration space, in the vocabulary of health rather than records."""
+    """The Jarvis Health space, in the vocabulary of health rather than records."""
 
-    def __init__(self, space_id: str, name: str = "", description: str = "") -> None:
+    def __init__(self, space_id: str = SHARED_SPACE, name: str = "", description: str = "") -> None:
         self.space_id = space_id
         from jarvis_registry.store import shared
 
         self._registry = shared()
         self._registry.space(
             space_id,
-            name=name or space_id,
-            description=description or "Health scores, alerts and stored days for one wearable.",
+            name=name or (SHARED_NAME if space_id == SHARED_SPACE else space_id),
+            description=description or "Health from every linked wearable: days, scores, battery and alerts.",
             icon="heart",
         )
         self._space = self._registry.open(space_id)
@@ -88,30 +102,95 @@ class HealthStore:
         merged = _merge(self.settings(), updates or {})
         merged["protected"] = True
         merged["updated_at"] = utc_now()
-        self._space.put("settings", merged, description="How this wearable's health analysis runs.")
+        self._space.put("settings", merged, description="How Jarvis Health runs.")
         return merged
 
     # ── days ────────────────────────────────────────────────────────────────
-    def put_day(self, day: HealthDay) -> None:
+    #
+    # One record per device per local day. The person's day is a merge of the
+    # linked devices' records (`jarvis_health.merge`), never stored twice.
+
+    def put_day(self, day: HealthDay, device: str) -> None:
         body = to_json(day)
         body["synced_at"] = day.synced_at or utc_now()
-        self._space.put(f"{DAY_PREFIX}{day.date}", body, description=f"Ring data for {day.date}.")
+        body["device"] = device
+        self._space.put(f"{DAY_PREFIX}{device}-{day.date}", body, description=f"{device} on {day.date}.")
 
-    def day(self, date: str) -> Optional[HealthDay]:
-        raw = self._space.get(f"{DAY_PREFIX}{date}")
+    def day(self, date: str, device: str) -> Optional[HealthDay]:
+        raw = self._space.get(f"{DAY_PREFIX}{device}-{date}")
         return from_json(raw) if isinstance(raw, dict) else None
 
-    def recent_days(self, count: int = 14) -> list[HealthDay]:
-        keys = sorted(
-            (d["key"] for d in self._space.documents() if str(d.get("key", "")).startswith(DAY_PREFIX)),
-            reverse=True,
-        )
-        days = [self.day(key[len(DAY_PREFIX):]) for key in keys[:count]]
-        return [d for d in days if d is not None]
+    def device_days(self, date: str) -> dict[str, HealthDay]:
+        """Every device's copy of one local day."""
+        suffix, out = f"-{date}", {}
+        for doc in self._space.documents():
+            key = str(doc.get("key", ""))
+            if key.startswith(DAY_PREFIX) and key.endswith(suffix):
+                device = key[len(DAY_PREFIX):-len(suffix)]
+                found = self.day(date, device)
+                if found is not None:
+                    out[device] = found
+        return out
 
-    def newest_day(self) -> Optional[HealthDay]:
-        days = self.recent_days(1)
-        return days[0] if days else None
+    def dates(self, count: int = 14) -> list[str]:
+        """The newest local dates any device has a day for, newest first."""
+        keys = [str(d.get("key", "")) for d in self._space.documents()]
+        found = {k[-10:] for k in keys if k.startswith(DAY_PREFIX) and _DATE.search(k)}
+        return sorted(found, reverse=True)[:count]
+
+    # ── wearables ───────────────────────────────────────────────────────────
+    #
+    # The roster lives in the settings document so the Integrations page shows
+    # it with everything else. Unlinking keeps a device's history; it only
+    # stops the sync and keeps its data out of the person's day.
+
+    def roster(self) -> list[dict]:
+        return [dict(d) for d in (self.settings().get("devices") or []) if isinstance(d, dict)]
+
+    def linked(self) -> list[dict]:
+        return [d for d in self.roster() if d.get("linked", True)]
+
+    def upsert_device(self, entry: dict) -> dict:
+        """Add a wearable or refresh it. New ones start linked; the link state is never reset."""
+        kind = str(entry.get("kind") or "").strip().lower()
+        device_id = str(entry.get("device_id") or "").strip()
+        key = entry.get("key") or device_key_for(kind, device_id)
+        fresh = {k: v for k, v in {
+            "key": key, "kind": kind, "device_id": device_id, "name": entry.get("name"),
+            "bridge_device_id": entry.get("bridge_device_id"), "timezone": entry.get("timezone"),
+        }.items() if v}
+        roster = self.roster()
+        current = next((d for d in roster if d.get("key") == key), None)
+        if current is None:
+            roster.append({**fresh, "linked": True, "added_at": utc_now()})
+        else:
+            current.update(fresh)
+        self.put_settings({"devices": roster})
+        return next(d for d in roster if d.get("key") == key)
+
+    def set_linked(self, device: str, linked: bool) -> Optional[dict]:
+        roster = self.roster()
+        entry = next((d for d in roster if d.get("key") == device), None)
+        if entry is None:
+            return None
+        entry["linked"] = bool(linked)
+        self.put_settings({"devices": roster})
+        return entry
+
+    def note_synced(self, device: str, at: str) -> None:
+        roster = self.roster()
+        for entry in roster:
+            if entry.get("key") == device:
+                entry["last_synced_at"] = at
+        self.put_settings({"devices": roster})
+
+    # ── battery ─────────────────────────────────────────────────────────────
+    def put_battery(self, date: str, payload: dict) -> None:
+        self._space.put(f"{BATTERY_PREFIX}{date}", payload, description=f"Body Battery for {date}.")
+
+    def battery(self, date: str) -> Optional[dict]:
+        raw = self._space.get(f"{BATTERY_PREFIX}{date}")
+        return raw if isinstance(raw, dict) else None
 
     # ── scores and baseline ─────────────────────────────────────────────────
     def put_scores(self, date: str, payload: dict) -> None:
@@ -132,6 +211,9 @@ class HealthStore:
                 "temperature": baseline.temperature,
                 "days_used": baseline.days_used,
                 "window": baseline.window,
+                "ln_hrv_mean": baseline.ln_hrv_mean,
+                "ln_hrv_sd": baseline.ln_hrv_sd,
+                "hrv_nights": baseline.hrv_nights,
                 "updated_at": utc_now(),
             },
             description="Rolling medians of your own days.",
@@ -147,6 +229,9 @@ class HealthStore:
             temperature=raw.get("temperature"),
             days_used=int(raw.get("days_used") or 0),
             window=int(raw.get("window") or 14),
+            ln_hrv_mean=raw.get("ln_hrv_mean"),
+            ln_hrv_sd=raw.get("ln_hrv_sd"),
+            hrv_nights=int(raw.get("hrv_nights") or 0),
         )
 
     # ── event streams ───────────────────────────────────────────────────────
