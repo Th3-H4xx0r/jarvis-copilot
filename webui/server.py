@@ -461,6 +461,16 @@ def main() -> None:
         # Recovery is best-effort; never block server startup.
         print(f"[recovery] startup recovery failed: {exc}", flush=True)
 
+    # Fold any per-wearable health space into the shared Jarvis Health one.
+    # Idempotent and best-effort: the runner retries on its next tick.
+    try:
+        from jarvis_health.migrate import migrate_wearable_spaces
+        moved = migrate_wearable_spaces().get("moved") or []
+        if moved:
+            print(f"[health] moved {', '.join(moved)} into Jarvis Health", flush=True)
+    except Exception as exc:
+        print(f"[health] migration to Jarvis Health failed: {exc}", flush=True)
+
     # ── Edge tunnel auto-start ───────────────────────────────────────────
     # If the operator left the Cloudflare tunnel enabled, re-launch nginx +
     # cloudflared (process state doesn't survive a server restart). Best-effort.

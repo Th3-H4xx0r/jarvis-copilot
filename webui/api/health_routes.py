@@ -1,16 +1,20 @@
-"""HTTP for wearable health: scores to read, days to push, settings to change.
+"""HTTP for Jarvis Health: the person's days, battery and settings.
 
-Settings have one owner — the wearable's own settings screen. A write must say
-it came from there, which keeps the Integrations page free to show the values
-without becoming a second place to edit them.
+One integration, `jarvis-health`, fed by every linked wearable. Settings have
+one owner — the Health tab's settings. A write must say it came from there,
+which keeps the Integrations page free to show the values without becoming a
+second place to edit them.
 
-    GET  /api/health/devices                             eligible wearables + spaces
-    POST /api/health/devices                             {devices: [...]} the phone's roster
-    GET  /api/integrations/<id>/health/settings           read settings
-    POST /api/integrations/<id>/health/settings           {source: "wearable-settings", ...}
-    GET  /api/integrations/<id>/health/day/<date>         scores + analysis for a local day
-    POST /api/integrations/<id>/health/day                {day: <ring day JSON>}
-    POST /api/integrations/<id>/health/run                run the analysis now
+    GET  /api/health/devices                               the wearables roster
+    POST /api/health/devices                               {devices: [...]} the phone's roster
+    GET  /api/integrations/jarvis-health/health/settings   read settings
+    POST /api/integrations/jarvis-health/health/settings   {source: "health-settings", ...}
+    GET  /api/integrations/jarvis-health/health/day?date=  the merged day, scores and battery
+    GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
+    GET  /api/integrations/jarvis-health/health/now        since the last wake
+    POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
+    POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
+    POST /api/integrations/jarvis-health/health/run        run the analysis now
 """
 from __future__ import annotations
 
@@ -19,20 +23,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 #: The only writer of health settings. Anything else is refused.
-SETTINGS_SOURCE = "wearable-settings"
+SETTINGS_SOURCE = "health-settings"
 
-_EDITED_IN = "the ring's wearable settings screen"
+_EDITED_IN = "the Health tab's settings"
 
 
 def _store(space_id: str):
     from jarvis_health.store import HealthStore
 
     return HealthStore(space_id)
-
-
-#: Health spaces are named by `jarvis_health.store.space_id_for`. Anything else
-#: — `general`, an integration the user made — is not ours to write into.
-_SPACE_PREFIX = "wearable-"
 
 
 def _exists(space_id: str) -> bool:
@@ -42,13 +41,16 @@ def _exists(space_id: str) -> bool:
 
 
 def _is_health_space(space_id: str) -> bool:
-    """Whether this id names a wearable's health space, and not just any space.
+    """Whether this id names Jarvis Health, and not just any space.
 
     Without this, every registry space reachable from the Integrations list was
     a valid target: a POST could rewrite `general`'s settings document with
-    health defaults and hang a cron job off it.
+    health defaults and hang a cron job off it. A `wearable-*` space still
+    answers until the migration folds it in.
     """
-    return space_id.startswith(_SPACE_PREFIX) and _exists(space_id)
+    from jarvis_health.store import SHARED_SPACE
+
+    return space_id == SHARED_SPACE or (space_id.startswith("wearable-") and _exists(space_id))
 
 
 def _split(path: str) -> tuple[str, str]:
@@ -86,18 +88,32 @@ def handle_get(handler, parsed) -> bool:
             j(handler, {"settings": store.settings(), "edited_in": _EDITED_IN})
             return True
 
-        if tail.startswith("day/"):
-            date = tail[len("day/"):]
-            day = store.day(date)
+        if tail == "day" or tail.startswith("day/"):
+            from urllib.parse import parse_qs
+
+            from jarvis_health.merge import merged_day
+            from jarvis_health.metrics import to_json
+
+            date = tail[len("day/"):] if tail.startswith("day/") else (parse_qs(parsed.query).get("date") or [""])[0]
+            merged = merged_day(store, date) if date else None
             j(
                 handler,
                 {
                     "date": date,
-                    "scores": store.scores(date),
-                    "has_data": day is not None,
-                    "synced_at": day.synced_at if day else None,
+                    "day": to_json(merged) if merged else None,
+                    "scores": store.scores(date) if date else None,
+                    "battery": store.battery(date) if date else None,
+                    "has_data": merged is not None,
+                    "synced_at": merged.synced_at if merged else None,
                 },
             )
+            return True
+
+        if tail == "now":
+            from jarvis_health.metrics import utc_now
+            from jarvis_health.window import since_wake
+
+            j(handler, since_wake(store, utc_now()))
             return True
 
         if tail == "runs":
@@ -121,19 +137,18 @@ def handle_post(handler, parsed, body) -> bool:
     body_dict = body if isinstance(body, dict) else {}
 
     if parsed.path == "/api/health/devices":
-        # The phone knows its own wearables; this is how an eligible one gets its
-        # integration without anybody opening a settings screen first.
+        # The phone knows its own wearables; this is how an eligible one joins
+        # Jarvis Health without anybody opening a settings screen first.
         roster = body_dict.get("devices")
         if not isinstance(roster, list):
             j(handler, {"error": "send {\"devices\": [...]} from the phone's roster"}, status=400)
             return True
         try:
-            from jarvis_health.bootstrap import ensure_wearable_integrations
+            from jarvis_health.bootstrap import ensure_health_integration
 
-            created = ensure_wearable_integrations(roster)
-            j(handler, {"ok": True, "spaces": created, "devices": devices()})
+            j(handler, {"ok": True, **ensure_health_integration(roster)})
         except Exception as exc:
-            logger.exception("health: could not ensure wearable integrations")
+            logger.exception("health: could not register wearables")
             j(handler, {"error": str(exc)}, status=500)
         return True
 
@@ -160,8 +175,16 @@ def handle_post(handler, parsed, body) -> bool:
                 return True
             updates = {k: v for k, v in body.items() if k not in ("source",)}
             settings = store.put_settings(updates)
-            _resync_schedule(space_id, settings)
+            _resync_schedule(settings)
             j(handler, {"settings": settings, "edited_in": _EDITED_IN})
+            return True
+
+        if tail.startswith("devices/"):
+            entry = store.set_linked(tail[len("devices/"):], bool(body.get("linked")))
+            if entry is None:
+                j(handler, {"error": "no such wearable in Jarvis Health"}, status=404)
+                return True
+            j(handler, {"device": entry})
             return True
 
         if tail == "day":
@@ -170,27 +193,19 @@ def handle_post(handler, parsed, body) -> bool:
                 j(handler, {"error": "a day needs a 'date'"}, status=400)
                 return True
             from jarvis_health.sources.ring import day_from_ring_json
+            from jarvis_health.store import device_key_for
 
-            tz = raw.get("timezone") or "UTC"
-            day = day_from_ring_json(raw, raw["date"], tz)
-            store.put_day(day)
+            kind = raw.get("source") or "ring"
+            device_id = raw.get("device_id") or body.get("device_id") or ""
+            day = day_from_ring_json(raw, raw["date"], raw.get("timezone") or "UTC")
+            store.put_day(day, device_key_for(kind, device_id))
             j(handler, {"ok": True, "date": day.date, "timezone": day.timezone})
             return True
 
         if tail == "run":
-            settings = store.settings()
-            kind = settings.get("kind") or "ring"
-            wearable_id = settings.get("device_id") or ""
-            bridge_id = settings.get("bridge_device_id") or ""
-            if not wearable_id or not bridge_id:
-                j(handler, {"error": "this integration has no paired phone yet"}, status=409)
-                return True
-
             import jarvis_health.runner as runner
-            from jarvis_health.sources import source_for
 
-            out = runner.run(space_id, source_for(kind, bridge_id, wearable_id),
-                             trigger=body.get("trigger") or "manual")
+            out = runner.run(space_id, trigger=body.get("trigger") or "manual")
             j(handler, {"run": out})
             return True
     except Exception as exc:
@@ -202,38 +217,17 @@ def handle_post(handler, parsed, body) -> bool:
 
 
 def devices() -> list[dict]:
-    """Every wearable with a health integration, newest settings included."""
-    from jarvis_registry.store import shared
+    """Every wearable Jarvis Health knows, with its link state and last sync."""
+    from jarvis_health.store import HealthStore
 
-    out = []
-    for space in shared().spaces():
-        space_id = space.get("id") or ""
-        if not space_id.startswith("wearable-"):
-            continue
-        settings = _store(space_id).settings()
-        out.append(
-            {
-                "space_id": space_id,
-                "kind": settings.get("kind") or space_id.split("-")[1],
-                "device_id": settings.get("device_id") or "",
-                "name": settings.get("device_name") or space.get("name") or space_id,
-                "enabled": bool(settings.get("enabled", True)),
-                "frequency": settings.get("frequency"),
-            }
-        )
-    return out
+    return HealthStore().roster()
 
 
-def _resync_schedule(space_id: str, settings: dict) -> None:
+def _resync_schedule(settings: dict) -> None:
     """A frequency or an enabled flag only means something once cron agrees."""
     try:
         from jarvis_health.bootstrap import ensure_schedule
 
-        ensure_schedule(
-            space_id,
-            settings,
-            device_id=settings.get("device_id") or "",
-            kind=settings.get("kind") or "ring",
-        )
+        ensure_schedule(settings)
     except Exception:
-        logger.exception("health: could not re-sync the schedule for %s", space_id)
+        logger.exception("health: could not re-sync the Jarvis Health schedule")

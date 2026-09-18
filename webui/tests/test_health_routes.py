@@ -1,7 +1,7 @@
 """The health endpoints the phone reads, and the one rule about who may write.
 
-Settings belong to the wearable's own screen: a write that does not come from
-there is refused, so the Integrations page can show them without owning them.
+Settings belong to the Health tab: a write that does not come from there is
+refused, so the Integrations page can show them without owning them.
 """
 import json
 import sys
@@ -55,16 +55,15 @@ def health(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "JOBS_FILE", tmp_path / "cron" / "jobs.json")
     (tmp_path / "cron").mkdir(parents=True, exist_ok=True)
 
-    from jarvis_health.bootstrap import ensure_wearable_integrations
+    from jarvis_health.bootstrap import ensure_health_integration
 
-    space_id = ensure_wearable_integrations([{
+    return ensure_health_integration([{
         "kind": "ring",
         "device_id": "B6CE93C4-5680",
         "name": "R12_7E04",
         "bridge_device_id": "iphone-1",
         "timezone": "America/Chicago",
-    }])[0]
-    return space_id
+    }])["space"]
 
 
 def get(path):
@@ -83,13 +82,16 @@ def post(path, body):
     return claimed, handler
 
 
-def test_a_run_without_a_paired_phone_says_so_rather_than_guessing(health):
+def test_a_run_with_no_reachable_wearable_says_so_rather_than_guessing(tmp_path, monkeypatch):
+    import jarvis_registry.store as store_module
+
+    monkeypatch.setattr(store_module, "shared", lambda: store_module.Registry(tmp_path / "r.db"))
     from jarvis_health.store import HealthStore
 
-    HealthStore(health).put_settings({"bridge_device_id": ""})
-    claimed, handler = post(f"/api/integrations/{health}/health/run", {})
-    assert claimed and handler.status == 409
-    assert "phone" in handler.payload["error"]
+    HealthStore().upsert_device({"kind": "ring", "device_id": "aaaa0000"})  # no phone to reach it
+    claimed, handler = post("/api/integrations/jarvis-health/health/run", {})
+    assert claimed and handler.status == 200
+    assert handler.payload["run"]["skipped"] == "unreachable"
 
 
 def test_the_phone_can_register_its_wearables_and_repeats_are_idempotent(tmp_path, monkeypatch):
@@ -109,10 +111,10 @@ def test_the_phone_can_register_its_wearables_and_repeats_are_idempotent(tmp_pat
     ]
     claimed, handler = post("/api/health/devices", {"devices": roster})
     assert claimed and handler.status == 200
-    assert handler.payload["spaces"] == ["wearable-ring-b6ce93c4"]
+    assert handler.payload["space"] == "jarvis-health"
 
     claimed, again = post("/api/health/devices", {"devices": roster})
-    assert again.payload["spaces"] == ["wearable-ring-b6ce93c4"]
+    assert again.payload["space"] == "jarvis-health"
     assert len(again.payload["devices"]) == 1, "the bottle reports nothing worth scoring"
 
 
@@ -127,32 +129,32 @@ def test_paths_that_are_not_ours_are_left_alone(health):
     assert post("/api/integrations", {})[0] is False
 
 
-def test_eligible_devices_are_listed_with_their_space(health):
+def test_wearables_are_listed_from_the_shared_roster(health):
     claimed, handler = get("/api/health/devices")
     assert claimed and handler.status == 200
     devices = handler.payload["devices"]
-    assert devices[0]["space_id"] == health
-    assert devices[0]["kind"] == "ring"
+    assert devices[0]["key"] == "ring-b6ce93c4"
+    assert devices[0]["kind"] == "ring" and devices[0]["linked"] is True
 
 
 def test_settings_are_readable_and_say_where_they_are_edited(health):
     claimed, handler = get(f"/api/integrations/{health}/health/settings")
     assert claimed and handler.status == 200
     assert handler.payload["settings"]["enabled"] is True
-    assert "wearable" in handler.payload["edited_in"]
+    assert "Health tab" in handler.payload["edited_in"]
 
 
-def test_only_the_wearable_screen_may_write_settings(health):
+def test_only_the_health_tab_may_write_settings(health):
     claimed, handler = post(
         f"/api/integrations/{health}/health/settings",
-        {"source": "wearable-settings", "model": "claude-opus-5"},
+        {"source": "health-settings", "model": "claude-opus-5"},
     )
     assert claimed and handler.status == 200
     assert handler.payload["settings"]["model"] == "claude-opus-5"
 
     claimed, refused = post(f"/api/integrations/{health}/health/settings", {"model": "sneaky"})
     assert claimed and refused.status == 403
-    assert "wearable" in refused.payload["error"]
+    assert "Health tab" in refused.payload["error"]
 
     claimed, handler = get(f"/api/integrations/{health}/health/settings")
     assert handler.payload["settings"]["model"] == "claude-opus-5"
@@ -163,7 +165,7 @@ def test_a_settings_change_rewrites_the_schedule(health):
 
     post(
         f"/api/integrations/{health}/health/settings",
-        {"source": "wearable-settings", "frequency": "hourly"},
+        {"source": "health-settings", "frequency": "hourly"},
     )
     owned = [j for j in jobs.load_jobs() if j.get("integration") == health]
     assert owned and owned[0]["schedule"]["minutes"] == 60
@@ -172,7 +174,7 @@ def test_a_settings_change_rewrites_the_schedule(health):
 def test_a_rule_threshold_can_be_edited_alone(health):
     claimed, handler = post(
         f"/api/integrations/{health}/health/settings",
-        {"source": "wearable-settings", "rules": {"short_sleep": {"threshold": 4}}},
+        {"source": "health-settings", "rules": {"short_sleep": {"threshold": 4}}},
     )
     rules = handler.payload["settings"]["rules"]
     assert rules["short_sleep"]["threshold"] == 4
@@ -185,6 +187,8 @@ def test_pushing_a_day_stores_it_and_a_second_push_replaces_it(health):
         "timezone": "America/Chicago",
         "activity": {"steps": 100},
         "heart_rate": {"interval_minutes": 5, "values": [0, 70, 72]},
+        "source": "ring",
+        "device_id": "B6CE93C4-5680",
     }
     claimed, handler = post(f"/api/integrations/{health}/health/day", {"day": day})
     assert claimed and handler.status == 200
@@ -196,8 +200,8 @@ def test_pushing_a_day_stores_it_and_a_second_push_replaces_it(health):
     from jarvis_health.store import HealthStore
 
     store = HealthStore(health)
-    assert store.day("2026-09-17").activity["steps"] == 900
-    assert len(store.recent_days(10)) == 1
+    assert store.day("2026-09-17", "ring-b6ce93c4").activity["steps"] == 900
+    assert store.dates(10) == ["2026-09-17"]
 
 
 def test_a_day_without_a_date_is_refused(health):
@@ -226,7 +230,7 @@ def test_run_now_reports_what_the_run_did(health, monkeypatch):
 
     monkeypatch.setattr(runner, "run", lambda *a, **k: {"scored_date": "2026-09-17", "stale": False})
     # The run needs both identities; the roster supplied them.
-    claimed, handler = post(f"/api/integrations/{health}/health/run", {"source": "wearable-settings"})
+    claimed, handler = post(f"/api/integrations/{health}/health/run", {"source": "health-settings"})
     assert claimed and handler.status == 200
     assert handler.payload["run"]["scored_date"] == "2026-09-17"
 
@@ -266,7 +270,7 @@ def test_health_writes_are_refused_for_a_space_that_is_not_a_wearables(health):
     shared().space("general", name="General", description="not a wearable")
 
     claimed, handler = post("/api/integrations/general/health/settings",
-                            {"source": "wearable-settings", "device_id": "PWN", "kind": "ring"})
+                            {"source": "health-settings", "device_id": "PWN", "kind": "ring"})
     assert claimed and handler.status == 404
 
     claimed, day = post("/api/integrations/general/health/day", {"day": {"date": "2026-09-17"}})

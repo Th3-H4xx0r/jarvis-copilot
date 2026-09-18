@@ -1,5 +1,13 @@
 """Every store test gets its own registry file, never the real one."""
+import sys
+from pathlib import Path
+
 import pytest
+
+# The HTTP routes live in the web UI package (`api.*`).
+_WEBUI = str(Path(__file__).resolve().parents[2] / "webui")
+if _WEBUI not in sys.path:
+    sys.path.insert(0, _WEBUI)
 
 
 @pytest.fixture
