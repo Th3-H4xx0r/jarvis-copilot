@@ -16,6 +16,8 @@ struct BatteryCard: View {
 
     /// Where a finger is on the curve: the card reads the level there.
     @State private var scrubbed: Date?
+    /// Seen at least once: the ring has filled and the curve has drawn in.
+    @State private var revealed = false
 
     var body: some View {
         CardGroup(HealthScores.batteryName) {
@@ -58,13 +60,15 @@ struct BatteryCard: View {
                 }
             }
         }
+        .onScrolledIntoView { if !revealed { revealed = true } }
+        .scrollReveal()
     }
 
     // MARK: Pieces
 
     /// The level and its ring — now, or wherever a finger is on the curve.
     private func headline(level: Double, battery: HealthBattery, picked: HealthCurvePoint?) -> some View {
-        BatteryGauge(level: picked?.level ?? level,
+        BatteryGauge(level: revealed ? (picked?.level ?? level) : 0,
                      band: picked.map { Self.band(for: $0.level) } ?? battery.band,
                      caption: picked.map { caption($0, battery) } ?? battery.band,
                      highlighted: picked != nil)
@@ -130,6 +134,11 @@ struct BatteryCard: View {
             }
         }
         .chartXSelection(value: $scrubbed)
+        // Drawn in from the left the first time the card is seen.
+        .mask(alignment: .leading) {
+            Rectangle().scaleEffect(x: revealed ? 1 : 0.001, anchor: .leading)
+        }
+        .animation(.easeOut(duration: 0.9), value: revealed)
         .chartYScale(domain: 0...100)
         .chartYAxis {
             AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in

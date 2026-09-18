@@ -86,6 +86,7 @@
 		202CB7D0FDE90C5FF546927D /* WatchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C412DA32916AA322252F7 /* WatchViewModel.swift */; };
 		20321F8055AC19E205D75845 /* ModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D89067327C774329148C3B3 /* ModelSelectionTests.swift */; };
 		2073C8F5A1ECF84DE20A7363 /* InsightsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */; };
+		20F4BDF6C2711BC5546B4AD5 /* ScrollReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98268B38A607FD59C5EC1AA1 /* ScrollReveal.swift */; };
 		211502404AAF2AF713193FB1 /* LongTermMemoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B659300802E9BA5F5211D96D /* LongTermMemoryPage.swift */; };
 		21B913BFC6D3643F40EF23B5 /* DevicesSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = E65C7FEBF3AC91BF52EC0C38 /* DevicesSections.swift */; };
 		22E89C08B8BF96B93366F9DE /* PairPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED69956E5A404410D189DB90 /* PairPage.swift */; };
@@ -989,6 +990,7 @@
 		96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatLinkGuard.swift; sourceTree = "<group>"; };
 		9711C75711CD06B21F08800F /* MemoryKeyValueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryKeyValueStore.swift; sourceTree = "<group>"; };
 		9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationSkillView.swift; sourceTree = "<group>"; };
+		98268B38A607FD59C5EC1AA1 /* ScrollReveal.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScrollReveal.swift; sourceTree = "<group>"; };
 		9842E7C2B666413BF841A0CB /* LocalCommandMatcher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalCommandMatcher.swift; sourceTree = "<group>"; };
 		99007A8FDBB3E8969C37916F /* PcmChunker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcmChunker.swift; sourceTree = "<group>"; };
 		9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesPage.swift; sourceTree = "<group>"; };
@@ -2394,6 +2396,7 @@
 				400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */,
 				3797784518854B8FB0ABD75F /* RingMeasureController.swift */,
 				D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */,
+				98268B38A607FD59C5EC1AA1 /* ScrollReveal.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -3213,6 +3216,7 @@
 				CA11E0EC541EFC5D50B47989 /* RingMeasureController.swift in Sources */,
 				FB4819B08A7CB5076F2280D3 /* RingMeasureList.swift in Sources */,
 				DD63E14CDF272F8ACD2A0765 /* SleepDebtCard.swift in Sources */,
+				20F4BDF6C2711BC5546B4AD5 /* ScrollReveal.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

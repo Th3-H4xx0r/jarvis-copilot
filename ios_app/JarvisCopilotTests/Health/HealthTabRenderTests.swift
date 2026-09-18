@@ -154,6 +154,64 @@ final class HealthTabRenderTests: XCTestCase {
                                     times: [0, 0.15, 0.3, 0.45, 0.6, 0.8, 1.0, 1.2])
     }
 
+    /// The step ring fills from empty and the count rolls down to what is
+    /// left, the moment the card is seen.
+    func testTheStepGoalRingFillsWhenSeen() throws {
+        final class Driver: ObservableObject { @Published var revealed = false }
+        struct Ring: View {
+            @ObservedObject var driver: Driver
+            var body: some View {
+                HStack(spacing: 24) {
+                    RingGoalRing(value: 7_520, goal: 10_000, revealed: driver.revealed)
+                    RingGoalRing(value: 12_400, goal: 10_000, revealed: driver.revealed)
+                }
+                .padding(20)
+            }
+        }
+        let driver = Driver()
+        try RenderHarness.filmstrip(Ring(driver: driver), size: CGSize(width: 200, height: 110), name: "health-step-ring",
+                                    changes: [{ driver.revealed = true }],
+                                    times: [0, 0.15, 0.3, 0.5, 0.75, 1.1, 1.5])
+    }
+
+    /// Scrolling the tab: cards rise and fade in, charts draw in from the left.
+    func testCardsRevealAsTheyScrollIn() throws {
+        final class Driver: ObservableObject { @Published var target: String? }
+        struct Page: View {
+            @ObservedObject var driver: Driver
+            let store: RingHistoryStore
+            var body: some View {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 22) {
+                            Color.clear.frame(height: 1).id("top")
+                            RingStatsSections(store: store, dayKey: "2026-09-17", capabilities: RingCapabilities(),
+                                              stepGoal: 10_000)
+                            Color.clear.frame(height: 1).id("bottom")
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .onChange(of: driver.target) { _, target in
+                        withAnimation(.easeInOut(duration: 0.6)) { proxy.scrollTo(target, anchor: .bottom) }
+                    }
+                }
+            }
+        }
+        let store = RingHistoryStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString))
+        store.update("2026-09-17") { day in
+            day.stepSlots = (28..<80).map { RingStepSlot(slot: $0, steps: 100 + ($0 % 5) * 90, calories: 0, distanceMeters: 0) }
+            day.activity = RingActivity(steps: 7520, runningSteps: 0, calories: 280_000, distanceMeters: 5100, sportMinutes: 31)
+            day.heartRate = RingSeries(intervalMinutes: 30, values: (0..<40).map { 58 + Double($0 % 7) * 6 })
+            day.stress = RingSeries(intervalMinutes: 30, values: (0..<40).map { 20 + Double($0 % 8) * 8 })
+        }
+        let driver = Driver()
+        try RenderHarness.filmstrip(Page(driver: driver, store: store), size: CGSize(width: 402, height: 700),
+                                    name: "health-scroll-reveal",
+                                    changes: [{ driver.target = "bottom" }],
+                                    times: [0, 0.2, 0.4, 0.6, 0.9, 1.3])
+    }
+
     func testTheSettingsListDataSources() throws {
         let devices = [
             HealthRosterDevice(key: "ring-b6ce93c4", kind: "ring", name: "Colmi R12", linked: true,

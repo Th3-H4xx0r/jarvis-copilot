@@ -101,6 +101,8 @@ final class HealthTabModel: ObservableObject {
                 Self.writeNow(fresh, to: directory)
                 // Last night's sleep score and the analysis live on the day it ended.
                 await health.refresh(date: Self.scoresDate(fresh))
+                // The step goal the activity ring counts toward.
+                if health.settings == nil { await health.refreshSettings() }
             case .day(let date):
                 let response = try await client.day(date)
                 cache.update(date) { $0 = response.day?.ringDay() ?? RingDay(date: date) }

@@ -37,6 +37,8 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     /// A Measure button for a reading taken now; while it runs, the headline
     /// is the ring's live number.
     var measure: RingCardMeasure?
+    /// A goal the headline counts toward (steps), drawn as a ring in the corner.
+    var goal: (value: Int, target: Int)?
     /// Shown in place of the chart when there is nothing to plot.
     var emptyText: String?
     /// The reading under the finger, or nil for a gap.
@@ -45,6 +47,8 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
     @ViewBuilder let chart: (_ selected: X?, _ selection: Binding<X?>) -> ChartBody
 
     @State private var selection: X?
+    /// Seen at least once: the chart has drawn in and any ring has filled.
+    @State private var revealed = false
 
     private var scrubbed: RingScrubReadout? {
         guard let selection else { return nil }
@@ -65,10 +69,17 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             } else {
                 chart(selection, $selection)
                     .padding(14)
+                    // Drawn in from the left the first time the card is seen.
+                    .mask(alignment: .leading) {
+                        Rectangle().scaleEffect(x: revealed ? 1 : 0.001, anchor: .leading)
+                    }
+                    .animation(.easeOut(duration: 0.9), value: revealed)
                     .accessibilityHint("Drag across the chart to see the reading at each time")
             }
         }
         .sensoryFeedback(.selection, trigger: scrubbed)
+        .onScrolledIntoView { if !revealed { revealed = true } }
+        .scrollReveal()
     }
 
     private var isMeasuring: Bool {
@@ -117,6 +128,9 @@ struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
             if let measure {
                 Spacer(minLength: 12)
                 RingMeasureButton(measure: measure)
+            } else if let goal {
+                Spacer(minLength: 12)
+                RingGoalRing(value: goal.value, goal: goal.target, revealed: revealed)
             } else if let badge {
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {

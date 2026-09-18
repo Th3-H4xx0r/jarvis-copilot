@@ -16,13 +16,16 @@ struct RingStatsSections: View {
     var hourDomain: ClosedRange<Double>
     /// The week's sleep debt, shown under the sleep card when there is one.
     var sleepDebt: HealthSleepDebt?
+    /// The daily step goal: the activity card's ring counts toward it.
+    var stepGoal: Int?
     /// A card's Measure control, for the metrics a wearable can read on demand.
     var measure: (RingMeasurementType) -> RingCardMeasure?
 
     init(store: RingHistoryStore, dayKey: String, capabilities: RingCapabilities, scores: HealthScores? = nil,
-         hourDomain: ClosedRange<Double> = 0...24, sleepDebt: HealthSleepDebt? = nil,
+         hourDomain: ClosedRange<Double> = 0...24, sleepDebt: HealthSleepDebt? = nil, stepGoal: Int? = nil,
          measure: @escaping (RingMeasurementType) -> RingCardMeasure? = { _ in nil }) {
         self.sleepDebt = sleepDebt
+        self.stepGoal = stepGoal
         self.store = store
         self.dayKey = dayKey
         self.capabilities = capabilities
@@ -85,6 +88,7 @@ struct RingStatsSections: View {
                 RingStat(label: "Active", value: s.activeMinutes.map { "\($0) min" }),
                 RingStat(label: "Running steps", value: day.activity.map { $0.runningSteps.formatted() }),
             ],
+            goal: stepGoal.map { (value: s.steps ?? 0, target: $0) },
             emptyText: day.stepSlots.isEmpty ? "No step timeline for this day" : nil,
             readout: { (hour: Double) -> RingScrubReadout? in
                 let at = RingChartScrub.steps(day.stepSlots, hour: hour)

@@ -24,7 +24,7 @@ struct HealthTab: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 26) {
                         dayRow
                         if let window = model.window(for: selection) {
                             HealthDayHeader(window: window, isToday: selection == .today)
@@ -45,6 +45,7 @@ struct HealthTab: View {
                                       scores: scores,
                                       hourDomain: hourDomain,
                                       sleepDebt: model.sleepDebt(for: selection),
+                                      stepGoal: model.health.settings?.goals.steps ?? 10_000,
                                       measure: { type in
                                           // A reading taken now belongs to today, not a day gone.
                                           selection == .today ? measure.card(type, from: .health) : nil
