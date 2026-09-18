@@ -14,7 +14,7 @@ struct RingWearPrompt: View {
     @State private var glow = false
 
     /// How far above its resting place the ring starts each loop.
-    private let travel: CGFloat = 66
+    private let travel: CGFloat = 58
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,23 +31,30 @@ struct RingWearPrompt: View {
                 .padding(.top, 8)
 
             stage
-                .frame(height: 190)
-                .padding(.top, 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 10)
 
             Button(action: onDismiss) {
                 Text("Not now")
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 50)
+                    .frame(height: 54)
                     .jcLiquidGlass(in: Capsule(), tint: .clear)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 22)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A shade lighter than the page behind it, so the sheet reads as a
+        // layer above the screen rather than a hole in it.
+        .background(RingWearPrompt.sheetBackground)
     }
+
+    /// Slightly lighter than the app's black page.
+    static let sheetBackground = Color(white: 0.07)
 
     // MARK: The gesture
 
@@ -60,19 +67,19 @@ struct RingWearPrompt: View {
                     .frame(width: 82, height: 82)
                     .scaleEffect(glow ? 1.8 : 0.8)
                     .opacity(glow ? 0 : 0.65)
-                    .offset(y: 6)
+                    .offset(y: 2)
                     .animation(.easeOut(duration: 2.4).repeatForever(autoreverses: false)
                                 .delay(Double(index) * 1.2), value: glow)
             }
 
             FingerView()
-                .frame(width: 72, height: 158)
-                .offset(y: 14)
+                .frame(width: 66, height: 146)
+                .offset(y: 26)
 
             // Above the finger in the stack, so it genuinely passes over it.
             RingSceneView(spin: false, entrance: false, pulsing: seated, cameraDistance: 5.2)
-                .frame(width: 146, height: 146)
-                .offset(y: seated ? 6 : -travel)
+                .frame(width: 140, height: 140)
+                .offset(y: seated ? 2 : -travel)
                 .scaleEffect(seated ? 1 : 1.06)
                 .shadow(color: .black.opacity(0.5), radius: 14, y: 10)
                 .allowsHitTesting(false)
