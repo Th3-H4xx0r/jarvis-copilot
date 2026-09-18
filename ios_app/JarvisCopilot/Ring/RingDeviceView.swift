@@ -15,6 +15,8 @@ struct RingDeviceView: View {
     /// The measurement waiting for the ring to be worn, if any.
     @State private var wearPrompt: RingMeasurementType?
     @State private var wearRetry: Task<Void, Never>?
+    /// Clears the measurement card a few seconds after the reading lands.
+    @State private var measurementFade: Task<Void, Never>?
     @StateObject private var health: HealthStore
 
     init(manager: RingManager, ring: DiscoveredRing) {
@@ -74,6 +76,8 @@ struct RingDeviceView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            // A result from an earlier visit is history, not a reading.
+            session.clearFinishedMeasurement()
             manager.screenIsOpen = true
             if manager.connected?.id != ring.id || !manager.linkIsUp { manager.connect(ring) }
         }
@@ -105,11 +109,18 @@ struct RingDeviceView: View {
                 showWearPrompt(for: type)
             case .done:
                 dismissWearPrompt()
+                fadeMeasurementCard()
+            case .failed, .cancelled, .timedOut, .notWorn:
+                fadeMeasurementCard()
             default:
                 break
             }
         }
-        .onDisappear { wearRetry?.cancel() }
+        .onDisappear {
+            wearRetry?.cancel()
+            measurementFade?.cancel()
+            session.clearFinishedMeasurement()
+        }
         .navigationDestination(isPresented: $showingSettings) {
             RingSettingsView(manager: manager, health: health)
         }
@@ -243,6 +254,16 @@ struct RingDeviceView: View {
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    /// Leave the result up long enough to read, then take the card away.
+    private func fadeMeasurementCard() {
+        measurementFade?.cancel()
+        measurementFade = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            session.clearFinishedMeasurement()
         }
     }
 

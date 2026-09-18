@@ -474,6 +474,16 @@ final class RingSession: ObservableObject {
         finishMeasurement(.cancelled)
     }
 
+    /// Forget a measurement that has finished.
+    ///
+    /// The result is worth showing for a moment and then gone: a card still
+    /// reading "85 bpm" from a visit half an hour ago looks like a live reading.
+    /// A running measurement is never dropped.
+    func clearFinishedMeasurement() {
+        guard measurement?.isActive != true else { return }
+        measurement = nil
+    }
+
     /// Waits until the current measurement ends or `timeout` passes; returns the latest state.
     func awaitMeasurement(timeout: TimeInterval) async -> RingMeasurementState? {
         let deadline = Date().addingTimeInterval(timeout)
