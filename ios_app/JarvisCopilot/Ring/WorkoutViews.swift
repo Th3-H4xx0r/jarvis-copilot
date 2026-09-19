@@ -177,6 +177,8 @@ struct WorkoutLiveView: View {
             case .running, .paused, .ending:
                 if let strength = workout.strength {
                     StrengthLiveView(workout: workout, session: strength)
+                } else if workout.sport?.outdoor == true {
+                    RouteLiveView(workout: workout)
                 } else {
                     live
                 }

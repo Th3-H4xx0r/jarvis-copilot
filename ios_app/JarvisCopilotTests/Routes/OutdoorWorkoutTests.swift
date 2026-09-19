@@ -34,6 +34,14 @@ final class FakeLocation: WorkoutLocationTracking {
         return (route?.points.count ?? 0) >= 2 ? route : nil
     }
 
+    /// A fix at a place and time.
+    func fix(lat: Double, lon: Double, at time: Date, altitude: Double? = nil) {
+        let fix = RouteFix(time: time, lat: lat, lon: lon, horizontalAccuracy: 5, altitude: altitude,
+                           verticalAccuracy: altitude == nil ? nil : 4, speed: nil)
+        _ = recording?.take(fix, heartRate: heartRate?(), pressureAltitude: altitude, now: time)
+        update?(progress)
+    }
+
     /// A fix `meters` north of the start, at `time`.
     func fix(_ meters: Double, at time: Date, altitude: Double? = nil) {
         let fix = RouteFix(time: time, lat: 40 + meters / RouteMathTests.metersPerDegree, lon: -105,

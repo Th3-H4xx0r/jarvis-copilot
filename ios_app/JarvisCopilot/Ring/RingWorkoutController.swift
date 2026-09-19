@@ -195,6 +195,12 @@ final class RingWorkoutController: ObservableObject {
                              zone: tick.heartRate.map { Self.zone($0, age: age()) })
     }
 
+    /// The route so far, for the live map.
+    var liveRoute: WorkoutRoute? { location?.route }
+    /// The phone's pedometer (a phone-only workout's steps and cadence).
+    var phoneSteps: Int? { location?.steps }
+    var phoneCadence: Int? { location?.cadence }
+
     /// Where strength workouts keep their templates and history.
     var strengthStore: TrainingStore { training ?? .shared }
 
