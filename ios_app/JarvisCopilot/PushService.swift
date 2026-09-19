@@ -13,7 +13,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil)
     -> Bool {
-        Task { @MainActor in PushService.shared.registerIfPaired() }
+        Task { @MainActor in
+            PushService.shared.registerIfPaired()
+            // Listens for ring syncs from here on, and catches up now.
+            AppleHealthSync.shared.syncSoon(after: 5)
+        }
         return true
     }
 

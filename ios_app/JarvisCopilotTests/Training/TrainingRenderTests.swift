@@ -193,8 +193,13 @@ final class TrainingRenderTests: XCTestCase {
                                 size: CGSize(width: 402, height: 1100), name: "strength-edit")
     }
 
-    func testTheWorkoutsSettingsCard() throws {
-        try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel()).workouts.padding(.top, 20) },
-                                size: CGSize(width: 402, height: 400), name: "strength-settings")
+    func testTheAppleHealthSettingsCard() throws {
+        try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel()).appleHealthCard.padding(.top, 20) },
+                                size: CGSize(width: 402, height: 300), name: "apple-health-off")
+        UserDefaults.standard.set(true, forKey: "jc.health.appleHealth")
+        defer { UserDefaults.standard.removeObject(forKey: "jc.health.appleHealth") }
+        let writer = AppleHealthWriter()
+        try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel(), appleHealth: writer).appleHealthCard.padding(.top, 20) },
+                                size: CGSize(width: 402, height: 900), name: "apple-health-on")
     }
 }

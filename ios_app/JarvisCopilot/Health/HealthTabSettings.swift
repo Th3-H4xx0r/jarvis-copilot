@@ -14,7 +14,8 @@ struct HealthTabSettings: View {
     @State private var sleepGoal = 480
     @State private var age = 30
     @State private var saving = false
-    @ObservedObject private var appleHealth = AppleHealthWriter.shared
+    @ObservedObject var appleHealth = AppleHealthWriter.shared
+    @ObservedObject var healthSync = AppleHealthSync.shared
     @AppStorage("jc.training.unit") private var unit: TrainingUnit = TrainingUnit.regional
 
     var body: some View {
@@ -43,7 +44,7 @@ struct HealthTabSettings: View {
                                                                 embedded: true)
                                       })
                     personal
-                    workouts
+                    appleHealthCard
                 }
                 .padding(.top, 8)
                 .padding(.bottom, 40)
@@ -81,6 +82,14 @@ struct HealthTabSettings: View {
                 .pickerStyle(.segmented)
             }
             RowDivider()
+            Row {
+                Picker("Lifts", selection: $unit) {
+                    Text("kg").tag(TrainingUnit.kg)
+                    Text("lb").tag(TrainingUnit.lb)
+                }
+                .pickerStyle(.segmented)
+            }
+            RowDivider()
             Row { Stepper("Steps \(stepsGoal.formatted())", value: $stepsGoal, in: 1000...40_000, step: 500) }
             RowDivider()
             Row { Stepper("Active \(activeGoal) min", value: $activeGoal, in: 10...240, step: 5) }
@@ -110,12 +119,12 @@ struct HealthTabSettings: View {
 }
 
 extension HealthTabSettings {
-    /// Where workouts go besides Jarvis Health, and the unit lifts are logged in.
-    var workouts: some View {
-        CardGroup("Workouts", footer: appleHealth.problem
-                  ?? "Every workout — runs, walks, lifting — is saved to Apple Health with its heart rate, calories and distance, so it counts toward your Activity rings.") {
+    /// What Jarvis keeps in Apple Health: one switch for all of it, then one
+    /// per kind of data.
+    var appleHealthCard: some View {
+        CardGroup("Apple Health", footer: appleHealth.problem ?? appleHealthFooter) {
             Row {
-                Toggle("Save to Apple Health", isOn: Binding(
+                Toggle("Sync with Apple Health", isOn: Binding(
                     get: { appleHealth.enabled },
                     set: { on in
                         Task { await appleHealth.setEnabled(on) }
@@ -123,20 +132,97 @@ extension HealthTabSettings {
                     .tint(JcTheme.accent)
                     .disabled(!appleHealth.isAvailable)
             }
-            RowDivider()
-            Row {
-                HStack {
-                    Text("Weights in")
-                    Spacer()
-                    Picker("Weights in", selection: $unit) {
-                        Text("kg").tag(TrainingUnit.kg)
-                        Text("lb").tag(TrainingUnit.lb)
+            if appleHealth.enabled {
+                ForEach(AppleHealthKind.allCases) { kind in
+                    RowDivider()
+                    AppleHealthKindRow(kind: kind, access: healthSync.access(kind), isOn: Binding(
+                        get: { healthSync.isOn(kind) },
+                        set: { healthSync.set(kind, $0) }))
+                }
+                let unasked = AppleHealthKind.allCases.filter { healthSync.isOn($0) && healthSync.access($0) == .notAsked }
+                if !unasked.isEmpty {
+                    RowDivider()
+                    Row {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Permission needed")
+                                Text(unasked.count > 3
+                                     ? "\(unasked[0].title), \(unasked[1].title) and \(unasked.count - 2) more"
+                                     : unasked.map(\.title).formatted(.list(type: .and)))
+                                    .font(.caption)
+                                    .foregroundStyle(JcTheme.muted)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Button("Allow") {
+                                Task { await healthSync.syncNow() }
+                            }
+                            .buttonStyle(.jcGlass(compact: true))
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 120)
+                }
+                RowDivider()
+                Row {
+                    HStack {
+                        Text(syncLine)
+                            .font(.subheadline)
+                            .foregroundStyle(JcTheme.muted)
+                            .contentTransition(.opacity)
+                        Spacer()
+                        Button(healthSync.syncing ? "Syncing…" : "Sync now") {
+                            Task { await healthSync.syncNow() }
+                        }
+                        .buttonStyle(.jcGlass(compact: true))
+                        .disabled(healthSync.syncing)
+                    }
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: appleHealth.enabled)
+    }
+
+    private var appleHealthFooter: String {
+        appleHealth.enabled
+            ? "Your ring's days and your weigh-ins are written after each sync, workouts when they end. Writing again replaces, never duplicates."
+            : "Keeps your workouts, heart rate, steps, sleep and weight in Apple Health, so they count toward your Activity rings."
+    }
+
+    private var syncLine: String {
+        guard let last = healthSync.lastSynced else { return "Not synced yet" }
+        if Date().timeIntervalSince(last) < 60 { return "Synced just now" }
+        return "Synced " + last.formatted(.relative(presentation: .named))
+    }
+}
+
+/// One kind of data and its switch, with a word when Apple Health won't take it.
+struct AppleHealthKindRow: View {
+    let kind: AppleHealthKind
+    let access: AppleHealthSync.Access
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Row {
+            Toggle(isOn: $isOn) {
+                HStack(spacing: 12) {
+                    Image(systemName: kind.symbol)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(isOn ? JcTheme.accent : JcTheme.muted)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(kind.title)
+                        if isOn, let note {
+                            Text(note).font(.caption).foregroundStyle(JcTheme.muted)
+                        }
+                    }
+                }
+            }
+            .tint(JcTheme.accent)
+        }
+    }
+
+    /// Only a refusal needs saying here; not-yet-asked is one row for all.
+    private var note: String? {
+        access == .denied ? "Off in Settings › Health › Data Access" : nil
     }
 }
 

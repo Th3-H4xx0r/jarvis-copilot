@@ -50,6 +50,7 @@
 		0D1A5926568E663AD4DF4BBB /* ProfilesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419A48CB3F0A5BBA8E2741CA /* ProfilesModels.swift */; };
 		0D71CED774F4761CD29B88B8 /* ChatAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58650A5C9B15B6832F2CB9D0 /* ChatAPITests.swift */; };
 		0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */; };
+		0E08A4E71E8B533FBA967C64 /* AppleHealthSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */; };
 		0E417891F65C1C75850F30E3 /* OnDeviceAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */; };
 		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
 		0EF5FC37A0A94387FDEF2139 /* SpeechAnalyzerServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */; };
@@ -607,6 +608,7 @@
 		E9B341DEABFCA975D7859735 /* CodingStreamReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E79232515B9F15B54012F055 /* CodingStreamReducerTests.swift */; };
 		EA5A0780E650B5B115D13B9F /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */; };
 		EA8E931ED6CF10EB9ECB5C58 /* JarvisWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 4757C5F4EF7713DDC093F1BE /* JarvisWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EAD8FCF8B7098D55B5044126 /* AppleHealthSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */; };
 		EB20C1045E46B6FBF26BB4C2 /* RingInputs.swift in Sources */ = {isa = PBXBuildFile; fileRef = B406EEC86BD8AD9A765E55BC /* RingInputs.swift */; };
 		EB3653AF37C362BF3DC16C40 /* EndpointerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D11906CB17D802304BE126 /* EndpointerTests.swift */; };
 		EC14C36CC09CE319961BC110 /* VoiceModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */; };
@@ -724,6 +726,7 @@
 		01F941B5EAA9C62201055E85 /* HealthTab.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTab.swift; sourceTree = "<group>"; };
 		022844154506DD1C8D094A52 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCoreTests.swift; sourceTree = "<group>"; };
+		02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthSync.swift; sourceTree = "<group>"; };
 		034FFC524E870F818694414F /* VoiceReply.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReply.swift; sourceTree = "<group>"; };
 		04285B3485FA6A403C8B069A /* ExercisePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExercisePicker.swift; sourceTree = "<group>"; };
 		044FE3473B389F40EB81E9F3 /* ContactLookup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookup.swift; sourceTree = "<group>"; };
@@ -1055,6 +1058,7 @@
 		8EA9D4EC439F17779A618B99 /* SessionsSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionsSheet.swift; sourceTree = "<group>"; };
 		8EAFEA64E85B7CB1E54D034B /* Speaker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Speaker.swift; sourceTree = "<group>"; };
 		8F4EF0043628B8C251DDD12F /* SceneCanvas.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneCanvas.swift; sourceTree = "<group>"; };
+		8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncTests.swift; sourceTree = "<group>"; };
 		907745A44283F094FFADAC60 /* PickerSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PickerSheet.swift; sourceTree = "<group>"; };
 		9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatDashboardStoreTests.swift; sourceTree = "<group>"; };
 		909C387EC141D206ED743368 /* NavShell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NavShell.swift; sourceTree = "<group>"; };
@@ -1759,6 +1763,7 @@
 				1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */,
 				453F1881C3D4B7E9F8509168 /* ScaleUploader.swift */,
 				6F26EE8116FF48964B72C773 /* WeightCard.swift */,
+				02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -2114,6 +2119,7 @@
 				F07303A1314D5457F4210C74 /* HealthTabRenderTests.swift */,
 				1DB082EB68D2196ADC144F0C /* HealthHistoryTests.swift */,
 				C2F60B76A48FCF7E435B836D /* WeightTests.swift */,
+				8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -2994,6 +3000,7 @@
 				64D46A9B5575FD2E4D5C1F0C /* AppleHealthPlannerTests.swift in Sources */,
 				B4FD01264217310C2FECBE61 /* WeightTests.swift in Sources */,
 				07858C14AA2A0A27DE12000D /* WorkoutConfirmTests.swift in Sources */,
+				0E08A4E71E8B533FBA967C64 /* AppleHealthSyncTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3439,6 +3446,7 @@
 				BEF0404F0984E6D47DE96269 /* WeightCard.swift in Sources */,
 				5FEC7BFE31420A3DA3BD793F /* WorkoutConfirmView.swift in Sources */,
 				C7B75F5A6DA5EA4F6BBC6C49 /* WearableModelView.swift in Sources */,
+				EAD8FCF8B7098D55B5044126 /* AppleHealthSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3695,7 +3703,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts — heart rate, calories and distance — to Apple Health so they count toward your Activity rings.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
@@ -3802,7 +3810,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts — heart rate, calories and distance — to Apple Health so they count toward your Activity rings.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";

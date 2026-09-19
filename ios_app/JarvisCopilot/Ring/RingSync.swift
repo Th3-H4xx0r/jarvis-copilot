@@ -124,6 +124,7 @@ final class RingSync: ObservableObject {
         let task = Task { () -> RingSyncReport in
             let report = await self.perform(days: days)
             if self.running?.id == id { self.running = nil }
+            NotificationCenter.default.post(name: .jcRingDaysSynced, object: nil)
             return report
         }
         running = (id, days, task)
@@ -143,6 +144,7 @@ final class RingSync: ObservableObject {
             for metric in RingMetric.allCases where metrics.contains(metric) {
                 try? await self.run(metric, store: store, days: 0, now: today)
             }
+            NotificationCenter.default.post(name: .jcRingDaysSynced, object: nil)
         }
     }
 

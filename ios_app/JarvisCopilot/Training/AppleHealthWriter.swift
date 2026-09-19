@@ -134,7 +134,10 @@ final class AppleHealthWriter: ObservableObject {
             return false
         }
         do {
-            try await healthStore.requestAuthorization(toShare: shareTypes, read: [HKObjectType.workoutType()])
+            // Everything Jarvis can keep there, asked once; the switches in
+            // Health settings decide what is actually written.
+            try await healthStore.requestAuthorization(toShare: shareTypes.union(AppleHealthSync.shared.shareTypes),
+                                                       read: [HKObjectType.workoutType()])
         } catch {
             JcLog.dropped(JcLog.devices, "apple health permission", error)
             // A build signed without the HealthKit capability is refused
@@ -144,11 +147,15 @@ final class AppleHealthWriter: ObservableObject {
                 : "Apple Health couldn't be reached. Try again in a moment."
             return false
         }
-        enabled = isAuthorized
+        // On if Apple Health allowed any of it; what each kind may write is
+        // shown by its own switch.
+        enabled = shareTypes.union(AppleHealthSync.shared.shareTypes)
+            .contains { healthStore.authorizationStatus(for: $0) == .sharingAuthorized }
         if !enabled {
             problem = "Apple Health said no. Allow Jarvis in Settings › Health › Data Access & Devices, then turn this on again."
         }
         UserDefaults.standard.set(enabled, forKey: enabledKey)
+        if enabled { Task { await AppleHealthSync.shared.syncNow() } }
         return enabled
     }
 
@@ -159,7 +166,7 @@ final class AppleHealthWriter: ObservableObject {
 
     /// Save (or replace) a workout in Apple Health.
     func export(_ workout: RingWorkout) async {
-        guard enabled, isAuthorized else { return }
+        guard enabled, isAuthorized, AppleHealthSync.shared.isOn(.workouts) else { return }
         let id = AppleHealthPlanner.syncID(workout.start)
         let version = (versions[id] ?? 0) + 1
         // Whatever is filed under this workout goes first — an edit, or a

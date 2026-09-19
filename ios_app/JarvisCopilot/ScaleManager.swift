@@ -125,6 +125,7 @@ final class ScaleManager: NSObject, ObservableObject {
             impedance: observation.impedanceOhms, metrics: metrics, scaleUnit: .kilograms))
         // Into Jarvis Health at once, so the Health tab's weight is this one.
         Task { await ScaleUploader.flush() }
+        AppleHealthSync.shared.syncSoon()
     }
 
     /// Mirrors the stock app's post-subscription initialization. The scale uses this
