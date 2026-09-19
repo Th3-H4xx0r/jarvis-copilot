@@ -15,7 +15,6 @@ struct HealthTabSettings: View {
     @State private var age = 30
     @State private var saving = false
     @ObservedObject private var appleHealth = AppleHealthWriter.shared
-    @State private var appleHealthRefused = false
     @AppStorage("jc.training.unit") private var unit: TrainingUnit = TrainingUnit.regional
 
     var body: some View {
@@ -113,14 +112,13 @@ struct HealthTabSettings: View {
 extension HealthTabSettings {
     /// Where workouts go besides Jarvis Health, and the unit lifts are logged in.
     var workouts: some View {
-        CardGroup("Workouts", footer: appleHealthRefused
-                  ? "Apple Health said no. Allow Jarvis in Settings › Health › Data Access & Devices, then turn this on again."
-                  : "Every workout — runs, walks, lifting — is saved to Apple Health with its heart rate, calories and distance, so it counts toward your Activity rings.") {
+        CardGroup("Workouts", footer: appleHealth.problem
+                  ?? "Every workout — runs, walks, lifting — is saved to Apple Health with its heart rate, calories and distance, so it counts toward your Activity rings.") {
             Row {
                 Toggle("Save to Apple Health", isOn: Binding(
                     get: { appleHealth.enabled },
                     set: { on in
-                        Task { appleHealthRefused = !(await appleHealth.setEnabled(on)) && on }
+                        Task { await appleHealth.setEnabled(on) }
                     }))
                     .tint(JcTheme.accent)
                     .disabled(!appleHealth.isAvailable)

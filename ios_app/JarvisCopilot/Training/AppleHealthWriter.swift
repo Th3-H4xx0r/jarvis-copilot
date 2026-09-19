@@ -117,22 +117,37 @@ final class AppleHealthWriter: ObservableObject {
         return types
     }
 
+    /// Why the last attempt to turn it on failed, in the person's words.
+    @Published private(set) var problem: String?
+
     /// Turning it on asks for permission; it stays off if that is refused.
     @discardableResult
     func setEnabled(_ on: Bool) async -> Bool {
+        problem = nil
         guard on else {
             enabled = false
             UserDefaults.standard.set(false, forKey: enabledKey)
             return true
         }
-        guard isAvailable else { return false }
+        guard isAvailable else {
+            problem = "Apple Health isn't available on this device."
+            return false
+        }
         do {
             try await healthStore.requestAuthorization(toShare: shareTypes, read: [HKObjectType.workoutType()])
         } catch {
             JcLog.dropped(JcLog.devices, "apple health permission", error)
+            // A build signed without the HealthKit capability is refused
+            // before anyone is asked.
+            problem = "\(error)".localizedCaseInsensitiveContains("entitlement")
+                ? "This build of Jarvis can't reach Apple Health yet — it needs the HealthKit capability."
+                : "Apple Health couldn't be reached. Try again in a moment."
             return false
         }
         enabled = isAuthorized
+        if !enabled {
+            problem = "Apple Health said no. Allow Jarvis in Settings › Health › Data Access & Devices, then turn this on again."
+        }
         UserDefaults.standard.set(enabled, forKey: enabledKey)
         return enabled
     }
