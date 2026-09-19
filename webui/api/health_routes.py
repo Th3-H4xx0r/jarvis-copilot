@@ -14,6 +14,12 @@ second place to edit them.
     GET  /api/integrations/jarvis-health/health/now        today: last night's bedtime to now, the same shape
     GET  /api/integrations/jarvis-health/health/history?metric=&range=&end=  a metric's W/M/6M/Y history
     POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
+    GET  /api/integrations/jarvis-health/health/workouts?since=&until=&kind=strength  saved workouts (a reinstall's history)
+    POST /api/integrations/jarvis-health/health/workouts/delete  {start, device_id, source} remove one
+    GET  /api/integrations/jarvis-health/health/training   {templates, exercises, settings} for strength training
+    POST /api/integrations/jarvis-health/health/training/templates  {template}   (…/templates/delete {id})
+    POST /api/integrations/jarvis-health/health/training/exercises  {exercise}   (…/exercises/delete {id})
+    POST /api/integrations/jarvis-health/health/training/settings   {settings: {exercise id: {...} | null}}
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -111,7 +117,23 @@ def handle_get(handler, parsed) -> bool:
 
             out = today(store, utc_now())
             j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"]),
-                        "workouts": store.workouts(out["start"], "9999-12-31T00:00:00Z")})
+                        "workouts": store.workouts(out["start"], "9999-12-31T00:00:00Z"),
+                        # The phone's workout effort is measured against it.
+                        "resting_hr": store.baseline().resting_hr})
+            return True
+
+        if tail == "workouts":
+            from urllib.parse import parse_qs
+
+            query = parse_qs(parsed.query)
+            since = (query.get("since") or ["1970-01-01T00:00:00Z"])[0]
+            until = (query.get("until") or ["9999-12-31T00:00:00Z"])[0]
+            kind = (query.get("kind") or [""])[0] or None
+            j(handler, {"workouts": store.workouts(since, until, kind)})
+            return True
+
+        if tail == "training":
+            j(handler, store.training())
             return True
 
         if tail == "history":
@@ -226,6 +248,19 @@ def handle_post(handler, parsed, body) -> bool:
             j(handler, {"ok": True, "workout": store.put_workout(workout, device)})
             return True
 
+        if tail == "workouts/delete":
+            from jarvis_health.store import device_key_for
+
+            if not body.get("start"):
+                j(handler, {"error": "say which workout: its 'start'"}, status=400)
+                return True
+            device = device_key_for(body.get("source") or "ring", body.get("device_id") or "")
+            j(handler, {"ok": True, "deleted": store.delete_workout(body["start"], device)})
+            return True
+
+        if tail.startswith("training/"):
+            return _training_post(handler, store, tail[len("training/"):], body)
+
         if tail == "run":
             import jarvis_health.runner as runner
 
@@ -261,3 +296,34 @@ def _resync_schedule(settings: dict) -> None:
         ensure_schedule(settings)
     except Exception:
         logger.exception("health: could not re-sync the Jarvis Health schedule")
+
+
+def _training_post(handler, store, what: str, body: dict) -> bool:
+    """Templates, custom exercises and per-exercise settings, as the phone saves them."""
+    from api.helpers import j
+
+    try:
+        if what in ("templates", "exercises"):
+            item = body.get(what[:-1])
+            if not isinstance(item, dict):
+                j(handler, {"error": f"send {{\"{what[:-1]}\": {{...}}}}"}, status=400)
+                return True
+            saved = store.put_template(item) if what == "templates" else store.put_exercise(item)
+            j(handler, {"ok": True, what[:-1]: saved})
+            return True
+        if what in ("templates/delete", "exercises/delete"):
+            deleted = (store.delete_template if what.startswith("templates") else store.delete_exercise)(body.get("id"))
+            j(handler, {"ok": True, "deleted": deleted})
+            return True
+        if what == "settings":
+            settings = body.get("settings")
+            if not isinstance(settings, dict):
+                j(handler, {"error": "send {\"settings\": {exercise id: {...}}}"}, status=400)
+                return True
+            j(handler, {"ok": True, "settings": store.put_training_settings(settings)})
+            return True
+    except ValueError as exc:
+        j(handler, {"error": str(exc)}, status=400)
+        return True
+    j(handler, {"error": f"no training endpoint {what!r}"}, status=404)
+    return True

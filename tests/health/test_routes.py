@@ -152,3 +152,45 @@ def test_a_saved_workout_shows_on_its_day(routes):
 
 def test_a_workout_needs_its_times(routes):
     assert _post(routes, f"{BASE}/workouts", {"workout": {"sport": 7}}).status == 400
+
+
+def test_training_documents_round_trip(routes):
+    HealthStore()
+    template = {"id": "a1", "name": "Push Day", "order": 0, "exercises": []}
+    assert _post(routes, f"{BASE}/training/templates", {"template": template}).status == 200
+    assert _post(routes, f"{BASE}/training/exercises", {"exercise": {"id": "custom-x", "name": "X"}}).status == 200
+    assert _post(routes, f"{BASE}/training/settings", {"settings": {"Plank": {"rest_s": 60}}}).status == 200
+    got = _get(routes, f"{BASE}/training").body
+    assert got["templates"] == [template]
+    assert got["exercises"] == [{"id": "custom-x", "name": "X"}]
+    assert got["settings"] == {"Plank": {"rest_s": 60}}
+    assert _post(routes, f"{BASE}/training/templates/delete", {"id": "a1"}).body == {"ok": True, "deleted": True}
+    assert _post(routes, f"{BASE}/training/exercises/delete", {"id": "custom-x"}).body == {"ok": True, "deleted": True}
+    assert _get(routes, f"{BASE}/training").body["templates"] == []
+
+
+def test_a_bad_training_id_is_a_400(routes):
+    HealthStore()
+    bad = _post(routes, f"{BASE}/training/templates", {"template": {"id": "No Good", "name": "x"}})
+    assert bad.status == 400 and "id" in bad.body["error"]
+    assert _post(routes, f"{BASE}/training/templates", {}).status == 400
+
+
+def test_workouts_list_by_kind_and_delete(routes):
+    HealthStore()
+    lift = {"sport": 88, "sport_name": "Strength", "start": "2026-09-19T10:00:00Z", "end": "2026-09-19T11:00:00Z",
+            "strength": {"name": "Push", "exercises": []}}
+    run = {"sport": 7, "sport_name": "Run", "start": "2026-09-19T12:00:00Z", "end": "2026-09-19T12:30:00Z"}
+    for w in (lift, run):
+        assert _post(routes, f"{BASE}/workouts", {"workout": w, "device_id": "aaaa0000"}).status == 200
+    assert len(_get(routes, f"{BASE}/workouts").body["workouts"]) == 2
+    lifts = _get(routes, f"{BASE}/workouts?kind=strength").body["workouts"]
+    assert [w["sport"] for w in lifts] == [88]
+    gone = _post(routes, f"{BASE}/workouts/delete", {"start": "2026-09-19T10:00:00Z", "device_id": "aaaa0000"})
+    assert gone.body == {"ok": True, "deleted": True}
+    assert [w["sport"] for w in _get(routes, f"{BASE}/workouts").body["workouts"]] == [7]
+
+
+def test_now_carries_the_resting_heart_rate(routes):
+    HealthStore()
+    assert "resting_hr" in _get(routes, f"{BASE}/now").body

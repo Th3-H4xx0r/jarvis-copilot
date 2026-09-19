@@ -48,6 +48,22 @@ BATTERY_PREFIX = "battery-"
 WORKOUT_PREFIX = "workout-"
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 
+# Strength training the phone keeps here: templates and custom exercises one
+# document each, and every exercise's settings (rest, bar, kind, pinned note)
+# in one.
+TEMPLATE_PREFIX = "template-"
+EXERCISE_PREFIX = "exercise-"
+TRAINING_SETTINGS = "training-settings"
+_TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,80}")
+
+
+def _training_id(value: Any) -> str:
+    """An id the phone chose, checked before it becomes part of a key."""
+    text = str(value or "")
+    if not _TRAINING_ID.fullmatch(text):
+        raise ValueError(f"not a usable id: {text!r} (lowercase letters, digits, - and _)")
+    return text
+
 #: The one integration every wearable feeds. Protected: it can be paused or
 #: cleared, never deleted.
 SHARED_SPACE = "jarvis-health"
@@ -195,10 +211,14 @@ class HealthStore:
     # One record per session, keyed by device and start so a re-sent save
     # replaces its copy instead of doubling it.
 
+    @staticmethod
+    def _workout_key(start: Any, device: str) -> str:
+        # Registry keys allow lowercase, digits, - and _ only: the start's digits.
+        return f"{WORKOUT_PREFIX}{device}-{''.join(c for c in str(start) if c.isdigit())}"
+
     def put_workout(self, workout: dict, device: str) -> dict:
         body = {**workout, "device": device}
-        # Registry keys allow lowercase, digits, - and _ only: the start's digits.
-        key = f"{WORKOUT_PREFIX}{device}-{''.join(c for c in str(workout['start']) if c.isdigit())}"
+        key = self._workout_key(workout["start"], device)
         self._space.put(key, body, description=f"{workout.get('sport_name') or 'Workout'} at {workout['start']}.")
         # History keeps old days' summaries; the workout's day changed.
         from . import history
@@ -206,8 +226,9 @@ class HealthStore:
         history.forget(self, str(workout["start"])[:10])
         return body
 
-    def workouts(self, start: str, end: str) -> list[dict]:
-        """Workouts that began in [start, end), oldest first."""
+    def workouts(self, start: str, end: str, kind: Optional[str] = None) -> list[dict]:
+        """Workouts that began in [start, end), oldest first. `kind="strength"`
+        keeps only those that carry a strength log."""
         begin, finish = parse_instant(start), parse_instant(end)
         out = []
         for doc in self._space.documents():
@@ -215,9 +236,67 @@ class HealthStore:
             if not key.startswith(WORKOUT_PREFIX):
                 continue
             raw = self._space.get(key)
-            if isinstance(raw, dict) and raw.get("start") and begin <= parse_instant(raw["start"]) < finish:
-                out.append(raw)
+            if not (isinstance(raw, dict) and raw.get("start") and begin <= parse_instant(raw["start"]) < finish):
+                continue
+            if kind == "strength" and not isinstance(raw.get("strength"), dict):
+                continue
+            out.append(raw)
         return sorted(out, key=lambda w: w["start"])
+
+    def delete_workout(self, start: str, device: str) -> bool:
+        """Remove one workout: deleted, or edited so that it now starts elsewhere."""
+        gone = self._space.delete_document(self._workout_key(start, device))
+        if gone:
+            from . import history
+
+            history.forget(self, str(start)[:10])
+        return gone
+
+    # ── strength training ───────────────────────────────────────────────────
+    def _documents(self, prefix: str) -> list[dict]:
+        out = []
+        for doc in self._space.documents():
+            key = str(doc.get("key", ""))
+            if key.startswith(prefix):
+                raw = self._space.get(key)
+                if isinstance(raw, dict):
+                    out.append(raw)
+        return out
+
+    def training(self) -> dict:
+        """Templates (in their order), custom exercises and per-exercise settings."""
+        templates = sorted(self._documents(TEMPLATE_PREFIX),
+                           key=lambda t: (t.get("order", 0), str(t.get("name", ""))))
+        exercises = sorted(self._documents(EXERCISE_PREFIX), key=lambda e: str(e.get("name", "")))
+        return {"templates": templates, "exercises": exercises,
+                "settings": self._space.get(TRAINING_SETTINGS) or {}}
+
+    def put_template(self, template: dict) -> dict:
+        key = TEMPLATE_PREFIX + _training_id(template.get("id"))
+        self._space.put(key, template, description=f"Workout template {template.get('name') or ''}.".strip())
+        return template
+
+    def delete_template(self, template_id: str) -> bool:
+        return self._space.delete_document(TEMPLATE_PREFIX + _training_id(template_id))
+
+    def put_exercise(self, exercise: dict) -> dict:
+        key = EXERCISE_PREFIX + _training_id(exercise.get("id"))
+        self._space.put(key, exercise, description=f"Custom exercise {exercise.get('name') or ''}.".strip())
+        return exercise
+
+    def delete_exercise(self, exercise_id: str) -> bool:
+        return self._space.delete_document(EXERCISE_PREFIX + _training_id(exercise_id))
+
+    def put_training_settings(self, updates: dict) -> dict:
+        """Merge each exercise's changes into its settings; `None` clears them."""
+        current = dict(self._space.get(TRAINING_SETTINGS) or {})
+        for exercise_id, change in (updates or {}).items():
+            if change is None:
+                current.pop(exercise_id, None)
+            elif isinstance(change, dict):
+                current[exercise_id] = {**current.get(exercise_id, {}), **change}
+        self._space.put(TRAINING_SETTINGS, current, description="Each exercise's rest timers, bar, kind and pinned note.")
+        return current
 
     def put_battery(self, date: str, payload: dict) -> None:
         self._space.put(f"{BATTERY_PREFIX}{date}", payload, description=f"Body Battery for {date}.")
