@@ -39,7 +39,7 @@ struct RingWorkoutActivity: Widget {
                     .monospacedDigit()
                 }
                 Spacer()
-                if let rest = RestWindow(context.state) {
+                if let rest = RestWindow(context) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("Rest").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
                         Text(timerInterval: rest.range, countsDown: true)
@@ -56,7 +56,7 @@ struct RingWorkoutActivity: Widget {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .overlay(alignment: .bottom) {
-                if let rest = RestWindow(context.state) {
+                if let rest = RestWindow(context) {
                     ProgressView(timerInterval: rest.range, countsDown: true) { EmptyView() } currentValueLabel: { EmptyView() }
                         .tint(Color(red: 1, green: 0.76, blue: 0.3))
                         .padding(.horizontal, 18)
@@ -74,7 +74,7 @@ struct RingWorkoutActivity: Widget {
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if let rest = RestWindow(context.state) {
+                    if let rest = RestWindow(context) {
                         Text(timerInterval: rest.range, countsDown: true)
                             .font(.system(size: 28, weight: .semibold, design: .rounded))
                             .monospacedDigit()
@@ -89,7 +89,7 @@ struct RingWorkoutActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if let detail = context.state.detail {
-                        Text(RestWindow(context.state) == nil ? detail : "Next: \(detail)")
+                        Text(RestWindow(context) == nil ? detail : "Next: \(detail)")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.75))
                             .lineLimit(1)
@@ -112,7 +112,7 @@ struct RingWorkoutActivity: Widget {
             } compactLeading: {
                 Image(systemName: context.attributes.symbol).foregroundStyle(tint)
             } compactTrailing: {
-                if let rest = RestWindow(context.state) {
+                if let rest = RestWindow(context) {
                     Text(timerInterval: rest.range, countsDown: true)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -155,8 +155,9 @@ struct WorkoutTimerText: View {
 struct RestWindow: Equatable {
     let range: ClosedRange<Date>
 
-    init?(_ state: RingWorkoutAttributes.ContentState) {
-        guard let ends = state.restEnds, ends > Date() else { return nil }
+    init?(_ context: ActivityViewContext<RingWorkoutAttributes>) {
+        let state = context.state
+        guard !context.isStale, let ends = state.restEnds, ends > Date() else { return nil }
         range = min(state.restStarted ?? ends, ends)...ends
     }
 }

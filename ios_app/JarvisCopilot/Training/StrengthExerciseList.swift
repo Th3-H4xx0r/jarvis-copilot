@@ -39,11 +39,11 @@ struct StrengthExerciseList: View {
             .padding(.top, 4)
         }
         .confirmationDialog("Superset with", isPresented: Binding(get: { linking != nil }, set: { if !$0 { linking = nil } }),
-                            titleVisibility: .visible) {
-            ForEach(session.log.exercises.filter { $0.id != linking }) { other in
-                Button(other.name) {
-                    if let linking { withAnimation(.snappy) { session.superset(linking, with: other.id) } }
-                }
+                            titleVisibility: .visible, presenting: linking) { exercise in
+            // The exercise is handed in, not read back: the dialog clears
+            // `linking` as it closes.
+            ForEach(session.log.exercises.filter { $0.id != exercise }) { other in
+                Button(other.name) { withAnimation(.snappy) { session.superset(exercise, with: other.id) } }
             }
             Button("Cancel", role: .cancel) {}
         }

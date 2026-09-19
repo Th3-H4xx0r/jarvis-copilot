@@ -18,6 +18,24 @@ struct SetKeypad: View {
     }
 
     var body: some View {
+        keypad
+            // Out here, not on the keypad itself: it has to hear the keypad
+            // closing too, or the next cell starts with the last one's digits.
+            .onChange(of: session.focus) { _, focus in
+                buffer = nil
+                panel = .digits
+                if focus != nil {
+                    // One keyboard at a time: a set cell closes the system one.
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                // …and a text field closes this one.
+                if session.focus != nil { withAnimation(.snappy) { session.focus = nil } }
+            }
+    }
+
+    @ViewBuilder private var keypad: some View {
         if let focus, let entry {
             VStack(spacing: 10) {
                 HStack {
@@ -47,10 +65,6 @@ struct SetKeypad: View {
             .padding(.bottom, 8)
             .background(JcTheme.surface.ignoresSafeArea(edges: .bottom))
             .overlay(alignment: .top) { Rectangle().fill(JcTheme.glassBorder).frame(height: 0.5) }
-            .onChange(of: session.focus) { _, _ in
-                buffer = nil
-                panel = .digits
-            }
             .transition(.move(edge: .bottom))
         }
     }
@@ -168,7 +182,7 @@ struct SetKeypad: View {
     }
 
     private func bar(_ exercise: LoggedExercise) -> Double? {
-        session.store.settings(for: exercise.exerciseID).barKg ?? session.exercise(for: exercise)?.equipment.defaultBarKg
+        session.store.settings(for: exercise.exerciseID).barKg ?? session.exercise(for: exercise)?.equipment.defaultBar(session.unit)
     }
 
     private func plates(_ entry: (exercise: LoggedExercise, set: LoggedSet, index: Int)) -> some View {
@@ -216,7 +230,7 @@ struct SetKeypad: View {
             let s = Int(value)
             return String(s / 60) + String(format: "%02d", s % 60)
         }
-        return focus.field == .reps ? String(Int(value)) : TrainingUnit.number(value)
+        return focus.field == .reps ? String(Int(value)) : TrainingUnit.plain(value)
     }
 
     private func type(_ key: String) {
@@ -261,7 +275,8 @@ struct SetKeypad: View {
         buffer = nil
     }
 
-    /// Weight → reps within a set, then the next set, then the next exercise.
+    /// Weight → reps within a set, then the next set not yet done in the
+    /// order they are lifted (a superset round by round).
     private func next() {
         guard let focus, let entry else { return }
         let fields = SetRow.fields(for: entry.exercise.kind)
@@ -269,17 +284,17 @@ struct SetKeypad: View {
             session.focus = SetFocus(exercise: focus.exercise, set: focus.set, field: fields[i + 1])
             return
         }
+        let order = session.orderedSets
+        let here = order.firstIndex { $0.exercise == focus.exercise && $0.set == focus.set } ?? -1
         let exercises = session.log.exercises
-        guard let e = exercises.firstIndex(where: { $0.id == focus.exercise }) else { return }
-        if entry.index + 1 < exercises[e].sets.count {
-            let set = exercises[e].sets[entry.index + 1]
-            session.focus = SetFocus(exercise: focus.exercise, set: set.id, field: fields[0])
-        } else if e + 1 < exercises.count, let set = exercises[e + 1].sets.first {
-            session.focus = SetFocus(exercise: exercises[e + 1].id, set: set.id,
-                                     field: SetRow.fields(for: exercises[e + 1].kind)[0])
-        } else {
-            withAnimation(.snappy) { session.focus = nil }
+        for step in order.dropFirst(here + 1) {
+            guard let exercise = exercises.first(where: { $0.id == step.exercise }),
+                  let set = exercise.sets.first(where: { $0.id == step.set }), !set.isDone || session.mode == .template
+            else { continue }
+            session.focus = SetFocus(exercise: exercise.id, set: set.id, field: SetRow.fields(for: exercise.kind)[0])
+            return
         }
+        withAnimation(.snappy) { session.focus = nil }
     }
 }
 

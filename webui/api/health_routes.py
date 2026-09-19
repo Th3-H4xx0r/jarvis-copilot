@@ -129,6 +129,9 @@ def handle_get(handler, parsed) -> bool:
             since = (query.get("since") or ["1970-01-01T00:00:00Z"])[0]
             until = (query.get("until") or ["9999-12-31T00:00:00Z"])[0]
             kind = (query.get("kind") or [""])[0] or None
+            if not (_instant(since) and _instant(until)):
+                j(handler, {"error": "since and until are UTC instants: 2026-09-19T00:00:00Z"}, status=400)
+                return True
             j(handler, {"workouts": store.workouts(since, until, kind)})
             return True
 
@@ -242,6 +245,9 @@ def handle_post(handler, parsed, body) -> bool:
             if not workout or not workout.get("start") or not workout.get("end"):
                 j(handler, {"error": "a workout needs a 'start' and an 'end'"}, status=400)
                 return True
+            if not (_instant(workout["start"]) and _instant(workout["end"])):
+                j(handler, {"error": "a workout's start and end are UTC instants: 2026-09-19T10:00:00Z"}, status=400)
+                return True
             from jarvis_health.store import device_key_for
 
             device = device_key_for(workout.get("source") or "ring", body.get("device_id") or "")
@@ -298,6 +304,16 @@ def _resync_schedule(settings: dict) -> None:
         ensure_schedule(settings)
     except Exception:
         logger.exception("health: could not re-sync the Jarvis Health schedule")
+
+
+def _instant(text) -> bool:
+    """A timestamp with its zone, as workouts are filed by."""
+    from jarvis_health.metrics import parse_instant
+
+    try:
+        return parse_instant(str(text)).tzinfo is not None
+    except (TypeError, ValueError):
+        return False
 
 
 def _training_post(handler, store, what: str, body: dict) -> bool:

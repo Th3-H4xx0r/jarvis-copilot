@@ -54,7 +54,10 @@ _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 TEMPLATE_PREFIX = "template-"
 EXERCISE_PREFIX = "exercise-"
 TRAINING_SETTINGS = "training-settings"
-_TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,80}")
+# A prefix plus this fits the registry's 64-character keys.
+_TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,54}")
+#: The key a workout's device is filed under: `ring-b6ce93c4`.
+_DEVICE_KEY = re.compile(r"[a-z]+-[a-z0-9]{1,16}")
 
 
 def _training_id(value: Any) -> str:
@@ -217,6 +220,11 @@ class HealthStore:
         return f"{WORKOUT_PREFIX}{device}-{''.join(c for c in str(start) if c.isdigit())}"
 
     def put_workout(self, workout: dict, device: str) -> dict:
+        # An edited workout keeps the key it was first filed under, so a new
+        # phone id (a re-pair, a reinstall) replaces it rather than copying it.
+        own = str(workout.get("device") or "")
+        if _DEVICE_KEY.fullmatch(own):
+            device = own
         body = {**workout, "device": device}
         key = self._workout_key(workout["start"], device)
         self._space.put(key, body, description=f"{workout.get('sport_name') or 'Workout'} at {workout['start']}.")
@@ -236,7 +244,14 @@ class HealthStore:
             if not key.startswith(WORKOUT_PREFIX):
                 continue
             raw = self._space.get(key)
-            if not (isinstance(raw, dict) and raw.get("start") and begin <= parse_instant(raw["start"]) < finish):
+            if not (isinstance(raw, dict) and raw.get("start")):
+                continue
+            try:
+                began = parse_instant(str(raw["start"]))
+                if not begin <= began < finish:
+                    continue
+            except (TypeError, ValueError):
+                # One unreadable workout must not take every day down with it.
                 continue
             if kind == "strength" and not isinstance(raw.get("strength"), dict):
                 continue
@@ -266,13 +281,15 @@ class HealthStore:
     def training(self) -> dict:
         """Templates (in their order), custom exercises and per-exercise settings."""
         templates = sorted(self._documents(TEMPLATE_PREFIX),
-                           key=lambda t: (t.get("order", 0), str(t.get("name", ""))))
+                           key=lambda t: (t.get("order") if isinstance(t.get("order"), int) else 0, str(t.get("name", ""))))
         exercises = sorted(self._documents(EXERCISE_PREFIX), key=lambda e: str(e.get("name", "")))
         return {"templates": templates, "exercises": exercises,
                 "settings": self._space.get(TRAINING_SETTINGS) or {}}
 
     def put_template(self, template: dict) -> dict:
         key = TEMPLATE_PREFIX + _training_id(template.get("id"))
+        if "order" in template and not isinstance(template["order"], int):
+            raise ValueError("a template's order is a whole number")
         self._space.put(key, template, description=f"Workout template {template.get('name') or ''}.".strip())
         return template
 
@@ -288,13 +305,14 @@ class HealthStore:
         return self._space.delete_document(EXERCISE_PREFIX + _training_id(exercise_id))
 
     def put_training_settings(self, updates: dict) -> dict:
-        """Merge each exercise's changes into its settings; `None` clears them."""
+        """Each named exercise's settings, whole (a field left out is cleared);
+        `None` clears them all. Exercises not named are untouched."""
         current = dict(self._space.get(TRAINING_SETTINGS) or {})
         for exercise_id, change in (updates or {}).items():
             if change is None:
                 current.pop(exercise_id, None)
             elif isinstance(change, dict):
-                current[exercise_id] = {**current.get(exercise_id, {}), **change}
+                current[exercise_id] = dict(change)
         self._space.put(TRAINING_SETTINGS, current, description="Each exercise's rest timers, bar, kind and pinned note.")
         return current
 

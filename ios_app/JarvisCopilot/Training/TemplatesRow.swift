@@ -52,7 +52,8 @@ struct TemplatesRow: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(14)
-            .frame(width: 168, height: 116, alignment: .topLeading)
+            .frame(width: 168, alignment: .topLeading)
+            .frame(minHeight: 116, alignment: .topLeading)
             .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
                 .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
@@ -86,7 +87,9 @@ struct TemplatesRow: View {
                 Text("New").font(.subheadline.weight(.semibold))
             }
             .foregroundStyle(JcTheme.accent)
-            .frame(width: 96, height: 116)
+            .frame(width: 96)
+            .frame(maxHeight: .infinity)
+            .frame(minHeight: 116)
             .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
                 .strokeBorder(JcTheme.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
             .contentShape(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
@@ -129,6 +132,7 @@ struct TemplatesManager: View {
     let library: ExerciseLibrary
     @Environment(\.dismiss) private var dismiss
     @State private var editing: WorkoutTemplate?
+    @State private var mode: EditMode = .inactive
 
     var body: some View {
         NavigationStack {
@@ -152,9 +156,16 @@ struct TemplatesManager: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .environment(\.editMode, .constant(.active))
+            .environment(\.editMode, $mode)
             .jcScreen("Templates")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(mode.isEditing ? "Done Reordering" : "Reorder") {
+                        withAnimation { mode = mode.isEditing ? .inactive : .active }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .sheet(item: $editing) { TemplateEditor(template: $0, store: store, library: library) }
         }
     }

@@ -37,6 +37,15 @@ enum TrainingUnit: String, Codable, CaseIterable {
     /// An estimate (a predicted max), to the nearest half: "80.5", not "80.69".
     func estimate(_ kg: Double) -> String { Self.number((show(kg) * 2).rounded() / 2) }
 
+    /// For typing: always a point, whatever the phone's region ("62.5").
+    static func plain(_ value: Double) -> String {
+        let rounded = (value * 100).rounded() / 100
+        if rounded == rounded.rounded() { return String(Int(rounded)) }
+        var text = String(format: "%.2f", rounded)
+        while text.hasSuffix("0") { text.removeLast() }
+        return text
+    }
+
     static func number(_ value: Double) -> String {
         let rounded = (value * 100).rounded() / 100
         if rounded == rounded.rounded() { return String(Int(rounded)) }
@@ -104,11 +113,12 @@ enum Equipment: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// The bar a plate calculator starts from, when there is one.
-    var defaultBarKg: Double? {
+    /// The bar a plate calculator starts from, when there is one: the
+    /// Olympic bar is 20 kg in kilogram gyms and 45 lb in pound ones.
+    func defaultBar(_ unit: TrainingUnit) -> Double? {
         switch self {
-        case .barbell: return 20
-        case .ezBar: return 10
+        case .barbell: return unit == .kg ? 20 : unit.kilograms(45)
+        case .ezBar: return unit == .kg ? 10 : unit.kilograms(25)
         default: return nil
         }
     }

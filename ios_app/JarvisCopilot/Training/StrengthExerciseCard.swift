@@ -87,7 +87,7 @@ struct StrengthExerciseCard: View {
         }
         .sheet(isPresented: $restPicker) {
             RestSettingsSheet(session: session, exercise: exercise)
-                .presentationDetents([.height(320)])
+                .presentationDetents([.medium, .large])
         }
     }
 

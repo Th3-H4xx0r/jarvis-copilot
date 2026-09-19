@@ -6,7 +6,12 @@ import UIKit
 actor ExerciseImageCache {
     static let shared = ExerciseImageCache()
 
-    private var memory: [String: UIImage] = [:]
+    /// Bounded: scrolling the whole library must not keep every photo.
+    private let memory: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 80
+        return cache
+    }()
     private let folder: URL = {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ExerciseImages", isDirectory: true)
@@ -14,19 +19,31 @@ actor ExerciseImageCache {
         return url
     }()
 
+    /// The photo, full size.
     func image(_ path: String) async -> UIImage? {
-        if let hit = memory[path] { return hit }
+        if let hit = memory.object(forKey: path as NSString) { return hit }
         let file = folder.appendingPathComponent(path.replacingOccurrences(of: "/", with: "_"))
-        if let data = try? Data(contentsOf: file), let image = UIImage(data: data) {
-            memory[path] = image
-            return image
+        var image = (try? Data(contentsOf: file)).flatMap(UIImage.init(data:))
+        if image == nil, let url = ExerciseLibrary.imageURL(path),
+           let (data, response) = try? await URLSession.shared.data(from: url),
+           (response as? HTTPURLResponse)?.statusCode == 200, let fetched = UIImage(data: data) {
+            try? data.write(to: file, options: .atomic)
+            image = fetched
         }
-        guard let url = ExerciseLibrary.imageURL(path),
-              let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) else { return nil }
-        try? data.write(to: file, options: .atomic)
-        memory[path] = image
+        if let image { memory.setObject(image, forKey: path as NSString) }
         return image
+    }
+
+    /// The photo scaled down for a thumbnail of `side` points.
+    func thumbnail(_ path: String, side: CGFloat) async -> UIImage? {
+        let key = "\(path)@\(Int(side))" as NSString
+        if let hit = memory.object(forKey: key) { return hit }
+        guard let full = await image(path) else { return nil }
+        let pixels = side * 3
+        let scale = pixels / max(1, min(full.size.width, full.size.height))
+        let small = await full.byPreparingThumbnail(ofSize: CGSize(width: full.size.width * scale, height: full.size.height * scale)) ?? full
+        memory.setObject(small, forKey: key)
+        return small
     }
 }
 
@@ -54,7 +71,7 @@ struct ExerciseThumbnail: View {
         .accessibilityHidden(true)
         .task(id: exercise?.id) {
             guard let path = exercise?.images.first else { return }
-            image = await ExerciseImageCache.shared.image(path)
+            image = await ExerciseImageCache.shared.thumbnail(path, side: size)
         }
     }
 }

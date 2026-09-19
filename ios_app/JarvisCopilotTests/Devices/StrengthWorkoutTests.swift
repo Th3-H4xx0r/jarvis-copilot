@@ -135,6 +135,53 @@ final class StrengthWorkoutTests: XCTestCase {
         XCTAssertEqual(link.payloads(0x77).last.map { Array($0.prefix(2)) }, [4, 88], "the ring is told to stop")
     }
 
+    func testAFinishedWorkoutComesBackAsItsSummary() throws {
+        let first = controller(connected: false)
+        first.startStrength(template: template())
+        let session = try XCTUnwrap(first.strength)
+        session.toggleDone(session.log.exercises[0].sets[0].id, in: session.log.exercises[0].id)
+        first.end()
+        XCTAssertNil(store.activeLog)
+        let again = controller(connected: false)
+        guard case .finished(let workout) = again.phase else { return XCTFail("not the summary: \(again.phase)") }
+        XCTAssertEqual(workout.strength?.name, "Push Day")
+        again.close(save: true)
+        XCTAssertNil(store.finishedWorkout)
+        XCTAssertEqual(store.history.count, 1)
+    }
+
+    func testStartingAnotherWorkoutSavesTheSummaryFirst() throws {
+        let c = controller(connected: false)
+        var saved: [RingWorkout] = []
+        c.onSave = { saved.append($0) }
+        c.startStrength(template: template())
+        let session = try XCTUnwrap(c.strength)
+        session.toggleDone(session.log.exercises[0].sets[0].id, in: session.log.exercises[0].id)
+        c.end()
+        c.startStrength(template: nil)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(c.phase, .running)
+        XCTAssertTrue(c.heartSamples.isEmpty, "a new workout starts with no heart rate")
+    }
+
+    func testALeftoverRingSessionIsStoppedNotAdopted() async throws {
+        let c = controller()
+        deliver(tick(elapsed: 40, hr: 110))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(c.phase, .idle, "nothing was being logged")
+        XCTAssertEqual(link.payloads(0x77).last.map { Array($0.prefix(2)) }, [4, 88])
+    }
+
+    func testAnotherSportsTicksAreIgnored() async throws {
+        let c = controller(connected: false)
+        c.startStrength(template: nil)
+        var run = tick(elapsed: 5, hr: 150)
+        run[0] = 7
+        deliver(run)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(c.heartSamples.isEmpty)
+    }
+
     func testARunIsStillARun() async throws {
         let c = controller()
         c.countdownSeconds = 0

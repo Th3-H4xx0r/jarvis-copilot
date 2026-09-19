@@ -30,7 +30,9 @@ final class WorkoutLiveActivity {
             frozenElapsed: Double(elapsed), heartRate: heartRate, distanceKm: distanceKm, zone: zone,
             restEnds: restEnds, restStarted: restStarted, detail: detail)
         let step = "\(restEnds?.timeIntervalSince1970 ?? 0)|\(detail ?? "")"
-        let content = ActivityContent(state: state, staleDate: nil)
+        // A rest ends by the clock: past it the activity is stale, and the
+        // widget goes back to the workout's timer without a push.
+        let content = ActivityContent(state: state, staleDate: restEnds)
         guard let activity else {
             // iOS refuses a request while the app is in the background (a
             // workout picked up after a relaunch); try again every few seconds

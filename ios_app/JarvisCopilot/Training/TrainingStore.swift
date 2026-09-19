@@ -33,7 +33,18 @@ final class TrainingStore: ObservableObject {
     @Published private(set) var customExercises: [Exercise] = []
     @Published private(set) var settings: [String: ExerciseSettings] = [:]
     /// Saved strength workouts, newest first.
-    @Published private(set) var history: [RingWorkout] = []
+    @Published private(set) var history: [RingWorkout] = [] {
+        didSet { logs = history.compactMap(\.strength) }
+    }
+    /// The saved workouts' logs, newest first (kept, not rebuilt per read:
+    /// every set row asks for last time's numbers).
+    private(set) var logs: [StrengthLog] = []
+    /// A strength workout finished but not yet saved or thrown away — the
+    /// summary comes back after a relaunch rather than the workout running on.
+    private(set) var finishedWorkout: RingWorkout?
+    /// Bumped by every change made on the phone, so a refresh can tell its
+    /// snapshot went stale while it was fetched.
+    private var revision = 0
     /// The workout under way, written on every change so a crash loses nothing.
     private(set) var activeLog: StrengthLog?
     private(set) var queue: [TrainingOp] = []
@@ -53,12 +64,11 @@ final class TrainingStore: ObservableObject {
         customExercises = read([Exercise].self, "exercises") ?? []
         settings = read([String: ExerciseSettings].self, "settings") ?? [:]
         history = read([RingWorkout].self, "history") ?? []
+        logs = history.compactMap(\.strength)
         activeLog = read(StrengthLog.self, "active")
+        finishedWorkout = read(RingWorkout.self, "finished")
         queue = read([TrainingOp].self, "queue") ?? []
     }
-
-    /// The saved workouts' logs, newest first.
-    var logs: [StrengthLog] { history.compactMap(\.strength) }
 
     // MARK: Templates
 
@@ -184,9 +194,16 @@ final class TrainingStore: ObservableObject {
         if let log { write(log, "active") } else { try? FileManager.default.removeItem(at: url("active")) }
     }
 
+    /// The finished workout waiting on Save or Discard (nil once it has one).
+    func saveFinished(_ workout: RingWorkout?) {
+        finishedWorkout = workout
+        if let workout { write(workout, "finished") } else { try? FileManager.default.removeItem(at: url("finished")) }
+    }
+
     // MARK: Sync
 
     private func enqueue(_ op: TrainingOp) {
+        revision += 1
         if let subject = op.subject { queue.removeAll { $0.subject == subject } }
         queue.append(op)
         write(queue, "queue")
@@ -232,7 +249,10 @@ final class TrainingStore: ObservableObject {
         guard let sync else { return }
         await flush()
         guard queue.isEmpty else { return }
-        if let snapshot = try? await sync.trainingSnapshot() {
+        let before = revision
+        // Nothing changed here while it was fetched: only then is the
+        // server's copy newer than the phone's.
+        if let snapshot = try? await sync.trainingSnapshot(), revision == before, queue.isEmpty {
             templates = snapshot.templates.sorted { $0.order < $1.order }
             customExercises = snapshot.exercises.map { var e = $0; e.custom = true; return e }
             settings = snapshot.settings

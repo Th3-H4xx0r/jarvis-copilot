@@ -75,6 +75,10 @@ final class RingWorkoutController: ObservableObject {
     private let clock: () -> Date
     /// The ring was told to start a strength session (so it is told to stop).
     private var ringStarted = false
+    /// Autosave and the Live Activity follow the log a moment behind typing.
+    private var autosave: Task<Void, Never>?
+    /// When the ring was last told to stop a session nobody is logging.
+    private var lastStrayStop = Date.distantPast
     /// Heart rate every 5 s so far (0 where there was no reading).
     @Published private(set) var heartRates: [Int] = []
     private var stepMarks: [(elapsed: Int, steps: Int)] = []
@@ -118,8 +122,19 @@ final class RingWorkoutController: ObservableObject {
             guard let self, !self.isActive else { return }
             self.liveActivity?.end()
         }
-        // A strength workout the app was closed (or crashed) in the middle of.
-        if let log = training?.activeLog { begin(log) }
+        // Leaving the app saves the log at once, not a moment later.
+        NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
+            .sink { [weak self] _ in self?.saveStrengthNow() }
+            .store(in: &watching)
+        // A strength workout finished but not saved comes back as its summary;
+        // one the app was closed (or crashed) in the middle of, running.
+        if let finished = training?.finishedWorkout {
+            sport = RingSport.withID(RingSport.strengthID)
+            showsLive = true
+            phase = .finished(finished)
+        } else if let log = training?.activeLog {
+            begin(log)
+        }
     }
 
     private func appCameForward() {
@@ -187,6 +202,8 @@ final class RingWorkoutController: ObservableObject {
     // MARK: Actions
 
     func start(_ sport: RingSport) {
+        // A summary still on screen is kept, not lost to the next workout.
+        if case .finished = phase { close(save: true) }
         // Strength is logged set by set, whoever starts it.
         if sport.id == RingSport.strengthID, training != nil { return startStrength(template: nil) }
         guard !isActive else { showsLive = true; return }
@@ -260,7 +277,8 @@ final class RingWorkoutController: ObservableObject {
             if workout.isStrength { training?.record(workout) }
             onSave?(workout)
         }
-        if endedAt == nil, sport != nil { endedAt = Date() }
+        if endedAt == nil || strength != nil, sport != nil { endedAt = Date() }
+        training?.saveFinished(nil)
         clearStrength()
         reset()
         showsLive = false
@@ -271,6 +289,12 @@ final class RingWorkoutController: ObservableObject {
 
     func receive(_ tick: RingSportTick) {
         if strength != nil { return receiveDuringStrength(tick) }
+        if case .finished(let workout) = phase, workout.isStrength {
+            // A strength summary is up and the ring still runs its session:
+            // it missed the stop, so it hears it again.
+            if tick.state != .ended { stopStraySession() }
+            return
+        }
         switch tick.state {
         case .ended:
             if phase == .starting {
@@ -291,9 +315,14 @@ final class RingWorkoutController: ObservableObject {
                 }
                 // A workout the ring kept running while the app was away.
                 if tick.sport == RingSport.strengthID, let training {
+                    // Only a workout the phone was logging comes back; a
+                    // strength session with nothing logged is a leftover.
+                    guard let log = training.activeLog else {
+                        if tick.state != .ended { stopStraySession() }
+                        return
+                    }
                     ringStarted = true
-                    begin(training.activeLog ?? .empty(at: clock().addingTimeInterval(-Double(tick.elapsed)).wholeSeconds),
-                          ringRunning: true)
+                    begin(log, ringRunning: true)
                     return receiveDuringStrength(tick)
                 }
                 let resumed = RingSport.withID(tick.sport)
@@ -415,6 +444,7 @@ extension RingWorkoutController {
     /// once, ring or no ring; the ring's session only adds heart rate.
     func startStrength(template: WorkoutTemplate?) {
         guard training != nil, library != nil else { return }
+        if case .finished = phase { close(save: true) }
         guard !isActive else { showsLive = true; return }
         reset()
         endedAt = nil
@@ -427,8 +457,7 @@ extension RingWorkoutController {
         let strength = StrengthSession(log: log, mode: .live, store: training, library: library, alerts: alerts, now: clock)
         strength.onChange = { [weak self, weak strength] in
             guard let self, let strength, self.strength === strength else { return }
-            self.training?.saveActive(strength.log)
-            self.pushStrengthActivity()
+            self.scheduleAutosave()
         }
         self.strength = strength
         sport = RingSport.withID(RingSport.strengthID)
@@ -464,8 +493,35 @@ extension RingWorkoutController {
         }
     }
 
+    /// Every change is saved and shown a moment later — a keystroke's worth
+    /// of typing is one write, not six.
+    private func scheduleAutosave() {
+        autosave?.cancel()
+        autosave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.saveStrengthNow()
+        }
+    }
+
+    fileprivate func saveStrengthNow() {
+        autosave?.cancel()
+        guard let strength, phase == .running else { return }
+        training?.saveActive(strength.log)
+        pushStrengthActivity()
+    }
+
+    /// Tell the ring to stop a session nobody is logging (at most every 5 s).
+    fileprivate func stopStraySession() {
+        guard clock().timeIntervalSince(lastStrayStop) > 5 else { return }
+        lastStrayStop = clock()
+        let session = self.session
+        Task { _ = try? await session.transport.perform(.phoneSport(.stop, sport: RingSport.strengthID), until: .none) }
+    }
+
     fileprivate func receiveDuringStrength(_ tick: RingSportTick) {
-        guard phase == .running else { return }
+        // Another sport's leftover session says nothing about this workout.
+        guard phase == .running, tick.sport == RingSport.strengthID else { return }
         switch tick.state {
         case .ended:
             ringStarted = false
@@ -475,6 +531,8 @@ extension RingWorkoutController {
             self.tick = tick
             lastTickAt = clock()
             vitalsNote = nil
+            // Sending, whoever started it: it gets its stop at the end.
+            ringStarted = true
             if let hr = tick.heartRate {
                 heartSamples.append(HeartSample(at: clock(), bpm: hr))
                 // Four hours of readings is plenty for any workout.
@@ -486,10 +544,12 @@ extension RingWorkoutController {
 
     fileprivate func pushStrengthActivity() {
         guard let strength, phase == .running else { return }
-        let sport = RingSport(id: RingSport.strengthID, name: strength.log.name, symbol: RingSport.withID(RingSport.strengthID).symbol)
+        // Short: the activity's whole payload has to fit in 4 KB.
+        let sport = RingSport(id: RingSport.strengthID, name: String(strength.log.name.prefix(40)),
+                              symbol: RingSport.withID(RingSport.strengthID).symbol)
         liveActivity?.update(sport: sport, running: true, elapsed: elapsed(at: clock()), heartRate: tick?.heartRate,
                              distanceKm: nil, zone: zone, restEnds: strength.rest?.ends,
-                             restStarted: strength.rest?.started, detail: strength.detail)
+                             restStarted: strength.rest?.started, detail: strength.detail.map { String($0.prefix(90)) })
     }
 
     /// Finish: the log with each set's heart rate and records, calories and
@@ -525,6 +585,11 @@ extension RingWorkoutController {
             effort: readings.isEmpty ? nil : SessionVitals.effort(trimp: SessionVitals.trimp(samples: heartSamples, profile: profile)),
             kcalSource: calories.source)
         liveActivity?.end()
+        // Kept until Save or Discard: a relaunch shows the summary again
+        // rather than the workout running on.
+        autosave?.cancel()
+        training?.saveActive(nil)
+        training?.saveFinished(workout)
         showsLive = true
         phase = .finished(workout)
         onEnded?()
@@ -552,6 +617,7 @@ extension RingWorkoutController {
 
     fileprivate func clearStrength() {
         guard let strength else { return }
+        autosave?.cancel()
         strength.cancelRest()
         strength.onChange = nil
         training?.saveActive(nil)

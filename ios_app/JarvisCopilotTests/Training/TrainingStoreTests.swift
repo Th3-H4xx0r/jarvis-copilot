@@ -7,6 +7,8 @@ final class FakeTrainingSync: TrainingSyncing {
     var calls: [String] = []
     var failing = false
     var snapshot = TrainingSnapshot(templates: [], exercises: [], settings: [:])
+    /// Runs while the snapshot is "in flight".
+    var duringSnapshot: (() -> Void)?
     var workouts: [RingWorkout] = []
 
     private func call(_ name: String) throws {
@@ -14,7 +16,11 @@ final class FakeTrainingSync: TrainingSyncing {
         calls.append(name)
     }
 
-    func trainingSnapshot() async throws -> TrainingSnapshot { try call("snapshot"); return snapshot }
+    func trainingSnapshot() async throws -> TrainingSnapshot {
+        try call("snapshot")
+        duringSnapshot?()
+        return snapshot
+    }
     func put(template: WorkoutTemplate) async throws { try call("put template \(template.name)") }
     func deleteTemplate(id: String) async throws { try call("delete template \(id)") }
     func put(exercise: Exercise) async throws { try call("put exercise \(exercise.name)") }
@@ -111,6 +117,14 @@ final class TrainingStoreTests: XCTestCase {
         await s.refresh()
         XCTAssertEqual(s.templates.map(\.name), ["Legs"])
         XCTAssertEqual(s.settings(for: "Squat").restSeconds, 180)
+    }
+
+    func testAnEditMadeDuringARefreshIsNotOverwritten() async {
+        let s = store()
+        sync.snapshot = TrainingSnapshot(templates: [template("Old")], exercises: [], settings: [:])
+        sync.duringSnapshot = { [unowned s] in s.saveTemplate(self.template("Made meanwhile")) }
+        await s.refresh()
+        XCTAssertEqual(s.templates.map(\.name), ["Made meanwhile"])
     }
 
     func testRefreshPullsHistoryWhenThereIsNone() async {

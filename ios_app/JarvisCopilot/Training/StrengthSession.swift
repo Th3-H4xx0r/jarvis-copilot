@@ -33,7 +33,15 @@ final class StrengthSession: ObservableObject {
     enum Mode { case live, template, editing }
 
     @Published var log: StrengthLog {
-        didSet { if log != oldValue { onChange?() } }
+        didSet {
+            guard log != oldValue else { return }
+            // A keypad on a set that is gone (its exercise removed, its
+            // warm-ups replaced) closes rather than typing into nothing.
+            if let focus, !log.exercises.contains(where: { $0.id == focus.exercise && $0.sets.contains { $0.id == focus.set } }) {
+                self.focus = nil
+            }
+            onChange?()
+        }
     }
     @Published private(set) var rest: RestState? {
         didSet { if rest != oldValue { onChange?() } }
@@ -115,7 +123,8 @@ final class StrengthSession: ObservableObject {
 
     func restSeconds(for exercise: LoggedExercise, warmup: Bool) -> Int {
         let settings = store.settings(for: exercise.exerciseID)
-        return warmup ? settings.warmupRestSeconds ?? 60 : settings.restSeconds ?? 120
+        // Warm-ups rest only when the exercise asks them to.
+        return warmup ? settings.warmupRestSeconds ?? 0 : settings.restSeconds ?? 120
     }
 
     // MARK: Exercises
@@ -262,7 +271,7 @@ final class StrengthSession: ObservableObject {
         let firstWorking = entry.sets.first { $0.tag != .warmup }
         guard let working = firstWorking?.kg ?? firstWorking.flatMap({ previous($0.id, in: exercise)?.kg }), working > 0
         else { return }
-        let bar = store.settings(for: entry.exerciseID).barKg ?? self.exercise(for: entry)?.equipment.defaultBarKg
+        let bar = store.settings(for: entry.exerciseID).barKg ?? self.exercise(for: entry)?.equipment.defaultBar(unit)
         let warmups = TrainingMath.warmups(working: working, bar: bar, unit: unit)
         log.exercises[e].sets.removeAll { $0.tag == .warmup && !$0.isDone }
         log.exercises[e].sets.insert(contentsOf: warmups, at: 0)
@@ -295,13 +304,25 @@ final class StrengthSession: ObservableObject {
             focus = SetFocus(exercise: exercise, set: set, field: missing)
             return
         }
-        let time = mode == .live ? now() : (lastBoundary() ?? log.started)
-        entry.start = mode == .live ? (lastBoundary() ?? log.started) : nil
+        guard mode == .live else {
+            entry.done = lastBoundary() ?? log.started
+            log.exercises[e].sets[s] = entry
+            if focus?.set == set { focus = nil }
+            return
+        }
+        let time = now()
+        if let running = rest {
+            // Ticked before the rest ran out: the set began a set's length
+            // ago (about three seconds a rep), and the rest ended there —
+            // never before the tick it followed.
+            let length = TimeInterval(max(15, (entry.reps ?? 8) * 3))
+            finishRest(at: max(running.started, time.addingTimeInterval(-length)), running)
+            alerts?.cancel()
+        }
+        entry.start = min(lastBoundary() ?? log.started, time)
         entry.done = time
         log.exercises[e].sets[s] = entry
         if focus?.set == set { focus = nil }
-        guard mode == .live else { return }
-        if let rest { finishRest(at: time, rest) }
         if continuesRound(exercise: e, set: s) { return }
         if log.exercises[e].sets.indices.contains(s + 1), log.exercises[e].sets[s + 1].tag == .drop { return }
         let seconds = restSeconds(for: log.exercises[e], warmup: entry.tag == .warmup)
@@ -320,6 +341,29 @@ final class StrengthSession: ObservableObject {
             i > e && log.exercises[i].superset == group && log.exercises[i].sets.indices.contains(s)
                 && !log.exercises[i].sets[s].isDone
         }
+    }
+
+    /// Every set in the order it is done: exercise by exercise, a superset
+    /// round by round.
+    var orderedSets: [(exercise: UUID, set: UUID)] {
+        var out: [(UUID, UUID)] = []
+        var i = 0
+        while i < log.exercises.count {
+            var members = [i]
+            if let group = log.exercises[i].superset {
+                while members.last! + 1 < log.exercises.count, log.exercises[members.last! + 1].superset == group {
+                    members.append(members.last! + 1)
+                }
+            }
+            let rounds = members.map { log.exercises[$0].sets.count }.max() ?? 0
+            for round in 0..<rounds {
+                for m in members where log.exercises[m].sets.indices.contains(round) {
+                    out.append((log.exercises[m].id, log.exercises[m].sets[round].id))
+                }
+            }
+            i = members.last! + 1
+        }
+        return out
     }
 
     /// The next set to do, superset rounds in order.
@@ -381,16 +425,19 @@ final class StrengthSession: ObservableObject {
         alerts?.cancel()
     }
 
-    /// The timer ran out (or the app came back after it did).
+    /// The timer ran out with the app open: a tap and a chime.
     func restDidEnd() {
         guard let rest else { return }
         finishRest(at: rest.ends, rest)
         alerts?.arrived()
     }
 
-    /// Catch up after the app was away: a rest that ran out meanwhile ends.
+    /// Catch up after the app was away: a rest that ran out meanwhile ends,
+    /// quietly — its notification already said so, and is cleared.
     func resync() {
-        if let rest, rest.ends <= now() { restDidEnd() }
+        guard let rest, rest.ends <= now() else { return }
+        finishRest(at: rest.ends, rest)
+        alerts?.cancel()
     }
 
     func cancelRest() {

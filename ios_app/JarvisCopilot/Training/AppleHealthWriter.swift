@@ -162,12 +162,11 @@ final class AppleHealthWriter: ObservableObject {
         guard enabled, isAuthorized else { return }
         let id = AppleHealthPlanner.syncID(workout.start)
         let version = (versions[id] ?? 0) + 1
-        // A second export is an edit: the old one and its samples go first,
-        // so heart rate is not counted twice.
-        if versions[id] != nil { await remove(start: workout.start) }
+        // Whatever is filed under this workout goes first — an edit, or a
+        // reinstall that forgot what was sent — so nothing is counted twice.
+        await remove(start: workout.start)
         do {
             try await save(AppleHealthPlanner.plan(workout, version: version))
-            versions[id] = version
         } catch {
             JcLog.dropped(JcLog.devices, "apple health workout", error)
         }
@@ -205,16 +204,20 @@ final class AppleHealthWriter: ObservableObject {
         let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: .local())
         try await builder.beginCollection(at: plan.start)
         let perMinute = HKUnit.count().unitDivided(by: .minute())
-        var samples: [HKSample] = plan.heartRates.map {
+        // Only what the person allowed: a refused type would fail the lot.
+        let allowed = { (type: HKQuantityTypeIdentifier) in
+            self.healthStore.authorizationStatus(for: HKQuantityType(type)) == .sharingAuthorized
+        }
+        var samples: [HKSample] = !allowed(.heartRate) ? [] : plan.heartRates.map {
             HKQuantitySample(type: HKQuantityType(.heartRate), quantity: HKQuantity(unit: perMinute, doubleValue: $0.bpm),
                              start: $0.at, end: $0.at)
         }
-        if plan.activeKcal > 0 {
+        if plan.activeKcal > 0, allowed(.activeEnergyBurned) {
             samples.append(HKQuantitySample(type: HKQuantityType(.activeEnergyBurned),
                                             quantity: HKQuantity(unit: .kilocalorie(), doubleValue: plan.activeKcal),
                                             start: plan.start, end: plan.end))
         }
-        if let type = plan.distanceType, plan.meters > 0 {
+        if let type = plan.distanceType, plan.meters > 0, allowed(type) {
             samples.append(HKQuantitySample(type: HKQuantityType(type), quantity: HKQuantity(unit: .meter(), doubleValue: plan.meters),
                                             start: plan.start, end: plan.end))
         }
@@ -223,12 +226,18 @@ final class AppleHealthWriter: ObservableObject {
                                        HKMetadataKeyIndoorWorkout: plan.indoor])
         try await builder.endCollection(at: plan.end)
         guard let workout = try await builder.finishWorkout() else { return }
-        if #available(iOS 18.0, *), let effort = plan.effort {
-            let sample = HKQuantitySample(type: HKQuantityType(.workoutEffortScore),
-                                          quantity: HKQuantity(unit: .appleEffortScore(), doubleValue: Double(effort)),
-                                          start: plan.start, end: plan.end)
-            try await healthStore.save(sample)
-            try await healthStore.relateWorkoutEffortSample(sample, with: workout, activity: nil)
+        versions[plan.syncID] = plan.version
+        // Effort is extra: its failing leaves the workout saved.
+        if #available(iOS 18.0, *), let effort = plan.effort, allowed(.workoutEffortScore) {
+            do {
+                let sample = HKQuantitySample(type: HKQuantityType(.workoutEffortScore),
+                                              quantity: HKQuantity(unit: .appleEffortScore(), doubleValue: Double(effort)),
+                                              start: plan.start, end: plan.end)
+                try await healthStore.save(sample)
+                try await healthStore.relateWorkoutEffortSample(sample, with: workout, activity: nil)
+            } catch {
+                JcLog.dropped(JcLog.devices, "apple health effort", error)
+            }
         }
     }
 }

@@ -60,12 +60,35 @@ def test_ids_the_registry_cannot_key_are_refused(store):
         store.put_template({"name": "no id"})
 
 
-def test_settings_merge_per_exercise_and_clear(store):
-    store.put_training_settings({"Barbell_Squat": {"rest_s": 180}})
-    store.put_training_settings({"Barbell_Squat": {"bar_kg": 20}, "Plank": {"kind": "duration"}})
-    assert store.training()["settings"] == {"Barbell_Squat": {"rest_s": 180, "bar_kg": 20}, "Plank": {"kind": "duration"}}
+def test_settings_are_whole_per_exercise_and_clear(store):
+    store.put_training_settings({"Barbell_Squat": {"rest_s": 180, "pinned_note": "belt"}})
+    # The phone sends an exercise's settings whole: a field it left out was cleared.
+    store.put_training_settings({"Barbell_Squat": {"rest_s": 180}, "Plank": {"kind": "duration"}})
+    assert store.training()["settings"] == {"Barbell_Squat": {"rest_s": 180}, "Plank": {"kind": "duration"}}
     store.put_training_settings({"Plank": None})
-    assert store.training()["settings"] == {"Barbell_Squat": {"rest_s": 180, "bar_kg": 20}}
+    assert store.training()["settings"] == {"Barbell_Squat": {"rest_s": 180}}
+
+
+def test_an_edited_workout_keeps_its_filed_key(store):
+    first = store.put_workout(_workout("2026-09-19T10:00:00Z", strength=True), "ring-aaaa0000")
+    edited = {**first, "sport_name": "Push Day B"}
+    store.put_workout(edited, "ring-bbbb1111")  # a new phone id after a reinstall
+    listed = store.workouts("2026-09-19T00:00:00Z", "2026-09-20T00:00:00Z")
+    assert [(w["device"], w["sport_name"]) for w in listed] == [("ring-aaaa0000", "Push Day B")]
+
+
+def test_an_unreadable_workout_does_not_break_the_list(store):
+    store.put_workout(_workout("2026-09-19T10:00:00Z"), "ring-a")
+    store._space.put("workout-ring-a-1", {"start": "not a time", "end": "x"})
+    assert len(store.workouts("2026-09-19T00:00:00Z", "2026-09-20T00:00:00Z")) == 1
+
+
+def test_bad_template_order_and_long_ids_are_refused(store):
+    with pytest.raises(ValueError):
+        store.put_template({"id": "t1", "name": "x", "order": "first"})
+    with pytest.raises(ValueError):
+        store.put_template({"id": "a" * 56, "name": "x"})
+    store.put_template({"id": "a" * 55, "name": "x"})
 
 
 def test_an_empty_space_has_no_training(store):

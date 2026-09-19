@@ -119,7 +119,11 @@ struct StrengthEditView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             TextField("Workout name", text: $session.log.name)
                                 .font(.title2.weight(.bold))
-                            DatePicker("Started", selection: $start)
+                            DatePicker("Started", selection: Binding(get: { start }, set: { value in
+                                // Moving the start moves the whole workout, end included.
+                                end = end.addingTimeInterval(value.timeIntervalSince(start))
+                                start = value
+                            }))
                             DatePicker("Finished", selection: $end, in: start...)
                             TextField("Add a note", text: $session.log.note, axis: .vertical)
                                 .font(.subheadline)

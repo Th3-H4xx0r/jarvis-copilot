@@ -129,7 +129,7 @@ struct ExerciseDetailView: View {
                     HStack {
                         Text("Bar")
                         Spacer()
-                        Picker("Bar", selection: Binding(get: { settings.barKg ?? exercise.equipment.defaultBarKg ?? 0 },
+                        Picker("Bar", selection: Binding(get: { settings.barKg ?? exercise.equipment.defaultBar(unit) ?? 0 },
                                                          set: { value in store.updateSettings(exercise.id) { $0.barKg = value } })) {
                             ForEach(Self.bars(unit), id: \.self) { kg in
                                 Text(kg == 0 ? "None" : "\(unit.format(kg)) \(unit.symbol)").tag(kg)
@@ -154,13 +154,14 @@ struct ExerciseDetailView: View {
             }
             RowDivider()
             Row {
-                Stepper(value: Binding(get: { settings.warmupRestSeconds ?? 60 },
+                Stepper(value: Binding(get: { settings.warmupRestSeconds ?? 0 },
                                        set: { value in store.updateSettings(exercise.id) { $0.warmupRestSeconds = value } }),
                         in: 0...600, step: 15) {
                     HStack {
                         Text("Rest after warm-ups")
                         Spacer()
-                        Text(SetRow.clock(settings.warmupRestSeconds ?? 60)).monospacedDigit().foregroundStyle(.secondary)
+                        Text((settings.warmupRestSeconds ?? 0) == 0 ? "Off" : SetRow.clock(settings.warmupRestSeconds ?? 0))
+                            .monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
             }

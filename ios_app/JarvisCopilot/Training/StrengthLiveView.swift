@@ -40,7 +40,7 @@ struct StrengthLiveView: View {
             Button(undone > 0 ? "Finish Anyway" : "Finish") { workout.end() }
             Button("Keep Going", role: .cancel) {}
         } message: {
-            if undone > 0 { Text("Unticked sets are left out of the workout.") }
+            if undone > 0 { Text("Unticked sets don't count toward the workout's totals or records.") }
         }
         .confirmationDialog("Cancel this workout?", isPresented: $confirmingCancel, titleVisibility: .visible) {
             Button("Cancel Workout", role: .destructive) { workout.cancelStrength() }

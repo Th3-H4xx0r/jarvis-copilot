@@ -85,18 +85,72 @@ final class StrengthSessionTests: XCTestCase {
         XCTAssertNil(s.rest)
     }
 
-    func testWarmupsRestTheirOwnTime() {
+    func testWarmupsRestOnlyWhenAsked() {
         let s = session(exercises: [bench])
         let e = s.log.exercises[0]
         s.setTag(.warmup, set: e.sets[0].id, in: e.id)
         s.setValue(20, field: .weight, set: e.sets[0].id, in: e.id)
         s.setValue(10, field: .reps, set: e.sets[0].id, in: e.id)
         s.toggleDone(e.sets[0].id, in: e.id)
-        XCTAssertEqual(s.rest?.total, 60)
+        XCTAssertNil(s.rest, "no warm-up rest unless the exercise has one")
         store.updateSettings(bench) { $0.warmupRestSeconds = 45 }
         s.toggleDone(e.sets[0].id, in: e.id)
         s.toggleDone(e.sets[0].id, in: e.id)
         XCTAssertEqual(s.rest?.total, 45)
+    }
+
+    func testTickingDuringARestEndsItWhereTheSetBegan() {
+        let s = session(exercises: [bench])
+        let e = s.log.exercises[0]
+        s.addSet(e.id)
+        let sets = s.log.exercises[0].sets
+        s.setValue(8, field: .reps, set: sets[0].id, in: e.id)
+        s.setValue(8, field: .reps, set: sets[1].id, in: e.id)
+        s.toggleDone(sets[0].id, in: e.id)
+        let firstTick = clock
+        clock = clock.addingTimeInterval(100)  // the rest (2:00) still has 20 s to run
+        s.toggleDone(sets[1].id, in: e.id)
+        let done = s.log.exercises[0].sets
+        XCTAssertEqual(done[0].restEnd, clock.addingTimeInterval(-24), "8 reps ≈ 24 s before the tick")
+        XCTAssertEqual(done[1].start, done[0].restEnd, "the set begins where the rest ended — no overlap")
+        XCTAssertGreaterThan(done[0].restEnd!, firstTick)
+        XCTAssertEqual(alerts.cancels, 1, "the old rest's alert is taken back before the new one")
+    }
+
+    func testASupersetRoundCancelsTheRestItCutShort() {
+        let s = session()
+        s.addExercises([bench, row], asSuperset: true)
+        let a = s.log.exercises[0], b = s.log.exercises[1]
+        s.addSet(a.id)
+        s.addSet(b.id)
+        for exercise in s.log.exercises {
+            for set in exercise.sets { s.setValue(10, field: .reps, set: set.id, in: exercise.id) }
+        }
+        let a2 = s.log.exercises[0].sets[1], b1 = s.log.exercises[1].sets[0], a1 = s.log.exercises[0].sets[0]
+        s.toggleDone(a1.id, in: a.id)
+        s.toggleDone(b1.id, in: b.id)
+        XCTAssertNotNil(s.rest)
+        clock = clock.addingTimeInterval(60)
+        s.toggleDone(a2.id, in: a.id)
+        XCTAssertNil(s.rest, "B2 comes next in the round")
+        XCTAssertEqual(alerts.cancels, 1, "the rest's alert must not go off mid-set")
+    }
+
+    func testTheOrderOfSetsFollowsSupersetRounds() {
+        let s = session()
+        s.addExercises([bench, row], asSuperset: true)
+        s.addSet(s.log.exercises[0].id)
+        s.addSet(s.log.exercises[1].id)
+        let a = s.log.exercises[0], b = s.log.exercises[1]
+        XCTAssertEqual(s.orderedSets.map(\.set), [a.sets[0].id, b.sets[0].id, a.sets[1].id, b.sets[1].id])
+    }
+
+    func testAKeypadOnARemovedExerciseCloses() {
+        let s = session(exercises: [bench, row])
+        let e = s.log.exercises[1]
+        s.focus = SetFocus(exercise: e.id, set: e.sets[0].id, field: .reps)
+        s.remove(e.id)
+        XCTAssertNil(s.focus)
     }
 
     func testASupersetRestsOnlyAfterTheRound() {
@@ -151,7 +205,8 @@ final class StrengthSessionTests: XCTestCase {
         s.resync()
         XCTAssertNil(s.rest)
         XCTAssertEqual(s.log.exercises[0].sets[0].restEnd, clock.addingTimeInterval(-480))
-        XCTAssertEqual(alerts.arrivals, 1)
+        XCTAssertEqual(alerts.arrivals, 0, "the notification already said so — no second chime")
+        XCTAssertEqual(alerts.cancels, 1, "and it is cleared")
     }
 
     func testUntickingUndoesTheSetAndItsRest() {

@@ -563,9 +563,13 @@ struct WorkoutInProgressCard: View {
                                              pulsing: workout.phase == .running, size: 22)
                                 .frame(width: 30)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.phase == .paused ? "\(sport.name) · Paused" : workout.strength?.log.name ?? sport.name)
+                                if let strength = workout.strength {
+                                    StrengthNameLine(session: strength)
+                                } else {
+                                    Text(workout.phase == .paused ? "\(sport.name) · Paused" : sport.name)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(JcTheme.amber) : AnyShapeStyle(.secondary))
+                                }
                                 TimelineView(.periodic(from: .now, by: 1)) { context in
                                     Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
                                         .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -594,6 +598,19 @@ struct WorkoutInProgressCard: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+/// A strength workout's name as it is typed (the controller does not
+/// republish its session's edits).
+private struct StrengthNameLine: View {
+    @ObservedObject var session: StrengthSession
+
+    var body: some View {
+        Text(session.log.name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
     }
 }
 

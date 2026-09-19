@@ -183,13 +183,26 @@ enum WorkoutUploader {
         store(pending().filter { abs($0.workout.start.timeIntervalSince(start)) >= 1 })
     }
 
-    /// Sends what is waiting; what fails stays for next time.
+    private static var flushing: Task<Void, Never>?
+
+    /// Sends what is waiting, one flush at a time; what fails stays for next
+    /// time. Only what was sent leaves the queue — an edit or a delete made
+    /// while a send was in flight stands.
     static func flush(client: HealthClient = HealthClient(spaceID: HealthSpace.shared)) async {
-        var left: [Pending] = []
-        for item in pending() {
-            do { try await client.pushWorkout(item.workout, deviceID: item.deviceID) } catch { left.append(item) }
+        if let flushing { return await flushing.value }
+        let task = Task { @MainActor in
+            for item in pending() {
+                do {
+                    try await client.pushWorkout(item.workout, deviceID: item.deviceID)
+                    store(pending().filter { $0.workout != item.workout })
+                } catch {
+                    continue
+                }
+            }
         }
-        store(left)
+        flushing = task
+        await task.value
+        flushing = nil
     }
 
     static func pending() -> [Pending] {

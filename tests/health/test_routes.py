@@ -194,6 +194,14 @@ def test_workouts_list_by_kind_and_delete(routes):
     assert _post(routes, f"{BASE}/workouts/delete", {"start": "2026-09-19T12:00:00Z", "device": device}).body["deleted"]
 
 
+def test_bad_times_are_a_400_not_a_500(routes):
+    HealthStore()
+    naive = {"sport": 7, "start": "2026-09-19T10:00:00", "end": "2026-09-19T11:00:00Z"}
+    assert _post(routes, f"{BASE}/workouts", {"workout": naive}).status == 400
+    assert _get(routes, f"{BASE}/workouts?since=yesterday").status == 400
+    assert _get(routes, f"{BASE}/now").status == 200
+
+
 def test_now_carries_the_resting_heart_rate(routes):
     HealthStore()
     assert "resting_hr" in _get(routes, f"{BASE}/now").body
