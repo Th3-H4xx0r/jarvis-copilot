@@ -41,7 +41,7 @@ struct RoutePicker: View {
                                 row(id: entry.id, name: entry.sportName, date: entry.start, meters: entry.distance,
                                     preview: entry.preview) {
                                     guard let route = store.route(start: entry.start) else { return failed = true }
-                                    pick(route, name: entry.sportName, sport: entry.sport)
+                                    pick(route, name: entry.sportName, sport: entry.sport, start: entry.start)
                                 }
                             }
                         }
@@ -58,7 +58,7 @@ struct RoutePicker: View {
                                         let route = await store.load(workout)
                                         loading = nil
                                         guard let route else { return failed = true }
-                                        pick(route, name: workout.sportName, sport: workout.sport)
+                                        pick(route, name: workout.sportName, sport: workout.sport, start: workout.start)
                                     }
                                 }
                             }
@@ -108,9 +108,9 @@ struct RoutePicker: View {
         .disabled(loading != nil)
     }
 
-    private func pick(_ route: WorkoutRoute, name: String, sport: Int) {
-        let title = "\(name) · \(route.start.formatted(.dateTime.month(.abbreviated).day()))"
-        guide = RouteGuide(route: route, title: title, sport: sport)
+    private func pick(_ route: WorkoutRoute, name: String, sport: Int, start: Date) {
+        let title = "\(name) · \(start.formatted(.dateTime.month(.abbreviated).day()))"
+        guide = RouteGuide(route: route, title: title, sport: sport, start: start)
         dismiss()
     }
 

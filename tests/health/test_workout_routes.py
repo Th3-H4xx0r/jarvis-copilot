@@ -63,3 +63,27 @@ def test_the_route_endpoints(routes):  # noqa: F811
     # The day carries the summary, never the route.
     day = _get(routes, f"{BASE}/workouts").body["workouts"][0]
     assert "segments" not in day and day["route_summary"]["moving_s"] == 1580
+
+
+def test_a_route_keeps_its_own_start_and_refuses_what_it_cant_store(store):
+    route = _route(4)
+    route["start"] = "2026-09-19T12:59:58Z"
+    store.put_route(START, "ring-b6ce93c4", route)
+    assert store.route(START, "ring-b6ce93c4")["start"] == "2026-09-19T12:59:58Z"
+    for bad in ({"segments": [[[1, float("nan"), -97]]]}, {"segments": [[[1, 30, -97, float("inf")]]]}):
+        with pytest.raises(ValueError):
+            store.put_route(START, "ring-b6ce93c4", bad)
+    odd = _route(4)
+    odd["version"] = [1]
+    assert store.put_route(START, "ring-b6ce93c4", odd)["points"] == 4
+    # Past the registry's size cap: a clear refusal, not a crash.
+    import jarvis_registry.store as registry
+
+    big = {"segments": [[[i * 1.0, 30.123456, -97.654321, 150.5, 140, 3.25] for i in range(MAX_ROUTE_POINTS)]]}
+    original = registry.MAX_DOCUMENT_BYTES
+    registry.MAX_DOCUMENT_BYTES = 10_000
+    try:
+        with pytest.raises(ValueError):
+            store.put_route(START, "ring-b6ce93c4", big)
+    finally:
+        registry.MAX_DOCUMENT_BYTES = original

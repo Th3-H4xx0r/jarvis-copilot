@@ -39,7 +39,11 @@ enum GPXWriter {
 
     /// Written where a share sheet can hand it on: "Run 2026-09-19.gpx".
     static func file(_ route: WorkoutRoute, name: String) throws -> URL {
-        let day = route.start.formatted(.iso8601.year().month().day())
+        // The day where it was run, not in UTC (an evening run stays on its day).
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let day = formatter.string(from: route.start)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name) \(day).gpx")
         try gpx(route, name: name).write(to: url, atomically: true, encoding: .utf8)
         return url

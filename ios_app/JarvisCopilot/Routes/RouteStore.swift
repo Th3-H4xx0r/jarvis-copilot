@@ -36,8 +36,10 @@ final class RouteStore: ObservableObject {
         index = (try? JSONDecoder().decode([Entry].self, from: Data(contentsOf: indexURL))) ?? []
     }
 
-    /// Whole seconds since 1970: a workout's start is its route's name.
-    nonisolated static func key(_ start: Date) -> String { String(Int(start.timeIntervalSince1970.rounded())) }
+    /// Whole seconds since 1970, truncated as the server's instants are: a
+    /// workout's start (recorded here with a fraction, or read back from the
+    /// server without one) names its route the same either way.
+    nonisolated static func key(_ start: Date) -> String { String(Int(start.timeIntervalSince1970.rounded(.down))) }
 
     private var indexURL: URL { directory.appendingPathComponent("index.json") }
     private var pendingURL: URL { directory.appendingPathComponent("pending.json") }
@@ -111,6 +113,10 @@ final class RouteStore: ObservableObject {
                 do {
                     try await client.pushRoute(RouteMath.thin(route), start: item.start, device: item.device,
                                                deviceID: item.deviceID)
+                    store(pending().filter { $0 != item })
+                } catch APIError.http(let status, _) where [400, 404, 413, 422].contains(status) {
+                    // Refused for what it is, not for now: sending it again won't help.
+                    JcLog.dropped(JcLog.devices, "route upload", APIError.http(status: status, message: "refused"))
                     store(pending().filter { $0 != item })
                 } catch {
                     continue

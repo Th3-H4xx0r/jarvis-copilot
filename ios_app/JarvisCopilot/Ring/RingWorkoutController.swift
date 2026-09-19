@@ -46,7 +46,19 @@ final class RingWorkoutController: ObservableObject {
     /// A finished outdoor workout's route, until its summary is saved or discarded.
     @Published private(set) var finishedRoute: WorkoutRoute?
     /// A past route being followed (set by the start screen before `start`).
-    @Published var guide: RouteGuide?
+    @Published var guide: RouteGuide? {
+        didSet {
+            guard guide?.id != oldValue?.id else { return }
+            guideAlong = nil
+            guideOff = nil
+            offRoute = false
+            offDetector = OffRouteDetector()
+        }
+    }
+    /// The start screen's wearable choice for the next `start`, without
+    /// making it the saved preference.
+    var nextStartUsesRing: Bool?
+    private var guidedRevision = -1
     /// How far along the guide, and how far off it, the newest point is.
     @Published private(set) var guideAlong: Double?
     @Published private(set) var guideOff: Double?
@@ -94,6 +106,7 @@ final class RingWorkoutController: ObservableObject {
     private let profile: () -> VitalsProfile
     private let clock: () -> Date
     private let defaults: UserDefaults
+    private let finishedURL: URL
     /// A phone-only workout's paused time so far, and when the current pause began.
     private var pausedTotal: TimeInterval = 0
     private var pausedAt: Date?
@@ -140,6 +153,15 @@ final class RingWorkoutController: ObservableObject {
         self.profile = profile
         self.clock = clock
         self.defaults = defaults
+        // Tests with their own defaults keep their finished workouts to
+        // themselves (one file per defaults suite, found again by a relaunch).
+        if defaults === UserDefaults.standard {
+            finishedURL = WorkoutLocation.checkpointURL.deletingLastPathComponent().appendingPathComponent("finished.json")
+        } else {
+            let name = defaults.string(forKey: "jc.workout.finishedFile") ?? "finished-\(UUID().uuidString).json"
+            defaults.set(name, forKey: "jc.workout.finishedFile")
+            finishedURL = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        }
         session.onSportTick = { [weak self] tick in self?.receive(tick) }
         // Coming forward is when iOS allows the Live Activity a background
         // request was refused; and one left by a crash with no workout to
@@ -164,6 +186,13 @@ final class RingWorkoutController: ObservableObject {
             phase = .finished(finished)
         } else if let log = training?.activeLog {
             begin(log)
+        } else if let finished = FinishedOutdoor.load(finishedURL) {
+            // An outdoor workout ended but not saved: its summary again.
+            sport = RingSport.withID(finished.workout.sport)
+            finishedRoute = finished.route
+            endedAt = Date()
+            showsLive = true
+            phase = .finished(finished.workout)
         } else if let saved = PhoneWorkout.load(defaults) {
             resumePhoneOnly(saved)
         }
@@ -258,7 +287,8 @@ final class RingWorkoutController: ObservableObject {
         showsLive = true
         self.sport = sport
         // Outdoors with no wearable chosen, the phone records it alone.
-        phoneOnly = sport.outdoor && !WorkoutMonitorPreference.usesRing
+        phoneOnly = sport.outdoor && !(nextStartUsesRing ?? WorkoutMonitorPreference.usesRing)
+        nextStartUsesRing = nil
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
@@ -289,6 +319,7 @@ final class RingWorkoutController: ObservableObject {
         guard case .countdown = phase else { return }
         pending?.cancel()
         guide = nil
+        phoneOnly = false
         phase = .idle
     }
 
@@ -345,6 +376,7 @@ final class RingWorkoutController: ObservableObject {
             if let finishedRoute { onSaveRoute?(finishedRoute, workout) }
             onSave?(workout)
         }
+        FinishedOutdoor.clear(finishedURL)
         if endedAt == nil || strength != nil, sport != nil { endedAt = Date() }
         training?.saveFinished(nil)
         clearStrength()
@@ -399,6 +431,7 @@ final class RingWorkoutController: ObservableObject {
                 let resumed = RingSport.withID(tick.sport)
                 sport = resumed
                 phase = .running
+                startedAt = Date().addingTimeInterval(-Double(tick.elapsed))
                 if resumed.outdoor { startLocation(resuming: true) }
             case .finished, .failed, .countdown:
                 // A stray tick after the summary (or before the ring was told).
@@ -438,8 +471,11 @@ final class RingWorkoutController: ObservableObject {
         location.start(sport: sport.id, weightKg: profile().weightKg ?? 70, at: startedAt ?? clock(),
                        resuming: resuming) { [weak self] progress in
             self?.routeProgress = progress
-            self?.gpsDistance = progress.distance
-            self?.pace = progress.pace
+            // Only once GPS has a point: until then the ring's distance stands.
+            if progress.revision > 0 {
+                self?.gpsDistance = progress.distance
+                self?.pace = progress.pace
+            }
             self?.followGuide()
         }
     }
@@ -447,7 +483,10 @@ final class RingWorkoutController: ObservableObject {
     /// Where the newest point is against the guide; a buzz (and, away from
     /// the app, a notification) when you stray from it and when you're back.
     private func followGuide() {
-        guard let guide, !routePaused, let fix = location?.lastFix else { return }
+        // A new point, not a repeat of the last one (a resume, a pause).
+        guard let guide, !guide.lats.isEmpty, !routePaused, routeProgress.revision != guidedRevision,
+              routeProgress.revision > 0, let fix = location?.lastFix else { return }
+        guidedRevision = routeProgress.revision
         let projected = guide.project(lat: fix.latitude, lon: fix.longitude, near: guideAlong)
         guideAlong = projected.along
         guideOff = projected.off
@@ -477,6 +516,9 @@ final class RingWorkoutController: ObservableObject {
         var start: Date
         var pausedTotal: Double
         var pausedAt: Date?
+        /// When the app last kept it: a relaunch long after resumes it paused
+        /// from then, rather than counting hours the app wasn't there.
+        var lastSeen: Date?
 
         static func load(_ defaults: UserDefaults) -> PhoneWorkout? {
             guard let data = defaults.data(forKey: key),
@@ -503,10 +545,12 @@ final class RingWorkoutController: ObservableObject {
         startedAt = saved.start
         pausedTotal = saved.pausedTotal
         pausedAt = saved.pausedAt
-        phase = saved.pausedAt == nil ? .running : .paused
+        if pausedAt == nil, let seen = saved.lastSeen, clock().timeIntervalSince(seen) > 600 { pausedAt = seen }
+        phase = pausedAt == nil ? .running : .paused
         showsLive = true
         startLocation(resuming: true)
-        if saved.pausedAt != nil { pauseRoute() }
+        if pausedAt != nil { pauseRoute() }
+        savePhoneWorkout()
         startPhoneTicker()
     }
 
@@ -516,6 +560,7 @@ final class RingWorkoutController: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.pushPhoneActivity()
+                self.savePhoneWorkout()
                 try? await Task.sleep(for: .seconds(5))
             }
         }
@@ -530,7 +575,8 @@ final class RingWorkoutController: ObservableObject {
 
     private func savePhoneWorkout() {
         guard phoneOnly, let sport, let startedAt else { return }
-        let saved = PhoneWorkout(sport: sport.id, start: startedAt, pausedTotal: pausedTotal, pausedAt: pausedAt)
+        let saved = PhoneWorkout(sport: sport.id, start: startedAt, pausedTotal: pausedTotal, pausedAt: pausedAt,
+                                 lastSeen: clock())
         defaults.set(try? JSONEncoder().encode(saved), forKey: PhoneWorkout.key)
     }
 
@@ -580,6 +626,9 @@ final class RingWorkoutController: ObservableObject {
         if ringKcal <= 0, routeProgress.kilocalories > 0 { workout.kcalSource = "estimate" }
         workout.route = route.map(RouteMath.summary)
         finishedRoute = route
+        // Kept on disk until Save or Discard (iOS may end the app before
+        // either) when only this phone has it: a route, or no ring at all.
+        if route != nil || phoneOnly { FinishedOutdoor(workout: workout, route: route).save(to: finishedURL) }
         phase = .finished(workout)
     }
 
@@ -679,7 +728,9 @@ extension RingWorkoutController {
         phase = .running
         if !ringRunning {
             // The start screen's choice: no wearable means no ring session at all.
-            if WorkoutMonitorPreference.usesRing {
+            let usesRing = nextStartUsesRing ?? WorkoutMonitorPreference.usesRing
+            nextStartUsesRing = nil
+            if usesRing {
                 startRingVitals()
             } else {
                 vitalsNote = "No wearable chosen — logging sets without heart rate."
@@ -844,4 +895,24 @@ extension RingWorkoutController {
         heartSamples = []
         ringStarted = false
     }
+}
+
+/// An outdoor workout that ended but whose summary hasn't been saved or
+/// discarded — on disk, so the app ending in between loses neither it nor
+/// its route.
+struct FinishedOutdoor: Codable {
+    var workout: RingWorkout
+    var route: WorkoutRoute?
+
+    func save(to url: URL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(self).write(to: url, options: .atomic)
+    }
+
+    static func load(_ url: URL) -> FinishedOutdoor? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(FinishedOutdoor.self, from: data)
+    }
+
+    static func clear(_ url: URL) { try? FileManager.default.removeItem(at: url) }
 }

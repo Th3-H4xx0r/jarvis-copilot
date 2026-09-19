@@ -11,9 +11,10 @@ struct RouteLiveView: View {
     @State private var following = true
     @State private var expanded = false
     @State private var confirmingEnd = false
-    @State private var locationOff = false
+    @StateObject private var access = LocationAccess()
     /// The climb so far, redrawn every few points (no heart rate to chart instead).
     @State private var elevation: [RouteChartPoint] = []
+    @State private var chartedRevision = -1
 
     init(workout: RingWorkoutController, expanded: Bool = false) {
         self.workout = workout
@@ -47,17 +48,15 @@ struct RouteLiveView: View {
             Button("Keep going", role: .cancel) {}
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: workout.phase)
-        .onAppear {
-            let status = CLLocationManager().authorizationStatus
-            locationOff = status == .denied || status == .restricted
-            chartElevation()
-        }
+        .onAppear { chartElevation() }
         .onChange(of: progress.revision) { _, revision in
-            if revision % 5 == 0 { chartElevation() }
+            // Fixes can land in a batch: every five points or more, not on multiples of five.
+            if revision - chartedRevision >= 5 || revision < chartedRevision { chartElevation() }
         }
     }
 
     private func chartElevation() {
+        chartedRevision = progress.revision
         guard workout.heartRates.filter({ $0 > 0 }).count <= 1, let route = workout.liveRoute else { return }
         elevation = RouteChartSeries.points(.elevation, stats: RouteMath.stats(route, unit: unit), unit: unit, limit: 120)
     }
@@ -74,18 +73,22 @@ struct RouteLiveView: View {
 
     private var map: some View {
         let route = workout.liveRoute
-        let start = route?.points.first.map { [RouteMarker(kind: .start, coordinate: $0.coordinate)] } ?? []
+        let first = route?.segments.first(where: { !$0.isEmpty })?.first
+        let start = first.map { [RouteMarker(kind: .start, coordinate: $0.coordinate)] } ?? []
         return ZStack(alignment: .top) {
             RouteMapView(segments: route?.segments ?? [], revision: progress.revision, style: style, markers: start,
                          guide: guideLine, showsUser: true, following: $following, fitToken: nil,
-                         insets: UIEdgeInsets(top: 60, left: 40, bottom: 40, right: 60))
+                         insets: UIEdgeInsets(top: 60, left: 40, bottom: 40, right: 60),
+                         margins: UIEdgeInsets(top: 8, left: 20, bottom: expanded ? 8 : 12, right: 20))
                 .ignoresSafeArea(edges: .top)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     chip(workout.sport?.name ?? "Workout", symbol: workout.sport?.symbol ?? "figure.run", tint: .white)
                     if workout.phase == .paused { chip("Paused", symbol: "pause.fill", tint: JcTheme.amber) }
-                    if locationOff {
+                    if access.off {
                         chip("Location is off — allow it in Settings", symbol: "location.slash", tint: JcTheme.amber)
+                    } else if access.imprecise {
+                        chip("Precise Location is off — turn it on in Settings", symbol: "location.slash", tint: JcTheme.amber)
                     } else if progress.revision == 0 {
                         chip("Finding GPS…", symbol: "location.magnifyingglass", tint: .white)
                     }
@@ -285,5 +288,31 @@ struct RouteLiveView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// Whether location can record a route at all, kept current as the person
+/// answers the prompt or changes it in Settings.
+@MainActor
+final class LocationAccess: NSObject, ObservableObject, CLLocationManagerDelegate {
+    @Published private(set) var off = false
+    /// Approximate location only (~1 km): no fix is good enough for a route.
+    @Published private(set) var imprecise = false
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        read()
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in self.read() }
+    }
+
+    private func read() {
+        let status = manager.authorizationStatus
+        off = status == .denied || status == .restricted
+        imprecise = !off && status != .notDetermined && manager.accuracyAuthorization == .reducedAccuracy
     }
 }

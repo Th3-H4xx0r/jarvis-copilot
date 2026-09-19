@@ -96,7 +96,7 @@ final class RouteFollowerTests: XCTestCase {
         XCTAssertEqual(c.guideAlong ?? 0, 200, accuracy: 3)
         XCTAssertFalse(c.offRoute)
         // Off to the west for twenty seconds.
-        for s in 21...45 {
+        for s in 21...55 {
             clock = start.addingTimeInterval(Double(s))
             let (lat, lon) = at(north: 200, east: -Double(s - 20) * 4)
             location.fix(lat: lat, lon: lon, at: clock)

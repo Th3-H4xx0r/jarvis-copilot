@@ -66,6 +66,15 @@ final class RouteRecordingTests: XCTestCase {
         XCTAssertEqual(r.gain, 4)
     }
 
+    func testOnceTheBarometerAnsweredGPSAltitudeIsNeverMixedIn() {
+        var r = RouteRecording(start: start, sport: 8, weightKg: 70)
+        _ = take(&r, fix(0, lat: 40, altitude: 1490), baro: 1512)
+        _ = take(&r, fix(5, lat: north(10), altitude: 1530))
+        _ = take(&r, fix(10, lat: north(20), altitude: 1490), baro: 1513)
+        XCTAssertEqual(r.route.points.map(\.ele), [1512, nil, 1513])
+        XCTAssertEqual(r.gain, 0)
+    }
+
     func testGPSAltitudeWhenThereIsNoBarometer() {
         var r = RouteRecording(start: start, sport: 8, weightKg: 70)
         _ = take(&r, fix(0, lat: 40, altitude: 1500))
@@ -85,14 +94,14 @@ final class RouteRecordingTests: XCTestCase {
     }
 
     func testRunningCaloriesFollowACSM() {
-        // 10 km/h on the flat: 0.2 × 166.7 + 3.5 = 36.8 ml/kg/min → 12.9 kcal/min at 70 kg.
+        // 10 km/h on the flat: 0.2 × 166.7 = 33.3 ml/kg/min above resting → 11.7 active kcal/min at 70 kg.
         let perMinute = OutdoorCalories.kcal(kind: .run, metersPerSecond: 10 / 3.6, grade: 0, seconds: 60, weightKg: 70)
-        XCTAssertEqual(perMinute, 12.9, accuracy: 0.1)
+        XCTAssertEqual(perMinute, 11.7, accuracy: 0.1)
         let uphill = OutdoorCalories.kcal(kind: .walk, metersPerSecond: 1.4, grade: 0.1, seconds: 60, weightKg: 70)
         let flat = OutdoorCalories.kcal(kind: .walk, metersPerSecond: 1.4, grade: 0, seconds: 60, weightKg: 70)
         XCTAssertGreaterThan(uphill, flat * 1.5)
         XCTAssertEqual(OutdoorCalories.kcal(kind: .cycle, metersPerSecond: 20 / 3.6, grade: 0, seconds: 60, weightKg: 70),
-                       8 * 3.5 * 70 / 200, accuracy: 0.01)
+                       7 * 3.5 * 70 / 200, accuracy: 0.01)
     }
 
     func testARecordingSurvivesBeingSaved() throws {

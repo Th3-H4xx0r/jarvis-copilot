@@ -53,17 +53,26 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
                update: @escaping (RouteProgress) -> Void) {
         self.update = update
         self.sport = sport
+        // Nothing carries over from the last workout.
+        steps = nil
+        cadence = nil
+        lastFix = nil
+        pressure = nil
         if resuming, let saved = Self.checkpoint(), saved.sport == sport,
-           Date().timeIntervalSince(saved.recording.start) < 12 * 3600 {
+           Date().timeIntervalSince(saved.recording.start) < 12 * 3600,
+           saved.recording.start <= start.addingTimeInterval(5) {
             // Back after a relaunch: the same route, a new segment from here.
             recording = saved.recording
             recording?.pause()
             recording?.resume()
         } else {
             recording = RouteRecording(start: start, sport: sport, weightKg: weightKg)
+            // At once: an earlier workout's route must not be the one a relaunch finds.
+            checkpoint()
         }
         let from = recording?.start ?? start
         if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
+        askForPrecision()
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
@@ -116,6 +125,19 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
         try? FileManager.default.removeItem(at: Self.checkpointURL)
         guard let route, route.points.count >= 2 else { return nil }
         return route
+    }
+
+    /// Approximate location is ~1 km: no fix would ever count. Ask for precise
+    /// for this workout (the person can still say no).
+    private func askForPrecision() {
+        guard recording != nil, manager.authorizationStatus == .authorizedWhenInUse
+                || manager.authorizationStatus == .authorizedAlways,
+              manager.accuracyAuthorization == .reducedAccuracy else { return }
+        manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "WorkoutRoute")
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in self.askForPrecision() }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

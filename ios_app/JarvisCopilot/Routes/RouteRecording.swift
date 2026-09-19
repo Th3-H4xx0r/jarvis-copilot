@@ -83,7 +83,9 @@ struct RouteRecording: Codable, Equatable {
         if let pressureAltitude {
             ele = pressureAltitude
             usedBarometer = true
-        } else if let altitude = fix.altitude, let v = fix.verticalAccuracy, v > 0, v <= 15 {
+        } else if !usedBarometer, let altitude = fix.altitude, let v = fix.verticalAccuracy, v > 0, v <= 15 {
+            // Only while the barometer has never answered: the two disagree by
+            // metres, and switching between them would count as climbing.
             ele = altitude
             usedGPSAltitude = true
         } else {
@@ -150,11 +152,15 @@ struct RouteRecording: Codable, Equatable {
 /// Calories without a heart rate: ACSM's walking and running equations (with
 /// the slope), and cycling by speed.
 enum OutdoorCalories {
-    /// ml O₂ per kg per minute.
+    /// ml O₂ per kg per minute, resting included.
     static func vo2(metersPerMinute v: Double, grade: Double, running: Bool) -> Double {
         let climb = max(0, grade)
         return running ? 0.2 * v + 0.9 * v * climb + 3.5 : 0.1 * v + 1.8 * v * climb + 3.5
     }
+
+    /// Resting's share (3.5 ml/kg/min, 1 MET): active energy leaves it out,
+    /// as Apple Health's does.
+    static let resting = 3.5
 
     static func kcal(kind: RouteRecording.Kind, metersPerSecond: Double, grade: Double, seconds: Double,
                      weightKg: Double) -> Double {
@@ -163,12 +169,12 @@ enum OutdoorCalories {
         case .cycle:
             let kmh = metersPerSecond * 3.6
             let met: Double = kmh < 16 ? 4 : kmh < 19 ? 6.8 : kmh < 22 ? 8 : kmh < 25 ? 10 : 12
-            return met * 3.5 * weightKg / 200 * minutes
+            return (met - 1) * 3.5 * weightKg / 200 * minutes
         case .walk, .run:
             let v = metersPerSecond * 60
             // Past ~8 km/h people run, whatever the workout is called.
             let running = kind == .run ? v > 100 : v > 134
-            return vo2(metersPerMinute: v, grade: grade, running: running) * weightKg / 1000 * 5 * minutes
+            return (vo2(metersPerMinute: v, grade: grade, running: running) - resting) * weightKg / 1000 * 5 * minutes
         }
     }
 }

@@ -51,7 +51,8 @@ WORKOUT_PREFIX = "workout-"
 # `route-ring-b6ce93c4-20260919180000`. The workout itself carries only a
 # `route_summary`, so the day and /now stay small.
 ROUTE_PREFIX = "route-"
-MAX_ROUTE_POINTS = 25_000
+# A registry document holds at most 1 MiB; a stored point is ~50 bytes.
+MAX_ROUTE_POINTS = 15_000
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 
 # Strength training the phone keeps here: templates and custom exercises one
@@ -297,12 +298,17 @@ class HealthStore:
         segments = route.get("segments") if isinstance(route, dict) else None
         if not isinstance(segments, list) or not all(isinstance(s, list) for s in segments):
             raise ValueError("a route is {\"segments\": [[point, ...], ...]}")
+        import math
+
+        def number(v) -> bool:
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
         count = 0
         for segment in segments:
             for point in segment:
                 if not (isinstance(point, list) and 3 <= len(point) <= 6
-                        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point[:3])
-                        and all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)) for v in point[3:])):
+                        and all(number(v) for v in point[:3])
+                        and all(v is None or number(v) for v in point[3:])):
                     raise ValueError("a route point is [t, lat, lon, ele, hr, speed]")
                 if not (-90 <= point[1] <= 90 and -180 <= point[2] <= 180):
                     raise ValueError("a route point's latitude or longitude is out of range")
@@ -310,9 +316,26 @@ class HealthStore:
         if count > MAX_ROUTE_POINTS:
             raise ValueError(f"a route holds at most {MAX_ROUTE_POINTS} points (thin it first)")
         key = self._route_key(start, device)
-        body = {"version": int(route.get("version") or 1), "start": start, "segments": segments,
+        try:
+            version = int(route.get("version") or 1)
+        except (TypeError, ValueError):
+            version = 1
+        # The route's own start: its points' times count from it (a ring
+        # workout's clock starts a moment after the phone's GPS did).
+        own = route.get("start")
+        try:
+            parse_instant(str(own))
+            began = str(own) if own else start
+        except (TypeError, ValueError):
+            began = start
+        body = {"version": version, "start": began, "segments": segments,
                 "elevation_source": str(route.get("elevation_source") or "none"), "device": device}
-        self._space.put(key, body, description=f"Route of the workout at {start} ({count} points).")
+        from jarvis_registry.store import RegistryError
+
+        try:
+            self._space.put(key, body, description=f"Route of the workout at {start} ({count} points).")
+        except RegistryError as exc:
+            raise ValueError(f"the route is too large to keep ({exc}) — thin it first") from exc
         return {"key": key, "points": count}
 
     def route(self, start: str, device: str) -> Optional[dict]:

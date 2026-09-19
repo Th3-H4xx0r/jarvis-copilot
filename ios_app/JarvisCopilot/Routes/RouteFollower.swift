@@ -17,9 +17,10 @@ struct RouteGuide: Equatable, Identifiable {
     var total: Double { along.last ?? 0 }
     var coordinates: [CLLocationCoordinate2D] { zip(lats, lons).map { CLLocationCoordinate2D(latitude: $0, longitude: $1) } }
 
-    init(route: WorkoutRoute, title: String, sport: Int) {
+    /// `start` is the workout's (its route may have begun a moment earlier).
+    init(route: WorkoutRoute, title: String, sport: Int, start: Date? = nil) {
         let points = RouteMath.simplify(route.points, tolerance: 3)
-        id = RouteStore.key(route.start)
+        id = RouteStore.key(start ?? route.start)
         self.title = title
         self.sport = sport
         lats = points.map(\.lat)

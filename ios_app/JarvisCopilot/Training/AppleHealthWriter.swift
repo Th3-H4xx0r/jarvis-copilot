@@ -216,6 +216,9 @@ final class AppleHealthWriter: ObservableObject {
             for type in sampleTypes {
                 _ = try? await healthStore.deleteObjects(of: type, predicate: HKQuery.predicateForObjects(from: workout))
             }
+            // Its route doesn't go with it on its own.
+            _ = try? await healthStore.deleteObjects(of: HKSeriesType.workoutRoute(),
+                                                     predicate: HKQuery.predicateForObjects(from: workout))
             if #available(iOS 18.0, *) {
                 _ = try? await healthStore.deleteObjects(of: HKQuantityType(.workoutEffortScore),
                                                          predicate: HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil))

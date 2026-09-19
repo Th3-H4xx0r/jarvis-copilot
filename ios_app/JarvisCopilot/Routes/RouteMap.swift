@@ -140,6 +140,8 @@ struct RouteMapView: UIViewRepresentable {
     var fitToken: Int? = 0
     var insets = UIEdgeInsets(top: 40, left: 30, bottom: 40, right: 30)
     var interactive = true
+    /// Keeps Apple's logo, Legal and the Topo credit clear of rounded corners and panels.
+    var margins = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
 
     static let topoTemplate = "https://tile.opentopomap.org/{z}/{x}/{y}.png"
     static let topoCredit = "© OpenTopoMap (CC-BY-SA) · © OpenStreetMap"
@@ -163,9 +165,10 @@ struct RouteMapView: UIViewRepresentable {
         credit.clipsToBounds = true
         credit.translatesAutoresizingMaskIntoConstraints = false
         map.addSubview(credit)
+        map.layoutMargins = margins
         NSLayoutConstraint.activate([
-            credit.trailingAnchor.constraint(equalTo: map.trailingAnchor, constant: -6),
-            credit.bottomAnchor.constraint(equalTo: map.bottomAnchor, constant: -4),
+            credit.trailingAnchor.constraint(equalTo: map.layoutMarginsGuide.trailingAnchor),
+            credit.bottomAnchor.constraint(equalTo: map.layoutMarginsGuide.bottomAnchor),
         ])
         return map
     }
@@ -177,13 +180,18 @@ struct RouteMapView: UIViewRepresentable {
         map.isZoomEnabled = interactive
         map.isRotateEnabled = interactive
         map.isPitchEnabled = interactive
+        if map.layoutMargins != margins { map.layoutMargins = margins }
         if c.style != style { c.apply(style, to: map) }
         if c.revision != revision { c.drawRoute(on: map) }
         c.drawGuide(on: map)
         c.placeMarkers(on: map)
         c.placeScrub(on: map)
         map.showsUserLocation = showsUser
-        if let following, following.wrappedValue { c.follow(map) }
+        // Only when there is somewhere new to go (or following was just asked
+        // for again): never on every redraw, which would fight a finger.
+        let follows = following?.wrappedValue ?? false
+        if follows, !c.wasFollowing || c.followedRevision != revision { c.follow(map) }
+        c.wasFollowing = follows
         if let fitToken, c.fitted != fitToken, !segments.joined().isEmpty {
             c.fitted = fitToken
             c.fit(map)
@@ -198,12 +206,14 @@ struct RouteMapView: UIViewRepresentable {
         let credit = UILabel()
         /// Following has framed the runner once; after that it only pans.
         private var zoomed = false
-        private var followedRevision = -1
-        /// The camera is moving because this code moved it, not a finger.
-        private var moving = false
-        private var routeOverlays: [MKPolyline] = []
+        var followedRevision = -1
+        var wasFollowing = false
+        /// The line in chunks of up to 200 points, by key: a growing route
+        /// only rebuilds its last chunk, never the whole of a long hike.
+        private var chunks: [String: [MKPolyline]] = [:]
         private var casings: Set<ObjectIdentifier> = []
         private var gradient: [ObjectIdentifier: [UIColor]] = [:]
+        static let chunkSize = 200
         private var tile: MKTileOverlay?
         private var guideLine: MKPolyline?
         private var guideKey: String?
@@ -236,21 +246,35 @@ struct RouteMapView: UIViewRepresentable {
 
         func drawRoute(on map: MKMapView) {
             revision = parent.revision
-            map.removeOverlays(routeOverlays)
-            routeOverlays = []
-            casings = []
-            gradient = [:]
+            // Coloured lines are redrawn whole when their colours change.
+            let stamp = parent.colors == nil ? 0 : parent.revision
+            var wanted: [String: (coordinates: [CLLocationCoordinate2D], colors: [UIColor]?)] = [:]
             for (index, segment) in parent.segments.enumerated() where segment.count >= 2 {
-                let coordinates = segment.map(\.coordinate)
-                let casing = MKPolyline(coordinates: coordinates, count: coordinates.count)
-                let line = MKPolyline(coordinates: coordinates, count: coordinates.count)
-                casings.insert(ObjectIdentifier(casing))
-                if let colors = parent.colors, index < colors.count, colors[index].count == segment.count {
-                    gradient[ObjectIdentifier(line)] = colors[index]
+                let colors = parent.colors.flatMap { index < $0.count && $0[index].count == segment.count ? $0[index] : nil }
+                for (n, from) in stride(from: 0, to: segment.count - 1, by: Self.chunkSize).enumerated() {
+                    // Each chunk shares its first point with the last one's end.
+                    let to = min(segment.count, from + Self.chunkSize + 1)
+                    let key = "\(index)-\(n)-\(to - from)-\(stamp)"
+                    wanted[key] = (segment[from..<to].map(\.coordinate), colors.map { Array($0[from..<to]) })
                 }
+            }
+            // New chunks first, then the old ones go: the line never blinks out.
+            for (key, chunk) in wanted where chunks[key] == nil {
+                let casing = MKPolyline(coordinates: chunk.coordinates, count: chunk.coordinates.count)
+                let line = MKPolyline(coordinates: chunk.coordinates, count: chunk.coordinates.count)
+                casings.insert(ObjectIdentifier(casing))
+                if let colors = chunk.colors { gradient[ObjectIdentifier(line)] = colors }
                 map.addOverlay(casing, level: .aboveLabels)
                 map.addOverlay(line, level: .aboveLabels)
-                routeOverlays += [casing, line]
+                chunks[key] = [casing, line]
+            }
+            for (key, overlays) in chunks where wanted[key] == nil {
+                map.removeOverlays(overlays)
+                for overlay in overlays {
+                    casings.remove(ObjectIdentifier(overlay))
+                    gradient[ObjectIdentifier(overlay)] = nil
+                }
+                chunks[key] = nil
             }
         }
 
@@ -304,16 +328,14 @@ struct RouteMapView: UIViewRepresentable {
             let target = parent.segments.last(where: { !$0.isEmpty })?.last?.coordinate
                 ?? (map.userLocation.location.map(\.coordinate))
             guard let target, CLLocationCoordinate2DIsValid(target) else { return }
-            moving = true
             if !zoomed {
                 zoomed = true
                 map.setRegion(MKCoordinateRegion(center: target, latitudinalMeters: 900, longitudinalMeters: 900),
                               animated: false)
-            } else if followedRevision != parent.revision || map.centerCoordinate.latitude != target.latitude {
+            } else {
                 map.setCenter(target, animated: true)
             }
             followedRevision = parent.revision
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.moving = false }
         }
 
         func mapView(_ mapView: MKMapView, didUpdate userLocation: MKUserLocation) {
@@ -321,9 +343,10 @@ struct RouteMapView: UIViewRepresentable {
             follow(mapView)
         }
 
-        /// A finger moved the map: stop following until asked again.
+        /// A finger moved the map (a gesture is under way — code moving the
+        /// camera has none): stop following until asked again.
         func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
-            guard !moving, let following = parent.following, following.wrappedValue else { return }
+            guard let following = parent.following, following.wrappedValue else { return }
             let recognizers = (mapView.gestureRecognizers ?? []) + (mapView.subviews.first?.gestureRecognizers ?? [])
             let touched = recognizers.contains { $0.state == .began || $0.state == .changed }
             if touched { DispatchQueue.main.async { following.wrappedValue = false } }
@@ -358,7 +381,8 @@ struct RouteMapView: UIViewRepresentable {
                 let r = MKPolylineRenderer(polyline: line)
                 r.strokeColor = UIColor.black.withAlphaComponent(0.55)
                 r.lineWidth = 8.5
-                r.lineCap = .round
+                // Flat ends: a chunk's casing mustn't cap over the line before it.
+                r.lineCap = .butt
                 r.lineJoin = .round
                 return r
             }

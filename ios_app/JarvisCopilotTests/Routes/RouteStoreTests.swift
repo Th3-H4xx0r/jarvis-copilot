@@ -77,4 +77,19 @@ final class RouteStoreTests: XCTestCase {
         XCTAssertNil(none)
         XCTAssertEqual(transport.requests.count, 1)
     }
+
+    func testAStartWithAFractionAndTheServersTruncatedOneShareAKey() {
+        let recorded = Date(timeIntervalSince1970: 1_790_000_000.7)
+        let fromServer = HealthClient.instant.date(from: HealthClient.instant.string(from: recorded))!
+        XCTAssertEqual(RouteStore.key(recorded), RouteStore.key(fromServer))
+        XCTAssertEqual(RouteStore.key(recorded), "1790000000")
+    }
+
+    func testThinningKeepsAPointEveryTwoSecondsAtMost() {
+        let points = RouteMathTests.line(seconds: 600, speed: 4)
+        let route = WorkoutRoute(start: Date(), segments: [points], elevationSource: "none")
+        let thinned = RouteMath.thin(route)
+        XCTAssertEqual(thinned.points.count, 301, accuracy: 2)
+        XCTAssertLessThanOrEqual(RouteMath.thin(route, maxPoints: 50).points.count, 50)
+    }
 }

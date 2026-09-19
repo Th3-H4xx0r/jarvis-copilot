@@ -290,21 +290,26 @@ enum RouteMath {
         return out
     }
 
-    /// Fewer points for the server: at least `minSpacing` apart, at most `maxPoints`.
-    static func thin(_ route: WorkoutRoute, minSpacing: Double = 2, maxPoints: Int = 20_000) -> WorkoutRoute {
-        var spacing = minSpacing
+    /// Fewer points for the server: at most one every `minSeconds`, at least
+    /// `minSpacing` apart, and no more than `maxPoints` (a registry document
+    /// holds 1 MiB; a stored point is ~50 bytes).
+    static func thin(_ route: WorkoutRoute, minSeconds: Double = 2, minSpacing: Double = 2,
+                     maxPoints: Int = 12_000) -> WorkoutRoute {
+        var seconds = minSeconds, spacing = minSpacing
         var out = route
         for _ in 0..<40 {
             out.segments = route.segments.map { segment in
                 guard segment.count > 2, let first = segment.first, let last = segment.last else { return segment }
                 var kept = [first]
-                for point in segment.dropFirst().dropLast() where distance(kept.last!, point) >= spacing {
+                for point in segment.dropFirst().dropLast()
+                where point.t - kept.last!.t >= seconds && distance(kept.last!, point) >= spacing {
                     kept.append(point)
                 }
                 kept.append(last)
                 return kept
             }
             if out.points.count <= maxPoints { return out }
+            seconds *= 1.5
             spacing *= 1.5
         }
         return out

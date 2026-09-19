@@ -56,6 +56,11 @@
 	<array>
 		<string>_jarvis-esp32._tcp</string>
 	</array>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>WorkoutRoute</key>
+		<string>Precise location draws your workout’s route and measures its distance and pace.</string>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

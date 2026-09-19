@@ -195,6 +195,8 @@ struct WorkoutConfirmView: View {
     /// Outdoors: a past route to follow.
     @State private var guide: RouteGuide?
     @State private var choosingRoute = false
+    /// The person picked a wearable here (not just the screen's default).
+    @State private var choseMonitor = false
 
     init(choice: WorkoutChoice, store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
          monitors: [WorkoutMonitor]? = nil, ring: RingManager = WearablesHub.shared.ring, guide: RouteGuide? = nil,
@@ -276,7 +278,10 @@ struct WorkoutConfirmView: View {
             MonitorPicker(choice: choice, ring: ring, ringChosen: $ringChosen)
         }
         .sheet(isPresented: $choosingRoute) { RoutePicker(guide: $guide) }
-        .onChange(of: ringChosen) { _, chosen in WorkoutMonitorPreference.usesRing = chosen }
+        .onChange(of: ringChosen) { _, chosen in
+            choseMonitor = true
+            WorkoutMonitorPreference.usesRing = chosen
+        }
     }
 
     // MARK: Header
@@ -443,8 +448,10 @@ struct WorkoutConfirmView: View {
 
     private var startButton: some View {
         Button {
-            // What the screen shows is what starts.
-            WorkoutMonitorPreference.usesRing = ringChosen
+            // What the screen shows is what starts — saved as the preference
+            // only when the person chose it (not when no ring forced it).
+            if choseMonitor { WorkoutMonitorPreference.usesRing = ringChosen }
+            ring.workout.nextStartUsesRing = ringChosen
             ring.workout.guide = choice.isOutdoor ? guide : nil
             onStart(choice)
         } label: {

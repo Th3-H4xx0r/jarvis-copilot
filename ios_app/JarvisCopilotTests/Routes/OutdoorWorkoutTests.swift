@@ -194,4 +194,44 @@ final class OutdoorWorkoutTests: XCTestCase {
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(c.phase, .running, "an ended tick from the ring doesn't end it")
     }
+
+    func testAFinishedPhoneOnlyWorkoutSurvivesTheAppEnding() async throws {
+        let c = controller()
+        try await startPhoneOnly(c)
+        for s in stride(from: 0.0, through: 60, by: 2) { location.fix(s * 3, at: at(s)) }
+        clock = at(60)
+        c.end()
+        guard case .finished(let workout) = c.phase else { return XCTFail("a summary") }
+        // The app is gone before Save; a new one shows the same summary and route.
+        let again = controller()
+        guard case .finished(let back) = again.phase else { return XCTFail("the summary is back") }
+        XCTAssertEqual(back.start, workout.start)
+        XCTAssertEqual(again.finishedRoute?.points.count, c.finishedRoute?.points.count)
+        var saved: WorkoutRoute?
+        again.onSaveRoute = { route, _ in saved = route }
+        again.close(save: true)
+        XCTAssertNotNil(saved)
+        XCTAssertEqual(controller().phase, .idle, "saved: nothing left to bring back")
+    }
+
+    func testTheRingsDistanceStandsUntilGPSHasAPoint() async throws {
+        WorkoutMonitorPreference.usesRing = true
+        let c = controller()
+        c.start(run)
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertNil(c.gpsDistance, "no fix yet: not 0 km by GPS")
+        location.fix(0, at: at(1))
+        XCTAssertEqual(c.gpsDistance, 0)
+    }
+
+    func testTheStartScreensChoiceIsForThisWorkoutOnly() async throws {
+        WorkoutMonitorPreference.usesRing = true
+        let c = controller()
+        c.nextStartUsesRing = false
+        c.start(run)
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertTrue(c.phoneOnly)
+        XCTAssertTrue(WorkoutMonitorPreference.usesRing, "the saved preference is untouched")
+        XCTAssertNil(c.nextStartUsesRing)
+    }
 }

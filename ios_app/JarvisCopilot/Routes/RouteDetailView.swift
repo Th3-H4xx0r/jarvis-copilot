@@ -28,6 +28,9 @@ struct RouteDetailView: View {
     @State private var picture: UIImage?
     @State private var confirmingDelete = false
     @State private var following = false
+    /// Start pressed on the Follow sheet: the workout starts once it has gone.
+    @State private var startAfterFollow: RingSport?
+    @ObservedObject private var controller = WearablesHub.shared.ring.workout
     @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
     @Environment(\.dismiss) private var dismiss
 
@@ -84,18 +87,19 @@ struct RouteDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $following) {
+        .sheet(isPresented: $following, onDismiss: {
+            // The workout's own sheet comes up only once this one has gone.
+            if let sport = startAfterFollow { controller.start(sport) }
+            startAfterFollow = nil
+        }) {
             if let route {
-                let sport = RingSport.withID(workout.sport)
+                let sport = RingSport.withID(workout.sport).outdoor ? RingSport.withID(workout.sport) : RingSport.withID(7)
                 NavigationStack {
-                    WorkoutConfirmView(choice: .sport(sport.outdoor ? sport : RingSport.withID(7)),
+                    WorkoutConfirmView(choice: .sport(sport),
                                        guide: RouteGuide(route: route, title: "\(workout.sportName) · \(workout.start.formatted(.dateTime.month(.abbreviated).day()))",
-                                                         sport: workout.sport)) { _ in
+                                                         sport: workout.sport, start: workout.start)) { _ in
+                        startAfterFollow = sport
                         following = false
-                        // The workout's own sheet comes up once this one has gone.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                            WearablesHub.shared.ring.workout.start(sport.outdoor ? sport : RingSport.withID(7))
-                        }
                     }
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { following = false } } }
                 }
@@ -184,10 +188,10 @@ struct RouteDetailView: View {
                 } else {
                     Rectangle().fill(Color.white.opacity(0.04))
                         .overlay {
-                            if let preview = workout.route?.preview, loaded {
-                                RouteThumbnail(preview: preview, size: 180)
-                            } else {
+                            if !loaded {
                                 ProgressView()
+                            } else if let preview = workout.route?.preview, !preview.isEmpty {
+                                RouteThumbnail(preview: preview, size: 180)
                             }
                         }
                 }
@@ -396,8 +400,19 @@ struct RouteDetailView: View {
     }
 
     private var missing: some View {
-        CardGroup {
-            CardEmptyBlock(symbol: "map", text: "The route couldn't be loaded — it will be when Jarvis Health is reachable.")
+        CardGroup(footer: "It's kept by Jarvis Health; this iPhone doesn't have a copy.") {
+            Row(minHeight: 60) {
+                HStack(spacing: 12) {
+                    Image(systemName: "map").foregroundStyle(.secondary).frame(width: 30)
+                    Text("The route couldn't be loaded.").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Retry") {
+                        loaded = false
+                        Task { await load() }
+                    }
+                    .buttonStyle(.jcGlass(compact: true))
+                }
+            }
         }
     }
 
@@ -417,7 +432,8 @@ struct RouteDetailView: View {
                     }
                     .buttonStyle(.jcGlass(compact: true))
                 }
-                if fromHistory {
+                // Not while a workout runs: it would swap that workout's route.
+                if fromHistory, !controller.isActive {
                     Button { following = true } label: { Label("Follow", systemImage: "arrow.triangle.turn.up.right.diamond") }
                         .buttonStyle(.jcGlass(compact: true))
                 }
@@ -471,7 +487,8 @@ struct RouteFullMap: View {
     var body: some View {
         ZStack(alignment: .top) {
             RouteMapView(segments: route?.segments ?? [], revision: revision, style: style, colors: colors, markers: markers,
-                         scrub: scrub, fitToken: 1, insets: UIEdgeInsets(top: 110, left: 40, bottom: 140, right: 40))
+                         scrub: scrub, fitToken: 1, insets: UIEdgeInsets(top: 110, left: 40, bottom: 140, right: 40),
+                         margins: UIEdgeInsets(top: 8, left: 16, bottom: colourings.count > 1 ? 150 : 40, right: 16))
                 .ignoresSafeArea()
             HStack(alignment: .top) {
                 MapCircleButton(symbol: "xmark", label: "Close") { dismiss() }

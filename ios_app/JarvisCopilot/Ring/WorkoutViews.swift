@@ -395,8 +395,14 @@ struct WorkoutLiveView: View {
                 Button("Close") { workout.close(save: false) }
                     .buttonStyle(.jcGlass(tint: .secondary))
                 if let sport = workout.sport {
-                    Button("Try again") { workout.close(save: false); workout.start(sport) }
-                        .buttonStyle(.jcGlass(tint: JcTheme.accent))
+                    Button("Try again") {
+                        // The same workout again: the route it was following too.
+                        let guide = workout.guide
+                        workout.close(save: false)
+                        workout.guide = guide
+                        workout.start(sport)
+                    }
+                    .buttonStyle(.jcGlass(tint: JcTheme.accent))
                 }
             }
         }
@@ -622,6 +628,8 @@ private struct StrengthNameLine: View {
 /// or a range's in that history, dated.
 struct HealthWorkoutsCard: View {
     let workouts: [RingWorkout]
+    /// Rows show distance in it: redrawn when it changes in Settings.
+    @AppStorage("jc.distance.unit") private var distanceUnit = DistanceUnit.current.rawValue
     var title = "Workouts"
     /// Rows across several days say which day.
     var showsDate = false
