@@ -94,6 +94,7 @@
 		20F4BDF6C2711BC5546B4AD5 /* ScrollReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98268B38A607FD59C5EC1AA1 /* ScrollReveal.swift */; };
 		211502404AAF2AF713193FB1 /* LongTermMemoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B659300802E9BA5F5211D96D /* LongTermMemoryPage.swift */; };
 		21B913BFC6D3643F40EF23B5 /* DevicesSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = E65C7FEBF3AC91BF52EC0C38 /* DevicesSections.swift */; };
+		22554A6C9B13475F93F1962D /* WorkoutActivityStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6F36A2C2F89AA4D5550CDD /* WorkoutActivityStateTests.swift */; };
 		22E89C08B8BF96B93366F9DE /* PairPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED69956E5A404410D189DB90 /* PairPage.swift */; };
 		2314F4CDCD02AD30802F3A55 /* NotificationActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01172EA46E63A9C64888D03F /* NotificationActionsTests.swift */; };
 		238825A95C794F89F6364E7A /* RingStatsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96790BC8E23FE3AA4932DABA /* RingStatsSections.swift */; };
@@ -896,6 +897,7 @@
 		4AE762F2446273A23EDF876A /* ProfilesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesTests.swift; sourceTree = "<group>"; };
 		4B0BAEB21515D007EA32487B /* LocalSkill.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSkill.swift; sourceTree = "<group>"; };
 		4C06AE591CC79CC527BABB4B /* IslandAuto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandAuto.swift; sourceTree = "<group>"; };
+		4D6F36A2C2F89AA4D5550CDD /* WorkoutActivityStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutActivityStateTests.swift; sourceTree = "<group>"; };
 		4D883E45BA9E8351D1C9F64D /* CronsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronsAPI.swift; sourceTree = "<group>"; };
 		4DC88EBA9BCFBCBCA019DE32 /* IntegrationsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsStore.swift; sourceTree = "<group>"; };
 		4DF5836BFF32185E7E51741C /* VoiceLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLiveActivity.swift; sourceTree = "<group>"; };
@@ -2448,6 +2450,7 @@
 				05020FDF91A61E75B981519B /* RingWorkoutTests.swift */,
 				46894A9489E1D504A9302CB8 /* WorkoutRenderTests.swift */,
 				1C79C79DEEE34968F8E62367 /* StrengthWorkoutTests.swift */,
+				4D6F36A2C2F89AA4D5550CDD /* WorkoutActivityStateTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -2966,6 +2969,7 @@
 				32799A707359913FB5986CC5 /* StrengthSessionTests.swift in Sources */,
 				08F7324686B8ED7DA78382B5 /* TrainingRenderTests.swift in Sources */,
 				32AA30F46877652C37ABC4D0 /* StrengthWorkoutTests.swift in Sources */,
+				22554A6C9B13475F93F1962D /* WorkoutActivityStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

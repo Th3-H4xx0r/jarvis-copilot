@@ -17,6 +17,12 @@ struct RingWorkoutActivity: Widget {
                     Text(context.attributes.sport)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
+                    if let detail = context.state.detail {
+                        Text("Next: \(detail)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
                     HStack(spacing: 10) {
                         if let hr = context.state.heartRate {
                             Label("\(hr)", systemImage: "heart.fill")
@@ -33,11 +39,30 @@ struct RingWorkoutActivity: Widget {
                     .monospacedDigit()
                 }
                 Spacer()
-                WorkoutTimerText(state: context.state, font: .system(size: 34, weight: .semibold, design: .rounded))
-                    .foregroundStyle(tint)
+                if let rest = RestWindow(context.state) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("Rest").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+                        Text(timerInterval: rest.range, countsDown: true)
+                            .font(.system(size: 34, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                    }
+                } else {
+                    WorkoutTimerText(state: context.state, font: .system(size: 34, weight: .semibold, design: .rounded))
+                        .foregroundStyle(tint)
+                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
+            .overlay(alignment: .bottom) {
+                if let rest = RestWindow(context.state) {
+                    ProgressView(timerInterval: rest.range, countsDown: true) { EmptyView() } currentValueLabel: { EmptyView() }
+                        .tint(Color(red: 1, green: 0.76, blue: 0.3))
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 6)
+                }
+            }
             .activityBackgroundTint(Color.black.opacity(0.65))
             .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
@@ -49,11 +74,27 @@ struct RingWorkoutActivity: Widget {
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    WorkoutTimerText(state: context.state, font: .system(size: 28, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .padding(.trailing, 4)
+                    if let rest = RestWindow(context.state) {
+                        Text(timerInterval: rest.range, countsDown: true)
+                            .font(.system(size: 28, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                            .padding(.trailing, 4)
+                    } else {
+                        WorkoutTimerText(state: context.state, font: .system(size: 28, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.trailing, 4)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
+                    if let detail = context.state.detail {
+                        Text(RestWindow(context.state) == nil ? detail : "Next: \(detail)")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.75))
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                    }
                     HStack {
                         if let hr = context.state.heartRate {
                             Label("\(hr) bpm", systemImage: "heart.fill")
@@ -71,9 +112,18 @@ struct RingWorkoutActivity: Widget {
             } compactLeading: {
                 Image(systemName: context.attributes.symbol).foregroundStyle(tint)
             } compactTrailing: {
-                WorkoutTimerText(state: context.state, font: .system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(tint)
-                    .frame(maxWidth: 56)
+                if let rest = RestWindow(context.state) {
+                    Text(timerInterval: rest.range, countsDown: true)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .multilineTextAlignment(.trailing)
+                        .foregroundStyle(Color(red: 1, green: 0.76, blue: 0.3))
+                        .frame(maxWidth: 56)
+                } else {
+                    WorkoutTimerText(state: context.state, font: .system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(tint)
+                        .frame(maxWidth: 56)
+                }
             } minimal: {
                 Image(systemName: context.attributes.symbol).foregroundStyle(tint)
             }
@@ -98,5 +148,15 @@ struct WorkoutTimerText: View {
         .font(font)
         .monospacedDigit()
         .multilineTextAlignment(.trailing)
+    }
+}
+
+/// A strength rest the widget counts down by itself.
+struct RestWindow: Equatable {
+    let range: ClosedRange<Date>
+
+    init?(_ state: RingWorkoutAttributes.ContentState) {
+        guard let ends = state.restEnds, ends > Date() else { return nil }
+        range = min(state.restStarted ?? ends, ends)...ends
     }
 }
