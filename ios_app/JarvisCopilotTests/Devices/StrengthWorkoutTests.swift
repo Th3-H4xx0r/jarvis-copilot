@@ -182,6 +182,17 @@ final class StrengthWorkoutTests: XCTestCase {
         XCTAssertTrue(c.heartSamples.isEmpty)
     }
 
+    func testNoWearableChosenMeansNoRingSession() async throws {
+        WorkoutMonitorPreference.usesRing = false
+        defer { WorkoutMonitorPreference.usesRing = true }
+        let c = controller()
+        c.startStrength(template: template())
+        try await Task.sleep(nanoseconds: 1_800_000_000)
+        XCTAssertTrue(link.payloads(0x77).isEmpty, "the ring is left alone")
+        XCTAssertEqual(c.vitalsNote, "No wearable chosen — logging sets without heart rate.")
+        XCTAssertEqual(c.phase, .running)
+    }
+
     func testARunIsStillARun() async throws {
         let c = controller()
         c.countdownSeconds = 0

@@ -466,7 +466,14 @@ extension RingWorkoutController {
         vitalsNote = nil
         showsLive = true
         phase = .running
-        if !ringRunning { startRingVitals() }
+        if !ringRunning {
+            // The start screen's choice: no wearable means no ring session at all.
+            if WorkoutMonitorPreference.usesRing {
+                startRingVitals()
+            } else {
+                vitalsNote = "No wearable chosen — logging sets without heart rate."
+            }
+        }
         pushStrengthActivity()
     }
 
