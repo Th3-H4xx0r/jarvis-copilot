@@ -18,7 +18,7 @@ struct HealthClient {
         self.spaceID = spaceID
     }
 
-    private var base: String { "/api/integrations/\(spaceID)/health" }
+    var base: String { "/api/integrations/\(spaceID)/health" }
 
     private static let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -96,13 +96,18 @@ struct HealthClient {
 
     /// A finished workout, with ISO times as the server keeps them.
     func pushWorkout(_ workout: RingWorkout, deviceID: String?) async throws {
+        let body = try Self.serverJSON(workout) as? [String: Any] ?? [:]
+        _ = try await api.post("\(base)/workouts", json: ["workout": body, "device_id": deviceID ?? ""])
+    }
+
+    /// A value as the server's JSON: its keys, times as ISO instants.
+    static func serverJSON<T: Encodable>(_ value: T) throws -> Any {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
             try container.encode(Self.instant.string(from: date))
         }
-        let body = try JSONSerialization.jsonObject(with: encoder.encode(workout)) as? [String: Any] ?? [:]
-        _ = try await api.post("\(base)/workouts", json: ["workout": body, "device_id": deviceID ?? ""])
+        return try JSONSerialization.jsonObject(with: encoder.encode(value), options: [.fragmentsAllowed])
     }
 
     /// Run the analysis now. Long timeout: it reaches the ring through the phone.
@@ -123,7 +128,7 @@ struct HealthClient {
         try decoder.decode(type, from: Data(json.utf8))
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {
+    static func decode<T: Decodable>(_ type: T.Type, from raw: Any) throws -> T {
         let data = try JSONSerialization.data(withJSONObject: raw)
         return try decoder.decode(type, from: data)
     }
