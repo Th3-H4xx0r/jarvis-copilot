@@ -20,6 +20,13 @@ struct RingWorkoutAttributes: ActivityAttributes {
         var restStarted: Date? = nil
         /// Strength: what comes next — "Bench Press · set 3 · 60 kg × 8".
         var detail: String? = nil
+        /// Distance shown in miles (the person's unit), else kilometres.
+        var miles: Bool? = nil
+
+        /// "3.42 mi" or "5.51 km".
+        var distanceText: String? {
+            distanceKm.map { miles == true ? String(format: "%.2f mi", $0 / 1.609344) : String(format: "%.2f km", $0) }
+        }
     }
 
     var sport: String

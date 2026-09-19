@@ -1,3 +1,4 @@
+import CoreLocation
 import HealthKit
 
 /// A workout as Apple Health will keep it.
@@ -18,6 +19,10 @@ struct HealthWorkoutPlan: Equatable {
     var effort: Int?
     var syncID: String
     var version: Int
+    /// An outdoor workout's route, fix by fix, for Apple Health's map.
+    var route: [CLLocation] = []
+    /// Metres climbed, when the route measured it.
+    var elevationGain: Double?
 }
 
 /// How a Jarvis workout maps onto Apple Health's — pure, so it is tested
@@ -68,16 +73,30 @@ enum AppleHealthPlanner {
         "jarvis-" + HealthClient.instant.string(from: start).filter(\.isNumber)
     }
 
-    static func plan(_ workout: RingWorkout, version: Int) -> HealthWorkoutPlan {
+    /// A route as Apple Health takes it: located fixes inside the workout.
+    static func locations(_ route: WorkoutRoute?, start: Date, end: Date) -> [CLLocation] {
+        guard let route else { return [] }
+        return route.points.compactMap { p in
+            let time = route.start.addingTimeInterval(p.t)
+            guard time >= start, time <= end else { return nil }
+            return CLLocation(coordinate: p.coordinate, altitude: p.ele ?? 0, horizontalAccuracy: 5,
+                              verticalAccuracy: p.ele == nil ? -1 : 5, course: -1, speed: p.speed ?? -1, timestamp: time)
+        }
+    }
+
+    static func plan(_ workout: RingWorkout, version: Int, route: WorkoutRoute? = nil) -> HealthWorkoutPlan {
         let (activity, indoor) = activity(sport: workout.sport)
         let readings = workout.heartRates.enumerated().compactMap { i, bpm in
             bpm > 0 ? HealthWorkoutPlan.Reading(at: workout.start.addingTimeInterval(Double(i * 5)), bpm: Double(bpm)) : nil
         }
         let type = distanceType(sport: workout.sport)
-        return HealthWorkoutPlan(activity: activity, indoor: indoor, start: workout.start, end: max(workout.end, workout.start),
+        let end = max(workout.end, workout.start)
+        return HealthWorkoutPlan(activity: activity, indoor: indoor, start: workout.start, end: end,
                                  heartRates: readings.filter { $0.at <= workout.end }, activeKcal: max(0, workout.kilocalories),
                                  distanceType: type, meters: type == nil ? 0 : workout.distanceMeters, effort: workout.effort,
-                                 syncID: syncID(workout.start), version: version)
+                                 syncID: syncID(workout.start), version: version,
+                                 route: locations(route, start: workout.start, end: end),
+                                 elevationGain: workout.route?.gainMeters)
     }
 }
 
@@ -113,6 +132,7 @@ final class AppleHealthWriter: ObservableObject {
     private var shareTypes: Set<HKSampleType> {
         var types = Set(sampleTypes)
         types.insert(HKObjectType.workoutType())
+        types.insert(HKSeriesType.workoutRoute())
         if #available(iOS 18.0, *) { types.insert(HKQuantityType(.workoutEffortScore)) }
         return types
     }
@@ -173,7 +193,8 @@ final class AppleHealthWriter: ObservableObject {
         // reinstall that forgot what was sent — so nothing is counted twice.
         await remove(start: workout.start)
         do {
-            try await save(AppleHealthPlanner.plan(workout, version: version))
+            try await save(AppleHealthPlanner.plan(workout, version: version,
+                                                   route: RouteStore.shared.route(start: workout.start)))
         } catch {
             JcLog.dropped(JcLog.devices, "apple health workout", error)
         }
@@ -229,11 +250,28 @@ final class AppleHealthWriter: ObservableObject {
                                             start: plan.start, end: plan.end))
         }
         if !samples.isEmpty { try await builder.addSamples(samples) }
-        try await builder.addMetadata([HKMetadataKeySyncIdentifier: plan.syncID, HKMetadataKeySyncVersion: plan.version,
-                                       HKMetadataKeyIndoorWorkout: plan.indoor])
+        var metadata: [String: Any] = [HKMetadataKeySyncIdentifier: plan.syncID, HKMetadataKeySyncVersion: plan.version,
+                                       HKMetadataKeyIndoorWorkout: plan.indoor]
+        if let gain = plan.elevationGain, gain > 0 {
+            metadata[HKMetadataKeyElevationAscended] = HKQuantity(unit: .meter(), doubleValue: gain)
+        }
+        try await builder.addMetadata(metadata)
         try await builder.endCollection(at: plan.end)
         guard let workout = try await builder.finishWorkout() else { return }
         versions[plan.syncID] = plan.version
+        // The route is extra too: Fitness draws the map from it.
+        if plan.route.count >= 2,
+           healthStore.authorizationStatus(for: HKSeriesType.workoutRoute()) == .sharingAuthorized {
+            do {
+                let routeBuilder = HKWorkoutRouteBuilder(healthStore: healthStore, device: .local())
+                for start in stride(from: 0, to: plan.route.count, by: 500) {
+                    try await routeBuilder.insertRouteData(Array(plan.route[start..<min(plan.route.count, start + 500)]))
+                }
+                try await routeBuilder.finishRoute(with: workout, metadata: nil)
+            } catch {
+                JcLog.dropped(JcLog.devices, "apple health route", error)
+            }
+        }
         // Effort is extra: its failing leaves the workout saved.
         if #available(iOS 18.0, *), let effort = plan.effort, allowed(.workoutEffortScore) {
             do {

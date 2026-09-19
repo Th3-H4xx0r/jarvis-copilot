@@ -28,8 +28,8 @@ struct RingWorkoutActivity: Widget {
                             Label("\(hr)", systemImage: "heart.fill")
                                 .foregroundStyle(Color(red: 1, green: 0.35, blue: 0.4))
                         }
-                        if let km = context.state.distanceKm {
-                            Text(String(format: "%.2f km", km)).foregroundStyle(.white.opacity(0.75))
+                        if let distance = context.state.distanceText {
+                            Text(distance).foregroundStyle(.white.opacity(0.75))
                         }
                         if !context.state.running {
                             Text("Paused").foregroundStyle(.orange)
@@ -101,8 +101,8 @@ struct RingWorkoutActivity: Widget {
                                 .foregroundStyle(Color(red: 1, green: 0.35, blue: 0.4))
                         }
                         Spacer()
-                        if let km = context.state.distanceKm {
-                            Text(String(format: "%.2f km", km)).foregroundStyle(.white)
+                        if let distance = context.state.distanceText {
+                            Text(distance).foregroundStyle(.white)
                         }
                     }
                     .font(.system(size: 14, weight: .semibold, design: .rounded))

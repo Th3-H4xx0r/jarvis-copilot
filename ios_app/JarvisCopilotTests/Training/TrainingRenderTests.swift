@@ -193,6 +193,11 @@ final class TrainingRenderTests: XCTestCase {
                                 size: CGSize(width: 402, height: 1100), name: "strength-edit")
     }
 
+    func testTheWorkoutsSettingsCard() throws {
+        try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel()).workoutsCard.padding(.top, 20) },
+                                size: CGSize(width: 402, height: 330), name: "workouts-settings")
+    }
+
     func testTheAppleHealthSettingsCard() throws {
         try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel()).appleHealthCard.padding(.top, 20) },
                                 size: CGSize(width: 402, height: 300), name: "apple-health-off")

@@ -41,7 +41,7 @@ enum AppleHealthKind: String, CaseIterable, Identifiable {
     /// What it writes, for the permission request.
     var sampleTypes: [HKSampleType] {
         switch self {
-        case .workouts: return [HKObjectType.workoutType()]
+        case .workouts: return [HKObjectType.workoutType(), HKSeriesType.workoutRoute()]
         case .heartRate: return [HKQuantityType(.heartRate)]
         case .restingHeartRate: return [HKQuantityType(.restingHeartRate)]
         case .hrv: return [HKQuantityType(.heartRateVariabilitySDNN)]

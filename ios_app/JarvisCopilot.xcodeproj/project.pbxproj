@@ -3802,8 +3802,9 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot records the route of your outdoor workouts, and shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
@@ -3909,8 +3910,9 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot records the route of your outdoor workouts, and shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;

@@ -28,7 +28,7 @@ final class WorkoutLiveActivity {
         let state = RingWorkoutAttributes.ContentState(
             running: running, reference: Date().addingTimeInterval(-Double(elapsed)),
             frozenElapsed: Double(elapsed), heartRate: heartRate, distanceKm: distanceKm, zone: zone,
-            restEnds: restEnds, restStarted: restStarted, detail: detail)
+            restEnds: restEnds, restStarted: restStarted, detail: detail, miles: DistanceUnit.current == .mi)
         let step = "\(restEnds?.timeIntervalSince1970 ?? 0)|\(detail ?? "")"
         // A rest ends by the clock: past it the activity is stale, and the
         // widget goes back to the workout's timer without a push.

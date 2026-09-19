@@ -40,6 +40,21 @@ final class AppleHealthPlannerTests: XCTestCase {
         XCTAssertEqual(AppleHealthPlanner.plan(w, version: 1).heartRates.map(\.bpm), [110])
     }
 
+    func testAnOutdoorWorkoutTakesItsRouteAndClimb() {
+        let route = SampleRoute.route(seconds: 600)
+        var run = RingWorkout(sport: 7, sportName: "Run", start: route.start, end: route.start.addingTimeInterval(500),
+                              activeSeconds: 500, steps: 0, distanceMeters: 1500, distanceSource: "gps", kilocalories: 120,
+                              heartRateAverage: nil, heartRateMax: nil, heartRates: [], zoneSeconds: [0, 0, 0, 0, 0])
+        run.route = RouteMath.summary(route)
+        let plan = AppleHealthPlanner.plan(run, version: 1, route: route)
+        XCTAssertFalse(plan.route.isEmpty)
+        XCTAssertTrue(plan.route.allSatisfy { $0.timestamp >= run.start && $0.timestamp <= run.end }, "inside the workout")
+        XCTAssertEqual(plan.route.first?.timestamp, route.start)
+        XCTAssertEqual(plan.route.first?.altitude ?? 0, route.points[0].ele ?? -1, accuracy: 0.01)
+        XCTAssertEqual(plan.elevationGain, run.route?.gainMeters)
+        XCTAssertTrue(AppleHealthPlanner.plan(run, version: 1).route.isEmpty, "no route, none sent")
+    }
+
     func testTheSyncIDIsStableAndKeyable() {
         XCTAssertEqual(AppleHealthPlanner.syncID(start), AppleHealthPlanner.syncID(start.addingTimeInterval(0.3)))
         XCTAssertTrue(AppleHealthPlanner.syncID(start).hasPrefix("jarvis-2027"))

@@ -17,6 +17,8 @@ struct HealthTabSettings: View {
     @ObservedObject var appleHealth = AppleHealthWriter.shared
     @ObservedObject var healthSync = AppleHealthSync.shared
     @AppStorage("jc.training.unit") private var unit: TrainingUnit = TrainingUnit.regional
+    @AppStorage("jc.distance.unit") private var distanceUnit: DistanceUnit = DistanceUnit.regional
+    @AppStorage("jc.map.style") private var mapStyle: MapStyle = .standard
 
     var body: some View {
         NavigationStack {
@@ -44,6 +46,7 @@ struct HealthTabSettings: View {
                                                                 embedded: true)
                                       })
                     personal
+                    workoutsCard
                     appleHealthCard
                 }
                 .padding(.top, 8)
@@ -66,6 +69,43 @@ struct HealthTabSettings: View {
         }
     }
 
+    /// How workouts are shown: weights, distance, and the map routes are drawn on.
+    var workoutsCard: some View {
+        CardGroup("Workouts", footer: "Topo draws OpenTopoMap's contour lines; the layer button on any route map switches too.") {
+            unitRow("Weights") {
+                Picker("Weights", selection: $unit) {
+                    Text("kg").tag(TrainingUnit.kg)
+                    Text("lb").tag(TrainingUnit.lb)
+                }
+            }
+            RowDivider()
+            unitRow("Distance") {
+                Picker("Distance", selection: $distanceUnit) {
+                    Text("km").tag(DistanceUnit.km)
+                    Text("mi").tag(DistanceUnit.mi)
+                }
+            }
+            RowDivider()
+            unitRow("Map", width: 230) {
+                Picker("Map", selection: $mapStyle) {
+                    ForEach(MapStyle.allCases) { Text($0.title).tag($0) }
+                }
+            }
+        }
+    }
+
+    private func unitRow<P: View>(_ label: String, width: CGFloat = 120, @ViewBuilder picker: () -> P) -> some View {
+        Row {
+            HStack {
+                Text(label)
+                Spacer()
+                picker()
+                    .pickerStyle(.segmented)
+                    .frame(width: width)
+            }
+        }
+    }
+
     /// Units, goals and the one profile figure the battery reads (age sets the
     /// heart-rate reserve its activity drain is measured against).
     private var personal: some View {
@@ -78,14 +118,6 @@ struct HealthTabSettings: View {
                         Task { _ = await model.health.updateSettings(["temperature_unit": unit.rawValue]) }
                     })) {
                     ForEach(TemperatureUnit.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            RowDivider()
-            Row {
-                Picker("Lifts", selection: $unit) {
-                    Text("kg").tag(TrainingUnit.kg)
-                    Text("lb").tag(TrainingUnit.lb)
                 }
                 .pickerStyle(.segmented)
             }
