@@ -16,6 +16,8 @@ second place to edit them.
     POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
     GET  /api/integrations/jarvis-health/health/workouts?since=&until=&kind=strength  saved workouts (a reinstall's history)
     POST /api/integrations/jarvis-health/health/workouts/delete  {start, device | device_id + source} remove one
+    POST /api/integrations/jarvis-health/health/workouts/route   {start, device | device_id, route} an outdoor workout's route
+    GET  /api/integrations/jarvis-health/health/workouts/route?start=&device=  that route (404 when there is none)
     POST /api/integrations/jarvis-health/health/weights    {readings: [{id, at, weight_kg, bmi?, body_fat?…}], device_id} a scale's weigh-ins
     GET  /api/integrations/jarvis-health/health/weights?since=&until=  weigh-ins from linked scales
     GET  /api/integrations/jarvis-health/health/training   {templates, exercises, settings} for strength training
@@ -141,6 +143,25 @@ def handle_get(handler, parsed) -> bool:
 
         if tail == "training":
             j(handler, store.training())
+            return True
+
+        if tail == "workouts/route":
+            from urllib.parse import parse_qs
+
+            from jarvis_health.store import device_key_for
+
+            query = parse_qs(parsed.query)
+            start = (query.get("start") or [""])[0]
+            if not _instant(start):
+                j(handler, {"error": "say which workout: its 'start' as a UTC instant"}, status=400)
+                return True
+            device = (query.get("device") or [""])[0] or device_key_for(
+                (query.get("source") or ["ring"])[0], (query.get("device_id") or [""])[0])
+            route = store.route(start, device)
+            if route is None:
+                j(handler, {"error": "no route for that workout", "route": None}, status=404)
+                return True
+            j(handler, {"route": route})
             return True
 
         if tail == "weights":
@@ -269,6 +290,25 @@ def handle_post(handler, parsed, body) -> bool:
 
             device = device_key_for(workout.get("source") or "ring", body.get("device_id") or "")
             j(handler, {"ok": True, "workout": store.put_workout(workout, device)})
+            return True
+
+        if tail == "workouts/route":
+            from jarvis_health.store import device_key_for
+
+            start = body.get("start")
+            if not (start and _instant(start)):
+                j(handler, {"error": "say which workout: its 'start' as a UTC instant"}, status=400)
+                return True
+            # The key the workout was filed under when the phone knows it, else
+            # rebuilt from the device id the way the workout's save built it.
+            device = str(body.get("device") or "") or device_key_for(body.get("source") or "ring",
+                                                                     body.get("device_id") or "")
+            try:
+                stored = store.put_route(start, device, body.get("route") or {})
+            except ValueError as exc:
+                j(handler, {"error": str(exc)}, status=400)
+                return True
+            j(handler, {"ok": True, **stored})
             return True
 
         if tail == "workouts/delete":

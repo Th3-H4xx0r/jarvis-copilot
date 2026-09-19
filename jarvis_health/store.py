@@ -47,6 +47,11 @@ DAY_PREFIX = "day-"
 SCORES_PREFIX = "scores-"
 BATTERY_PREFIX = "battery-"
 WORKOUT_PREFIX = "workout-"
+# An outdoor workout's route, one document per workout beside it (same suffix):
+# `route-ring-b6ce93c4-20260919180000`. The workout itself carries only a
+# `route_summary`, so the day and /now stay small.
+ROUTE_PREFIX = "route-"
+MAX_ROUTE_POINTS = 25_000
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 
 # Strength training the phone keeps here: templates and custom exercises one
@@ -282,8 +287,41 @@ class HealthStore:
             out.append(raw)
         return sorted(out, key=lambda w: w["start"])
 
+    @staticmethod
+    def _route_key(start: Any, device: str) -> str:
+        return f"{ROUTE_PREFIX}{device}-{''.join(c for c in str(start) if c.isdigit())}"
+
+    def put_route(self, start: str, device: str, route: dict) -> dict:
+        """An outdoor workout's route: `{segments: [[[t, lat, lon, ele, hr, speed], …], …]}`,
+        one segment per stretch between pauses. Raises ValueError on a malformed one."""
+        segments = route.get("segments") if isinstance(route, dict) else None
+        if not isinstance(segments, list) or not all(isinstance(s, list) for s in segments):
+            raise ValueError("a route is {\"segments\": [[point, ...], ...]}")
+        count = 0
+        for segment in segments:
+            for point in segment:
+                if not (isinstance(point, list) and 3 <= len(point) <= 6
+                        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point[:3])
+                        and all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)) for v in point[3:])):
+                    raise ValueError("a route point is [t, lat, lon, ele, hr, speed]")
+                if not (-90 <= point[1] <= 90 and -180 <= point[2] <= 180):
+                    raise ValueError("a route point's latitude or longitude is out of range")
+                count += 1
+        if count > MAX_ROUTE_POINTS:
+            raise ValueError(f"a route holds at most {MAX_ROUTE_POINTS} points (thin it first)")
+        key = self._route_key(start, device)
+        body = {"version": int(route.get("version") or 1), "start": start, "segments": segments,
+                "elevation_source": str(route.get("elevation_source") or "none"), "device": device}
+        self._space.put(key, body, description=f"Route of the workout at {start} ({count} points).")
+        return {"key": key, "points": count}
+
+    def route(self, start: str, device: str) -> Optional[dict]:
+        raw = self._space.get(self._route_key(start, device))
+        return raw if isinstance(raw, dict) else None
+
     def delete_workout(self, start: str, device: str) -> bool:
-        """Remove one workout: deleted, or edited so that it now starts elsewhere."""
+        """Remove one workout (and its route): deleted, or edited so that it now starts elsewhere."""
+        self._space.delete_document(self._route_key(start, device))
         gone = self._space.delete_document(self._workout_key(start, device))
         if gone:
             from . import history

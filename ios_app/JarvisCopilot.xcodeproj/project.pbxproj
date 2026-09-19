@@ -188,6 +188,7 @@
 		413D405F5E66AC8D45A7F751 /* SessionVitals.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */; };
 		43102216468ABD49BA332553 /* PushHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */; };
 		4381EAA07560C50D0F2D53B2 /* RingWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF5F74C647846E28AFC5ECB /* RingWorkoutAttributes.swift */; };
+		43DC344013DB784114E907B8 /* RouteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB51502D6B32282610806346 /* RouteStoreTests.swift */; };
 		440EC6A6C9849819AF0D6209 /* TrainingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695DF5E83265D57DABAD99BB /* TrainingStore.swift */; };
 		442AEA04DC5B3EF7280A205C /* PhoneSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD30CD7269938E614C2E31E0 /* PhoneSkills.swift */; };
 		44595E61E3E9CDDCAEDC4C68 /* StopwatchCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */; };
@@ -1256,6 +1257,7 @@
 		CA0E3DE449DDEAD76B43425B /* CodingTerminalPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingTerminalPanel.swift; sourceTree = "<group>"; };
 		CA9D00957599C8C01C1BE514 /* JarvisPodView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodView.swift; sourceTree = "<group>"; };
 		CAD3843097850821EB958726 /* AudioInputEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioInputEngine.swift; sourceTree = "<group>"; };
+		CB51502D6B32282610806346 /* RouteStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteStoreTests.swift; sourceTree = "<group>"; };
 		CB853687443BF6D01424F199 /* ExerciseDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
 		CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceState.swift; sourceTree = "<group>"; };
 		CC2B17CF791F5B815FD41CA3 /* SkillsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillsUITests.swift; sourceTree = "<group>"; };
@@ -1796,6 +1798,7 @@
 				2A8EDB517D89B29E58364D2E /* RouteRecordingTests.swift */,
 				90955E444C718E5493C81D0D /* OutdoorWorkoutTests.swift */,
 				824F94160F0A771B6E1CFA66 /* RouteRenderTests.swift */,
+				CB51502D6B32282610806346 /* RouteStoreTests.swift */,
 			);
 			name = Routes;
 			path = Routes;
@@ -3053,6 +3056,7 @@
 				AE53E894B2CF31A62248DD37 /* RouteRecordingTests.swift in Sources */,
 				B079336A1EA7B57B8EAD0866 /* OutdoorWorkoutTests.swift in Sources */,
 				B629B663EA53833EA99AABDB /* RouteRenderTests.swift in Sources */,
+				43DC344013DB784114E907B8 /* RouteStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
