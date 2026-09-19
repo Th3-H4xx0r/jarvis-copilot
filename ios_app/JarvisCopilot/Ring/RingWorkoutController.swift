@@ -37,6 +37,14 @@ final class RingWorkoutController: ObservableObject {
     /// Outdoors: the phone's GPS distance and pace (seconds per km).
     @Published private(set) var gpsDistance: Double?
     @Published private(set) var pace: Double?
+    /// Outdoors: the route so far — distance, pace, climbing, and calories
+    /// when no wearable measures them.
+    @Published private(set) var routeProgress = RouteProgress()
+    /// An outdoor workout with no wearable: the phone keeps the clock, and
+    /// pause and resume are the buttons. No ring is told anything.
+    @Published private(set) var phoneOnly = false
+    /// A finished outdoor workout's route, until its summary is saved or discarded.
+    @Published private(set) var finishedRoute: WorkoutRoute?
     /// When the ring's last tick arrived: the clock runs on between ticks, and
     /// a long gap is shown as waiting rather than a frozen screen.
     @Published private(set) var lastTickAt: Date?
@@ -59,6 +67,8 @@ final class RingWorkoutController: ObservableObject {
     var endTimeout: TimeInterval = 3
     /// Handed the workout when the summary is saved.
     var onSave: ((RingWorkout) -> Void)?
+    /// Handed an outdoor workout's route when its summary is saved (before `onSave`).
+    var onSaveRoute: ((WorkoutRoute, RingWorkout) -> Void)?
     /// The workout is over (finished, failed or closed): the link it held can
     /// go back to the usual rules.
     var onEnded: (() -> Void)?
@@ -73,6 +83,14 @@ final class RingWorkoutController: ObservableObject {
     private let alerts: RestAlerting?
     private let profile: () -> VitalsProfile
     private let clock: () -> Date
+    private let defaults: UserDefaults
+    /// A phone-only workout's paused time so far, and when the current pause began.
+    private var pausedTotal: TimeInterval = 0
+    private var pausedAt: Date?
+    /// The route was told to pause (it follows the workout's phase).
+    private var routePaused = false
+    /// Keeps a phone-only workout's Live Activity current (no ring ticks do).
+    private var phoneTicker: Task<Void, Never>?
     /// The ring was told to start a strength session (so it is told to stop).
     private var ringStarted = false
     /// Autosave and the Live Activity follow the log a moment behind typing.
@@ -99,7 +117,8 @@ final class RingWorkoutController: ObservableObject {
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
          location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil,
          training: TrainingStore? = nil, library: ExerciseLibrary? = nil, alerts: RestAlerting? = nil,
-         profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init) {
+         profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init,
+         defaults: UserDefaults = .standard) {
         self.session = session
         self.ensureConnected = ensureConnected
         self.age = age
@@ -110,6 +129,7 @@ final class RingWorkoutController: ObservableObject {
         self.alerts = alerts
         self.profile = profile
         self.clock = clock
+        self.defaults = defaults
         session.onSportTick = { [weak self] tick in self?.receive(tick) }
         // Coming forward is when iOS allows the Live Activity a background
         // request was refused; and one left by a crash with no workout to
@@ -134,11 +154,17 @@ final class RingWorkoutController: ObservableObject {
             phase = .finished(finished)
         } else if let log = training?.activeLog {
             begin(log)
+        } else if let saved = PhoneWorkout.load(defaults) {
+            resumePhoneOnly(saved)
         }
     }
 
     private func appCameForward() {
         guard isActive else { return }
+        if phoneOnly {
+            liveActivity?.retry()
+            return pushPhoneActivity()
+        }
         if let strength {
             strength.resync()
             liveActivity?.retry()
@@ -153,6 +179,10 @@ final class RingWorkoutController: ObservableObject {
     /// workout from the ring's own active time, carried on between ticks.
     func elapsed(at date: Date) -> Int {
         if strength != nil, let startedAt { return max(0, Int(date.timeIntervalSince(startedAt))) }
+        if phoneOnly, let startedAt {
+            let paused = pausedTotal + (pausedAt.map { max(0, date.timeIntervalSince($0)) } ?? 0)
+            return max(0, Int(date.timeIntervalSince(startedAt) - paused))
+        }
         let since = lastTickAt.map { date.timeIntervalSince($0) } ?? 0
         return (tick?.elapsed ?? 0) + (phase == .running ? Int(min(max(since, 0), 3)) : 0)
     }
@@ -211,6 +241,8 @@ final class RingWorkoutController: ObservableObject {
         endedAt = nil
         showsLive = true
         self.sport = sport
+        // Outdoors with no wearable chosen, the phone records it alone.
+        phoneOnly = sport.outdoor && !WorkoutMonitorPreference.usesRing
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
@@ -221,6 +253,7 @@ final class RingWorkoutController: ObservableObject {
                 guard !Task.isCancelled, case .countdown = self.phase else { return }
                 count -= 1
             }
+            if self.phoneOnly { return self.beginPhoneOnly() }
             self.phase = .starting
             guard await self.ensureConnected() else {
                 return self.fail("Can't reach the ring — bring it closer and try again.")
@@ -246,6 +279,12 @@ final class RingWorkoutController: ObservableObject {
         guard phase == .running, strength == nil, let sport else { return }
         phase = .paused
         commandAt = Date()
+        pauseRoute()
+        if phoneOnly {
+            pausedAt = clock()
+            savePhoneWorkout()
+            return pushPhoneActivity()
+        }
         send(.pause, sport)
     }
 
@@ -254,11 +293,22 @@ final class RingWorkoutController: ObservableObject {
         phase = .running
         commandAt = Date()
         stillTicks = 0
+        resumeRoute()
+        if phoneOnly {
+            if let pausedAt { pausedTotal += max(0, clock().timeIntervalSince(pausedAt)) }
+            pausedAt = nil
+            savePhoneWorkout()
+            return pushPhoneActivity()
+        }
         send(.resume, sport)
     }
 
     func end() {
         if strength != nil { return finishStrength() }
+        if phoneOnly, phase == .running || phase == .paused {
+            endedAt = Date()
+            return finish()
+        }
         guard phase == .running || phase == .paused, let sport else { return }
         endedAt = Date()
         phase = .ending
@@ -275,6 +325,7 @@ final class RingWorkoutController: ObservableObject {
     func close(save: Bool) {
         if case .finished(let workout) = phase, save {
             if workout.isStrength { training?.record(workout) }
+            if let finishedRoute { onSaveRoute?(finishedRoute, workout) }
             onSave?(workout)
         }
         if endedAt == nil || strength != nil, sport != nil { endedAt = Date() }
@@ -289,6 +340,8 @@ final class RingWorkoutController: ObservableObject {
 
     func receive(_ tick: RingSportTick) {
         if strength != nil { return receiveDuringStrength(tick) }
+        // The ring wasn't started for a phone-only workout: its ticks aren't this one's.
+        if phoneOnly { return }
         if case .finished(let workout) = phase, workout.isStrength {
             // A strength summary is up and the ring still runs its session:
             // it missed the stop, so it hears it again.
@@ -328,7 +381,7 @@ final class RingWorkoutController: ObservableObject {
                 let resumed = RingSport.withID(tick.sport)
                 sport = resumed
                 phase = .running
-                if resumed.outdoor { startLocation() }
+                if resumed.outdoor { startLocation(resuming: true) }
             case .finished, .failed, .countdown:
                 // A stray tick after the summary (or before the ring was told).
                 return
@@ -350,15 +403,108 @@ final class RingWorkoutController: ObservableObject {
             } else if settled, phase == .running || phase == .paused {
                 if moved { phase = .running } else if stillTicks >= 3 { phase = .paused }
             }
+            // The route pauses with the ring, however the pause came about.
+            if phase == .paused { pauseRoute() } else if phase == .running { resumeRoute() }
             record(tick)
         }
     }
 
-    private func startLocation() {
-        location?.start { [weak self] distance, pace in
-            self?.gpsDistance = distance
-            self?.pace = pace
+    private func startLocation(resuming: Bool = false) {
+        guard let location, let sport else { return }
+        routePaused = false
+        // Each point carries the ring's reading when it is fresh.
+        location.heartRate = { [weak self] in
+            guard let self, let at = self.lastTickAt, Date().timeIntervalSince(at) < 5 else { return nil }
+            return self.tick?.heartRate
         }
+        location.start(sport: sport.id, weightKg: profile().weightKg ?? 70, at: startedAt ?? clock(),
+                       resuming: resuming) { [weak self] progress in
+            self?.routeProgress = progress
+            self?.gpsDistance = progress.distance
+            self?.pace = progress.pace
+        }
+    }
+
+    private func pauseRoute() {
+        guard sport?.outdoor == true, !routePaused else { return }
+        routePaused = true
+        location?.pause()
+    }
+
+    private func resumeRoute() {
+        guard sport?.outdoor == true, routePaused else { return }
+        routePaused = false
+        location?.resume()
+    }
+
+    // MARK: Phone only
+
+    /// A phone-only workout, as it is kept across a relaunch.
+    struct PhoneWorkout: Codable, Equatable {
+        static let key = "jc.workout.phoneActive"
+        var sport: Int
+        var start: Date
+        var pausedTotal: Double
+        var pausedAt: Date?
+
+        static func load(_ defaults: UserDefaults) -> PhoneWorkout? {
+            guard let data = defaults.data(forKey: key),
+                  let saved = try? JSONDecoder().decode(PhoneWorkout.self, from: data),
+                  Date().timeIntervalSince(saved.start) < 12 * 3600 else { return nil }
+            return saved
+        }
+    }
+
+    private func beginPhoneOnly() {
+        startedAt = clock()
+        pausedTotal = 0
+        pausedAt = nil
+        phase = .running
+        startLocation()
+        savePhoneWorkout()
+        startPhoneTicker()
+    }
+
+    /// Back after a relaunch in the middle of one: same clock, same route.
+    private func resumePhoneOnly(_ saved: PhoneWorkout) {
+        sport = RingSport.withID(saved.sport)
+        phoneOnly = true
+        startedAt = saved.start
+        pausedTotal = saved.pausedTotal
+        pausedAt = saved.pausedAt
+        phase = saved.pausedAt == nil ? .running : .paused
+        showsLive = true
+        startLocation(resuming: true)
+        if saved.pausedAt != nil { pauseRoute() }
+        startPhoneTicker()
+    }
+
+    private func startPhoneTicker() {
+        phoneTicker?.cancel()
+        phoneTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.pushPhoneActivity()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func pushPhoneActivity() {
+        guard phoneOnly, isActive, let sport else { return }
+        let meters = routeProgress.distance
+        liveActivity?.update(sport: sport, running: phase == .running, elapsed: elapsed(at: clock()), heartRate: nil,
+                             distanceKm: meters > 0 ? meters / 1000 : nil, zone: nil)
+    }
+
+    private func savePhoneWorkout() {
+        guard phoneOnly, let sport, let startedAt else { return }
+        let saved = PhoneWorkout(sport: sport.id, start: startedAt, pausedTotal: pausedTotal, pausedAt: pausedAt)
+        defaults.set(try? JSONEncoder().encode(saved), forKey: PhoneWorkout.key)
+    }
+
+    private func clearPhoneWorkout() {
+        defaults.removeObject(forKey: PhoneWorkout.key)
     }
 
     private func record(_ tick: RingSportTick) {
@@ -381,29 +527,38 @@ final class RingWorkoutController: ObservableObject {
 
     private func finish() {
         pending?.cancel()
+        phoneTicker?.cancel()
         showsLive = true
         defer { onEnded?() }
-        location?.stop()
+        let route = location?.stop()
         liveActivity?.end()
+        clearPhoneWorkout()
         guard let sport, let startedAt else { return reset(to: .idle) }
         let last = tick
         let readings = heartRates.filter { $0 > 0 }
-        let workout = RingWorkout(
+        let ringKcal = last?.kilocalories ?? 0
+        var workout = RingWorkout(
             sport: sport.id, sportName: sport.name, start: startedAt, end: Date(),
-            activeSeconds: last?.elapsed ?? 0, steps: last?.steps ?? 0,
+            activeSeconds: phoneOnly ? elapsed(at: clock()) : last?.elapsed ?? 0,
+            steps: last?.steps ?? location?.steps ?? 0,
             distanceMeters: gpsDistance ?? Double(last?.distanceMeters ?? 0),
             distanceSource: gpsDistance == nil ? "ring" : "gps",
-            kilocalories: last?.kilocalories ?? 0,
+            kilocalories: ringKcal > 0 ? ringKcal : routeProgress.kilocalories,
             heartRateAverage: readings.isEmpty ? nil : readings.reduce(0, +) / readings.count,
             heartRateMax: readings.max(), heartRates: heartRates, zoneSeconds: zoneSeconds)
+        if ringKcal <= 0, routeProgress.kilocalories > 0 { workout.kcalSource = "estimate" }
+        workout.route = route.map(RouteMath.summary)
+        finishedRoute = route
         phase = .finished(workout)
     }
 
     private func fail(_ message: String) {
         pending?.cancel()
+        phoneTicker?.cancel()
         showsLive = true
         defer { onEnded?() }
         location?.stop()
+        clearPhoneWorkout()
         liveActivity?.end()
         phase = .failed(message)
     }
@@ -419,6 +574,13 @@ final class RingWorkoutController: ObservableObject {
         zoneSeconds = [0, 0, 0, 0, 0]
         gpsDistance = nil
         pace = nil
+        routeProgress = RouteProgress()
+        finishedRoute = nil
+        phoneOnly = false
+        pausedTotal = 0
+        pausedAt = nil
+        routePaused = false
+        phoneTicker?.cancel()
         lastTickAt = nil
         heartRates = []
         stepMarks = []
@@ -429,12 +591,26 @@ final class RingWorkoutController: ObservableObject {
     }
 }
 
-/// Outdoor distance and pace from the phone's GPS.
+/// Outdoor workouts' route from the phone's GPS (and barometer, pedometer).
 @MainActor
 protocol WorkoutLocationTracking: AnyObject {
-    /// Reports distance (m) and pace (s/km over the last km) as they change.
-    func start(_ update: @escaping (Double, Double?) -> Void)
-    func stop()
+    /// Starts recording. `resuming` picks up the route checkpointed for this
+    /// sport (the app was relaunched mid-workout). Reports as the route grows.
+    func start(sport: Int, weightKg: Double, at start: Date, resuming: Bool,
+               update: @escaping (RouteProgress) -> Void)
+    func pause()
+    func resume()
+    /// Stops, and hands back the route (nil when it never had two fixes).
+    @discardableResult func stop() -> WorkoutRoute?
+    /// The route so far, for the map.
+    var route: WorkoutRoute? { get }
+    var progress: RouteProgress { get }
+    /// The wearable's reading, stamped on each point.
+    var heartRate: (() -> Int?)? { get set }
+    /// The phone's pedometer: steps since the start, and steps a minute.
+    var steps: Int? { get }
+    var cadence: Int? { get }
+    var lastFix: CLLocationCoordinate2D? { get }
 }
 
 // MARK: - Strength

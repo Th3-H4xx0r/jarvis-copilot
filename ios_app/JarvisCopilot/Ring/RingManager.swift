@@ -51,10 +51,14 @@ final class RingManager: NSObject, ObservableObject {
             training: .shared, library: .shared, alerts: RestAlerts(),
             profile: { [weak self] in VitalsProfile(ring: self?.session.settings.profile, restingHR: HealthRestingHR.last) })
         controller.onEnded = { [weak self] in self?.workoutEnded() }
+        controller.onSaveRoute = { [weak self] route, workout in
+            RouteStore.shared.save(route, for: workout, deviceID: self?.deviceID)
+        }
         controller.onSave = { [weak self] workout in
             let deviceID = self?.deviceID
             Task {
                 await WorkoutUploader.save(workout, deviceID: deviceID)
+                await RouteStore.shared.flush()
                 await AppleHealthWriter.shared.export(workout)
             }
         }
@@ -73,7 +77,7 @@ final class RingManager: NSObject, ObservableObject {
     var holdsLinkForInputs: Bool { inputs?.wantedMode == .jarvis }
     /// A workout needs the link the whole time, in the background too: let
     /// go and the ring loses the phone and pauses its session.
-    var holdsLinkForWorkout: Bool { workout.isActive }
+    var holdsLinkForWorkout: Bool { workout.isActive && !workout.phoneOnly }
 
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.

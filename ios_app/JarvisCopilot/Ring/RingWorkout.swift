@@ -130,6 +130,8 @@ struct RingWorkout: Codable, Equatable, Identifiable {
     var kcalSource: String? = nil
     /// The key the server filed it under ("ring-b6ce93c4"); nil until it has.
     var device: String? = nil
+    /// An outdoor workout's route in brief (the route itself is its own document).
+    var route: RouteSummary? = nil
 
     var id: String { ISO8601DateFormatter().string(from: start) }
 
@@ -146,6 +148,7 @@ struct RingWorkout: Codable, Equatable, Identifiable {
         case heartRateMax = "hr_max"
         case heartRates = "heart_rates"
         case zoneSeconds = "zone_seconds"
+        case route = "route_summary"
     }
 }
 

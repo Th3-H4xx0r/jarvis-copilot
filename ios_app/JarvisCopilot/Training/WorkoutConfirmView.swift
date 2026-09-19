@@ -23,6 +23,9 @@ enum WorkoutChoice: Hashable, Identifiable {
 
     var isStrength: Bool { if case .strength = self { return true }; return false }
 
+    /// Recorded by GPS: it can run on the phone alone.
+    var isOutdoor: Bool { if case .sport(let sport) = self { return sport.outdoor }; return false }
+
     /// "Run", "Walk" — or "Strength".
     var sportName: String {
         if case .sport(let sport) = self { return sport.name }
@@ -77,19 +80,20 @@ struct WorkoutMonitor: Identifiable, Equatable {
     /// for GPS or the rest timer, and Apple Health for keeping it.
     static func list(for choice: WorkoutChoice, ring: Ring, ringChosen: Bool = true, appleHealth: Bool) -> [WorkoutMonitor] {
         let strength = choice.isStrength
-        let outdoor: Bool = { if case .sport(let sport) = choice { return sport.outdoor }; return false }()
+        let outdoor = choice.isOutdoor
 
         var ringMonitor = WorkoutMonitor(id: "ring", name: ring.paired ? ring.name : "Ring", symbol: "circle.circle",
                                          status: .connecting)
         if !ringChosen {
             ringMonitor.name = "No wearable"
             ringMonitor.symbol = "circle.dashed"
-            ringMonitor.status = strength
+            ringMonitor.status = strength || outdoor
                 ? .idle("Heart rate off")
                 : .problem("None chosen", note: "A \(choice.sportName.lowercased()) is recorded by the ring — choose it to start.")
         } else if !ring.paired {
             ringMonitor.status = .problem("Not paired", note: strength
                 ? "No ring is paired, so sets are logged without heart rate."
+                : outdoor ? "No ring is paired — choose No wearable to record it by GPS alone."
                 : "Pair a ring in Devices to record this workout.")
         } else if case .ready = ring.state {
             if ring.battery?.charging == true {
@@ -105,6 +109,7 @@ struct WorkoutMonitor: Identifiable, Equatable {
         } else if case .failed = ring.state {
             ringMonitor.status = .problem("Not in range", note: strength
                 ? "Heart rate starts once the ring connects; sets are logged either way."
+                : outdoor ? "Bring the ring close and reconnect, or choose No wearable to go by GPS alone."
                 : "Bring the ring close and reconnect — the workout needs it to start.")
         } else {
             ringMonitor.status = .idle("Not connected")
@@ -119,9 +124,10 @@ struct WorkoutMonitor: Identifiable, Equatable {
         ]
     }
 
-    /// A ring workout can't start without a ring; strength can.
+    /// A ring workout can't start without a ring; strength can, and so can
+    /// an outdoor one with no wearable (the phone's GPS records it).
     static func canStart(_ choice: WorkoutChoice, ringChosen: Bool, ringPaired: Bool) -> Bool {
-        choice.isStrength || (ringChosen && ringPaired)
+        choice.isStrength || (choice.isOutdoor && !ringChosen) || (ringChosen && ringPaired)
     }
 
     /// The sentences behind every problem, for the section's footnote.
@@ -197,6 +203,9 @@ struct WorkoutConfirmView: View {
         self.onStart = onStart
         _ring = ObservedObject(wrappedValue: ring)
         _ringSession = ObservedObject(wrappedValue: ring.session)
+        // Outside with no ring paired, the phone records it: nothing to choose.
+        let paired = WearableIdentity.remembered(WearableKeepAlive.ring) != nil
+        _ringChosen = State(initialValue: WorkoutMonitorPreference.usesRing && (paired || !choice.isOutdoor))
     }
 
     /// The template as saved now (it may have been edited from here).
@@ -228,7 +237,7 @@ struct WorkoutConfirmView: View {
     /// One line of facts under the title.
     private var facts: String {
         switch choice {
-        case .sport(let sport): return sport.outdoor ? "Outdoor · distance and pace by GPS" : "Indoor"
+        case .sport(let sport): return sport.outdoor ? "Outdoor · route, pace and elevation by GPS" : "Indoor"
         case .strength:
             guard let template else { return "Empty workout — add exercises as you go" }
             let sets = template.exercises.reduce(0) { $0 + $1.sets.filter { $0.tag != .warmup }.count }
@@ -396,7 +405,11 @@ struct WorkoutConfirmView: View {
     // MARK: Start
 
     private var startButton: some View {
-        Button { onStart(choice) } label: {
+        Button {
+            // What the screen shows is what starts.
+            WorkoutMonitorPreference.usesRing = ringChosen
+            onStart(choice)
+        } label: {
             Text("Start")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(JcTheme.accent)
@@ -613,7 +626,8 @@ struct MonitorPicker: View {
                             }
                         }
                     }
-                    CardGroup(footer: choice.isStrength ? nil : "A \(choice.sportName.lowercased()) is recorded by the ring.") {
+                    CardGroup(footer: choice.isStrength || choice.isOutdoor
+                              ? nil : "A \(choice.sportName.lowercased()) is recorded by the ring.") {
                         Button {
                             ringChosen = false
                             dismiss()
@@ -623,7 +637,8 @@ struct MonitorPicker: View {
                                     Image(systemName: "circle.dashed").foregroundStyle(.secondary).frame(width: 24)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("No wearable").foregroundStyle(.primary)
-                                        Text("Sets are logged without heart rate")
+                                        Text(choice.isOutdoor ? "Route, pace and distance by the iPhone's GPS"
+                                             : "Sets are logged without heart rate")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
                                     }
@@ -634,8 +649,8 @@ struct MonitorPicker: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .disabled(!choice.isStrength)
-                        .opacity(choice.isStrength ? 1 : 0.45)
+                        .disabled(!choice.isStrength && !choice.isOutdoor)
+                        .opacity(choice.isStrength || choice.isOutdoor ? 1 : 0.45)
                         .accessibilityAddTraits(ringChosen ? .isButton : [.isButton, .isSelected])
                     }
                 }

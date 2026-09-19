@@ -47,16 +47,23 @@ final class WorkoutConfirmTests: XCTestCase {
         if case .problem(let short, _) = none[0].status { XCTAssertEqual(short, "Not paired") } else { XCTFail("unpaired") }
     }
 
-    func testNoWearableIsAChoiceForStrengthOnly() {
+    func testNoWearableIsAChoiceForStrengthAndOutdoorWorkouts() {
         let lifting = WorkoutMonitor.list(for: .strength(nil), ring: ring(), ringChosen: false, appleHealth: true)
         XCTAssertEqual(lifting[0].name, "No wearable")
         XCTAssertEqual(lifting[0].status, .idle("Heart rate off"))
         XCTAssertTrue(WorkoutMonitor.canStart(.strength(nil), ringChosen: false, ringPaired: false))
+        // A run goes by GPS alone.
         let running = WorkoutMonitor.list(for: .sport(run), ring: ring(), ringChosen: false, appleHealth: true)
-        if case .problem(let short, _) = running[0].status { XCTAssertEqual(short, "None chosen") } else { XCTFail("a run needs the ring") }
-        XCTAssertFalse(WorkoutMonitor.canStart(.sport(run), ringChosen: false, ringPaired: true))
+        XCTAssertEqual(running[0].status, .idle("Heart rate off"))
+        XCTAssertTrue(WorkoutMonitor.canStart(.sport(run), ringChosen: false, ringPaired: true))
+        XCTAssertTrue(WorkoutMonitor.canStart(.sport(run), ringChosen: false, ringPaired: false))
         XCTAssertFalse(WorkoutMonitor.canStart(.sport(run), ringChosen: true, ringPaired: false))
         XCTAssertTrue(WorkoutMonitor.canStart(.sport(run), ringChosen: true, ringPaired: true))
+        // A treadmill has nothing to measure it but the ring.
+        let treadmill = RingSport.withID(40)
+        let indoors = WorkoutMonitor.list(for: .sport(treadmill), ring: ring(), ringChosen: false, appleHealth: true)
+        if case .problem(let short, _) = indoors[0].status { XCTAssertEqual(short, "None chosen") } else { XCTFail("indoors needs the ring") }
+        XCTAssertFalse(WorkoutMonitor.canStart(.sport(treadmill), ringChosen: false, ringPaired: true))
     }
 
     func testTheStrengthTileIsAnEmptyStrengthWorkout() {

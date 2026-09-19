@@ -115,6 +115,7 @@ final class HealthTabModel: ObservableObject {
             case .today:
                 // A workout (or weigh-in) the server could not take last time goes first.
                 await WorkoutUploader.flush(client: client)
+                await RouteStore.shared.flush(client: client)
                 await ScaleUploader.flush(client: client)
                 let fresh = try await client.now()
                 show(fresh)

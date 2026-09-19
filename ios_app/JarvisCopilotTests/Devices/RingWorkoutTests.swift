@@ -209,15 +209,16 @@ final class WorkoutLocationTests: XCTestCase {
     func testFixesAddUpToADistanceWithoutCrashing() {
         let tracker = WorkoutLocation()
         var last: (Double, Double?) = (0, nil)
-        tracker.start { last = ($0, $1) }
         let start = Date()
+        tracker.start(sport: 7, weightKg: 70, at: start, resuming: false) { last = ($0.distance, $0.pace) }
         let fixes = (0..<400).map { i in
             CLLocation(coordinate: CLLocationCoordinate2D(latitude: 30 + Double(i) * 0.00003, longitude: -97),
                        altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5,
                        timestamp: start.addingTimeInterval(Double(i)))
         }
-        tracker.take(fixes)
-        tracker.stop()
+        tracker.take(fixes, now: start.addingTimeInterval(400))
+        let route = tracker.stop()
+        XCTAssertGreaterThan(route?.points.count ?? 0, 100)
         XCTAssertEqual(last.0, 1332, accuracy: 30, "400 fixes ~3.3 m apart")
         XCTAssertNotNil(last.1, "a pace once there is enough distance")
     }
