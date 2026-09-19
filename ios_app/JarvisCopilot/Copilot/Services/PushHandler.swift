@@ -232,7 +232,10 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .list]
+        // A rest ending with the app open is a tap and a chime from the
+        // workout itself, not a banner over it.
+        if notification.request.identifier == RestAlerts.identifier { return [] }
+        return [.banner, .sound, .list]
     }
 
     nonisolated func userNotificationCenter(
