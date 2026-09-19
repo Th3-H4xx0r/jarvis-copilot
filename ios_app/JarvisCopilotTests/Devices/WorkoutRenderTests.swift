@@ -41,6 +41,18 @@ final class WorkoutRenderTests: XCTestCase {
                                 name: "workout-live")
     }
 
+    /// A minute and a half in: the trace starts at the left edge and grows
+    /// right, the axis already the full width, the live reading pulsing.
+    func testTheTraceGrowsFromTheLeftEarlyOn() throws {
+        for s in 1...83 {
+            controller.receive(tick(elapsed: s, hr: s < 20 ? nil : 86 + (s % 17) / 3, steps: s / 2, meters: 0, kcal: 1))
+        }
+        try RenderHarness.write(WorkoutLiveView(workout: controller), size: CGSize(width: 402, height: 874),
+                                name: "workout-live-early")
+        XCTAssertEqual(WorkoutTrace.span(samples: 17, window: 10), 10)
+        XCTAssertEqual(WorkoutTrace.span(samples: 301, window: 10), 25)
+    }
+
     func testTheLiveViewPaused() throws {
         running(paused: true)
         try RenderHarness.write(WorkoutLiveView(workout: controller), size: CGSize(width: 402, height: 874),

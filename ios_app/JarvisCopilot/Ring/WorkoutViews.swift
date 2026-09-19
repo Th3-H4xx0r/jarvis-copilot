@@ -728,9 +728,14 @@ extension HealthWorkoutsCard {
 }
 
 /// A workout's heart rate as a filled trace, fitted to its own range — the
-/// shape is the point, not the distance from zero.
+/// shape is the point, not the distance from zero. The time axis spans the
+/// whole width from the first second: the line grows left to right across
+/// the first ten minutes, then the axis widens with the workout, and the
+/// live reading pulses at the line's end.
 struct WorkoutTrace: View {
     let heartRates: [Int]
+    /// The width the axis starts at, in minutes.
+    var window: Double = 10
 
     private struct Point: Identifiable {
         let id: Int
@@ -742,6 +747,11 @@ struct WorkoutTrace: View {
         heartRates.enumerated().compactMap { index, bpm in
             bpm > 0 ? Point(id: index, minute: Double(index * 5) / 60, bpm: Double(bpm)) : nil
         }
+    }
+
+    /// Minutes the axis covers: the window, or the workout once it is longer.
+    static func span(samples: Int, window: Double) -> Double {
+        max(window, Double(max(0, samples - 1) * 5) / 60)
     }
 
     var body: some View {
@@ -758,6 +768,7 @@ struct WorkoutTrace: View {
                 .foregroundStyle(tint)
                 .interpolationMethod(.catmullRom)
         }
+        .chartXScale(domain: 0...Self.span(samples: heartRates.count, window: window))
         .chartYScale(domain: floor...ceiling)
         .chartXAxis(.hidden)
         .chartYAxis {
@@ -765,6 +776,42 @@ struct WorkoutTrace: View {
                 AxisGridLine().foregroundStyle(Color.primary.opacity(0.06))
                 AxisValueLabel().foregroundStyle(Color.secondary)
             }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                if let last = points.last, let frame = proxy.plotFrame,
+                   let x = proxy.position(forX: last.minute), let y = proxy.position(forY: last.bpm) {
+                    let origin = geometry[frame].origin
+                    LivePulseDot(tint: tint)
+                        .position(x: origin.x + x, y: origin.y + y)
+                }
+            }
+        }
+    }
+}
+
+/// The live reading at the end of a trace: a dot with a ring breathing out of it.
+struct LivePulseDot: View {
+    let tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var out = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(tint.opacity(0.35))
+                .frame(width: 22, height: 22)
+                .scaleEffect(out ? 1 : 0.35)
+                .opacity(out ? 0 : 0.9)
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+                .overlay(Circle().stroke(JcTheme.bg, lineWidth: 1.5))
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { out = true }
         }
     }
 }
