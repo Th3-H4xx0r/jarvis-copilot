@@ -154,6 +154,7 @@
 		3A278053719A775F7CD33D18 /* HealthTabModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4860218388E7A2B6F9AD6C1A /* HealthTabModel.swift */; };
 		3ACACF4363B03DE1597922EE /* OnDeviceAIMocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F5F77BEEDDEDF15B5045CC /* OnDeviceAIMocks.swift */; };
 		3B1F3EC7F9EEC69C4478D348 /* CodingSessionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C89DB2ABE8C706455441745 /* CodingSessionScreen.swift */; };
+		3B4C2D1027FEFD2A3BE81B7F /* TrainingMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = D358EF7B0417824B15282C52 /* TrainingMath.swift */; };
 		3BEFEBCA7C41E9FC1F8BF11B /* VoiceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6296963762822E601E846885 /* VoiceDiagnostics.swift */; };
 		3C23D27BA92417BEEC03E499 /* AppServicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6611A0ADA73D7B6A70ADAB63 /* AppServicesTests.swift */; };
 		3C31D8A1B9704D8FC1C778BB /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
@@ -199,6 +200,7 @@
 		4D8C3A341845FDAB45AA50BF /* VoiceOrbGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */; };
 		4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */; };
 		4E2A4A0A46F916F351C1C30F /* JarvisWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69FA7730EB649964FC16077 /* JarvisWatchApp.swift */; };
+		4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */; };
 		4F42FB5C55DDE1FFD2C6C7BF /* CodingUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EBA49DE17EE2BAF01FB8F30 /* CodingUI.swift */; };
 		4FCCFCC9F1DB56F7151921D5 /* CodingLaunchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FB74466198A0BA3DB45A8F /* CodingLaunchSheet.swift */; };
 		4FDD75F5F15B6B2745FF1974 /* IslandDesignsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */; };
@@ -1028,6 +1030,7 @@
 		99007A8FDBB3E8969C37916F /* PcmChunker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PcmChunker.swift; sourceTree = "<group>"; };
 		9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesPage.swift; sourceTree = "<group>"; };
 		9A5CE744A8FC299B69D9691E /* IslandDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDemo.swift; sourceTree = "<group>"; };
+		9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingMathTests.swift; sourceTree = "<group>"; };
 		9A6721E80B563B4527DBE4FB /* VoiceSessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionTests.swift; sourceTree = "<group>"; };
 		9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesTextTests.swift; sourceTree = "<group>"; };
 		9AC12F5609914381F51043A4 /* JarvisShared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisShared.swift; sourceTree = "<group>"; };
@@ -1189,6 +1192,7 @@
 		D1BDAA8C24CC7817B369158D /* LocalConnectionNotifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalConnectionNotifier.swift; sourceTree = "<group>"; };
 		D1D715DE986F0356B94075D3 /* AudioSessionPowerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioSessionPowerTests.swift; sourceTree = "<group>"; };
 		D2C2B34BEC3DB3CBC1D0BA13 /* VoiceSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSnapshotTests.swift; sourceTree = "<group>"; };
+		D358EF7B0417824B15282C52 /* TrainingMath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingMath.swift; sourceTree = "<group>"; };
 		D3CA494DBEEF37C0B184E03F /* MetricKitReporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetricKitReporter.swift; sourceTree = "<group>"; };
 		D423EA754D6A22D606D52198 /* MediaSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSkills.swift; sourceTree = "<group>"; };
 		D47DA26B598740E34C2CB21A /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
@@ -1817,6 +1821,7 @@
 				0582398E98A03D27A37224D5 /* ExerciseLibrary.swift */,
 				F49019093D36B19BD88958D4 /* TrainingModels.swift */,
 				44E654F72A46A4C711510DD1 /* exercises.json */,
+				D358EF7B0417824B15282C52 /* TrainingMath.swift */,
 			);
 			name = Training;
 			path = Training;
@@ -1991,6 +1996,7 @@
 			children = (
 				05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */,
 				F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */,
+				9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */,
 			);
 			name = Training;
 			path = Training;
@@ -2891,6 +2897,7 @@
 				62FFA415689770BFCD90CC45 /* WorkoutRenderTests.swift in Sources */,
 				7EC5E18B199AE1F7FC36FDFC /* ExerciseLibraryTests.swift in Sources */,
 				480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */,
+				4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3313,6 +3320,7 @@
 				03F5B2CD5DD775E59AE1790B /* WorkoutViews.swift in Sources */,
 				56157E70601C21AC9DF7B790 /* ExerciseLibrary.swift in Sources */,
 				6C664D4E6EB22A66D37D1D49 /* TrainingModels.swift in Sources */,
+				3B4C2D1027FEFD2A3BE81B7F /* TrainingMath.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
