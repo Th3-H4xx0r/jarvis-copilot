@@ -14,6 +14,8 @@ enum ScaleModel {
     enum Presentation {
         case card
         case detail
+        /// The whole scale in a small square (a wearable list's thumbnail).
+        case thumbnail
     }
 
     static let deckWidth: CGFloat = 1.42
@@ -186,6 +188,9 @@ enum ScaleModel {
             case .card:
                 restCamera = SCNVector3(0, 1.85, 2.75)
                 measuringCamera = restCamera
+            case .thumbnail:
+                restCamera = SCNVector3(0, 2.35, 3.5)
+                measuringCamera = restCamera
             case .detail:
                 restCamera = SCNVector3(0, 0.02, 3.55)
                 measuringCamera = SCNVector3(0, 2.0, 3.6)
@@ -217,7 +222,7 @@ enum ScaleModel {
 
             addLights()
             pivot.eulerAngles.x = Float(uprightAngle)
-            spinner.eulerAngles.y = presentation == .card ? -0.22 : 0
+            spinner.eulerAngles.y = presentation == .detail ? 0 : -0.22
         }
 
         private func addLights() {

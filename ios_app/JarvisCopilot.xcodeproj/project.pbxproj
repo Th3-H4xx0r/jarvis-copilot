@@ -507,6 +507,7 @@
 		C697ABCEBFCDF0436AF54A0F /* VoiceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F89193A08A684698BC94D5 /* VoiceControls.swift */; };
 		C6A02A63D446C814B4EE9C31 /* RingSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */; };
 		C76E80B9F4DBC45C33F0D8F0 /* IslandDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */; };
+		C7B75F5A6DA5EA4F6BBC6C49 /* WearableModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */; };
 		C82DAF95C46F65426458ADFE /* DevicesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E927550CC7A702DA1D9CD19 /* DevicesAPI.swift */; };
 		C837A1F5C0B5A9AB7EA63D14 /* KanbanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49850074146780F31D7A5DE /* KanbanTests.swift */; };
 		C83ED151F295ABEB5E50B036 /* MoreUIARouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D132B7937C3D516237DC06DE /* MoreUIARouteTests.swift */; };
@@ -947,6 +948,7 @@
 		5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsSections.swift; sourceTree = "<group>"; };
 		5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceChatBridgeTests.swift; sourceTree = "<group>"; };
 		5E6D80C156606B10D41323EE /* SkillMocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillMocks.swift; sourceTree = "<group>"; };
+		5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableModelView.swift; sourceTree = "<group>"; };
 		60594EB775ACD4F916214574 /* MoreUIBSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIBSupport.swift; sourceTree = "<group>"; };
 		60603B62973C8E1495A067A3 /* CodingStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingStore.swift; sourceTree = "<group>"; };
 		60AE7B30050678209FB5F068 /* ModelsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelsAPI.swift; sourceTree = "<group>"; };
@@ -1901,6 +1903,7 @@
 				325184FC8D98E2485468EC47 /* AppleHealthWriter.swift */,
 				10BD6E60B775C0E654677787 /* StrengthWorkoutDetail.swift */,
 				4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */,
+				5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */,
 			);
 			path = Training;
 			sourceTree = "<group>";
@@ -3435,6 +3438,7 @@
 				D3D05FE52093A2C472290A1C /* ScaleUploader.swift in Sources */,
 				BEF0404F0984E6D47DE96269 /* WeightCard.swift in Sources */,
 				5FEC7BFE31420A3DA3BD793F /* WorkoutConfirmView.swift in Sources */,
+				C7B75F5A6DA5EA4F6BBC6C49 /* WearableModelView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

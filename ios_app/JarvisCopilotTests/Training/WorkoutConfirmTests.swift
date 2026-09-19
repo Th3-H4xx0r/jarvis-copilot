@@ -129,6 +129,16 @@ final class WorkoutConfirmTests: XCTestCase {
                    name: "confirm-run")
     }
 
+    func testEachWearablesModel() throws {
+        let row = HStack(spacing: 16) {
+            ForEach([WearableKeepAlive.ring, WearableKeepAlive.bottle, WearableKeepAlive.scale, WearableKeepAlive.esp32], id: \.self) {
+                WearableModelView(kind: $0, size: 72, spins: false)
+            }
+        }
+        .padding(20)
+        try RenderHarness.write(row, size: CGSize(width: 402, height: 120), name: "wearable-models", settle: 3)
+    }
+
     func testTheWearableSheet() throws {
         try RenderHarness.write(MonitorPicker(choice: .strength(nil), ring: WearablesHub.shared.ring, ringChosen: .constant(true)),
                                 size: CGSize(width: 402, height: 520), name: "confirm-monitor-sheet")

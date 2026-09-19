@@ -14,6 +14,9 @@ struct RingSceneView: View {
     var cameraDistance: Float = 4.2
     /// Seconds for one turn.
     var spinSeconds: Double = 34
+    /// Turn wherever it is shown (a workout's wearable sheet), not only on
+    /// the Devices tab.
+    var animatesAnywhere = false
 
     @State private var live: RingModel.Live?
     /// Optional so previews and tests without the shell still render.
@@ -21,7 +24,8 @@ struct RingSceneView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var animating: Bool {
-        (spin || pulsing) && scenePhase == .active && (router.map { $0.selectedTab == .devices } ?? true)
+        (spin || pulsing) && scenePhase == .active
+            && (animatesAnywhere || (router.map { $0.selectedTab == .devices } ?? true))
     }
 
     var body: some View {

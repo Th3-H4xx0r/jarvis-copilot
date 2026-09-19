@@ -315,12 +315,16 @@ struct WorkoutConfirmView: View {
     /// The wearable that tracks the workout, with its status beneath and the
     /// button that changes it.
     private func wearableRow(_ monitor: WorkoutMonitor) -> some View {
-        Row(minHeight: 60) {
+        Row(minHeight: 64) {
             HStack(spacing: 12) {
-                Image(systemName: monitor.symbol)
-                    .font(.system(size: 17))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24)
+                if ringChosen && ringPaired {
+                    WearableModelView(kind: WearableKeepAlive.ring, size: 44)
+                } else {
+                    Image(systemName: monitor.symbol)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(monitor.name)
                     value(monitor).font(.subheadline)
@@ -561,6 +565,8 @@ struct MonitorPicker: View {
 
     private var paired: Bool { WearableIdentity.remembered(WearableKeepAlive.ring) != nil }
     private var name: String { WearableNames.shared.name(WearableKeepAlive.ring, fallback: "Colmi R12") }
+    /// Every other paired wearable, shown so the list is complete.
+    @State private var others: [WearableEntry] = []
     private var busy: Bool { working || [.scanning, .connecting, .discovering].contains(ring.state) }
 
     /// "Connected · 82% battery", "Not connected", "Not in range".
@@ -579,11 +585,32 @@ struct MonitorPicker: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
-                    CardGroup("Wearables", footer: "Only wearables that measure heart rate can track a workout. Pair more in Devices.") {
+                    CardGroup("Tracks workouts", footer: "Pair more wearables in Devices.") {
                         if paired {
                             ringRow
                         } else {
                             Row(minHeight: 56) { Text("No ring paired").foregroundStyle(.secondary) }
+                        }
+                    }
+                    if !others.isEmpty {
+                        CardGroup("Other wearables", footer: "These don't measure heart rate, so they can't track a workout.") {
+                            ForEach(Array(others.enumerated()), id: \.element.id) { index, entry in
+                                if index > 0 { RowDivider() }
+                                Row(minHeight: 68) {
+                                    HStack(spacing: 12) {
+                                        WearableModelView(kind: entry.kind, size: 48, spins: false)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.name)
+                                            Text(entry.connected ? "Connected" : "Not connected")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                }
+                                .opacity(0.6)
+                                .accessibilityElement(children: .combine)
+                            }
                         }
                     }
                     CardGroup(footer: choice.isStrength ? nil : "A \(choice.sportName.lowercased()) is recorded by the ring.") {
@@ -620,16 +647,17 @@ struct MonitorPicker: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(JcTheme.bg)
+        .onAppear { others = WearablesHub.shared.roster().filter { $0.kind != WearableKeepAlive.ring } }
     }
 
     private var ringRow: some View {
-        Row(minHeight: 64) {
+        Row(minHeight: 76) {
             HStack(spacing: 12) {
                 Button {
                     ringChosen = true
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "circle.circle").foregroundStyle(.secondary).frame(width: 24)
+                        WearableModelView(kind: WearableKeepAlive.ring, size: 56)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name).foregroundStyle(.primary)
                             Text(status.text)

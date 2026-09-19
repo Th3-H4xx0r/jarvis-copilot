@@ -17,6 +17,8 @@ struct BottleSceneView: View {
     var cameraY: Float = .nan
     /// Overrides the camera distance; 0 keeps the default.
     var cameraZ: Float = 0
+    /// Turn wherever it is shown, not only on the Devices tab.
+    var animatesAnywhere = false
 
     @State private var live: BottleModel.Live?
     /// Optional so previews and tests without the shell still render.
@@ -26,7 +28,7 @@ struct BottleSceneView: View {
     /// Render the turntable only while the Devices tab is on screen: every tab
     /// stays mounted, so an ungated 30 fps render never stopped.
     private var spinning: Bool {
-        spin && scenePhase == .active && (router.map { $0.selectedTab == .devices } ?? true)
+        spin && scenePhase == .active && (animatesAnywhere || (router.map { $0.selectedTab == .devices } ?? true))
     }
 
     var body: some View {
