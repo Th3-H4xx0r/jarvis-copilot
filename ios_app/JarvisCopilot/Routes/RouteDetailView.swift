@@ -11,6 +11,10 @@ struct RouteDetailView: View {
     var onDiscard: (() -> Void)?
     /// Pushed from the Health tab: it can be deleted.
     var fromHistory = false
+    /// Why a just-finished workout has no route (GPS off, too vague…).
+    var note: String?
+    /// With no route, the map still shows where you are.
+    @State private var followingYou = true
     @State private var route: WorkoutRoute?
     @State private var loaded = false
     @State private var stats: RouteStats?
@@ -34,12 +38,13 @@ struct RouteDetailView: View {
     @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
     @Environment(\.dismiss) private var dismiss
 
-    init(workout: RingWorkout, route: WorkoutRoute? = nil, onSave: (() -> Void)? = nil, onDiscard: (() -> Void)? = nil,
-         fromHistory: Bool = false, colouring: RouteColouring = .plain) {
+    init(workout: RingWorkout, route: WorkoutRoute? = nil, note: String? = nil, onSave: (() -> Void)? = nil,
+         onDiscard: (() -> Void)? = nil, fromHistory: Bool = false, colouring: RouteColouring = .plain) {
         self.workout = workout
         self.onSave = onSave
         self.onDiscard = onDiscard
         self.fromHistory = fromHistory
+        self.note = note
         _route = State(initialValue: route)
         _colouring = State(initialValue: colouring)
     }
@@ -57,7 +62,9 @@ struct RouteDetailView: View {
                     details(stats)
                     splits(stats)
                 } else if loaded {
-                    missing
+                    // A saved route that didn't come; or a workout that never had one.
+                    if workout.route != nil { missing }
+                    details(nil)
                 }
                 if workout.zoneSeconds.reduce(0, +) > 0 { WorkoutZonesCard(zoneSeconds: workout.zoneSeconds) }
                 actions
@@ -185,6 +192,20 @@ struct RouteDetailView: View {
                         .accessibilityLabel("Route map")
                         .accessibilityHint("Opens the map full screen")
                         .accessibilityAddTraits(.isButton)
+                } else if loaded, workout.route == nil {
+                    // No route was recorded: the map still shows where you are, and why.
+                    ZStack(alignment: .bottomLeading) {
+                        RouteMapView(segments: [], revision: 0, style: style, showsUser: true,
+                                     following: $followingYou, fitToken: nil, interactive: false)
+                        Label(note ?? "No route was recorded for this workout.", systemImage: "location.slash")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .padding(12)
+                            .padding(.bottom, 18)
+                    }
                 } else {
                     Rectangle().fill(Color.white.opacity(0.04))
                         .overlay {
@@ -304,17 +325,18 @@ struct RouteDetailView: View {
             .contentTransition(.numericText())
     }
 
-    private func details(_ stats: RouteStats) -> some View {
-        let best = stats.best.map { stats.splits[$0] }
+    /// Everything else; from the workout alone when there's no route to work from.
+    private func details(_ stats: RouteStats?) -> some View {
+        let best = stats.flatMap { s in s.best.map { s.splits[$0] } }
         let total = Int(workout.end.timeIntervalSince(workout.start))
         let items: [(String, String?)] = [
             ("Total time", WorkoutLiveView.clock(total)),
-            ("Avg speed", stats.averageSpeed.map { "\(unit.speed($0)) \(unit.speedSymbol)" }),
-            ("Max speed", stats.maxSpeed.map { "\(unit.speed($0)) \(unit.speedSymbol)" }),
+            ("Avg speed", stats?.averageSpeed.map { "\(unit.speed($0)) \(unit.speedSymbol)" }),
+            ("Max speed", stats?.maxSpeed.map { "\(unit.speed($0)) \(unit.speedSymbol)" }),
             ("Best \(unit.symbol)", best.map { "\(unit.pace(secondsPerMeter: $0.pace))/\(unit.symbol)" }),
-            ("Elevation loss", stats.loss.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
-            ("Highest", stats.maxEle.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
-            ("Lowest", stats.minEle.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
+            ("Elevation loss", stats?.loss.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
+            ("Highest", stats?.maxEle.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
+            ("Lowest", stats?.minEle.map { "\(unit.elevation($0)) \(unit.elevationSymbol)" }),
             ("Avg heart rate", workout.heartRateAverage.map { "\($0) bpm" }),
             ("Max heart rate", workout.heartRateMax.map { "\($0) bpm" }),
             (workout.kcalSource == "estimate" ? "Calories (est.)" : "Calories",

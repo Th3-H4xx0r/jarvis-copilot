@@ -97,4 +97,13 @@ final class RouteDetailTests: XCTestCase {
         try RenderHarness.write(ScrollView { HealthWorkoutsCard(workouts: [workout(route), lift]).padding(.top, 20) },
                                 size: CGSize(width: 402, height: 260), name: "workouts-card-gps")
     }
+
+    func testASummaryWithNoRouteStillShowsTheMapAndSaysWhy() throws {
+        var walk = workout(SampleRoute.route(seconds: 600, hr: false), phoneOnly: true)
+        walk.route = nil
+        walk.distanceMeters = 0
+        try RenderHarness.write(RouteDetailView(workout: walk, note: "GPS was too vague to draw a route (±48 m at best — indoors?).",
+                                                onSave: {}, onDiscard: {}),
+                                size: CGSize(width: 402, height: 1300), name: "route-summary-no-route", settle: 5)
+    }
 }

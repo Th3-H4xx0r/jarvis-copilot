@@ -15,6 +15,7 @@ final class FakeLocation: WorkoutLocationTracking {
     var steps: Int? = 1234
     var cadence: Int?
     var lastFix: CLLocationCoordinate2D?
+    var noRouteReason: String? { (recording?.route.points.count ?? 0) < 2 ? "The iPhone never got a GPS fix, so no route was recorded." : nil }
     var route: WorkoutRoute? { recording?.route }
     var progress: RouteProgress { recording?.progress ?? RouteProgress() }
 
@@ -233,5 +234,99 @@ final class OutdoorWorkoutTests: XCTestCase {
         XCTAssertTrue(c.phoneOnly)
         XCTAssertTrue(WorkoutMonitorPreference.usesRing, "the saved preference is untouched")
         XCTAssertNil(c.nextStartUsesRing)
+    }
+
+    func testAnOutdoorWorkoutWithoutAFixSaysWhyItHasNoRoute() async throws {
+        let c = controller()
+        try await startPhoneOnly(c)
+        clock = at(120)
+        c.end()
+        guard case .finished(let workout) = c.phase else { return XCTFail("a summary") }
+        XCTAssertNil(workout.route)
+        XCTAssertEqual(c.routeNote, "The iPhone never got a GPS fix, so no route was recorded.")
+        c.close(save: false)
+        XCTAssertNil(c.routeNote)
+    }
+}
+
+/// The phone's pedometer, set by hand.
+@MainActor
+final class FakePedometer: WorkoutStepCounting {
+    private(set) var startedFrom: Date?
+    private(set) var stopped = false
+    var steps: Int?
+    var cadence: Int?
+    var floors: Int?
+    var distance: Double?
+
+    func start(from date: Date) { startedFrom = date; stopped = false }
+    func stop() { stopped = true }
+}
+
+/// Indoor workouts the ring can't count (hands on rails): the phone's steps.
+@MainActor
+final class IndoorStepsTests: XCTestCase {
+    private var link: FakeRingLink!
+    private var pedometer: FakePedometer!
+
+    override func setUp() async throws {
+        UserDefaults().removePersistentDomain(forName: "IndoorStepsTests")
+        link = FakeRingLink()
+        pedometer = FakePedometer()
+    }
+
+    private func tick(_ sport: UInt8, elapsed: Int, steps: Int, meters: Int = 0) -> [UInt8] {
+        func be(_ v: Int, _ n: Int) -> [UInt8] { (0..<n).map { UInt8((v >> (8 * (n - 1 - $0))) & 0xFF) } }
+        return [sport, 2] + be(elapsed, 2) + [120] + be(steps, 3) + be(meters, 3) + be(elapsed * 100, 3)
+    }
+
+    private func running(_ sport: Int) async throws -> RingWorkoutController {
+        let defaults = UserDefaults(suiteName: "IndoorStepsTests")!
+        let c = RingWorkoutController(session: RingSession(transport: makeRingTransport(link), defaults: defaults),
+                                      ensureConnected: { true }, pedometer: pedometer, defaults: defaults)
+        c.countdownSeconds = 0
+        c.startTimeout = 30
+        c.start(RingSport.withID(sport))
+        try await Task.sleep(nanoseconds: 60_000_000)
+        return c
+    }
+
+    func testAStairClimberCountsThePhonesStepsAndFloors() async throws {
+        let c = try await running(80)
+        XCTAssertNotNil(pedometer.startedFrom, "the phone counts from the start")
+        for s in 1...30 { link.deliver(RingProtocol.frame(0x78, tick(80, elapsed: s, steps: 0))) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        pedometer.steps = 48
+        pedometer.cadence = 96
+        pedometer.floors = 3
+        XCTAssertEqual(c.stepCount, 48, "the ring counted none")
+        XCTAssertEqual(c.stepCadence, 96)
+        XCTAssertEqual(c.floors, 3)
+        c.end()
+        link.deliver(RingProtocol.frame(0x78, [80, 3] + tick(80, elapsed: 31, steps: 0).dropFirst(2)))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        guard case .finished(let workout) = c.phase else { return XCTFail("a summary") }
+        XCTAssertEqual(workout.steps, 48)
+        XCTAssertTrue(pedometer.stopped)
+    }
+
+    func testTheRingsStepsStandWhenItCountedMore() async throws {
+        let c = try await running(40)
+        for s in 1...20 { link.deliver(RingProtocol.frame(0x78, tick(40, elapsed: s, steps: s * 3, meters: s * 2))) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        pedometer.steps = 10
+        pedometer.distance = 55
+        XCTAssertEqual(c.stepCount, 60)
+        XCTAssertNil(c.indoorDistance, "the ring measured distance")
+    }
+
+    func testATreadmillTakesThePhonesDistanceWhenTheRingHasNone() async throws {
+        let c = try await running(40)
+        for s in 1...20 { link.deliver(RingProtocol.frame(0x78, tick(40, elapsed: s, steps: 0))) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        pedometer.steps = 40
+        pedometer.distance = 32
+        XCTAssertEqual(c.indoorDistance, 32)
+        XCTAssertNil(c.floors ?? nil)
     }
 }

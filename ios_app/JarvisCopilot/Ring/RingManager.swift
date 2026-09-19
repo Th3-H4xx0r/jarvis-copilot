@@ -48,7 +48,7 @@ final class RingManager: NSObject, ObservableObject {
             age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
             location: WorkoutLocation(),
             liveActivity: WorkoutLiveActivity(),
-            training: .shared, library: .shared, alerts: RestAlerts(),
+            training: .shared, library: .shared, alerts: RestAlerts(), pedometer: PhonePedometer(),
             profile: { [weak self] in VitalsProfile(ring: self?.session.settings.profile, restingHR: HealthRestingHR.last) })
         controller.onEnded = { [weak self] in self?.workoutEnded() }
         controller.onSaveRoute = { [weak self] route, workout in

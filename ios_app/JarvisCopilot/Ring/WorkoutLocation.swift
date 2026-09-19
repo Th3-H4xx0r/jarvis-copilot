@@ -24,6 +24,8 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
     /// Steps a minute, from the pedometer.
     private(set) var cadence: Int?
     private(set) var lastFix: CLLocationCoordinate2D?
+    /// The best accuracy any fix had (kept or not), to say why there's no route.
+    private(set) var bestAccuracy: Double?
 
     struct Checkpoint: Codable {
         var sport: Int
@@ -58,6 +60,7 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
         cadence = nil
         lastFix = nil
         pressure = nil
+        bestAccuracy = nil
         if resuming, let saved = Self.checkpoint(), saved.sport == sport,
            Date().timeIntervalSince(saved.recording.start) < 12 * 3600,
            saved.recording.start <= start.addingTimeInterval(5) {
@@ -149,6 +152,9 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
         var changed = false
         let baro = pressure.flatMap { now.timeIntervalSince($0.at) < 5 ? $0.altitude : nil }
         for location in locations {
+            if location.horizontalAccuracy > 0 {
+                bestAccuracy = min(bestAccuracy ?? .infinity, location.horizontalAccuracy)
+            }
             let fix = RouteFix(time: location.timestamp, lat: location.coordinate.latitude,
                                lon: location.coordinate.longitude, horizontalAccuracy: location.horizontalAccuracy,
                                altitude: location.verticalAccuracy > 0 ? location.altitude : nil,
@@ -162,6 +168,20 @@ final class WorkoutLocation: NSObject, WorkoutLocationTracking, CLLocationManage
         guard changed else { return }
         update?(progress)
         if now.timeIntervalSince(lastCheckpoint) >= 10 { checkpoint(now) }
+    }
+
+    /// Why a workout ended with no route, in the person's words (nil when it has one).
+    var noRouteReason: String? {
+        guard (recording?.route.points.count ?? 0) < 2 else { return nil }
+        switch manager.authorizationStatus {
+        case .denied, .restricted: return "Location was off for Jarvis, so no route was recorded."
+        default: break
+        }
+        if manager.accuracyAuthorization == .reducedAccuracy {
+            return "Precise Location was off, so no route was recorded."
+        }
+        guard let best = bestAccuracy else { return "The iPhone never got a GPS fix, so no route was recorded." }
+        return "GPS was too vague to draw a route (±\(Int(best.rounded())) m at best — indoors?)."
     }
 
     private func checkpoint(_ now: Date = Date()) {

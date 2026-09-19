@@ -614,10 +614,12 @@ struct MonitorPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var working = false
 
-    init(choice: WorkoutChoice, ring: RingManager, ringChosen: Binding<Bool>) {
+    /// `connecting`: shown mid-connection (render tests).
+    init(choice: WorkoutChoice, ring: RingManager, ringChosen: Binding<Bool>, connecting: Bool = false) {
         self.choice = choice
         self.ring = ring
         _ringChosen = ringChosen
+        _working = State(initialValue: connecting)
         _ringSession = ObservedObject(wrappedValue: ring.session)
     }
 
@@ -739,7 +741,11 @@ struct MonitorPicker: View {
 
     @ViewBuilder private var connectButton: some View {
         if busy {
-            ProgressView().controlSize(.small).frame(width: 96)
+            // In the button's place, at the row's end like the button's edge.
+            ProgressView()
+                .controlSize(.small)
+                .padding(.trailing, 12)
+                .frame(width: 96, alignment: .trailing)
         } else {
             let connected = ring.state == .ready
             Button(connected ? "Reconnect" : "Connect") {

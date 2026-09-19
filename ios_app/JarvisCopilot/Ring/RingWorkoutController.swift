@@ -45,6 +45,8 @@ final class RingWorkoutController: ObservableObject {
     @Published private(set) var phoneOnly = false
     /// A finished outdoor workout's route, until its summary is saved or discarded.
     @Published private(set) var finishedRoute: WorkoutRoute?
+    /// Why a finished outdoor workout has no route (GPS off, too vague…).
+    @Published private(set) var routeNote: String?
     /// A past route being followed (set by the start screen before `start`).
     @Published var guide: RouteGuide? {
         didSet {
@@ -99,6 +101,8 @@ final class RingWorkoutController: ObservableObject {
     private let ensureConnected: () async -> Bool
     private let age: () -> Int
     private let location: WorkoutLocationTracking?
+    /// Indoors: the phone's own step count beside the ring's.
+    private let pedometer: WorkoutStepCounting?
     private let liveActivity: WorkoutLiveActivity?
     private let training: TrainingStore?
     private let library: ExerciseLibrary?
@@ -140,12 +144,14 @@ final class RingWorkoutController: ObservableObject {
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
          location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil,
          training: TrainingStore? = nil, library: ExerciseLibrary? = nil, alerts: RestAlerting? = nil,
+         pedometer: WorkoutStepCounting? = nil,
          profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init,
          defaults: UserDefaults = .standard) {
         self.session = session
         self.ensureConnected = ensureConnected
         self.age = age
         self.location = location
+        self.pedometer = pedometer
         self.liveActivity = liveActivity
         self.training = training
         self.library = library
@@ -236,9 +242,33 @@ final class RingWorkoutController: ObservableObject {
 
     /// The route so far, for the live map.
     var liveRoute: WorkoutRoute? { location?.route }
-    /// The phone's pedometer (a phone-only workout's steps and cadence).
-    var phoneSteps: Int? { location?.steps }
-    var phoneCadence: Int? { location?.cadence }
+    /// Steps so far: the ring's — or the phone's, when it counted more (a
+    /// ring on a hand holding a rail barely moves), and outdoors without a
+    /// ring, the phone's alone.
+    var stepCount: Int? {
+        let ring = tick?.steps
+        let phone = sport?.outdoor == true ? location?.steps : pedometer?.steps
+        guard ring != nil || phone != nil else { return nil }
+        return max(ring ?? 0, phone ?? 0)
+    }
+
+    /// Steps a minute, from whichever count is being shown.
+    var stepCadence: Int? {
+        let phone = sport?.outdoor == true ? (location?.steps, location?.cadence) : (pedometer?.steps, pedometer?.cadence)
+        if let steps = phone.0, steps > (tick?.steps ?? 0) { return phone.1 }
+        return cadence
+    }
+
+    /// Floors climbed, from the phone's barometer (indoors).
+    var floors: Int? { sport?.outdoor == true ? nil : pedometer?.floors }
+
+    /// Treadmill and indoor walk: the phone's stride distance when the ring
+    /// measured none.
+    var indoorDistance: Double? {
+        guard let sport, !sport.outdoor, [40, 41].contains(sport.id), (tick?.distanceMeters ?? 0) == 0,
+              let meters = pedometer?.distance, meters > 0 else { return nil }
+        return meters
+    }
 
     /// Where strength workouts keep their templates and history.
     var strengthStore: TrainingStore { training ?? .shared }
@@ -306,7 +336,7 @@ final class RingWorkoutController: ObservableObject {
             }
             guard self.phase == .starting else { return }
             _ = try? await self.session.transport.perform(.phoneSport(.start, sport: sport.id), until: .none)
-            if sport.outdoor { self.startLocation() }
+            if sport.outdoor { self.startLocation() } else { self.pedometer?.start(from: Date()) }
             try? await Task.sleep(for: .seconds(self.startTimeout))
             if self.phase == .starting {
                 self.fail("The ring didn't start — take it off its charger and try again.")
@@ -432,7 +462,11 @@ final class RingWorkoutController: ObservableObject {
                 sport = resumed
                 phase = .running
                 startedAt = Date().addingTimeInterval(-Double(tick.elapsed))
-                if resumed.outdoor { startLocation(resuming: true) }
+                if resumed.outdoor {
+                    startLocation(resuming: true)
+                } else {
+                    pedometer?.start(from: startedAt ?? Date())
+                }
             case .finished, .failed, .countdown:
                 // A stray tick after the summary (or before the ring was told).
                 return
@@ -607,7 +641,12 @@ final class RingWorkoutController: ObservableObject {
         phoneTicker?.cancel()
         showsLive = true
         defer { onEnded?() }
+        let note = sport?.outdoor == true ? location?.noRouteReason : nil
+        // Counted before the sensors stop.
+        let steps = stepCount ?? 0
+        let phoneMeters = indoorDistance
         let route = location?.stop()
+        pedometer?.stop()
         liveActivity?.end()
         clearPhoneWorkout()
         guard let sport, let startedAt else { return reset(to: .idle) }
@@ -617,15 +656,16 @@ final class RingWorkoutController: ObservableObject {
         var workout = RingWorkout(
             sport: sport.id, sportName: sport.name, start: startedAt, end: Date(),
             activeSeconds: phoneOnly ? elapsed(at: clock()) : last?.elapsed ?? 0,
-            steps: last?.steps ?? location?.steps ?? 0,
-            distanceMeters: gpsDistance ?? Double(last?.distanceMeters ?? 0),
-            distanceSource: gpsDistance == nil ? "ring" : "gps",
+            steps: steps,
+            distanceMeters: gpsDistance ?? phoneMeters ?? Double(last?.distanceMeters ?? 0),
+            distanceSource: gpsDistance != nil ? "gps" : phoneMeters != nil ? "phone" : "ring",
             kilocalories: ringKcal > 0 ? ringKcal : routeProgress.kilocalories,
             heartRateAverage: readings.isEmpty ? nil : readings.reduce(0, +) / readings.count,
             heartRateMax: readings.max(), heartRates: heartRates, zoneSeconds: zoneSeconds)
         if ringKcal <= 0, routeProgress.kilocalories > 0 { workout.kcalSource = "estimate" }
         workout.route = route.map(RouteMath.summary)
         finishedRoute = route
+        routeNote = route == nil ? note : nil
         // Kept on disk until Save or Discard (iOS may end the app before
         // either) when only this phone has it: a route, or no ring at all.
         if route != nil || phoneOnly { FinishedOutdoor(workout: workout, route: route).save(to: finishedURL) }
@@ -638,6 +678,7 @@ final class RingWorkoutController: ObservableObject {
         showsLive = true
         defer { onEnded?() }
         location?.stop()
+        pedometer?.stop()
         clearPhoneWorkout()
         liveActivity?.end()
         phase = .failed(message)
@@ -656,6 +697,7 @@ final class RingWorkoutController: ObservableObject {
         pace = nil
         routeProgress = RouteProgress()
         finishedRoute = nil
+        routeNote = nil
         guideAlong = nil
         guideOff = nil
         offRoute = false
@@ -691,6 +733,8 @@ protocol WorkoutLocationTracking: AnyObject {
     var progress: RouteProgress { get }
     /// The wearable's reading, stamped on each point.
     var heartRate: (() -> Int?)? { get set }
+    /// Why there's no route to show, once it's clear there won't be one.
+    var noRouteReason: String? { get }
     /// The phone's pedometer: steps since the start, and steps a minute.
     var steps: Int? { get }
     var cadence: Int? { get }

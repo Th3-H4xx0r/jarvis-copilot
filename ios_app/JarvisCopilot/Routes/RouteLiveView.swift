@@ -188,8 +188,8 @@ struct RouteLiveView: View {
         return ring > 0 ? ring : progress.kilocalories
     }
 
-    private var steps: Int? { workout.phoneOnly ? workout.phoneSteps : workout.tick?.steps }
-    private var cadence: Int? { workout.phoneOnly ? workout.phoneCadence : workout.cadence }
+    private var steps: Int? { workout.stepCount }
+    private var cadence: Int? { workout.stepCadence }
 
     private var heartRate: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {

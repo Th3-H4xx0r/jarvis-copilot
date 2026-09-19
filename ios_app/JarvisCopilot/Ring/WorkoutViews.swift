@@ -189,8 +189,10 @@ struct WorkoutLiveView: View {
                     StrengthSummaryView(workout: result, store: workout.strengthStore,
                                         onSave: { workout.close(save: true) },
                                         onDiscard: { workout.close(save: false) })
-                } else if result.route != nil {
-                    RouteDetailView(workout: result, route: workout.finishedRoute,
+                } else if result.route != nil || RingSport.withID(result.sport).outdoor {
+                    // Every outdoor workout ends on its map — with a word on why
+                    // when GPS couldn't draw a route.
+                    RouteDetailView(workout: result, route: workout.finishedRoute, note: workout.routeNote,
                                     onSave: { workout.close(save: true) }, onDiscard: { workout.close(save: false) })
                 } else {
                     WorkoutSummaryView(workout: result, onSave: { workout.close(save: true) },
@@ -265,10 +267,16 @@ struct WorkoutLiveView: View {
             heartRate(tick)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
-                stat("Steps", tick.map { $0.steps.formatted() } ?? "--",
-                     workout.cadence.map { "\($0) spm" }, symbol: "figure.walk")
+                // The ring's steps, or the phone's when the ring (a hand on a
+                // rail) counted fewer.
+                stat("Steps", workout.stepCount.map { $0.formatted() } ?? "--",
+                     workout.stepCadence.map { "\($0) spm" }, symbol: "figure.walk")
                 stat("Calories", tick.map { "\(Int($0.kilocalories.rounded()))" } ?? "--", "kcal", symbol: "flame.fill")
-                stat("Distance", distance, workout.gpsDistance == nil ? "km · ring" : "km · GPS", symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                if workout.sport?.id == 80, let floors = workout.floors {
+                    stat("Floors", floors.formatted(), "climbed", symbol: "figure.stair.stepper")
+                } else {
+                    stat("Distance", distance, distanceNote, symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                }
                 if workout.sport?.outdoor == true {
                     stat("Pace", workout.pace.map(Self.pace) ?? "--", "/km", symbol: "speedometer")
                 } else {
@@ -315,8 +323,14 @@ struct WorkoutLiveView: View {
     }
 
     private var distance: String {
-        let meters = workout.gpsDistance ?? workout.tick.map { Double($0.distanceMeters) }
-        return meters.map { String(format: "%.2f", $0 / 1000) } ?? "--"
+        let meters = workout.gpsDistance ?? workout.indoorDistance ?? workout.tick.map { Double($0.distanceMeters) }
+        return meters.map { DistanceUnit.current.distance($0) } ?? "--"
+    }
+
+    /// "mi · ring", "km · phone", "mi · GPS": the unit and where it came from.
+    private var distanceNote: String {
+        let source = workout.gpsDistance != nil ? "GPS" : workout.indoorDistance != nil ? "phone" : "ring"
+        return "\(DistanceUnit.current.symbol) · \(source)"
     }
 
     private func heartRate(_ tick: RingSportTick?) -> some View {
