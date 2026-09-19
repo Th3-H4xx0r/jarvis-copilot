@@ -87,7 +87,7 @@ struct HealthTab: View {
             }
             .ringWearSheet(measure, on: .health)
             .sheet(isPresented: $choosingWorkout) {
-                WorkoutPicker { sport in workout.start(sport) }
+                WorkoutPicker(onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
                     .presentationDetents([.large])
             }
             .navigationDestination(item: $historyMetric) { metric in

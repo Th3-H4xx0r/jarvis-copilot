@@ -9,6 +9,9 @@ final class WorkoutLiveActivity {
     private var activity: Activity<RingWorkoutAttributes>?
     private var lastPush = Date.distantPast
     private var lastRunning: Bool?
+    /// A rest starting, moving or ending, or the next set changing, is
+    /// pushed at once; heart rate waits for the budget.
+    private var lastStep: String?
     private var lastAttempt = Date.distantPast
 
     init() {
@@ -19,11 +22,14 @@ final class WorkoutLiveActivity {
 
     var isShowing: Bool { activity != nil }
 
-    func update(sport: RingSport, running: Bool, elapsed: Int, heartRate: Int?, distanceKm: Double?, zone: Int?) {
+    func update(sport: RingSport, running: Bool, elapsed: Int, heartRate: Int?, distanceKm: Double?, zone: Int?,
+                restEnds: Date? = nil, restStarted: Date? = nil, detail: String? = nil) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let state = RingWorkoutAttributes.ContentState(
             running: running, reference: Date().addingTimeInterval(-Double(elapsed)),
-            frozenElapsed: Double(elapsed), heartRate: heartRate, distanceKm: distanceKm, zone: zone)
+            frozenElapsed: Double(elapsed), heartRate: heartRate, distanceKm: distanceKm, zone: zone,
+            restEnds: restEnds, restStarted: restStarted, detail: detail)
+        let step = "\(restEnds?.timeIntervalSince1970 ?? 0)|\(detail ?? "")"
         let content = ActivityContent(state: state, staleDate: nil)
         guard let activity else {
             // iOS refuses a request while the app is in the background (a
@@ -36,14 +42,16 @@ final class WorkoutLiveActivity {
                     attributes: RingWorkoutAttributes(sport: sport.name, symbol: sport.symbol), content: content)
                 lastPush = Date()
                 lastRunning = running
+                lastStep = step
             } catch {
                 JcLog.dropped(JcLog.devices, "workout live activity", error)
             }
             return
         }
-        guard running != lastRunning || Date().timeIntervalSince(lastPush) >= 10 else { return }
+        guard running != lastRunning || step != lastStep || Date().timeIntervalSince(lastPush) >= 10 else { return }
         lastPush = Date()
         lastRunning = running
+        lastStep = step
         Task { await activity.update(content) }
     }
 
@@ -54,6 +62,7 @@ final class WorkoutLiveActivity {
         let ending = Activity<RingWorkoutAttributes>.activities
         activity = nil
         lastRunning = nil
+        lastStep = nil
         Task { for a in ending { await a.end(nil, dismissalPolicy: .immediate) } }
     }
 }

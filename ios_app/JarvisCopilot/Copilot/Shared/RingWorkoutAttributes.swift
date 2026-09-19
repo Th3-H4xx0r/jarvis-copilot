@@ -15,6 +15,11 @@ struct RingWorkoutAttributes: ActivityAttributes {
         var distanceKm: Double?
         /// Heart-rate zone 1–5.
         var zone: Int?
+        /// Strength: a rest running until then (the widget counts it down itself).
+        var restEnds: Date? = nil
+        var restStarted: Date? = nil
+        /// Strength: what comes next — "Bench Press · set 3 · 60 kg × 8".
+        var detail: String? = nil
     }
 
     var sport: String

@@ -34,6 +34,9 @@ enum TrainingUnit: String, Codable, CaseIterable {
     /// "60", "62.5", "135" — at most two decimals, none when whole.
     func format(_ kg: Double) -> String { Self.number(show(kg)) }
 
+    /// An estimate (a predicted max), to the nearest half: "80.5", not "80.69".
+    func estimate(_ kg: Double) -> String { Self.number((show(kg) * 2).rounded() / 2) }
+
     static func number(_ value: Double) -> String {
         let rounded = (value * 100).rounded() / 100
         if rounded == rounded.rounded() { return String(Int(rounded)) }

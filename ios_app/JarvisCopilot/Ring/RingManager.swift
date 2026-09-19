@@ -47,7 +47,9 @@ final class RingManager: NSObject, ObservableObject {
             ensureConnected: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
             age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
             location: WorkoutLocation(),
-            liveActivity: WorkoutLiveActivity())
+            liveActivity: WorkoutLiveActivity(),
+            training: .shared, library: .shared, alerts: RestAlerts(),
+            profile: { [weak self] in VitalsProfile(ring: self?.session.settings.profile, restingHR: HealthRestingHR.last) })
         controller.onEnded = { [weak self] in self?.workoutEnded() }
         controller.onSave = { [weak self] workout in
             let deviceID = self?.deviceID

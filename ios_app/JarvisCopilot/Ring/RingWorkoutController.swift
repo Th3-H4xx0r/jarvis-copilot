@@ -43,6 +43,13 @@ final class RingWorkoutController: ObservableObject {
     /// The live sheet is up. Dragging it down hides it — the workout carries
     /// on, shown as a card on the Health tab that brings it back.
     @Published var showsLive = false
+    /// A strength workout's log and rest timer. Strength runs on the phone's
+    /// clock; the ring's session underneath only records heart rate.
+    @Published private(set) var strength: StrengthSession?
+    /// Why a strength workout has no heart rate (no ring, on its charger…).
+    @Published private(set) var vitalsNote: String?
+    /// A strength workout's heart rate, a reading a second.
+    private(set) var heartSamples: [HeartSample] = []
 
     /// Seconds of countdown; tests set 0.
     var countdownSeconds = 3
@@ -61,6 +68,13 @@ final class RingWorkoutController: ObservableObject {
     private let age: () -> Int
     private let location: WorkoutLocationTracking?
     private let liveActivity: WorkoutLiveActivity?
+    private let training: TrainingStore?
+    private let library: ExerciseLibrary?
+    private let alerts: RestAlerting?
+    private let profile: () -> VitalsProfile
+    private let clock: () -> Date
+    /// The ring was told to start a strength session (so it is told to stop).
+    private var ringStarted = false
     /// Heart rate every 5 s so far (0 where there was no reading).
     @Published private(set) var heartRates: [Int] = []
     private var stepMarks: [(elapsed: Int, steps: Int)] = []
@@ -79,12 +93,19 @@ final class RingWorkoutController: ObservableObject {
     private var watching: Set<AnyCancellable> = []
 
     init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
-         location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil) {
+         location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil,
+         training: TrainingStore? = nil, library: ExerciseLibrary? = nil, alerts: RestAlerting? = nil,
+         profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init) {
         self.session = session
         self.ensureConnected = ensureConnected
         self.age = age
         self.location = location
         self.liveActivity = liveActivity
+        self.training = training
+        self.library = library
+        self.alerts = alerts
+        self.profile = profile
+        self.clock = clock
         session.onSportTick = { [weak self] tick in self?.receive(tick) }
         // Coming forward is when iOS allows the Live Activity a background
         // request was refused; and one left by a crash with no workout to
@@ -97,12 +118,28 @@ final class RingWorkoutController: ObservableObject {
             guard let self, !self.isActive else { return }
             self.liveActivity?.end()
         }
+        // A strength workout the app was closed (or crashed) in the middle of.
+        if let log = training?.activeLog { begin(log) }
     }
 
     private func appCameForward() {
-        guard isActive, let tick else { return }
+        guard isActive else { return }
+        if let strength {
+            strength.resync()
+            liveActivity?.retry()
+            return pushStrengthActivity()
+        }
+        guard let tick else { return }
         liveActivity?.retry()
         pushLiveActivity(tick)
+    }
+
+    /// The seconds the clock shows. Strength counts from its start; a ring
+    /// workout from the ring's own active time, carried on between ticks.
+    func elapsed(at date: Date) -> Int {
+        if strength != nil, let startedAt { return max(0, Int(date.timeIntervalSince(startedAt))) }
+        let since = lastTickAt.map { date.timeIntervalSince($0) } ?? 0
+        return (tick?.elapsed ?? 0) + (phase == .running ? Int(min(max(since, 0), 3)) : 0)
     }
 
     private func pushLiveActivity(_ tick: RingSportTick) {
@@ -112,6 +149,9 @@ final class RingWorkoutController: ObservableObject {
                              heartRate: tick.heartRate, distanceKm: meters > 0 ? meters / 1000 : nil,
                              zone: tick.heartRate.map { Self.zone($0, age: age()) })
     }
+
+    /// Where strength workouts keep their templates and history.
+    var strengthStore: TrainingStore { training ?? .shared }
 
     /// A workout is under way (the link is held and the measurer steps aside).
     var isActive: Bool {
@@ -147,6 +187,8 @@ final class RingWorkoutController: ObservableObject {
     // MARK: Actions
 
     func start(_ sport: RingSport) {
+        // Strength is logged set by set, whoever starts it.
+        if sport.id == RingSport.strengthID, training != nil { return startStrength(template: nil) }
         guard !isActive else { showsLive = true; return }
         reset()
         endedAt = nil
@@ -184,14 +226,14 @@ final class RingWorkoutController: ObservableObject {
     }
 
     func pause() {
-        guard phase == .running, let sport else { return }
+        guard phase == .running, strength == nil, let sport else { return }
         phase = .paused
         commandAt = Date()
         send(.pause, sport)
     }
 
     func resume() {
-        guard phase == .paused, let sport else { return }
+        guard phase == .paused, strength == nil, let sport else { return }
         phase = .running
         commandAt = Date()
         stillTicks = 0
@@ -199,6 +241,7 @@ final class RingWorkoutController: ObservableObject {
     }
 
     func end() {
+        if strength != nil { return finishStrength() }
         guard phase == .running || phase == .paused, let sport else { return }
         endedAt = Date()
         phase = .ending
@@ -213,8 +256,12 @@ final class RingWorkoutController: ObservableObject {
 
     /// The summary's Save or Discard.
     func close(save: Bool) {
-        if case .finished(let workout) = phase, save { onSave?(workout) }
+        if case .finished(let workout) = phase, save {
+            if workout.isStrength { training?.record(workout) }
+            onSave?(workout)
+        }
         if endedAt == nil, sport != nil { endedAt = Date() }
+        clearStrength()
         reset()
         showsLive = false
         phase = .idle
@@ -223,6 +270,7 @@ final class RingWorkoutController: ObservableObject {
     // MARK: Ticks
 
     func receive(_ tick: RingSportTick) {
+        if strength != nil { return receiveDuringStrength(tick) }
         switch tick.state {
         case .ended:
             if phase == .starting {
@@ -242,6 +290,12 @@ final class RingWorkoutController: ObservableObject {
                     return
                 }
                 // A workout the ring kept running while the app was away.
+                if tick.sport == RingSport.strengthID, let training {
+                    ringStarted = true
+                    begin(training.activeLog ?? .empty(at: clock().addingTimeInterval(-Double(tick.elapsed)).wholeSeconds),
+                          ringRunning: true)
+                    return receiveDuringStrength(tick)
+                }
                 let resumed = RingSport.withID(tick.sport)
                 sport = resumed
                 phase = .running
@@ -352,4 +406,158 @@ protocol WorkoutLocationTracking: AnyObject {
     /// Reports distance (m) and pace (s/km over the last km) as they change.
     func start(_ update: @escaping (Double, Double?) -> Void)
     func stop()
+}
+
+// MARK: - Strength
+
+extension RingWorkoutController {
+    /// Start logging a strength workout, from a template or empty. It runs at
+    /// once, ring or no ring; the ring's session only adds heart rate.
+    func startStrength(template: WorkoutTemplate?) {
+        guard training != nil, library != nil else { return }
+        guard !isActive else { showsLive = true; return }
+        reset()
+        endedAt = nil
+        let now = clock().wholeSeconds
+        begin(template.map { StrengthSession.log(from: $0, at: now) } ?? .empty(at: now))
+    }
+
+    fileprivate func begin(_ log: StrengthLog, ringRunning: Bool = false) {
+        guard let training, let library else { return }
+        let strength = StrengthSession(log: log, mode: .live, store: training, library: library, alerts: alerts, now: clock)
+        strength.onChange = { [weak self, weak strength] in
+            guard let self, let strength, self.strength === strength else { return }
+            self.training?.saveActive(strength.log)
+            self.pushStrengthActivity()
+        }
+        self.strength = strength
+        sport = RingSport.withID(RingSport.strengthID)
+        startedAt = log.started
+        training.saveActive(log)
+        vitalsNote = nil
+        showsLive = true
+        phase = .running
+        if !ringRunning { startRingVitals() }
+        pushStrengthActivity()
+    }
+
+    /// Ask the ring for a strength session underneath — unless it already
+    /// sends one (a workout picked up after a relaunch).
+    private func startRingVitals() {
+        pending?.cancel()
+        pending = Task { [weak self] in
+            guard let self else { return }
+            guard await self.ensureConnected() else {
+                if self.strength != nil { self.vitalsNote = "No ring — logging sets only." }
+                return
+            }
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled, self.strength != nil else { return }
+            if self.lastTickAt == nil {
+                _ = try? await self.session.transport.perform(.phoneSport(.start, sport: RingSport.strengthID), until: .none)
+            }
+            self.ringStarted = true
+            try? await Task.sleep(for: .seconds(self.startTimeout))
+            if !Task.isCancelled, self.strength != nil, self.lastTickAt == nil {
+                self.vitalsNote = "The ring didn't start — logging sets only."
+            }
+        }
+    }
+
+    fileprivate func receiveDuringStrength(_ tick: RingSportTick) {
+        guard phase == .running else { return }
+        switch tick.state {
+        case .ended:
+            ringStarted = false
+            vitalsNote = lastTickAt == nil ? "The ring didn't start — take it off its charger for heart rate."
+                : "The ring stopped — logging sets only."
+        case .running, .paused:
+            self.tick = tick
+            lastTickAt = clock()
+            vitalsNote = nil
+            if let hr = tick.heartRate {
+                heartSamples.append(HeartSample(at: clock(), bpm: hr))
+                // Four hours of readings is plenty for any workout.
+                if heartSamples.count > 14_400 { heartSamples.removeFirst(heartSamples.count - 14_400) }
+            }
+            pushStrengthActivity()
+        }
+    }
+
+    fileprivate func pushStrengthActivity() {
+        guard let strength, phase == .running else { return }
+        let sport = RingSport(id: RingSport.strengthID, name: strength.log.name, symbol: RingSport.withID(RingSport.strengthID).symbol)
+        liveActivity?.update(sport: sport, running: true, elapsed: elapsed(at: clock()), heartRate: tick?.heartRate,
+                             distanceKm: nil, zone: zone, restEnds: strength.rest?.ends,
+                             restStarted: strength.rest?.started, detail: strength.detail)
+    }
+
+    /// Finish: the log with each set's heart rate and records, calories and
+    /// effort, as the summary shows it.
+    fileprivate func finishStrength() {
+        guard let strength, let startedAt, phase == .running else { return }
+        pending?.cancel()
+        strength.cancelRest()
+        strength.focus = nil
+        if ringStarted { stopRing() }
+        let end = clock()
+        endedAt = end
+        let profile = profile()
+        var log = SessionVitals.annotate(strength.log, samples: heartSamples, end: end)
+        let marks = TrainingMath.newRecords(in: log, history: training?.logs ?? [])
+        for e in log.exercises.indices {
+            for s in log.exercises[e].sets.indices {
+                log.exercises[e].sets[s].records = marks[log.exercises[e].sets[s].id] ?? []
+            }
+        }
+        let calories = SessionVitals.activeCalories(samples: heartSamples, start: startedAt, end: end, profile: profile,
+                                                    ringKcal: tick?.kilocalories)
+        let readings = heartSamples.map(\.bpm)
+        let workout = RingWorkout(
+            sport: RingSport.strengthID, sportName: log.name, start: startedAt, end: end,
+            activeSeconds: max(0, Int(end.timeIntervalSince(startedAt))), steps: tick?.steps ?? 0, distanceMeters: 0,
+            distanceSource: "ring", kilocalories: calories.kcal.rounded(),
+            heartRateAverage: readings.isEmpty ? nil : readings.reduce(0, +) / readings.count,
+            heartRateMax: readings.max(),
+            heartRates: SessionVitals.series5s(samples: heartSamples, start: startedAt, end: end),
+            zoneSeconds: SessionVitals.zoneSeconds(samples: heartSamples, age: profile.age),
+            strength: log,
+            effort: readings.isEmpty ? nil : SessionVitals.effort(trimp: SessionVitals.trimp(samples: heartSamples, profile: profile)),
+            kcalSource: calories.source)
+        liveActivity?.end()
+        showsLive = true
+        phase = .finished(workout)
+        onEnded?()
+    }
+
+    /// Throw the workout in progress away.
+    func cancelStrength() {
+        guard strength != nil else { return }
+        pending?.cancel()
+        if ringStarted { stopRing() }
+        endedAt = clock()
+        liveActivity?.end()
+        clearStrength()
+        reset()
+        showsLive = false
+        phase = .idle
+        onEnded?()
+    }
+
+    private func stopRing() {
+        ringStarted = false
+        let session = self.session
+        Task { _ = try? await session.transport.perform(.phoneSport(.stop, sport: RingSport.strengthID), until: .none) }
+    }
+
+    fileprivate func clearStrength() {
+        guard let strength else { return }
+        strength.cancelRest()
+        strength.onChange = nil
+        training?.saveActive(nil)
+        self.strength = nil
+        vitalsNote = nil
+        heartSamples = []
+        ringStarted = false
+    }
 }

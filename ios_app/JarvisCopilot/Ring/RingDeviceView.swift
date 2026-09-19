@@ -128,7 +128,7 @@ struct RingDeviceView: View {
             .buttonStyle(.plain)
         }
         .sheet(isPresented: $choosingWorkout) {
-            WorkoutPicker { sport in manager.workout.start(sport) }
+            WorkoutPicker(onTemplate: { manager.workout.startStrength(template: $0) }) { sport in manager.workout.start(sport) }
         }
     }
 

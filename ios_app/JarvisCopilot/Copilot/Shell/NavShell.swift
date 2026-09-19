@@ -181,9 +181,7 @@ struct GlassNavBar: View {
                     }
                 if live {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
-                        let running = workout.phase == .running
-                        Text(WorkoutLiveView.clock((workout.tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)))
+                        Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
                             .font(.system(size: Self.labelSize, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(JcTheme.danger)

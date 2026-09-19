@@ -43,6 +43,9 @@ struct RingSport: Identifiable, Hashable, Codable {
 
     static let all = common + more
 
+    /// The ring's id for strength training, which is logged set by set.
+    static let strengthID = 88
+
     static func withID(_ id: Int) -> RingSport {
         all.first { $0.id == id } ?? RingSport(id: id, name: "Workout", symbol: "figure.mixed.cardio")
     }

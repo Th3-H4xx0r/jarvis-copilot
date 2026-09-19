@@ -3,12 +3,37 @@ import SwiftUI
 
 // MARK: - Picker
 
-/// Choose a sport and go: the common eight as a grid (the last one used
-/// first), everything else under More. Picking one starts it.
+/// Choose a sport and go: strength templates first, the common eight as a
+/// grid (the last one used first), everything else under More. Picking one
+/// starts it.
 struct WorkoutPicker: View {
     let onPick: (RingSport) -> Void
+    /// Start a strength template (nil hides the Templates row).
+    var onTemplate: ((WorkoutTemplate) -> Void)?
+    @ObservedObject var store: TrainingStore
+    let library: ExerciseLibrary
     @Environment(\.dismiss) private var dismiss
     @AppStorage("jc.workout.lastSport") private var lastSport = 7
+    @State private var sheet: TemplateSheet?
+
+    private enum TemplateSheet: Identifiable {
+        case edit(WorkoutTemplate), new, manage
+        var id: String {
+            switch self {
+            case .edit(let t): return "edit-\(t.id)"
+            case .new: return "new"
+            case .manage: return "manage"
+            }
+        }
+    }
+
+    init(store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
+         onTemplate: ((WorkoutTemplate) -> Void)? = nil, onPick: @escaping (RingSport) -> Void) {
+        self.store = store
+        self.library = library
+        self.onTemplate = onTemplate
+        self.onPick = onPick
+    }
 
     private var common: [RingSport] {
         let last = RingSport.withID(lastSport)
@@ -19,6 +44,16 @@ struct WorkoutPicker: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    if let onTemplate {
+                        TemplatesRow(store: store,
+                                     onStart: { template in
+                                         dismiss()
+                                         onTemplate(template)
+                                     },
+                                     onEdit: { sheet = .edit($0) },
+                                     onNew: { sheet = .new },
+                                     onManage: { sheet = .manage })
+                    }
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                               spacing: 12) {
                         ForEach(common) { sport in tile(sport) }
@@ -52,6 +87,14 @@ struct WorkoutPicker: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
+            .sheet(item: $sheet) { which in
+                switch which {
+                case .edit(let template): TemplateEditor(template: template, store: store, library: library)
+                case .new: TemplateEditor(template: nil, store: store, library: library)
+                case .manage: TemplatesManager(store: store, library: library)
+                }
+            }
+            .task { if onTemplate != nil { await store.refresh() } }
         }
     }
 
@@ -116,12 +159,22 @@ struct WorkoutLiveView: View {
                     Text("Starting on your ring…").foregroundStyle(.secondary)
                 }
             case .running, .paused, .ending:
-                live
+                if let strength = workout.strength {
+                    StrengthLiveView(workout: workout, session: strength)
+                } else {
+                    live
+                }
             case .failed(let why):
                 failed(why)
             case .finished(let result):
-                WorkoutSummaryView(workout: result, onSave: { workout.close(save: true) },
-                                   onDiscard: { workout.close(save: false) })
+                if result.isStrength {
+                    StrengthSummaryView(workout: result, store: workout.strengthStore,
+                                        onSave: { workout.close(save: true) },
+                                        onDiscard: { workout.close(save: false) })
+                } else {
+                    WorkoutSummaryView(workout: result, onSave: { workout.close(save: true) },
+                                       onDiscard: { workout.close(save: false) })
+                }
             case .idle:
                 EmptyView()
             }
@@ -170,7 +223,7 @@ struct WorkoutLiveView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
                 let running = workout.phase == .running
-                let shown = (tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)
+                let shown = workout.elapsed(at: context.date)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Self.clock(shown))
                         .font(.system(size: 76, weight: .bold, design: .rounded))
@@ -510,13 +563,11 @@ struct WorkoutInProgressCard: View {
                                              pulsing: workout.phase == .running, size: 22)
                                 .frame(width: 30)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.phase == .paused ? "\(sport.name) · Paused" : sport.name)
+                                Text(workout.phase == .paused ? "\(sport.name) · Paused" : workout.strength?.log.name ?? sport.name)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(workout.phase == .paused ? AnyShapeStyle(JcTheme.amber) : AnyShapeStyle(.secondary))
                                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                                    let since = workout.lastTickAt.map { context.date.timeIntervalSince($0) } ?? 0
-                                    let running = workout.phase == .running
-                                    Text(WorkoutLiveView.clock((workout.tick?.elapsed ?? 0) + (running ? Int(min(since, 3)) : 0)))
+                                    Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
                                         .font(.system(size: 30, weight: .bold, design: .rounded))
                                         .monospacedDigit()
                                         .contentTransition(.numericText())
