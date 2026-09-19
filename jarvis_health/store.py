@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import re
+from datetime import timezone
 from typing import Any, Optional
 
 from .metrics import Baseline, HealthDay, from_json, parse_instant, to_json, utc_now
@@ -51,6 +52,9 @@ _DATE = re.compile(r"\d{4}-\d{2}-\d{2}$")
 # Strength training the phone keeps here: templates and custom exercises one
 # document each, and every exercise's settings (rest, bar, kind, pinned note)
 # in one.
+# A scale's readings, one document per device per UTC day: `weight-scale-3c0f01eb-20260919`.
+WEIGHT_PREFIX = "weight-"
+
 TEMPLATE_PREFIX = "template-"
 EXERCISE_PREFIX = "exercise-"
 TRAINING_SETTINGS = "training-settings"
@@ -58,6 +62,25 @@ TRAINING_SETTINGS = "training-settings"
 _TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,54}")
 #: The key a workout's device is filed under: `ring-b6ce93c4`.
 _DEVICE_KEY = re.compile(r"[a-z]+-[a-z0-9]{1,16}")
+
+
+def _weight_reading(raw: Any) -> dict:
+    """One weigh-in as the phone sends it, checked: an id, a zoned instant, kilograms."""
+    if not isinstance(raw, dict) or not raw.get("id") or not raw.get("at"):
+        raise ValueError("a reading needs an 'id' and an 'at'")
+    at = parse_instant(str(raw["at"]))
+    if at.tzinfo is None:
+        raise ValueError("a reading's 'at' is a UTC instant: 2026-09-19T07:12:00Z")
+    kg = raw.get("weight_kg")
+    if not isinstance(kg, (int, float)) or not 10 <= kg <= 400:
+        raise ValueError("a reading's weight_kg is between 10 and 400")
+    out = {"id": str(raw["id"])[:64], "at": at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "weight_kg": round(float(kg), 2)}
+    for key in ("bmi", "body_fat", "muscle_mass", "body_water", "bone_mass", "visceral_fat", "bmr"):
+        value = raw.get(key)
+        if isinstance(value, (int, float)):
+            out[key] = round(float(value), 2)
+    return out
 
 
 def _training_id(value: Any) -> str:
@@ -193,6 +216,7 @@ class HealthStore:
         return next(d for d in roster if d.get("key") == key)
 
     def set_linked(self, device: str, linked: bool) -> Optional[dict]:
+        self._weights_cache = None
         roster = self.roster()
         entry = next((d for d in roster if d.get("key") == device), None)
         if entry is None:
@@ -266,6 +290,69 @@ class HealthStore:
 
             history.forget(self, str(start)[:10])
         return gone
+
+    # ── weight ──────────────────────────────────────────────────────────────
+    def put_weights(self, readings: list[dict], device: str) -> int:
+        """A scale's readings, each kept once (by id). Returns how many are stored."""
+        from . import history
+
+        by_day: dict[str, list[dict]] = {}
+        for raw in readings or []:
+            reading = _weight_reading(raw)
+            by_day.setdefault(reading["at"][:10], []).append(reading)
+        stored = 0
+        for date, fresh in by_day.items():
+            key = f"{WEIGHT_PREFIX}{device}-{date.replace('-', '')}"
+            doc = self._space.get(key) or {}
+            kept = {r["id"]: r for r in (doc.get("readings") or []) if isinstance(r, dict) and r.get("id")}
+            for reading in fresh:
+                kept[reading["id"]] = reading
+            ordered = sorted(kept.values(), key=lambda r: r["at"])
+            self._space.put(key, {"device": device, "date": date, "readings": ordered},
+                            description=f"Weigh-ins on {date}.")
+            stored += len(fresh)
+            history.forget(self, date)
+        self._weights_cache = None
+        return stored
+
+    def _all_weights(self) -> list[tuple]:
+        """Every linked scale's readings, (instant, reading) oldest first — read
+        once per store: a year of history asks for them day by day."""
+        if getattr(self, "_weights_cache", None) is None:
+            unlinked = {d.get("key") for d in self.roster() if not d.get("linked", True)}
+            out = []
+            for doc in self._space.documents():
+                key = str(doc.get("key", ""))
+                if not key.startswith(WEIGHT_PREFIX):
+                    continue
+                body = self._space.get(key) or {}
+                device = body.get("device")
+                if device in unlinked:
+                    continue
+                for reading in body.get("readings") or []:
+                    try:
+                        out.append((parse_instant(reading["at"]), {**reading, "device": device}))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+            out.sort(key=lambda pair: pair[0])
+            self._weights_cache = out
+        return self._weights_cache
+
+    def weights(self, start: str, end: str) -> list[dict]:
+        """Readings taken in [start, end) by linked scales, oldest first, each with its device."""
+        begin, finish = parse_instant(start), parse_instant(end)
+        return [reading for at, reading in self._all_weights() if begin <= at < finish]
+
+    def latest_weight(self, before: str) -> Optional[dict]:
+        """The last reading before `before`, however long ago."""
+        found = self.weights("1970-01-01T00:00:00Z", before)
+        return found[-1] if found else None
+
+    def first_weight_date(self) -> Optional[str]:
+        dates = [str((self._space.get(str(d.get("key"))) or {}).get("date") or "")
+                 for d in self._space.documents() if str(d.get("key", "")).startswith(WEIGHT_PREFIX)]
+        dates = [d for d in dates if d]
+        return min(dates) if dates else None
 
     # ── strength training ───────────────────────────────────────────────────
     def _documents(self, prefix: str) -> list[dict]:

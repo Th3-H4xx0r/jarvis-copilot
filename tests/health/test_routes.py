@@ -205,3 +205,18 @@ def test_bad_times_are_a_400_not_a_500(routes):
 def test_now_carries_the_resting_heart_rate(routes):
     HealthStore()
     assert "resting_hr" in _get(routes, f"{BASE}/now").body
+
+
+def test_a_scale_pushes_weigh_ins_and_the_day_shows_them(routes):
+    HealthStore()
+    readings = [{"id": "a", "at": "2026-09-10T12:00:00Z", "weight_kg": 73.0},
+                {"id": "b", "at": "2026-09-18T12:00:00Z", "weight_kg": 72.4, "body_fat": 18.1}]
+    pushed = _post(routes, f"{BASE}/weights", {"readings": readings, "device_id": "3C0F01EB-9808"})
+    assert pushed.body == {"ok": True, "stored": 2, "device": "scale-3c0f01eb"}
+    now = _get(routes, f"{BASE}/now").body
+    assert now["weight"]["latest"]["id"] == "b"
+    assert [r["id"] for r in now["weight"]["recent"]] == ["a", "b"]
+    assert [r["id"] for r in _get(routes, f"{BASE}/weights").body["weights"]] == ["a", "b"]
+    bad = _post(routes, f"{BASE}/weights", {"readings": [{"id": "c", "at": "yesterday", "weight_kg": 70}]})
+    assert bad.status == 400
+    assert _get(routes, f"{BASE}/history?metric=weight&range=W&unit=lb").status == 200

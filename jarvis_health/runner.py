@@ -33,10 +33,12 @@ def local_date(now_utc: str, utc_offset: int) -> str:
 
 def _sources_for(store: HealthStore) -> dict:
     """The linked wearables the server can reach, keyed by device."""
-    from .sources import source_for
+    from .sources import DAY_KINDS, source_for
 
     out = {}
     for entry in store.linked():
+        if (entry.get("kind") or "ring") not in DAY_KINDS:
+            continue
         if entry.get("bridge_device_id") and entry.get("device_id"):
             out[entry["key"]] = source_for(entry.get("kind") or "ring",
                                            entry["bridge_device_id"], entry["device_id"])

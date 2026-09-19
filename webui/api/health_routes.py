@@ -16,6 +16,8 @@ second place to edit them.
     POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
     GET  /api/integrations/jarvis-health/health/workouts?since=&until=&kind=strength  saved workouts (a reinstall's history)
     POST /api/integrations/jarvis-health/health/workouts/delete  {start, device | device_id + source} remove one
+    POST /api/integrations/jarvis-health/health/weights    {readings: [{id, at, weight_kg, bmi?, body_fat?…}], device_id} a scale's weigh-ins
+    GET  /api/integrations/jarvis-health/health/weights?since=&until=  weigh-ins from linked scales
     GET  /api/integrations/jarvis-health/health/training   {templates, exercises, settings} for strength training
     POST /api/integrations/jarvis-health/health/training/templates  {template}   (…/templates/delete {id})
     POST /api/integrations/jarvis-health/health/training/exercises  {exercise}   (…/exercises/delete {id})
@@ -108,7 +110,8 @@ def handle_get(handler, parsed) -> bool:
                 return True
             out = cycle(store, date, utc_now())
             j(handler, {**out, "scores": store.scores(date), "has_data": out["day"] is not None,
-                        "sleep_debt": _sleep_debt(store, date), "workouts": store.workouts(out["start"], out["end"])})
+                        "sleep_debt": _sleep_debt(store, date), "workouts": store.workouts(out["start"], out["end"]),
+                        "weight": _weight(store, out["end"])})
             return True
 
         if tail == "now":
@@ -118,6 +121,7 @@ def handle_get(handler, parsed) -> bool:
             out = today(store, utc_now())
             j(handler, {**out, "sleep_debt": _sleep_debt(store, out["date"]),
                         "workouts": store.workouts(out["start"], "9999-12-31T00:00:00Z"),
+                        "weight": _weight(store, "9999-12-31T00:00:00Z"),
                         # The phone's workout effort is measured against it.
                         "resting_hr": store.baseline().resting_hr})
             return True
@@ -139,6 +143,18 @@ def handle_get(handler, parsed) -> bool:
             j(handler, store.training())
             return True
 
+        if tail == "weights":
+            from urllib.parse import parse_qs
+
+            query = parse_qs(parsed.query)
+            since = (query.get("since") or ["1970-01-01T00:00:00Z"])[0]
+            until = (query.get("until") or ["9999-12-31T00:00:00Z"])[0]
+            if not (_instant(since) and _instant(until)):
+                j(handler, {"error": "since and until are UTC instants: 2026-09-19T00:00:00Z"}, status=400)
+                return True
+            j(handler, {"weights": store.weights(since, until)})
+            return True
+
         if tail == "history":
             from urllib.parse import parse_qs
 
@@ -151,7 +167,8 @@ def handle_get(handler, parsed) -> bool:
             if metric not in METRICS or range_ not in RANGES:
                 j(handler, {"error": f"metric is one of {sorted(METRICS)}; range one of {list(RANGES)}"}, status=400)
                 return True
-            j(handler, history(store, metric, range_, (query.get("end") or [None])[0], utc_now()))
+            unit = "lb" if (query.get("unit") or [""])[0] == "lb" else "kg"
+            j(handler, history(store, metric, range_, (query.get("end") or [None])[0], utc_now(), weight_unit=unit))
             return True
 
         if tail == "runs":
@@ -269,6 +286,22 @@ def handle_post(handler, parsed, body) -> bool:
         if tail.startswith("training/"):
             return _training_post(handler, store, tail[len("training/"):], body)
 
+        if tail == "weights":
+            from jarvis_health.store import device_key_for
+
+            readings = body.get("readings")
+            if not isinstance(readings, list):
+                j(handler, {"error": "send {\"readings\": [...], \"device_id\": ...} from the scale"}, status=400)
+                return True
+            device = device_key_for(body.get("source") or "scale", body.get("device_id") or "")
+            try:
+                stored = store.put_weights(readings, device)
+            except ValueError as exc:
+                j(handler, {"error": str(exc)}, status=400)
+                return True
+            j(handler, {"ok": True, "stored": stored, "device": device})
+            return True
+
         if tail == "run":
             import jarvis_health.runner as runner
 
@@ -304,6 +337,21 @@ def _resync_schedule(settings: dict) -> None:
         ensure_schedule(settings)
     except Exception:
         logger.exception("health: could not re-sync the Jarvis Health schedule")
+
+
+def _weight(store, end: str) -> dict:
+    """What the Health tab's weight card needs: the latest weigh-in before
+    `end`, and the thirty days of them before it for its chart."""
+    from datetime import timedelta
+
+    from jarvis_health.metrics import parse_instant
+
+    latest = store.latest_weight(end)
+    if latest is None:
+        return {"latest": None, "recent": []}
+    anchor = min(parse_instant(end), parse_instant(latest["at"]) + timedelta(seconds=1))
+    since = (anchor - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"latest": latest, "recent": store.weights(since, anchor.strftime("%Y-%m-%dT%H:%M:%SZ"))}
 
 
 def _instant(text) -> bool:

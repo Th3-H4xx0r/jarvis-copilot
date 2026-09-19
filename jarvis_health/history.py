@@ -54,6 +54,8 @@ METRICS: dict[str, Metric] = {
     "stress": Metric("Stress", "stress_avg", "score", "Average", "average stress"),
     "temperature": Metric("Temperature", "temperature_avg", "celsius", "Average", "average temperature"),
     "exercise": Metric("Exercise", "exercise_minutes", "minutes", "Daily average", "average exercise a day"),
+    "weight": Metric("Weight", "weight_kg", "kg", "Average", "average weight", "weight_min", "weight_max"),
+    "body_fat": Metric("Body fat", "body_fat", "percent", "Average", "average body fat"),
 }
 
 # ── day summaries ──────────────────────────────────────────────────────────
@@ -95,6 +97,15 @@ def day_summary(store, date: str, now: str, window: Optional[dict] = None) -> di
         out["workouts"] = len(sessions)
         out["exercise_minutes"] = round(sum(float(s.get("active_seconds") or 0) for s in sessions) / 60, 1)
         out["exercise_kcal"] = round(sum(float(s.get("kilocalories") or 0) for s in sessions), 1)
+        # Weigh-ins are the scale's, pushed by the phone: a day's are averaged.
+        readings = store.weights(w["start"], w["end"])
+        if readings:
+            kgs = [float(r["weight_kg"]) for r in readings]
+            out.update(weight_kg=_mean(kgs), weight_min=min(kgs), weight_max=max(kgs), weigh_ins=len(kgs))
+            fats = [float(r["body_fat"]) for r in readings if r.get("body_fat") is not None]
+            out["body_fat"] = _mean(fats)
+            bmis = [float(r["bmi"]) for r in readings if r.get("bmi") is not None]
+            out["bmi"] = _mean(bmis)
     if day is None:
         if not out.get("workouts"):
             out.pop("exercise_minutes", None)
@@ -118,7 +129,9 @@ def _summaries(store, dates: list[str], now: str, today_window: dict) -> dict[st
     """Summaries for `dates`, reusing old ones; today and yesterday are always fresh."""
     fresh_after = (Date.fromisoformat(today_window["date"]) - timedelta(days=1)).isoformat()
     stored = set(store.dates(100_000))
-    first = min(stored) if stored else None
+    # History starts at the first day anything was measured: a ring day or a weigh-in.
+    starts = [d for d in (min(stored) if stored else None, store.first_weight_date()) if d]
+    first = min(starts) if starts else None
     out = {}
     for date in dates:
         # History starts at the first day a wearable stored — not the sliver
@@ -243,6 +256,13 @@ def _stats(metric: str, days: list[dict], goal: int) -> list[dict]:
         out = [_stat("Average", avg, "ms"), _stat("Highest", hi, "ms"), _stat("Lowest", lo, "ms")]
     elif metric == "stress":
         out = [_stat("Average", avg, "score"), _stat("Calmest day", lo, "score"), _stat("Most stressed", hi, "score")]
+    elif metric == "weight":
+        out = [_stat("Average", avg, "kg"), _stat("Lowest", lo, "kg"), _stat("Highest", hi, "kg"),
+               _stat("Change", round(v[-1] - v[0], 2) if len(v) > 1 else None, "kg_change"),
+               _stat("Average BMI", _mean(_values(days, "bmi")), "number"),
+               _stat("Weigh-ins", sum(int(d.get("weigh_ins") or 0) for d in days), "count")]
+    elif metric == "body_fat":
+        out = [_stat("Average", avg, "percent"), _stat("Lowest", lo, "percent"), _stat("Highest", hi, "percent")]
     elif metric == "exercise":
         out = [_stat("Total", sum(v) if v else None, "minutes"), _stat("Daily average", avg, "minutes"),
                _stat("Workouts", sum(int(d.get("workouts") or 0) for d in days), "count"),
@@ -277,6 +297,8 @@ def _say(value: float, kind: str, unit: str) -> str:
         return f"{round(value)} ms"
     if kind == "celsius":
         return f"{value * 9 / 5:.1f} °F" if unit == "fahrenheit" else f"{value:.1f} °C"
+    if kind == "kg":
+        return f"{value * 2.2046226218:.1f} lb" if unit == "lb" else f"{value:.1f} kg"
     return f"{round(value)}"
 
 
@@ -287,8 +309,10 @@ def _delta(value: float, kind: str, unit: str) -> str:
 
 
 def _highlight(metric: str, range_: str, current: Optional[float], previous: Optional[float],
-               days_so_far: int, unit: str) -> str:
+               days_so_far: int, unit: str, weight_unit: str = "kg") -> str:
     m = METRICS[metric]
+    if m.kind == "kg":
+        unit = weight_unit
     if current is None:
         name = m.title if m.title.isupper() else m.title.lower()
         return f"No {name} recorded in this range yet."
@@ -298,7 +322,7 @@ def _highlight(metric: str, range_: str, current: Optional[float], previous: Opt
                 f"is a period to compare.")
     span, before = _SPANS[range_]
     diff = current - previous
-    close = abs(diff) < (0.05 if m.kind == "celsius" else 0.5)
+    close = abs(diff) < (0.05 if m.kind == "celsius" else 0.2 if m.kind == "kg" else 0.5)
     lead = f"Your {m.noun} over {span} was {_say(current, m.kind, unit)}"
     if close:
         return f"{lead}, about the same as {before}."
@@ -334,7 +358,7 @@ def _goal(metric: str, buckets: list[dict], days: dict[str, dict], settings: dic
     return {"value": target, "kind": kind, "met": met, "measured": measured}
 
 
-def history(store, metric: str, range_: str, end: Optional[str], now: str) -> dict:
+def history(store, metric: str, range_: str, end: Optional[str], now: str, weight_unit: str = "kg") -> dict:
     """A metric's buckets over the range ending on `end` (default: today), with stats and a highlight."""
     if metric not in METRICS:
         raise ValueError(f"unknown metric {metric!r}")
@@ -385,6 +409,6 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str) -> di
         "stats": _stats(metric, current, goal),
         "previous": {"average": prev_head["value"], "days": len(_values(before, METRICS[metric].value))},
         "highlight": _highlight(metric, range_, head["value"], prev_head["value"], days_so_far,
-                                settings.get("temperature_unit") or "celsius"),
+                                settings.get("temperature_unit") or "celsius", weight_unit),
         "days_so_far": days_so_far,
     }

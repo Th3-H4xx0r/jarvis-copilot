@@ -6,7 +6,11 @@ from typing import Any, Optional, Protocol, runtime_checkable
 from ..metrics import HealthDay
 
 #: Device kinds that report enough to be scored. The others get no integration.
-ELIGIBLE_KINDS = {"ring"}
+ELIGIBLE_KINDS = {"ring", "scale"}
+
+#: Kinds the server syncs days from. A scale joins Jarvis Health too, but its
+#: readings are pushed by the phone as they happen (`HealthStore.put_weights`).
+DAY_KINDS = {"ring"}
 
 
 class SourceUnreachable(RuntimeError):
