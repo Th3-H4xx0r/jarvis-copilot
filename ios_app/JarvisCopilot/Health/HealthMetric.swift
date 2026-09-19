@@ -9,6 +9,9 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
     case spo2, hrv, stress, temperature
     /// Minutes of workouts a day.
     case exercise
+    /// From the scales linked to Jarvis Health.
+    case weight
+    case bodyFat = "body_fat"
 
     var id: String { rawValue }
 
@@ -27,6 +30,8 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .stress: return "Stress"
         case .temperature: return "Temperature"
         case .exercise: return "Exercise"
+        case .weight: return "Weight"
+        case .bodyFat: return "Body fat"
         }
     }
 
@@ -45,6 +50,8 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .stress: return RingMeasurementType.stress.icon
         case .temperature: return RingMeasurementType.temperature.icon
         case .exercise: return "figure.run"
+        case .weight: return "scalemass.fill"
+        case .bodyFat: return "percent"
         }
     }
 
@@ -58,6 +65,8 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .hrv: return RingMeasurementType.hrv.tint
         case .stress: return RingMeasurementType.stress.tint
         case .temperature: return RingMeasurementType.temperature.tint
+        case .weight: return JcTheme.blue
+        case .bodyFat: return JcTheme.success
         }
     }
 
@@ -67,7 +76,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         case .steps, .exercise: return .bars
         case .sleep: return .stacked
         case .sleepDebt, .stress: return .bandBars
-        case .hrv, .temperature: return .line
+        case .hrv, .temperature, .weight, .bodyFat: return .line
         }
     }
 }

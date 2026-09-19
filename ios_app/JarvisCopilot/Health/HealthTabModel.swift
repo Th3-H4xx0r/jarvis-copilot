@@ -43,6 +43,7 @@ final class HealthTabModel: ObservableObject {
     @Published private(set) var windows: [String: HealthWindow] = [:]
     @Published private(set) var sleepDebts: [String: HealthSleepDebt] = [:]
     @Published private(set) var workouts: [String: [RingWorkout]] = [:]
+    @Published private(set) var weights: [String: HealthWeight] = [:]
     @Published private(set) var loadedAt: [String: Date] = [:]
     @Published private(set) var isRefreshing = false
     @Published private(set) var error: String?
@@ -76,6 +77,8 @@ final class HealthTabModel: ObservableObject {
 
     func sleepDebt(for selection: HealthSelection) -> HealthSleepDebt? { sleepDebts[selection.cacheKey] }
 
+    func weight(for selection: HealthSelection) -> HealthWeight? { weights[selection.cacheKey] }
+
     /// The hours a day's charts span: from the bedtime hour, counted from that
     /// day's midnight, to the window's end — past 24 once it crosses midnight.
     func hourDomain(for selection: HealthSelection) -> ClosedRange<Double> {
@@ -91,6 +94,7 @@ final class HealthTabModel: ObservableObject {
         windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake, wake: fresh.wake)
         sleepDebts[Self.windowKey] = fresh.sleepDebt
         workouts[Self.windowKey] = fresh.workouts ?? []
+        weights[Self.windowKey] = fresh.weight
         // Kept for a workout's effort, which may start with no signal.
         if let resting = fresh.restingHR { HealthRestingHR.last = resting }
     }
@@ -109,8 +113,9 @@ final class HealthTabModel: ObservableObject {
         do {
             switch selection {
             case .today:
-                // A workout the server could not take last time goes first.
+                // A workout (or weigh-in) the server could not take last time goes first.
                 await WorkoutUploader.flush(client: client)
+                await ScaleUploader.flush(client: client)
                 let fresh = try await client.now()
                 show(fresh)
                 cache.update(Self.windowKey) { $0 = fresh.day?.ringDay() ?? RingDay(date: Self.windowKey) }
@@ -128,6 +133,7 @@ final class HealthTabModel: ObservableObject {
                 }
                 sleepDebts[date] = response.sleepDebt
                 workouts[date] = response.workouts ?? []
+                weights[date] = response.weight
                 await health.refresh(date: date)
             }
             mergeSpots(selection)

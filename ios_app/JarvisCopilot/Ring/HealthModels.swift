@@ -129,7 +129,9 @@ struct HealthSettings: Codable, Equatable {
 /// Mirrors `ELIGIBLE_KINDS` in `jarvis_health/sources/__init__.py`: a device kind
 /// only belongs here once an adapter on the server can read a day out of it.
 enum HealthEligibility {
-    static let kinds: Set<String> = [WearableKeepAlive.ring]
+    /// The ring's days are synced by the server; a scale's weigh-ins are
+    /// pushed by the phone (`ScaleUploader`).
+    static let kinds: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.scale]
 }
 
 /// Jarvis Health is one integration every wearable feeds; a device is a key

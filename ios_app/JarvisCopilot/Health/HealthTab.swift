@@ -50,6 +50,10 @@ struct HealthTab: View {
                     HealthWorkoutsCard(workouts: model.workouts[selection.cacheKey] ?? [],
                                        onStart: selection == .today ? { choosingWorkout = true } : nil,
                                        showAll: { historyMetric = .exercise })
+                    // Weight, once there is a scale to weigh on.
+                    if model.weight(for: selection)?.latest != nil || WearableIdentity.remembered(WearableKeepAlive.scale) != nil {
+                        WeightCard(weight: model.weight(for: selection), showAll: { historyMetric = .weight })
+                    }
                     RingStatsSections(store: model.cache, dayKey: selection.cacheKey,
                                       capabilities: RingCapabilities(),
                                       scores: scores,

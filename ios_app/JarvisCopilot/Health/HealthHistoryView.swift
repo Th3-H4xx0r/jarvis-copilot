@@ -78,6 +78,8 @@ struct HealthHistoryView: View {
             if let debt = tab.sleepDebt(for: selection) { SleepDebtCard(debt: debt) }
         case .exercise:
             HealthWorkoutsCard(workouts: tab.workouts[selection.cacheKey] ?? [])
+        case .weight, .bodyFat:
+            WeightCard(weight: tab.weight(for: selection))
         default:
             RingStatsSections(store: tab.cache, dayKey: selection.cacheKey, capabilities: RingCapabilities(),
                               hourDomain: tab.hourDomain(for: selection), only: metric)
@@ -285,6 +287,7 @@ struct HealthHistoryView: View {
         switch metric {
         case .sleep, .sleepDebt: return value / 60
         case .temperature: return TemperatureUnit.current.value(value)
+        case .weight: return TrainingUnit.current.show(value)
         default: return value
         }
     }

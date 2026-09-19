@@ -123,6 +123,8 @@ final class ScaleManager: NSObject, ObservableObject {
         history.add(ScaleReading(date: observation.timestamp, profileID: profile?.id, model: Esf551Scale.model,
             deviceID: connected?.id.uuidString ?? "unknown", weightKg: observation.weightKg,
             impedance: observation.impedanceOhms, metrics: metrics, scaleUnit: .kilograms))
+        // Into Jarvis Health at once, so the Health tab's weight is this one.
+        Task { await ScaleUploader.flush() }
     }
 
     /// Mirrors the stock app's post-subscription initialization. The scale uses this

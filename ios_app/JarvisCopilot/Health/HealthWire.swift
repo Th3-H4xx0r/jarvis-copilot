@@ -149,11 +149,13 @@ struct HealthNow: Codable, Equatable {
     var date: String? = nil
     var sleepDebt: HealthSleepDebt? = nil
     var workouts: [RingWorkout]? = nil
+    /// The latest weigh-in and five weeks of them before it.
+    var weight: HealthWeight? = nil
     /// The baseline's resting heart rate: what workout effort is measured from.
     var restingHR: Double? = nil
 
     enum CodingKeys: String, CodingKey {
-        case start, end, minutes, day, battery, wake, date, workouts
+        case start, end, minutes, day, battery, wake, date, workouts, weight
         case sleepDebt = "sleep_debt"
         case noWake = "no_wake"
         case restingHR = "resting_hr"
@@ -172,12 +174,34 @@ struct HealthDayResponse: Codable, Equatable {
     var wake: Date?
     var sleepDebt: HealthSleepDebt?
     var workouts: [RingWorkout]?
+    var weight: HealthWeight? = nil
 
     enum CodingKeys: String, CodingKey {
-        case date, day, battery, start, end, wake, workouts
+        case date, day, battery, start, end, wake, workouts, weight
         case hasData = "has_data"
         case sleepDebt = "sleep_debt"
     }
+}
+
+/// A weigh-in from a scale linked to Jarvis Health.
+struct HealthWeightReading: Codable, Equatable, Identifiable {
+    var id: String
+    var at: Date
+    var weightKg: Double
+    var bmi: Double?
+    var bodyFat: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, at, bmi
+        case weightKg = "weight_kg"
+        case bodyFat = "body_fat"
+    }
+}
+
+/// What the weight card shows: the latest weigh-in, and those before it.
+struct HealthWeight: Codable, Equatable {
+    var latest: HealthWeightReading?
+    var recent: [HealthWeightReading]
 }
 
 /// A week of nights against the sleep goal, each with the debt standing after it.

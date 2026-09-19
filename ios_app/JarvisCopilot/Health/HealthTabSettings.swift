@@ -208,16 +208,19 @@ struct HealthDataSources<Analysis: View>: View {
                         }
                     }
                     .contextMenu {
-                        if device.linked && device.key != primaryKey {
+                        if device.linked && device.key != primaryKey && Self.reportsDays(device.kind) {
                             Button("Make primary", systemImage: "star") { onPrimary(device.key) }
                         }
                     }
     }
 
-    /// The chosen primary, or the first linked device when none was chosen.
+    /// The chosen primary, or the first linked wearable that reports days
+    /// (a scale only weighs, so it is never primary).
     private var primaryKey: String {
-        primary.isEmpty ? (devices.first(where: \.linked)?.key ?? "") : primary
+        primary.isEmpty ? (devices.first(where: { $0.linked && Self.reportsDays($0.kind) })?.key ?? "") : primary
     }
+
+    private static func reportsDays(_ kind: String) -> Bool { kind != "scale" }
 
     private func synced(_ device: HealthRosterDevice) -> String {
         guard device.linked else { return "Unlinked · history kept" }
@@ -233,6 +236,7 @@ struct HealthDataSources<Analysis: View>: View {
         switch kind {
         case "ring": return "circle.circle"
         case "watch": return "applewatch"
+        case "scale": return "scalemass"
         default: return "sensor"
         }
     }

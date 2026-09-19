@@ -341,7 +341,7 @@ def _resync_schedule(settings: dict) -> None:
 
 def _weight(store, end: str) -> dict:
     """What the Health tab's weight card needs: the latest weigh-in before
-    `end`, and the thirty days of them before it for its chart."""
+    `end`, and five weeks of them before it for its chart and changes."""
     from datetime import timedelta
 
     from jarvis_health.metrics import parse_instant
@@ -350,7 +350,7 @@ def _weight(store, end: str) -> dict:
     if latest is None:
         return {"latest": None, "recent": []}
     anchor = min(parse_instant(end), parse_instant(latest["at"]) + timedelta(seconds=1))
-    since = (anchor - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (anchor - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"latest": latest, "recent": store.weights(since, anchor.strftime("%Y-%m-%dT%H:%M:%SZ"))}
 
 

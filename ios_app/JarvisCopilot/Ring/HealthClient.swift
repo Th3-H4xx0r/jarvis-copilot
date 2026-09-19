@@ -110,6 +110,11 @@ struct HealthClient {
         return try JSONSerialization.jsonObject(with: encoder.encode(value), options: [.fragmentsAllowed])
     }
 
+    /// A scale's weigh-ins, as `ScaleUploader` shapes them.
+    func pushWeights(_ readings: [[String: Any]], deviceID: String) async throws {
+        _ = try await api.post("\(base)/weights", json: ["readings": readings, "device_id": deviceID, "source": "scale"])
+    }
+
     /// Run the analysis now. Long timeout: it reaches the ring through the phone.
     @discardableResult
     func runNow() async throws -> [String: Any] {
@@ -118,9 +123,11 @@ struct HealthClient {
     }
 
     /// A metric's buckets, stats and highlight over a range (W, M, 6M, Y).
-    func history(metric: String, range: String, end: String? = nil) async throws -> HealthHistory {
+    func history(metric: String, range: String, end: String? = nil, unit: String? = nil) async throws -> HealthHistory {
         var query = ["metric": metric, "range": range]
         if let end { query["end"] = end }
+        // The weight highlight's sentence, in the person's unit.
+        if let unit { query["unit"] = unit }
         return try Self.decode(HealthHistory.self, from: try await api.get("\(base)/history", query: query).object())
     }
 

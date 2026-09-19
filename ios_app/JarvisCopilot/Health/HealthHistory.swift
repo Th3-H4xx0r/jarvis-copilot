@@ -95,6 +95,9 @@ enum HealthFormat {
         case "minutes": return duration(Int(value.rounded()))
         case "kcal": return "\(Int(value.rounded()).formatted()) kcal"
         case "meters": return String(format: "%.2f km", value / 1000)
+        case "kg": return weight(value)
+        case "kg_change": return (value > 0 ? "+" : value < 0 ? "−" : "") + weight(abs(value))
+        case "number": return String(format: "%.1f", value)
         default: return Int(value.rounded()).formatted()
         }
     }
@@ -104,6 +107,12 @@ enum HealthFormat {
         guard let low, let high else { return nil }
         let unit = string(high, kind: kind).drop { $0.isNumber || $0 == "," || $0 == "." }
         return "\(Int(low.rounded()))–\(Int(high.rounded()))\(unit)"
+    }
+
+    /// Kilograms in the person's unit, to a tenth: "72.4 kg", "159.6 lb".
+    static func weight(_ kg: Double) -> String {
+        let unit = TrainingUnit.current
+        return "\(TrainingUnit.number((unit.show(kg) * 10).rounded() / 10)) \(unit.symbol)"
     }
 
     static func duration(_ minutes: Int) -> String {
@@ -141,7 +150,8 @@ final class HealthHistoryModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
-            let fresh = try await client.history(metric: metric.rawValue, range: range.rawValue)
+            let fresh = try await client.history(metric: metric.rawValue, range: range.rawValue,
+                                                 unit: TrainingUnit.current.rawValue)
             histories[range] = fresh
             loadedAt[range] = Date()
             error = nil
