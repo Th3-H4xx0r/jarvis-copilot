@@ -119,11 +119,20 @@ struct RingWorkout: Codable, Equatable, Identifiable {
     var heartRates: [Int]
     /// Seconds in zones 1–5.
     var zoneSeconds: [Int]
+    /// A strength workout's exercises and sets (nil for every other sport).
+    var strength: StrengthLog? = nil
+    /// 1–10, from heart rate against resting and maximum.
+    var effort: Int? = nil
+    /// Where the calories came from: "heart_rate", "ring" or "estimate".
+    var kcalSource: String? = nil
 
     var id: String { ISO8601DateFormatter().string(from: start) }
 
+    var isStrength: Bool { strength != nil }
+
     enum CodingKeys: String, CodingKey {
-        case sport, start, end, steps, kilocalories
+        case sport, start, end, steps, kilocalories, strength, effort
+        case kcalSource = "kcal_source"
         case sportName = "sport_name"
         case activeSeconds = "active_seconds"
         case distanceMeters = "distance_meters"

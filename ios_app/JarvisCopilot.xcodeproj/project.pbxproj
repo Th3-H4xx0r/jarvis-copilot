@@ -181,6 +181,7 @@
 		47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
 		479CBC19AEF9985CDFD7EF56 /* IOSSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A4E3847E7B8475E457549C /* IOSSkills.swift */; };
 		47F2CB1D9E0845EE10135C18 /* DevicePairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */; };
+		480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */; };
 		4837DA4DC2117A662C8B50AF /* IntegrationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B172AD0305445589AF5BDF95 /* IntegrationDetailView.swift */; };
 		48470BA5050232D0890D5601 /* SkillArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5A7079298755592C4A14CE /* SkillArgsTests.swift */; };
 		48EBED01AF2D775CA72C979B /* OnDeviceLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5FE8DCA271A7868ED473E098 /* OnDeviceLLM */; };
@@ -216,6 +217,7 @@
 		54D6BF609867FF82FAC7DEFD /* PhotonUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB48288B87C0636CA786EEF6 /* PhotonUITests.swift */; };
 		55827D68CD6994209A0E3774 /* ProductionWiringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6130E81B617077424A8B1A7 /* ProductionWiringTests.swift */; };
 		5609082076311DCC78CE6408 /* MemoryKeyValueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9711C75711CD06B21F08800F /* MemoryKeyValueStore.swift */; };
+		56157E70601C21AC9DF7B790 /* ExerciseLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0582398E98A03D27A37224D5 /* ExerciseLibrary.swift */; };
 		5622EB9D457A81650DBD2958 /* JarvisMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAAB7DB3F739CF32B6535BB /* JarvisMemoryTests.swift */; };
 		56B477AD25938FBA7F802254 /* SkillsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 716EAE0CECB2FF74A6B24092 /* SkillsPage.swift */; };
 		575642518E14FC695BCC88D2 /* WatchTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EF84A4A4C7F0D75EC24E6D8 /* WatchTheme.swift */; };
@@ -263,6 +265,7 @@
 		6BAED94672975FBFC7DFC9AF /* ContactLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044FE3473B389F40EB81E9F3 /* ContactLookup.swift */; };
 		6C3D5A27414FD181751BCFC9 /* AudioSessionArbiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C43454BB52EA1E28AC849AA /* AudioSessionArbiter.swift */; };
 		6C56B20B3DE0E609D629A8AA /* IntegrationsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A565295FDF2D803868160BC7 /* IntegrationsAPI.swift */; };
+		6C664D4E6EB22A66D37D1D49 /* TrainingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49019093D36B19BD88958D4 /* TrainingModels.swift */; };
 		6C6FED51DE4EDD2108035751 /* IslandModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2178BAB61B6E8581D0A37620 /* IslandModels.swift */; };
 		6C8DE4E75195F77BDE5C2716 /* RingHand-LICENSE.md in Resources */ = {isa = PBXBuildFile; fileRef = 400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */; };
 		6D66B9555A176C2465EFB313 /* CodingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2C930EE26524211A99CB60 /* CodingModelsTests.swift */; };
@@ -307,11 +310,13 @@
 		7E80A56D59553F2A1AC69E19 /* StatsLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 196FE8A2C465C6B144FD2C7F /* StatsLine.swift */; };
 		7E81730A0AB8A0CC22A33C8C /* ReasoningCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 529A16D4063F970F9DA3F1F3 /* ReasoningCard.swift */; };
 		7E8A8D303669D0D022363D56 /* ChatDashboardStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */; };
+		7EC5E18B199AE1F7FC36FDFC /* ExerciseLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */; };
 		7F075BF1A809BE2EB56F9D66 /* JarvisAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */; };
 		8075F033A6C81EB43976A1F7 /* RingWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05020FDF91A61E75B981519B /* RingWorkoutTests.swift */; };
 		8098335C7BE0DD6FEFBF023F /* LiquidGlassOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */; };
 		81BCF0AC70AC23CEE8FEFAA7 /* WorkspacesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */; };
 		81DF8C030185DF0C0949EFC0 /* IslandDesignsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA601C23329891D5645D8DC1 /* IslandDesignsAPI.swift */; };
+		828383B511CFFD900792B1DB /* exercises.json in Resources */ = {isa = PBXBuildFile; fileRef = 44E654F72A46A4C711510DD1 /* exercises.json */; };
 		82F9C36BE28B2A84B8E28408 /* ChatModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4B1A6B18C02B6430D99A5A /* ChatModelsTests.swift */; };
 		8329DEC7A752C54541833C22 /* BatteryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A67979591EBDBFB7312432D /* BatteryCard.swift */; };
 		8547EF5B79F49012943C4843 /* AudioSessionArbiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FE55E95B0218E30FE62808 /* AudioSessionArbiterTests.swift */; };
@@ -689,7 +694,9 @@
 		034FFC524E870F818694414F /* VoiceReply.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReply.swift; sourceTree = "<group>"; };
 		044FE3473B389F40EB81E9F3 /* ContactLookup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookup.swift; sourceTree = "<group>"; };
 		05020FDF91A61E75B981519B /* RingWorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkoutTests.swift; sourceTree = "<group>"; };
+		05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseLibraryTests.swift; sourceTree = "<group>"; };
 		056DD31ABA27162A9A80A666 /* ProfilesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesStore.swift; sourceTree = "<group>"; };
+		0582398E98A03D27A37224D5 /* ExerciseLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseLibrary.swift; sourceTree = "<group>"; };
 		05C72A8CF81A24BE96BD58A3 /* KeyValueStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeyValueStore.swift; sourceTree = "<group>"; };
 		05F5F77BEEDDEDF15B5045CC /* OnDeviceAIMocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAIMocks.swift; sourceTree = "<group>"; };
 		066900F51C7A775F62D17068 /* VoiceStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceStoreTests.swift; sourceTree = "<group>"; };
@@ -840,6 +847,7 @@
 		42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIAHostingTests.swift; sourceTree = "<group>"; };
 		438CBFA66B125FE31EA00B31 /* HealthMetric.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthMetric.swift; sourceTree = "<group>"; };
 		4427D18CA560FC8794B4334D /* QuotaCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCard.swift; sourceTree = "<group>"; };
+		44E654F72A46A4C711510DD1 /* exercises.json */ = {isa = PBXFileReference; includeInIndex = 1; path = exercises.json; sourceTree = "<group>"; };
 		451350B37D84B249122DE911 /* DevicesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesModels.swift; sourceTree = "<group>"; };
 		46281B10334F79EC91894C69 /* QuotaModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaModels.swift; sourceTree = "<group>"; };
 		46894A9489E1D504A9302CB8 /* WorkoutRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutRenderTests.swift; sourceTree = "<group>"; };
@@ -1241,10 +1249,12 @@
 		F29BC98268712C15516BC6D2 /* CodeMemoryEntriesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMemoryEntriesView.swift; sourceTree = "<group>"; };
 		F3930D1FDDC8450259305F67 /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		F472BD206B2180B7F507D7EC /* KanbanForms.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanForms.swift; sourceTree = "<group>"; };
+		F49019093D36B19BD88958D4 /* TrainingModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingModels.swift; sourceTree = "<group>"; };
 		F49850074146780F31D7A5DE /* KanbanTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanTests.swift; sourceTree = "<group>"; };
 		F4C84B25EEC207DA7084976B /* OnDeviceEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceEngine.swift; sourceTree = "<group>"; };
 		F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCopilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F6358EC26D522B891FC6A82E /* WatchBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
+		F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingModelsTests.swift; sourceTree = "<group>"; };
 		F6EE315366F1707545A1FADD /* DetailSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DetailSheet.swift; sourceTree = "<group>"; };
 		F6F3CB09A458987759A7E8A9 /* LocalExecutor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalExecutor.swift; sourceTree = "<group>"; };
 		F7F16FA169627D2EED523E35 /* AudioQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioQueue.swift; sourceTree = "<group>"; };
@@ -1537,6 +1547,7 @@
 				F1D85B5C66CD7C7F1DFCBB07 /* Ring */,
 				E8152F8F3CF43DF519045357 /* Firmware */,
 				3FB1CE5878ACA2710A67A8D4 /* Health */,
+				5A24615005BE10755E100F9D /* Training */,
 			);
 			path = JarvisCopilot;
 			sourceTree = "<group>";
@@ -1800,6 +1811,17 @@
 			path = Watch;
 			sourceTree = "<group>";
 		};
+		5A24615005BE10755E100F9D /* Training */ = {
+			isa = PBXGroup;
+			children = (
+				0582398E98A03D27A37224D5 /* ExerciseLibrary.swift */,
+				F49019093D36B19BD88958D4 /* TrainingModels.swift */,
+				44E654F72A46A4C711510DD1 /* exercises.json */,
+			);
+			name = Training;
+			path = Training;
+			sourceTree = "<group>";
+		};
 		5CF76FDF8DFDFDF6C37CFE2E /* JarvisWatchWidget */ = {
 			isa = PBXGroup;
 			children = (
@@ -1962,6 +1984,16 @@
 				673C412DA32916AA322252F7 /* WatchViewModel.swift */,
 			);
 			path = JarvisWatch;
+			sourceTree = "<group>";
+		};
+		7D332A1967D802B1EE519CA8 /* Training */ = {
+			isa = PBXGroup;
+			children = (
+				05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */,
+				F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */,
+			);
+			name = Training;
+			path = Training;
 			sourceTree = "<group>";
 		};
 		7F6FF4B7B8B2F7F5265639C3 /* Integrations */ = {
@@ -2163,6 +2195,7 @@
 				60590CB28DB760BB475613C9 /* Wiring */,
 				E2F14E6EC2FEC1A300A0A710 /* Devices */,
 				85FE704E5D70F9AA7F4F3D3E /* Health */,
+				7D332A1967D802B1EE519CA8 /* Training */,
 			);
 			path = JarvisCopilotTests;
 			sourceTree = "<group>";
@@ -2639,6 +2672,7 @@
 				FB39EEED51862E3465414805 /* Firmware in Resources */,
 				B0209E955CF01B7D1994DEC6 /* RingHand.bin in Resources */,
 				6C8DE4E75195F77BDE5C2716 /* RingHand-LICENSE.md in Resources */,
+				828383B511CFFD900792B1DB /* exercises.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2855,6 +2889,8 @@
 				2F2F60B1F41C87A323B08D98 /* HealthHistoryTests.swift in Sources */,
 				8075F033A6C81EB43976A1F7 /* RingWorkoutTests.swift in Sources */,
 				62FFA415689770BFCD90CC45 /* WorkoutRenderTests.swift in Sources */,
+				7EC5E18B199AE1F7FC36FDFC /* ExerciseLibraryTests.swift in Sources */,
+				480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3275,6 +3311,8 @@
 				2A00770603C169CEDA870A65 /* RingWorkoutAttributes.swift in Sources */,
 				8C9D17CCE06A6AEF7780E2B6 /* WorkoutLiveActivity.swift in Sources */,
 				03F5B2CD5DD775E59AE1790B /* WorkoutViews.swift in Sources */,
+				56157E70601C21AC9DF7B790 /* ExerciseLibrary.swift in Sources */,
+				6C664D4E6EB22A66D37D1D49 /* TrainingModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

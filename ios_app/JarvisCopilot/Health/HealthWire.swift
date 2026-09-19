@@ -149,11 +149,14 @@ struct HealthNow: Codable, Equatable {
     var date: String? = nil
     var sleepDebt: HealthSleepDebt? = nil
     var workouts: [RingWorkout]? = nil
+    /// The baseline's resting heart rate: what workout effort is measured from.
+    var restingHR: Double? = nil
 
     enum CodingKeys: String, CodingKey {
         case start, end, minutes, day, battery, wake, date, workouts
         case sleepDebt = "sleep_debt"
         case noWake = "no_wake"
+        case restingHR = "resting_hr"
     }
 }
 
