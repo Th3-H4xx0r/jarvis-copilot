@@ -21,7 +21,7 @@ final class FakeTrainingSync: TrainingSyncing {
     func deleteExercise(id: String) async throws { try call("delete exercise \(id)") }
     func putSettings(_ settings: [String: ExerciseSettings?]) async throws { try call("settings \(settings.keys.sorted())") }
     func strengthWorkouts() async throws -> [RingWorkout] { try call("workouts"); return workouts }
-    func deleteWorkout(start: Date, deviceID: String?) async throws { try call("delete workout") }
+    func deleteWorkout(start: Date, device: String?, deviceID: String?) async throws { try call("delete workout") }
 }
 
 /// Strength training kept on the phone first, and sent when it can be.
@@ -131,9 +131,9 @@ final class TrainingStoreTests: XCTestCase {
         XCTAssertEqual(s.history.count, 2)
         XCTAssertEqual(s.lastPerformed(templateID: "t1"), start.addingTimeInterval(0.4))
         XCTAssertEqual(s.recentExerciseIDs(limit: 5), ["Bench"])
-        s.removeWorkout(start: start, deviceID: "ring")
+        s.removeWorkout(start: start, device: "ring-abcd1234", deviceID: nil)
         XCTAssertEqual(s.history.count, 1)
-        XCTAssertEqual(s.queue.last, .deleteWorkout(start, "ring"))
+        XCTAssertEqual(s.queue.last, .deleteWorkout(start, device: "ring-abcd1234", deviceID: nil))
     }
 
     func testDuplicatingAndReorderingTemplates() {

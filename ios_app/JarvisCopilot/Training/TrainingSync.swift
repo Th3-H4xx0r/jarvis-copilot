@@ -17,7 +17,7 @@ protocol TrainingSyncing: AnyObject {
     func deleteExercise(id: String) async throws
     func putSettings(_ settings: [String: ExerciseSettings?]) async throws
     func strengthWorkouts() async throws -> [RingWorkout]
-    func deleteWorkout(start: Date, deviceID: String?) async throws
+    func deleteWorkout(start: Date, device: String?, deviceID: String?) async throws
 }
 
 /// Jarvis Health's training endpoints (`/health/training/*`, `/health/workouts`).
@@ -68,8 +68,9 @@ final class HealthTrainingSync: TrainingSyncing {
         return try HealthClient.decode([RingWorkout].self, from: object["workouts"] ?? [])
     }
 
-    func deleteWorkout(start: Date, deviceID: String?) async throws {
+    func deleteWorkout(start: Date, device: String?, deviceID: String?) async throws {
         _ = try await client.api.post("\(base)/workouts/delete",
-                                      json: ["start": HealthClient.instant.string(from: start), "device_id": deviceID ?? ""])
+                                      json: ["start": HealthClient.instant.string(from: start), "device": device ?? "",
+                                             "device_id": deviceID ?? ""])
     }
 }

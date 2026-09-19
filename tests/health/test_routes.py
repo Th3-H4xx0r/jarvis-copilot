@@ -189,6 +189,9 @@ def test_workouts_list_by_kind_and_delete(routes):
     gone = _post(routes, f"{BASE}/workouts/delete", {"start": "2026-09-19T10:00:00Z", "device_id": "aaaa0000"})
     assert gone.body == {"ok": True, "deleted": True}
     assert [w["sport"] for w in _get(routes, f"{BASE}/workouts").body["workouts"]] == [7]
+    # The key the workout came back with works as well.
+    device = _get(routes, f"{BASE}/workouts").body["workouts"][0]["device"]
+    assert _post(routes, f"{BASE}/workouts/delete", {"start": "2026-09-19T12:00:00Z", "device": device}).body["deleted"]
 
 
 def test_now_carries_the_resting_heart_rate(routes):

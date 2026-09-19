@@ -70,6 +70,8 @@
 	<string>JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>JarvisCopilot saves your workouts — heart rate, calories and distance — to Apple Health so they count toward your Activity rings.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

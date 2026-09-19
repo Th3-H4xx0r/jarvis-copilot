@@ -633,10 +633,14 @@ struct HealthWorkoutsCard: View {
                 if index > 0 { RowDivider() }
                 // Pushed, with a back button, on the Health tab's stack.
                 NavigationLink {
-                    WorkoutSummaryView(workout: workout)
-                        .background(JcTheme.bg)
-                        .navigationTitle(workout.sportName)
-                        .navigationBarTitleDisplayMode(.inline)
+                    if workout.isStrength {
+                        StrengthWorkoutDetail(workout: workout)
+                    } else {
+                        WorkoutSummaryView(workout: workout)
+                            .background(JcTheme.bg)
+                            .navigationTitle(workout.sportName)
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                 } label: {
                     Row(minHeight: 58) {
                         HStack(spacing: 12) {
@@ -659,8 +663,7 @@ struct HealthWorkoutsCard: View {
                                 Text(WorkoutLiveView.clock(workout.activeSeconds))
                                     .font(.system(.body, design: .rounded).weight(.semibold))
                                     .monospacedDigit()
-                                Text([workout.heartRateAverage.map { "\($0) bpm" },
-                                      "\(Int(workout.kilocalories.rounded())) kcal"].compactMap { $0 }.joined(separator: " · "))
+                                Text(Self.detail(workout))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -676,6 +679,18 @@ struct HealthWorkoutsCard: View {
                 ShowAllRow(action: showAll)
             }
         }
+    }
+}
+
+extension HealthWorkoutsCard {
+    /// "5,230 kg · 18 sets" for a lift; "132 bpm · 310 kcal" for the rest.
+    static func detail(_ workout: RingWorkout) -> String {
+        if let log = workout.strength {
+            let unit = TrainingUnit.current
+            return "\(Int(unit.show(log.volumeKg).rounded()).formatted()) \(unit.symbol) · \(log.sets == 1 ? "1 set" : "\(log.sets) sets")"
+        }
+        return [workout.heartRateAverage.map { "\($0) bpm" }, "\(Int(workout.kilocalories.rounded())) kcal"]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }
 

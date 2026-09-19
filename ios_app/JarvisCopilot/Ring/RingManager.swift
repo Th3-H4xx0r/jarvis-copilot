@@ -53,7 +53,10 @@ final class RingManager: NSObject, ObservableObject {
         controller.onEnded = { [weak self] in self?.workoutEnded() }
         controller.onSave = { [weak self] workout in
             let deviceID = self?.deviceID
-            Task { await WorkoutUploader.save(workout, deviceID: deviceID) }
+            Task {
+                await WorkoutUploader.save(workout, deviceID: deviceID)
+                await AppleHealthWriter.shared.export(workout)
+            }
         }
         return controller
     }()

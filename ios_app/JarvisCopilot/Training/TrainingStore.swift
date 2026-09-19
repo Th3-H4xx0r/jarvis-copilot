@@ -7,7 +7,7 @@ enum TrainingOp: Codable, Equatable {
     case putExercise(Exercise)
     case deleteExercise(String)
     case putSettings([String: ExerciseSettings?])
-    case deleteWorkout(Date, String?)
+    case deleteWorkout(Date, device: String?, deviceID: String?)
 
     /// The template or exercise it is about, so a newer change replaces it.
     var subject: String? {
@@ -170,10 +170,12 @@ final class TrainingStore: ObservableObject {
         write(history, "history")
     }
 
-    func removeWorkout(start: Date, deviceID: String?) {
+    /// Take a workout out of the history and off the server. `device` is the
+    /// key the server filed it under, when known; `deviceID` rebuilds it.
+    func removeWorkout(start: Date, device: String?, deviceID: String?) {
         history.removeAll { abs($0.start.timeIntervalSince(start)) < 1 }
         write(history, "history")
-        enqueue(.deleteWorkout(start, deviceID))
+        enqueue(.deleteWorkout(start, device: device, deviceID: deviceID))
     }
 
     /// The workout in progress (nil once it is saved or thrown away).
@@ -210,7 +212,8 @@ final class TrainingStore: ObservableObject {
                 case .putExercise(let e): try await sync.put(exercise: e)
                 case .deleteExercise(let id): try await sync.deleteExercise(id: id)
                 case .putSettings(let s): try await sync.putSettings(s)
-                case .deleteWorkout(let start, let device): try await sync.deleteWorkout(start: start, deviceID: device)
+                case .deleteWorkout(let start, let device, let deviceID):
+                    try await sync.deleteWorkout(start: start, device: device, deviceID: deviceID)
                 }
             } catch {
                 JcLog.dropped(JcLog.devices, "training sync", error)

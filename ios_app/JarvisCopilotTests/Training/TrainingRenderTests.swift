@@ -160,4 +160,41 @@ final class TrainingRenderTests: XCTestCase {
                                     size: CGSize(width: 402, height: 1100), name: "strength-exercise-\(tab.rawValue.lowercased())")
         }
     }
+
+    /// A saved workout, as the Health tab opens it.
+    private func savedWorkout() -> RingWorkout {
+        let (controller, session) = liveSession()
+        for exercise in session.log.exercises {
+            for set in exercise.sets where !set.isDone {
+                if exercise.kind == .repsOnly { session.setValue(9, field: .reps, set: set.id, in: exercise.id) }
+                session.toggleDone(set.id, in: exercise.id)
+            }
+        }
+        controller.end()
+        guard case .finished(var workout) = controller.phase else { fatalError("not finished") }
+        workout.heartRates = (0..<720).map { 100 + Int(30 * sin(Double($0) / 12)) }
+        workout.effort = 6
+        workout.kcalSource = "heart_rate"
+        workout.kilocalories = 312
+        workout.heartRateAverage = 118
+        workout.heartRateMax = 152
+        return workout
+    }
+
+    func testTheWorkoutDetail() throws {
+        let workout = savedWorkout()
+        try RenderHarness.write(NavigationStack { StrengthWorkoutDetail(workout: workout, store: store) },
+                                size: CGSize(width: 402, height: 1500), name: "strength-detail")
+    }
+
+    func testTheEditView() throws {
+        let workout = savedWorkout()
+        try RenderHarness.write(StrengthEditView(workout: workout, store: store, library: library) { _ in },
+                                size: CGSize(width: 402, height: 1100), name: "strength-edit")
+    }
+
+    func testTheWorkoutsSettingsCard() throws {
+        try RenderHarness.write(ScrollView { HealthTabSettings(model: HealthTabModel()).workouts.padding(.top, 20) },
+                                size: CGSize(width: 402, height: 400), name: "strength-settings")
+    }
 }

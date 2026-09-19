@@ -128,13 +128,15 @@ struct RingWorkout: Codable, Equatable, Identifiable {
     var effort: Int? = nil
     /// Where the calories came from: "heart_rate", "ring" or "estimate".
     var kcalSource: String? = nil
+    /// The key the server filed it under ("ring-b6ce93c4"); nil until it has.
+    var device: String? = nil
 
     var id: String { ISO8601DateFormatter().string(from: start) }
 
     var isStrength: Bool { strength != nil }
 
     enum CodingKeys: String, CodingKey {
-        case sport, start, end, steps, kilocalories, strength, effort
+        case sport, start, end, steps, kilocalories, strength, effort, device
         case kcalSource = "kcal_source"
         case sportName = "sport_name"
         case activeSeconds = "active_seconds"
@@ -174,6 +176,11 @@ enum WorkoutUploader {
         NotificationCenter.default.post(name: .jcWorkoutSaved, object: workout)
         await flush()
         NotificationCenter.default.post(name: .jcWorkoutsSynced, object: nil)
+    }
+
+    /// A workout deleted before it was sent is not sent.
+    static func forget(start: Date) {
+        store(pending().filter { abs($0.workout.start.timeIntervalSince(start)) >= 1 })
     }
 
     /// Sends what is waiting; what fails stays for next time.

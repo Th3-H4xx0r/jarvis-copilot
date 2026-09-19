@@ -15,7 +15,7 @@ second place to edit them.
     GET  /api/integrations/jarvis-health/health/history?metric=&range=&end=  a metric's W/M/6M/Y history
     POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
     GET  /api/integrations/jarvis-health/health/workouts?since=&until=&kind=strength  saved workouts (a reinstall's history)
-    POST /api/integrations/jarvis-health/health/workouts/delete  {start, device_id, source} remove one
+    POST /api/integrations/jarvis-health/health/workouts/delete  {start, device | device_id + source} remove one
     GET  /api/integrations/jarvis-health/health/training   {templates, exercises, settings} for strength training
     POST /api/integrations/jarvis-health/health/training/templates  {template}   (…/templates/delete {id})
     POST /api/integrations/jarvis-health/health/training/exercises  {exercise}   (…/exercises/delete {id})
@@ -254,7 +254,9 @@ def handle_post(handler, parsed, body) -> bool:
             if not body.get("start"):
                 j(handler, {"error": "say which workout: its 'start'"}, status=400)
                 return True
-            device = device_key_for(body.get("source") or "ring", body.get("device_id") or "")
+            # The key it was filed under when the phone knows it, else rebuilt
+            # from the device's id the way the save built it.
+            device = str(body.get("device") or "") or device_key_for(body.get("source") or "ring", body.get("device_id") or "")
             j(handler, {"ok": True, "deleted": store.delete_workout(body["start"], device)})
             return True
 

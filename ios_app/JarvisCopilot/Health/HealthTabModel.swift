@@ -140,6 +140,8 @@ final class HealthTabModel: ObservableObject {
 
     /// A workout just saved, on today at once — before the server has it.
     func noteSaved(_ workout: RingWorkout) {
+        // An edited older workout belongs to its own day, not today.
+        if let today = windows[Self.windowKey], workout.start < today.start { return }
         var list = workouts[Self.windowKey] ?? []
         list.removeAll { $0.start == workout.start }
         workouts[Self.windowKey] = (list + [workout]).sorted { $0.start < $1.start }
