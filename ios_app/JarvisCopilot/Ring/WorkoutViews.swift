@@ -189,6 +189,9 @@ struct WorkoutLiveView: View {
                     StrengthSummaryView(workout: result, store: workout.strengthStore,
                                         onSave: { workout.close(save: true) },
                                         onDiscard: { workout.close(save: false) })
+                } else if result.route != nil {
+                    RouteDetailView(workout: result, route: workout.finishedRoute,
+                                    onSave: { workout.close(save: true) }, onDiscard: { workout.close(save: false) })
                 } else {
                     WorkoutSummaryView(workout: result, onSave: { workout.close(save: true) },
                                        onDiscard: { workout.close(save: false) })
@@ -488,27 +491,7 @@ struct WorkoutSummaryView: View {
                     }
                 }
 
-                CardGroup("Heart-rate zones") {
-                    VStack(spacing: 10) {
-                        ForEach((1...5).reversed(), id: \.self) { zone in
-                            let seconds = workout.zoneSeconds[zone - 1]
-                            let total = max(1, workout.zoneSeconds.reduce(0, +))
-                            HStack(spacing: 10) {
-                                Text("Zone \(zone)").font(.caption.weight(.semibold)).frame(width: 52, alignment: .leading)
-                                GeometryReader { proxy in
-                                    Capsule()
-                                        .fill(WorkoutLiveView.zoneTint(zone))
-                                        .frame(width: max(4, proxy.size.width * CGFloat(seconds) / CGFloat(total)))
-                                }
-                                .frame(height: 10)
-                                Text(seconds >= 60 ? "\(seconds / 60)m" : "\(seconds)s")
-                                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                                    .frame(width: 40, alignment: .trailing)
-                            }
-                        }
-                    }
-                    .padding(16)
-                }
+                WorkoutZonesCard(zoneSeconds: workout.zoneSeconds)
 
                 if onSave != nil || onDiscard != nil {
                     HStack(spacing: 14) {
@@ -670,6 +653,10 @@ struct HealthWorkoutsCard: View {
                 NavigationLink {
                     if workout.isStrength {
                         StrengthWorkoutDetail(workout: workout)
+                    } else if workout.route != nil {
+                        RouteDetailView(workout: workout, fromHistory: true)
+                            .navigationTitle(workout.sportName)
+                            .navigationBarTitleDisplayMode(.inline)
                     } else {
                         WorkoutSummaryView(workout: workout)
                             .background(JcTheme.bg)
@@ -679,10 +666,14 @@ struct HealthWorkoutsCard: View {
                 } label: {
                     Row(minHeight: 58) {
                         HStack(spacing: 12) {
-                            Image(systemName: RingSport.withID(workout.sport).symbol)
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(JcTheme.accent)
-                                .frame(width: 30)
+                            if let preview = workout.route?.preview, !preview.isEmpty {
+                                RouteThumbnail(preview: preview, size: 40)
+                            } else {
+                                Image(systemName: RingSport.withID(workout.sport).symbol)
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(JcTheme.accent)
+                                    .frame(width: 30)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(workout.sportName).font(.body.weight(.medium))
                                 Text(showsDate
@@ -718,8 +709,13 @@ struct HealthWorkoutsCard: View {
 }
 
 extension HealthWorkoutsCard {
-    /// "5,230 kg · 18 sets" for a lift; "132 bpm · 310 kcal" for the rest.
+    /// "5,230 kg · 18 sets" for a lift; "3.15 mi · 7:39/mi" outdoors; "132 bpm · 310 kcal" for the rest.
     static func detail(_ workout: RingWorkout) -> String {
+        if let route = workout.route, route.distanceMeters > 0 {
+            let unit = DistanceUnit.current
+            let pace = route.movingSeconds > 0 ? Double(route.movingSeconds) / route.distanceMeters : nil
+            return "\(unit.distance(route.distanceMeters)) \(unit.symbol) · \(unit.pace(secondsPerMeter: pace))/\(unit.symbol)"
+        }
         if let log = workout.strength {
             let unit = TrainingUnit.current
             return "\(Int(unit.show(log.volumeKg).rounded()).formatted()) \(unit.symbol) · \(log.sets == 1 ? "1 set" : "\(log.sets) sets")"

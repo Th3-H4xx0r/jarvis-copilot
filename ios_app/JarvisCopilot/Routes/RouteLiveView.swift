@@ -12,6 +12,8 @@ struct RouteLiveView: View {
     @State private var expanded = false
     @State private var confirmingEnd = false
     @State private var locationOff = false
+    /// The climb so far, redrawn every few points (no heart rate to chart instead).
+    @State private var elevation: [RouteChartPoint] = []
 
     init(workout: RingWorkoutController, expanded: Bool = false) {
         self.workout = workout
@@ -48,7 +50,16 @@ struct RouteLiveView: View {
         .onAppear {
             let status = CLLocationManager().authorizationStatus
             locationOff = status == .denied || status == .restricted
+            chartElevation()
         }
+        .onChange(of: progress.revision) { _, revision in
+            if revision % 5 == 0 { chartElevation() }
+        }
+    }
+
+    private func chartElevation() {
+        guard workout.heartRates.filter({ $0 > 0 }).count <= 1, let route = workout.liveRoute else { return }
+        elevation = RouteChartSeries.points(.elevation, stats: RouteMath.stats(route, unit: unit), unit: unit, limit: 120)
     }
 
     // MARK: Map
@@ -135,6 +146,13 @@ struct RouteLiveView: View {
                     WorkoutTrace(heartRates: workout.heartRates)
                         .frame(height: 90)
                         .accessibilityHidden(true)
+                } else if elevation.count >= 2 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Elevation").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        RouteProfileChart(kind: .elevation, points: elevation, unit: unit, scrub: .constant(nil))
+                            .frame(height: 90)
+                    }
+                    .accessibilityHidden(true)
                 }
             }
             .padding(.horizontal, 22)

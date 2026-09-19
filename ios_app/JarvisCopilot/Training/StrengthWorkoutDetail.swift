@@ -9,6 +9,8 @@ enum WorkoutEditing {
     static func delete(_ workout: RingWorkout, store: TrainingStore = .shared, announce: Bool = true) {
         WorkoutUploader.forget(start: workout.start)
         store.removeWorkout(start: workout.start, device: workout.device, deviceID: deviceID)
+        // The server drops its copy of the route with the workout.
+        RouteStore.shared.delete(start: workout.start)
         Task {
             await AppleHealthWriter.shared.remove(start: workout.start)
             await store.flush()
