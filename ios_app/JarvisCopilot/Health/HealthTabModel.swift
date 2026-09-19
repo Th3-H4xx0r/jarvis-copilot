@@ -91,6 +91,8 @@ final class HealthTabModel: ObservableObject {
         windows[Self.windowKey] = HealthWindow(start: fresh.start, end: fresh.end, noNight: fresh.noWake, wake: fresh.wake)
         sleepDebts[Self.windowKey] = fresh.sleepDebt
         workouts[Self.windowKey] = fresh.workouts ?? []
+        // Kept for a workout's effort, which may start with no signal.
+        if let resting = fresh.restingHR { HealthRestingHR.last = resting }
     }
 
     /// The battery for what is on screen.

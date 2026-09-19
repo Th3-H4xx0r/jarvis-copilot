@@ -168,6 +168,7 @@
 		3F801C1F909F081F609094DF /* MoreUIAHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */; };
 		400D414F4B6895FBBAB2B3F1 /* ScanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255C5915F64E76446E20AA5 /* ScanView.swift */; };
 		405290DE4EA28C37F1F63604 /* VoiceReplyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9C939812877EA192CCACFD /* VoiceReplyTests.swift */; };
+		413D405F5E66AC8D45A7F751 /* SessionVitals.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */; };
 		43102216468ABD49BA332553 /* PushHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */; };
 		4381EAA07560C50D0F2D53B2 /* RingWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF5F74C647846E28AFC5ECB /* RingWorkoutAttributes.swift */; };
 		442AEA04DC5B3EF7280A205C /* PhoneSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD30CD7269938E614C2E31E0 /* PhoneSkills.swift */; };
@@ -247,6 +248,7 @@
 		6108A9E5CED363F1861A2E83 /* TaskHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6FC7810141604FE28A053C /* TaskHandle.swift */; };
 		6248BB5834B1B9628C1772E6 /* TodosPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9569A4B4B8FF962E8FDA6B1 /* TodosPage.swift */; };
 		62FFA415689770BFCD90CC45 /* WorkoutRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46894A9489E1D504A9302CB8 /* WorkoutRenderTests.swift */; };
+		63527099402D4D9D55899095 /* SessionVitalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43C522E72095700C3317FC3 /* SessionVitalsTests.swift */; };
 		63A789E5E21DDE83788E31ED /* ChatStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2A4A7B3E94BF71678C423F /* ChatStoreTests.swift */; };
 		63DF3B939797DF83662482F9 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F3CCEFF8ADEE9872018479 /* Glass.swift */; };
 		64D02E4C59D130328EB9D465 /* JarvisShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC12F5609914381F51043A4 /* JarvisShared.swift */; };
@@ -1107,6 +1109,7 @@
 		B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPromptRenderTests.swift; sourceTree = "<group>"; };
 		B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKeepAlive.swift; sourceTree = "<group>"; };
 		B406EEC86BD8AD9A765E55BC /* RingInputs.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingInputs.swift; sourceTree = "<group>"; };
+		B43C522E72095700C3317FC3 /* SessionVitalsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionVitalsTests.swift; sourceTree = "<group>"; };
 		B43F3AA0AC3B28393D27CB98 /* AudioOutputEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioOutputEngine.swift; sourceTree = "<group>"; };
 		B47214339343236651A11BA9 /* LivePollPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LivePollPolicyTests.swift; sourceTree = "<group>"; };
 		B474480B73EBC2CA872FFAC3 /* ConnectionMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectionMonitor.swift; sourceTree = "<group>"; };
@@ -1143,6 +1146,7 @@
 		BEB9F76EF0605F18705E19A9 /* RingFirmwareFlasher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareFlasher.swift; sourceTree = "<group>"; };
 		BF0AB26DA55CCFACCA38ECE6 /* TerminalBufferTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalBufferTests.swift; sourceTree = "<group>"; };
 		BF3E30F3BEC433A5D3BB3F89 /* LocalAiSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalAiSettingsTests.swift; sourceTree = "<group>"; };
+		BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionVitals.swift; sourceTree = "<group>"; };
 		BFA44E462ADEBC5FBDDD2FF7 /* RingSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSession.swift; sourceTree = "<group>"; };
 		C03F98ED6A45E260A67C5935 /* ChatUIFormat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormat.swift; sourceTree = "<group>"; };
 		C04A36F3466DF1D868E03D03 /* ScaleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleModels.swift; sourceTree = "<group>"; };
@@ -1822,6 +1826,7 @@
 				F49019093D36B19BD88958D4 /* TrainingModels.swift */,
 				44E654F72A46A4C711510DD1 /* exercises.json */,
 				D358EF7B0417824B15282C52 /* TrainingMath.swift */,
+				BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */,
 			);
 			name = Training;
 			path = Training;
@@ -1997,6 +2002,7 @@
 				05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */,
 				F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */,
 				9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */,
+				B43C522E72095700C3317FC3 /* SessionVitalsTests.swift */,
 			);
 			name = Training;
 			path = Training;
@@ -2898,6 +2904,7 @@
 				7EC5E18B199AE1F7FC36FDFC /* ExerciseLibraryTests.swift in Sources */,
 				480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */,
 				4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */,
+				63527099402D4D9D55899095 /* SessionVitalsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3321,6 +3328,7 @@
 				56157E70601C21AC9DF7B790 /* ExerciseLibrary.swift in Sources */,
 				6C664D4E6EB22A66D37D1D49 /* TrainingModels.swift in Sources */,
 				3B4C2D1027FEFD2A3BE81B7F /* TrainingMath.swift in Sources */,
+				413D405F5E66AC8D45A7F751 /* SessionVitals.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

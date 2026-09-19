@@ -133,7 +133,7 @@ final class RingWorkoutController: ObservableObject {
         return Self.zone(hr, age: age())
     }
 
-    static func zone(_ hr: Int, age: Int) -> Int {
+    nonisolated static func zone(_ hr: Int, age: Int) -> Int {
         let ratio = Double(hr) / Double(max(100, 220 - age))
         switch ratio {
         case ..<0.6: return 1
