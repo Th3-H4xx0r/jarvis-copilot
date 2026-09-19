@@ -96,4 +96,26 @@ final class RouteRenderTests: XCTestCase {
                                 name: "route-live-expanded", settle: 12)
         MapStyle.current = .standard
     }
+
+    func testTheLiveRunFollowingARoute() async throws {
+        let c = try await running(phoneOnly: true)
+        let past = SampleRoute.route()
+        c.guide = RouteGuide(route: past, title: "Run · Sep 12", sport: 7)
+        // One more fix, so the workout knows where it is along the guide.
+        let next = SampleRoute.loop(seconds: 1082).last!
+        location.fix(lat: next.lat, lon: next.lon, at: SampleRoute.start.addingTimeInterval(1082), altitude: next.ele)
+        try RenderHarness.write(RouteLiveView(workout: c), size: CGSize(width: 402, height: 874),
+                                name: "route-live-following", settle: 8)
+    }
+
+    func testTheStartScreenWithARouteToFollow() throws {
+        let past = SampleRoute.route()
+        let guide = RouteGuide(route: past, title: "Run · Sep 12", sport: 7)
+        let monitors = WorkoutMonitor.list(for: .sport(RingSport.withID(7)),
+                                           ring: .init(paired: false, name: "Ring", state: .idle, battery: nil, connecting: false),
+                                           ringChosen: false, appleHealth: true)
+        try RenderHarness.write(NavigationStack {
+            WorkoutConfirmView(choice: .sport(RingSport.withID(7)), monitors: monitors, guide: guide) { _ in }
+        }, size: CGSize(width: 402, height: 874), name: "confirm-run-route")
+    }
 }

@@ -45,6 +45,14 @@ final class RingWorkoutController: ObservableObject {
     @Published private(set) var phoneOnly = false
     /// A finished outdoor workout's route, until its summary is saved or discarded.
     @Published private(set) var finishedRoute: WorkoutRoute?
+    /// A past route being followed (set by the start screen before `start`).
+    @Published var guide: RouteGuide?
+    /// How far along the guide, and how far off it, the newest point is.
+    @Published private(set) var guideAlong: Double?
+    @Published private(set) var guideOff: Double?
+    /// Strayed from the guide (more than 40 m for 15 s).
+    @Published private(set) var offRoute = false
+    private var offDetector = OffRouteDetector()
     /// When the ring's last tick arrived: the clock runs on between ticks, and
     /// a long gap is shown as waiting rather than a frozen screen.
     @Published private(set) var lastTickAt: Date?
@@ -69,6 +77,8 @@ final class RingWorkoutController: ObservableObject {
     var onSave: ((RingWorkout) -> Void)?
     /// Handed an outdoor workout's route when its summary is saved (before `onSave`).
     var onSaveRoute: ((WorkoutRoute, RingWorkout) -> Void)?
+    /// Strayed from, or back on, the route being followed.
+    var onGuideEvent: ((OffRouteDetector.Event) -> Void)? = RouteAlerts.announce
     /// The workout is over (finished, failed or closed): the link it held can
     /// go back to the usual rules.
     var onEnded: (() -> Void)?
@@ -278,6 +288,7 @@ final class RingWorkoutController: ObservableObject {
     func cancelCountdown() {
         guard case .countdown = phase else { return }
         pending?.cancel()
+        guide = nil
         phase = .idle
     }
 
@@ -338,6 +349,7 @@ final class RingWorkoutController: ObservableObject {
         training?.saveFinished(nil)
         clearStrength()
         reset()
+        guide = nil
         showsLive = false
         phase = .idle
     }
@@ -428,7 +440,20 @@ final class RingWorkoutController: ObservableObject {
             self?.routeProgress = progress
             self?.gpsDistance = progress.distance
             self?.pace = progress.pace
+            self?.followGuide()
         }
+    }
+
+    /// Where the newest point is against the guide; a buzz (and, away from
+    /// the app, a notification) when you stray from it and when you're back.
+    private func followGuide() {
+        guard let guide, !routePaused, let fix = location?.lastFix else { return }
+        let projected = guide.project(lat: fix.latitude, lon: fix.longitude, near: guideAlong)
+        guideAlong = projected.along
+        guideOff = projected.off
+        guard let event = offDetector.update(off: projected.off, at: clock()) else { return }
+        offRoute = event == .offRoute
+        onGuideEvent?(event)
     }
 
     private func pauseRoute() {
@@ -582,6 +607,10 @@ final class RingWorkoutController: ObservableObject {
         pace = nil
         routeProgress = RouteProgress()
         finishedRoute = nil
+        guideAlong = nil
+        guideOff = nil
+        offRoute = false
+        offDetector = OffRouteDetector()
         phoneOnly = false
         pausedTotal = 0
         pausedAt = nil

@@ -27,6 +27,7 @@ struct RouteDetailView: View {
     @State private var gpx: URL?
     @State private var picture: UIImage?
     @State private var confirmingDelete = false
+    @State private var following = false
     @AppStorage("jc.distance.unit") private var unitRaw = DistanceUnit.current.rawValue
     @Environment(\.dismiss) private var dismiss
 
@@ -80,6 +81,23 @@ struct RouteDetailView: View {
                         }
                     } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("Workout options")
+                }
+            }
+        }
+        .sheet(isPresented: $following) {
+            if let route {
+                let sport = RingSport.withID(workout.sport)
+                NavigationStack {
+                    WorkoutConfirmView(choice: .sport(sport.outdoor ? sport : RingSport.withID(7)),
+                                       guide: RouteGuide(route: route, title: "\(workout.sportName) · \(workout.start.formatted(.dateTime.month(.abbreviated).day()))",
+                                                         sport: workout.sport)) { _ in
+                        following = false
+                        // The workout's own sheet comes up once this one has gone.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            WearablesHub.shared.ring.workout.start(sport.outdoor ? sport : RingSport.withID(7))
+                        }
+                    }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { following = false } } }
                 }
             }
         }
@@ -398,6 +416,10 @@ struct RouteDetailView: View {
                         Label("Image", systemImage: "photo")
                     }
                     .buttonStyle(.jcGlass(compact: true))
+                }
+                if fromHistory {
+                    Button { following = true } label: { Label("Follow", systemImage: "arrow.triangle.turn.up.right.diamond") }
+                        .buttonStyle(.jcGlass(compact: true))
                 }
             }
             .padding(.horizontal, 24)

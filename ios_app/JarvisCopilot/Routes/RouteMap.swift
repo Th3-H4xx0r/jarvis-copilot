@@ -226,7 +226,8 @@ struct RouteMapView: UIViewRepresentable {
                 let overlay = MKTileOverlay(urlTemplate: RouteMapView.topoTemplate)
                 overlay.canReplaceMapContent = true
                 overlay.maximumZ = 17
-                map.insertOverlay(overlay, at: 0, level: .aboveLabels)
+                // It replaces the map, labels and all: under everything drawn on it.
+                map.insertOverlay(overlay, at: 0, level: .aboveRoads)
                 tile = overlay
             }
             credit.isHidden = style != .topo
@@ -261,13 +262,11 @@ struct RouteMapView: UIViewRepresentable {
             guideLine = nil
             guard let guide = parent.guide, guide.count >= 2 else { return }
             let line = MKPolyline(coordinates: guide, count: guide.count)
-            // Under the recorded route, over the map.
-            if let first = routeOverlays.first {
-                map.insertOverlay(line, below: first)
-            } else {
-                map.addOverlay(line, level: .aboveLabels)
-            }
+            // Known before it's added: MapKit may ask for its renderer at once.
             guideLine = line
+            // A level under the recorded route (MapKit doesn't keep order
+            // within one level), over Topo's tiles.
+            map.insertOverlay(line, at: tile == nil ? 0 : 1, level: .aboveRoads)
         }
 
         func placeMarkers(on map: MKMapView) {

@@ -192,11 +192,15 @@ struct WorkoutConfirmView: View {
     @State private var editing = false
     @State private var choosingMonitor = false
     @State private var ringChosen = WorkoutMonitorPreference.usesRing
+    /// Outdoors: a past route to follow.
+    @State private var guide: RouteGuide?
+    @State private var choosingRoute = false
 
     init(choice: WorkoutChoice, store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
-         monitors: [WorkoutMonitor]? = nil, ring: RingManager = WearablesHub.shared.ring,
+         monitors: [WorkoutMonitor]? = nil, ring: RingManager = WearablesHub.shared.ring, guide: RouteGuide? = nil,
          onStart: @escaping (WorkoutChoice) -> Void) {
         self.choice = choice
+        _guide = State(initialValue: guide)
         self.store = store
         self.library = library
         self.monitors = monitors
@@ -252,6 +256,7 @@ struct WorkoutConfirmView: View {
             VStack(alignment: .leading, spacing: 26) {
                 header
                 tracking
+                if choice.isOutdoor { routeCard }
                 if let template { breakdown(template) }
             }
             .padding(.top, 4)
@@ -270,6 +275,7 @@ struct WorkoutConfirmView: View {
         .sheet(isPresented: $choosingMonitor) {
             MonitorPicker(choice: choice, ring: ring, ringChosen: $ringChosen)
         }
+        .sheet(isPresented: $choosingRoute) { RoutePicker(guide: $guide) }
         .onChange(of: ringChosen) { _, chosen in WorkoutMonitorPreference.usesRing = chosen }
     }
 
@@ -295,6 +301,37 @@ struct WorkoutConfirmView: View {
     }
 
     // MARK: Tracking
+
+    /// Outdoors: follow a past route, or just record.
+    private var routeCard: some View {
+        CardGroup("Route", footer: guide == nil
+                  ? "Follow one of your past routes: it's drawn on the map, with the distance left, and you're told if you stray."
+                  : nil) {
+            Row(minHeight: 64) {
+                HStack(spacing: 12) {
+                    if let guide {
+                        RouteThumbnail(preview: guide.preview, size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(guide.title)
+                            Text("\(DistanceUnit.current.distance(guide.total)) \(DistanceUnit.current.symbol) to follow")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44)
+                        Text("Just record")
+                    }
+                    Spacer()
+                    Button(guide == nil ? "Follow" : "Change") { choosingRoute = true }
+                        .buttonStyle(.jcGlass(compact: true))
+                        .accessibilityLabel(guide == nil ? "Follow a past route" : "Change the route")
+                }
+            }
+        }
+    }
 
     private var tracking: some View {
         let list = liveMonitors
@@ -408,6 +445,7 @@ struct WorkoutConfirmView: View {
         Button {
             // What the screen shows is what starts.
             WorkoutMonitorPreference.usesRing = ringChosen
+            ring.workout.guide = choice.isOutdoor ? guide : nil
             onStart(choice)
         } label: {
             Text("Start")

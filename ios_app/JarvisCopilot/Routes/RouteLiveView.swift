@@ -62,6 +62,14 @@ struct RouteLiveView: View {
         elevation = RouteChartSeries.points(.elevation, stats: RouteMath.stats(route, unit: unit), unit: unit, limit: 120)
     }
 
+    /// The followed route still ahead (behind you, your own line covers it),
+    /// moved on every 25 m so the map isn't redrawn on every fix.
+    private var guideLine: [CLLocationCoordinate2D]? {
+        guard let guide = workout.guide else { return nil }
+        guard let along = workout.guideAlong, !workout.offRoute else { return guide.coordinates }
+        return guide.coordinates(from: (along / 25).rounded(.down) * 25)
+    }
+
     // MARK: Map
 
     private var map: some View {
@@ -69,7 +77,7 @@ struct RouteLiveView: View {
         let start = route?.points.first.map { [RouteMarker(kind: .start, coordinate: $0.coordinate)] } ?? []
         return ZStack(alignment: .top) {
             RouteMapView(segments: route?.segments ?? [], revision: progress.revision, style: style, markers: start,
-                         showsUser: true, following: $following, fitToken: nil,
+                         guide: guideLine, showsUser: true, following: $following, fitToken: nil,
                          insets: UIEdgeInsets(top: 60, left: 40, bottom: 40, right: 60))
                 .ignoresSafeArea(edges: .top)
             HStack(alignment: .top) {
@@ -80,6 +88,18 @@ struct RouteLiveView: View {
                         chip("Location is off — allow it in Settings", symbol: "location.slash", tint: JcTheme.amber)
                     } else if progress.revision == 0 {
                         chip("Finding GPS…", symbol: "location.magnifyingglass", tint: .white)
+                    }
+                    if let guide = workout.guide {
+                        if workout.offRoute {
+                            chip("Off route · \(unit.elevation(workout.guideOff ?? 0)) \(unit.elevationSymbol) away",
+                                 symbol: "exclamationmark.triangle.fill", tint: JcTheme.amber)
+                        } else if let along = workout.guideAlong {
+                            chip("\(unit.distance(max(0, guide.total - along))) \(unit.symbol) left",
+                                 symbol: "flag.checkered", tint: .white)
+                        } else {
+                            chip("Following \(guide.title)", symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                                 tint: .white)
+                        }
                     }
                 }
                 Spacer()

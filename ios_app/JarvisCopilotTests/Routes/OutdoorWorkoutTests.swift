@@ -38,7 +38,9 @@ final class FakeLocation: WorkoutLocationTracking {
     func fix(lat: Double, lon: Double, at time: Date, altitude: Double? = nil) {
         let fix = RouteFix(time: time, lat: lat, lon: lon, horizontalAccuracy: 5, altitude: altitude,
                            verticalAccuracy: altitude == nil ? nil : 4, speed: nil)
-        _ = recording?.take(fix, heartRate: heartRate?(), pressureAltitude: altitude, now: time)
+        if recording?.take(fix, heartRate: heartRate?(), pressureAltitude: altitude, now: time) == true {
+            lastFix = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
         update?(progress)
     }
 
