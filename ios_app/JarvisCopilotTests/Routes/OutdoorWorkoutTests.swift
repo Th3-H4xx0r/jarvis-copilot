@@ -329,4 +329,44 @@ final class IndoorStepsTests: XCTestCase {
         XCTAssertEqual(c.indoorDistance, 32)
         XCTAssertNil(c.floors ?? nil)
     }
+
+    /// The ring's day totals (0x48): steps and metres, big-endian.
+    private func day(steps: Int, meters: Int) -> Data {
+        func be(_ v: Int, _ n: Int) -> [UInt8] { (0..<n).map { UInt8((v >> (8 * (n - 1 - $0))) & 0xFF) } }
+        return RingProtocol.frame(0x48, be(steps, 3) + be(0, 3) + be(0, 3) + be(meters, 3) + be(0, 2))
+    }
+
+    func testAStairClimberCountsTheRingsOwnStepsWhenItsSessionDoesnt() async throws {
+        for (steps, meters) in [(4000, 2800), (4030, 2820), (4075, 2850), (4120, 2880)] {
+            link.script(0x48, [day(steps: steps, meters: meters)])
+        }
+        let defaults = UserDefaults(suiteName: "IndoorStepsTests")!
+        let c = RingWorkoutController(session: RingSession(transport: makeRingTransport(link), defaults: defaults),
+                                      ensureConnected: { true }, defaults: defaults)
+        c.countdownSeconds = 0
+        c.startTimeout = 30
+        c.ringDayInterval = 0.05
+        c.start(RingSport.withID(80))
+        try await Task.sleep(nanoseconds: 60_000_000)
+        link.deliver(RingProtocol.frame(0x78, tick(80, elapsed: 1, steps: 0)))
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(c.stepCount, 120, "the day count rose 120 since the start; the session said 0")
+        c.end()
+        link.deliver(RingProtocol.frame(0x78, [80, 3] + tick(80, elapsed: 2, steps: 0).dropFirst(2)))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        guard case .finished(let workout) = c.phase else { return XCTFail("a summary") }
+        XCTAssertEqual(workout.steps, 120)
+    }
+
+    func testTheDayCountCarriesOverMidnight() {
+        var counter = RingDayCounter()
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        counter.read(steps: 9_990, meters: 7_000, at: t)
+        counter.read(steps: 10_020, meters: 7_020, at: t.addingTimeInterval(10))
+        counter.read(steps: 15, meters: 10, at: t.addingTimeInterval(20))
+        XCTAssertEqual(counter.steps, 45)
+        XCTAssertEqual(counter.meters, 30)
+        counter.read(steps: 45, meters: 30, at: t.addingTimeInterval(30))
+        XCTAssertEqual(counter.cadence, 150, "75 steps in 30 s")
+    }
 }

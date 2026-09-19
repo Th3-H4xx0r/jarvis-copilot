@@ -103,6 +103,12 @@ final class RingWorkoutController: ObservableObject {
     private let location: WorkoutLocationTracking?
     /// Indoors: the phone's own step count beside the ring's.
     private let pedometer: WorkoutStepCounting?
+    /// Indoors: the ring's all-day step count, read every few seconds — its
+    /// sport session counts no steps for a stair climber, a treadmill…
+    private(set) var ringDay = RingDayCounter()
+    private var ringDayPoll: Task<Void, Never>?
+    /// How often the ring's day totals are read during an indoor workout.
+    var ringDayInterval: TimeInterval = 10
     private let liveActivity: WorkoutLiveActivity?
     private let training: TrainingStore?
     private let library: ExerciseLibrary?
@@ -248,14 +254,17 @@ final class RingWorkoutController: ObservableObject {
     var stepCount: Int? {
         let ring = tick?.steps
         let phone = sport?.outdoor == true ? location?.steps : pedometer?.steps
-        guard ring != nil || phone != nil else { return nil }
-        return max(ring ?? 0, phone ?? 0)
+        let day = ringDay.hasReadings ? ringDay.steps : nil
+        guard ring != nil || phone != nil || day != nil else { return nil }
+        return max(ring ?? 0, phone ?? 0, day ?? 0)
     }
 
     /// Steps a minute, from whichever count is being shown.
     var stepCadence: Int? {
+        let ring = tick?.steps ?? 0
         let phone = sport?.outdoor == true ? (location?.steps, location?.cadence) : (pedometer?.steps, pedometer?.cadence)
-        if let steps = phone.0, steps > (tick?.steps ?? 0) { return phone.1 }
+        if ringDay.hasReadings, ringDay.steps > ring, ringDay.steps >= (phone.0 ?? 0) { return ringDay.cadence }
+        if let steps = phone.0, steps > ring { return phone.1 }
         return cadence
     }
 
@@ -265,9 +274,31 @@ final class RingWorkoutController: ObservableObject {
     /// Treadmill and indoor walk: the phone's stride distance when the ring
     /// measured none.
     var indoorDistance: Double? {
-        guard let sport, !sport.outdoor, [40, 41].contains(sport.id), (tick?.distanceMeters ?? 0) == 0,
-              let meters = pedometer?.distance, meters > 0 else { return nil }
-        return meters
+        guard let sport, !sport.outdoor, [40, 41].contains(sport.id), (tick?.distanceMeters ?? 0) == 0 else { return nil }
+        let meters = max(pedometer?.distance ?? 0, Double(ringDay.meters))
+        return meters > 0 ? meters : nil
+    }
+
+    /// Reads the ring's day totals now and every `ringDayInterval`: steps
+    /// taken since are this workout's.
+    private func startRingDaySteps() {
+        ringDayPoll?.cancel()
+        ringDay = RingDayCounter()
+        ringDayPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let reply = try? await self.session.transport.perform(.todayActivity, until: .single).first,
+                   let totals = RingDecode.activity(reply.payload), !Task.isCancelled {
+                    self.ringDay.read(steps: totals.steps, meters: totals.distanceMeters, at: Date())
+                }
+                try? await Task.sleep(for: .seconds(self.ringDayInterval))
+            }
+        }
+    }
+
+    private func stopRingDaySteps() {
+        ringDayPoll?.cancel()
+        ringDayPoll = nil
     }
 
     /// Where strength workouts keep their templates and history.
@@ -336,7 +367,12 @@ final class RingWorkoutController: ObservableObject {
             }
             guard self.phase == .starting else { return }
             _ = try? await self.session.transport.perform(.phoneSport(.start, sport: sport.id), until: .none)
-            if sport.outdoor { self.startLocation() } else { self.pedometer?.start(from: Date()) }
+            if sport.outdoor {
+                self.startLocation()
+            } else {
+                self.pedometer?.start(from: Date())
+                self.startRingDaySteps()
+            }
             try? await Task.sleep(for: .seconds(self.startTimeout))
             if self.phase == .starting {
                 self.fail("The ring didn't start — take it off its charger and try again.")
@@ -466,6 +502,7 @@ final class RingWorkoutController: ObservableObject {
                     startLocation(resuming: true)
                 } else {
                     pedometer?.start(from: startedAt ?? Date())
+                    startRingDaySteps()
                 }
             case .finished, .failed, .countdown:
                 // A stray tick after the summary (or before the ring was told).
@@ -647,6 +684,7 @@ final class RingWorkoutController: ObservableObject {
         let phoneMeters = indoorDistance
         let route = location?.stop()
         pedometer?.stop()
+        stopRingDaySteps()
         liveActivity?.end()
         clearPhoneWorkout()
         guard let sport, let startedAt else { return reset(to: .idle) }
@@ -679,6 +717,7 @@ final class RingWorkoutController: ObservableObject {
         defer { onEnded?() }
         location?.stop()
         pedometer?.stop()
+        stopRingDaySteps()
         clearPhoneWorkout()
         liveActivity?.end()
         phase = .failed(message)
@@ -698,6 +737,8 @@ final class RingWorkoutController: ObservableObject {
         routeProgress = RouteProgress()
         finishedRoute = nil
         routeNote = nil
+        stopRingDaySteps()
+        ringDay = RingDayCounter()
         guideAlong = nil
         guideOff = nil
         offRoute = false

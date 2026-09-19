@@ -49,3 +49,33 @@ final class PhonePedometer: WorkoutStepCounting {
         pedometer.stopUpdates()
     }
 }
+
+/// The ring's day totals turned into a workout's: every reading adds what
+/// the day count rose by since the last one (after midnight the count starts
+/// again from zero, and all of it is new).
+struct RingDayCounter {
+    private(set) var steps = 0
+    private(set) var meters = 0
+    private(set) var hasReadings = false
+    private var last: (steps: Int, meters: Int)?
+    private var marks: [(at: Date, steps: Int)] = []
+
+    mutating func read(steps day: Int, meters dayMeters: Int, at time: Date) {
+        if let last {
+            steps += day >= last.steps ? day - last.steps : day
+            meters += dayMeters >= last.meters ? dayMeters - last.meters : dayMeters
+        }
+        last = (day, dayMeters)
+        hasReadings = true
+        marks.append((time, steps))
+        marks.removeAll { time.timeIntervalSince($0.at) > 75 }
+    }
+
+    /// Steps a minute over the last minute or so of readings.
+    var cadence: Int? {
+        guard let first = marks.first, let end = marks.last else { return nil }
+        let seconds = end.at.timeIntervalSince(first.at)
+        guard seconds >= 20 else { return nil }
+        return Int((Double(end.steps - first.steps) / seconds * 60).rounded())
+    }
+}
