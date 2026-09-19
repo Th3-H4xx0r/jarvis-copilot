@@ -30,6 +30,7 @@
 		06FF463F01E03EB61F24513E /* JcAccent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BD547D065A4A998BAAFE07 /* JcAccent.swift */; };
 		0749DE7EA697FBD3A1FA5961 /* CronsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D883E45BA9E8351D1C9F64D /* CronsAPI.swift */; };
 		07621D37A721396DB5BC4BB2 /* VoiceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */; };
+		07858C14AA2A0A27DE12000D /* WorkoutConfirmTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */; };
 		07B0149DF3A970843CAC9FAE /* VolumeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E59FAF921605DD0EC6CBA3 /* VolumeSlider.swift */; };
 		085988788290EBE575080AA6 /* SelfImprovementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6265DAEFF934AE9F0F286C1 /* SelfImprovementUITests.swift */; };
 		08B5E2CA057B33670250410F /* InsightsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */; };
@@ -258,6 +259,7 @@
 		5EEE51CB407DD2E09584391A /* BackgroundLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */; };
 		5EF53A822CE4BC8B55A6D562 /* VoiceStoreTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F449B9A02840155A5FAD6C5 /* VoiceStoreTransportTests.swift */; };
 		5EFC091E4C4DA705428A6EE6 /* MemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0C0B3D8AECE1A1E1024D8 /* MemoryTests.swift */; };
+		5FEC7BFE31420A3DA3BD793F /* WorkoutConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */; };
 		603EF4AC08F9CAFE8E2A4D25 /* ChatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9DAD51596AFCC23AF0E322 /* ChatStore.swift */; };
 		6066F7484C79A135DA8DAB5B /* VsitooS1Pro.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107519C636566C4A6917FCD3 /* VsitooS1Pro.swift */; };
 		607CAAF1446D268439887916 /* OrbFrames in Resources */ = {isa = PBXBuildFile; fileRef = F9F69B4BC251C401DCB7252F /* OrbFrames */; };
@@ -845,6 +847,7 @@
 		3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduling.swift; sourceTree = "<group>"; };
 		312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatModelsLoadTests.swift; sourceTree = "<group>"; };
 		31E11FE88F2A132053AF6CBF /* CodingChatTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatTranscript.swift; sourceTree = "<group>"; };
+		31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmTests.swift; sourceTree = "<group>"; };
 		322E1110A5953ECE2DE854A9 /* Endpointer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Endpointer.swift; sourceTree = "<group>"; };
 		325184FC8D98E2485468EC47 /* AppleHealthWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthWriter.swift; sourceTree = "<group>"; };
 		3374BB246B978CAE1C310365 /* LivePollPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LivePollPolicy.swift; sourceTree = "<group>"; };
@@ -875,17 +878,18 @@
 		3DF80D244E7502C4F6D2591D /* AppGroupIslandDesignCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppGroupIslandDesignCache.swift; sourceTree = "<group>"; };
 		3E927550CC7A702DA1D9CD19 /* DevicesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesAPI.swift; sourceTree = "<group>"; };
 		3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */ = {isa = PBXFileReference; includeInIndex = 1; path = "RingHand-LICENSE.md"; sourceTree = "<group>"; };
+		400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = net.daringfireball.markdown; path = "RingHand-LICENSE.md"; sourceTree = "<group>"; };
 		40C064350AA8B81978194E2B /* ShellSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShellSnapshotTests.swift; sourceTree = "<group>"; };
 		413E3BCBB775B509259D57DF /* InvokeRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InvokeRunner.swift; sourceTree = "<group>"; };
 		419A48CB3F0A5BBA8E2741CA /* ProfilesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesModels.swift; sourceTree = "<group>"; };
 		41B3E4ABF4C21C088EC1CCAD /* LiveActivityModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityModels.swift; sourceTree = "<group>"; };
 		41EBDFDA8D6095A261B3FB34 /* ContactLookupTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookupTests.swift; sourceTree = "<group>"; };
+		4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmView.swift; sourceTree = "<group>"; };
 		42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIAHostingTests.swift; sourceTree = "<group>"; };
 		438CBFA66B125FE31EA00B31 /* HealthMetric.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthMetric.swift; sourceTree = "<group>"; };
 		438D0DAA806C23BD75CDA6F7 /* StrengthSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthSession.swift; sourceTree = "<group>"; };
 		4427D18CA560FC8794B4334D /* QuotaCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCard.swift; sourceTree = "<group>"; };
-		44E654F72A46A4C711510DD1 /* exercises.json */ = {isa = PBXFileReference; includeInIndex = 1; path = exercises.json; sourceTree = "<group>"; };
+		44E654F72A46A4C711510DD1 /* exercises.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; path = exercises.json; sourceTree = "<group>"; };
 		451350B37D84B249122DE911 /* DevicesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesModels.swift; sourceTree = "<group>"; };
 		45276929EF59EC622826D74A /* RestAlerts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestAlerts.swift; sourceTree = "<group>"; };
 		453F1881C3D4B7E9F8509168 /* ScaleUploader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScaleUploader.swift; sourceTree = "<group>"; };
@@ -1056,7 +1060,7 @@
 		911130C5D9F9EBCB12B39CE3 /* VoicePagePresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePagePresentation.swift; sourceTree = "<group>"; };
 		91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicePairSheet.swift; sourceTree = "<group>"; };
 		91D629E8B337070323B8B81A /* ServerLogsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsUITests.swift; sourceTree = "<group>"; };
-		92D3CD2A60E7E33865C04CFF /* RingHand.bin */ = {isa = PBXFileReference; includeInIndex = 1; path = RingHand.bin; sourceTree = "<group>"; };
+		92D3CD2A60E7E33865C04CFF /* RingHand.bin */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.macbinary; path = RingHand.bin; sourceTree = "<group>"; };
 		94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsPage.swift; sourceTree = "<group>"; };
 		94DED9BEC0FECCC41973C909 /* RingModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingModelRenderTests.swift; sourceTree = "<group>"; };
 		94E9AD94F1C0459F59355A1C /* JcTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcTheme.swift; sourceTree = "<group>"; };
@@ -1138,7 +1142,7 @@
 		AC7565B5245A07F935338195 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceModelSelection.swift; sourceTree = "<group>"; };
 		AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPrompt.swift; sourceTree = "<group>"; };
-		AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE7E2F9B2E7F80D2BAF90DA9 /* SkillRegistryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillRegistryTests.swift; sourceTree = "<group>"; };
 		AF3BF55CFE693B3983E29FAC /* HealthSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthSettingsSection.swift; sourceTree = "<group>"; };
 		B019B56DEE3BBB4264CD0251 /* WorkspacesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesTests.swift; sourceTree = "<group>"; };
@@ -1628,7 +1632,6 @@
 			children = (
 				133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */,
 			);
-			name = .;
 			path = .;
 			sourceTree = "<group>";
 		};
@@ -1755,7 +1758,6 @@
 				453F1881C3D4B7E9F8509168 /* ScaleUploader.swift */,
 				6F26EE8116FF48964B72C773 /* WeightCard.swift */,
 			);
-			name = Health;
 			path = Health;
 			sourceTree = "<group>";
 		};
@@ -1898,8 +1900,8 @@
 				8E90CCD8298956A5C5ADE7EB /* TemplatesRow.swift */,
 				325184FC8D98E2485468EC47 /* AppleHealthWriter.swift */,
 				10BD6E60B775C0E654677787 /* StrengthWorkoutDetail.swift */,
+				4210F2A785B22DCB0ECE717D /* WorkoutConfirmView.swift */,
 			);
-			name = Training;
 			path = Training;
 			sourceTree = "<group>";
 		};
@@ -2078,8 +2080,8 @@
 				0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */,
 				FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */,
 				99B6084AF9814D5180F753BE /* AppleHealthPlannerTests.swift */,
+				31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */,
 			);
-			name = Training;
 			path = Training;
 			sourceTree = "<group>";
 		};
@@ -2099,7 +2101,6 @@
 				15991A1D7F41088A3118A8B0 /* IntegrationSetupStore.swift */,
 				9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */,
 			);
-			name = Integrations;
 			path = Integrations;
 			sourceTree = "<group>";
 		};
@@ -2111,7 +2112,6 @@
 				1DB082EB68D2196ADC144F0C /* HealthHistoryTests.swift */,
 				C2F60B76A48FCF7E435B836D /* WeightTests.swift */,
 			);
-			name = Health;
 			path = Health;
 			sourceTree = "<group>";
 		};
@@ -2990,6 +2990,7 @@
 				22554A6C9B13475F93F1962D /* WorkoutActivityStateTests.swift in Sources */,
 				64D46A9B5575FD2E4D5C1F0C /* AppleHealthPlannerTests.swift in Sources */,
 				B4FD01264217310C2FECBE61 /* WeightTests.swift in Sources */,
+				07858C14AA2A0A27DE12000D /* WorkoutConfirmTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3433,6 +3434,7 @@
 				AFCA8D318DA858D65BDE7E19 /* StrengthWorkoutDetail.swift in Sources */,
 				D3D05FE52093A2C472290A1C /* ScaleUploader.swift in Sources */,
 				BEF0404F0984E6D47DE96269 /* WeightCard.swift in Sources */,
+				5FEC7BFE31420A3DA3BD793F /* WorkoutConfirmView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3682,7 +3684,24 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = JarvisCopilot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = JarvisCopilot;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts — heart rate, calories and distance — to Apple Health so they count toward your Activity rings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
@@ -3772,7 +3791,24 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = JarvisCopilot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = JarvisCopilot;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts — heart rate, calories and distance — to Apple Health so they count toward your Activity rings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot reaches Jarvis devices on your network: ESP32 boards once they're set up, and a Jarvis Pod's setup hotspot while you pair it.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;

@@ -15,6 +15,8 @@ struct WorkoutPicker: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("jc.workout.lastSport") private var lastSport = 7
     @State private var sheet: TemplateSheet?
+    /// The workout being confirmed: every start goes through its screen.
+    @State private var choice: WorkoutChoice?
 
     private enum TemplateSheet: Identifiable {
         case edit(WorkoutTemplate), new, manage
@@ -46,10 +48,7 @@ struct WorkoutPicker: View {
                 VStack(alignment: .leading, spacing: 22) {
                     if let onTemplate {
                         TemplatesRow(store: store,
-                                     onStart: { template in
-                                         dismiss()
-                                         onTemplate(template)
-                                     },
+                                     onStart: { choice = .strength($0) },
                                      onEdit: { sheet = .edit($0) },
                                      onNew: { sheet = .new },
                                      onManage: { sheet = .manage })
@@ -86,6 +85,9 @@ struct WorkoutPicker: View {
             .jcScreen("Workout")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            }
+            .navigationDestination(item: $choice) { picked in
+                WorkoutConfirmView(choice: picked, store: store, library: library) { start($0) }
             }
             .sheet(item: $sheet) { which in
                 switch which {
@@ -133,9 +135,23 @@ struct WorkoutPicker: View {
     }
 
     private func pick(_ sport: RingSport) {
-        lastSport = sport.id
+        choice = .picked(sport)
+    }
+
+    /// Confirmed: the picker closes and the workout begins.
+    private func start(_ choice: WorkoutChoice) {
         dismiss()
-        onPick(sport)
+        switch choice {
+        case .sport(let sport):
+            lastSport = sport.id
+            onPick(sport)
+        case .strength(let template?):
+            lastSport = RingSport.strengthID
+            if let onTemplate { onTemplate(store.templates.first { $0.id == template.id } ?? template) }
+        case .strength(nil):
+            lastSport = RingSport.strengthID
+            onPick(RingSport.withID(RingSport.strengthID))
+        }
     }
 }
 
