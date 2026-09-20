@@ -33,10 +33,16 @@ from agent.file_safety import (
 
 SENTINEL_NAME = "ESTOP"
 
-# Per-component "already logged for this engagement" flags, so a paused tick
-# loop logs once rather than once per tick.
+# "Already logged" flags keyed by (component, engaged_at), so a paused tick
+# loop logs once per outage rather than once per tick.
 _log_lock = threading.Lock()
 _logged_components: set = set()
+
+
+def _drop_component(component: str) -> None:
+    """Forget every engagement recorded for ``component``. Caller holds the lock."""
+    for key in [k for k in _logged_components if k[0] == component]:
+        _logged_components.discard(key)
 
 
 def sentinel_path() -> Path:
@@ -64,15 +70,38 @@ def _candidate_sentinel_paths() -> List[Path]:
     return [primary, root] if distinct else [primary]
 
 
+def _probe(path: Path) -> tuple:
+    """``(present, errored)`` for one candidate path.
+
+    ``Path.exists()`` swallows every OSError and answers False, so a sentinel
+    we cannot stat (unreadable home, ELOOP symlink, dead mount) would read as
+    "not paused" -- failing OPEN, which is the opposite of what an emergency
+    stop owes you. Only "genuinely absent" errors mean absent; anything else
+    is reported as an error so the caller can fail safe.
+    """
+    try:
+        path.stat()
+        return True, False
+    except (FileNotFoundError, NotADirectoryError):
+        return False, False
+    except OSError:
+        return False, True
+    except AttributeError:
+        # Non-Path test doubles.
+        try:
+            return bool(path.exists()), False
+        except OSError:
+            return False, True
+
+
 def is_engaged() -> bool:
     """True if ANY candidate sentinel exists. Fails SAFE (True) on stat errors."""
     saw_stat_error = False
     for path in _candidate_sentinel_paths():
-        try:
-            if path.exists():
-                return True
-        except OSError:
-            saw_stat_error = True
+        present, errored = _probe(path)
+        if present:
+            return True
+        saw_stat_error = saw_stat_error or errored
     return saw_stat_error
 
 
@@ -93,10 +122,20 @@ def engage(reason: Optional[str] = None) -> Path:
     return path
 
 
-def disengage() -> bool:
-    """Remove every visible sentinel (process-local and fleet root)."""
+def disengage(fleet: bool = False) -> bool:
+    """Remove the sentinel this process owns. Returns True if one was removed.
+
+    Asymmetry matters here: ``engage()`` writes exactly one sentinel (this
+    process's home), so lifting *every* candidate would let any profile clear
+    the operator's fleet-wide stop at ``~/.jarviscopilot/ESTOP`` -- a worker
+    silently resuming the whole fleet. By default a profile lifts only its own
+    pause; ``is_engaged()`` keeps reporting True while the root stop stands,
+    and clearing that one takes ``fleet=True`` (i.e. an explicit operator
+    action from the root home).
+    """
+    paths = _candidate_sentinel_paths() if fleet else [sentinel_path()]
     lifted = False
-    for path in _candidate_sentinel_paths():
+    for path in paths:
         try:
             path.unlink()
             lifted = True
@@ -115,12 +154,10 @@ def get_state() -> Optional[dict]:
     state = {"reason": None, "engaged_at": None}
     found = False
     for path in _candidate_sentinel_paths():
-        try:
-            if not path.exists():
-                continue
-        except OSError:
+        present, errored = _probe(path)
+        if errored:
             return state
-        except AttributeError:
+        if not present:
             continue
         found = True
         with suppress(OSError, ValueError, AttributeError):
@@ -151,15 +188,21 @@ def check_paused(component: str, logger: logging.Logger) -> bool:
 
     The flag re-arms after a resume, so the next pause logs again.
     """
-    if not is_engaged():
+    state = get_state()
+    if state is None:
         with _log_lock:
-            _logged_components.discard(component)
+            _drop_component(component)
         return False
+    # Key on the engagement, not just the component: a lift and a fresh pause
+    # between two ticks is a NEW outage and deserves its own line, even though
+    # no tick observed the gap.
+    key = (component, state.get("engaged_at"))
     with _log_lock:
-        first = component not in _logged_components
-        _logged_components.add(component)
+        first = key not in _logged_components
+        _drop_component(component)
+        _logged_components.add(key)
     if first:
-        reason = (get_state() or {}).get("reason")
+        reason = state.get("reason")
         suffix = f" (reason: {reason})" if reason else ""
         logger.info(
             "%s paused by global emergency stop%s -- lift with "

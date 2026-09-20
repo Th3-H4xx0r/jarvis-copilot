@@ -5123,6 +5123,45 @@ class HermesCLI:
             print(f"  Unknown subcommand: {subcmd}")
             print("  Usage: /snapshot [list|create [label]|restore <id>|prune [N]]")
 
+    def _handle_estop_command(self, cmd_original: str):
+        """/pause and /unpause — the global emergency stop.
+
+        /stop kills this session's background processes; /pause is the
+        fleet-wide stand-down that also holds cron and the kanban dispatcher.
+        /unpause is an alias of /pause, so the invoked word is what tells them
+        apart.
+        """
+        from agent import estop
+
+        text = (cmd_original or "").strip()
+        invoked = text.split(None, 1)[0].lstrip("/").lower() if text else "pause"
+
+        if invoked.startswith("unpause"):
+            lifted = estop.disengage()
+            if estop.is_engaged():
+                self.console.print(
+                    "[yellow]⏸️  Still paused by a fleet-wide stop at "
+                    f"{estop._candidate_sentinel_paths()[-1]}[/yellow] — lift it "
+                    "from the root home."
+                )
+                return
+            self.console.print(
+                "[green]▶️  Resumed.[/green] Cron, kanban and new turns are "
+                "picking work up again." if lifted
+                else "[dim]▶️  Not paused — nothing to resume.[/dim]"
+            )
+            return
+
+        parts = text.split(None, 1)
+        reason = parts[1].strip() if len(parts) > 1 else ""
+        path = estop.engage(reason or None)
+        tag = f" ({reason})" if reason else ""
+        self.console.print(
+            f"[yellow]⏸️  Paused{tag}.[/yellow] New cron jobs, kanban dispatch "
+            "and new gateway turns are on hold; work already running finishes.\n"
+            f"[dim]   Sentinel: {path}\n   Lift with /unpause[/dim]"
+        )
+
     def _handle_stop_command(self):
         """Handle /stop — kill all running background processes.
 
@@ -8012,6 +8051,8 @@ class HermesCLI:
             self._handle_snapshot_command(cmd_original)
         elif canonical == "stop":
             self._handle_stop_command()
+        elif canonical == "pause":
+            self._handle_estop_command(cmd_original)
         elif canonical == "agents":
             self._handle_agents_command()
         elif canonical == "background":

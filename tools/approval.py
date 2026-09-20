@@ -158,8 +158,15 @@ _COMMAND_TAIL = r'(?:\s*(?:&&|\|\||;).*)?$'
 # shell being handed a payload (-c, a pipe, process substitution). They used to
 # be spelled out per pattern and drifted: `(ba)?sh` let `curl url | zsh` through
 # while the identical bash and sh commands were flagged.
-_SHELL_NAMES = ("bash", "sh", "zsh", "ksh", "dash")
+_SHELL_NAMES = ("bash", "sh", "zsh", "ksh", "dash", "ash", "mksh", "rbash",
+                "fish", "csh", "tcsh")
 _SHELL_NAMES_RE = "|".join(_SHELL_NAMES)
+# Wrappers that sit between the pipe and the shell without changing what
+# happens: `curl url | sudo sh` executes the download exactly like `| sh`.
+_EXEC_WRAPPER_RE = (
+    r'(?:(?:sudo|doas|env|nohup|exec|command|setsid|stdbuf|busybox|'
+    r'time|timeout|xargs|nice|ionice)\s+(?:-\S+\s+|\S+=\S+\s+|\d+\S*\s+)*)*'
+)
 
 # =========================================================================
 # Hardline (unconditional) blocklist
@@ -353,7 +360,8 @@ DANGEROUS_PATTERNS = [
     (r'\b(python[23]?|perl|ruby|node)\s+-[ec]\s+', "script execution via -e/-c flag"),
     # The optional `[/\w]*/` prefix catches an absolute interpreter (`| /bin/sh`),
     # and the trailing group catches `| sh -c` as well as a bare `| sh`.
-    (rf'\b(curl|wget)\b.*\|\s*(?:[/\w]*/)?(?:{_SHELL_NAMES_RE})(?:\s|$|-c)', "pipe remote content to shell"),
+    (rf'\b(curl|wget)\b.*\|\s*{_EXEC_WRAPPER_RE}["\']?(?:[/\w.-]*/)?'
+     rf'(?:{_SHELL_NAMES_RE})["\']?(?![\w.-])', "pipe remote content to shell"),
     (rf'\b(?:{_SHELL_NAMES_RE})\s+<\s*<?\s*\(\s*(curl|wget)\b', "execute remote script via process substitution"),
     (rf'\btee\b.*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via tee"),
     (rf'>>?\s*["\']?{_SENSITIVE_WRITE_TARGET}', "overwrite system file via redirection"),

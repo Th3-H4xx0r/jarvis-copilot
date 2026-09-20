@@ -6375,6 +6375,14 @@ class GatewayRunner:
             if _cmd_def_inner and _cmd_def_inner.name == "restart":
                 return await self._handle_restart_command(event)
 
+            # /pause and /unpause must work WHILE an agent is running — that
+            # is the whole point of a stand-down, and mid-deploy is exactly
+            # when you reach for it. Without this they hit the busy catch-all
+            # ("can't run mid-turn, /stop first") and nothing would pause.
+            # The running turn is deliberately left alone to finish.
+            if _cmd_def_inner and _cmd_def_inner.name == "pause":
+                return self._handle_estop_command(event)
+
             # /stop must hard-kill the session when an agent is running.
             # A soft interrupt (agent.interrupt()) doesn't help when the agent
             # is truly hung — the executor thread is blocked and never checks
@@ -9084,7 +9092,12 @@ class GatewayRunner:
         # The invoked word is the only thing that tells them apart.
         invoked = text.split(None, 1)[0].lstrip("/").lower() if text else "pause"
         if invoked.startswith("unpause"):
-            if estop.disengage():
+            lifted = estop.disengage()
+            if estop.is_engaged():
+                return ("⏸️ Still paused by a fleet-wide stop at "
+                        f"{estop._candidate_sentinel_paths()[-1]} — lift that one "
+                        "from the root home.")
+            if lifted:
                 return "▶️ Resumed. Cron, kanban and new turns are picking work up again."
             return "▶️ Not paused — nothing to resume."
 
@@ -16697,6 +16710,20 @@ class GatewayRunner:
                 )
                 pending_event = None
                 pending = None
+
+            # A pause engaged WHILE this turn was running must also stop the
+            # follow-up it queued: this drain path recurses into _run_agent
+            # directly, so the gate in _handle_message_with_agent never sees it
+            # and a brand-new turn would start on a paused agent.
+            if pending_event or pending:
+                from agent import estop
+                if estop.is_engaged():
+                    logger.info(
+                        "Holding pending follow-up for session %s — paused by "
+                        "the global emergency stop", session_key or "?",
+                    )
+                    pending_event = None
+                    pending = None
 
             if pending_event or pending:
                 logger.debug("Processing pending message: '%s...'", pending[:40])

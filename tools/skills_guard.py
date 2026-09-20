@@ -55,7 +55,10 @@ VERDICT_INDEX = {"safe": 0, "caution": 1, "dangerous": 2}
 # POSIX shell names as one shared alternation, so every pipe-to-shell pattern
 # below flags the same set. The narrower `(ba)?sh` spelling let a skill install
 # script run `curl url | zsh` unflagged while bash and sh were caught.
-_SHELL_NAMES_RE = r'(?:bash|sh|zsh|ksh|dash)'
+_SHELL_NAMES_RE = r'(?:bash|sh|zsh|ksh|dash|ash|mksh|rbash|fish|csh|tcsh)(?![\w-])'
+# The (?![\w-]) matters: \b still matches before a hyphen, so plain `\b`
+# left `| dashboard-render` and `| dash-unpack` matching `dash`
+# and every skill using it was flagged critical.
 
 
 # ---------------------------------------------------------------------------

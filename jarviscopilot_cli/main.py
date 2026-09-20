@@ -5940,7 +5940,14 @@ def cmd_unpause(args):
     """`jarviscopilot unpause` -- lift the global emergency stop."""
     from agent import estop
 
-    if estop.disengage():
+    lifted = estop.disengage()
+    if estop.is_engaged():
+        # A fleet-wide stop at the root home outranks this profile's unpause.
+        print("\u23f8\ufe0f  Still paused by a fleet-wide stop at "
+              f"{estop._candidate_sentinel_paths()[-1]}.")
+        print("   Lift that one from the root home (no -p/--profile).")
+        return 1
+    if lifted:
         print("\u25b6\ufe0f  Resumed. Cron, kanban and new turns are picking work up again.")
         return 0
     print("\u25b6\ufe0f  Not paused \u2014 nothing to resume.")

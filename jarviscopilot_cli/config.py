@@ -115,6 +115,19 @@ _ENV_VAR_NAME_DENYLIST: frozenset = frozenset({
     "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", "GIT_DIR",
     # Shell init files / interactive hooks -- sourced before or during execution
     "BASH_ENV", "ENV", "ZDOTDIR", "PROMPT_COMMAND", "VIMINIT", "EXINIT",
+    "LESSOPEN", "LESSCLOSE",
+    # Home redirection. .env loads with override=True, so a writable HOME
+    # repoints ~/.gitconfig (core.pager, alias.x = !cmd), ~/.ssh/config
+    # ProxyCommand, and the HOME-anchored profiles root.
+    "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "TMPDIR", "TEMP", "TMP",
+    # Build/toolchain wrappers and package sources -- each names a program
+    # that later runs, or where code is fetched from.
+    "RUSTC_WRAPPER", "RUSTC", "CC", "CXX", "LD", "MAKE", "MAKEFLAGS",
+    "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "NPM_CONFIG_REGISTRY",
+    # PYTHONWARNINGS imports an arbitrary module at interpreter start.
+    "PYTHONWARNINGS",
+    # GIT_CONFIG has no trailing underscore, so the GIT_CONFIG_ prefix misses it.
+    "GIT_CONFIG",
     # JarvisCopilot runtime location
     "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
     "HERMES_CONFIG_PATH", "HERMES_ENV_PATH",
@@ -123,7 +136,79 @@ _ENV_VAR_NAME_DENYLIST: frozenset = frozenset({
     "HERMES_INTERACTIVE", "HERMES_EXEC_ASK", "HERMES_GATEWAY_SESSION",
     "HERMES_CRON_SESSION", "HERMES_SINGLE_QUERY_SESSION",
     "HERMES_SESSION_KEY", "HERMES_SESSION_PLATFORM",
+    # Turns on importing plugins from the working directory -- arbitrary
+    # in-process Python on the next run.
+    "HERMES_ENABLE_PROJECT_PLUGINS",
+    # Names the bash.exe every Windows terminal command is run through.
+    "HERMES_GIT_BASH_PATH",
+    "HERMES_RPC_DIR",
 })
+
+
+# config.yaml keys that decide whether the agent asks before doing something,
+# or what it executes commands with. Denying HERMES_YOLO_MODE in .env is
+# decorative if the same actor can just write `approvals: {mode: off}` here --
+# tools/approval.py honours that identically. Guarded on the remote write
+# surface only (the dashboard's PUT /api/config); a local edit of config.yaml,
+# the setup wizard and the CLI are unaffected.
+_CONFIG_WRITE_PROTECTED_PATHS: tuple = (
+    "approvals.mode",
+    "approvals.cron_mode",
+    "approvals.timeout",
+    "approvals.destructive_slash_confirm",
+    "approvals.mcp_reload_confirm",
+    "command_allowlist",
+    "security.allow_lazy_installs",
+    "security.allow_private_urls",
+    "security.redact_secrets",
+    "security.tirith_enabled",
+    "security.tirith_fail_open",
+    "security.tirith_path",
+    "security.website_blocklist",
+    "terminal.backend",
+    "terminal.cwd",
+    "terminal.env_passthrough",
+    "terminal.shell_init_files",
+    "terminal.auto_source_bashrc",
+    "terminal.docker_forward_env",
+    "skills.guard_agent_created",
+    "skills.external_dirs",
+    "skills.inline_shell",
+)
+
+
+def _dig(mapping: Any, dotted: str) -> Any:
+    """Value at ``dotted`` in a nested mapping, or a sentinel when absent."""
+    node = mapping
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+_MISSING = object()
+
+
+def validate_config_write(new_config: dict, current_config: Optional[dict] = None) -> None:
+    """Raise ``ValueError`` if a remote write would CHANGE a protected key.
+
+    Compares against the config on disk rather than rejecting the keys
+    outright, because the dashboard round-trips the whole document on every
+    save -- sending a protected key back unchanged has to keep working.
+    """
+    if current_config is None:
+        current_config = load_config()
+    for dotted in _CONFIG_WRITE_PROTECTED_PATHS:
+        incoming = _dig(new_config, dotted)
+        if incoming is _MISSING:
+            continue
+        if _dig(current_config, dotted) != incoming:
+            raise ValueError(
+                f"{dotted!r} decides what runs without asking, so it cannot be "
+                "changed through the dashboard. Edit config.yaml directly, or "
+                "use the CLI."
+            )
 
 
 def _env_var_policy_name(key: str, is_windows: Optional[bool] = None) -> str:
@@ -143,7 +228,9 @@ def validate_env_var_name_for_write(key: str) -> None:
     Exposed separately so batch callers can validate every name before doing
     partial work.
     """
-    if not _ENV_VAR_NAME_RE.match(key):
+    # fullmatch, not match: `$` also matches just before a trailing newline, so
+    # "PATH\n" passed the syntax check and then corrupted the .env file.
+    if not _ENV_VAR_NAME_RE.fullmatch(key):
         raise ValueError(f"Invalid environment variable name: {key!r}")
     policy_name = _env_var_policy_name(key)
     if (policy_name in _ENV_VAR_NAME_DENYLIST

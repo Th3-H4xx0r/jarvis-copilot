@@ -43,6 +43,7 @@ from jarviscopilot_cli.config import (
     load_env,
     save_config,
     save_env_value,
+    validate_config_write,
     remove_env_value,
     check_config_version,
     redact_key,
@@ -1192,8 +1193,15 @@ def _denormalize_config_from_web(config: Dict[str, Any]) -> Dict[str, Any]:
 @app.put("/api/config")
 async def update_config(body: ConfigUpdate):
     try:
-        save_config(_denormalize_config_from_web(body.config))
+        incoming = _denormalize_config_from_web(body.config)
+        # Same actor, same token as PUT /api/env -- so the same policy applies.
+        # Without this, `approvals: {mode: off}` reproduces exactly the
+        # escalation the env-writer denylist exists to stop.
+        validate_config_write(incoming)
+        save_config(incoming)
         return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         _log.exception("PUT /api/config failed")
         raise HTTPException(status_code=500, detail="Internal server error")

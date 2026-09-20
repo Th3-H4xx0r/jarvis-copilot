@@ -14,6 +14,7 @@ import pytest
 
 from jarviscopilot_cli.config import (
     _env_var_policy_name,
+    validate_config_write,
     load_env,
     save_env_value,
     save_env_value_secure,
@@ -111,3 +112,70 @@ class TestPlatformCaseSemantics:
 
     def test_posix_env_names_are_case_sensitive(self):
         assert _env_var_policy_name("path", is_windows=False) == "path"
+
+
+class TestEscalationNamesFoundByReview:
+    """Names an adversarial pass found still writable after the first pass."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "HOME",                          # repoints ~/.gitconfig, ~/.ssh/config
+            "USERPROFILE",
+            "XDG_CONFIG_HOME",
+            "TMPDIR",
+            "HERMES_ENABLE_PROJECT_PLUGINS",  # imports cwd plugins -> in-process RCE
+            "HERMES_GIT_BASH_PATH",           # the bash.exe every Windows command uses
+            "PYTHONWARNINGS",                 # imports a module at interpreter start
+            "GIT_CONFIG",                     # no underscore, so the prefix missed it
+            "LESSOPEN",
+            "RUSTC_WRAPPER",
+            "PIP_INDEX_URL",
+        ],
+    )
+    def test_execution_steering_names_are_refused(self, tmp_path, name):
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            with pytest.raises(ValueError, match="denylist"):
+                save_env_value(name, "anything")
+
+    @pytest.mark.parametrize("name", ["PATH\n", "HERMES_YOLO_MODE\n", "HOME\n"])
+    def test_trailing_newline_does_not_smuggle_a_name_through(self, tmp_path, name):
+        """`$` also matches before a trailing newline, so match() accepted
+        "PATH\n" and then wrote a corrupt .env line."""
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            with pytest.raises(ValueError):
+                save_env_value(name, "/tmp/evil")
+            assert not (tmp_path / ".env").exists()
+
+
+class TestConfigWriteIsGatedToo:
+    """The env denylist is decorative if the same token can write
+    `approvals.mode: off` through PUT /api/config instead."""
+
+    CURRENT = {
+        "approvals": {"mode": "manual"},
+        "terminal": {"backend": "local"},
+        "security": {"redact_secrets": True},
+        "display": {"skin": "default"},
+    }
+
+    @pytest.mark.parametrize(
+        "incoming",
+        [
+            {"approvals": {"mode": "off"}},
+            {"approvals": {"cron_mode": "approve"}},
+            {"terminal": {"backend": "docker"}},
+            {"security": {"redact_secrets": False}},
+            {"skills": {"inline_shell": True}},
+        ],
+    )
+    def test_changing_a_protected_key_is_refused(self, incoming):
+        with pytest.raises(ValueError):
+            validate_config_write(incoming, self.CURRENT)
+
+    def test_unchanged_round_trip_is_allowed(self):
+        """The dashboard PUTs the whole document on every save."""
+        validate_config_write(dict(self.CURRENT), self.CURRENT)
+
+    def test_ordinary_settings_still_writable(self):
+        validate_config_write({"display": {"skin": "ares"}}, self.CURRENT)

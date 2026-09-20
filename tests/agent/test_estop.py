@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -71,9 +72,23 @@ class TestFailSafe:
         (home / estop.SENTINEL_NAME).write_text('["a list"]')
         assert estop.is_engaged() is True
 
-    def test_stat_error_is_treated_as_engaged(self, home):
-        with patch("pathlib.Path.exists", side_effect=OSError("stat failed")):
+    def test_unreadable_home_is_treated_as_engaged(self, home):
+        """Path.exists() swallows OSError and answers False, which would fail
+        OPEN. Probe with stat() so an unreadable home reads as paused."""
+        estop.engage("x")
+        real_stat = Path.stat
+
+        def boom(self, *a, **kw):
+            if self.name == estop.SENTINEL_NAME:
+                raise PermissionError(13, "Permission denied")
+            return real_stat(self, *a, **kw)
+
+        with patch.object(Path, "stat", boom):
             assert estop.is_engaged() is True
+
+    def test_missing_parent_directory_is_not_engaged(self, home):
+        """A home that does not exist is "no pause", not a fail-safe trip."""
+        assert estop.is_engaged() is False
 
 
 class TestLoggingOncePerEngagement:
@@ -122,11 +137,21 @@ class TestProfilesHonourTheFleetRoot:
 
 
 class TestCallersRefuseWork:
-    def test_cron_tick_runs_no_jobs_while_paused(self, home):
+    def test_cron_tick_returns_before_taking_its_lock(self, home, monkeypatch):
+        """tick() returns 0 on an empty store too, so assert it never reaches
+        the lock -- otherwise deleting the guard would not fail this test."""
         from cron import scheduler
 
+        reached = []
+        monkeypatch.setattr(scheduler, "_get_lock_paths",
+                            lambda: reached.append(1) or (home, home / "l"))
         estop.engage("holding")
         assert scheduler.tick(verbose=False) == 0
+        assert reached == [], "tick() proceeded past the estop guard"
+
+        estop.disengage()
+        scheduler.tick(verbose=False)
+        assert reached, "guard did not lift -- tick never reached the lock"
 
     def test_kanban_dispatch_is_a_no_op_while_paused(self, home):
         from jarviscopilot_cli import kanban_db
@@ -142,3 +167,44 @@ class TestCallersRefuseWork:
         reply = estop.paused_reply()
         assert "deploying" in reply
         assert "unpause" in reply
+
+
+class TestProfileCannotLiftTheFleetStop:
+    """A worker profile must not be able to resume the whole fleet."""
+
+    def test_profile_unpause_leaves_the_root_sentinel(self, tmp_path, monkeypatch):
+        root = tmp_path / ".jarviscopilot"
+        profile = root / "profiles" / "coder"
+        profile.mkdir(parents=True)
+        monkeypatch.setattr(os.path, "expanduser", lambda p: p.replace("~", str(tmp_path)))
+        estop._logged_components.clear()
+
+        (root / estop.SENTINEL_NAME).write_text('{"reason": "operator"}')
+        monkeypatch.setenv("HERMES_HOME", str(profile))
+
+        assert estop.is_engaged() is True
+        estop.disengage()
+        assert (root / estop.SENTINEL_NAME).exists(), "profile deleted the fleet stop"
+        assert estop.is_engaged() is True, "profile resumed a fleet-wide pause"
+
+    def test_fleet_flag_lifts_it(self, tmp_path, monkeypatch):
+        root = tmp_path / ".jarviscopilot"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(os.path, "expanduser", lambda p: p.replace("~", str(tmp_path)))
+        monkeypatch.setenv("HERMES_HOME", str(root))
+        estop._logged_components.clear()
+        estop.engage("operator")
+        assert estop.disengage(fleet=True) is True
+        assert estop.is_engaged() is False
+
+
+class TestOutageLogging:
+    def test_a_second_outage_logs_again(self, home, caplog):
+        """Lift + re-engage between two ticks is a NEW outage."""
+        with caplog.at_level(logging.INFO, logger="test.estop"):
+            estop.engage("first")
+            estop.check_paused("cron", LOG)
+            estop.disengage()
+            estop.engage("second")
+            estop.check_paused("cron", LOG)
+        assert len(caplog.records) == 2
