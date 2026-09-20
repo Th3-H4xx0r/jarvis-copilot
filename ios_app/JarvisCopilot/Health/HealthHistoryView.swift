@@ -219,6 +219,17 @@ struct HealthHistoryView: View {
             ForEach(history.buckets.filter { $0.days > 0 }) { bucket in
                 marks(bucket, dimmed: picked != nil && picked?.id != bucket.id)
             }
+            // Where the heart settles, for the bars to be read against.
+            if metric == .heartRate, let resting = HealthRestingHR.last, resting > 0 {
+                RuleMark(y: .value("Resting", resting))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                    .foregroundStyle(JcTheme.muted)
+                    .annotation(position: .top, alignment: .leading, spacing: 2) {
+                        Text("Resting \(Int(resting.rounded()))")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(JcTheme.muted)
+                    }
+            }
             if let picked {
                 RuleMark(x: .value("When", picked.startDate, unit: range.unit))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))

@@ -396,6 +396,7 @@
 		936892D3F00DC38EE40DC8C1 /* VoiceMocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59053007B98F708B4326A25C /* VoiceMocks.swift */; };
 		9383096ABF2550ABAA85A1A1 /* RouteRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90CD5656BB029323B728179C /* RouteRecording.swift */; };
 		938CC62DDF262AA7E28B590A /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47DA26B598740E34C2CB21A /* BridgeClient.swift */; };
+		94022CAE7249652D2F66FE66 /* RestingHeartRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A2BEA0DCA28EE2E7705DAF /* RestingHeartRateTests.swift */; };
 		956CD496E2654E5DE5FA24E0 /* AudioQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F16FA169627D2EED523E35 /* AudioQueue.swift */; };
 		9572099E8AE0D566CACDE6CC /* SkillBoundariesData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB72A7E79E5A6378130F9C4 /* SkillBoundariesData.swift */; };
 		964FE255869F495ABB719B0F /* LocalCommandMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94E01ED72E949BE654653B0 /* LocalCommandMatcherTests.swift */; };
@@ -607,6 +608,7 @@
 		E3B5FF0D7B821BB2A5F75BCB /* MarkdownBlocks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25906B39897A80CF7446FD72 /* MarkdownBlocks.swift */; };
 		E3BE58BB6B9C6810259C0C0B /* DataSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = A525B24E6E393BB06F66E26E /* DataSkills.swift */; };
 		E407745FE90A3A244C8B279F /* CodingViewHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E2AB7620D490D3BFC3363C /* CodingViewHostingTests.swift */; };
+		E41084047CAE909ED88FACBC /* RestingHeartRate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */; };
 		E44E8416D99FC312F8ED16E7 /* IslandPlanNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4469E0A7717961EBFEB6DCD /* IslandPlanNotifierTests.swift */; };
 		E45FF104E0EC3C2B89A2CBAE /* AppDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C977B201AFD54C03773DE4 /* AppDeepLinkTests.swift */; };
 		E496A861E5948DF39B1A7F00 /* RingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C429F206CC9CEAC921AA8F /* RingLog.swift */; };
@@ -657,6 +659,7 @@
 		F880A214362F9FCA7D18C389 /* IntegrationDeleteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E9C82A1568ECB9AB0D221D /* IntegrationDeleteSheet.swift */; };
 		F8DA828F7DEC22216800C8C1 /* SettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B04FC9C8E84EB548A42E441 /* SettingsStoreTests.swift */; };
 		F9C22A26ABDAED60FA00A4E5 /* PhoneSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */; };
+		FAB223399DCA586D0D0FB081 /* CrashNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BE871907602BDD31622513 /* CrashNote.swift */; };
 		FB39EEED51862E3465414805 /* Firmware in Resources */ = {isa = PBXBuildFile; fileRef = E8152F8F3CF43DF519045357 /* Firmware */; };
 		FB4819B08A7CB5076F2280D3 /* RingMeasureList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */; };
 		FC2F266FDB8D65FAA123BC96 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 671E6E8C6B7E20C4FDD46B5C /* WidgetKit.framework */; };
@@ -1051,6 +1054,7 @@
 		80590D4742A1BA31D2A3DF28 /* LiveActivityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityTests.swift; sourceTree = "<group>"; };
 		81976A30CF7430EFBDBF1967 /* VoiceKaraoke.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceKaraoke.swift; sourceTree = "<group>"; };
 		81AC40B9491E22F76D6C1880 /* MarkdownBlocksTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownBlocksTests.swift; sourceTree = "<group>"; };
+		81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestingHeartRate.swift; sourceTree = "<group>"; };
 		824F94160F0A771B6E1CFA66 /* RouteRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRenderTests.swift; sourceTree = "<group>"; };
 		8255C5915F64E76446E20AA5 /* ScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanView.swift; sourceTree = "<group>"; };
 		8255E22F98CF91A5B288D04E /* VoiceSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSession.swift; sourceTree = "<group>"; };
@@ -1066,6 +1070,7 @@
 		8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelSelection.swift; sourceTree = "<group>"; };
 		863366496127EA732989D701 /* ChatUIFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormatTests.swift; sourceTree = "<group>"; };
 		86719261442AFBE85FA6D47B /* IslandBindingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandBindingsTests.swift; sourceTree = "<group>"; };
+		86A2BEA0DCA28EE2E7705DAF /* RestingHeartRateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestingHeartRateTests.swift; sourceTree = "<group>"; };
 		87AFCD28D46279B3A077F8B4 /* SelfImprovementTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementTests.swift; sourceTree = "<group>"; };
 		880324585FCBF620B71CB25A /* SystemSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemSkills.swift; sourceTree = "<group>"; };
 		883B8048C4A61D4DFCC04066 /* KanbanModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanModels.swift; sourceTree = "<group>"; };
@@ -1095,6 +1100,7 @@
 		90CD5656BB029323B728179C /* RouteRecording.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRecording.swift; sourceTree = "<group>"; };
 		911130C5D9F9EBCB12B39CE3 /* VoicePagePresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePagePresentation.swift; sourceTree = "<group>"; };
 		91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicePairSheet.swift; sourceTree = "<group>"; };
+		91BE871907602BDD31622513 /* CrashNote.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CrashNote.swift; sourceTree = "<group>"; };
 		91D629E8B337070323B8B81A /* ServerLogsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsUITests.swift; sourceTree = "<group>"; };
 		92D3CD2A60E7E33865C04CFF /* RingHand.bin */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.macbinary; path = RingHand.bin; sourceTree = "<group>"; };
 		94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsPage.swift; sourceTree = "<group>"; };
@@ -2196,6 +2202,7 @@
 				1DB082EB68D2196ADC144F0C /* HealthHistoryTests.swift */,
 				C2F60B76A48FCF7E435B836D /* WeightTests.swift */,
 				8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */,
+				86A2BEA0DCA28EE2E7705DAF /* RestingHeartRateTests.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -2590,6 +2597,7 @@
 				D3CA494DBEEF37C0B184E03F /* MetricKitReporter.swift */,
 				C70D9A5B75C48F0F5001D44C /* PersonaLoader.swift */,
 				90CA73235F950D5093A695CF /* EnergyReport.swift */,
+				91BE871907602BDD31622513 /* CrashNote.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -2650,6 +2658,7 @@
 				97F3DA354B7EF100ADB49B59 /* WorkoutLiveActivity.swift */,
 				F918C742EB0DCFAA0DAB3646 /* WorkoutViews.swift */,
 				F88B98DE1E4C6CD188404C04 /* PhonePedometer.swift */,
+				81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -3086,6 +3095,7 @@
 				43DC344013DB784114E907B8 /* RouteStoreTests.swift in Sources */,
 				9D6490D43E0CF5A7E36BC279 /* RouteDetailTests.swift in Sources */,
 				F163128F7FDFFA940A6B9582 /* RouteFollowerTests.swift in Sources */,
+				94022CAE7249652D2F66FE66 /* RestingHeartRateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3545,6 +3555,8 @@
 				3FA02E17F7F05F025CDBAEED /* RouteFollower.swift in Sources */,
 				3CD102A79237B5ECFD9E6A24 /* RoutePicker.swift in Sources */,
 				1B139C8F9E202305775442C6 /* PhonePedometer.swift in Sources */,
+				FAB223399DCA586D0D0FB081 /* CrashNote.swift in Sources */,
+				E41084047CAE909ED88FACBC /* RestingHeartRate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

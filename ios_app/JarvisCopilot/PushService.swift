@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil)
     -> Bool {
+        // Before anything else: an exception that ends the app leaves its reason behind.
+        CrashNote.watch()
         Task { @MainActor in
             PushService.shared.registerIfPaired()
             // Listens for ring syncs from here on, and catches up now.

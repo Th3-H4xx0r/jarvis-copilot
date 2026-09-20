@@ -283,6 +283,12 @@ final class RingHistoryStore: ObservableObject {
         revision += 1
     }
 
+    /// Lets go of the days held in memory (a long sweep over months of them
+    /// would otherwise keep every one).
+    func dropCache() {
+        cache.removeAll(keepingCapacity: false)
+    }
+
     /// Today first.
     func recentDays(_ count: Int, now: Date = Date(), calendar: Calendar = .current) -> [RingDay] {
         (0..<max(0, count)).map {

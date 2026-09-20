@@ -111,16 +111,11 @@ enum AppleHealthPlan {
                                          syncID: "jarvis-hr-\(tag)-\(minute)")
             }
         case .restingHeartRate:
-            // The mean of the three lowest readings in the main night's sleep.
-            guard let night = day.sleep.max(by: { $0.asleepMinutes < $1.asleepMinutes }), let series = day.heartRate else { return [] }
-            let lows = series.readings
-                .filter { (30...120).contains($0.value) }
-                .filter { at($0.minute) >= night.start && at($0.minute) <= night.end }
-                .map(\.value).sorted().prefix(3)
-            guard lows.count == 3 else { return [] }
-            let value = (lows.reduce(0, +) / 3).rounded()
-            return [AppleHealthSample(value: .quantity(.restingHeartRate, unit: bpm, value: value), start: night.end, end: night.end,
-                                      syncID: "jarvis-rhr-\(tag)")]
+            // The night's settled rate, or the day's quietest stretch.
+            guard let resting = RestingHeartRate.forDay(day, calendar: calendar) else { return [] }
+            let when = resting.at ?? at(12 * 60)
+            return [AppleHealthSample(value: .quantity(.restingHeartRate, unit: bpm, value: Double(resting.bpm)),
+                                      start: when, end: when, syncID: "jarvis-rhr-\(tag)")]
         case .hrv:
             return (day.hrv?.readings ?? []).filter { (5...300).contains($0.value) }.map {
                 AppleHealthSample(value: .quantity(.heartRateVariabilitySDNN, unit: "ms", value: $0.value),
@@ -240,7 +235,7 @@ final class AppleHealthSync: ObservableObject {
     private var pending: Task<Void, Never>?
     private var watching: [NSObjectProtocol] = []
     /// How far back a first sync reaches.
-    static let historyDays = 180
+    static let historyDays = 90
     /// How far back a routine sync looks: a ring sync only revises its last few days.
     static let recentDays = 3
     /// The next sync walks the whole window (first time, a kind switched on, Sync Now).
@@ -357,6 +352,7 @@ final class AppleHealthSync: ObservableObject {
             let keys = Array(ring.allKeys().suffix(days))
             let wanted = AppleHealthKind.fromRingDays.filter { kinds.contains($0) && allowed($0) }
             let types = allowedTypes()
+            var done = 0
             for key in keys {
                 // A day whose file hasn't changed since it was written is skipped
                 // whole — no samples built, nothing hashed.
@@ -377,6 +373,13 @@ final class AppleHealthSync: ObservableObject {
                 }.value
                 for (fingerprintKey, print, batch) in built {
                     guard await save(batch, key: fingerprintKey, fingerprint: print) else { return false }
+                }
+                // Months of days would otherwise all stay in memory, and iOS
+                // ends an app that holds too much.
+                done += 1
+                if done % 10 == 0 {
+                    ring.dropCache()
+                    saveFingerprints()
                 }
                 await Task.yield()
             }

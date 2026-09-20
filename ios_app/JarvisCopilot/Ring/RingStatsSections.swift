@@ -177,11 +177,13 @@ struct RingStatsSections: View {
         let line = timed(day.heartRate)
         let points = day.manualHeartRate + day.instantHeartRate
         let tolerance = max(15, day.heartRate?.intervalMinutes ?? 0)
+        let resting = RestingHeartRate.forDay(day)?.bpm
         return RingMetricCard(
             title: "Heart rate",
             symbol: RingSymbol(name: RingMeasurementType.heartRate.icon, tint: RingMeasurementType.heartRate.tint),
             headline: RingStat(label: "Latest", value: s.heartRateLatest.map { "\($0) bpm" }),
             details: [
+                RingStat(label: "Resting", value: resting.map { "\($0) bpm" }),
                 RingStat(label: "Average", value: s.heartRateAvg.map { "\($0) bpm" }),
                 RingStat(label: "Lowest", value: s.heartRateMin.map { "\($0) bpm" }),
                 RingStat(label: "Highest", value: s.heartRateMax.map { "\($0) bpm" }),
@@ -208,6 +210,16 @@ struct RingStatsSections: View {
                 ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("bpm", point.value))
                         .foregroundStyle(Color.pink)
+                }
+                if let resting {
+                    RuleMark(y: .value("Resting", resting))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                        .foregroundStyle(JcTheme.muted)
+                        .annotation(position: .top, alignment: .leading, spacing: 2) {
+                            Text("Resting \(resting)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(JcTheme.muted)
+                        }
                 }
                 if let selected { RingScrubRule(x: selected) }
             }

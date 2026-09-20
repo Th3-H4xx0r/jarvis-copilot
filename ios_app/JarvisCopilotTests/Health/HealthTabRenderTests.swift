@@ -56,6 +56,30 @@ final class HealthTabRenderTests: XCTestCase {
                                 size: CGSize(width: 402, height: 1320), name: "health-measuring")
     }
 
+    /// A day's heart rate with the resting line across it.
+    func testTheHeartRateCardShowsResting() throws {
+        let store = RingHistoryStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString))
+        let midnight = RingDates.date(forKey: "2026-09-17")!
+        store.update("2026-09-17") { day in
+            // Asleep until 07:00 in the low 50s, then a day in the 70s–120s.
+            var beats: [Double] = []
+            for i in 0..<96 {
+                let asleep: Double = 52 + Double(i % 4)
+                let awake: Double = 72 + Double((i * 7) % 48)
+                beats.append(i < 28 ? asleep : awake)
+            }
+            day.heartRate = RingSeries(intervalMinutes: 15, values: beats)
+            day.sleep = [RingSleepSession(start: midnight, end: midnight.addingTimeInterval(7 * 3600),
+                                          reportedStartMinute: 0,
+                                          stages: [RingSleepStage(stage: RingSleepStage.light, minutes: 420)])]
+        }
+        let sections = RingStatsSections(store: store, dayKey: "2026-09-17", capabilities: RingCapabilities(),
+                                         only: .heartRate)
+        try RenderHarness.write(ScrollView { sections.padding(.top, 20) }, size: CGSize(width: 402, height: 560),
+                                name: "health-resting-heart-rate")
+    }
+
     /// The live number while measuring: "--", then each value the ring sends
     /// rolls in, then it lands as "Just now". Frames, not a guess.
     func testTheLiveNumberRolls() throws {
