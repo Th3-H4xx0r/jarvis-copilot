@@ -1825,6 +1825,13 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
     Returns:
         Number of jobs executed (0 if another tick is already running)
     """
+    # Global emergency stop: refuse to start NEW jobs. Checked before the lock
+    # so a paused scheduler does no work at all; anything already running is
+    # left alone to finish.
+    from agent import estop
+    if estop.check_paused("cron scheduler", logger):
+        return 0
+
     lock_dir, lock_file = _get_lock_paths()
     lock_dir.mkdir(parents=True, exist_ok=True)
 

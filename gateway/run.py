@@ -6817,6 +6817,9 @@ class GatewayRunner:
         
         if canonical == "stop":
             return await self._handle_stop_command(event)
+
+        if canonical == "pause":
+            return self._handle_estop_command(event)
         
         if canonical == "reasoning":
             return await self._handle_reasoning_command(event)
@@ -7385,6 +7388,13 @@ class GatewayRunner:
 
     async def _handle_message_with_agent(self, event, source, _quick_key: str, run_generation: int):
         """Inner handler that runs under the _running_agents sentinel guard."""
+        # Global emergency stop. Slash commands are dispatched before this
+        # point, so /resume still gets through while paused.
+        from agent import estop
+        _paused = estop.paused_reply()
+        if _paused is not None:
+            return _paused
+
         _msg_start_time = time.time()
         _platform_name = source.platform.value if hasattr(source.platform, "value") else str(source.platform)
         _msg_preview = (event.text or "")[:80].replace("\n", " ")
@@ -9058,6 +9068,38 @@ class GatewayRunner:
             lines.append(t("gateway.agents.none"))
 
         return "\n".join(lines)
+
+    def _handle_estop_command(self, event: MessageEvent) -> str:
+        """Handle /pause and /resume — the global emergency stop.
+
+        /stop interrupts THIS session's agent; /pause is the fleet-wide
+        stand-down: cron, the kanban dispatcher and new gateway turns all stop
+        taking work until /resume. Work already running is never killed, and
+        slash commands keep being dispatched, so a pause cannot lock you out.
+        """
+        from agent import estop
+
+        text = (getattr(event, "text", "") or "").strip()
+        # /unpause is an ALIAS of /pause, so both arrive as canonical "pause".
+        # The invoked word is the only thing that tells them apart.
+        invoked = text.split(None, 1)[0].lstrip("/").lower() if text else "pause"
+        if invoked.startswith("unpause"):
+            if estop.disengage():
+                return "▶️ Resumed. Cron, kanban and new turns are picking work up again."
+            return "▶️ Not paused — nothing to resume."
+
+        reason = ""
+        if text.startswith("/"):
+            parts = text.split(None, 1)
+            if len(parts) > 1:
+                reason = parts[1].strip()
+        path = estop.engage(reason or None)
+        tag = f" ({reason})" if reason else ""
+        return (
+            f"⏸️ Paused{tag}. New cron jobs, kanban dispatch and new turns are on "
+            f"hold; anything already running finishes. Send /unpause to lift it.\n"
+            f"Sentinel: {path}"
+        )
 
     async def _handle_stop_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /stop command - interrupt a running agent.

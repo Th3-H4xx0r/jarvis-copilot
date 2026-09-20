@@ -90,6 +90,12 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("snapshot", "Create or restore state snapshots of JarvisCopilot config/state", "Session",
                cli_only=True, aliases=("snap",), args_hint="[create|restore <id>|prune]"),
     CommandDef("stop", "Kill all running background processes", "Session"),
+    # `unpause` is an alias rather than its own entry: Slack caps an app at 50
+    # slash commands and this registry already wants more, so every extra
+    # canonical name evicts an alias. The handler tells the two apart from the
+    # invoked text. (`resume` is taken -- it resumes a named session.)
+    CommandDef("pause", "Hold all new cron, kanban and gateway work", "Session",
+               aliases=("unpause",), args_hint="[reason]"),
     CommandDef("approve", "Approve a pending dangerous command", "Session",
                gateway_only=True, args_hint="[session|always]"),
     CommandDef("deny", "Deny a pending dangerous command", "Session",
@@ -1015,6 +1021,7 @@ _SLACK_RESERVED_COMMANDS = frozenset({
 })
 
 
+
 def _sanitize_slack_name(raw: str) -> str:
     """Convert a command name to a valid Slack slash command name.
 
@@ -1081,7 +1088,7 @@ def slack_native_slashes() -> list[tuple[str, str, str]]:
         for alias in cmd.aliases:
             # Skip aliases that only differ from canonical by case/punctuation
             # normalization (already covered by _add dedup).
-            _add(alias, f"Alias for /{cmd.name} — {cmd.description}", cmd.args_hint or "")
+            _add(alias, f"Alias for /{cmd.name} \u2014 {cmd.description}", cmd.args_hint or "")
 
     # Third pass: plugin commands.
     for name, description, args_hint in _iter_plugin_command_entries():

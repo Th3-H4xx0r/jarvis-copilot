@@ -5190,6 +5190,10 @@ def dispatch_once(
 ) -> DispatchResult:
     """Run one dispatcher tick.
 
+    While the global emergency stop is engaged this returns an empty result
+    without reclaiming, promoting or spawning anything. Workers already
+    running are untouched and finish normally.
+
     Steps:
       1. Reclaim stale running tasks (TTL expired).
       2. Reclaim stale running tasks (no recent heartbeat).
@@ -5216,6 +5220,10 @@ def dispatch_once(
     ``board`` pins workspace/log/db resolution for this tick to a specific
     board. When omitted, the current-board resolution chain is used.
     """
+    from agent import estop
+    if estop.check_paused("kanban dispatcher", _log):
+        return DispatchResult()
+
     # Reap zombie children from previously spawned workers.
     # The gateway-embedded dispatcher is the parent of every worker spawned
     # via _default_spawn (start_new_session=True only detaches the

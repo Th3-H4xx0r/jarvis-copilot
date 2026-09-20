@@ -5921,6 +5921,32 @@ def cmd_hooks(args):
     hooks_command(args)
 
 
+def cmd_pause(args):
+    """`jarviscopilot pause [reason]` -- engage the global emergency stop."""
+    from agent import estop
+
+    reason = " ".join(getattr(args, "reason", []) or []).strip()
+    path = estop.engage(reason or None)
+    tag = f" ({reason})" if reason else ""
+    print(f"\u23f8\ufe0f  Paused{tag}.")
+    print("   New cron jobs, kanban dispatch and new gateway turns are on hold.")
+    print("   Work already running finishes untouched.")
+    print(f"   Sentinel: {path}")
+    print("   Lift with: jarviscopilot unpause")
+    return 0
+
+
+def cmd_unpause(args):
+    """`jarviscopilot unpause` -- lift the global emergency stop."""
+    from agent import estop
+
+    if estop.disengage():
+        print("\u25b6\ufe0f  Resumed. Cron, kanban and new turns are picking work up again.")
+        return 0
+    print("\u25b6\ufe0f  Not paused \u2014 nothing to resume.")
+    return 0
+
+
 def cmd_doctor(args):
     """Check configuration and dependencies."""
     from jarviscopilot_cli.doctor import run_doctor
@@ -10085,7 +10111,8 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "kanban", "login", "logout", "logs", "lsp", "mcp", "memory",
         "model", "pairing", "plugins", "postinstall", "profile", "proxy",
-        "devices", "pair", "restart", "send", "sessions", "setup",
+        "devices", "pair", "pause", "restart", "send", "sessions", "setup",
+        "unpause",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat",
         # Help-ish invocations — plugin commands not being listed in
@@ -11120,6 +11147,30 @@ def main():
     )
 
     hooks_parser.set_defaults(func=cmd_hooks)
+
+    # =========================================================================
+    # pause / resume commands (global emergency stop)
+    # =========================================================================
+    pause_parser = subparsers.add_parser(
+        "pause",
+        help="Hold all new cron, kanban and gateway work",
+        description=(
+            "Write the emergency-stop sentinel. Cron jobs, the kanban "
+            "dispatcher and new gateway turns stop taking work until "
+            "`jarviscopilot unpause`. Anything already running finishes."
+        ),
+    )
+    pause_parser.add_argument(
+        "reason", nargs="*", help="Optional note recorded in the sentinel"
+    )
+    pause_parser.set_defaults(func=cmd_pause)
+
+    unpause_parser = subparsers.add_parser(
+        "unpause",
+        help="Lift the pause and pick work up again",
+        description="Remove the emergency-stop sentinel.",
+    )
+    unpause_parser.set_defaults(func=cmd_unpause)
 
     # =========================================================================
     # doctor command

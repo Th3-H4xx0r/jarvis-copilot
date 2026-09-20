@@ -13,7 +13,10 @@ from jarviscopilot_cli.commands import (
     SlashCommandAutoSuggest,
     SlashCommandCompleter,
     _CMD_NAME_LIMIT,
+    _SLACK_MAX_SLASH_COMMANDS,
     _SLACK_RESERVED_COMMANDS,
+    _is_gateway_available,
+    _resolve_config_gates,
     _TG_NAME_LIMIT,
     _clamp_command_names,
     _clamp_telegram_names,
@@ -336,13 +339,45 @@ class TestSlackNativeSlashes:
             )
 
     def test_includes_aliases_as_first_class_slashes(self):
-        """Aliases (/btw, /bg, /reset, /q) must be registered as standalone
-        slashes — this is the whole point of native-slashes parity."""
-        names = {n for n, _d, _h in slack_native_slashes()}
-        assert "btw" in names
-        assert "bg" in names
-        assert "reset" in names
-        assert "q" in names
+        """Aliases are registered as standalone slashes in whatever slots are
+        left once every canonical gateway command is placed.
+
+        Slack caps an app at 50 slash commands and this registry now wants
+        more, so the alias budget is simply whatever remains after canonical
+        parity is satisfied — it shrinks by one for every command added. The
+        contract worth pinning is therefore not a fixed list of aliases (that
+        is a snapshot, and it broke the moment /pause was added) but that
+        aliases receive every remaining slot, and that losing one never costs
+        a capability: the command behind it is still reachable.
+        """
+        entries = slack_native_slashes()
+        names = {n for n, _d, _h in entries}
+        assert len(entries) <= _SLACK_MAX_SLASH_COMMANDS
+        assert len(names) == len(entries), "duplicate slash names emitted"
+
+        overrides = _resolve_config_gates()
+        aliased = [
+            (alias, cmd.name)
+            for cmd in COMMAND_REGISTRY
+            if _is_gateway_available(cmd, overrides)
+            for alias in cmd.aliases
+        ]
+        assert aliased, "registry has no gateway aliases to place"
+
+        canonical = {
+            cmd.name for cmd in COMMAND_REGISTRY
+            if _is_gateway_available(cmd, overrides)
+        } & names
+        assert names - canonical - {"hermes"}, "no alias made it into the manifest"
+
+        # Whenever an alias is squeezed out, its command is still reachable.
+        for alias, canonical_name in aliased:
+            if alias not in names:
+                assert (canonical_name in names
+                        or canonical_name in _SLACK_RESERVED_COMMANDS), (
+                    f"/{alias} was dropped AND its command /{canonical_name} "
+                    "is not native — that loses a capability on Slack"
+                )
 
     def test_telegram_parity(self):
         """Every Telegram bot command must be registerable on Slack too.
