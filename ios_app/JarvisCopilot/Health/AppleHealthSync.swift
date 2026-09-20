@@ -279,7 +279,8 @@ final class AppleHealthSync: ObservableObject {
     /// Asks for whichever of these kinds' types were never asked about
     /// (Apple Health shows nothing when every one was).
     func authorize(_ which: [AppleHealthKind]) async {
-        let types = Set(which.flatMap(\.sampleTypes)).filter { healthStore.authorizationStatus(for: $0) == .notDetermined }
+        let types = Self.toAsk(Set(which.flatMap(\.sampleTypes)),
+                               undetermined: { healthStore.authorizationStatus(for: $0) == .notDetermined })
         guard !types.isEmpty else { return }
         do {
             try await healthStore.requestAuthorization(toShare: types, read: [HKObjectType.workoutType()])
@@ -287,6 +288,16 @@ final class AppleHealthSync: ObservableObject {
             JcLog.dropped(JcLog.devices, "apple health permission", error)
         }
         objectWillChange.send()
+    }
+
+    /// What to put in one authorization request: the types never asked about,
+    /// and — whenever a workout route is among them — the workout type too.
+    /// HealthKit ends the app over a route asked for on its own, even when
+    /// the workout type was allowed long ago.
+    nonisolated static func toAsk(_ types: Set<HKSampleType>, undetermined: (HKSampleType) -> Bool) -> Set<HKSampleType> {
+        var asking = types.filter(undetermined)
+        if asking.contains(HKSeriesType.workoutRoute()) { asking.insert(HKObjectType.workoutType()) }
+        return asking
     }
 
     /// The Sync Now button: ask for anything new, then write at once.

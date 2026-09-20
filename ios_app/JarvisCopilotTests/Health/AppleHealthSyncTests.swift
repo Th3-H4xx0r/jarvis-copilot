@@ -157,3 +157,18 @@ final class AppleHealthBatchTests: XCTestCase {
         XCTAssertEqual(withSleep.objects.count, 3)
     }
 }
+
+/// What one authorization request may contain.
+final class AppleHealthAskTests: XCTestCase {
+    func testARouteIsNeverAskedForWithoutItsWorkoutType() {
+        let route = HKSeriesType.workoutRoute()
+        let workout = HKObjectType.workoutType()
+        let steps = HKQuantityType(.stepCount)
+        // The workout type was allowed long ago; only the route is new.
+        // Asking for the route alone ends the app, so the workout type rides along.
+        let asked = AppleHealthSync.toAsk([route, workout, steps]) { $0 == route }
+        XCTAssertEqual(asked, [route, workout])
+        XCTAssertEqual(AppleHealthSync.toAsk([steps, workout]) { $0 == steps }, [steps])
+        XCTAssertTrue(AppleHealthSync.toAsk([route, workout, steps]) { _ in false }.isEmpty, "nothing new, nothing asked")
+    }
+}
