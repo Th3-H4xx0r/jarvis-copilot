@@ -72,6 +72,89 @@ def _warn_config_parse_failure(config_path: Path, exc: Exception) -> None:
 
 _IS_WINDOWS = platform.system() == "Windows"
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Names the env writer refuses to persist. .env is loaded into os.environ for
+# every subprocess we spawn, so a writable name that steers execution (loader
+# preload, interpreter path, $EDITOR, a git helper) is remote code execution,
+# and a name that steers our own runtime location or security policy
+# (HERMES_HOME, HERMES_YOLO_MODE) silently disables the approval gate.
+#
+# HERMES_* as a whole is NOT blocked -- several integration credentials use that
+# prefix (HERMES_SPOTIFY_CLIENT_ID, ...). The denylist is name-by-name so it
+# cannot break provider setup wizards. Enforced on *write* only: pre-existing or
+# hand-edited .env values keep working; only the writable surface (the
+# dashboard's PUT /api/env, setup flows, plugin adapters) cannot escalate.
+
+# Whole families matched by prefix, because enumeration cannot cover unbounded
+# names (GIT_CONFIG_KEY_17 / GIT_CONFIG_VALUE_17).
+_ENV_VAR_NAME_DENY_PREFIXES: tuple = (
+    "LD_", "DYLD_",
+    # KEY_*/VALUE_*/COUNT inject config pairs; GLOBAL/SYSTEM/NOSYSTEM redirect
+    # which config files git reads at all.
+    "GIT_CONFIG_",
+)
+
+_ENV_VAR_NAME_DENYLIST: frozenset = frozenset({
+    # Loader / linker (the LD_/DYLD_ prefixes cover the family; kept by name for clarity)
+    "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
+    "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+    # Python / Node -- init-time injection beyond the loader paths
+    "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE",
+    "PYTHONEXECUTABLE", "PYTHONNOUSERSITE", "PYTHONBREAKPOINT", "PYTHONCASEOK",
+    "NODE_OPTIONS", "NODE_PATH",
+    # Other interpreter / toolchain injection (same class as PYTHONPATH)
+    "PERL5OPT", "PERL5LIB", "PERLLIB", "RUBYOPT", "RUBYLIB", "CLASSPATH",
+    "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GOFLAGS", "RUSTFLAGS",
+    # General / git -- executed helpers, repo redirection, template hooks
+    "PATH", "SHELL", "BROWSER", "EDITOR", "VISUAL", "PAGER", "MANPAGER",
+    "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_SHELL",
+    "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SUDO_ASKPASS",
+    "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER", "GIT_EXTERNAL_DIFF",
+    "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR", "GIT_DIR",
+    # Shell init files / interactive hooks -- sourced before or during execution
+    "BASH_ENV", "ENV", "ZDOTDIR", "PROMPT_COMMAND", "VIMINIT", "EXINIT",
+    # JarvisCopilot runtime location
+    "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
+    "HERMES_CONFIG_PATH", "HERMES_ENV_PATH",
+    # Security policy / approval-routing context -- set via their own controls only.
+    "HERMES_YOLO_MODE", "HERMES_ACCEPT_HOOKS", "HERMES_REDACT_SECRETS",
+    "HERMES_INTERACTIVE", "HERMES_EXEC_ASK", "HERMES_GATEWAY_SESSION",
+    "HERMES_CRON_SESSION", "HERMES_SINGLE_QUERY_SESSION",
+    "HERMES_SESSION_KEY", "HERMES_SESSION_PLATFORM",
+})
+
+
+def _env_var_policy_name(key: str, is_windows: Optional[bool] = None) -> str:
+    """Name used for env-policy comparisons.
+
+    Windows environment names are case-insensitive, POSIX names are not, so on
+    Windows ``path`` has to compare equal to ``PATH``. The override keeps both
+    semantics testable on any host.
+    """
+    windows = _IS_WINDOWS if is_windows is None else is_windows
+    return key.upper() if windows else key
+
+
+def validate_env_var_name_for_write(key: str) -> None:
+    """Raise ``ValueError`` if ``key`` may not be persisted to .env.
+
+    Exposed separately so batch callers can validate every name before doing
+    partial work.
+    """
+    if not _ENV_VAR_NAME_RE.match(key):
+        raise ValueError(f"Invalid environment variable name: {key!r}")
+    policy_name = _env_var_policy_name(key)
+    if (policy_name in _ENV_VAR_NAME_DENYLIST
+            or policy_name.startswith(_ENV_VAR_NAME_DENY_PREFIXES)):
+        raise ValueError(
+            f"Environment variable {key!r} is on the writer denylist. "
+            "Names that influence subprocess execution (LD_PRELOAD, PYTHONPATH, "
+            "PATH, EDITOR, ...) or JarvisCopilot's runtime location and security "
+            "policy (HERMES_HOME, HERMES_YOLO_MODE, ...) cannot be persisted via "
+            "the env writer. If you really need this, edit the .env file directly."
+        )
 _LAST_EXPANDED_CONFIG_BY_PATH: Dict[str, Any] = {}
 # (path, mtime_ns, size) -> cached expanded config dict.
 # load_config() returns a deepcopy of the cached value when the file
@@ -4857,8 +4940,7 @@ def save_env_value(key: str, value: str):
     if is_managed():
         managed_error(f"set {key}")
         return
-    if not _ENV_VAR_NAME_RE.match(key):
-        raise ValueError(f"Invalid environment variable name: {key!r}")
+    validate_env_var_name_for_write(key)
     value = value.replace("\n", "").replace("\r", "")
     # API keys / tokens must be ASCII — strip non-ASCII with a warning.
     value = _check_non_ascii_credential(key, value)

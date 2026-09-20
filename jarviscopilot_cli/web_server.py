@@ -1223,6 +1223,10 @@ async def set_env_var(body: EnvVarUpdate):
     try:
         save_env_value(body.key, body.value)
         return {"ok": True, "key": body.key}
+    except ValueError as exc:
+        # Rejected name (bad syntax, or on the writer denylist) -- a client
+        # error, and the reason is safe to return: it names no secret value.
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         _log.exception("PUT /api/env failed")
         raise HTTPException(status_code=500, detail="Internal server error")

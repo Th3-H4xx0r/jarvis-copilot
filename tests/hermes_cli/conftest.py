@@ -41,6 +41,9 @@ def _suppress_concurrent_hermes_gate(request, monkeypatch):
         from jarviscopilot_cli import main as _cli_main
     except Exception:
         return
+    # raising=False: the helper no longer exists in main.py, and an
+    # unconditional setattr errors every test in this directory at setup.
     monkeypatch.setattr(
-        _cli_main, "_detect_concurrent_hermes_instances", lambda *_a, **_k: []
+        _cli_main, "_detect_concurrent_hermes_instances", lambda *_a, **_k: [],
+        raising=False,
     )
