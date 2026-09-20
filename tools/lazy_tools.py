@@ -242,6 +242,10 @@ def get_lazy_core_names() -> set:
         override = []
     names = set(override) if override else set(_LAZY_CORE_TOOLS)
     names.add("tool_search")
+    # The bridge is how a searched tool is invoked, so an override that
+    # dropped it would strand every deferred tool.
+    if bridge_enabled():
+        names.add("tool_call")
     # plan 2.5 — `escalate` must never be deferred: it is how the fast model
     # says "this is beyond me". Its own check_fn keeps it out of the tool list
     # entirely when no fast lane is configured, so this costs nothing otherwise.
@@ -532,9 +536,13 @@ def load_all_deferred(agent) -> int:
 
 
 def handle_tool_search(agent, args: dict) -> str:
-    """Resolve the query to tool names, load their schemas, and promote them into
-    the live ``agent.tools`` / ``agent.valid_tool_names`` so the provider lets the
-    model call them. Returns a JSON string with the loaded names + schemas.
+    """Resolve the query to tool names and return their schemas.
+
+    With the bridge on (the default) nothing is promoted into ``agent.tools``:
+    the model invokes what it finds through ``tool_call``, so the advertised
+    array -- and therefore the prompt cache -- stays untouched. With the bridge
+    off, schemas are promoted into ``agent.tools`` / ``agent.valid_tool_names``
+    the old way and the model calls them natively.
 
     Intercepted in ``agent/tool_executor.py`` (needs ``agent`` state)."""
     query = (args or {}).get("query", "")
@@ -549,13 +557,18 @@ def handle_tool_search(agent, args: dict) -> str:
     # get_definitions applies check_fn gating — unavailable tools are silently
     # skipped here (they genuinely can't be used).
     defs = registry.get_definitions(set(matches))
-    advertised = {t.get("function", {}).get("name") for t in agent.tools}
-    for d in defs:
-        nm = d.get("function", {}).get("name")
-        if nm and nm not in advertised:
-            agent.tools.append(d)
-            agent.valid_tool_names.add(nm)
-            advertised.add(nm)
+    # With the bridge on, the schemas go back to the model but the advertised
+    # tools array is left exactly as it was -- that array is the head of the
+    # cached prefix, and appending to it re-prefills the whole conversation.
+    # The model reaches these through tool_call instead.
+    if not bridge_enabled():
+        advertised = {t.get("function", {}).get("name") for t in agent.tools}
+        for d in defs:
+            nm = d.get("function", {}).get("name")
+            if nm and nm not in advertised:
+                agent.tools.append(d)
+                agent.valid_tool_names.add(nm)
+                advertised.add(nm)
 
     loaded = [d["function"]["name"] for d in defs]
     # Remember what we loaded so a mid-session re-partition (MCP reload, ACP)
@@ -564,6 +577,11 @@ def handle_tool_search(agent, args: dict) -> str:
         agent._lazy_loaded_tools = set()
     agent._lazy_loaded_tools.update(loaded)
     out: Dict[str, Any] = {"loaded": loaded, "schemas": [d["function"] for d in defs]}
+    if bridge_enabled() and loaded:
+        out["how_to_call"] = (
+            "These are not in your tools list. Invoke each one with "
+            'tool_call(name="<tool>", arguments={...}).'
+        )
     unavailable = [m for m in matches if m not in set(loaded)]
     if unavailable:
         out["unavailable"] = unavailable
@@ -581,6 +599,123 @@ def _check_lazy_tools() -> bool:
 def _tool_search_stub(args, **kw):
     # Real handling is intercepted in agent/tool_executor.py (needs agent state).
     return json.dumps({"error": "tool_search must be handled by the agent loop"})
+
+
+# ── tool_call: the cache-safe way to invoke a deferred tool ──────────────────
+#
+# Promoting a searched tool into ``agent.tools`` changes the tools array, and
+# the tools array sits at the very front of the cached prompt prefix -- so every
+# tool_search cost a full re-prefill of the whole conversation. That is the one
+# thing this repo says it cannot afford ("Prompt Caching Must Not Break"), and
+# it quietly gave back part of what the lazy-loading diet bought.
+#
+# The bridge never changes the array: tool_search returns the schema, and the
+# model invokes the tool THROUGH tool_call, which is itself a stable core tool.
+# The advertised list is then identical on every request of a session.
+
+TOOL_CALL_SCHEMA = {
+    "name": "tool_call",
+    "description": (
+        "Invoke a tool you loaded with tool_search. Pass the tool's exact name "
+        "and its arguments object. Use this for any tool that is not already in "
+        "your tools list; tools you can see directly should be called directly."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Exact tool name, as returned by tool_search.",
+            },
+            "arguments": {
+                "type": "object",
+                "description": "The tool's arguments, exactly as its schema defines them.",
+                "additionalProperties": True,
+            },
+        },
+        "required": ["name", "arguments"],
+    },
+}
+
+
+def bridge_enabled() -> bool:
+    """Whether deferred tools are invoked through ``tool_call``.
+
+    On by default: a stable prompt prefix is worth more than the directness of
+    a native call. ``agent.lazy_tools_bridge: false`` restores the old
+    promote-into-the-array behaviour for anyone whose model struggles with the
+    indirection.
+    """
+    if not lazy_tools_enabled():
+        return False
+    try:
+        if load_config:
+            cfg = ((load_config() or {}).get("agent", {}) or {})
+            if "lazy_tools_bridge" in cfg:
+                return bool(cfg.get("lazy_tools_bridge"))
+    except Exception:
+        pass
+    return True
+
+
+def handle_tool_call(agent, args: dict, task_id=None) -> str:
+    """Dispatch a bridged call to the real tool.
+
+    Only names this session actually knows about are dispatchable -- the
+    manifest plus whatever is already advertised. Without that check the bridge
+    would be a way to reach tools the active toolsets deliberately exclude.
+    """
+    from model_tools import handle_function_call
+
+    name = (args or {}).get("name") or ""
+    call_args = (args or {}).get("arguments")
+    if isinstance(call_args, str):
+        try:
+            call_args = json.loads(call_args) if call_args.strip() else {}
+        except (ValueError, TypeError):
+            return json.dumps({"error": f"`arguments` for {name!r} is not valid JSON."})
+    if call_args is None:
+        call_args = {}
+    if not isinstance(call_args, dict):
+        return json.dumps({"error": "`arguments` must be an object."})
+    if not name:
+        return json.dumps({"error": "tool_call needs a `name`."})
+    if name in ("tool_call", "tool_search"):
+        return json.dumps({"error": "tool_call cannot invoke tool_call or tool_search."})
+
+    known = set(getattr(agent, "_lazy_all_tool_names", None) or set())
+    known |= {
+        (t.get("function", {}) or {}).get("name")
+        for t in (getattr(agent, "tools", None) or [])
+    }
+    known.discard(None)
+    if name not in known:
+        return json.dumps({
+            "error": f"{name!r} is not available in this session.",
+            "hint": "Run tool_search first; its `loaded` list names what you can call.",
+        })
+
+    return handle_function_call(name, call_args, task_id)
+
+
+def _tool_call_stub(args, **kw):
+    # Real handling is intercepted in agent/tool_executor.py (needs agent state).
+    return json.dumps({"error": "tool_call must be handled by the agent loop"})
+
+
+def _check_tool_call() -> bool:
+    """check_fn: the bridge is only advertised when it is the calling path."""
+    return bridge_enabled()
+
+
+registry.register(
+    name="tool_call",
+    toolset="lazy_tools",
+    schema=TOOL_CALL_SCHEMA,
+    handler=_tool_call_stub,
+    check_fn=_check_tool_call,
+    emoji="🔧",
+)
 
 
 registry.register(

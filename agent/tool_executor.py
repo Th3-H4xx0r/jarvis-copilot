@@ -675,15 +675,28 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
         elif function_name == "tool_search":
-            # Lazy tool-loading: resolve the query, load the matching tools'
-            # full schemas, and promote them into the live agent.tools so the
-            # provider lets the model call them next turn. Needs agent state, so
-            # it's intercepted here rather than dispatched through the registry.
+            # Lazy tool-loading: resolve the query and return the matching
+            # tools' full schemas. Needs agent state, so it's intercepted here
+            # rather than dispatched through the registry. With the bridge on
+            # the advertised tool list is left untouched and the model reaches
+            # these through tool_call; with it off they are promoted into
+            # agent.tools the old way.
             from tools.lazy_tools import handle_tool_search
             function_result = handle_tool_search(agent, function_args)
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl('tool_search', function_args, tool_duration, result=function_result)}")
+        elif function_name == "tool_call":
+            # The cache-safe invocation path for a deferred tool. Reported under
+            # the REAL tool's name so the activity feed reads the same as a
+            # native call rather than a wall of "tool_call".
+            from tools.lazy_tools import handle_tool_call
+            _bridged_name = (function_args or {}).get("name") or "tool_call"
+            _bridged_args = (function_args or {}).get("arguments") or {}
+            function_result = handle_tool_call(agent, function_args, task_id)
+            tool_duration = time.time() - tool_start_time
+            if agent._should_emit_quiet_tool_messages():
+                agent._vprint(f"  {_get_cute_tool_message_impl(_bridged_name, _bridged_args, tool_duration, result=function_result)}")
         elif function_name == "delegate_task":
             tasks_arg = function_args.get("tasks")
             if tasks_arg and isinstance(tasks_arg, list):

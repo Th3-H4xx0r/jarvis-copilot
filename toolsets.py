@@ -96,7 +96,7 @@ _HERMES_CORE_TOOLS = [
 # tool_search. Keep this small — it is the per-request token floor.
 # See docs/superpowers/specs/2026-06-04-lazy-tool-loading-design.md.
 _LAZY_CORE_TOOLS = [
-    "tool_search",
+    "tool_search", "tool_call",
     "web_search", "terminal",
     "read_file", "write_file",
     "memory", "todo", "clarify",

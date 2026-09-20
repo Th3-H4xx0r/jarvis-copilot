@@ -763,6 +763,11 @@ DEFAULT_CONFIG = {
         # the per-request tool-schema floor (~45k → ~8-12k). Set false to send
         # all tool schemas every turn (legacy behavior).
         "lazy_tools": True,
+        # Invoke searched tools through the `tool_call` bridge instead of
+        # promoting them into the advertised tool list. Promotion changes the
+        # head of the cached prompt prefix, so it re-prefills the whole
+        # conversation on every tool_search. Set false to call them natively.
+        "lazy_tools_bridge": True,
         # Optional override for the always-loaded core tool list. Empty = use
         # the built-in lean core (toolsets._LAZY_CORE_TOOLS).
         "lazy_tools_core": [],

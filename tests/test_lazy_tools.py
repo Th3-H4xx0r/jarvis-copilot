@@ -134,13 +134,37 @@ def deferred_tool():
         registry.deregister(name)
 
 
-def test_handle_tool_search_loads_and_promotes(deferred_tool):
+def test_handle_tool_search_returns_schemas_without_touching_the_tool_list(
+    deferred_tool, monkeypatch
+):
+    """With the bridge on, the advertised array must not move.
+
+    That array is the head of the cached prompt prefix, so appending to it
+    re-prefills the whole conversation -- the cost this repo's caching policy
+    exists to avoid. The model reaches the tool through tool_call instead.
+    """
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "web_search"})
+    before = [t["function"]["name"] for t in agent.tools]
+    before_valid = set(agent.valid_tool_names)
+
+    out = json.loads(handle_tool_search(agent, {"query": f"select:{deferred_tool}"}))
+
+    assert deferred_tool in out["loaded"]
+    assert out["schemas"] and out["schemas"][0]["name"] == deferred_tool
+    assert out.get("how_to_call"), "the model was not told to use tool_call"
+    assert [t["function"]["name"] for t in agent.tools] == before
+    assert agent.valid_tool_names == before_valid
+
+
+def test_handle_tool_search_promotes_when_the_bridge_is_off(deferred_tool, monkeypatch):
+    """The opt-out restores native calling, at the cost of a re-prefill."""
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: False)
     agent = _FakeAgent({"tool_search", "web_search"})
     out = json.loads(handle_tool_search(agent, {"query": f"select:{deferred_tool}"}))
     assert deferred_tool in out["loaded"]
     assert deferred_tool in agent.valid_tool_names
     assert any(t["function"]["name"] == deferred_tool for t in agent.tools)
-    assert out["schemas"] and out["schemas"][0]["name"] == deferred_tool
 
 
 def test_handle_tool_search_no_match():
