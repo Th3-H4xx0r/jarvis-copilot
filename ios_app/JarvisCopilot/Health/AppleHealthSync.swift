@@ -2,6 +2,17 @@ import CryptoKit
 import HealthKit
 import UIKit
 
+/// Whether the wearables stay connected while the Health tab is open.
+enum HealthScreenHold {
+    private static let key = "jc.health.holdWearables"
+
+    /// On unless it was turned off.
+    static var isOn: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
 /// A kind of data Jarvis keeps in Apple Health, each with its own switch.
 enum AppleHealthKind: String, CaseIterable, Identifiable {
     case workouts, heartRate, restingHeartRate, hrv, bloodOxygen, steps, distance, activeEnergy, sleep, body
@@ -344,25 +355,61 @@ final class AppleHealthSync: ObservableObject {
         let version = Int(Date().timeIntervalSince1970)
         if let ring = WearablesHub.shared.ring.store {
             let keys = Array(ring.allKeys().suffix(days))
+            let wanted = AppleHealthKind.fromRingDays.filter { kinds.contains($0) && allowed($0) }
+            let types = allowedTypes()
             for key in keys {
+                // A day whose file hasn't changed since it was written is skipped
+                // whole — no samples built, nothing hashed.
+                let stamp = Self.stamp(of: key, in: ring.directory)
+                let pending = wanted.filter { fingerprints["\($0.rawValue)|\(key)"]?.hasPrefix("\(stamp)|") != true }
+                guard !pending.isEmpty else { continue }
                 let day = ring.day(key)
-                let busy = kinds.contains(.activeEnergy) || kinds.contains(.distance) ? await workoutIntervals(on: key) : []
-                for kind in AppleHealthKind.fromRingDays where kinds.contains(kind) && allowed(kind) {
-                    let samples = AppleHealthPlan.samples(kind, day: day, busy: busy)
-                    guard await write(samples, key: "\(kind.rawValue)|\(key)", version: version) else { return false }
+                let busy = pending.contains(.activeEnergy) || pending.contains(.distance)
+                    ? await workoutIntervals(on: key) : []
+                // Off the main thread: a day of readings is thousands of samples,
+                // and 180 of them on it would freeze the app (and iOS would end it).
+                let built = await Task.detached(priority: .utility) { () -> [(String, String, SampleBatch)] in
+                    pending.map { kind in
+                        let samples = AppleHealthPlan.samples(kind, day: day, busy: busy)
+                        let print = "\(stamp)|" + AppleHealthPlan.fingerprint(samples)
+                        return ("\(kind.rawValue)|\(key)", print, SampleBatch(samples, allowed: types, version: version))
+                    }
+                }.value
+                for (fingerprintKey, print, batch) in built {
+                    guard await save(batch, key: fingerprintKey, fingerprint: print) else { return false }
                 }
                 await Task.yield()
             }
         }
         if kinds.contains(.body), allowed(.body) {
+            let types = allowedTypes()
             let owner = ScaleHistoryStore.shared.activeProfile?.id
             for reading in ScaleHistoryStore.shared.readings where reading.profileID == nil || owner == nil || reading.profileID == owner {
-                guard await write(AppleHealthPlan.body(reading), key: "body|\(reading.id.uuidString)", version: version) else {
-                    return false
-                }
+                let samples = AppleHealthPlan.body(reading)
+                let batch = SampleBatch(samples, allowed: types, version: version)
+                guard await save(batch, key: "body|\(reading.id.uuidString)",
+                                 fingerprint: AppleHealthPlan.fingerprint(samples)) else { return false }
             }
         }
         return true
+    }
+
+    /// When the ring last wrote that day.
+    private static func stamp(of key: String, in directory: URL) -> Int {
+        let url = directory.appendingPathComponent("\(key).json")
+        let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        return Int((date ?? .distantPast).timeIntervalSince1970)
+    }
+
+    /// The types Apple Health is letting Jarvis write right now.
+    private func allowedTypes() -> Set<String> {
+        var out: Set<String> = []
+        for kind in AppleHealthKind.allCases where kinds.contains(kind) {
+            for type in kind.sampleTypes where healthStore.authorizationStatus(for: type) == .sharingAuthorized {
+                out.insert(type.identifier)
+            }
+        }
+        return out
     }
 
     /// Allowed to write at least one of the kind's types.
@@ -370,33 +417,18 @@ final class AppleHealthSync: ObservableObject {
         kind.sampleTypes.contains { healthStore.authorizationStatus(for: $0) == .sharingAuthorized }
     }
 
-    /// Sends one day's samples of one kind if they changed; false stops the sync (HealthKit refused).
-    private func write(_ samples: [AppleHealthSample], key: String, version: Int) async -> Bool {
-        let print = AppleHealthPlan.fingerprint(samples)
-        guard fingerprints[key] != print else { return true }
-        let objects: [HKObject] = samples.compactMap { sample in
-            let metadata: [String: Any] = [HKMetadataKeySyncIdentifier: sample.syncID, HKMetadataKeySyncVersion: version]
-            switch sample.value {
-            case .quantity(let id, let unit, let value):
-                let type = HKQuantityType(id)
-                guard healthStore.authorizationStatus(for: type) == .sharingAuthorized else { return nil }
-                return HKQuantitySample(type: type, quantity: HKQuantity(unit: HKUnit(from: unit), doubleValue: value),
-                                        start: sample.start, end: sample.end, metadata: metadata)
-            case .sleep(let value):
-                let type = HKCategoryType(.sleepAnalysis)
-                guard healthStore.authorizationStatus(for: type) == .sharingAuthorized else { return nil }
-                return HKCategorySample(type: type, value: value.rawValue, start: sample.start, end: sample.end, metadata: metadata)
-            }
-        }
-        if !objects.isEmpty {
+    /// Sends one batch if it changed; false stops the sync (HealthKit refused).
+    private func save(_ batch: SampleBatch, key: String, fingerprint: String) async -> Bool {
+        guard fingerprints[key] != fingerprint else { return true }
+        if !batch.objects.isEmpty {
             do {
-                try await healthStore.save(objects)
+                try await healthStore.save(batch.objects)
             } catch {
                 JcLog.dropped(JcLog.devices, "apple health sync", error)
                 return false
             }
         }
-        fingerprints[key] = print
+        fingerprints[key] = fingerprint
         return true
     }
 
@@ -425,4 +457,35 @@ final class AppleHealthSync: ObservableObject {
 extension Notification.Name {
     /// The ring's days changed on the phone (a sync finished).
     static let jcRingDaysSynced = Notification.Name("jc.ring.daysSynced")
+}
+
+/// Samples turned into what HealthKit takes, away from the main thread.
+/// Each sample is checked here rather than by HealthKit, which answers a bad
+/// one by ending the app: only allowed types, sane finite values, a start no
+/// later than its end, and one sample per sync identifier (a repeat inside
+/// one save is refused).
+struct SampleBatch: @unchecked Sendable {
+    let objects: [HKObject]
+
+    init(_ samples: [AppleHealthSample], allowed: Set<String>, version: Int) {
+        var seen: Set<String> = []
+        objects = samples.compactMap { sample -> HKObject? in
+            guard !seen.contains(sample.syncID) else { return nil }
+            let start = min(sample.start, sample.end), end = max(sample.start, sample.end)
+            guard start.timeIntervalSince1970 > 0, end.timeIntervalSince1970 < 4_102_444_800 else { return nil }
+            let metadata: [String: Any] = [HKMetadataKeySyncIdentifier: sample.syncID, HKMetadataKeySyncVersion: version]
+            switch sample.value {
+            case .quantity(let id, let unit, let value):
+                guard allowed.contains(id.rawValue), value.isFinite, value >= 0, value < 1_000_000 else { return nil }
+                seen.insert(sample.syncID)
+                return HKQuantitySample(type: HKQuantityType(id), quantity: HKQuantity(unit: HKUnit(from: unit), doubleValue: value),
+                                        start: start, end: end, metadata: metadata)
+            case .sleep(let value):
+                guard allowed.contains(HKCategoryTypeIdentifier.sleepAnalysis.rawValue) else { return nil }
+                seen.insert(sample.syncID)
+                return HKCategorySample(type: HKCategoryType(.sleepAnalysis), value: value.rawValue, start: start, end: end,
+                                        metadata: metadata)
+            }
+        }
+    }
 }

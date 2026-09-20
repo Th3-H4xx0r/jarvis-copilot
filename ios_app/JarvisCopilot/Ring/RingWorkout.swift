@@ -157,6 +157,8 @@ extension Notification.Name {
     static let jcWorkoutSaved = Notification.Name("jc.workout.saved")
     /// Saved workouts reached the server (or failed and wait for next time).
     static let jcWorkoutsSynced = Notification.Name("jc.workouts.synced")
+    /// A workout was deleted (object: its start), so every list drops it.
+    static let jcWorkoutDeleted = Notification.Name("jc.workout.deleted")
 }
 
 /// Saves finished workouts to Jarvis Health, keeping any the server could

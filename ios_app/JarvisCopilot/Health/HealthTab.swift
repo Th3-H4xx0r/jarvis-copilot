@@ -16,6 +16,9 @@ struct HealthTab: View {
     /// The metric whose history is open.
     @State private var historyMetric: HealthMetric?
     @State private var choosingWorkout = false
+    /// The Health tab is the one on screen (its wearables stay connected).
+    @State private var onScreen = false
+    @Environment(\.scenePhase) private var scenePhase
     private let workout = WearablesHub.shared.ring.workout
 
     init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
@@ -105,12 +108,29 @@ struct HealthTab: View {
         .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutSaved)) { note in
             if let saved = note.object as? RingWorkout { model.noteSaved(saved) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutDeleted)) { note in
+            if let start = note.object as? Date { model.forget(workoutAt: start) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutsSynced)) { _ in
             Task { await model.refresh(selection) }
         }
         .onTabVisibilityChange(.health) { visible in
+            onScreen = visible
+            holdWearables(visible)
             if visible { Task { await model.refresh(selection) } }
         }
+        // Away from the app, the links go back to their usual rules.
+        .onChange(of: scenePhase) { _, phase in holdWearables(onScreen && phase == .active) }
+        .onDisappear { holdWearables(false) }
+    }
+
+    /// While Health is open and in front, the wearables it reads stay
+    /// connected — no waiting for a link when you pull to refresh or start a
+    /// workout. Leaving the tab, or the app, lets them go.
+    private func holdWearables(_ on: Bool) {
+        let hold = on && HealthScreenHold.isOn
+        WearablesHub.shared.ring.screenIsOpen = hold
+        WearablesHub.shared.bottle.screenIsOpen = hold
     }
 
     // MARK: Day row

@@ -11,6 +11,8 @@ enum WorkoutEditing {
         store.removeWorkout(start: workout.start, device: workout.device, deviceID: deviceID)
         // The server drops its copy of the route with the workout.
         RouteStore.shared.delete(start: workout.start)
+        // Every list showing it — the day's card, the range's history — drops it now.
+        NotificationCenter.default.post(name: .jcWorkoutDeleted, object: workout.start)
         Task {
             await AppleHealthWriter.shared.remove(start: workout.start)
             await store.flush()

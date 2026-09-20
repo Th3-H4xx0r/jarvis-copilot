@@ -63,6 +63,13 @@ struct HealthHistoryView: View {
             scrubbed = nil
             await model.load(range)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutDeleted)) { note in
+            if let start = note.object as? Date { model.forget(workoutAt: start) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutsSynced)) { _ in
+            // A workout saved, edited or deleted: this range again from the server.
+            Task { await model.load(range) }
+        }
         .sensoryFeedback(.selection, trigger: scrubbedBucket?.id)
     }
 

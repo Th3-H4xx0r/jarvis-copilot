@@ -161,6 +161,19 @@ final class HealthHistoryModel: ObservableObject {
         }
     }
 
+    /// A deleted workout goes from every range at once — and from what was
+    /// kept on disk, so it doesn't come back offline.
+    func forget(workoutAt start: Date) {
+        for (range, history) in histories {
+            guard let workouts = history.workouts,
+                  workouts.contains(where: { abs($0.start.timeIntervalSince(start)) < 1 }) else { continue }
+            var fresh = history
+            fresh.workouts = workouts.filter { abs($0.start.timeIntervalSince(start)) >= 1 }
+            histories[range] = fresh
+            write(fresh, range)
+        }
+    }
+
     /// Put a range on screen without a server: tests and previews.
     func seed(_ history: HealthHistory, for range: HealthRange) {
         histories[range] = history

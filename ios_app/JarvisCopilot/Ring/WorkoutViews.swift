@@ -454,6 +454,10 @@ struct WorkoutSummaryView: View {
     let workout: RingWorkout
     var onSave: (() -> Void)?
     var onDiscard: (() -> Void)?
+    /// Pushed from the Health tab: it can be deleted from here.
+    var fromHistory = false
+    @State private var confirmingDelete = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ScrollView {
@@ -529,6 +533,15 @@ struct WorkoutSummaryView: View {
                 }
             }
         }
+        .toolbar { if fromHistory { options } }
+        .confirmationDialog("Delete this workout?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete Workout", role: .destructive) {
+                WorkoutEditing.delete(workout)
+                dismiss()
+            }
+        } message: {
+            Text("It goes from Jarvis Health and Apple Health.")
+        }
     }
 
     private func item(_ label: String, _ value: String?) -> some View {
@@ -537,6 +550,20 @@ struct WorkoutSummaryView: View {
             Text(value ?? "—")
                 .font(.system(.body, design: .rounded).weight(.semibold))
                 .monospacedDigit()
+        }
+    }
+
+    /// Delete, from the Health tab's copy of it.
+    @ToolbarContentBuilder private var options: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button(role: .destructive) { confirmingDelete = true } label: {
+                    Label("Delete Workout", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .accessibilityLabel("Workout options")
         }
     }
 }
@@ -680,7 +707,7 @@ struct HealthWorkoutsCard: View {
                             .navigationTitle(workout.sportName)
                             .navigationBarTitleDisplayMode(.inline)
                     } else {
-                        WorkoutSummaryView(workout: workout)
+                        WorkoutSummaryView(workout: workout, fromHistory: true)
                             .background(JcTheme.bg)
                             .navigationTitle(workout.sportName)
                             .navigationBarTitleDisplayMode(.inline)

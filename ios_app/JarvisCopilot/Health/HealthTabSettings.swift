@@ -19,6 +19,7 @@ struct HealthTabSettings: View {
     @AppStorage("jc.training.unit") private var unit: TrainingUnit = TrainingUnit.regional
     @AppStorage("jc.distance.unit") private var distanceUnit: DistanceUnit = DistanceUnit.regional
     @AppStorage("jc.map.style") private var mapStyle: MapStyle = .standard
+    @AppStorage("jc.health.holdWearables") private var holdWearables = true
 
     var body: some View {
         NavigationStack {
@@ -46,6 +47,7 @@ struct HealthTabSettings: View {
                                                                 embedded: true)
                                       })
                     personal
+                    wearablesCard
                     workoutsCard
                     appleHealthCard
                 }
@@ -65,6 +67,16 @@ struct HealthTabSettings: View {
                     activeGoal = goals.activeMinutes
                     sleepGoal = goals.sleepMinutes ?? 480
                 }
+            }
+        }
+    }
+
+    /// Whether the wearables stay connected while this tab is open.
+    private var wearablesCard: some View {
+        CardGroup("Wearables", footer: "Your ring and bottle stay connected while the Health tab is open and in front, so a refresh or a workout starts at once. Leaving the tab, or the app, lets them go.") {
+            Row {
+                Toggle("Keep connected while Health is open", isOn: $holdWearables)
+                    .tint(JcTheme.accent)
             }
         }
     }

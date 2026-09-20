@@ -129,3 +129,31 @@ final class AppleHealthSyncTests: XCTestCase {
         XCTAssertFalse(AppleHealthKind.fromRingDays.contains(.body))
     }
 }
+
+/// What reaches HealthKit: only allowed types, sane values, one per sync id.
+final class AppleHealthBatchTests: XCTestCase {
+    private let at = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func testABatchRefusesWhatWouldEndTheApp() throws {
+        let allowed: Set<String> = [HKQuantityTypeIdentifier.heartRate.rawValue]
+        let samples = [
+            AppleHealthSample(value: .quantity(.heartRate, unit: "count/min", value: 60), start: at, end: at, syncID: "a"),
+            AppleHealthSample(value: .quantity(.heartRate, unit: "count/min", value: 61), start: at, end: at, syncID: "a"),
+            AppleHealthSample(value: .quantity(.heartRate, unit: "count/min", value: .nan), start: at, end: at, syncID: "b"),
+            AppleHealthSample(value: .quantity(.stepCount, unit: "count", value: 10), start: at, end: at, syncID: "c"),
+            AppleHealthSample(value: .quantity(.heartRate, unit: "count/min", value: 70), start: at.addingTimeInterval(60),
+                              end: at, syncID: "d"),
+            AppleHealthSample(value: .sleep(.asleepCore), start: at, end: at.addingTimeInterval(600), syncID: "e"),
+        ]
+        let batch = SampleBatch(samples, allowed: allowed, version: 7)
+        let ids = batch.objects.compactMap { $0.metadata?[HKMetadataKeySyncIdentifier] as? String }
+        XCTAssertEqual(ids, ["a", "d"], "no repeat, no NaN, no type that isn't allowed, no sleep without its type")
+        let fixed = try XCTUnwrap(batch.objects.last as? HKQuantitySample)
+        XCTAssertEqual(fixed.startDate, at, "a backwards sample is turned round")
+        XCTAssertEqual(fixed.endDate, at.addingTimeInterval(60))
+        XCTAssertEqual(fixed.metadata?[HKMetadataKeySyncVersion] as? Int, 7)
+        let withSleep = SampleBatch(samples, allowed: allowed.union([HKCategoryTypeIdentifier.sleepAnalysis.rawValue]),
+                                    version: 7)
+        XCTAssertEqual(withSleep.objects.count, 3)
+    }
+}

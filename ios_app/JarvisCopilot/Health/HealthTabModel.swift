@@ -146,6 +146,13 @@ final class HealthTabModel: ObservableObject {
     }
 
     /// A workout just saved, on today at once — before the server has it.
+    /// A deleted workout goes from the day it was on, at once.
+    func forget(workoutAt start: Date) {
+        for (key, list) in workouts where list.contains(where: { abs($0.start.timeIntervalSince(start)) < 1 }) {
+            workouts[key] = list.filter { abs($0.start.timeIntervalSince(start)) >= 1 }
+        }
+    }
+
     func noteSaved(_ workout: RingWorkout) {
         // An edited older workout belongs to its own day, not today.
         if let today = windows[Self.windowKey], workout.start < today.start { return }
