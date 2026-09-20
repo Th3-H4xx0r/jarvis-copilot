@@ -68,7 +68,8 @@ _REDACT_ENABLED = os.getenv("HERMES_REDACT_SECRETS", "true").lower() in {"1", "t
 
 # Known API key prefixes -- match the prefix + contiguous token chars
 _PREFIX_PATTERNS = [
-    r"sk-[A-Za-z0-9_-]{10,}",           # OpenAI / OpenRouter / Anthropic (sk-ant-*)
+    r"sk-[A-Za-z0-9_.-]{10,}",          # OpenAI / OpenRouter / Anthropic (sk-ant-*),
+    #                                    and dot-segmented keys (Alibaba sk-sp-x.y)
     r"ghp_[A-Za-z0-9]{10,}",            # GitHub PAT (classic)
     r"github_pat_[A-Za-z0-9_]{10,}",    # GitHub PAT (fine-grained)
     r"gho_[A-Za-z0-9]{10,}",            # GitHub OAuth access token
@@ -186,6 +187,39 @@ _FORM_BODY_RE = re.compile(
 _PREFIX_RE = re.compile(
     r"(?<![A-Za-z0-9_-])(" + "|".join(_PREFIX_PATTERNS) + r")(?![A-Za-z0-9_-])"
 )
+
+# Characters that carry no width but split a token in two as far as the matcher
+# is concerned. A key with one of these in the middle -- `sk-ab<ESC>cdef...` --
+# matched nothing and was printed in full into a terminal result, a log line or
+# a phone notification. We match a second time against a stripped copy and mask
+# the span it came from, so the redaction lands even when the token is broken up.
+#
+# Tab and newline are deliberately NOT stripped: they are real separators, and
+# folding them would glue unrelated words into one false "token".
+_CONTROL_CHARS_RE = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f​-‏ - ⁠﻿]"
+)
+
+
+def _redact_prefixed_tokens(text: str) -> str:
+    """Mask known-prefix secrets, including ones split by invisible characters."""
+    masked = _PREFIX_RE.sub(lambda m: _mask_token(m.group(1)), text)
+    if not _CONTROL_CHARS_RE.search(masked):
+        return masked
+
+    keep = [i for i, ch in enumerate(masked) if not _CONTROL_CHARS_RE.match(ch)]
+    stripped = "".join(masked[i] for i in keep)
+    out: list = []
+    last = 0
+    for m in _PREFIX_RE.finditer(stripped):
+        start, end = keep[m.start(1)], keep[m.end(1) - 1] + 1
+        if start < last:  # overlaps something already masked
+            continue
+        out.append(masked[last:start])
+        out.append(_mask_token(m.group(1)))
+        last = end
+    out.append(masked[last:])
+    return "".join(out)
 
 
 def mask_secret(
@@ -342,7 +376,7 @@ def redact_sensitive_text(text: str, *, force: bool = False, code_file: bool = F
 
     # Known prefixes (sk-, ghp_, etc.) — gate on substring presence
     if _has_known_prefix_substring(text):
-        text = _PREFIX_RE.sub(lambda m: _mask_token(m.group(1)), text)
+        text = _redact_prefixed_tokens(text)
 
     # ENV assignments: OPENAI_API_KEY=***  (skip for code files — false positives)
     if not code_file:
