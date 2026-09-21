@@ -228,7 +228,14 @@ class TrayApp:
         # server allows only one bridge per device_id, so two services
         # would kick each other out of `_REG` in a 1Hz reconnect storm.
         # The tray runs in UI-only mode in that case.
-        running_pid = _read_service_pid()
+        #
+        # The PID file alone cannot see it: it is absent whenever a restart
+        # raced its own cleanup, and the service the LaunchAgent keeps alive
+        # then looks like no service at all — so the tray spawned exactly the
+        # rival this guard exists to prevent. `connection_state.json` is
+        # written by the service ABOUT ITSELF, which is the better answer;
+        # `_supervised_pid` has consulted both for the same reason.
+        running_pid = _read_service_pid() or _service_pid_from_state()
         if running_pid and running_pid != os.getpid():
             log.info(
                 "tray: service already running (pid %d) — running UI only",

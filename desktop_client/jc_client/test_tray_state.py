@@ -87,3 +87,31 @@ def test_a_live_pid_in_the_state_file_is(monkeypatch, tmp_path):
     monkeypatch.setattr("jc_client.logger.state_dir", lambda: tmp_path)
     monkeypatch.setattr(tray, "_pid_alive", lambda pid: True)
     assert tray._service_pid_from_state() == 4242
+
+
+def test_a_service_known_only_to_the_state_file_still_blocks_a_second_one(monkeypatch):
+    """Starting the tray must not spawn a rival for the LaunchAgent's service.
+
+    The same absent PID file that paints the icon red also hid the running
+    service from the guard in `_start_service`, so the tray started its own.
+    The server allows one bridge per device, so the two then kicked each other
+    off about once a second, each reconnect stealing the identity back — while
+    the menubar item sat there looking fine. The guard has to consult both
+    sources, exactly as `_supervised_pid` does.
+    """
+    import os
+
+    monkeypatch.setattr(tray, "_read_service_pid", lambda: None)
+    monkeypatch.setattr(tray, "_service_pid_from_state", lambda: os.getpid() + 1)
+
+    def _rival(*args, **kwargs):
+        raise AssertionError("the tray started a second service")
+
+    monkeypatch.setattr(tray.service, "Service", _rival)
+
+    app = TrayApp.__new__(TrayApp)
+    app._svc_thread = None
+    app._start_service()
+
+    assert app._supervised is True
+    assert app._svc is None
