@@ -5,15 +5,22 @@ struct ChatSessionDetail: Equatable, Sendable {
     var id: String = ""
     var title: String = ""
     var messages: [ChatMessage] = []
+    /// The prompt of a turn that is in flight RIGHT NOW.
+    ///
+    /// In the server's default deferred save mode a just-sent message is written
+    /// to `pending_user_message` and only folded into `messages` when the turn
+    /// commits. Ignore it and a turn started on another device renders as a reply
+    /// with no question above it -- two assistant bubbles in a row.
+    var pendingUserMessage: String?
 }
 
 /// What the server knows about a session right now: whether a turn is running (and
 /// on which stream) and the last assistant text.
 ///
-/// The server's per-turn event queue is single-consumer, so the phone's live stream
-/// can be starved when the web UI is open on the same session. This is the fallback
-/// that both re-attaches to a running turn and recovers the text of one that
-/// finished while we weren't listening.
+/// The fallback that both re-attaches to a running turn and recovers the text of
+/// one that finished while we weren't listening. (It was originally written
+/// because the per-turn queue was single-consumer and an open web UI starved the
+/// phone; that is no longer true -- every subscriber gets its own queue.)
 struct SessionSnapshot: Equatable, Sendable {
     let activeStreamID: String?
     let lastAssistantText: String?
@@ -110,7 +117,8 @@ struct SessionsAPI {
         return ChatSessionDetail(
             id: sessionID(in: session) ?? fallbackID,
             title: (session.string("title") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-            messages: ChatHistory.hydrate(session["messages"] as? [[String: Any]] ?? []))
+            messages: ChatHistory.hydrate(session["messages"] as? [[String: Any]] ?? []),
+            pendingUserMessage: session.string("pending_user_message"))
     }
 
     private static func sessionID(in object: [String: Any]) -> String? {

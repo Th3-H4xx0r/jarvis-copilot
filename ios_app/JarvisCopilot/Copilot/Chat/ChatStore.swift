@@ -105,6 +105,12 @@ final class ChatStore {
     @ObservationIgnored let sessionEventsAPI = SessionEventsAPI()
     @ObservationIgnored let mirrorHandle = TaskHandle()
     @ObservationIgnored var mirrorSessionID: String?
+    /// Whether the chat is on screen and WANTS to mirror, which is not the same
+    /// as whether it currently is. At launch the tab is visible before any
+    /// session is open, so the start attempt no-ops; without remembering the
+    /// intent, the session opening afterwards has nothing to re-trigger it and
+    /// the mirror never starts at all.
+    @ObservationIgnored var mirrorDesired = false
     /// Streaming because ANOTHER device asked, not this one. The guards that
     /// refuse to refresh while `streaming` need to tell those apart.
     @ObservationIgnored var mirroringRun = false
@@ -286,10 +292,10 @@ final class ChatStore {
             if sessionID == id { self.error = "Could not open chat: \(apiErrorMessage(error))" }
         }
         if sessionID == id { historyLoading = false }
-        // Re-point the mirror at the chat that is now open.
-        if sessionID == id, mirrorSessionID != nil || mirrorHandle.current != nil {
-            startMirroring()
-        }
+        // Re-point the mirror at the chat that is now open. This is also the
+        // path that starts it at all on a cold launch, where the tab becomes
+        // visible before there is any session to watch.
+        if sessionID == id { remirrorForCurrentSession() }
     }
 
     /// Stage a brand-new conversation. The actual `POST /api/session/new` is
@@ -734,7 +740,7 @@ struct SessionEventsAPI {
 
 extension ChatStore {
 
-    static let mirrorLog = Logger(subsystem: "com.jarviscopilot.app", category: "session-mirror")
+    static let mirrorLog = Logger(subsystem: "com.jarviscopilot.jarviscopilotMobileAndIOS", category: "session-mirror")
 
     /// Follow this session's announcements while the chat is on screen.
     ///
@@ -743,6 +749,7 @@ extension ChatStore {
     /// day, and list polling is gated on the tab AND the scene phase for the same
     /// reason. A long-lived stream that outlives the visible chat would undo that.
     func startMirroring() {
+        guard mirrorDesired else { return }
         guard let id = sessionID, !id.isEmpty else { return }
         guard mirrorSessionID != id || mirrorHandle.current == nil else { return }
         stopMirroring()
@@ -754,12 +761,20 @@ extension ChatStore {
 
     /// Single switch the view drives, mirroring `setListPolling`.
     func setMirroring(_ on: Bool) {
+        mirrorDesired = on
         if on { startMirroring() } else { stopMirroring() }
     }
 
     func stopMirroring() {
         mirrorHandle.cancel()
         mirrorSessionID = nil
+    }
+
+    /// Re-point at whatever chat is now open. Safe to call whenever the session
+    /// changes: it no-ops unless the chat is actually on screen.
+    func remirrorForCurrentSession() {
+        guard mirrorDesired else { return }
+        startMirroring()
     }
 
     private func consumeSessionEvents(_ id: String) async {
@@ -813,7 +828,16 @@ extension ChatStore {
         // not on screen. Refresh first; if that fails, showing the reply alone
         // still beats showing nothing.
         if let detail = try? await sessionsAPI.get(id), sessionID == id {
-            setMessages(detail.messages)
+            var history = detail.messages
+            // The other device's prompt is still in pending_user_message until its
+            // turn commits, so without this the reply renders with no question
+            // above it and two assistant bubbles end up side by side.
+            if let pending = detail.pendingUserMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !pending.isEmpty,
+               history.last(where: { $0.isUser })?.plainText != pending {
+                history.append(.user(pending))
+            }
+            setMessages(history)
         }
         guard !streaming, sessionID == id else { return }
 
