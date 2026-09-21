@@ -5123,6 +5123,16 @@ class HermesCLI:
             print(f"  Unknown subcommand: {subcmd}")
             print("  Usage: /snapshot [list|create [label]|restore <id>|prune [N]]")
 
+    def _handle_context_command(self):
+        """/context -- what is actually filling the window right now."""
+        from agent.context_breakdown import compute, render
+
+        agent = getattr(self, "agent", None)
+        if agent is None:
+            self.console.print("[dim]No active agent yet — send a message first.[/dim]")
+            return
+        self.console.print(render(compute(agent)))
+
     def _handle_estop_command(self, cmd_original: str):
         """/pause and /unpause — the global emergency stop.
 
@@ -8053,6 +8063,8 @@ class HermesCLI:
             self._handle_stop_command()
         elif canonical == "pause":
             self._handle_estop_command(cmd_original)
+        elif canonical == "context":
+            self._handle_context_command()
         elif canonical == "agents":
             self._handle_agents_command()
         elif canonical == "background":

@@ -55,6 +55,9 @@ class ProviderProfile:
     models_url: str = ""  # explicit models endpoint; falls back to {base_url}/models
     auth_type: str = "api_key"   # api_key|oauth_device_code|oauth_external|copilot|aws_sdk
     supports_health_check: bool = True  # False → doctor skips /models probe for this provider
+    # False → this provider has no /models endpoint worth calling (Vertex
+    # authenticates per-project), so callers fall back to the static catalog.
+    supports_model_listing: bool = True
 
     # ── Model catalog ─────────────────────────────────────────
     # fallback_models: curated list shown in /model picker when live fetch fails.
@@ -154,6 +157,8 @@ class ProviderProfile:
         Callers must always fall back to the static _PROVIDER_MODELS list
         when this returns None.
         """
+        if not self.supports_model_listing:
+            return None
         url = (self.models_url or "").strip()
         if not url:
             if not self.base_url:

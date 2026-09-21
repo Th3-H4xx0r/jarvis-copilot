@@ -6828,6 +6828,9 @@ class GatewayRunner:
 
         if canonical == "pause":
             return self._handle_estop_command(event)
+
+        if canonical == "context":
+            return self._handle_context_command(event)
         
         if canonical == "reasoning":
             return await self._handle_reasoning_command(event)
@@ -9076,6 +9079,18 @@ class GatewayRunner:
             lines.append(t("gateway.agents.none"))
 
         return "\n".join(lines)
+
+    def _handle_context_command(self, event: MessageEvent) -> str:
+        """/context -- what is filling this session's window."""
+        from agent.context_breakdown import compute, render
+
+        source = event.source
+        session_entry = self.session_store.get_or_create_session(source)
+        agent = self._running_agents.get(session_entry.session_key)
+        if agent is None or agent is _AGENT_PENDING_SENTINEL:
+            return ("No agent is running for this session right now, so there is "
+                    "no live window to measure. Ask me something first.")
+        return "```\n" + render(compute(agent)) + "\n```"
 
     def _handle_estop_command(self, event: MessageEvent) -> str:
         """Handle /pause and /resume — the global emergency stop.
