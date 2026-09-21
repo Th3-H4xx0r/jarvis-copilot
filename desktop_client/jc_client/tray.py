@@ -144,6 +144,36 @@ def _icon_image(color: tuple[int, int, int]):
     return img
 
 
+def _on_main_thread(fn) -> None:
+    """Run ``fn`` on the main run loop, or inline if we are already on it.
+
+    macOS 27 backs the menubar item with an ``NSSceneStatusItem``, so
+    ``-[NSStatusItem setMenu:]`` now goes through FrontBoardServices and calls
+    ``-[BSServiceMainRunLoopQueue assertBarrierOnQueue]``: a hard SIGTRAP when
+    the caller is not the main run loop. The refresh thread used to get away
+    with touching the status item directly — on 27 the first tick killed the
+    process two seconds after launch, every launch.
+
+    pystray's darwin backend runs a real ``NSApplication`` loop, so a queued
+    ``performSelectorOnMainThread:`` is delivered as soon as it starts; queuing
+    before then (the refresh thread outlives the icon's construction) is fine,
+    the work simply lands on the first turn of the loop. Anything that is not
+    macOS-with-PyObjC keeps the old inline behaviour.
+    """
+    if threading.current_thread() is threading.main_thread():
+        fn()
+        return
+    if sys.platform == "darwin":
+        try:
+            from PyObjCTools import AppHelper
+        except Exception:
+            pass
+        else:
+            AppHelper.callAfter(fn)
+            return
+    fn()
+
+
 # ── Tray app ───────────────────────────────────────────────────────────────
 
 
@@ -535,12 +565,22 @@ class TrayApp:
         # pystray updates the title + menu by calling update_menu on the
         # icon object. The label callbacks re-evaluate, so a single
         # call refreshes everything.
-        if self._icon:
-            self._icon.icon = self._icon_for_state()
+        #
+        # Drawing the icon is plain Pillow work and stays on the calling
+        # thread; everything after it reaches AppKit and must not (see
+        # _on_main_thread).
+        if not self._icon:
+            return
+        image = self._icon_for_state()
+
+        def apply() -> None:
             try:
+                self._icon.icon = image
                 self._icon.update_menu()
             except Exception:
                 pass
+
+        _on_main_thread(apply)
 
     def _poll_sync_state(self) -> None:
         """Refresh the cross-process "syncing" flag and fire the one-shot
