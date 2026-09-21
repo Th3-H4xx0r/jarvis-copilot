@@ -426,12 +426,29 @@ class TestSlackAppManifest:
             # HTML-escapes args — we want the raw text)
             assert "should_escape" in entry
 
-    def test_btw_is_in_manifest(self):
-        """Regression: /btw must be a native Slack slash, not just a
-        /hermes subcommand."""
+    def test_every_manifest_alias_keeps_its_command_reachable(self):
+        """Aliases live in whatever slots remain after canonical parity.
+
+        This registry wants more slash commands than Slack allows one app, so
+        the alias budget shrinks by one for every command added -- /btw was the
+        casualty of /context and /refine. Pinning a particular alias is a
+        snapshot that breaks on the next command; what must hold is that losing
+        an alias never strands the thing it points at.
+        """
         m = slack_app_manifest()
-        commands = [c["command"] for c in m["features"]["slash_commands"]]
-        assert "/btw" in commands
+        commands = {c["command"].lstrip("/") for c in m["features"]["slash_commands"]}
+        overrides = _resolve_config_gates()
+
+        for cmd in COMMAND_REGISTRY:
+            if not _is_gateway_available(cmd, overrides):
+                continue
+            for alias in cmd.aliases:
+                if alias not in commands:
+                    assert (cmd.name in commands
+                            or cmd.name in _SLACK_RESERVED_COMMANDS), (
+                        f"/{alias} was dropped from the manifest AND its command "
+                        f"/{cmd.name} is not native — that loses a capability"
+                    )
 
     def test_custom_request_url(self):
         m = slack_app_manifest(request_url="https://example.com/slack")

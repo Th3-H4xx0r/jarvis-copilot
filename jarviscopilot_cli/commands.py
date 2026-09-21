@@ -114,6 +114,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                args_hint="[text | remove N | clear]"),
     CommandDef("status", "Show session info", "Session"),
     CommandDef("context", "Show what is filling the context window", "Info"),
+    CommandDef("refine", "Run the memory/skill review on this turn now",
+               "Tools & Skills", args_hint="[memory|skills|both]"),
     CommandDef("whoami", "Show your slash command access (admin / user)", "Info"),
     CommandDef("profile", "Show active profile name and home directory", "Info"),
     CommandDef("sethome", "Set this chat as the home channel", "Session",

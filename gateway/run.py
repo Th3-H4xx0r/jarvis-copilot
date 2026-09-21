@@ -6831,6 +6831,9 @@ class GatewayRunner:
 
         if canonical == "context":
             return self._handle_context_command(event)
+
+        if canonical == "refine":
+            return self._handle_refine_command(event)
         
         if canonical == "reasoning":
             return await self._handle_reasoning_command(event)
@@ -9079,6 +9082,34 @@ class GatewayRunner:
             lines.append(t("gateway.agents.none"))
 
         return "\n".join(lines)
+
+    def _handle_refine_command(self, event: MessageEvent) -> str:
+        """/refine -- run the memory/skill review on this turn now."""
+        source = event.source
+        session_entry = self.session_store.get_or_create_session(source)
+        agent = self._running_agents.get(session_entry.session_key)
+        if agent is None or agent is _AGENT_PENDING_SENTINEL:
+            return "No agent is running for this session, so there is nothing to review yet."
+
+        text = (getattr(event, "text", "") or "").strip()
+        parts = text.split(None, 1)
+        what = (parts[1].strip().lower() if len(parts) > 1 else "both") or "both"
+        if what not in {"memory", "skills", "both"}:
+            return "Usage: /refine [memory|skills|both]"
+
+        messages = list(getattr(agent, "messages", None) or [])
+        if not messages:
+            return "Nothing to review yet."
+        try:
+            agent._spawn_background_review(
+                messages,
+                review_memory=what in ("memory", "both"),
+                review_skills=what in ("skills", "both"),
+            )
+        except Exception as exc:
+            return f"Could not start the review: {exc}"
+        target = "memory and skills" if what == "both" else what
+        return f"🔎 Reviewing this turn for {target}. Results arrive when it finishes."
 
     def _handle_context_command(self, event: MessageEvent) -> str:
         """/context -- what is filling this session's window."""

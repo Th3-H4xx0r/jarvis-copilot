@@ -5123,6 +5123,45 @@ class HermesCLI:
             print(f"  Unknown subcommand: {subcmd}")
             print("  Usage: /snapshot [list|create [label]|restore <id>|prune [N]]")
 
+    def _handle_refine_command(self, cmd_original: str):
+        """/refine -- run the background memory/skill review on this turn now.
+
+        The review normally fires on its own schedule, so there was no way to
+        say "you just learned something, write it down" at the moment it
+        mattered. Takes memory|skills|both (default both).
+        """
+        agent = getattr(self, "agent", None)
+        if agent is None:
+            self.console.print("[dim]Nothing to review yet — send a message first.[/dim]")
+            return
+
+        parts = (cmd_original or "").split(None, 1)
+        what = (parts[1].strip().lower() if len(parts) > 1 else "both") or "both"
+        if what not in {"memory", "skills", "both"}:
+            self.console.print("[yellow]Usage: /refine [memory|skills|both][/yellow]")
+            return
+
+        messages = list(getattr(agent, "messages", None) or [])
+        if not messages:
+            self.console.print("[dim]Nothing to review yet — send a message first.[/dim]")
+            return
+
+        try:
+            agent._spawn_background_review(
+                messages,
+                review_memory=what in ("memory", "both"),
+                review_skills=what in ("skills", "both"),
+            )
+        except Exception as exc:
+            self.console.print(f"[red]Could not start the review: {exc}[/red]")
+            return
+
+        target = "memory and skills" if what == "both" else what
+        self.console.print(
+            f"[cyan]Reviewing this turn for {target}.[/cyan] "
+            "[dim]It runs in the background; results appear when it finishes.[/dim]"
+        )
+
     def _handle_context_command(self):
         """/context -- what is actually filling the window right now."""
         from agent.context_breakdown import compute, render
@@ -8065,6 +8104,8 @@ class HermesCLI:
             self._handle_estop_command(cmd_original)
         elif canonical == "context":
             self._handle_context_command()
+        elif canonical == "refine":
+            self._handle_refine_command(cmd_original)
         elif canonical == "agents":
             self._handle_agents_command()
         elif canonical == "background":
