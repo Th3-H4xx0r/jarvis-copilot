@@ -28,6 +28,9 @@ from api.agent_sessions import (
 logger = logging.getLogger(__name__)
 CLI_VISIBLE_SESSION_LIMIT = 20
 _CLI_SESSIONS_CACHE_TTL_SECONDS = 5.0
+# Ceiling for a cache entry whose freshness signature still matches. See
+# _cli_sessions_max_staleness_seconds().
+_CLI_SESSIONS_MAX_STALENESS_SECONDS = 300.0
 _CLI_SESSIONS_CACHE_LOCK = threading.Lock()
 # stable_key -> (freshness_sig, expires_monotonic, sessions)
 _CLI_SESSIONS_CACHE = {}
@@ -2071,6 +2074,18 @@ def _cli_sessions_cache_ttl_seconds() -> float:
         return 5.0
 
 
+def _cli_sessions_max_staleness_seconds() -> float:
+    """Upper bound on how long a signature-validated entry may be served.
+
+    The freshness signature is the real guard; this only caps the blast radius
+    if a stat ever fails to notice a change.
+    """
+    try:
+        return max(0.0, float(_CLI_SESSIONS_MAX_STALENESS_SECONDS))
+    except (TypeError, ValueError):
+        return 300.0
+
+
 def _path_cache_key(path) -> str | None:
     if path is None:
         return None
@@ -2284,15 +2299,31 @@ def get_cli_sessions() -> list:
             c = _CLI_SESSIONS_CACHE.get(cache_key)
         return _copy_cli_sessions(c[2]) if c else []
 
+    def _store(loaded) -> None:
+        with _CLI_SESSIONS_CACHE_LOCK:
+            # Hold the entry for the CEILING, not the TTL. Every read is already
+            # guarded by `cached[0] == fresh_sig`, and that signature stats
+            # state.db (+WAL/SHM), the projects dir and the session index -- so an
+            # unchanged signature proves the answer is still current and the TTL
+            # only ever shortened the life of a provably-valid entry.
+            #
+            # That mattered: the sidebar polls every 5s and the TTL was also 5s, so
+            # a serial poll became the loader on essentially every refresh and paid
+            # the full scan -- ~460ms of a ~510ms /api/sessions on the live server.
+            # The ceiling stays so that a stat which somehow misses a change
+            # self-heals instead of serving a stale list forever.
+            _CLI_SESSIONS_CACHE[cache_key] = (
+                fresh_sig,
+                time.monotonic() + max(ttl, _cli_sessions_max_staleness_seconds()),
+                _copy_cli_sessions(loaded))
+
     # We are the single loader. The slow scan runs here holding ONLY loadlock
     # (never the global cache lock), so concurrent polls above never block on it.
     try:
         sessions = _load()
         if sessions is None:
             return stale if stale is not None else []
-        with _CLI_SESSIONS_CACHE_LOCK:
-            _CLI_SESSIONS_CACHE[cache_key] = (
-                fresh_sig, time.monotonic() + ttl, _copy_cli_sessions(sessions))
+        _store(sessions)
         return _copy_cli_sessions(sessions)
     finally:
         loadlock.release()

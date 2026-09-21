@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 
@@ -235,3 +236,74 @@ def test_read_only_source_badge_ui_guards_are_present():
     assert ".session-item.cli-session.read-only-session:hover::after" in style_css
     assert "Read-only imported sessions cannot be deleted" in routes_py
     assert "Read-only imported sessions cannot be archived" in routes_py
+
+
+def test_get_cli_sessions_serves_cache_past_ttl_while_inputs_unchanged(monkeypatch, tmp_path):
+    """An expired TTL must not force a rescan when nothing on disk moved.
+
+    The sidebar polls this every 5s and the TTL was also 5s, so a serial poll
+    became the loader every single time and paid the full scan (~460ms on the
+    live server) on every refresh. The freshness signature already stats
+    state.db + WAL + the projects dir + the session index, so an unchanged
+    signature PROVES the answer is still current -- the TTL only ever shortened
+    the life of a provably-valid entry.
+    """
+    import api.models as models
+    import api.profiles as profiles
+
+    hermes_home = tmp_path / "jarviscopilot"
+    hermes_home.mkdir()
+    monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: str(hermes_home))
+    monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
+    # A TTL that is already expired by the time the second call lands.
+    monkeypatch.setattr(models, "_CLI_SESSIONS_CACHE_TTL_SECONDS", 0.01, raising=False)
+    models.clear_cli_sessions_cache()
+
+    calls = 0
+
+    def fake_claude_code_sessions():
+        nonlocal calls
+        calls += 1
+        return [{"session_id": "cc", "title": "T", "updated_at": calls,
+                 "message_count": 1, "source_tag": "claude_code", "is_cli_session": True}]
+
+    monkeypatch.setattr(models, "get_claude_code_sessions", fake_claude_code_sessions)
+
+    models.get_cli_sessions()
+    time.sleep(0.05)                      # well past the 0.01s TTL
+    second = models.get_cli_sessions()
+
+    assert calls == 1, "expired TTL rescanned even though no input file changed"
+    assert second[0]["updated_at"] == 1
+
+
+def test_get_cli_sessions_still_reloads_past_ttl_when_inputs_change(monkeypatch, tmp_path):
+    """The ceiling must not become 'never reload' -- a changed input still reloads."""
+    import api.models as models
+    import api.profiles as profiles
+
+    hermes_home = tmp_path / "jarviscopilot"
+    hermes_home.mkdir()
+    db_path = hermes_home / "state.db"
+    db_path.write_text("initial", encoding="utf-8")
+    monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: str(hermes_home))
+    monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
+    monkeypatch.setattr(models, "_CLI_SESSIONS_CACHE_TTL_SECONDS", 0.01, raising=False)
+    monkeypatch.setattr(models, "get_claude_code_sessions", lambda: [])
+    models.clear_cli_sessions_cache()
+
+    calls = 0
+
+    def fake_rows(_db_path, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(models, "read_importable_agent_session_rows", fake_rows)
+
+    models.get_cli_sessions()
+    time.sleep(0.05)
+    db_path.write_text("changed -- a new CLI turn landed", encoding="utf-8")
+    models.get_cli_sessions()
+
+    assert calls == 2, "a changed state.db must still invalidate the cache"
