@@ -617,6 +617,32 @@ class Session:
             raise
         if not skip_index:
             _write_session_index(updates=[self])
+        self._announce_changed()
+
+    def _announce_changed(self) -> None:
+        """Tell other devices with this chat open that it moved.
+
+        One hook here instead of at the thirteen handlers that mutate a session
+        (rename, auto-title, pin, archive, move, model change, truncate, undo,
+        retry, the streaming commit...). Those call sites will keep being added
+        and a per-handler emit would drift out of date within a release; every
+        one of them ends here.
+
+        Deliberately a nudge, not a diff: it carries the fields the sidebar
+        renders, and a client that needs more re-reads the session. Best-effort
+        -- a mirror announcement must never be able to fail a save that already
+        wrote to disk.
+        """
+        try:
+            from api.session_events import SESSION_EVENTS
+            SESSION_EVENTS.publish(self.session_id, "session_changed", {
+                "session_id": self.session_id,
+                "title": getattr(self, "title", None),
+                "updated_at": getattr(self, "updated_at", None),
+                "message_count": len(getattr(self, "messages", None) or []),
+            })
+        except Exception:
+            pass
 
     @classmethod
     def load(cls, sid):

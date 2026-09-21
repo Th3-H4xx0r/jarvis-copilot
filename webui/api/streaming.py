@@ -5230,6 +5230,20 @@ def _run_agent_streaming(
             STREAM_GOAL_RELATED.pop(stream_id, None)  # Clean up goal-related flag (#1932)
             STREAM_LAST_EVENT_ID.pop(stream_id, None)  # Clean up event_id pointer (stage-364)
             unregister_active_run(stream_id)
+        # Cross-device mirror: the run channel is gone now, so a device that
+        # only watches the session channel would otherwise never learn the turn
+        # ended -- it would sit on a spinner forever. Published OUTSIDE the
+        # STREAMS lock: subscriber queues are bounded and non-blocking, but that
+        # lock guards every stream registration in the process.
+        try:
+            from api.session_events import SESSION_EVENTS
+            _mirror_sid = getattr(s, "session_id", "") or ""
+            SESSION_EVENTS.publish(_mirror_sid, "run_ended", {
+                "session_id": _mirror_sid,
+                "stream_id": stream_id,
+            })
+        except Exception:
+            logger.warning("Failed to announce run_ended", exc_info=True)
             # NOTE: do NOT discard PENDING_GOAL_CONTINUATION here. The marker
             # is set by goal_continue (line ~3328) inside the SAME function
             # call and consumed atomically by `_start_chat_stream_for_session`

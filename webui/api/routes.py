@@ -2123,6 +2123,9 @@ def _keep_latest_messaging_session_per_source(sessions: list[dict]) -> list[dict
     return kept
 
 
+# Cross-device mirror: the per-session announcement channel that tells every
+# device with this chat open that a run started elsewhere. See api/session_events.
+from api.session_events import SESSION_EVENTS
 from api.models import (
     Session,
     get_session,
@@ -4431,6 +4434,9 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == '/api/sessions/gateway/stream':
         return _handle_gateway_sse_stream(handler, parsed)
+
+    if parsed.path == '/api/session/events':
+        return _handle_session_events_sse(handler, parsed)
 
     if parsed.path == "/api/media":
         return _handle_media(handler, parsed)
@@ -7294,6 +7300,79 @@ def _handle_gateway_sse_stream(handler, parsed):
     return True
 
 
+def _session_events_snapshot(session_id: str) -> dict:
+    """What a device needs to catch up the instant it attaches.
+
+    Without this, a client that opens a chat while a run is already in flight
+    would sit blank until the NEXT announcement -- which for a run already
+    underway never comes. The snapshot hands it the live stream_id and the
+    journal cursor, so it can attach and replay the part it missed.
+    """
+    snap = {'session_id': session_id, 'active_stream_id': None, 'last_seq': 0}
+    try:
+        s = SESSIONS.get(session_id) or Session.load(session_id)
+    except Exception:
+        s = None
+    stream_id = getattr(s, 'active_stream_id', None) if s is not None else None
+    if not stream_id:
+        return snap
+    with STREAMS_LOCK:
+        live = stream_id in STREAMS
+    if not live:
+        # active_stream_id outlives a worker that died; _clear_stale_stream_state
+        # repairs it lazily elsewhere, and announcing it here would send the
+        # client chasing a stream that is never going to produce another event.
+        return snap
+    snap['active_stream_id'] = stream_id
+    event_id = STREAM_LAST_EVENT_ID.get(stream_id) or ''
+    tail = event_id.rsplit(':', 1)[-1] if ':' in event_id else ''
+    try:
+        snap['last_seq'] = max(0, int(tail))
+    except (TypeError, ValueError):
+        snap['last_seq'] = 0
+    return snap
+
+
+def _handle_session_events_sse(handler, parsed):
+    """SSE: what changed on this session, for every device that has it open.
+
+    Carries pointers, not content. ``run_started`` says "attach to this
+    stream_id" and the existing run stream delivers the tokens -- that stream
+    already fans out to every subscriber, so the only thing that was ever
+    missing is telling the other devices it exists.
+    """
+    qs = parse_qs(parsed.query)
+    session_id = (qs.get('session_id', [''])[0] or '').strip()
+    if not session_id:
+        return j(handler, {'error': 'session_id required'}, status=400)
+
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('X-Accel-Buffering', 'no')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    # Subscribe BEFORE the snapshot: a run starting in between is then delivered
+    # as an event rather than falling into the gap between the two.
+    q = SESSION_EVENTS.subscribe(session_id)
+    try:
+        _sse(handler, 'snapshot', _session_events_snapshot(session_id))
+        while True:
+            try:
+                event, data = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+            except queue.Empty:
+                handler.wfile.write(b': keepalive\n\n')
+                handler.wfile.flush()
+                continue
+            _sse(handler, event, data)
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
+    finally:
+        SESSION_EVENTS.unsubscribe(session_id, q)
+    return True
+
+
 def _content_disposition_value(disposition: str, filename: str) -> str:
     """Build a latin-1-safe Content-Disposition value with RFC 5987 filename*."""
     import urllib.parse as _up
@@ -8786,6 +8865,22 @@ def _start_chat_stream_for_session(
         schedule_session_index_refresh(s)
     except Exception:
         logger.warning("Failed to schedule session index refresh", exc_info=True)
+    # Tell every OTHER device with this chat open that a run just started, and
+    # which stream to attach to. The run stream already broadcasts to every
+    # subscriber; until now nobody else was ever told the stream_id, so the
+    # fan-out had an audience of one. Announce after the worker is running so a
+    # device that attaches immediately finds the stream registered.
+    try:
+        SESSION_EVENTS.publish(s.session_id, "run_started", {
+            "session_id": s.session_id,
+            "stream_id": stream_id,
+            "turn_id": journal_event.get("turn_id"),
+            "title": s.title,
+        })
+    except Exception:
+        # An announcement is a nicety; never fail the turn the user asked for.
+        logger.warning("Failed to announce run_started", exc_info=True)
+
     response = {
         "stream_id": stream_id,
         "session_id": s.session_id,
