@@ -778,18 +778,31 @@ extension ChatStore {
     }
 
     private func consumeSessionEvents(_ id: String) async {
-        do {
-            for try await event in sessionEventsAPI.events(sessionID: id) {
-                guard !Task.isCancelled, sessionID == id else { return }
-                await handleSessionEvent(event, on: id)
+        // A long-lived SSE ends for ordinary reasons — a network change, the
+        // server recycling the connection, a proxy timeout. Observed on device:
+        // it drops roughly once a minute. Running it once and logging the exit
+        // meant the mirror silently stopped until something incidental restarted
+        // it, which is the worst version of this bug: everything looks connected
+        // and nothing arrives. So reconnect, with backoff so a server that is
+        // down is not hammered.
+        var backoff: UInt64 = 1
+        while !Task.isCancelled, sessionID == id, mirrorDesired {
+            do {
+                for try await event in sessionEventsAPI.events(sessionID: id) {
+                    guard !Task.isCancelled, sessionID == id else { return }
+                    backoff = 1                    // a delivered event proves it is healthy
+                    await handleSessionEvent(event, on: id)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                // The chat works fine without the mirror, so this must never
+                // surface as a chat error — but it must not vanish either.
+                Self.mirrorLog.warning("session mirror for \(id, privacy: .public) dropped: \(String(describing: error), privacy: .public)")
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            // The chat still works without the mirror, so this must not surface as
-            // a chat error — but it must not vanish either, or "sync just stopped"
-            // is undebuggable.
-            Self.mirrorLog.warning("session mirror for \(id, privacy: .public) ended: \(String(describing: error), privacy: .public)")
+            guard !Task.isCancelled, sessionID == id, mirrorDesired else { return }
+            try? await Task.sleep(for: .seconds(Double(backoff)))
+            backoff = min(backoff * 2, 30)
         }
     }
 
