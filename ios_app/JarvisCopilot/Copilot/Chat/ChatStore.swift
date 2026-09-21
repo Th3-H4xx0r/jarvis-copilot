@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 // MARK: - Store
 
@@ -11,10 +12,13 @@ import Observation
 /// SSE frames fold into the trailing assistant message (see ``ChatStreamReducer``).
 /// Two things make that unreliable on a phone, and both are handled here:
 ///
-/// * The server's per-turn event queue is **single-consumer**. If the web UI is
-///   open on the same session it drains the queue and our socket goes quiet
-///   without closing, so `idleLimit` seconds of silence means "snapshot the
-///   session and re-attach", not "the turn failed".
+/// * A stream can go quiet without closing, so `idleLimit` seconds of silence
+///   means "snapshot the session and re-attach", not "the turn failed". This was
+///   originally written because the per-turn queue was single-consumer and an
+///   open web UI drained it out from under us -- no longer true: `StreamChannel`
+///   gives every subscriber its own queue, which is what makes the cross-device
+///   mirror below possible at all. The stall detector still earns its place for
+///   a dropped connection.
 /// * Starting a turn on a session that already has one running answers **409**.
 ///   That is usually *our own* previous turn whose stream broke, so we attach to
 ///   it rather than reporting a failure or double-submitting.
@@ -97,6 +101,14 @@ final class ChatStore {
     /// cannot answer "is the poll still running" — this can (swift-correctness M26).
     @ObservationIgnored private var pollRunning = false
     @ObservationIgnored private var pollEpoch = 0
+    // Cross-device mirror: following a turn another device started.
+    @ObservationIgnored let sessionEventsAPI = SessionEventsAPI()
+    @ObservationIgnored let mirrorHandle = TaskHandle()
+    @ObservationIgnored var mirrorSessionID: String?
+    /// Streaming because ANOTHER device asked, not this one. The guards that
+    /// refuse to refresh while `streaming` need to tell those apart.
+    @ObservationIgnored var mirroringRun = false
+
     @ObservationIgnored private let turnHandle = TaskHandle()
     @ObservationIgnored private let syncHandle = TaskHandle()
     @ObservationIgnored private let pollHandle = TaskHandle()
@@ -274,6 +286,10 @@ final class ChatStore {
             if sessionID == id { self.error = "Could not open chat: \(apiErrorMessage(error))" }
         }
         if sessionID == id { historyLoading = false }
+        // Re-point the mirror at the chat that is now open.
+        if sessionID == id, mirrorSessionID != nil || mirrorHandle.current != nil {
+            startMirroring()
+        }
     }
 
     /// Stage a brand-new conversation. The actual `POST /api/session/new` is
@@ -689,4 +705,141 @@ final class ChatStore {
 private final class StateBox {
     var state: ChatStreamState
     init(_ state: ChatStreamState) { self.state = state }
+}
+
+// MARK: - Cross-device mirror
+
+/// The per-session announcement channel: what happened on this chat, including
+/// on another device.
+///
+/// The run stream already broadcasts to every subscriber — the server hands each
+/// one its own queue — so following a turn the laptop started needs exactly one
+/// thing the phone never had: that run's `stream_id`. A run's id is a fresh uuid
+/// known only to whoever started it, and `session_id` is the only handle both
+/// devices share, so the announcement is keyed on the session.
+///
+/// Events (see `webui/api/session_events.py`): `snapshot` on connect — the only
+/// way to learn about a run ALREADY in flight when this device opened the chat —
+/// then `run_started`, `run_ended` and `session_changed`. It carries pointers,
+/// not content: the tokens still come from the run stream.
+struct SessionEventsAPI {
+    let api: JarvisAPI
+
+    init(api: JarvisAPI = .shared) { self.api = api }
+
+    func events(sessionID: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        api.streamSSE("/api/session/events", query: ["session_id": sessionID])
+    }
+}
+
+extension ChatStore {
+
+    static let mirrorLog = Logger(subsystem: "com.jarviscopilot.app", category: "session-mirror")
+
+    /// Follow this session's announcements while the chat is on screen.
+    ///
+    /// Foreground-only on purpose. `BridgeClient`'s pings are receive-driven
+    /// because an unconditional timer cost roughly 3,500 radio transmissions a
+    /// day, and list polling is gated on the tab AND the scene phase for the same
+    /// reason. A long-lived stream that outlives the visible chat would undo that.
+    func startMirroring() {
+        guard let id = sessionID, !id.isEmpty else { return }
+        guard mirrorSessionID != id || mirrorHandle.current == nil else { return }
+        stopMirroring()
+        mirrorSessionID = id
+        mirrorHandle.replace(Task { [weak self] in
+            await self?.consumeSessionEvents(id)
+        })
+    }
+
+    /// Single switch the view drives, mirroring `setListPolling`.
+    func setMirroring(_ on: Bool) {
+        if on { startMirroring() } else { stopMirroring() }
+    }
+
+    func stopMirroring() {
+        mirrorHandle.cancel()
+        mirrorSessionID = nil
+    }
+
+    private func consumeSessionEvents(_ id: String) async {
+        do {
+            for try await event in sessionEventsAPI.events(sessionID: id) {
+                guard !Task.isCancelled, sessionID == id else { return }
+                await handleSessionEvent(event, on: id)
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            // The chat still works without the mirror, so this must not surface as
+            // a chat error — but it must not vanish either, or "sync just stopped"
+            // is undebuggable.
+            Self.mirrorLog.warning("session mirror for \(id, privacy: .public) ended: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func handleSessionEvent(_ event: SSEEvent, on id: String) async {
+        switch event.event {
+        case "snapshot":
+            // A run that began before we were listening: no run_started is coming.
+            if let streamID = event.string("active_stream_id"), !streamID.isEmpty {
+                await adoptForeignRun(streamID: streamID, on: id)
+            }
+        case "run_started":
+            if let streamID = event.string("stream_id"), !streamID.isEmpty {
+                await adoptForeignRun(streamID: streamID, on: id)
+            }
+        case "session_changed":
+            if let title = event.string("title"), !title.isEmpty, !streaming {
+                sessionTitle = title
+            }
+            await loadSessions(quiet: true)
+        default:
+            break   // forward-compatible: a newer server may add events
+        }
+    }
+
+    /// Render a turn this device did not start.
+    ///
+    /// `publish()` drops everything unless `liveMessageID` is set, and that was
+    /// only ever set by `send()` — which is precisely why a turn from the laptop
+    /// used to be invisible here. So stand up the same live-turn state a local
+    /// send would, and feed it from the other run's stream.
+    private func adoptForeignRun(streamID: String, on id: String) async {
+        guard !streaming, sessionID == id, liveStreamID != streamID else { return }
+
+        // The other device's user message was saved before its run began, so
+        // attaching straight away would stream a reply in under a prompt that is
+        // not on screen. Refresh first; if that fails, showing the reply alone
+        // still beats showing nothing.
+        if let detail = try? await sessionsAPI.get(id), sessionID == id {
+            setMessages(detail.messages)
+        }
+        guard !streaming, sessionID == id else { return }
+
+        let live = ChatMessage.assistant(streaming: true)
+        appendMessage(live)
+        liveMessageID = live.id
+        liveStreamID = streamID
+        turnStartedAt = clock.now
+        streaming = true
+        mirroringRun = true
+
+        var state = ChatStreamState(message: live, startedAt: turnStartedAt)
+        do {
+            for try await event in chatAPI.streamEvents(streamID) {
+                guard sessionID == id, liveMessageID == live.id else { break }
+                let changed = ChatStreamReducer.apply(event, to: &state, now: clock.now)
+                if changed { publish(state) }
+                if state.outcome != nil { break }
+            }
+            finishTurn(&state)
+        } catch is CancellationError {
+            cancelLocally()
+        } catch {
+            failTurn(&state, apiErrorMessage(error))
+        }
+        mirroringRun = false
+        await loadSessions(quiet: true)
+    }
 }

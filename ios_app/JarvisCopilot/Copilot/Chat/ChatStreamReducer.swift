@@ -270,7 +270,7 @@ struct SystemChatClock: ChatClock {
 /// How hard the store tries to stay attached to a turn.
 struct ChatResilience: Equatable, Sendable {
     /// No real event for this long means the phone's consumer was starved (another
-    /// client drained the single-consumer queue) or the connection died quietly.
+    /// client drained the historically single-consumer (see ChatStore) queue) or the connection died quietly.
     var idleLimit: TimeInterval = 45
     /// How often the watchdog looks.
     var checkStep: TimeInterval = 5
@@ -291,7 +291,7 @@ enum ChatStreamError: LocalizedError, Equatable {
 /// ``ChatStreamError/stalled``.
 ///
 /// The server keeps the SSE connection alive with heartbeats long after the answer,
-/// and its per-turn event queue is single-consumer: when the web UI is open on the
+/// and its per-turn event queue is historically single-consumer (see ChatStore): when the web UI is open on the
 /// same session it drains the queue and our socket stays open and empty. Silence is
 /// therefore the only signal we have, and the cure is to snapshot the session and
 /// re-attach rather than to fail the turn.

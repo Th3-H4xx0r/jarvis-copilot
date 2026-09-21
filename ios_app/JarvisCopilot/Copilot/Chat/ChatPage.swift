@@ -77,6 +77,10 @@ struct ChatPage: View {
         .onChange(of: router.selectedTab, initial: true) { _, tab in
             let visible = tab == .chat
             store.setListPolling(visible && scenePhase == .active)
+            // The mirror is gated the same way and for the same reason: it is a
+            // long-lived connection, and one that outlived the visible chat would
+            // undo the battery work that made pings receive-driven.
+            store.setMirroring(visible && scenePhase == .active)
             if visible {
                 Task { await store.refreshOnFocus() }
                 Task { await dashboard.refresh() }
@@ -85,6 +89,7 @@ struct ChatPage: View {
         .onChange(of: scenePhase) { _, phase in
             let visible = phase == .active && router.selectedTab == .chat
             store.setListPolling(visible)
+            store.setMirroring(visible)
             if visible {
                 Task { await store.refreshOnFocus() }
                 Task { await dashboard.refresh() }
