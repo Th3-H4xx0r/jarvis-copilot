@@ -448,6 +448,10 @@ async function newSession(flash, options={}){
   const data=await api('/api/session/new',{method:'POST',body:JSON.stringify(reqBody)});
   S.session=data.session;S.messages=data.session.messages||[];
   S.lastUsage={...(data.session.last_usage||{})};
+  // newSession never goes through loadSession, so without this a chat created
+  // here is the one chat that never mirrors -- and the previous session's stream
+  // keeps running against a chat you have left.
+  if(typeof startSessionEventsSSE==='function') startSessionEventsSSE(S.session.session_id);
   if(flash)S.session._flash=true;
   try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
   _setActiveSessionUrl(S.session.session_id);
@@ -3741,13 +3745,35 @@ document.addEventListener('keydown',(e)=>{
 // turned into an attach.
 let _sessionEventsSSE = null;
 let _sessionEventsSid = null;
-let _adoptingRun = null;   // stream_id currently being adopted, to de-dupe races
+let _adoptingRun = null;        // stream_id being adopted, to de-dupe races
+let _mirrorChangedTimer = null; // debounce for session_changed
+
+function _mirrorAlive(){
+  return !!_sessionEventsSSE &&
+    (typeof EventSource === 'undefined' ||
+     _sessionEventsSSE.readyState !== EventSource.CLOSED);
+}
 
 function stopSessionEventsSSE(){
   if(_sessionEventsSSE){ try{ _sessionEventsSSE.close(); }catch(_){ } }
   _sessionEventsSSE = null;
   _sessionEventsSid = null;
   _adoptingRun = null;
+  if(_mirrorChangedTimer){ clearTimeout(_mirrorChangedTimer); _mirrorChangedTimer = null; }
+}
+
+// Is this run still going? A run_started we hear about late, or a snapshot for a
+// stream whose worker has exited, must NOT be attached to: the server falls back
+// to the on-disk journal and replays the whole finished turn from seq 0, which
+// renders the answer a second time underneath the copy we just refreshed.
+async function _mirrorRunIsLive(streamId){
+  try{
+    const st = await api(`/api/chat/stream/status?stream_id=${encodeURIComponent(streamId)}`);
+    return !!(st && st.active);
+  }catch(e){
+    console.warn('[mirror] stream status check failed for', streamId, e);
+    return false;
+  }
 }
 
 // Pull the transcript, then attach. The other device's user message was saved
@@ -3757,26 +3783,51 @@ async function _adoptForeignRun(sid, streamId){
   if(!sid || !streamId) return;
   if(_adoptingRun === streamId) return;
   _adoptingRun = streamId;
+  let refreshed = false;
   try{
+    if(!(await _mirrorRunIsLive(streamId))) return;   // finished already: nothing to follow
     const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0`);
-    if(!data || !data.session) return;
     if(!S.session || S.session.session_id !== sid) return;   // user switched away
-    const msgs = (data.session.messages || []).filter(m => m && m.role);
-    if(typeof _bumpMessagesGeneration === 'function') _bumpMessagesGeneration();
-    S.messages = msgs;
-    if(S.session) S.session.message_count = Number(data.session.message_count || msgs.length);
-    if(typeof renderMessages === 'function') renderMessages();
-  }catch(_){ /* the attach below still beats showing nothing */ }
-  finally{ _adoptingRun = null; }
+    if(data && data.session){
+      let msgs = (data.session.messages || []).filter(m => m && m.role);
+      // In the default deferred save mode the other device's prompt lives in
+      // pending_user_message, NOT in messages -- so without this the reply still
+      // streams in under a prompt that is not on screen, which is the exact
+      // thing the refresh above exists to prevent.
+      if(typeof getPendingSessionMessage === 'function'){
+        const pending = getPendingSessionMessage(data.session, msgs);
+        if(pending) msgs = msgs.concat([pending]);
+      }
+      if(typeof _bumpMessagesGeneration === 'function') _bumpMessagesGeneration();
+      S.messages = msgs;
+      if(S.session) S.session.message_count = Number(data.session.message_count || msgs.length);
+      if(typeof renderMessages === 'function') renderMessages();
+      refreshed = true;
+    }
+  }catch(e){
+    console.warn('[mirror] transcript refresh failed; attaching anyway', e);
+  }finally{
+    _adoptingRun = null;
+  }
 
   if(!S.session || S.session.session_id !== sid) return;
-  if(typeof attachLiveStream === 'function') attachLiveStream(sid, streamId, [], {foreign:true});
+  if(S.busy) return;                       // our own turn started meanwhile
+  if(!refreshed) console.warn('[mirror] attaching to', streamId, 'without a fresh transcript');
+  // Live tail only. We deliberately do NOT ask for a journal replay: the
+  // transcript above already holds everything up to now, and `done` overwrites
+  // S.messages from the server, so a mid-run join fills itself in.
+  if(typeof attachLiveStream === 'function') attachLiveStream(sid, streamId, [], {});
 }
 
 function _mirrorMaybeAttach(sid, streamId){
   if(!streamId) return;
   if(!S.session || S.session.session_id !== sid) return;
-  // Ours already: attachLiveStream holds it and re-attaching would double-render.
+  // Our own turn. S.busy goes true synchronously inside send(), well before the
+  // /api/chat/start response comes back -- and the server announces run_started
+  // BEFORE writing that response, so LIVE_STREAMS is still empty at this point
+  // and cannot be the test. Without the S.busy check this tab adopts its own run
+  // and wipes the message the user just typed off the screen.
+  if(S.busy) return;
   try{
     const live = (typeof LIVE_STREAMS !== 'undefined') ? LIVE_STREAMS[sid] : null;
     if(live && live.streamId === streamId) return;
@@ -3786,7 +3837,10 @@ function _mirrorMaybeAttach(sid, streamId){
 
 function startSessionEventsSSE(sid){
   if(!sid) return;
-  if(_sessionEventsSid === sid && _sessionEventsSSE) return;   // already watching
+  // Truthiness alone is not liveness: a permanently-failed EventSource stays a
+  // truthy object, and treating it as "already watching" left the mirror dead
+  // until a full page reload.
+  if(_sessionEventsSid === sid && _mirrorAlive()) return;
   stopSessionEventsSSE();
   try{
     _sessionEventsSid = sid;
@@ -3798,28 +3852,79 @@ function startSessionEventsSSE(sid){
     es.addEventListener('snapshot', ev => {
       try{
         const d = JSON.parse(ev.data || '{}');
+        if(d.error) console.warn('[mirror] snapshot reported', d.error, 'for', sid);
         _mirrorMaybeAttach(sid, d.active_stream_id);
-      }catch(_){ }
+      }catch(e){ console.warn('[mirror] bad snapshot frame', e); }
     });
 
     es.addEventListener('run_started', ev => {
       try{
         const d = JSON.parse(ev.data || '{}');
         _mirrorMaybeAttach(sid, d.stream_id);
-      }catch(_){ }
+      }catch(e){ console.warn('[mirror] bad run_started frame', e); }
+    });
+
+    // The run channel is gone by now. If we were following it and its own
+    // stream_end never arrived, this is what stops the spinner.
+    es.addEventListener('run_ended', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        const live = (typeof LIVE_STREAMS !== 'undefined') ? LIVE_STREAMS[sid] : null;
+        if(live && live.streamId === d.stream_id && !S.busy){
+          if(typeof closeLiveStream === 'function') closeLiveStream(sid);
+          if(typeof setBusy === 'function') setBusy(false);
+        }
+      }catch(e){ console.warn('[mirror] bad run_ended frame', e); }
+    });
+
+    // We fell far enough behind that the server dropped events for us. Anything
+    // could have been missed, so start over rather than carry on looking healthy.
+    es.addEventListener('resync', () => {
+      console.warn('[mirror] server dropped events for this client; resyncing', sid);
+      stopSessionEventsSSE();
+      setTimeout(() => {
+        if(S.session && S.session.session_id === sid) startSessionEventsSSE(sid);
+      }, 500);
     });
 
     // Title, rename, pin, archive, message append -- one event for all of them.
+    // Debounced: Session.save() announces on every save, and a tool-heavy turn
+    // saves ten-plus times, each of which would otherwise cost two XHRs per
+    // connected device and invalidate the CLI-sessions cache on the way past.
     es.addEventListener('session_changed', ev => {
       try{
         const d = JSON.parse(ev.data || '{}');
         if(S.session && S.session.session_id === d.session_id && d.title){
           S.session.title = d.title;
         }
+      }catch(e){ console.warn('[mirror] bad session_changed frame', e); }
+      if(_mirrorChangedTimer) return;
+      _mirrorChangedTimer = setTimeout(() => {
+        _mirrorChangedTimer = null;
         if(typeof renderSessionList === 'function'){
           renderSessionList({deferWhileInteracting:true});
         }
-      }catch(_){ }
+      }, 400);
     });
-  }catch(_){ _sessionEventsSSE = null; _sessionEventsSid = null; }
+
+    // Without this the mirror can die permanently and silently: the browser only
+    // auto-reconnects a connection that was previously established, so a 401 or a
+    // 502 on the handshake closes it for good with nothing in the app log.
+    es.onerror = () => {
+      const closed = (typeof EventSource !== 'undefined') &&
+                     es.readyState === EventSource.CLOSED;
+      console.warn('[mirror] session events SSE error for', sid,
+                   'readyState=', es.readyState);
+      if(closed && _sessionEventsSid === sid){
+        stopSessionEventsSSE();
+        setTimeout(() => {
+          if(S.session && S.session.session_id === sid) startSessionEventsSSE(sid);
+        }, 3000);
+      }
+    };
+  }catch(e){
+    console.warn('[mirror] could not open session events for', sid, e);
+    _sessionEventsSSE = null;
+    _sessionEventsSid = null;
+  }
 }

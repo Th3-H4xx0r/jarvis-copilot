@@ -312,3 +312,30 @@ def test_available_tool_names_fallback_to_valid():
     class _A:
         valid_tool_names = {"x", "y"}
     assert lt.available_tool_names(_A()) == {"x", "y"}
+
+
+def test_partition_re_adds_tool_call_when_the_bridge_is_on(monkeypatch):
+    """A manifest without a reachable tool_call strands every deferred tool.
+
+    The manifest tells the model these tools are NOT in its list and must go
+    through tool_call. On the claude-code structured engine that is fatal rather
+    than merely wasteful: it registers a FIXED native tool list up front, so a
+    name that was never advertised is physically uncallable for the whole turn.
+    """
+    _enable_lazy(monkeypatch)
+    monkeypatch.setattr(lt, "bridge_enabled", lambda: True, raising=False)
+    # A restricted toolset that never advertised the bridge in the first place.
+    a = _AgentForPartition(["tool_search", "web_search"] + [f"d{i}" for i in range(8)])
+    lt.apply_lazy_partition(a)
+    adv = {t["function"]["name"] for t in a.tools}
+    assert a._lazy_tools_manifest, "precondition: partitioning must be active"
+    assert "tool_call" in adv, "manifest promises tool_call but it is not advertised"
+    assert "tool_call" in a.valid_tool_names
+
+
+def test_partition_does_not_add_tool_call_when_the_bridge_is_off(monkeypatch):
+    _enable_lazy(monkeypatch)
+    monkeypatch.setattr(lt, "bridge_enabled", lambda: False, raising=False)
+    a = _AgentForPartition(["tool_search", "web_search"] + [f"d{i}" for i in range(8)])
+    lt.apply_lazy_partition(a)
+    assert "tool_call" not in {t["function"]["name"] for t in a.tools}

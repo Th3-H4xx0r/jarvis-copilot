@@ -445,6 +445,17 @@ def apply_lazy_partition(agent) -> None:
     if not any((c.get("function", {}) or {}).get("name") == "tool_search" for c in core):
         core.append({"type": "function", "function": TOOL_SEARCH_SCHEMA})
         _warn_once("tool_search was missing from the advertised core; re-added")
+    # Same argument for the bridge. When it is on, the manifest tells the model
+    # these tools are NOT in its list and must be invoked through tool_call -- so
+    # a tool_call that is not advertised strands every deferred tool just as
+    # surely, and on the claude-code structured engine there is no fallback: it
+    # registers a FIXED native tool list up front, so an unadvertised name is
+    # physically uncallable for the whole turn.
+    if bridge_enabled() and not any(
+        (c.get("function", {}) or {}).get("name") == "tool_call" for c in core
+    ):
+        core.append({"type": "function", "function": TOOL_CALL_SCHEMA})
+        _warn_once("tool_call was missing from the advertised core; re-added")
     agent.tools = core
     agent._lazy_tools_manifest = build_manifest_text(deferred)
     agent.valid_tool_names = {c.get("function", {}).get("name") for c in core}

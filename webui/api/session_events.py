@@ -14,30 +14,36 @@ This bus carries those announcements, keyed by ``session_id`` -- which, unlike
 not content: a ``run_started`` says "attach to this stream_id", and the existing
 run stream plus its journal deliver the actual tokens.
 
-Two bounds that ``StreamChannel`` does not have, both because a session channel
-outlives every run on that session rather than dying with one:
+Unlike ``StreamChannel`` this deliberately has NO offline buffer. A session
+channel outlives every run on that session, so anything buffered there goes stale
+and never stops growing: a ``run_started`` held while nobody was watching, then
+replayed hours later, points at a stream that has long since ended -- the server
+finds no live channel, falls back to the on-disk journal, and replays a FINISHED
+turn from seq 0, so opening an old chat spontaneously re-runs its last answer.
 
-* the offline buffer is a bounded deque, not an unbounded list;
-* subscriber queues are bounded and drop events for a consumer that has stopped
-  reading, matching ``gateway_watcher``'s pool rather than the chat one.
+It is also unnecessary. A subscriber attaches BEFORE its snapshot is taken, and
+that snapshot reports the live run with a liveness check the buffer never had.
+Nobody listening therefore means nobody to tell, and whoever arrives next is
+brought up to date by the snapshot instead.
 
-Dropping is the right failure here. These events are nudges -- a client that
-misses one and later reconnects re-reads the session; a client whose queue we let
-grow without limit takes the server down with it.
+Subscriber queues are bounded and drop for a consumer that has stopped reading,
+matching ``gateway_watcher``'s pool rather than the chat one -- but a drop also
+pushes a ``resync``, because a client that silently misses one announcement
+misses a whole turn while still looking perfectly connected.
 """
 
 from __future__ import annotations
 
-import collections
+import logging
 import queue
 import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 Event = Tuple[str, Dict[str, Any]]
 
-# Enough tail for a device that opens the chat moments after a run began; small
-# enough that an idle session costs nothing.
-DEFAULT_BUFFER_SIZE = 64
 # A client this far behind is not reading. Nudges are replaceable; memory is not.
 DEFAULT_QUEUE_SIZE = 256
 
@@ -45,23 +51,15 @@ DEFAULT_QUEUE_SIZE = 256
 class _Channel:
     """One session's subscribers plus the tail for whoever has not arrived yet."""
 
-    def __init__(self, buffer_size: int, queue_size: int) -> None:
+    def __init__(self, queue_size: int) -> None:
         self._lock = threading.Lock()
         self._subscribers: List[queue.Queue] = []
-        self._buffer: collections.deque = collections.deque(maxlen=buffer_size)
         self._queue_size = queue_size
+        self._dropped = 0
 
     def subscribe(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=self._queue_size)
         with self._lock:
-            # Replay and attach under ONE lock. Split them and a publish landing
-            # in between is delivered to nobody: too late for the buffer replay,
-            # too early for the subscriber list.
-            for item in self._buffer:
-                try:
-                    q.put_nowait(item)
-                except queue.Full:
-                    break
             self._subscribers.append(q)
         return q
 
@@ -74,23 +72,33 @@ class _Channel:
             return len(self._subscribers)
 
     def publish(self, item: Event) -> None:
+        # The puts stay INSIDE the lock: the queues are bounded and put_nowait
+        # never blocks, so holding it costs nothing, and releasing it first lets
+        # two publishers interleave -- a subscriber could then see run_ended
+        # before the run_started it belongs to.
         with self._lock:
             subscribers = list(self._subscribers)
-            if not subscribers:
-                self._buffer.append(item)
-                return
-            # Someone is listening, so the tail has been delivered and replaying
-            # it to the next joiner would show them an event twice.
-            self._buffer.clear()
-        for q in subscribers:
-            try:
-                q.put_nowait(item)
-            except queue.Full:
-                pass
+            for q in subscribers:
+                try:
+                    q.put_nowait(item)
+                except queue.Full:
+                    # This client stopped reading. Dropping silently would mean it
+                    # misses a whole turn while still looking perfectly connected,
+                    # so make room and tell it to re-read the session.
+                    self._dropped += 1
+                    try:
+                        q.get_nowait()
+                        q.put_nowait(("resync", {}))
+                    except (queue.Empty, queue.Full):
+                        pass
+                    logger.warning(
+                        "session events: subscriber queue full, dropped %s (total=%d)",
+                        item[0], self._dropped,
+                    )
 
     def is_idle(self) -> bool:
         with self._lock:
-            return not self._subscribers and not self._buffer
+            return not self._subscribers
 
     def count(self) -> int:
         with self._lock:
@@ -100,18 +108,16 @@ class _Channel:
 class SessionEventBus:
     """``session_id`` -> :class:`_Channel`, created on demand and reaped when idle."""
 
-    def __init__(self, buffer_size: int = DEFAULT_BUFFER_SIZE,
-                 queue_size: int = DEFAULT_QUEUE_SIZE) -> None:
+    def __init__(self, queue_size: int = DEFAULT_QUEUE_SIZE) -> None:
         self._lock = threading.Lock()
         self._channels: Dict[str, _Channel] = {}
-        self._buffer_size = buffer_size
         self._queue_size = queue_size
 
     def _channel(self, session_id: str) -> _Channel:
         with self._lock:
             ch = self._channels.get(session_id)
             if ch is None:
-                ch = _Channel(self._buffer_size, self._queue_size)
+                ch = _Channel(self._queue_size)
                 self._channels[session_id] = ch
             return ch
 
@@ -120,7 +126,19 @@ class SessionEventBus:
             return self._channels.get(session_id)
 
     def subscribe(self, session_id: str) -> queue.Queue:
-        return self._channel(session_id).subscribe()
+        # Atomic under the bus lock. Two steps -- look up, then attach -- lets a
+        # concurrent unsubscribe reap the channel in between, so the queue is
+        # attached to a detached object and every later publish goes to a freshly
+        # created channel instead. The SSE connection stays healthy and keepalives
+        # keep flowing, so the device just silently stops mirroring. Reloading a
+        # page or switching sessions on two devices is exactly that interleaving.
+        # Ordering stays bus -> channel, so this introduces no inversion.
+        with self._lock:
+            ch = self._channels.get(session_id)
+            if ch is None:
+                ch = _Channel(self._queue_size)
+                self._channels[session_id] = ch
+            return ch.subscribe()
 
     def unsubscribe(self, session_id: str, q: queue.Queue) -> None:
         ch = self._existing(session_id)
@@ -140,7 +158,13 @@ class SessionEventBus:
                 data: Optional[Dict[str, Any]] = None) -> None:
         if not session_id:
             return
-        self._channel(session_id).publish((event, dict(data or {})))
+        # Never CREATE a channel to publish into. Session.save() announces on every
+        # save, so creating here would leave one channel per session id ever
+        # touched, forever, with nobody on the other end.
+        ch = self._existing(session_id)
+        if ch is None:
+            return
+        ch.publish((event, dict(data or {})))
 
     def subscriber_count(self, session_id: str) -> int:
         ch = self._existing(session_id)

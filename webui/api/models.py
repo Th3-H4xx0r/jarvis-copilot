@@ -642,7 +642,11 @@ class Session:
                 "message_count": len(getattr(self, "messages", None) or []),
             })
         except Exception:
-            pass
+            # The two sibling publishes both log; this is the one that fires on
+            # every save, so if it ever starts throwing it should scream rather
+            # than silently take the whole mirror down.
+            logger.warning("Failed to announce session_changed for %s",
+                           self.session_id, exc_info=True)
 
     @classmethod
     def load(cls, sid):
@@ -2140,6 +2144,38 @@ def _sqlite_file_stat_cache_key(db_path: Path):
     )
 
 
+def _claude_code_transcripts_cache_key(projects_dir):
+    """Freshness over the Claude Code transcripts the CLI-session scan actually reads.
+
+    Statting `projects_dir` alone is not enough and it is not close: those files
+    live two levels down, and POSIX only bumps a directory's mtime when an entry
+    is added or removed IN THAT directory. Appending a turn to an existing
+    `<project>/<uuid>.jsonl`, or starting a new session inside a project we have
+    seen before, leaves the root's stat untouched -- while `get_claude_code_sessions`
+    derives title, updated_at and message_count from those files' CONTENTS.
+
+    Without this the cache ceiling would hold a stale sidebar for up to five
+    minutes on exactly the sessions being driven from the Coding Sessions control
+    plane. Stat-only and bounded by CLAUDE_CODE_MAX_FILES, so it stays cheap.
+    """
+    newest = 0
+    count = 0
+    total = 0
+    try:
+        for path in _iter_claude_code_jsonl_files(projects_dir) or []:
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            count += 1
+            total += st.st_size
+            if st.st_mtime_ns > newest:
+                newest = st.st_mtime_ns
+    except Exception:
+        return None
+    return (count, newest, total)
+
+
 def _resolve_cli_sessions_context():
     # Use the active WebUI profile's HERMES_HOME to find state.db.
     # The active profile is determined by what the user has selected in the UI
@@ -2171,6 +2207,7 @@ def _resolve_cli_sessions_context():
     freshness_sig = (
         _sqlite_file_stat_cache_key(db_path),
         _path_stat_cache_key(projects_dir),
+        _claude_code_transcripts_cache_key(projects_dir),
         _path_stat_cache_key(SESSION_INDEX_FILE),
     )
     return hermes_home, db_path, cli_profile, cache_key, freshness_sig

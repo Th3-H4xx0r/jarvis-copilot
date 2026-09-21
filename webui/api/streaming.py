@@ -5237,22 +5237,26 @@ def _run_agent_streaming(
         # lock guards every stream registration in the process.
         try:
             from api.session_events import SESSION_EVENTS
-            _mirror_sid = getattr(s, "session_id", "") or ""
+            # The parameter, not getattr(s, ...): `s` is still None if
+            # get_session() raised, and publish() early-returns on a falsy id --
+            # dropping run_ended for a run that failed instantly, which is
+            # precisely when the other devices are on a fresh spinner.
+            _mirror_sid = session_id or ""
             SESSION_EVENTS.publish(_mirror_sid, "run_ended", {
                 "session_id": _mirror_sid,
                 "stream_id": stream_id,
             })
         except Exception:
             logger.warning("Failed to announce run_ended", exc_info=True)
-            # NOTE: do NOT discard PENDING_GOAL_CONTINUATION here. The marker
-            # is set by goal_continue (line ~3328) inside the SAME function
-            # call and consumed atomically by `_start_chat_stream_for_session`
-            # in routes.py (around line 6522) when the next stream starts.
-            # Discarding here in the streaming worker's `finally` would
-            # almost always race ahead of the frontend's SSE-receive →
-            # POST /api/chat/start round-trip and erase the marker before
-            # the next stream can read it, breaking the goal-continuation
-            # chain. Stage-326 critical fix per Opus advisor review.
+        # NOTE: do NOT discard PENDING_GOAL_CONTINUATION here. The marker
+        # is set by goal_continue (line ~3328) inside the SAME function
+        # call and consumed atomically by `_start_chat_stream_for_session`
+        # in routes.py (around line 6522) when the next stream starts.
+        # Discarding here in the streaming worker's `finally` would
+        # almost always race ahead of the frontend's SSE-receive →
+        # POST /api/chat/start round-trip and erase the marker before
+        # the next stream can read it, breaking the goal-continuation
+        # chain. Stage-326 critical fix per Opus advisor review.
 
 # ============================================================
 # SECTION: HTTP Request Handler

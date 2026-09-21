@@ -7310,8 +7310,18 @@ def _session_events_snapshot(session_id: str) -> dict:
     """
     snap = {'session_id': session_id, 'active_stream_id': None, 'last_seq': 0}
     try:
-        s = SESSIONS.get(session_id) or Session.load(session_id)
+        # Metadata only: this needs active_stream_id, not the message array,
+        # and this runs on every connect and every reconnect.
+        s = SESSIONS.get(session_id) or Session.load_metadata_only(session_id)
     except Exception:
+        # Session.load returns None for a missing id, so reaching here means a
+        # REAL failure: corrupt JSON, a schema mismatch, a disk error. Reporting
+        # it as "no active run" is indistinguishable from a genuinely idle
+        # session, and the client then sits blank through a turn that is actually
+        # streaming, with nothing anywhere to explain why.
+        logger.warning("session events: failed to load %s for snapshot",
+                       session_id, exc_info=True)
+        snap["error"] = "session_load_failed"
         s = None
     stream_id = getattr(s, 'active_stream_id', None) if s is not None else None
     if not stream_id:
@@ -8841,6 +8851,25 @@ def _start_chat_stream_for_session(
     stream = create_stream_channel()
     with STREAMS_LOCK:
         STREAMS[stream_id] = stream
+    # Tell every OTHER device with this chat open that a run just started, and
+    # which stream to attach to. The run stream already broadcasts to every
+    # subscriber; until now nobody else was ever told the stream_id, so the
+    # fan-out had an audience of one.
+    #
+    # Published here -- after the stream is registered, before the worker starts
+    # -- rather than at the end of this function. A run that fails instantly can
+    # otherwise reach the worker's finally and publish run_ended FIRST, leaving
+    # the other device holding a stream_id that is already gone and spinning on
+    # it forever: exactly the case run_ended exists to prevent, inverted.
+    try:
+        SESSION_EVENTS.publish(s.session_id, "run_started", {
+            "session_id": s.session_id,
+            "stream_id": stream_id,
+            "title": s.title,
+        })
+    except Exception:
+        # An announcement is a nicety; never fail the turn the user asked for.
+        logger.warning("Failed to announce run_started", exc_info=True)
     # #1932: mark stream as goal-related so the streaming hook evaluates the goal.
     if goal_related:
         STREAM_GOAL_RELATED[stream_id] = True
@@ -8865,22 +8894,6 @@ def _start_chat_stream_for_session(
         schedule_session_index_refresh(s)
     except Exception:
         logger.warning("Failed to schedule session index refresh", exc_info=True)
-    # Tell every OTHER device with this chat open that a run just started, and
-    # which stream to attach to. The run stream already broadcasts to every
-    # subscriber; until now nobody else was ever told the stream_id, so the
-    # fan-out had an audience of one. Announce after the worker is running so a
-    # device that attaches immediately finds the stream registered.
-    try:
-        SESSION_EVENTS.publish(s.session_id, "run_started", {
-            "session_id": s.session_id,
-            "stream_id": stream_id,
-            "turn_id": journal_event.get("turn_id"),
-            "title": s.title,
-        })
-    except Exception:
-        # An announcement is a nicety; never fail the turn the user asked for.
-        logger.warning("Failed to announce run_started", exc_info=True)
-
     response = {
         "stream_id": stream_id,
         "session_id": s.session_id,

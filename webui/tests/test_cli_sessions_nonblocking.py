@@ -88,3 +88,34 @@ def test_concurrent_stale_polls_single_flight(monkeypatch):
     fast = [r for r in results if r < 0.15]
     assert len(fast) >= 11, f"too many polls blocked: {sorted(results)}"
     assert ctl.load_count == 2  # prime + exactly ONE reload
+
+
+def test_cache_notices_a_claude_code_transcript_append(monkeypatch, tmp_path):
+    """Holding a cached list for 300s must not blind the sidebar to live coding work.
+
+    Claude Code transcripts live at <projects>/<project>/<uuid>.jsonl, and POSIX
+    only bumps a directory's mtime when an entry is added or removed IN that
+    directory -- so appending a turn, or adding a session to a project we have
+    seen before, leaves the root stat untouched. The scan reads those files'
+    CONTENTS for title, updated_at and message_count, so the signature has to
+    look at them too or the ceiling serves a stale sidebar for five minutes on
+    exactly the sessions being driven from the Coding Sessions control plane.
+    """
+    import api.models as models
+
+    projects = tmp_path / "projects"
+    (projects / "proj").mkdir(parents=True)
+    transcript = projects / "proj" / "a.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+
+    before = models._claude_code_transcripts_cache_key(projects)
+    time.sleep(0.02)
+    with open(transcript, "a", encoding="utf-8") as fh:
+        fh.write('{"role": "user"}\n')          # a new turn
+    assert models._claude_code_transcripts_cache_key(projects) != before, \
+        "an appended transcript did not change the freshness signature"
+
+    mid = models._claude_code_transcripts_cache_key(projects)
+    (projects / "proj" / "b.jsonl").write_text("{}\n", encoding="utf-8")   # new session
+    assert models._claude_code_transcripts_cache_key(projects) != mid, \
+        "a new session in a known project did not change the freshness signature"

@@ -45,44 +45,32 @@ def test_sessions_are_isolated():
     assert _drain(other) == [], "an event leaked into another session's channel"
 
 
-def test_late_subscriber_gets_the_buffered_tail():
-    # The phone starts a run and the laptop opens the chat a moment later: it
-    # must still learn the run is in flight rather than sit blank until the end.
+def test_a_run_pointer_is_never_replayed_to_a_later_subscriber():
+    """The bug this cost us: opening an old chat re-running its last turn.
+
+    A run_started held while nobody was watching points at a stream that has
+    since ended. Replay it to whoever opens the chat next and the client attaches
+    to a dead stream_id; the server finds no live channel, falls back to the
+    on-disk journal, and replays the FINISHED turn from seq 0 -- so the answer
+    that is already in the transcript streams in again underneath it.
+
+    Catching up is the snapshot's job, and unlike a buffer it checks the stream
+    is still registered.
+    """
     bus = SessionEventBus()
-    bus.publish("s1", "run_started", {"stream_id": "abc"})
+    bus.publish("s1", "run_started", {"stream_id": "long_gone"})
 
     late = bus.subscribe("s1")
 
-    assert _drain(late) == [("run_started", {"stream_id": "abc"})]
+    assert _drain(late) == [], "a stale run pointer was replayed to a new subscriber"
 
 
-def test_offline_buffer_is_bounded():
-    # STREAMS' buffer is an unbounded list, which is survivable only because a
-    # run channel is short-lived. A SESSION channel outlives every run on that
-    # session, so an unbounded buffer here is a slow leak.
-    bus = SessionEventBus(buffer_size=4)
-    for i in range(20):
-        bus.publish("s1", "session_changed", {"n": i})
-
-    got = _drain(bus.subscribe("s1"))
-
-    assert len(got) == 4, f"buffer grew past its bound: {len(got)}"
-    assert [d["n"] for _, d in got] == [16, 17, 18, 19], "kept the wrong end"
-
-
-def test_buffer_clears_once_someone_is_listening():
-    bus = SessionEventBus(buffer_size=8)
-    bus.publish("s1", "session_changed", {"n": 0})
-    first = bus.subscribe("s1")
-    _drain(first)
-
-    bus.publish("s1", "session_changed", {"n": 1})
-    second = bus.subscribe("s1")
-
-    # The live subscriber saw it; the newcomer must not be handed a replay of an
-    # event that was already delivered to an attached listener.
-    assert [d["n"] for _, d in _drain(first)] == [1]
-    assert _drain(second) == []
+def test_publishing_to_nobody_does_not_create_a_channel():
+    # Session.save() announces on EVERY save, so creating a channel here would
+    # leave one per session id ever touched, forever, with nobody listening.
+    bus = SessionEventBus()
+    bus.publish("never-watched", "session_changed", {})
+    assert bus.channel_count() == 0
 
 
 def test_slow_subscriber_is_dropped_not_grown_without_limit():
@@ -96,6 +84,19 @@ def test_slow_subscriber_is_dropped_not_grown_without_limit():
 
     got = _drain(slow, limit=200)
     assert len(got) <= 4, f"slow subscriber queue grew to {len(got)}"
+
+
+def test_a_dropped_event_tells_the_client_to_resync():
+    # Silently dropping means that device misses a whole turn while still looking
+    # perfectly connected -- the "it just doesn't work sometimes" failure.
+    bus = SessionEventBus(queue_size=2)
+    slow = bus.subscribe("s1")
+
+    for i in range(20):
+        bus.publish("s1", "session_changed", {"n": i})
+
+    assert any(e == "resync" for e, _ in _drain(slow, limit=50)), \
+        "a client that fell behind was never told to re-read the session"
 
 
 def test_unsubscribe_stops_delivery():
@@ -120,16 +121,10 @@ def test_channel_is_reaped_when_last_subscriber_leaves():
     assert bus.channel_count() == 0
 
 
-def test_publish_to_nobody_is_harmless():
-    bus = SessionEventBus()
-    bus.publish("nobody-here", "session_changed", {})   # must not raise
-    assert bus.channel_count() == 1                      # buffered for a joiner
-
-
 def test_concurrent_publish_and_subscribe_deliver_every_event():
     # subscribe() must replay the buffer and attach atomically, or a publish
     # landing in between is lost to the new subscriber.
-    bus = SessionEventBus(buffer_size=512, queue_size=2048)
+    bus = SessionEventBus(queue_size=8192)
     stop = threading.Event()
 
     def publisher():
@@ -138,10 +133,11 @@ def test_concurrent_publish_and_subscribe_deliver_every_event():
             bus.publish("s1", "session_changed", {"n": i})
             i += 1
 
+    subs = [bus.subscribe("s1")]          # one early, so publishes have a target
     t = threading.Thread(target=publisher, daemon=True)
     t.start()
     try:
-        subs = [bus.subscribe("s1") for _ in range(8)]
+        subs += [bus.subscribe("s1") for _ in range(8)]
     finally:
         stop.set()
         t.join(timeout=2)
