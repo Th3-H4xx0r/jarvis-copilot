@@ -548,6 +548,9 @@ async function loadSession(sid){
   S.session=data.session;
   S.session._modelResolutionDeferred=true;
   S.lastUsage={...(data.session.last_usage||{})};
+  // Start mirroring before the messages finish loading, so a turn the phone
+  // starts in that window is picked up rather than missed.
+  if(typeof startSessionEventsSSE==='function') startSessionEventsSSE(sid);
   // Reset scroll-direction tracker on session switch so the new chat's
   // first scroll doesn't compare against the previous chat's scrollTop
   // and false-trigger an unpin (#1731 follow-up — Opus stage-302 SHOULD-FIX).
@@ -3728,3 +3731,95 @@ async function _confirmDeleteProject(proj){
 document.addEventListener('keydown',(e)=>{
   if(e.key==='Escape'&&_sessionSelectMode) exitSessionSelectMode();
 });
+
+// ── Cross-device session mirror ──────────────────────────────────────────────
+// Same chat open on the phone and here: both follow the same turn live.
+//
+// The run stream already broadcasts to every subscriber, so watching a turn
+// another device started needs exactly one thing we never had -- its stream_id.
+// /api/session/events announces it. Everything below is that announcement
+// turned into an attach.
+let _sessionEventsSSE = null;
+let _sessionEventsSid = null;
+let _adoptingRun = null;   // stream_id currently being adopted, to de-dupe races
+
+function stopSessionEventsSSE(){
+  if(_sessionEventsSSE){ try{ _sessionEventsSSE.close(); }catch(_){ } }
+  _sessionEventsSSE = null;
+  _sessionEventsSid = null;
+  _adoptingRun = null;
+}
+
+// Pull the transcript, then attach. The other device's user message was saved
+// before its run started, so without the refresh the reply would stream in
+// under a prompt that is not on screen.
+async function _adoptForeignRun(sid, streamId){
+  if(!sid || !streamId) return;
+  if(_adoptingRun === streamId) return;
+  _adoptingRun = streamId;
+  try{
+    const data = await api(`/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0`);
+    if(!data || !data.session) return;
+    if(!S.session || S.session.session_id !== sid) return;   // user switched away
+    const msgs = (data.session.messages || []).filter(m => m && m.role);
+    if(typeof _bumpMessagesGeneration === 'function') _bumpMessagesGeneration();
+    S.messages = msgs;
+    if(S.session) S.session.message_count = Number(data.session.message_count || msgs.length);
+    if(typeof renderMessages === 'function') renderMessages();
+  }catch(_){ /* the attach below still beats showing nothing */ }
+  finally{ _adoptingRun = null; }
+
+  if(!S.session || S.session.session_id !== sid) return;
+  if(typeof attachLiveStream === 'function') attachLiveStream(sid, streamId, [], {foreign:true});
+}
+
+function _mirrorMaybeAttach(sid, streamId){
+  if(!streamId) return;
+  if(!S.session || S.session.session_id !== sid) return;
+  // Ours already: attachLiveStream holds it and re-attaching would double-render.
+  try{
+    const live = (typeof LIVE_STREAMS !== 'undefined') ? LIVE_STREAMS[sid] : null;
+    if(live && live.streamId === streamId) return;
+  }catch(_){ }
+  _adoptForeignRun(sid, streamId);
+}
+
+function startSessionEventsSSE(sid){
+  if(!sid) return;
+  if(_sessionEventsSid === sid && _sessionEventsSSE) return;   // already watching
+  stopSessionEventsSSE();
+  try{
+    _sessionEventsSid = sid;
+    const es = new EventSource('api/session/events?session_id=' + encodeURIComponent(sid));
+    _sessionEventsSSE = es;
+
+    // Sent on connect: catches a run that was ALREADY in flight when this tab
+    // opened the chat, for which no run_started is ever coming.
+    es.addEventListener('snapshot', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        _mirrorMaybeAttach(sid, d.active_stream_id);
+      }catch(_){ }
+    });
+
+    es.addEventListener('run_started', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        _mirrorMaybeAttach(sid, d.stream_id);
+      }catch(_){ }
+    });
+
+    // Title, rename, pin, archive, message append -- one event for all of them.
+    es.addEventListener('session_changed', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        if(S.session && S.session.session_id === d.session_id && d.title){
+          S.session.title = d.title;
+        }
+        if(typeof renderSessionList === 'function'){
+          renderSessionList({deferWhileInteracting:true});
+        }
+      }catch(_){ }
+    });
+  }catch(_){ _sessionEventsSSE = null; _sessionEventsSid = null; }
+}
