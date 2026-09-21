@@ -11,7 +11,12 @@ import types
 
 import pytest
 
-from tools.lazy_tools import TOOL_CALL_SCHEMA, handle_tool_call
+import tools.lazy_tools as lt
+from tools.lazy_tools import (
+    TOOL_CALL_SCHEMA,
+    build_manifest_text,
+    handle_tool_call,
+)
 from tools.registry import registry
 
 
@@ -118,3 +123,38 @@ class TestSchema:
         """Each bridged tool has its own shape, so this cannot be closed."""
         props = TOOL_CALL_SCHEMA["parameters"]["properties"]
         assert props["arguments"].get("additionalProperties") is True
+
+
+class TestTheManifestTeachesTheContract:
+    """The bug that shipped: the mechanism changed and the text did not.
+
+    The old manifest said "call tool_search to load a schema before using it
+    IF you are unsure of its arguments" -- which made the search sound optional
+    and implied the tool could then be called by name. The model called
+    send_email cold, got "does not exist", searched, called it by name again,
+    and burned twelve tool calls before claiming success it never had.
+    """
+
+    DEFERRED = [{"name": "send_email", "description": "Send an email",
+                 "toolset": "messaging"}]
+
+    def test_bridge_on_says_a_direct_call_will_fail(self, monkeypatch):
+        monkeypatch.setattr(lt, "bridge_enabled", lambda: True)
+        text = build_manifest_text(self.DEFERRED)
+        assert "WILL FAIL" in text
+        assert "tool_call(name=" in text
+
+    def test_bridge_on_does_not_make_the_search_sound_optional(self, monkeypatch):
+        monkeypatch.setattr(lt, "bridge_enabled", lambda: True)
+        text = build_manifest_text(self.DEFERRED)
+        assert "if you are unsure" not in text.lower()
+
+    def test_bridge_off_keeps_the_native_wording(self, monkeypatch):
+        """With the escape hatch on, the old contract is the true one."""
+        monkeypatch.setattr(lt, "bridge_enabled", lambda: False)
+        text = build_manifest_text(self.DEFERRED)
+        assert "tool_call(name=" not in text
+
+    def test_the_deferred_tools_are_still_listed(self, monkeypatch):
+        monkeypatch.setattr(lt, "bridge_enabled", lambda: True)
+        assert "send_email" in build_manifest_text(self.DEFERRED)

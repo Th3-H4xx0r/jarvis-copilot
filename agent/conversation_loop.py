@@ -3364,6 +3364,23 @@ def run_conversation(
                     for tc in assistant_message.tool_calls:
                         if tc.function.name not in agent.valid_tool_names:
                             content = f"Tool '{tc.function.name}' does not exist. Available tools: {available}"
+                            # If the name IS a real tool that is merely deferred,
+                            # say how to reach it. Without this the model retries
+                            # the same direct call and burns the turn looping.
+                            try:
+                                _deferred = set(
+                                    getattr(agent, "_lazy_all_tool_names", None) or ())
+                                if tc.function.name in _deferred:
+                                    from tools.lazy_tools import bridge_enabled
+                                    if bridge_enabled():
+                                        content = (
+                                            f"'{tc.function.name}' is a deferred tool, so it "
+                                            "cannot be called directly. Invoke it as "
+                                            f'tool_call(name="{tc.function.name}", '
+                                            "arguments={...}) instead."
+                                        )
+                            except Exception:
+                                pass
                         else:
                             content = "Skipped: another tool call in this turn used an invalid name. Please retry this tool call."
                         messages.append({

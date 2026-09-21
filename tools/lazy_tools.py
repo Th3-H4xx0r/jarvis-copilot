@@ -303,12 +303,26 @@ def build_manifest_text(deferred: List[Dict[str, str]]) -> str:
     for e in deferred:
         ts = e.get("toolset") or registry.get_toolset_for_tool(e["name"]) or "other"
         by_ts.setdefault(ts, []).append(e)
-    lines = [
-        "# Deferred tools",
-        "These tools are available but their parameters are not loaded yet. Call "
-        "tool_search to load a tool's schema before using it if you are unsure of "
-        "its arguments.",
-    ]
+    if bridge_enabled():
+        # The bridge changed the contract, so the instructions have to change
+        # with it. The old text ("load the schema before using it IF you are
+        # unsure") made tool_search sound optional and implied the tool could
+        # then be called directly -- so the model called it cold, got "does not
+        # exist", and looped.
+        header = (
+            "These tools are NOT in your tools list, so calling them directly "
+            "WILL FAIL. Two steps, both required: call tool_search to load the "
+            "schema, then invoke it with "
+            'tool_call(name="<tool>", arguments={...}). '
+            "Never call a deferred tool by name."
+        )
+    else:
+        header = (
+            "These tools are available but their parameters are not loaded yet. "
+            "Call tool_search to load a tool's schema before using it if you are "
+            "unsure of its arguments."
+        )
+    lines = ["# Deferred tools", header]
     for ts in sorted(by_ts):
         lines.append(f"\n## {ts}")
         for e in sorted(by_ts[ts], key=lambda x: x["name"]):
