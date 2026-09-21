@@ -499,6 +499,29 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
 
         _resolved = _resolve_path_for_task(path, task_id)
 
+        # ── Office documents ──────────────────────────────────────────
+        # docx/xlsx/pptx/odf are ZIPs of XML, so the text comes out with the
+        # standard library. Without this they hit the binary guard below and
+        # an attachment you were sent is a file the agent cannot open.
+        try:
+            from tools.document_extract import can_extract, extract
+
+            if can_extract(str(_resolved)) and _resolved.is_file():
+                extracted = extract(str(_resolved))
+                if extracted is not None:
+                    body, note = extracted
+                    payload = {
+                        "path": str(_resolved),
+                        "content": body,
+                        "extracted_from": _resolved.suffix.lower(),
+                        "lines": len(body.splitlines()),
+                    }
+                    if note:
+                        payload["note"] = note
+                    return json.dumps(payload, ensure_ascii=False)
+        except ImportError:
+            pass
+
         # ── Binary file guard ─────────────────────────────────────────
         # Block binary files by extension (no I/O).
         if has_binary_extension(str(_resolved)):
