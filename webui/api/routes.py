@@ -5194,7 +5194,10 @@ def handle_post(handler, parsed) -> bool:
             if files is not None:
                 draft["files"] = files
             s.composer_draft = draft
-            s.save()
+            # A keystroke is not "the chat moved": this fires every 400ms while
+            # typing, and each announcement costs every other device a sidebar
+            # refresh for a draft it cannot even see.
+            s.save(announce=False)
         return j(handler, {"ok": True, "draft": s.composer_draft})
 
     if parsed.path == "/api/session/update":

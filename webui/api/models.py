@@ -505,7 +505,8 @@ class Session:
     def path(self):
         return SESSION_DIR / f'{self.session_id}.json'
 
-    def save(self, touch_updated_at: bool = True, skip_index: bool = False) -> None:
+    def save(self, touch_updated_at: bool = True, skip_index: bool = False,
+             announce: bool = True) -> None:
         # ── #1558 P0 guard ──────────────────────────────────────────────
         # Refuse to save a session that was loaded with metadata_only=True.
         # Such sessions have messages=[] (it's the whole point of the partial
@@ -617,7 +618,12 @@ class Session:
             raise
         if not skip_index:
             _write_session_index(updates=[self])
-        self._announce_changed()
+        # `announce=False` is for saves that are not "the chat moved" -- the
+        # composer-draft autosave fires on every 400ms of typing, and telling
+        # every other device the session changed 2.5 times a second because
+        # someone is typing is just noise with a cost.
+        if announce:
+            self._announce_changed()
 
     def _announce_changed(self) -> None:
         """Tell other devices with this chat open that it moved.
