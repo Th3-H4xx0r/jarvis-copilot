@@ -341,3 +341,47 @@ def test_e2e_structured_completes_tool_task():
     assert "apply_discount" in names, f"model never called apply_discount; calls={calls}"
     assert not res.is_error, f"turn errored: {res.error}"
     assert "850" in res.text, f"final answer missing new balance: {res.text!r}"
+
+
+# ── the tool_call / tool_search bridge on the structured dispatch path ───────
+# The structured engine dispatches through agent_runtime_helpers.invoke_tool,
+# NOT through the executor loop's own inline branch. Without interception here,
+# a deferred tool invoked via tool_call falls through to the registry stub and
+# comes back as an error -- which is why lazy partitioning used to be skipped
+# for this engine entirely, at a cost of ~19k of tool schemas every message.
+
+class _BridgeAgent:
+    def __init__(self):
+        self.session_id = "s"
+        self.valid_tool_names = {"tool_call", "tool_search"}
+        self._memory_manager = None
+        self._todo_store = None
+
+
+def test_invoke_tool_routes_tool_call_through_the_bridge(monkeypatch):
+    import tools.lazy_tools as lt
+    from agent.agent_runtime_helpers import invoke_tool
+
+    seen = {}
+
+    def _fake_handle_tool_call(agent, args, task_id=None):
+        seen["args"] = args
+        return '{"ok": true}'
+
+    monkeypatch.setattr(lt, "handle_tool_call", _fake_handle_tool_call, raising=False)
+
+    out = invoke_tool(_BridgeAgent(), "tool_call",
+                      {"name": "browser_navigate", "arguments": {"url": "x"}}, "task1")
+    assert out == '{"ok": true}'
+    assert seen["args"]["name"] == "browser_navigate"
+
+
+def test_invoke_tool_routes_tool_search_through_the_bridge(monkeypatch):
+    import tools.lazy_tools as lt
+    from agent.agent_runtime_helpers import invoke_tool
+
+    monkeypatch.setattr(lt, "handle_tool_search",
+                        lambda agent, args: '{"found": 1}', raising=False)
+
+    out = invoke_tool(_BridgeAgent(), "tool_search", {"query": "browser"}, "task1")
+    assert out == '{"found": 1}'

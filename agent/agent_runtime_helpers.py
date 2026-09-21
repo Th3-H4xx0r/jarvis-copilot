@@ -1557,6 +1557,19 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
     if block_message is not None:
         return json.dumps({"error": block_message}, ensure_ascii=False)
 
+    # The lazy-loading meta-tools are agent-loop state, not registry tools: their
+    # registered handlers are stubs that error out. The executor loop intercepts
+    # them inline; this path must too, because the claude-code structured (MCP)
+    # engine dispatches EVERY tool through here. Without these two branches a
+    # deferred tool is unreachable on that engine, which is why lazy partitioning
+    # used to be skipped for it -- at a cost of ~19k of tool schemas every message.
+    if function_name == "tool_search":
+        from tools.lazy_tools import handle_tool_search
+        return handle_tool_search(agent, function_args)
+    if function_name == "tool_call":
+        from tools.lazy_tools import handle_tool_call
+        return handle_tool_call(agent, function_args, effective_task_id)
+
     if function_name == "todo":
         from tools.todo_tool import todo_tool as _todo_tool
         return _todo_tool(

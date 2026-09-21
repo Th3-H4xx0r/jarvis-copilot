@@ -394,12 +394,17 @@ def apply_lazy_partition(agent) -> None:
             ",".join(sorted(agent._lazy_all_tool_names)).encode("utf-8")
         ).hexdigest()[:16]
         return
-    if _routes_through_structured_engine(agent):
+    if _routes_through_structured_engine(agent) and not bridge_enabled():
         # Full native tool set — claude calls every tool (browser_* included)
         # directly. Drop the now-pointless tool_search meta-tool so the model
         # doesn't waste a turn on a dead-end path, and leave the manifest empty so
         # no lazy guidance / "Deferred tools" section is injected (both are gated on
         # _lazy_tools_manifest being non-empty). See _routes_through_structured_engine.
+        #
+        # Only when the bridge is OFF. With it on, a deferred tool is invoked BY
+        # NAME through tool_call, which needs no mid-turn mutation of agent.tools —
+        # the one thing this engine cannot do — so partitioning is safe here and
+        # saves ~19k of schemas on every single message.
         agent.tools = [
             t for t in agent.tools
             if (t.get("function", {}) or {}).get("name") != "tool_search"

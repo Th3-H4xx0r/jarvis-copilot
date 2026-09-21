@@ -239,12 +239,14 @@ def test_apply_partition_noop_when_disabled(monkeypatch):
     assert a._lazy_tools_manifest == ""
 
 
-def test_apply_partition_skipped_for_claude_code_structured(monkeypatch):
-    # The claude-code structured (MCP) engine drives a whole turn with a FIXED
-    # native tool list and can't pull a deferred tool's schema mid-turn, so lazy
-    # partitioning is skipped: the full tool set stays directly callable and the
-    # broken-on-this-engine tool_search meta-tool is dropped.
+def test_apply_partition_skipped_for_structured_when_bridge_off(monkeypatch):
+    # Without the tool_call bridge, the claude-code structured (MCP) engine has no
+    # way to reach a deferred tool: it drives a whole turn with a FIXED native tool
+    # list and can't pull a schema mid-turn. So lazy partitioning is skipped, the
+    # full tool set stays directly callable, and the broken-on-this-engine
+    # tool_search meta-tool is dropped.
     _enable_lazy(monkeypatch)
+    monkeypatch.setattr(lt, "bridge_enabled", lambda: False, raising=False)
     import agent.claude_code_structured as ccs
     monkeypatch.setattr(ccs, "structured_enabled", lambda: True, raising=False)
     a = _AgentForPartition(
@@ -257,6 +259,26 @@ def test_apply_partition_skipped_for_claude_code_structured(monkeypatch):
     assert "tool_search" not in adv            # broken meta-tool dropped
     assert "tool_search" not in a.valid_tool_names
     assert a._lazy_tools_manifest == ""        # no manifest / lazy guidance injected
+
+
+def test_apply_partition_active_for_structured_when_bridge_on(monkeypatch):
+    # The bridge invokes a deferred tool by NAME through tool_call, which needs no
+    # mid-turn mutation of agent.tools -- so the structured engine can reach
+    # deferred tools after all. Partitioning therefore stays ON, which is what
+    # keeps claude-code off a ~19k every-message tool-schema floor.
+    _enable_lazy(monkeypatch)
+    monkeypatch.setattr(lt, "bridge_enabled", lambda: True, raising=False)
+    import agent.claude_code_structured as ccs
+    monkeypatch.setattr(ccs, "structured_enabled", lambda: True, raising=False)
+    a = _AgentForPartition(
+        ["tool_search", "tool_call", "web_search"] + [f"d{i}" for i in range(7)])
+    a.provider = "claude-code"
+    lt.apply_lazy_partition(a)
+    adv = {t["function"]["name"] for t in a.tools}
+    assert a._lazy_tools_manifest              # manifest built (lazy active)
+    assert "d0" not in adv                     # deferred out of the advertised set
+    assert "d0" in a._lazy_all_tool_names      # but still reachable
+    assert "tool_call" in adv                  # ...via the bridge, which must be advertised
 
 
 def test_apply_partition_active_for_claude_code_text_shim(monkeypatch):
