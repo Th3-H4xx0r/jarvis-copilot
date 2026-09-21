@@ -235,3 +235,91 @@ def test_snapshot_ignores_a_stream_id_whose_worker_is_gone():
         assert routes._session_events_snapshot(sid)["active_stream_id"] is None
     finally:
         routes.SESSIONS.pop(sid, None)
+
+
+def test_endpoint_subscribes_then_snapshots_then_streams(monkeypatch):
+    """End to end through the real route: subscribe, snapshot, live frame, cleanup.
+
+    Ordering is the thing under test. The handler subscribes BEFORE sending its
+    snapshot, so a run starting in that window is delivered as an event instead
+    of falling into the gap between the two.
+    """
+    import threading
+    import time
+    from urllib.parse import urlparse
+    from api.routes import handle_get
+    from api.session_events import SESSION_EVENTS
+
+    sid = "e2e_events_probe"
+    frames: list[bytes] = []
+
+    class _H:
+        def __init__(self):
+            self.wfile = self
+
+        def send_response(self, _status):
+            pass
+
+        def send_header(self, *_a):
+            pass
+
+        def end_headers(self):
+            pass
+
+        def write(self, data):
+            frames.append(bytes(data))
+            if b"run_started" in bytes(data):
+                raise BrokenPipeError("client went away")   # ends the SSE loop
+
+        def flush(self):
+            pass
+
+    parsed = urlparse(f"http://x/api/session/events?session_id={sid}")
+    t = threading.Thread(target=handle_get, args=(_H(), parsed), daemon=True)
+    t.start()
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and SESSION_EVENTS.subscriber_count(sid) == 0:
+        time.sleep(0.01)
+    assert SESSION_EVENTS.subscriber_count(sid) == 1, "handler never subscribed"
+
+    SESSION_EVENTS.publish(sid, "run_started", {"stream_id": "abc123"})
+    t.join(timeout=5)
+    assert not t.is_alive(), "handler did not exit on client disconnect"
+
+    blob = b"".join(frames).decode("utf-8", "replace")
+    assert "snapshot" in blob, "no snapshot frame — a mid-run joiner would never attach"
+    assert "run_started" in blob
+    assert "abc123" in blob, "the stream_id must reach the client or it cannot attach"
+
+    assert SESSION_EVENTS.subscriber_count(sid) == 0, "disconnect leaked a subscriber"
+
+
+def test_endpoint_rejects_a_missing_session_id():
+    from urllib.parse import urlparse
+    from api.routes import handle_get
+
+    class _H:
+        def __init__(self):
+            self.status = None
+            self.wfile = self
+            self.body = bytearray()
+
+        def send_response(self, status):
+            self.status = status
+
+        def send_header(self, *_a):
+            pass
+
+        def end_headers(self):
+            pass
+
+        def write(self, data):
+            self.body.extend(data)
+
+        def flush(self):
+            pass
+
+    h = _H()
+    handle_get(h, urlparse("http://x/api/session/events"))
+    assert h.status == 400
