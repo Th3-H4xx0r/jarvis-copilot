@@ -9,6 +9,7 @@ This module is the single source of truth for the dangerous command system:
 """
 
 import contextvars
+import fnmatch
 import logging
 import os
 import re
@@ -291,6 +292,125 @@ def detect_hardline_command(command: str) -> tuple:
         if pattern_re.search(normalized):
             return (True, description)
     return (False, None)
+
+
+_DENY_SEGMENT_SPLIT_RE = re.compile(r"&&|\|\||;|\||\n")
+
+
+def load_deny_globs() -> list:
+    """Operator-authored deny globs from ``approvals.deny``.
+
+    Fails OPEN: an unreadable or malformed config yields an empty list and a
+    loud warning rather than blocking everything. Failing closed would brick
+    the agent on a typo, and anyone able to corrupt config.yaml already has
+    filesystem access and better options -- the shipped hardline floor still
+    applies either way.
+    """
+    try:
+        from jarviscopilot_cli.config import load_config
+
+        raw = cfg_get(load_config(), "approvals", "deny", default=None)
+    except Exception as exc:
+        logger.warning("Could not read approvals.deny, continuing with no "
+                       "operator deny rules: %s", exc)
+        return []
+    if not raw:
+        return []
+    if not isinstance(raw, (list, tuple)):
+        logger.warning("approvals.deny must be a list of glob strings, got %s "
+                       "-- ignoring it.", type(raw).__name__)
+        return []
+    globs = []
+    for entry in raw:
+        if isinstance(entry, str) and entry.strip():
+            globs.append(entry.strip())
+        else:
+            logger.warning("Skipping non-string approvals.deny entry: %r", entry)
+    return globs
+
+
+def detect_denied_command(command: str) -> tuple:
+    """``(is_denied, matched_glob)`` against the operator's deny rules.
+
+    Matched on the NORMALIZED command -- the same ANSI-stripped, fullwidth-folded
+    text the dangerous-pattern detector sees, so the obfuscation tricks that
+    detector already defends against cannot walk around this floor either.
+
+    Each ``&&``/``||``/``;``/``|``/newline segment is matched as well as the
+    whole string: without that, ``ls && rm -rf /`` defeats a ``rm -rf /*`` rule
+    and the floor would look like it works while not working.
+    """
+    globs = load_deny_globs()
+    if not globs:
+        return False, None
+    normalized = _normalize_command_for_detection(command).lower()
+    candidates = [normalized]
+    candidates.extend(
+        seg.strip() for seg in _DENY_SEGMENT_SPLIT_RE.split(normalized) if seg.strip()
+    )
+    for glob in globs:
+        pattern = glob.lower()
+        for candidate in candidates:
+            if fnmatch.fnmatch(candidate, pattern):
+                return True, glob
+    return False, None
+
+
+def _deny_block_result(matched_glob: str) -> dict:
+    """Block result for an operator deny rule, naming the rule that fired."""
+    return {
+        "approved": False,
+        "hardline": True,
+        "denied_by": matched_glob,
+        "message": (
+            f"BLOCKED by your approvals.deny rule {matched_glob!r}. "
+            "This is an operator floor: it cannot be bypassed with --yolo, "
+            "/yolo, approvals.mode=off, cron approve mode, or the permanent "
+            "allowlist. Edit approvals.deny in config.yaml to change it."
+        ),
+    }
+
+
+def explain_command(command: str, env_type: str = "local") -> dict:
+    """What the guard chain WOULD decide for ``command``, without running it.
+
+    Returns ``{"decision", "layer", "detail"}`` where decision is one of
+    ``"run"`` (executes with no prompt), ``"prompt"`` (would ask you) or
+    ``"blocked"``. An absolute floor you cannot preview is one you write wrong
+    once and then fight from inside a stuck agent; this is the preview.
+
+    Deliberately re-implements the chain's ORDER rather than calling
+    check_dangerous_command, because that function prompts. The order here is
+    asserted against the real one in the tests.
+    """
+    if env_type in {"docker", "singularity", "modal", "daytona", "vercel_sandbox"}:
+        return {"decision": "run", "layer": "sandbox",
+                "detail": f"{env_type} backend bypasses the dangerous-command layer"}
+
+    is_hardline, hardline_desc = detect_hardline_command(command)
+    if is_hardline:
+        return {"decision": "blocked", "layer": "hardline", "detail": hardline_desc}
+
+    is_denied, denied_by = detect_denied_command(command)
+    if is_denied:
+        return {"decision": "blocked", "layer": "approvals.deny", "detail": denied_by}
+
+    yolo = is_truthy_value(os.getenv("HERMES_YOLO_MODE")) or is_current_session_yolo_enabled()
+    if yolo:
+        return {"decision": "run", "layer": "yolo",
+                "detail": "yolo is on, so anything past the floors runs unasked"}
+
+    is_dangerous, pattern_key, description = detect_dangerous_command(command)
+    if not is_dangerous:
+        return {"decision": "run", "layer": "not-dangerous",
+                "detail": "matches no dangerous pattern"}
+
+    if is_approved(get_current_session_key(), pattern_key):
+        return {"decision": "run", "layer": "allowlist",
+                "detail": f"{pattern_key} is already approved for this session"}
+
+    return {"decision": "prompt", "layer": "approval",
+            "detail": f"{description} ({pattern_key})"}
 
 
 def _hardline_block_result(description: str) -> dict:
@@ -954,6 +1074,17 @@ def check_dangerous_command(command: str, env_type: str,
     if is_hardline:
         logger.warning("Hardline block: %s (command: %s)", hardline_desc, command[:200])
         return _hardline_block_result(hardline_desc)
+
+    # Operator floor. Same precedence as hardline and for the same reason: it
+    # is the only rule the user can write that yolo, approvals.mode=off, cron
+    # approve-mode and the permanent allowlist cannot turn off. Kept in its own
+    # table so a block names the rule that fired and a bad user glob cannot
+    # take the shipped hardline floor down with it.
+    is_denied, denied_by = detect_denied_command(command)
+    if is_denied:
+        logger.warning("Operator deny block: %r matched (command: %s)",
+                       denied_by, command[:200])
+        return _deny_block_result(denied_by)
 
     # --yolo: bypass all approval prompts. Gateway /yolo is session-scoped;
     # CLI --yolo remains process-scoped via the env var for local use.

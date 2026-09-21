@@ -5921,6 +5921,34 @@ def cmd_hooks(args):
     hooks_command(args)
 
 
+def cmd_approvals(args):
+    """`jarviscopilot approvals test '<cmd>'` -- what the guard chain would do."""
+    from tools.approval import explain_command
+
+    if getattr(args, "approvals_action", None) != "test":
+        print("usage: jarviscopilot approvals test '<command>'")
+        sys.exit(2)
+    command = " ".join(getattr(args, "cmd_text", []) or []).strip()
+    if not command:
+        print("usage: jarviscopilot approvals test '<command>'")
+        sys.exit(2)
+
+    result = explain_command(command, getattr(args, "env", "local") or "local")
+    decision, layer, detail = result["decision"], result["layer"], result["detail"]
+    icon = {"run": "\u2713", "prompt": "?", "blocked": "\u2717"}.get(decision, "-")
+    print(f"{icon}  {command}")
+    print(f"   decision:   {decision}")
+    print(f"   decided by: {layer}")
+    if detail:
+        print(f"   because:    {detail}")
+    if decision == "blocked" and layer == "approvals.deny":
+        print("   (an operator floor -- yolo and approvals.mode=off cannot lift it)")
+    print("   nothing was executed.")
+    # main() calls args.func(args) and discards the return, so exit here --
+    # the exit code is the point of a test command you can use in a script.
+    sys.exit({"run": 0, "prompt": 1, "blocked": 2}.get(decision, 2))
+
+
 def cmd_pause(args):
     """`jarviscopilot pause [reason]` -- engage the global emergency stop."""
     from agent import estop
@@ -10118,7 +10146,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "kanban", "login", "logout", "logs", "lsp", "mcp", "memory",
         "model", "pairing", "plugins", "postinstall", "profile", "proxy",
-        "devices", "pair", "pause", "restart", "send", "sessions", "setup",
+        "approvals", "devices", "pair", "pause", "restart", "send", "sessions", "setup",
         "unpause",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat",
@@ -11154,6 +11182,24 @@ def main():
     )
 
     hooks_parser.set_defaults(func=cmd_hooks)
+
+    # =========================================================================
+    # approvals command
+    # =========================================================================
+    approvals_parser = subparsers.add_parser(
+        "approvals",
+        help="Inspect the dangerous-command approval chain",
+        description="Preview what the approval chain would do. Nothing is executed.",
+    )
+    approvals_sub = approvals_parser.add_subparsers(dest="approvals_action")
+    approvals_test = approvals_sub.add_parser(
+        "test", help="Show what would happen to a command, without running it")
+    approvals_test.add_argument("cmd_text", nargs="*",
+                                help="The command to test")
+    approvals_test.add_argument(
+        "--env", default="local",
+        help="Terminal backend to assume (local, docker, ssh, ...)")
+    approvals_parser.set_defaults(func=cmd_approvals)
 
     # =========================================================================
     # pause / resume commands (global emergency stop)
