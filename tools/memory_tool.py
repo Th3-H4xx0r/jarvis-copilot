@@ -631,6 +631,29 @@ def memory_tool(
     if target not in {"memory", "user"}:
         return tool_error(f"Invalid target '{target}'. Use 'memory' or 'user'.", success=False)
 
+    # With memory.write_approval on, a cross-session write is staged for review
+    # instead of committed. background_review writes straight to the store
+    # otherwise, which is how a memory file fills with entries nobody agreed to.
+    try:
+        from agent.pending_writes import stage, write_approval_enabled
+
+        if action in ("add", "replace", "remove") and write_approval_enabled("memory"):
+            import os as _os
+
+            origin = "background_review" if _os.getenv("HERMES_BACKGROUND_REVIEW") else "turn"
+            record = stage("memory", action=action, target=target,
+                           content=content, old_text=old_text, origin=origin)
+            return json.dumps({
+                "success": True,
+                "staged": record["id"],
+                "message": (
+                    f"Queued for review as {record['id']} (memory.write_approval is on). "
+                    "It is NOT saved yet. Review with `jarviscopilot pending list`."
+                ),
+            }, ensure_ascii=False)
+    except ImportError:
+        pass
+
     if action == "add":
         if not content:
             return tool_error("Content is required for 'add' action.", success=False)

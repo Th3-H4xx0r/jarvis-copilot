@@ -5921,6 +5921,79 @@ def cmd_hooks(args):
     hooks_command(args)
 
 
+def cmd_pending(args):
+    """`jarviscopilot pending ...` -- review writes the agent staged for you."""
+    from agent import pending_writes as pw
+
+    action = getattr(args, "pending_action", None) or "list"
+
+    if action == "list":
+        records = pw.list_pending(getattr(args, "kind", None))
+        if not records:
+            print("Nothing pending.")
+            print("(The agent stages writes here only when memory.write_approval is on.)")
+            return
+        print(f"{len(records)} pending write(s):\n")
+        for r in records:
+            preview = (r.get("content") or r.get("old_text") or "").replace("\n", " ")
+            if len(preview) > 68:
+                preview = preview[:65] + "..."
+            print(f"  {r['id']}")
+            print(f"    {r.get('action')} -> {r.get('target')}  "
+                  f"(from {r.get('origin')}, {r.get('staged_at', '')[:19]})")
+            print(f"    {preview}")
+        print("\nApply one with: jarviscopilot pending apply <id>")
+        return
+
+    if action == "show":
+        record = pw.get(getattr(args, "record_id", "") or "")
+        if record is None:
+            print(f"No pending write {getattr(args, 'record_id', '')!r}.")
+            sys.exit(1)
+        print(json.dumps(record, indent=2, ensure_ascii=False))
+        return
+
+    if action == "apply":
+        if getattr(args, "all", False):
+            records = pw.list_pending(getattr(args, "kind", None))
+            if not records:
+                print("Nothing pending.")
+                return
+            failed = 0
+            for r in records:
+                res = pw.apply(r["id"])
+                status = "applied" if res.get("success") else f"FAILED: {res.get('error')}"
+                if not res.get("success"):
+                    failed += 1
+                print(f"  {r['id']}: {status}")
+            sys.exit(1 if failed else 0)
+        record_id = getattr(args, "record_id", "") or ""
+        if not record_id:
+            print("usage: jarviscopilot pending apply <id> | --all")
+            sys.exit(2)
+        res = pw.apply(record_id)
+        print(f"Applied {record_id}." if res.get("success") else f"Error: {res.get('error')}")
+        sys.exit(0 if res.get("success") else 1)
+
+    if action == "discard":
+        if getattr(args, "all", False):
+            records = pw.list_pending(getattr(args, "kind", None))
+            for r in records:
+                pw.discard(r["id"])
+            print(f"Discarded {len(records)} pending write(s).")
+            return
+        record_id = getattr(args, "record_id", "") or ""
+        if not record_id:
+            print("usage: jarviscopilot pending discard <id> | --all")
+            sys.exit(2)
+        ok = pw.discard(record_id)
+        print(f"Discarded {record_id}." if ok else f"No pending write {record_id!r}.")
+        sys.exit(0 if ok else 1)
+
+    print("usage: jarviscopilot pending [list|show|apply|discard]")
+    sys.exit(2)
+
+
 def cmd_approvals(args):
     """`jarviscopilot approvals test '<cmd>'` -- what the guard chain would do."""
     from tools.approval import explain_command
@@ -10146,7 +10219,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "kanban", "login", "logout", "logs", "lsp", "mcp", "memory",
         "model", "pairing", "plugins", "postinstall", "profile", "proxy",
-        "approvals", "devices", "pair", "pause", "restart", "send", "sessions", "setup",
+        "approvals", "devices", "pair", "pause", "pending", "restart", "send", "sessions", "setup",
         "unpause",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat",
@@ -11182,6 +11255,32 @@ def main():
     )
 
     hooks_parser.set_defaults(func=cmd_hooks)
+
+    # =========================================================================
+    # pending command (staged memory/skill writes)
+    # =========================================================================
+    pending_parser = subparsers.add_parser(
+        "pending",
+        help="Review writes the agent staged instead of committing",
+        description=(
+            "When memory.write_approval is on, the agent's cross-session writes "
+            "are staged here instead of saved. Nothing lands until you apply it."
+        ),
+    )
+    pending_sub = pending_parser.add_subparsers(dest="pending_action")
+    _p_list = pending_sub.add_parser("list", help="Show everything waiting")
+    _p_list.add_argument("--kind", choices=["memory", "skills"], default=None)
+    _p_show = pending_sub.add_parser("show", help="Print one staged write in full")
+    _p_show.add_argument("record_id")
+    _p_apply = pending_sub.add_parser("apply", help="Commit a staged write")
+    _p_apply.add_argument("record_id", nargs="?")
+    _p_apply.add_argument("--all", action="store_true", help="Apply everything")
+    _p_apply.add_argument("--kind", choices=["memory", "skills"], default=None)
+    _p_discard = pending_sub.add_parser("discard", help="Drop a staged write")
+    _p_discard.add_argument("record_id", nargs="?")
+    _p_discard.add_argument("--all", action="store_true", help="Discard everything")
+    _p_discard.add_argument("--kind", choices=["memory", "skills"], default=None)
+    pending_parser.set_defaults(func=cmd_pending)
 
     # =========================================================================
     # approvals command

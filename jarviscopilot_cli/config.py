@@ -1384,6 +1384,9 @@ DEFAULT_CONFIG = {
 
     # Persistent memory -- bounded curated memory injected into system prompt
     "memory": {
+        # Stage the agent's cross-session memory writes for review instead
+        # of committing them. Off by default. See agent/pending_writes.py.
+        "write_approval": False,
         "memory_enabled": True,
         "user_profile_enabled": True,
         # 0 = UNLIMITED (no cap on the built-in MEMORY.md/USER.md). NOTE: this
