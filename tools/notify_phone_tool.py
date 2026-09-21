@@ -11,6 +11,8 @@ webui process.
 """
 from __future__ import annotations
 
+import json
+
 from tools.registry import registry
 
 NOTIFY_PHONE_SCHEMA = {
@@ -32,18 +34,22 @@ NOTIFY_PHONE_SCHEMA = {
 
 
 def notify_phone_tool(args, **kw):
+    # Returns a JSON STRING, per the handler contract. Returning a bare dict
+    # put an object where the API expects text, and the provider rejected the
+    # whole request with `400 invalid message content type` -- an error that
+    # only appeared on turns where this tool happened to run.
     title = str(args.get("title") or "").strip()
     body = str(args.get("body") or "").strip()
     if not title and not body:
-        return {"ok": False, "error": "title or body is required"}
+        return json.dumps({"ok": False, "error": "title or body is required"})
     from tools.chrome_device_tool import _api_request
     res = _api_request("POST", "/api/devices/notify", {"title": title, "body": body}, timeout=15.0)
     if res.get("_error"):
-        return {"ok": False, "error": res["_error"]}
+        return json.dumps({"ok": False, "error": res["_error"]})
     sent = int(res.get("sent") or 0)
     if sent == 0:
-        return {"ok": False, "error": "no phone with push registered"}
-    return {"ok": True, "sent": sent}
+        return json.dumps({"ok": False, "error": "no phone with push registered"})
+    return json.dumps({"ok": True, "sent": sent})
 
 
 def _check_notify_phone():

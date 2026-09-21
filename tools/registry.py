@@ -400,8 +400,8 @@ class ToolRegistry:
         try:
             if entry.is_async:
                 from model_tools import _run_async
-                return _run_async(entry.handler(args, **kwargs))
-            return entry.handler(args, **kwargs)
+                return _coerce_result(name, _run_async(entry.handler(args, **kwargs)))
+            return _coerce_result(name, entry.handler(args, **kwargs))
         except Exception as e:
             logger.exception("Tool %s dispatch error: %s", name, e)
             # Route through the sanitizer so framing tokens / CDATA / fences
@@ -587,3 +587,24 @@ def tool_result(data=None, **kwargs) -> str:
     if data is not None:
         return json.dumps(data, ensure_ascii=False)
     return json.dumps(kwargs, ensure_ascii=False)
+
+def _coerce_result(name: str, result):
+    """Every tool result reaches the model as a string.
+
+    The contract is "handlers MUST return a JSON string", but nothing enforced
+    it, so a handler returning a bare dict sent an object where the API expects
+    text. Providers reject that a long way downstream -- observed as
+    `400 invalid message content type: map[string]interface {}` -- which reads
+    like a model problem rather than a tool returning the wrong type.
+    """
+    if isinstance(result, str):
+        return result
+    if result is None:
+        return json.dumps({"ok": True})
+    try:
+        coerced = json.dumps(result, ensure_ascii=False, default=str)
+    except Exception:
+        coerced = json.dumps({"result": str(result)}, ensure_ascii=False)
+    logger.debug("Tool %s returned %s, not a JSON string; coerced at dispatch.",
+                 name, type(result).__name__)
+    return coerced

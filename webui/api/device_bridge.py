@@ -668,6 +668,46 @@ def _sandbox_for(device: dict) -> Optional[bool]:
     return None
 
 
+# ── Fast-fail for a phone that is not answering ──────────────────────────────
+#
+# The push fallback wakes a backgrounded phone with a silent APNs and waits for
+# it to call back. When the phone is asleep, out of range, or iOS drops the
+# push, that wait costs the FULL timeout -- measured on the live server as
+# /api/devices/skills/invoke returning at 20001 ms over and over. Every device
+# tool call in a turn paid it, which is why a one-tool question took 31s.
+#
+# After two consecutive timeouts for a device we stop waiting and answer
+# immediately for a short cooldown. A single success clears it, so a phone that
+# comes back is used on the very next call.
+_PUSH_FAILS: dict = {}
+_PUSH_FAILS_LOCK = threading.Lock()
+PUSH_FAIL_THRESHOLD = 2
+PUSH_FAIL_COOLDOWN_S = 60.0
+
+
+def _push_path_is_cold(device_id: str) -> bool:
+    """True when recent invokes for this device all timed out."""
+    with _PUSH_FAILS_LOCK:
+        fails, last = _PUSH_FAILS.get(device_id, (0, 0.0))
+    if fails < PUSH_FAIL_THRESHOLD:
+        return False
+    if (time.time() - last) > PUSH_FAIL_COOLDOWN_S:
+        # Cooldown elapsed -- let one call through to see if it is back.
+        with _PUSH_FAILS_LOCK:
+            _PUSH_FAILS.pop(device_id, None)
+        return False
+    return True
+
+
+def _record_push_outcome(device_id: str, ok: bool) -> None:
+    with _PUSH_FAILS_LOCK:
+        if ok:
+            _PUSH_FAILS.pop(device_id, None)
+        else:
+            fails, _ = _PUSH_FAILS.get(device_id, (0, 0.0))
+            _PUSH_FAILS[device_id] = (fails + 1, time.time())
+
+
 def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
                             timeout: float) -> dict:
     try:
@@ -691,6 +731,16 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
         return {"ok": False, "error": "device not connected"}
     if not kind.startswith("mobile"):
         return {"ok": False, "error": "device not connected"}
+
+    if _push_path_is_cold(device_id):
+        # Waiting again would just spend the whole timeout to learn what the
+        # last two calls already told us.
+        return {
+            "ok": False,
+            "error": ("device is not responding (asleep or unreachable); "
+                      "skipped the wake-up wait after repeated timeouts"),
+            "device_asleep": True,
+        }
 
     call_id = secrets.token_hex(8)
     ev = threading.Event()
@@ -776,6 +826,9 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
         }}
 
     ok = ev.wait(timeout=timeout)
+    # Remember whether the phone answered, so a run of timeouts stops
+    # costing the full wait on every later call.
+    _record_push_outcome(device_id, ok)
     final = _cleanup_mobile_call(call_id)
     if not ok:
         return {"ok": False, "error": "device did not respond before timeout"}
