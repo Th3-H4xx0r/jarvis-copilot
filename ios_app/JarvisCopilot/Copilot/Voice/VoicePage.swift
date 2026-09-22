@@ -14,6 +14,9 @@ struct VoicePage: View {
     private let sessionSelection = VoiceSessionSelection.shared
     @State private var showMicDialog = false
     @State private var showDiagnostics = false
+    /// Voice ⇄ Live. Mirrored into `VoiceSettings` so it survives a relaunch
+    /// (design §7.1); held in `@State` as well so the switch animates.
+    @State private var liveMode: Bool
     /// Holds the conversation layout between turns of a live session.
     ///
     /// The store clears the transcript and reply at the START of every turn
@@ -27,8 +30,10 @@ struct VoicePage: View {
     /// store can't be a default argument. Tests inject stores built with mocks.
     init(store: VoiceStore? = nil,
          models: VoiceModelStore? = nil) {
-        _store = State(initialValue: store ?? MainActor.assumeIsolated { VoiceStore.shared })
+        let resolved = store ?? MainActor.assumeIsolated { VoiceStore.shared }
+        _store = State(initialValue: resolved)
         _models = State(initialValue: models ?? MainActor.assumeIsolated { VoiceModelStore.shared })
+        _liveMode = State(initialValue: MainActor.assumeIsolated { resolved.settings.liveMode })
     }
 
     private static let controlsGap: CGFloat = 14
@@ -47,45 +52,31 @@ struct VoicePage: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geo in
-                VStack(spacing: 0) {
-                    stage(height: max(geo.size.height - VoiceControls.height - Self.controlsGap, 0))
-
-                    if store.canRetryOnServer {
-                        VoiceTryServerChip { store.retryLastOnServer() }
-                            .padding(.bottom, 10)
-                    }
-
-                    VoiceControls(state: store.state,
-                                  isActive: store.isActive,
-                                  muted: store.muted,
-                                  onPrimary: { Task {
-                                      if store.isActive { await store.stopAll() }
-                                      else { await onPrimary() }
-                                  } },
-                                  onMute: store.toggleMute,
-                                  onFinish: store.finishSpeaking,
-                                  onInterrupt: {
-                                      if store.mode == .quality { Task { await store.stopAll() } }
-                                      else { store.interrupt() }
-                                  })
-                        .padding(.bottom, Self.controlsGap)
+            Group {
+                if liveMode {
+                    LiveView()
+                } else {
+                    voiceStage
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
             }
-            .jcScreen("Voice")
+            .jcScreen(liveMode ? "Live" : "Voice")
             .toolbar { toolbar }
         }
-        // The Siri / Control-Center latch. On appear for a cold launch
-        // (the request lands before any view exists) and on every generation
-        // change for a warm one.
-        .task { await store.consumeVoiceLaunch() }
+        // The Siri / Control-Center latch. On appear for a cold launch (the request
+        // lands before any view exists) and on every generation change for a warm
+        // one. Such a request is a request for VOICE, so it also brings the surface
+        // back from Live rather than being swallowed by it.
+        .task {
+            if await store.consumeVoiceLaunch(), liveMode { switchTo(live: false) }
+        }
         // Pre-warm while Voice is the tab on screen: the session and the socket
         // are ready before the tap, so the tap only has to start the mic.
-        .task { if router.selectedTab == .voice { await store.prewarmVoice() } }
+        // Not in Live mode — there is no voice turn coming, and the warm socket
+        // would just sit open for the length of an ambient recording.
+        .task { if router.selectedTab == .voice, !liveMode { await store.prewarmVoice() } }
         .onChange(of: router.selectedTab) { _, tab in
             if tab == .voice {
-                Task { await store.prewarmVoice() }
+                if !liveMode { Task { await store.prewarmVoice() } }
             } else {
                 store.voiceSurfaceHidden()
             }
@@ -99,7 +90,12 @@ struct VoicePage: View {
             stickyConversation = active ? false : hasContent
         }
         .onChange(of: router.voiceLaunchGeneration) { _, _ in
-            Task { await store.consumeVoiceLaunch() }
+            // The warm-launch half of the latch above, and it has to make the same
+            // Live → Voice switch: a Siri request that landed on the Live screen
+            // would otherwise start a turn on a surface that cannot show it.
+            Task {
+                if await store.consumeVoiceLaunch(), liveMode { switchTo(live: false) }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -107,7 +103,7 @@ struct VoicePage: View {
             case .active:
                 Task {
                     await store.resumeFromBackground()
-                    if router.selectedTab == .voice { await store.prewarmVoice() }
+                    if router.selectedTab == .voice, !liveMode { await store.prewarmVoice() }
                 }
             default: break
             }
@@ -131,6 +127,40 @@ struct VoicePage: View {
     }
 
     // MARK: - Stage
+
+    /// The conversation surface: the orb, the status pill and the voice controls.
+    /// Extracted unchanged from `body` so Live mode can replace the whole thing
+    /// without a branch inside the layout — the orb's animation depends on there
+    /// being exactly one stack in a fixed order, and a conditional inside it would
+    /// be the one thing that breaks it.
+    private var voiceStage: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                stage(height: max(geo.size.height - VoiceControls.height - Self.controlsGap, 0))
+
+                if store.canRetryOnServer {
+                    VoiceTryServerChip { store.retryLastOnServer() }
+                        .padding(.bottom, 10)
+                }
+
+                VoiceControls(state: store.state,
+                              isActive: store.isActive,
+                              muted: store.muted,
+                              onPrimary: { Task {
+                                  if store.isActive { await store.stopAll() }
+                                  else { await onPrimary() }
+                              } },
+                              onMute: store.toggleMute,
+                              onFinish: store.finishSpeaking,
+                              onInterrupt: {
+                                  if store.mode == .quality { Task { await store.stopAll() } }
+                                  else { store.interrupt() }
+                              })
+                    .padding(.bottom, Self.controlsGap)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
 
     /// ONE stack in a fixed order for both layouts, like the Mac panel's. Which
     /// layout is showing is expressed only as sizes — how tall the conversation
@@ -335,6 +365,29 @@ struct VoicePage: View {
     /// session's name lives in the picker sheet (and in the accessibility label).
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // The leading slot was empty; this is the Voice ⇄ Live switch of §7.1.
+        // A menu rather than a tap-to-flip button: both modes are named, so it is
+        // never ambiguous which one a tap is about to put you in.
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Button { switchTo(live: false) } label: {
+                    Label(liveMode ? "Voice" : "Voice ✓", jcIcon: "waveform.circle")
+                }
+                Button { switchTo(live: true) } label: {
+                    Label(liveMode ? "Live ✓" : "Live", jcIcon: "dot.radiowaves.left.and.right")
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    JcIcon(liveMode ? "dot.radiowaves.left.and.right" : "waveform.circle",
+                           size: 14, weight: .medium)
+                    Text(liveMode ? "Live" : "Voice")
+                        .font(.system(size: 13, weight: .medium))
+                    JcIcon("chevron.down", size: 9, weight: .semibold)
+                }
+                .foregroundStyle(JcTheme.accent)
+            }
+            .accessibilityLabel("Mode: \(liveMode ? "Live" : "Voice")")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showSessionPicker = true } label: {
                 JcIcon("bubble.left", size: 15, weight: .medium)
@@ -357,9 +410,30 @@ struct VoicePage: View {
 
     // MARK: - Actions
 
+    /// Switch surfaces, leaving neither one holding the microphone.
+    ///
+    /// Both modes record, and they configure `AVAudioSession` differently on
+    /// purpose (`.videoChat` with echo cancellation for a conversation,
+    /// `.default` without it for a room). Leaving the old one running would mean
+    /// whichever claim was raised last silently decided the capture quality of the
+    /// surface the user is actually looking at.
+    @MainActor
+    private func switchTo(live: Bool) {
+        guard live != liveMode else { return }
+        liveMode = live
+        store.settings.liveMode = live
+        if live {
+            Task { await store.stopAll() }
+        } else {
+            Task { await LiveStore.shared.stop() }
+        }
+    }
+
     /// The 60 fps orb only animates while Voice is on screen — every tab stays
     /// mounted in the shell, so an ungated ticker would repaint behind all six.
-    private var tickerEnabled: Bool { scenePhase == .active && router.selectedTab == .voice }
+    private var tickerEnabled: Bool {
+        scenePhase == .active && router.selectedTab == .voice && !liveMode
+    }
 
     private func onPrimary() async {
         // Stopping never needs permission.

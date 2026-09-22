@@ -30,6 +30,10 @@ final class VoiceSettings {
     static let voiceKey = "jc_voice_voice"
     static let modeKey = "jc_voice_mode"
     static let transcriptionKey = "jc_voice_transcription"
+    /// Which surface the Voice tab shows: the conversation orb, or Live Jarvis's
+    /// ambient transcript. Persisted here beside the other per-device voice
+    /// choices, per design §7.1.
+    static let liveModeKey = "jc_voice_live_mode"
     /// Written by the Siri intent / Control-Center control before the app is up.
     static let pendingVoiceKey = "jc_pending_voice"
 
@@ -44,6 +48,9 @@ final class VoiceSettings {
         // an update changes nothing until the user chooses otherwise.
         _transcription = VoiceTranscription(rawValue: store.string(Self.transcriptionKey) ?? "")
             ?? .server
+        // Regular Voice by default: an update must not move an existing install
+        // onto an always-listening screen it never asked for.
+        _liveMode = store.bool(Self.liveModeKey) ?? false
     }
 
     // Backing fields so the setters can persist. `@Observable` tracks the
@@ -52,6 +59,7 @@ final class VoiceSettings {
     private var _voice: String?
     private var _mode: VoiceMode
     private var _transcription: VoiceTranscription
+    private var _liveMode: Bool
 
     /// Selected TTS engine id (nil = let the server use its own default).
     var engine: String? {
@@ -81,6 +89,12 @@ final class VoiceSettings {
     var transcription: VoiceTranscription {
         get { _transcription }
         set { _transcription = newValue; store.set(newValue.rawValue, forKey: Self.transcriptionKey) }
+    }
+
+    /// True when the Voice tab shows Live Jarvis instead of the conversation orb.
+    var liveMode: Bool {
+        get { _liveMode }
+        set { _liveMode = newValue; store.set(newValue, forKey: Self.liveModeKey) }
     }
 
     /// Selecting an engine drops a stale voice: voice ids are engine-specific,

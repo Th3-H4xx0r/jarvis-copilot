@@ -178,6 +178,16 @@ struct VoiceAPI: Sendable {
     /// a stored server URL, so the voice socket follows the LAN-direct
     /// preference too instead of always taking the tunnel.
     func realtimeURL() throws -> URL {
+        try socketURL(path: "/api/voice/s2s/ws")
+    }
+
+    /// The same derivation for any WebSocket path on the paired server.
+    ///
+    /// Extracted so Live Jarvis's `/api/live/ws` cannot drift from the voice
+    /// socket's URL handling: the scheme mapping, the trailing-slash trim on a
+    /// sub-path mount, and the "follow the LAN-direct base URL" behaviour are all
+    /// subtle enough that a second copy would eventually disagree with this one.
+    func socketURL(path: String) throws -> URL {
         guard let base = api.credentials.baseURL else { throw APIError.notPaired }
         guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
             throw APIError.badResponse("bad base URL")
@@ -188,7 +198,7 @@ struct VoiceAPI: Sendable {
         default: throw APIError.badResponse("serverUrl must be http(s)://…")
         }
         let root = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
-        comps.path = root + "/api/voice/s2s/ws"
+        comps.path = root + (path.hasPrefix("/") ? path : "/" + path)
         guard let url = comps.url else { throw APIError.badResponse("bad URL") }
         return url
     }

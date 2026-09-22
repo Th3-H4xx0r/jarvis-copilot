@@ -443,6 +443,15 @@ final class JarvisAPI: @unchecked Sendable {
         return try await perform(try request("POST", path, query: query, headers: h, body: try jsonBody(body), timeout: timeout))
     }
 
+    /// `PUT` — added for `/api/live/config`, which is specified as GET/PUT. Callers
+    /// that must work against an older server should fall back to `post` on a 404
+    /// or 405 rather than assuming the verb is routed (`LiveAPI.saveConfig` does).
+    func put(_ path: String, json body: Any, query: [String: String] = [:]) async throws -> APIResponse {
+        try await perform(try request("PUT", path, query: query,
+                                      headers: ["Content-Type": "application/json"],
+                                      body: try jsonBody(body)))
+    }
+
     func patch(_ path: String, json body: Any, query: [String: String] = [:]) async throws -> APIResponse {
         try await perform(try request("PATCH", path, query: query, headers: ["Content-Type": "application/json"], body: try jsonBody(body)))
     }

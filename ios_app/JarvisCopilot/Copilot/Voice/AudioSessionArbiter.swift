@@ -36,6 +36,9 @@ enum AudioSessionClient: CaseIterable, Sendable {
     case voice
     /// The `record_audio` skill's clip capture.
     case recording
+    /// Live Jarvis's ambient conversation capture. A SEPARATE claim from `.voice`
+    /// on purpose — see `ambientPlan` for why it must not inherit the voice plan.
+    case ambient
 }
 
 #if os(iOS)
@@ -167,6 +170,36 @@ final class AudioSessionArbiter {
         options: [.mixWithOthers, .defaultToSpeaker], active: true,
         sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
 
+    /// Live Jarvis's ambient capture — a room, for hours.
+    ///
+    /// Three deliberate differences from `voicePlan`, all from design §5.1:
+    ///
+    ///  * **`.default`, NOT `.videoChat`.** `.videoChat` is echo cancellation plus
+    ///    noise suppression plus automatic gain control, tuned for one person
+    ///    talking close into the phone. Everything it is good at is wrong here: it
+    ///    treats a voice across the room as the noise it is built to remove, so the
+    ///    distant speakers ambient mode exists to hear are the ones it attenuates.
+    ///  * **`.allowBluetooth`** earns the hands-free profile, which is what makes
+    ///    AirPods (and any other Bluetooth headset) selectable as an INPUT rather
+    ///    than output-only. `voicePlan` has it too, but here it is load-bearing: it
+    ///    is the whole capture-source picker for anything not built into the phone.
+    ///  * **A tenth of a second per buffer**, like the keepalive and unlike the
+    ///    voice turn's 20 ms. The audio thread wakes once per buffer, so this is 10
+    ///    wakeups a second instead of 50 — and a capture that may run all day pays
+    ///    that bill continuously. Nothing is waiting on a reply, so the latency the
+    ///    long buffer costs buys real battery. (§11 lists battery as an open risk;
+    ///    this is the cheap half of the answer.)
+    ///
+    /// It stays `.playAndRecord` rather than `.record`: a Live session can speak a
+    /// reply (`speak: true`, `reply_mode: "spoken"`), and `.playAndRecord` is also
+    /// a background-audio category, so capture survives the screen locking.
+    static let ambientPlan = AudioSessionPlan(
+        category: .playAndRecord,
+        mode: .default,
+        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP],
+        active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: 0.1)
+
     /// Nobody wants the session. The category is irrelevant while inactive; only
     /// `active` is acted on.
     static let idlePlan = AudioSessionPlan(
@@ -184,11 +217,19 @@ final class AudioSessionArbiter {
     ///    capture needs, so a `record_audio` running during a turn rides along.
     ///  * **recording** — a clip capture, which likewise cannot happen under the
     ///    keepalive's `.playback`.
+    ///  * **ambient** — Live Jarvis. Below `recording` because a clip capture is a
+    ///    short, explicitly-asked-for thing and `recordingPlan` is recordable
+    ///    anyway, so ambient capture rides along under it rather than fighting it.
+    ///    Above `keepalive`, which cannot record at all. A voice turn taken DURING
+    ///    an ambient capture does win the category, which means far-field quality
+    ///    degrades for the length of that turn — the honest trade: the conversation
+    ///    the user is having right now outranks the room they are in.
     ///  * **keepalive** — the cheapest claim, and the only one that is content
     ///    with `.playback`.
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
+        if holders.contains(.ambient) { return ambientPlan }
         if holders.contains(.keepalive) { return keepalivePlan }
         return idlePlan
     }

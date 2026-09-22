@@ -66,6 +66,49 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertTrue(plan.active)
     }
 
+    // MARK: - The fourth client: Live Jarvis's ambient capture
+
+    /// Live mode's whole reason for a separate claim. `.videoChat`'s echo
+    /// cancellation and noise suppression are tuned to keep one near talker and
+    /// remove everything else — and "everything else" is exactly the distant
+    /// speakers ambient capture exists to hear.
+    func testAmbientCaptureRefusesTheVoiceTurnsProcessing() {
+        let plan = AudioSessionArbiter.plan(for: [.ambient])
+        XCTAssertEqual(plan.category, .playAndRecord,
+                       "a Live session can also speak a reply, and this earns background audio")
+        XCTAssertEqual(plan.mode, .default,
+                       ".videoChat would attenuate the room this mode exists to capture")
+        XCTAssertNotEqual(plan.mode, AudioSessionArbiter.voicePlan.mode)
+        XCTAssertTrue(plan.active)
+    }
+
+    /// AirPods (and any other Bluetooth headset) can only be an INPUT with the
+    /// hands-free profile allowed. This option IS the capture-source picker for
+    /// anything not built into the phone.
+    func testAmbientCaptureAllowsABluetoothMicrophone() {
+        XCTAssertTrue(AudioSessionArbiter.plan(for: [.ambient]).options.contains(.allowBluetooth))
+    }
+
+    /// A capture that may run all day pays its wakeup bill continuously, and nothing
+    /// is waiting on a reply — so the long buffer is the right trade, as it is for
+    /// the keepalive and is not for a conversation.
+    func testAmbientCaptureAsksForTheCheapBufferNotTheConversationsOne() {
+        let ambient = AudioSessionArbiter.plan(for: [.ambient])
+        XCTAssertGreaterThan(ambient.ioBufferDuration,
+                             AudioSessionArbiter.voicePlan.ioBufferDuration,
+                             "an hours-long recording must not wake the audio thread at turn latency")
+    }
+
+    /// A clip capture is short and explicitly asked for, and its plan is recordable
+    /// anyway, so ambient rides along under it rather than fighting it.
+    func testAmbientYieldsToAClipCaptureButBeatsTheKeepalive() {
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.ambient, .recording]),
+                       AudioSessionArbiter.recordingPlan)
+        XCTAssertEqual(AudioSessionArbiter.plan(for: [.ambient, .keepalive]),
+                       AudioSessionArbiter.ambientPlan,
+                       ".playback has no input route, so ambient capture has to win over it")
+    }
+
     func testRecordingOutranksTheKeepalive() {
         XCTAssertEqual(AudioSessionArbiter.plan(for: [.recording, .keepalive]),
                        AudioSessionArbiter.plan(for: [.recording]),
@@ -81,18 +124,26 @@ final class AudioSessionArbiterTests: XCTestCase {
                        AudioSessionArbiter.plan(for: [.voice]))
     }
 
-    /// The whole truth table over the three clients, so a fourth one cannot be
-    /// added without deciding where it sits.
+    /// The whole truth table over every client, so another one cannot be added
+    /// without deciding where it sits.
     func testEveryCombinationResolvesToTheStrongestClaim() {
         let expected: [(Set<AudioSessionClient>, AudioSessionPlan)] = [
             ([], AudioSessionArbiter.idlePlan),
             ([.keepalive], AudioSessionArbiter.keepalivePlan),
             ([.recording], AudioSessionArbiter.recordingPlan),
             ([.voice], AudioSessionArbiter.voicePlan),
+            ([.ambient], AudioSessionArbiter.ambientPlan),
             ([.keepalive, .recording], AudioSessionArbiter.recordingPlan),
             ([.keepalive, .voice], AudioSessionArbiter.voicePlan),
+            ([.keepalive, .ambient], AudioSessionArbiter.ambientPlan),
             ([.recording, .voice], AudioSessionArbiter.voicePlan),
+            ([.recording, .ambient], AudioSessionArbiter.recordingPlan),
+            ([.voice, .ambient], AudioSessionArbiter.voicePlan),
             ([.keepalive, .recording, .voice], AudioSessionArbiter.voicePlan),
+            ([.keepalive, .recording, .ambient], AudioSessionArbiter.recordingPlan),
+            ([.keepalive, .voice, .ambient], AudioSessionArbiter.voicePlan),
+            ([.recording, .voice, .ambient], AudioSessionArbiter.voicePlan),
+            ([.keepalive, .recording, .voice, .ambient], AudioSessionArbiter.voicePlan),
         ]
         XCTAssertEqual(expected.count, 1 << AudioSessionClient.allCases.count,
                        "a client was added without a row here")
