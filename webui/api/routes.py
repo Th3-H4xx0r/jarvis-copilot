@@ -3738,6 +3738,13 @@ def handle_get(handler, parsed) -> bool:
         if handle_voice_get(handler, parsed):
             return True
         # Fall through to default 404
+    if parsed.path.startswith("/api/live/"):
+        # Live Jarvis (ambient capture). Includes the viewers' SSE feed, which
+        # takes over the socket, so it must be dispatched like the other
+        # streaming routes rather than returning a JSON tuple.
+        from api.live_ws import handle_live_get
+        if handle_live_get(handler, parsed):
+            return True
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -4833,6 +4840,10 @@ def handle_post(handler, parsed) -> bool:
         if handle_voice_post(handler, parsed, body):
             return True
         # Unknown voice POST endpoint — fall through to default 404
+    if parsed.path.startswith("/api/live/"):
+        from api.live_ws import handle_live_post
+        if handle_live_post(handler, parsed, body):
+            return True
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe
 
@@ -5280,41 +5291,12 @@ def handle_post(handler, parsed) -> bool:
             return bad(handler, "Read-only imported sessions cannot be deleted from WebUI", 400)
         is_messaging_session = _is_messaging_session_id(sid)
         worktree_retained = _worktree_retained_payload_for_session_id(sid)
-        # Delete from WebUI session store
-        with LOCK:
-            SESSIONS.pop(sid, None)
+        # Delete from WebUI session store (shared with the live-session delete,
+        # which has to remove the chat it paired).
         try:
-            SESSION_INDEX_FILE.unlink(missing_ok=True)
-        except Exception:
-            logger.debug("Failed to unlink session index")
-        # Evict cached agent so turn count doesn't leak into a recycled session
-        from api.config import _evict_session_agent
-        _evict_session_agent(sid)
-        try:
-            p = (SESSION_DIR / f"{sid}.json").resolve()
-            p.relative_to(SESSION_DIR.resolve())
-        except Exception:
+            delete_chat_session(sid)
+        except ValueError:
             return bad(handler, "Invalid session_id", 400)
-        try:
-            p.unlink(missing_ok=True)
-            p.with_suffix('.json.bak').unlink(missing_ok=True)
-        except Exception:
-            logger.debug("Failed to unlink session file %s", p)
-        try:
-            from api.upload import _session_attachment_dir
-
-            shutil.rmtree(_session_attachment_dir(sid), ignore_errors=True)
-        except Exception:
-            logger.debug("Failed to clean attachment dir for deleted session %s", sid)
-        # Prune the per-session agent lock so deleted sessions don't leak
-        # Lock entries in SESSION_AGENT_LOCKS forever.
-        with SESSION_AGENT_LOCKS_LOCK:
-            SESSION_AGENT_LOCKS.pop(sid, None)
-        try:
-            from api.terminal import close_terminal
-            close_terminal(sid)
-        except Exception:
-            logger.debug("Failed to close workspace terminal for deleted session %s", sid)
         # Also delete from CLI state.db for CLI sessions shown in sidebar,
         # but never erase external messaging channel memory via WebUI delete.
         if not is_messaging_session:
@@ -6690,6 +6672,72 @@ def handle_patch(handler, parsed) -> bool:
         if result is False:
             return _kanban_unknown_endpoint(handler, parsed, "PATCH")
         return True
+    return False
+
+
+def delete_chat_session(sid: str) -> None:
+    """Delete one chat session and everything hanging off it.
+
+    Extracted from ``POST /api/session/delete`` so a second caller cannot get it
+    half-right: the file, its .bak, the in-memory cache, the index, the cached
+    agent, the attachment directory, the per-session lock, the workspace
+    terminal and the CLI row all have to go together. The endpoint keeps its own
+    policy checks (read-only imports, messaging sessions, worktrees); this is the
+    mechanics.
+
+    Raises ValueError for an id that is not a session id.
+    """
+    if not sid or not all(c in '0123456789abcdefghijklmnopqrstuvwxyz_'
+                          for c in sid):
+        raise ValueError("invalid session_id")
+    with LOCK:
+        SESSIONS.pop(sid, None)
+    try:
+        SESSION_INDEX_FILE.unlink(missing_ok=True)
+    except Exception:
+        logger.debug("Failed to unlink session index")
+    from api.config import _evict_session_agent
+    _evict_session_agent(sid)
+    try:
+        p = (SESSION_DIR / f"{sid}.json").resolve()
+        p.relative_to(SESSION_DIR.resolve())
+    except Exception as exc:
+        raise ValueError("invalid session_id") from exc
+    try:
+        p.unlink(missing_ok=True)
+        p.with_suffix('.json.bak').unlink(missing_ok=True)
+    except Exception:
+        logger.debug("Failed to unlink session file %s", p)
+    try:
+        from api.upload import _session_attachment_dir
+
+        shutil.rmtree(_session_attachment_dir(sid), ignore_errors=True)
+    except Exception:
+        logger.debug("Failed to clean attachment dir for deleted session %s", sid)
+    with SESSION_AGENT_LOCKS_LOCK:
+        SESSION_AGENT_LOCKS.pop(sid, None)
+    try:
+        from api.terminal import close_terminal
+        close_terminal(sid)
+    except Exception:
+        logger.debug("Failed to close workspace terminal for deleted session %s", sid)
+
+
+def handle_put(handler, parsed) -> bool:
+    """Handle all PUT routes. Returns True if handled, False for 404.
+
+    PUT was previously unrouted, so `PUT /api/…` fell through as a 501 from the
+    base handler. Live Jarvis's settings surface is specified as PUT, and the
+    verb is cheap to support correctly — same CSRF gate and body read as the
+    other write verbs.
+    """
+    if not _check_csrf(handler):
+        return j(handler, {"error": "Cross-origin request rejected"}, status=403)
+    body = read_body(handler)
+    if parsed.path.startswith("/api/live/"):
+        from api.live_ws import handle_live_put
+        if handle_live_put(handler, parsed, body):
+            return True
     return False
 
 

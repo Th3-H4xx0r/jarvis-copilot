@@ -124,7 +124,8 @@ from api.auth import check_auth
 from api.config import HOST, PORT, STATE_DIR, SESSION_DIR, DEFAULT_WORKSPACE
 from api.helpers import j, get_profile_cookie
 from api.profiles import set_request_profile, clear_request_profile
-from api.routes import handle_delete, handle_get, handle_patch, handle_post
+from api.routes import (
+    handle_delete, handle_get, handle_patch, handle_post, handle_put)
 from api.startup import auto_install_agent_deps, fix_credential_permissions
 from api.updates import WEBUI_VERSION
 
@@ -324,6 +325,15 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                # Live Jarvis ambient capture (/api/live/ws). Before the voice
+                # handler because both are wsproto sockets and this one must not
+                # depend on voice.py's path check falling through.
+                try:
+                    from api.live_ws import handle_websocket as _live_ws
+                    if _live_ws(self, parsed):
+                        return
+                except Exception:
+                    pass
                 from api.voice import handle_websocket
                 if handle_websocket(self, parsed):
                     return
@@ -384,6 +394,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self) -> None:
         self._handle_write(handle_patch)
+
+    def do_PUT(self) -> None:
+        self._handle_write(handle_put)
 
     def do_DELETE(self) -> None:
         self._handle_write(handle_delete)
@@ -460,6 +473,20 @@ def main() -> None:
     except Exception as exc:
         # Recovery is best-effort; never block server startup.
         print(f"[recovery] startup recovery failed: {exc}", flush=True)
+
+    # ── Live Jarvis: adopt audio a crash left unregistered ───────────────
+    # A chunk is registered when it rolls, so a crash mid-chunk leaves a real
+    # file no live_audio row knows about — invisible to the storage panel and
+    # missed by delete_session's unlink. On a thread because it walks the audio
+    # tree and startup should not wait on a disk.
+    try:
+        import threading as _threading
+
+        from api.live_ws import sweep_orphan_audio_once
+        _threading.Thread(target=sweep_orphan_audio_once,
+                          name="live-orphan-sweep", daemon=True).start()
+    except Exception as exc:
+        print(f"[live] orphan audio sweep could not start: {exc}", flush=True)
 
     # Fold any per-wearable health space into the shared Jarvis Health one.
     # Idempotent and best-effort: the runner retries on its next tick.
