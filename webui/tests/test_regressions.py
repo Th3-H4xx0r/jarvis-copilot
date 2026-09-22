@@ -312,42 +312,48 @@ def test_deleted_session_does_not_appear_in_list(cleanup_test_sessions):
     assert sid not in ids_after,         f"Deleted session {sid} still appears in list -- index not invalidated on delete"
 
 
-def test_server_delete_invalidates_index(cleanup_test_sessions):
-    """R8b: session/delete handler must unlink _index.json.
-    Static check that the fix is in place.
-    Sprint 11: handler moved from server.py to api/routes.py -- check both.
+def _delete_a_session_in(tmp_path, monkeypatch, sid="abc123deadbeef"):
+    """Run the real session-delete mechanics against a throwaway session dir.
+
+    These two invariants used to be checked by searching the handler body for
+    literals. The mechanics now live in ``routes.delete_chat_session`` (shared
+    with the live-session delete, which has to remove the chat it paired), so
+    that search proved only where the code sat, not what it did. Returns the
+    paths that must be gone afterwards.
     """
-    src = (REPO_ROOT / "server.py").read_text()
-    routes_src = (REPO_ROOT / "api" / "routes.py").read_text() if (REPO_ROOT / "api" / "routes.py").exists() else ""
-    # Find the delete handler in either file
-    for label, text in [("server.py", src), ("api/routes.py", routes_src)]:
-        # Accept both single-quote and double-quote style (formatting varies by contributor)
-        delete_idx = max(
-            text.find("if parsed.path == '/api/session/delete':"),
-            text.find('if parsed.path == "/api/session/delete":'),
-        )
-        if delete_idx >= 0:
-            # Use 1200 chars to accommodate any validation/guard code added
-            # before the SESSION_INDEX_FILE.unlink() call (e.g. session_id
-            # character checks, path traversal guards).
-            delete_block = text[delete_idx:delete_idx+1200]
-            assert "SESSION_INDEX_FILE" in delete_block, \
-                f"{label} session/delete must invalidate SESSION_INDEX_FILE"
-            return
-    assert False, "session/delete handler not found in server.py or api/routes.py"
+    from api import models as api_models
+    from api import routes as api_routes
+
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(exist_ok=True)
+    index = sessions / "_index.json"
+    index.write_text("{}", encoding="utf-8")
+    session_file = sessions / f"{sid}.json"
+    session_file.write_text('{"session_id": "%s", "messages": []}' % sid,
+                            encoding="utf-8")
+    bak = sessions / f"{sid}.json.bak"
+    bak.write_text("{}", encoding="utf-8")
+    for module in (api_models, api_routes):
+        monkeypatch.setattr(module, "SESSION_DIR", sessions)
+        monkeypatch.setattr(module, "SESSION_INDEX_FILE", index)
+
+    api_routes.delete_chat_session(sid)
+    return index, session_file, bak
 
 
-def test_server_delete_removes_session_bak_snapshot(cleanup_test_sessions):
-    """session/delete must remove sidecar backups so deleted sessions stay deleted."""
-    routes_src = (REPO_ROOT / "api" / "routes.py").read_text()
-    delete_idx = max(
-        routes_src.find("if parsed.path == '/api/session/delete':"),
-        routes_src.find('if parsed.path == "/api/session/delete":'),
-    )
-    assert delete_idx >= 0, "session/delete handler not found in api/routes.py"
-    delete_block = routes_src[delete_idx:delete_idx+1400]
-    assert "with_suffix('.json.bak').unlink" in delete_block or 'with_suffix(".json.bak").unlink' in delete_block, \
-        "session/delete must unlink <sid>.json.bak to avoid later orphan-backup recovery"
+def test_server_delete_invalidates_index(tmp_path, monkeypatch):
+    """R8b: deleting a session must invalidate _index.json, or the deleted
+    session keeps appearing in the sidebar listing."""
+    index, session_file, _bak = _delete_a_session_in(tmp_path, monkeypatch)
+    assert not index.exists(), "session delete must invalidate _index.json"
+    assert not session_file.exists()
+
+
+def test_server_delete_removes_session_bak_snapshot(tmp_path, monkeypatch):
+    """A left-behind <sid>.json.bak is later restored by the orphan-backup
+    recovery pass, so a deleted session would come back."""
+    _index, _session_file, bak = _delete_a_session_in(tmp_path, monkeypatch)
+    assert not bak.exists(), "session delete must unlink <sid>.json.bak"
 
 # ── R9: Token/tool SSE events write to wrong session after switch ─────────────
 
