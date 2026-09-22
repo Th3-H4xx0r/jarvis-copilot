@@ -1255,6 +1255,29 @@ function _liveDeleteCopy(kind, id) {
   };
 }
 
+// What a delete did to remembered facts, in a sentence, or "" when there is
+// nothing to say. Silence here is only correct when nothing was remembered:
+// the server counts staged and unattributable entries precisely because they
+// are STILL IN MEMORY.md after a delete that claimed to remove them.
+function _liveDeleteFactSummary(data) {
+  const parts = [];
+  const n = key => Number(data[key] || 0);
+  if (n('facts_retracted')) parts.push(n('facts_retracted') + ' remembered fact(s) removed');
+  if (n('facts_retraction_staged')) {
+    parts.push(n('facts_retraction_staged')
+      + ' still in memory until you approve their removal');
+  }
+  if (n('facts_unattributable')) {
+    parts.push(n('facts_unattributable')
+      + ' could not be tied to this voice and were kept');
+  }
+  if (data.facts_retraction_failed) parts.push('memory was not updated: ' + data.facts_retraction_failed);
+  if (data.facts_note) parts.push(String(data.facts_note));
+  if (Array.isArray(data.warnings) && data.warnings.length) parts.push(data.warnings.join('; '));
+  else if (data.warning) parts.push(String(data.warning));
+  return parts.join('; ');
+}
+
 async function _liveDelete(kind, id) {
   const copy = _liveDeleteCopy(kind, id);
   const ok = await _lConfirm({
@@ -1267,8 +1290,16 @@ async function _liveDelete(kind, id) {
       : 'Delete failed: ' + (res.error || res.status), null, 'error');
     return false;
   }
-  const freed = res.data && res.data.freed_bytes != null ? ' — freed ' + _liveFmtBytes(res.data.freed_bytes) : '';
-  _lToast('Deleted' + freed);
+  const data = res.data || {};
+  const freed = data.freed_bytes != null ? ' — freed ' + _liveFmtBytes(data.freed_bytes) : '';
+  // A delete that half-worked must not read as a delete that worked. The
+  // server says so in `ok`, and what it could not do is in the fact counts —
+  // a remembered fact is injected into every future agent's system prompt, so
+  // "deleted" while one survives is the over-promise this reports.
+  const detail = _liveDeleteFactSummary(data);
+  const failed = data.ok === false;
+  _lToast('Deleted' + freed + (detail ? ' — ' + detail : ''),
+          failed || detail ? 9000 : null, failed ? 'error' : null);
   if (kind === 'session' && id === _liveSessionId) {
     _liveStopSSE();
     _liveSessionId = null;
