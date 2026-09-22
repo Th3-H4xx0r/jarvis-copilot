@@ -404,6 +404,33 @@ def set_translation(live_session_id: str, seq: int, translation: str) -> None:
         conn.commit()
 
 
+def set_transcription(live_session_id: str, seq: int, text: str,
+                      lang: str = "") -> None:
+    """Replace one utterance's words and the language they were spoken in.
+
+    For the server's second opinion on language (see `api/live_language.py`):
+    the phone transcribed Spanish with an English recogniser, so both the text
+    and the `lang` on that row are wrong, and `lang` is what decides whether
+    anything ever gets translated.
+
+    The FTS row is rewritten too. It is a separate table populated at insert,
+    so updating only `live_segment` would leave the search index holding the
+    English spelling of a Spanish sentence — findable by the wrong words,
+    unfindable by the right ones.
+    """
+    with connect() as conn:
+        conn.execute(
+            "UPDATE live_segment SET text=?, lang=? WHERE live_session_id=? AND seq=?",
+            (text, lang or None, live_session_id, int(seq)))
+        conn.execute(
+            "DELETE FROM live_segment_fts WHERE live_session_id=? AND seq=?",
+            (live_session_id, int(seq)))
+        conn.execute(
+            "INSERT INTO live_segment_fts (text, live_session_id, seq)"
+            " VALUES (?,?,?)", (text, live_session_id, int(seq)))
+        conn.commit()
+
+
 def search_segments(query: str, limit: int = 40,
                     live_session_id: str = "") -> list:
     """Full-text search over utterances, newest first."""

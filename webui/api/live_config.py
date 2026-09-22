@@ -40,6 +40,17 @@ DEFAULTS: Dict[str, Any] = {
     # so a per-task pin (a cheap monitor, a strong fact-check) is not undone by
     # picking one here.
     "model": "",
+    # Have the server re-hear an utterance and correct it when the device
+    # transcribed it in the wrong language (api/live_language.py). This is what
+    # makes any language work without naming it in advance: the phone can only
+    # run one locale at a time, so without this, Spanish spoken to an en-US
+    # recogniser is stored as English-looking nonsense AND never translated,
+    # because the auto-translate gate only fires on a segment labelled foreign.
+    "language_rescue": True,
+    # Which faster-whisper build does the re-hearing. MUST be multilingual —
+    # the `.en` builds have no other language to detect. "base" is multilingual
+    # and small; "small" or "medium" trade CPU for accuracy.
+    "rescue_model": "base",
     # Names the checkpoint the server actually runs (see api/live_voiceprint.py):
     # WeSpeaker voxceleb_resnet34_LM. This used to say "ecapa-v1", which was a
     # lie in a load-bearing place — ECAPA-TDNN and ResNet34 are different
@@ -65,12 +76,13 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 _BOOL_KEYS = ("enabled", "monitor", "fact_check", "translate",
-              "memory_extraction", "artifacts")
+              "memory_extraction", "artifacts", "language_rescue")
 _INT_KEYS = ("window_seconds", "min_window_words",
              "session_rollover_tokens",
              "fact_check_tokens")
 _FLOAT_KEYS = ("session_rollover_fraction",)
-_STR_KEYS = ("reply_mode", "primary_language", "embed_model", "model")
+_STR_KEYS = ("reply_mode", "primary_language", "embed_model", "model",
+             "rescue_model")
 # Keys whose empty value MEANS something, so "" must round-trip instead of
 # being rejected or replaced by the default. Clearing the model row is how the
 # user says "follow the app", and there has to be a way back from a pick.

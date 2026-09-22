@@ -343,13 +343,21 @@ def reset_for_tests() -> None:
 # ── entry points the protocol layer calls ──────────────────────────────────
 
 
-def on_segment_appended(live_session_id: str, seq: int) -> None:
+def on_segment_appended(live_session_id: str, seq: int, *,
+                        translate: bool = True) -> None:
     """A segment landed. Mark and schedule; do NOT think.
 
     This runs on the thread that just wrote to the transcript, so it must stay
     O(microseconds): it arms a timer and hands any real work to a worker. No
     model call, no database read, and no exception out of here — an utterance
     must never be lost because a watcher had an opinion about it.
+
+    `translate=False` means "the language on this row is not settled yet" — the
+    server is about to re-hear the audio and may relabel it
+    (`api/live_language.py`). Translating first would act on a label that is
+    about to change, which is how English spoken into a phone set to another
+    locale ended up with an English "translation" underneath it. The rescue
+    calls back here with `translate=True` once the language is known.
     """
     try:
         cfg = _config()
@@ -357,12 +365,30 @@ def on_segment_appended(live_session_id: str, seq: int) -> None:
             return
         if cfg.get("monitor"):
             _arm_monitor(live_session_id, _window_seconds(cfg))
-        if cfg.get("translate"):
+        if translate and cfg.get("translate"):
             # The lang check needs the row, which needs a read — so it happens
             # on the worker, not here.
             _submit(_auto_translate, live_session_id, int(seq))
     except Exception:
         logger.exception("live: on_segment_appended(%s, %s) failed",
+                         live_session_id, seq)
+
+
+def on_language_settled(live_session_id: str, seq: int) -> None:
+    """The server has finished deciding what language this utterance was in.
+
+    Its own entry point rather than a second `on_segment_appended`: the segment
+    landed once, and replaying that would re-arm the monitor window for an
+    utterance it has already counted. The only thing waiting on the language is
+    the translation.
+    """
+    try:
+        cfg = _config()
+        if not cfg.get("enabled") or not cfg.get("translate"):
+            return
+        _submit(_auto_translate, live_session_id, int(seq))
+    except Exception:
+        logger.exception("live: on_language_settled(%s, %s) failed",
                          live_session_id, seq)
 
 

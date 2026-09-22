@@ -57,6 +57,9 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(live_ws, "_server_stt_cache", False)
     live_store.reset_for_tests()
     yield tmp_path
+    # The rescue worker outlives the request that queued it and writes to the
+    # transcript, so it has to stop before this test's STATE_DIR disappears.
+    live_ws.close_language_pool()
     live_ws.close_writers()
     live_store.reset_for_tests()
     api_config.reload_config()
@@ -905,7 +908,7 @@ def test_the_real_watcher_module_exposes_the_hooks_capture_calls():
 def test_a_watcher_that_raises_does_not_break_capture(monkeypatch):
     seen = []
 
-    def exploding(live_session_id, seq):
+    def exploding(live_session_id, seq, **_kw):
         seen.append((live_session_id, seq))
         raise RuntimeError("watcher exploded")
 

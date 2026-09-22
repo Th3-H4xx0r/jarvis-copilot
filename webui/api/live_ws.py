@@ -693,6 +693,30 @@ def close_writers(live_session_id: str = "") -> List[Dict[str, Any]]:
 atexit.register(close_writers)
 
 
+def close_language_pool(wait: bool = True) -> None:
+    """Stop the language-rescue worker and wait for the job in flight.
+
+    It is a background thread that reads audio and writes to the transcript
+    AFTER the request that spawned it has returned, so anything that tears the
+    store down underneath it — a test's temp directory, a profile switch, an
+    interpreter exiting — has to stop it first or it writes into a database
+    that is no longer there.
+    """
+    global _lang_pool, _lang_inflight
+    with _lang_lock:
+        pool, _lang_pool = _lang_pool, None
+        _lang_inflight = 0
+    if pool is not None:
+        try:
+            pool.shutdown(wait=wait)
+        except Exception:
+            logger.debug("live: language pool would not shut down",
+                         exc_info=True)
+
+
+atexit.register(close_language_pool)
+
+
 def ingest_audio_chunk(live_session_id: str, payload: bytes, *, ts_ms: int = 0,
                        device_id: str = "", codec: str = "",
                        rate: int = 16000) -> Dict[str, Any]:
@@ -1058,7 +1082,8 @@ def session_is_gone(live_session_id: str) -> bool:
 _watcher_hook_warned = False
 
 
-def _notify_segment_appended(live_session_id: str, seq: int) -> None:
+def _notify_segment_appended(live_session_id: str, seq: int, *,
+                             translate: bool = True) -> None:
     """Tell the watchers a segment landed. Their failure is never ours.
 
     Imported lazily and on every call: ``api.live_watchers`` may not exist yet,
@@ -1067,7 +1092,15 @@ def _notify_segment_appended(live_session_id: str, seq: int) -> None:
     """
     try:
         from api.live_watchers import on_segment_appended
-        on_segment_appended(live_session_id, seq)
+        try:
+            on_segment_appended(live_session_id, seq, translate=translate)
+        except TypeError:
+            # A watcher module older than the `translate` flag, or a stub. It
+            # keeps working and simply translates on the first label it sees —
+            # the behaviour before the rescue existed, which is degraded, not
+            # broken. This module already treats the watcher layer as optional
+            # and replaceable; its signature is part of that.
+            on_segment_appended(live_session_id, seq)
     except Exception:
         # Once at warning, then quiet: a syntax error in live_watchers.py
         # disables every watcher for the life of the process, and at debug that
@@ -1173,9 +1206,169 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
         local_label=local_label, device_id=device_id, audio_ref=audio_ref)
     row = segment_frame(row)
     publish(live_session_id, "seg", row)
-    _notify_segment_appended(live_session_id, int(row["seq"]))
+    # The rescue may relabel this row's language, and translation keys on that
+    # label — so when a rescue is really going to run, translation waits for
+    # it. Otherwise an utterance gets translated on a label that is about to
+    # change, which is how English spoken into a phone set to another locale
+    # ended up with an English "translation" under it.
+    rescuing = _rescue_language_async(row)
+    _notify_segment_appended(live_session_id, int(row["seq"]),
+                             translate=not rescuing)
     _identify_async(row)
     return row
+
+
+# ── the language actually spoken (see api/live_language.py) ────────────────
+
+# Its own single worker rather than sharing the identification pool: a Whisper
+# pass is hundreds of milliseconds against identification's ~40, and queueing
+# them together would make every speaker label wait behind a transcription.
+_LANG_WORKERS = 1
+_MAX_LANG_INFLIGHT = 32
+
+_lang_pool: Optional[Any] = None
+_lang_inflight = 0
+_lang_lock = threading.Lock()
+
+
+def _notify_language_settled(live_session_id: str, seq: int) -> None:
+    """Release the translation that was held while the language was in doubt.
+
+    Same posture as `_notify_segment_appended`: the watcher layer is optional,
+    so a module without this entry point (an older one, or a stub) simply means
+    no translation for that segment rather than an exception on this thread.
+    """
+    try:
+        from api.live_watchers import on_language_settled
+        on_language_settled(live_session_id, seq)
+    except Exception:
+        logger.debug("live: could not release the translation for %s#%s",
+                     live_session_id[:8] or "?", seq, exc_info=True)
+
+
+def _rescue_language_async(row: Dict[str, Any]) -> bool:
+    """Queue a second opinion on what language this utterance was in.
+
+    Returns whether a rescue is really going to run, because the caller holds
+    translation back when it is — and a translation that never fires because a
+    queue was full would be worse than one fired on a stale label.
+
+    Wrapped whole, like identification: this is called from the thread that
+    just made the transcript durable, and capture is the floor (§8).
+    """
+    try:
+        cfg = live_config.load()
+        if not cfg.get("language_rescue"):
+            return False
+        text = str(row.get("text") or "").strip()
+        if not text:
+            return False
+        from api import live_language
+        if not live_language.available():
+            return False
+        return _lang_submit(
+            _run_language_rescue,
+            str(row.get("live_session_id") or ""),
+            int(row.get("seq") or 0),
+            int(row.get("ts_start_ms") or 0),
+            int(row.get("ts_end_ms") or 0),
+            str(row.get("device_id") or ""),
+            str(row.get("lang") or ""),
+            str(cfg.get("rescue_model") or ""),
+            str(cfg.get("primary_language") or ""))
+    except Exception:
+        logger.debug("live: language rescue could not be queued", exc_info=True)
+        return False
+
+
+def _lang_submit(fn, *args) -> bool:
+    """Returns whether the job was actually accepted."""
+    global _lang_pool, _lang_inflight
+    with _lang_lock:
+        if _lang_inflight >= _MAX_LANG_INFLIGHT:
+            logger.debug("live: language rescue queue full; skipping one")
+            return False
+        if _lang_pool is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _lang_pool = ThreadPoolExecutor(
+                max_workers=_LANG_WORKERS, thread_name_prefix="live-lang")
+        _lang_inflight += 1
+
+    def _done(_fut) -> None:
+        global _lang_inflight
+        with _lang_lock:
+            _lang_inflight -= 1
+
+    try:
+        _lang_pool.submit(fn, *args).add_done_callback(_done)
+        return True
+    except Exception:
+        with _lang_lock:
+            _lang_inflight -= 1
+        logger.debug("live: language rescue could not be submitted",
+                     exc_info=True)
+        return False
+
+
+def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
+                         ts_end_ms: int, device_id: str, declared_lang: str,
+                         model_name: str, primary_language: str) -> None:
+    """Re-hear one utterance and, if it was another language, correct it.
+
+    Every failure here is a log line and an unchanged segment: the phone's
+    transcript is already on screen and already durable, so the worst outcome
+    of this whole path is that it stays as it was.
+
+    Translation is released in `finally` whatever happens, because the caller
+    held it back for us. A rescue that fails must cost a correction, never the
+    translation that was waiting on it.
+    """
+    from api import live_language
+
+    try:
+        audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
+        if audio is None:
+            return
+        found = live_language.rescue(
+            audio[0], audio[1], declared_lang,
+            model_name=model_name or live_language.DEFAULT_MODEL,
+            translate_to=primary_language)
+        if not found:
+            return
+
+        try:
+            live_store.set_transcription(live_session_id, seq, found["text"],
+                                         found["lang"])
+            # Whisper produced this from the audio in the same warm pass, so it
+            # is already here — storing it now is what makes the translation
+            # appear WITH the corrected line instead of seconds behind it.
+            if found.get("translation"):
+                live_store.set_translation(live_session_id, seq,
+                                           found["translation"])
+        except Exception:
+            logger.warning("live: could not store the corrected transcript "
+                           "for %s#%s", live_session_id[:8] or "?", seq,
+                           exc_info=True)
+            return
+
+        logger.info("live: %s#%s was %s, not %s (%.2f) — transcript corrected",
+                    live_session_id[:8] or "?", seq, found["lang"],
+                    declared_lang or "unlabelled", found["confidence"])
+
+        # `segments_after` is the only single-row reader the store has; asking
+        # for one row from just before this seq is how the watchers do it too.
+        rows = live_store.segments_after(live_session_id, after_seq=seq - 1,
+                                         limit=1)
+        row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
+        if row:
+            # The same `seg` frame an utterance arrives on, so every client
+            # replaces the line in place — clients key on `seq` and upsert.
+            publish(live_session_id, "seg", segment_frame(row))
+    finally:
+        # Now the language is settled, whichever way it went. If this segment
+        # really was the primary language, the gate will skip it — which is the
+        # whole point: an English line no longer gets an English "translation".
+        _notify_language_settled(live_session_id, seq)
 
 
 # ── speaker identification (design §5.2, the authority lane) ───────────────

@@ -2157,3 +2157,66 @@ def test_the_wrap_up_gives_no_tool_instructions(cfg, events, model, chat):
     body = "\n".join(str(m.get("content") or "") for m in chat.messages)
     assert "live_transcript" not in body
     assert "tool" not in body.lower()
+
+
+# "it should not keep translating everyrhing that is already english" — the
+# label the phone puts on a segment is not evidence about the words in it.
+
+
+@pytest.fixture
+def inline_jobs(monkeypatch):
+    """Run watcher jobs on the calling thread, so a test asserts on the rule
+    rather than on when a pool got round to it."""
+    def _run(fn, *args):
+        fn(*args)
+        return True
+
+    monkeypatch.setattr(live_watchers, "_submit", _run)
+
+
+def test_a_segment_in_the_primary_language_is_not_translated(
+        cfg, events, model, inline_jobs):
+    session = _session()
+    seq = _say(session, "Hello, are you there?", lang="en-US")["seq"]
+
+    live_watchers.on_language_settled(session, seq)
+
+    assert model.prompts == [], "nothing was sent to a translator"
+
+
+def test_a_foreign_segment_is_translated_once_the_language_is_settled(
+        cfg, events, model, inline_jobs):
+    """The translation was held back while the server re-heard the audio; this
+    is the callback that releases it."""
+    session = _session()
+    seq = _say(session, "¿cómo estás?", lang="es")["seq"]
+    model.reply = "How are you?"
+
+    live_watchers.on_language_settled(session, seq)
+
+    assert live_watchers._segment(session, seq)["translation"] == "How are you?"
+
+
+def test_a_segment_already_carrying_a_translation_is_not_translated_again(
+        cfg, events, model, inline_jobs):
+    """The rescue stores the English it got from the audio in the same pass, so
+    the watcher must not pay for a second one."""
+    session = _session()
+    seq = _say(session, "¿cómo estás?", lang="es")["seq"]
+    live_store.set_translation(session, seq, "How are you?")
+
+    live_watchers.on_language_settled(session, seq)
+
+    assert model.prompts == []
+
+
+def test_translation_off_means_the_callback_does_nothing(
+        cfg, events, model, inline_jobs):
+    cfg["translate"] = False
+    session = _session()
+    seq = _say(session, "¿cómo estás?", lang="es")["seq"]
+
+    live_watchers.on_language_settled(session, seq)
+
+    assert model.prompts == []
+
