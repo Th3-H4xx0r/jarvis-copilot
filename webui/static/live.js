@@ -469,10 +469,24 @@ function _liveInsightLabel(kind) {
   return kind ? String(kind) : 'Insight';
 }
 
+// Only an outright "false". A substring test would catch "not false" and
+// "unverifiable" has "verifiable" in it — both of which have burned this kind
+// of check before.
+function _liveVerdictIsFalse(verdict) {
+  const v = String(verdict || '').trim().toLowerCase().replace(/[.!]+$/, '');
+  return v === 'false' || v === 'incorrect' || v === 'untrue' || v === 'wrong';
+}
+
 function _liveInsightNode(ins) {
   const el = document.createElement('div');
   const kindClass = String(ins.kind || 'note').toLowerCase().replace(/[^a-z]+/g, '-');
-  el.className = 'live-insight live-insight--' + kindClass + (ins.pending ? ' pending' : '');
+  // A verdict of "false" is the one result worth reading from across the room,
+  // so it gets the red accent. "misleading" and "unverifiable" deliberately do
+  // not: they are not the same claim, and colouring them the same would make
+  // the colour mean "a fact-check happened" rather than "this is wrong".
+  const wrong = _liveVerdictIsFalse(ins.verdict) ? ' live-insight--false' : '';
+  el.className = 'live-insight live-insight--' + kindClass + wrong
+    + (ins.pending ? ' pending' : '');
   el.dataset.insightKey = _liveInsightKey(ins);
   const sources = (ins.sources || []).map(s => {
     const url = _liveSafeUrl(typeof s === 'string' ? s : (s.url || s.href || ''));
@@ -489,7 +503,8 @@ function _liveInsightNode(ins) {
       ${ins.seq != null ? `<span class="live-insight-anchor">on #${_lEsc(ins.seq)}</span>` : ''}
     </div>
     ${ins.title ? `<div class="live-insight-title">${_lEsc(ins.title)}</div>` : ''}
-    <div class="live-insight-text">${_lEsc(ins.text || (ins.pending ? 'Requested — waiting for the result.' : ''))}</div>
+    <div class="live-insight-text">${ins.text ? _lEsc(ins.text)
+      : (ins.pending ? '<span class="live-insight-spin" aria-hidden="true"></span>Checking the last few minutes…' : '')}</div>
     ${sources ? `<div class="live-insight-sources">${sources}</div>` : ''}`;
   return el;
 }
