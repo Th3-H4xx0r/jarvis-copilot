@@ -248,6 +248,17 @@ struct LiveInsight: Equatable, Sendable, Identifiable {
     func isSameNote(as other: LiveInsight) -> Bool {
         seq == other.seq && kind == other.kind && text == other.text
     }
+
+    /// A fact-check verdict. Both spellings, because `run_fact_check` publishes
+    /// `fact_check` while the contract and the config key say `factcheck`.
+    static func isFactCheck(kind: String) -> Bool {
+        ["factcheck", "fact_check"].contains(kind.lowercased())
+    }
+
+    /// The transcript row this insight is ABOUT. `run_fact_check` sends no
+    /// `ref_seq` — it stamps the verdict with the segment's own `seq` — so the
+    /// two spellings collapse here rather than at each call site.
+    var aboutSeq: Int { refSeq ?? seq }
 }
 
 /// The end-of-session wrap-up: the summary, decisions and action items the

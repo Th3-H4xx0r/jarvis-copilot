@@ -1518,11 +1518,28 @@ final class LiveStore {
 
     // MARK: - Per-segment actions
 
+    /// Ask Jarvis to check one line. **Only ever called from the button (or the
+    /// menu item) on that line** — nothing checks anything on its own. There is
+    /// no automatic fact-check anywhere in this client, and the server's
+    /// `run_fact_check` has exactly one caller, `POST /api/live/factcheck`.
     func factCheck(_ segment: LiveSegment) async {
         guard !liveSessionID.isEmpty else { return }
+        // A second tap while the first is still running would bill a second
+        // model pass and post a second verdict under the same line.
+        guard !checking.contains(segment.seq) else { return }
+        checking.insert(segment.seq)
+        defer { checking.remove(segment.seq) }
         do { try await api.factCheck(liveSessionID: liveSessionID, seq: segment.seq) }
         catch { report("fact-check that", error) }
     }
+
+    /// Lines with a check in flight. Per line, not one flag: several can be
+    /// running at once and each row shows its own state.
+    private(set) var checking: Set<Int> = []
+
+    /// Lines that already have a verdict beneath them, so the row can show a
+    /// status instead of the button that asked for it.
+    var factCheckedSeqs: Set<Int> { transcript.factCheckedSeqs }
 
     func translate(_ segment: LiveSegment, to target: String? = nil) async {
         guard !liveSessionID.isEmpty else { return }

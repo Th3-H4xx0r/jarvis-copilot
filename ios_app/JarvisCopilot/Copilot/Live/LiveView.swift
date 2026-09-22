@@ -229,7 +229,9 @@ struct LiveView: View {
                                                onName: {
                                                    nameDraft = segment.speakerName ?? ""
                                                    naming = segment
-                                               })
+                                               },
+                                               isChecking: store.checking.contains(segment.seq),
+                                               hasVerdict: store.factCheckedSeqs.contains(segment.seq))
                             case .insight(let insight):
                                 LiveInsightCard(insight: insight)
                             }
@@ -382,6 +384,10 @@ struct LiveSegmentRow: View {
     let onFactCheck: () -> Void
     let onTranslate: () -> Void
     let onName: () -> Void
+    /// A check this row asked for is running.
+    var isChecking = false
+    /// A verdict for this row has arrived and is on screen below it.
+    var hasVerdict = false
 
     private var speaker: String {
         LiveFormat.speakerLabel(id: segment.speakerID, name: segment.speakerName)
@@ -409,7 +415,6 @@ struct LiveSegmentRow: View {
                 Text(LiveFormat.stamp(ms: segment.startMs))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(JcTheme.muted)
-                factCheckButton
             }
 
             Text(segment.text)
@@ -427,11 +432,13 @@ struct LiveSegmentRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            factCheckControl
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("Fact-check", jcIcon: "checkmark.seal", action: onFactCheck)
+            Button("Check this claim", jcIcon: "checkmark.seal", action: onFactCheck)
             Button("Translate", jcIcon: "globe", action: onTranslate)
             Button("Copy", jcIcon: "doc.on.doc") {
                 LivePasteboard.copy(segment.text)
@@ -442,46 +449,84 @@ struct LiveSegmentRow: View {
         .accessibilityLabel("\(speaker) at \(LiveFormat.stamp(ms: segment.startMs)): \(segment.text)")
     }
 
-    /// Fact-check, on the row, where it can be found.
+    /// Ask Jarvis to check this line — and, once it has, say so.
     ///
-    /// It used to exist only in the long-press menu, and the honest report was
-    /// "not seeing any buttons for fact check or anything like that" — a hidden
-    /// control is not a control. So this one is visible on every line and says
-    /// its word, for the reason the Storage and Voices buttons on this screen
-    /// say theirs: a glyph alone was unguessable.
+    /// **This was got badly wrong once and the way it failed is the design.**
+    /// The first version was a quiet `glassFill`+`muted` pill sitting in the
+    /// row's header, in among the speaker chip, the word "unconfirmed" and the
+    /// timestamp. In a line of metadata, styled like metadata, a pill reading
+    /// "Fact-check" does not parse as a verb — it parses as a STATUS meaning
+    /// "this line was fact-checked". The report was "why is it saying fact
+    /// check when I didn't fact check anything, there's no button to even click
+    /// fact check". Nothing had run; the label lied about what had happened.
+    /// Believing the app checks your conversation on its own is far worse than
+    /// not finding the button.
     ///
-    /// Quiet, though: `glassFill` and `muted`, never the accent. A transcript is
-    /// meant to read as a conversation, and a bright button per line would make
-    /// the affordance louder than the thing it is about. The rest of the actions
-    /// stay in the menu.
-    private var factCheckButton: some View {
-        Button(action: onFactCheck) {
-            HStack(spacing: 4) {
-                JcIcon("checkmark.seal", size: 11)
-                Text("Fact-check")
-                    .font(.system(size: 10.5, weight: .semibold))
+    /// So, three rules, all of them load-bearing:
+    ///
+    ///   * **Not in the metadata line.** It lives below the utterance, where a
+    ///     status about the speaker would never be.
+    ///   * **Shaped like a control** — accent fill and accent border. The
+    ///     accent means "you can tap this" everywhere else in this app, and the
+    ///     status chips beside it are deliberately `muted`, so the two can no
+    ///     longer be confused.
+    ///   * **Imperative wording.** "Fact-check" is both a noun and a verb in
+    ///     English, which is exactly how it was misread. "Check this claim"
+    ///     can only be an instruction.
+    ///
+    /// Only AFTER a verdict exists does a status appear here — and then it is
+    /// flat, muted and not tappable, so it cannot be mistaken for the button
+    /// that produced it.
+    @ViewBuilder
+    private var factCheckControl: some View {
+        if hasVerdict {
+            // Now — and only now — the noun is the truth.
+            HStack(spacing: 5) {
+                JcIcon("checkmark.seal.fill", size: 11)
+                Text("Fact-checked")
+                    .font(.system(size: 11, weight: .medium))
             }
             .foregroundStyle(JcTheme.muted)
-            .padding(.horizontal, 8)
-            .frame(height: Self.affordanceHeight)
-            .background(JcTheme.glassFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            // The drawn capsule is 26pt so a row stays a row; the TAP is 44pt,
-            // per `buttons.md`. The negative padding gives the layout its 26pt
-            // back after `contentShape` has already taken the bigger rectangle,
-            // so the extra reach lands in the 12pt gutter between rows — where
-            // nothing else is tappable.
-            .padding(.vertical, (Self.minimumTarget - Self.affordanceHeight) / 2)
-            .contentShape(Rectangle())
-            .padding(.vertical, -(Self.minimumTarget - Self.affordanceHeight) / 2)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Fact-checked. Jarvis's verdict is below this line.")
+        } else {
+            Button(action: onFactCheck) {
+                HStack(spacing: 5) {
+                    if isChecking {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(JcTheme.accent)
+                    } else {
+                        JcIcon("checkmark.seal", size: 12)
+                    }
+                    Text(isChecking ? "Checking…" : "Check this claim")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .foregroundStyle(JcTheme.accent)
+                .padding(.horizontal, 11)
+                .frame(height: Self.affordanceHeight)
+                .background(JcTheme.accent.opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
+                .opacity(isChecking ? 0.7 : 1)
+                // Drawn at 28pt so a row stays a row; the TAP is 44pt, per
+                // `buttons.md`. The negative padding hands the layout its 28pt
+                // back after `contentShape` has taken the bigger rectangle, so
+                // the extra reach falls in the gutter between rows where
+                // nothing else is tappable.
+                .padding(.vertical, (Self.minimumTarget - Self.affordanceHeight) / 2)
+                .contentShape(Rectangle())
+                .padding(.vertical, -(Self.minimumTarget - Self.affordanceHeight) / 2)
+            }
+            .buttonStyle(.plain)
+            .disabled(isChecking)
+            .accessibilityLabel(isChecking ? "Checking this claim" : "Check this claim")
+            .accessibilityHint("Asks Jarvis to verify what was said and add its verdict below. "
+                             + "Nothing is checked until you tap this.")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Fact-check this line")
-        .accessibilityHint("Asks Jarvis to check what was said and adds its verdict to the transcript.")
     }
 
     /// Drawn height of the row's affordance, and the hit region it must reach.
-    static let affordanceHeight: CGFloat = 26
+    static let affordanceHeight: CGFloat = 28
     static let minimumTarget: CGFloat = 44
 
     /// A confirmed voice gets the accent; an unconfirmed one stays neutral, so the
@@ -623,7 +668,10 @@ struct LiveInsightCard: View {
 
     private var title: String {
         switch insight.kind.lowercased() {
-        case "factcheck", "fact_check": return "Fact-check"
+        // "Verdict", not "Fact-check": this card is the RESULT of a tap, and a
+        // bare "Fact-check" heading reads as the app announcing that it went
+        // and checked something by itself.
+        case "factcheck", "fact_check": return "Fact-check verdict"
         case "translate", "translation": return "Translation"
         case "monitor": return "Jarvis"
         default: return insight.kind.capitalized
