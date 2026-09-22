@@ -284,7 +284,14 @@ def test_hello_opens_a_live_session_and_pairs_a_normal_chat():
     assert chat is not None
     assert chat.source_tag == live_ws.LIVE_SOURCE_TAG
     assert len(chat.messages) == 1
-    assert conn.live_session_id in chat.messages[0]["content"]
+    # The header is two lines a person wants — name, when, which mic. It used to
+    # carry the device uuid and the raw transcript id as prose; the user called
+    # that "random crap" and he was right. The chat->recording mapping lives in
+    # live_session.chat_session_id and source_tag, not in text he has to read.
+    header = chat.messages[0]["content"]
+    assert conn.live_session_id not in header, "no raw ids in prose"
+    assert "Live session" in header and "Started" in header
+    assert len(header.splitlines()) <= 2
 
 
 def test_utterances_do_not_stream_into_the_paired_chat():

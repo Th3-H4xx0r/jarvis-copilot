@@ -1410,21 +1410,19 @@ def _default_title() -> str:
 
 def _chat_header_text(live_session_id: str, title: str, device_id: str,
                       source_label: str, started_at: float) -> str:
-    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(started_at))
-    source = source_label or "unspecified mic"
-    device = device_id or "unknown device"
-    return (
-        f"**Live session** — {title}\n"
-        f"Started {when} · source: {source} · device: {device}\n"
-        f"Live transcript id: `{live_session_id}`\n\n"
-        "Participants are labelled as voices are identified; a provisional "
-        "label can be corrected later and the whole history follows.\n\n"
-        "The full transcript is deliberately NOT streamed into this chat — "
-        "that would rewrite the prompt prefix every few seconds. Use the "
-        "`live_transcript` tool to search it, quote it, or pull a time range. "
-        "Monitor notes arrive here as they are produced, and a summary lands "
-        "when the session ends."
-    )
+    """Two lines a person wants: name, when, which mic.
+
+    It used to carry the device uuid, the transcript id and a paragraph
+    explaining that the transcript was deliberately elsewhere — developer
+    prose in a surface the user reads, and false once the transcript moved
+    into the chat. The chat->recording mapping lives in
+    `live_session.chat_session_id` and `source_tag="live"`, which is what
+    machine readers key on anyway.
+    """
+    when = time.strftime("%d %b at %H:%M", time.localtime(started_at or time.time()))
+    mic = (source_label or "").strip()
+    second = f"Started {when}" + (f" · {mic}" if mic else "")
+    return f"**Live session** — {title}\n{second}"
 
 
 def _create_paired_chat(live_session_id: str, title: str, device_id: str,
@@ -2717,7 +2715,9 @@ def _live_watcher_call(handler, body, func_name: str) -> bool:
     if sid is None:
         return True
     seq = _as_int(body.get("seq"), 0)
-    if seq <= 0:
+    # A conversation-level fact-check has no single seq: the user checks the
+    # recent stretch, not one line. Rejecting seq<=0 made that unreachable.
+    if seq <= 0 and func_name != "run_fact_check":
         bad(handler, "seq required")
         return True
     # The toggle first, and synchronously: it is the most actionable answer the

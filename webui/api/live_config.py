@@ -48,6 +48,10 @@ DEFAULTS: Dict[str, Any] = {
     # Roll a live session over once its transcript reaches this share of the
     # model's context window. Recording used to open a new session (and a new
     # chat) on every tap of Record.
+    # How much recent conversation a fact-check sends. It checks the
+    # recent stretch, not one line — checking "Yo, one, two, three" on its
+    # own is meaningless.
+    "fact_check_tokens": 1000,
     "session_rollover_fraction": 0.5,
     # A hard token ceiling that wins over the fraction when non-zero, for a
     # user who would rather name the number than trust a context lookup.
@@ -57,7 +61,8 @@ DEFAULTS: Dict[str, Any] = {
 _BOOL_KEYS = ("enabled", "monitor", "fact_check", "translate",
               "memory_extraction", "artifacts")
 _INT_KEYS = ("window_seconds", "min_window_words",
-             "session_rollover_tokens")
+             "session_rollover_tokens",
+             "fact_check_tokens")
 _FLOAT_KEYS = ("session_rollover_fraction",)
 _STR_KEYS = ("reply_mode", "primary_language", "embed_model")
 
@@ -163,6 +168,8 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
     if not (0.05 <= fraction <= 1.0):
         out["session_rollover_fraction"] = DEFAULTS["session_rollover_fraction"]
     out["session_rollover_tokens"] = max(0, out["session_rollover_tokens"])
+    if out["fact_check_tokens"] <= 0:
+        out["fact_check_tokens"] = DEFAULTS["fact_check_tokens"]
     return out
 
 
@@ -207,6 +214,8 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
                 raise ValueError("min_window_words must be >= 0")
             if key == "session_rollover_tokens" and value < 0:
                 raise ValueError("session_rollover_tokens must be >= 0")
+            if key == "fact_check_tokens" and value <= 0:
+                raise ValueError("fact_check_tokens must be > 0")
             clean[key] = value
         else:
             value = str(raw or "").strip()
