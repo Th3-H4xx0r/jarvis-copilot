@@ -604,6 +604,29 @@ def digests_for_session(live_session_id: str) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
+def session_text_stats(live_session_id: str) -> dict:
+    """How much transcript a session has accumulated.
+
+    Drives session rollover: a live session keeps growing until its transcript
+    reaches a share of the model's context window, rather than starting a new
+    one every time the user taps Record — which produced nine chats in half an
+    hour.
+
+    `est_tokens` is an ESTIMATE from character count (the usual ~4 chars per
+    token). Rollover only needs the right order of magnitude, and counting
+    exactly would mean running a tokeniser over the whole transcript on every
+    handshake.
+    """
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(text)),0) AS chars"
+            " FROM live_segment WHERE live_session_id=?",
+            (live_session_id,)).fetchone()
+    chars = int(row["chars"])
+    return {"segments": int(row["n"]), "chars": chars,
+            "est_tokens": chars // 4}
+
+
 def last_digest_seq(live_session_id: str) -> int:
     """Where the previous window stopped, so the next one knows its start."""
     with connect() as conn:

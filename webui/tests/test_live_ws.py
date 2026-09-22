@@ -2342,3 +2342,54 @@ def test_end_to_end_a_session_delete_really_empties_the_memory_file(
     assert handler.status == 200
     assert handler.payload()["facts_retracted"] == 1
     assert "Dana owns the infra rotation" not in memory_file.read_text()
+
+
+# ── session rollover by model context ──────────────────────────────────────
+
+
+def test_a_resume_continues_the_same_session_while_it_has_room():
+    """Recording used to open a new session, and therefore a new chat, on every
+    tap of Record — nine "Live" chats in half an hour. The client now always
+    asks to continue the last one and the server decides."""
+    first, _ = _connect()
+    sid = first.live_session_id
+    live_store.append_segment(sid, ts_start_ms=0, ts_end_ms=2000,
+                              text="a few words is nowhere near a context")
+
+    _conn, client = _connect(resume={"live_session_id": sid, "after_seq": 0})
+
+    assert client.first("ready")["live_session_id"] == sid, "should continue"
+
+
+def test_a_session_past_the_budget_rolls_over_into_a_new_one():
+    """And `ready` names the new id, which is how the client learns to reset
+    its cursor rather than spooling against a session it is no longer on."""
+    first, _ = _connect()
+    sid = first.live_session_id
+    live_config.save({"session_rollover_tokens": 20})
+    # est_tokens is chars // 4, so this clears a 20-token budget.
+    live_store.append_segment(sid, ts_start_ms=0, ts_end_ms=2000, text="x" * 200)
+    assert live_ws.session_is_full(sid) is True
+
+    _conn, client = _connect(resume={"live_session_id": sid, "after_seq": 0})
+
+    assert client.first("ready")["live_session_id"] != sid, "should roll over"
+
+
+def test_the_budget_is_half_the_model_context_by_default():
+    """The ceiling is expressed against the model's window because what it
+    protects is the model's ability to read the session back."""
+    budget = live_ws.rollover_token_budget()
+    assert budget == live_ws._model_context_tokens() // 2
+
+    assert live_ws.rollover_token_budget({"session_rollover_fraction": 0.25}) == \
+        live_ws._model_context_tokens() // 4
+    assert live_ws.rollover_token_budget({"session_rollover_tokens": 4000}) == 4000, \
+        "an explicit ceiling wins over the fraction"
+
+
+def test_an_unresolvable_model_context_still_yields_a_usable_budget():
+    """An unknown model must not stop a recording; a conservative window only
+    means sessions roll over sooner."""
+    assert live_ws._model_context_tokens() >= 1000
+    assert live_ws.rollover_token_budget({"session_rollover_fraction": 0.05}) >= 1000

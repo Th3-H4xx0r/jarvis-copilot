@@ -35,11 +35,20 @@ DEFAULTS: Dict[str, Any] = {
     "reply_mode": "text",
     "primary_language": "en",
     "embed_model": "ecapa-v1",
+    # Roll a live session over once its transcript reaches this share of the
+    # model's context window. Recording used to open a new session (and a new
+    # chat) on every tap of Record.
+    "session_rollover_fraction": 0.5,
+    # A hard token ceiling that wins over the fraction when non-zero, for a
+    # user who would rather name the number than trust a context lookup.
+    "session_rollover_tokens": 0,
 }
 
 _BOOL_KEYS = ("enabled", "monitor", "fact_check", "translate",
               "memory_extraction", "artifacts")
-_INT_KEYS = ("window_seconds", "min_window_words")
+_INT_KEYS = ("window_seconds", "min_window_words",
+             "session_rollover_tokens")
+_FLOAT_KEYS = ("session_rollover_fraction",)
 _STR_KEYS = ("reply_mode", "primary_language", "embed_model")
 
 REPLY_MODES = ("text", "spoken")
@@ -124,6 +133,8 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(values)
     for key in _BOOL_KEYS:
         out[key] = _as_bool(out.get(key), DEFAULTS[key])
+    for key in _FLOAT_KEYS:
+        out[key] = _as_float(out.get(key), DEFAULTS[key])
     for key in _INT_KEYS:
         out[key] = _as_int(out.get(key), DEFAULTS[key])
     for key in _STR_KEYS:
@@ -138,6 +149,10 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
         out["window_seconds"] = DEFAULTS["window_seconds"]
     if out["min_window_words"] < 0:
         out["min_window_words"] = DEFAULTS["min_window_words"]
+    fraction = out["session_rollover_fraction"]
+    if not (0.05 <= fraction <= 1.0):
+        out["session_rollover_fraction"] = DEFAULTS["session_rollover_fraction"]
+    out["session_rollover_tokens"] = max(0, out["session_rollover_tokens"])
     return out
 
 
@@ -156,6 +171,18 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
                 clean[key] = raw
             else:
                 raise ValueError(f"{key} must be a boolean")
+        elif key in _FLOAT_KEYS:
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} must be a number")
+            # Outside this band is almost certainly a mistake: at 0 every
+            # utterance would start a new session, which is the bug this
+            # setting exists to fix, and above 1.0 means "past the context".
+            if not (0.05 <= value <= 1.0):
+                raise ValueError(
+                    "session_rollover_fraction must be between 0.05 and 1.0")
+            clean[key] = value
         elif key in _INT_KEYS:
             try:
                 value = int(raw)
@@ -168,6 +195,8 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
                         f"window_seconds must be between {low} and {high}")
             if key == "min_window_words" and value < 0:
                 raise ValueError("min_window_words must be >= 0")
+            if key == "session_rollover_tokens" and value < 0:
+                raise ValueError("session_rollover_tokens must be >= 0")
             clean[key] = value
         else:
             value = str(raw or "").strip()
@@ -178,6 +207,13 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
                     f"reply_mode must be one of {', '.join(REPLY_MODES)}")
             clean[key] = value
     return clean
+
+
+def _as_float(raw: Any, default: float) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def _as_bool(raw: Any, default: bool) -> bool:

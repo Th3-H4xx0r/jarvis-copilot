@@ -206,6 +206,60 @@ def _server_stt_available() -> bool:
     return _server_stt_cache
 
 
+# Used when the model's context window cannot be resolved. Deliberately
+# modest: rolling over too early costs an extra chat, too late costs the
+# model its ability to read the session back.
+_FALLBACK_CONTEXT_TOKENS = 128_000
+
+
+def rollover_token_budget(cfg: Optional[Dict[str, Any]] = None) -> int:
+    """How much transcript a live session may hold before a new one starts.
+
+    A session used to begin on every tap of Record, which produced nine "Live"
+    chats in half an hour. The ceiling is expressed against the MODEL's context
+    window rather than a flat number, because the thing it protects is the
+    model's ability to read the session back: half a context is the default.
+
+    An explicit `session_rollover_tokens` wins when set, for a user who would
+    rather name the number than trust a context lookup.
+    """
+    cfg = cfg or live_config.load()
+    explicit = int(cfg.get("session_rollover_tokens") or 0)
+    if explicit > 0:
+        return explicit
+    fraction = float(cfg.get("session_rollover_fraction") or 0.5)
+    return max(1000, int(_model_context_tokens() * fraction))
+
+
+def _model_context_tokens() -> int:
+    """The context window of the model that reads these transcripts.
+
+    Falls back rather than raising: an unknown model must not stop a recording,
+    and a conservative window only means sessions roll over sooner.
+    """
+    try:
+        from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS_LOWER
+        from api import config as _config
+        model = str(getattr(_config, "DEFAULT_MODEL", "") or "").lower()
+        if model:
+            found = DEFAULT_CONTEXT_LENGTHS_LOWER.get(model)
+            if found:
+                return int(found)
+    except Exception:
+        logger.debug("live: could not resolve a model context window",
+                     exc_info=True)
+    return _FALLBACK_CONTEXT_TOKENS
+
+
+def session_is_full(live_session_id: str,
+                    cfg: Optional[Dict[str, Any]] = None) -> bool:
+    """Whether this session has accumulated enough transcript to roll over."""
+    if not live_session_id:
+        return False
+    budget = rollover_token_budget(cfg)
+    return int(live_store.session_text_stats(live_session_id)["est_tokens"]) >= budget
+
+
 def assign_lane(caps: Optional[Dict[str, Any]]) -> str:
     """Edge lane iff the device transcribes on its own.
 
@@ -1052,6 +1106,14 @@ class LiveConnection:
         after_seq = _as_int(resume.get("after_seq"), 0)
 
         row = live_store.get_session(want_sid) if want_sid else None
+        # A full session is not resumed: the client always asks to continue the
+        # last one (it cannot know the budget), and the server decides. `ready`
+        # carries the id it actually bound, which is how the client learns a
+        # rollover happened and resets its cursor.
+        if row is not None and session_is_full(want_sid):
+            logger.info("live: %s reached the rollover budget; starting a new "
+                        "session", want_sid)
+            row = None
         resuming_known_session = row is not None
         replay_from = after_seq if resuming_known_session else 0
 
