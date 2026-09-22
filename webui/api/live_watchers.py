@@ -1551,19 +1551,24 @@ def _chat_lock(chat_session_id: str):
 
 
 def _publish(live_session_id: str, payload: dict) -> bool:
-    """Push one `insight` frame to every device watching this live session.
+    """Hand one note to the delivery router (design §13.2).
+
+    A watcher says WHAT happened and stops there: the form — text, speech,
+    fitted to a one-line display, with a haptic or without — is chosen per
+    device at the other end of the fan-out, so a new kind of device is a
+    capability block rather than a branch in here.
 
     Imported lazily and failure-tolerant: the protocol layer owns that module,
     and a watcher must still write its digest when nobody is connected.
     """
     try:
-        from api.live_ws import LIVE_EVENTS
+        from api import live_deliver
     except Exception:
-        logger.debug("live: event bus unavailable; insight not fanned out",
+        logger.debug("live: delivery unavailable; insight not fanned out",
                      exc_info=True)
         return False
     try:
-        LIVE_EVENTS.publish(live_session_id, "insight", payload)
+        live_deliver.deliver(live_session_id, payload)
         return True
     except Exception:
         logger.exception("live: publishing an insight for %s failed",

@@ -2428,6 +2428,64 @@ def test_an_unresolvable_model_context_still_yields_a_usable_budget():
     assert live_ws.rollover_token_budget({"session_rollover_fraction": 0.05}) >= 1000
 
 
+# ── one note, the form each device declared (design §13) ──────────────────
+
+
+def _out_caps(**out):
+    return _edge_caps(out=out)
+
+
+def test_a_one_line_display_gets_a_line_and_the_phone_gets_the_paragraph():
+    """The whole point of the out block: two devices on one session, one note,
+    two forms, and no branch in the watcher that produced it."""
+    glasses, glass_client = _connect(
+        _out_caps(text=True, max_chars=40), device_id="glasses", device_kind="hud")
+    note = ("The Grand Canyon is primarily located in Arizona, not Utah, and "
+            "has been since well before either was a state.")
+
+    glasses.on_bus_event("insight", {"kind": "fact_check", "text": note})
+    phone, phone_client = _connect()
+    phone.on_bus_event("insight", {"kind": "fact_check", "text": note})
+
+    shown = glass_client.first("insight")
+    assert len(shown["text"]) <= 40 and shown["text"].endswith("…")
+    assert shown["truncated"] is True
+    assert phone_client.first("insight")["text"] == note, \
+        "a device that never declared a limit is not trimmed"
+
+
+def test_a_device_that_declared_no_display_is_sent_no_note():
+    pod, client = _connect(_out_caps(speak=True), device_id="pod",
+                           device_kind="pod")
+    pod.on_bus_event("insight", {"kind": "monitor", "text": "hm"})
+    assert client.of("insight") == [], "it has no screen to show it on"
+
+
+def test_a_speaker_is_told_what_to_say_when_the_user_asked_for_spoken_replies(
+        monkeypatch):
+    monkeypatch.setattr(live_config, "load",
+                        lambda: dict(live_config.DEFAULTS, reply_mode="spoken"))
+    pod, client = _connect(_out_caps(speak=True), device_id="pod",
+                           device_kind="pod")
+    pod.on_bus_event("insight", {"kind": "monitor", "text": "the kettle boiled"})
+    assert client.first("speak")["text"] == "the kettle boiled"
+
+
+def test_a_note_that_cannot_be_rendered_does_not_kill_the_socket(monkeypatch):
+    """Delivery failure is not capture failure (§13.4)."""
+    def _boom(*a, **kw):
+        raise RuntimeError("nope")
+
+    conn, _client = _connect()
+    monkeypatch.setattr(live_ws.live_deliver, "render", _boom)
+    conn.on_bus_event("insight", {"kind": "monitor", "text": "hm"})
+    assert conn.closed is False
+    _final_seg(conn, "capture carries on")
+    assert [s["text"] for s in
+            live_store.segments_after(conn.live_session_id)] == \
+        ["capture carries on"]
+
+
 # ── insights survive nobody being connected (the Live-screen complaint) ────
 
 

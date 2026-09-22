@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs
 
-from api import live_config, live_store
+from api import live_config, live_deliver, live_store
 from api.helpers import bad, j
 from api.session_events import SessionEventBus
 
@@ -280,6 +280,11 @@ def server_caps() -> Dict[str, Any]:
         "stt": _server_stt_available(),
         "embed": _embed_available(),
         "embed_model": live_config.load()["embed_model"],
+        # What a device may ask for in `caps.out` (design §13.1). A device with
+        # no synthesiser of its own needs to know what the server can hand it
+        # before it declares a codec it will then never be sent.
+        "out": {"text": True, "speak": True,
+                "audio": [live_deliver.SERVER_AUDIO_CODEC]},
     }
 
 
@@ -1544,6 +1549,13 @@ class LiveConnection:
         self.codec = ""
         self.rate = 16000
         self.can_speak = False
+        # What this device can PRESENT (design §13.1). Filled from hello.caps;
+        # a device that never declares one keeps the legacy shape, so the phone
+        # that shipped before this existed is unaffected.
+        self.out: Dict[str, Any] = live_deliver.device_out(None)
+        # `reply_mode: spoken` on a device with no voice is a setting that
+        # silently did nothing. Said once, not on every note.
+        self._said_speech_missing = False
         self.ready = False
         self.closed = False
         # Accumulating partials, keyed by the track a device is streaming, so a
@@ -1602,8 +1614,40 @@ class LiveConnection:
             return
         if event not in ("seg", "speaker", "insight", "speak", "state"):
             return
+        if event == "insight":
+            # A watcher emits ONE intent; the form is this device's own (§13.2).
+            # Rendering here rather than at the publisher is what lets a device
+            # that wants synthesised audio pay for its own synthesis on its own
+            # fan-out thread instead of holding up everyone else's frame.
+            for frame in self._delivery_frames(data or {}):
+                self._emit(frame)
+            return
         frame = dict(data or {})
         frame["t"] = event
+        self._emit(frame)
+
+    def _delivery_frames(self, intent: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """One intent, in the forms this device declared. Never raises."""
+        try:
+            mode = str(live_config.load().get("reply_mode") or "text")
+        except Exception:
+            mode = "text"
+        try:
+            rendered = live_deliver.render(
+                intent, self.out, reply_mode=mode,
+                say_speech_missing=not self._said_speech_missing)
+        except Exception:
+            # A note is not worth a dead socket, and a device that cannot be
+            # rendered for must not stop the ones that can (§13.4).
+            logger.warning("live: could not render a note for %s",
+                           self.device_id or "?", exc_info=True)
+            return []
+        for frame in rendered:
+            if frame.get("spoken_unavailable"):
+                self._said_speech_missing = True
+        return rendered
+
+    def _emit(self, frame: Dict[str, Any]) -> None:
         with self._replay_lock:
             if self._replay_buffer is not None:
                 # Mid-resume. Subscribing before the replay is what stops an
@@ -1709,6 +1753,7 @@ class LiveConnection:
         """
         caps = msg.get("caps") if isinstance(msg.get("caps"), dict) else {}
         self.can_speak = bool(caps.get("speak"))
+        self.out = live_deliver.device_out(caps)
         codec = str(caps.get("codec") or "").strip()
         if codec:
             self.codec = codec
@@ -1758,6 +1803,7 @@ class LiveConnection:
         except (TypeError, ValueError):
             self.rate = 16000
         self.can_speak = bool(caps.get("speak"))
+        self.out = live_deliver.device_out(caps)
         self.lane = assign_lane(caps)
 
         resume = msg.get("resume") if isinstance(msg.get("resume"), dict) else {}
