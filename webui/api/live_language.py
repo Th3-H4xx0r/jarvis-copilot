@@ -49,6 +49,13 @@ logger = logging.getLogger(__name__)
 # the entire purpose, so this default is load-bearing rather than arbitrary.
 DEFAULT_MODEL = "base"
 
+# Tried only when the default is not sure. Measured on real captures: `base`
+# reads Spanish at 0.855 and calls Telugu "Polish" at 0.244, while `small`
+# reads that Telugu at 0.756 and is only 0.496 on the Spanish. Neither small
+# model is good at everything, so the confident one answers and the second
+# opinion is bought only for the clips that need it.
+ESCALATION_MODEL = "small"
+
 # Below this the detector is guessing. A wrong "correction" is worse than the
 # phone's honest mistake: it rewrites a line the user watched appear.
 MIN_CONFIDENCE = 0.60
@@ -144,29 +151,25 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
     duration_ms = int(len(samples) * 1000 / 16000)
     if duration_ms < MIN_AUDIO_MS:
         return None
-    model = _load(model_name)
+    heard, detected, confidence, model = "", "", 0.0, None
+    for name in _ladder(model_name):
+        model = _load(name)
+        if model is None:
+            continue
+        one = _listen(model, samples)
+        if one is None:
+            continue
+        heard, detected, confidence = one
+        if confidence >= MIN_CONFIDENCE:
+            break
+        # Not sure enough to act on, and not sure enough to stop either: the
+        # next model up may simply know this language. Falls through with the
+        # last answer so an unsure result is still rejected below.
+        logger.debug("live: %r only %.3f sure this was %r; escalating",
+                     name, confidence, detected)
+
     if model is None:
         return None
-
-    try:
-        segments, info = model.transcribe(
-            samples,
-            # No `language=`: detecting it is the entire point.
-            task="transcribe",
-            beam_size=1,
-            # Whisper invents speech in silence, and an ambient recorder is
-            # mostly silence. Its own VAD is the cheapest guard against
-            # rewriting a real line with a hallucinated one.
-            vad_filter=True,
-            condition_on_previous_text=False)
-        heard = " ".join(s.text.strip() for s in segments).strip()
-        detected = str(getattr(info, "language", "") or "").strip().lower()
-        confidence = float(getattr(info, "language_probability", 0.0) or 0.0)
-    except Exception:
-        logger.warning("live: language rescue failed on one utterance",
-                       exc_info=True)
-        return None
-
     if not detected or confidence < MIN_CONFIDENCE:
         return None
     if same_language(detected, declared_lang):
@@ -204,7 +207,7 @@ def _to_english(model: Any, samples: Any, detected: str,
     try:
         segments, _info = model.transcribe(
             samples, task="translate", language=detected, beam_size=1,
-            vad_filter=True, condition_on_previous_text=False)
+            vad_filter=False, condition_on_previous_text=False)
         english = " ".join(s.text.strip() for s in segments).strip()
     except Exception:
         logger.debug("live: could not translate this utterance locally",
@@ -213,6 +216,41 @@ def _to_english(model: Any, samples: Any, detected: str,
     if not english or _looks_hallucinated(english):
         return ""
     return english
+
+
+def _ladder(model_name: str) -> tuple:
+    """The models to ask, cheapest first, without asking the same one twice."""
+    first = model_name or DEFAULT_MODEL
+    if same_language(first, ESCALATION_MODEL) or first == ESCALATION_MODEL:
+        return (first,)
+    return (first, ESCALATION_MODEL)
+
+
+def _listen(model: Any, samples: Any):
+    """One model's opinion: `(text, language, confidence)`, or None if it threw.
+
+    No VAD filter. It was here to stop Whisper hallucinating over silence, and
+    on a recorder that is mostly silence that sounded right — but these clips
+    are two seconds long and trimming them further is what made detection
+    guess. Measured: the same Telugu utterance went from 0.275 with the filter
+    to 0.756 without it. Hallucinations are caught by their text instead, which
+    is what `_looks_hallucinated` is for.
+    """
+    try:
+        segments, info = model.transcribe(
+            samples,
+            # No `language=`: detecting it is the entire point.
+            task="transcribe",
+            beam_size=1,
+            vad_filter=False,
+            condition_on_previous_text=False)
+        return (" ".join(s.text.strip() for s in segments).strip(),
+                str(getattr(info, "language", "") or "").strip().lower(),
+                float(getattr(info, "language_probability", 0.0) or 0.0))
+    except Exception:
+        logger.warning("live: language rescue failed on one utterance",
+                       exc_info=True)
+        return None
 
 
 def same_language(a: str, b: str) -> bool:

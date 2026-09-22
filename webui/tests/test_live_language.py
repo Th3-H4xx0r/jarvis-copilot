@@ -94,7 +94,10 @@ def test_it_asks_the_model_to_detect_rather_than_assume(monkeypatch):
     live_language.rescue(_pcm(), 16000, "en")
 
     assert "language" not in calls["kwargs"], "it must detect, not be told"
-    assert calls["kwargs"]["vad_filter"] is True, "silence is where it invents"
+    assert calls["kwargs"]["vad_filter"] is False, (
+        "the VAD trims two-second clips down to nothing and makes detection "
+        "guess — measured 0.275 with it against 0.756 without; hallucinations "
+        "are caught by their text instead")
 
 
 # ── translation, in the same warm pass ────────────────────────────────────
@@ -264,3 +267,55 @@ def test_language_comparison_matches_the_translate_gate():
                  ("en", "es"), ("", "en"), ("en", "")):
         assert live_language.same_language(a, b) == \
             live_watchers._language_matches(a, b), f"{a!r} vs {b!r}"
+
+
+def test_an_unsure_model_escalates_to_a_bigger_one(monkeypatch):
+    """Neither small model is good at everything: `base` reads Spanish at
+    0.855 and calls Telugu "Polish" at 0.244, while `small` reads that same
+    Telugu at 0.756. So the confident one answers, and the bigger one is asked
+    only about the clips the first was unsure of."""
+    asked = []
+
+    class _Model:
+        def __init__(self, name, device=None, compute_type=None):
+            self.name = name
+
+        def transcribe(self, samples, **kwargs):
+            asked.append(self.name)
+            if self.name == live_language.DEFAULT_MODEL:
+                info = types.SimpleNamespace(language="pl",
+                                             language_probability=0.244)
+                return [_Seg("Biemiczesto na wów.")], info
+            info = types.SimpleNamespace(language="te",
+                                         language_probability=0.756)
+            return [_Seg("నా పేరు ప్రణవ్")], info
+
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = _Model
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+
+    found = live_language.rescue(_pcm(), 16000, "en-US")
+
+    assert asked == [live_language.DEFAULT_MODEL,
+                     live_language.ESCALATION_MODEL]
+    assert found["lang"] == "te"
+    assert found["text"] == "నా పేరు ప్రణవ్"
+
+
+def test_a_confident_first_answer_costs_nothing_extra(monkeypatch):
+    """The escalation is for hard clips, not a tax on every utterance."""
+    calls = _fake_whisper(monkeypatch, language="es", probability=0.9,
+                          text="hola")
+
+    live_language.rescue(_pcm(), 16000, "en-US")
+
+    assert calls["model"] == live_language.DEFAULT_MODEL
+    assert len(calls["tasks"]) == 1, "one model, one pass"
+
+
+def test_both_models_unsure_changes_nothing(monkeypatch):
+    """Escalating and still not knowing is not permission to guess."""
+    _fake_whisper(monkeypatch, language="pl", probability=0.3, text="whatever")
+
+    assert live_language.rescue(_pcm(), 16000, "en-US") is None
+
