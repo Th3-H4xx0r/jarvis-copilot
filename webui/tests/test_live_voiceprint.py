@@ -513,7 +513,10 @@ def test_an_identification_that_explodes_does_not_lose_the_utterance(monkeypatch
 def test_the_audio_for_an_utterance_is_the_matching_region_of_the_chunk():
     session = _start_session(device_id="pod-1")
     sid = session["live_session_id"]
-    live_ws.ingest_audio_chunk(sid, _tone(5000), ts_ms=0, device_id="pod-1",
+    # An explicit offset, not 0: 0 means "unstamped" and is replaced by wall
+    # time since the session started, so a busy machine opened the chunk late
+    # and the window came back short.
+    live_ws.ingest_audio_chunk(sid, _tone(5000), ts_ms=1, device_id="pod-1",
                                codec="pcm16", rate=16000)
     found = live_ws.pcm_for_range(sid, 1000, 3000, "pod-1")
     assert found is not None
@@ -534,8 +537,10 @@ def test_an_opus_chunk_is_decoded_back_into_samples():
     """
     session = _start_session(device_id="iphone")
     sid = session["live_session_id"]
+    # An explicit offset for the same reason as above: measured flaking at
+    # 23264 bytes (727 ms) when the chunk opened 1.77 s late on wall time.
     for packet in _opus_packets(_tone(4000), rate=16000):
-        live_ws.ingest_audio_chunk(sid, packet, ts_ms=0, device_id="iphone",
+        live_ws.ingest_audio_chunk(sid, packet, ts_ms=1, device_id="iphone",
                                    codec="opus", rate=16000)
     found = live_ws.pcm_for_range(sid, 500, 2500, "iphone")
     assert found is not None, "an Opus chunk must decode back to samples"
