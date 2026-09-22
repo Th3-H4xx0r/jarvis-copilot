@@ -16,6 +16,9 @@ struct LiveSettingsSheet: View {
     /// rather than on a Save the user might not press.
     @State private var draft = LiveConfig()
     @State private var loaded = false
+    /// The model catalogue, shared with the Voice picker, purely to turn the
+    /// server's effective model id into a name a person recognises.
+    @State private var models = VoiceModelStore.shared
 
     private static let windowChoices = [30, 60, 120, 300, 600]
 
@@ -25,6 +28,8 @@ struct LiveSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 26) {
                     device
                     watchers
+                    factCheckWindow
+                    model
                     window
                     rollover
                     replies
@@ -50,6 +55,7 @@ struct LiveSettingsSheet: View {
             draft = store.config
             store.refreshSources()
             loaded = true
+            await models.load()
         }
     }
 
@@ -91,7 +97,7 @@ struct LiveSettingsSheet: View {
                           "Reads a rolling window and can interject.",
                           get: { draft.monitor }, set: { draft.monitor = $0 })
                 toggleRow("checkmark.seal", "Fact-check",
-                          "On demand, from the Fact-check button on a line.",
+                          "On demand, from the Fact-check button beside Record.",
                           get: { draft.factCheck }, set: { draft.factCheck = $0 })
                 toggleRow("globe", "Translate",
                           "Automatic for anything not in the primary language.",
@@ -109,6 +115,108 @@ struct LiveSettingsSheet: View {
                 .padding(.horizontal, 4)
                 .padding(.top, 8)
         }
+    }
+
+    // MARK: - How much a fact-check reads
+
+    /// Token ceilings offered for the fact-check window. `live.fact_check_tokens`
+    /// on the server; the default of 1000 is the server's, not a second opinion.
+    private static let factCheckTokenChoices = [500, 1000, 2000, 4000]
+
+    private var factCheckWindow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Fact-check")
+            GlassGroup {
+                GlassRow(symbol: "text.alignleft",
+                         title: "How much to check",
+                         subtitle: "The last \(draft.factCheckTokens) tokens of the "
+                                 + "conversation go to the model.",
+                         subtitleLineLimit: 2,
+                         last: true) {
+                    Picker("", selection: Binding(get: { Self.nearestTokens(draft.factCheckTokens) },
+                                                  set: { draft.factCheckTokens = $0; push() })) {
+                        ForEach(Self.factCheckTokenChoices, id: \.self) { tokens in
+                            Text("\(tokens)").tag(tokens)
+                        }
+                    }
+                    .labelsHidden()
+                    .tint(JcTheme.accent)
+                }
+            }
+            Text("Fact-check reads the recent conversation, not one line and not the "
+               + "whole recording.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
+        }
+    }
+
+    /// The server may hold a value that is not one of the offered taps (config
+    /// edited by hand). Snapped for display rather than shown as a blank picker.
+    private static func nearestTokens(_ value: Int) -> Int {
+        factCheckTokenChoices.min { abs($0 - value) < abs($1 - value) } ?? 1000
+    }
+
+    // MARK: - The model the watchers use
+
+    /// Which model the LIVE watchers run on — the monitor, fact-check,
+    /// artifacts and translate passes. Not the voice model: the Voice screen's
+    /// chip governs voice turns and has no effect on a recording.
+    ///
+    /// **Read-only, and honestly so.** The watchers resolve their model from
+    /// `auxiliary.live_*` in `config.yaml`, falling back to the server's default
+    /// model when that is unset — and there is no endpoint that writes it, so a
+    /// picker here would be a control that silently does nothing. It shows the
+    /// effective model and says where to change it. It never renders a blank:
+    /// if the catalogue has not arrived, it says that in words.
+    private var model: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Model")
+            GlassGroup {
+                GlassRow(symbol: "sparkles",
+                         title: "Watchers use",
+                         subtitle: modelSubtitle,
+                         subtitleLineLimit: 3,
+                         last: true) {
+                    if modelName == nil {
+                        ProgressView().controlSize(.small).tint(JcTheme.accent)
+                    }
+                }
+            }
+            Text("Monitor, fact-check, translate and the end-of-session summary all run "
+               + "on this. Give them their own model with `auxiliary.live_*` in "
+               + "config.yaml.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
+        }
+    }
+
+    /// The effective model's human label, or nil while unknown.
+    ///
+    /// A LABEL, never a bare id fragment: "31b" tells nobody anything. The
+    /// catalogue's own name is used when it has one, and the full id otherwise.
+    private var modelName: String? {
+        guard let catalog = models.catalog else { return nil }
+        let id = (catalog.activeModel?.isEmpty == false ? catalog.activeModel : nil)
+            ?? (catalog.defaultModel.isEmpty ? nil : catalog.defaultModel)
+        guard let id, !id.isEmpty else { return nil }
+        if let match = catalog.models.first(where: { $0.id == id }), !match.label.isEmpty {
+            return match.label
+        }
+        return id
+    }
+
+    private var modelSubtitle: String {
+        if let modelName { return modelName }
+        if models.loadError != nil {
+            return "Jarvis couldn't report which model the watchers use."
+        }
+        return "Asking the server which model the watchers use…"
     }
 
     // MARK: - Window

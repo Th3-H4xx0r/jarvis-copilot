@@ -211,53 +211,6 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertEqual(transcript.cursor, 1, "and it cannot move the resume cursor")
     }
 
-    // MARK: - Which rows actually have a verdict
-
-    /// A row may only say "Fact-checked" when a verdict for THAT row exists.
-    /// Claiming it otherwise is the failure this control was rebuilt over —
-    /// the app appearing to have checked a conversation nobody asked it to.
-    func testOnlyTheCheckedRowIsMarkedChecked() {
-        var transcript = LiveTranscript()
-        transcript.upsert(segment(1))
-        transcript.upsert(segment(2))
-        // `run_fact_check` sends no `ref_seq` — it stamps the verdict with the
-        // segment's own `seq`.
-        transcript.upsert(LiveInsight(seq: 2, kind: "fact_check", text: "Mostly true."))
-
-        XCTAssertEqual(transcript.factCheckedSeqs, [2])
-        XCTAssertFalse(transcript.factCheckedSeqs.contains(1))
-    }
-
-    /// A monitor note is not a verdict, and must not mark its row checked.
-    func testAMonitorNoteDoesNotMarkARowChecked() {
-        var transcript = LiveTranscript()
-        transcript.upsert(segment(1))
-        transcript.upsert(LiveInsight(seq: 1, kind: "monitor", text: "worth noting"))
-
-        XCTAssertTrue(transcript.factCheckedSeqs.isEmpty)
-    }
-
-    /// `ref_seq` wins when the server does send it.
-    func testAVerdictWithARefSeqMarksTheRowItPointsAt() {
-        var transcript = LiveTranscript()
-        transcript.upsert(LiveInsight(seq: 9, kind: "factcheck", text: "False.", refSeq: 4))
-
-        XCTAssertEqual(transcript.factCheckedSeqs, [4])
-    }
-
-    /// A rollover clears it with everything else — otherwise a brand-new
-    /// conversation's rows inherit the last one's "Fact-checked" marks.
-    func testClearingTheTranscriptClearsTheCheckedMarks() {
-        var transcript = LiveTranscript()
-        transcript.upsert(segment(1))
-        transcript.upsert(LiveInsight(seq: 1, kind: "fact_check", text: "True."))
-        XCTAssertFalse(transcript.factCheckedSeqs.isEmpty)
-
-        transcript.removeAll()
-
-        XCTAssertTrue(transcript.factCheckedSeqs.isEmpty)
-    }
-
     func testAnEmptyWrapUpIsIgnored() {
         var transcript = LiveTranscript()
         transcript.apply(LiveWrapUp())

@@ -1378,6 +1378,11 @@ final class LiveStore {
             apply(event)
         case .insight(let insight):
             upsert(insight)
+        case .factCheck(let result):
+            // A verdict about the CONVERSATION, so it lands at the end of the
+            // transcript rather than against a row — and a failed pass renders
+            // as a failure, never as a completed check.
+            transcript.apply(result)
         case .wrapUp(let wrap):
             // Rendered at the end of the transcript AS WELL AS going into the
             // paired chat (the server does that; §4). The screen that produced
@@ -1518,28 +1523,123 @@ final class LiveStore {
 
     // MARK: - Per-segment actions
 
-    /// Ask Jarvis to check one line. **Only ever called from the button (or the
-    /// menu item) on that line** — nothing checks anything on its own. There is
-    /// no automatic fact-check anywhere in this client, and the server's
-    /// `run_fact_check` has exactly one caller, `POST /api/live/factcheck`.
-    func factCheck(_ segment: LiveSegment) async {
-        guard !liveSessionID.isEmpty else { return }
-        // A second tap while the first is still running would bill a second
-        // model pass and post a second verdict under the same line.
-        guard !checking.contains(segment.seq) else { return }
-        checking.insert(segment.seq)
-        defer { checking.remove(segment.seq) }
-        do { try await api.factCheck(liveSessionID: liveSessionID, seq: segment.seq) }
-        catch { report("fact-check that", error) }
+    /// A fact-check of the recent conversation is in flight.
+    ///
+    /// The request is a full agent turn with web tools, so this can be true for
+    /// several seconds — which is exactly why the control has to show a real
+    /// spinner rather than a change of shade.
+    private(set) var checkingConversation = false
+
+    /// The latest verdict, or the reason there isn't one.
+    var factCheck: LiveFactCheckResult? { transcript.factCheck }
+
+    /// Ask Jarvis to check what has just been said.
+    ///
+    /// **Nothing checks anything on its own.** This is the only path in the
+    /// client that calls `/api/live/factcheck`, and it runs only from the
+    /// Fact-check button. The server's `run_fact_check` likewise has exactly one
+    /// caller, that endpoint. (The one watcher that IS automatic is translate.)
+    ///
+    /// The verdict does not come back on this response — it arrives later as an
+    /// `insight` over the socket, because the work is a whole agent turn and
+    /// running it inside the HTTP handler used to get 504'd by the edge. So this
+    /// finishing only means "the server accepted the job".
+    func factCheckConversation() async {
+        guard !liveSessionID.isEmpty else {
+            transcript.apply(LiveFactCheckResult(
+                text: "There's no conversation to check yet.", failed: true))
+            return
+        }
+        guard !checkingConversation else { return }
+        checkingConversation = true
+        defer { checkingConversation = false }
+        do {
+            try await api.factCheckConversation(liveSessionID: liveSessionID)
+        } catch {
+            // A refusal must NOT read as a completed check. The server's own
+            // words go to the log; the screen gets a sentence.
+            JcLog.dropped(JcLog.voice, "fact-check the conversation", error)
+            transcript.apply(LiveFactCheckResult(
+                text: Self.factCheckFailureText(error), failed: true))
+        }
     }
 
-    /// Lines with a check in flight. Per line, not one flag: several can be
-    /// running at once and each row shows its own state.
-    private(set) var checking: Set<Int> = []
+    /// A sentence for a check that never started. The only case worth naming
+    /// separately is the watcher being switched off, because that one the user
+    /// can actually fix.
+    private static func factCheckFailureText(_ error: Error) -> String {
+        if case APIError.http(let status, _) = error, status == 400 || status == 404 {
+            return "This Jarvis server can't check a whole conversation yet — "
+                 + "it still expects a single line. Nothing has been verified."
+        }
+        return LiveFailureText.humanSentence
+    }
 
-    /// Lines that already have a verdict beneath them, so the row can show a
-    /// status instead of the button that asked for it.
-    var factCheckedSeqs: Set<Int> { transcript.factCheckedSeqs }
+    // MARK: - Browsing past conversations
+
+    /// Past conversations, newest first, for the session picker.
+    private(set) var sessions: [LiveSessionSummary] = []
+    /// The session being READ rather than recorded. Empty when this screen is
+    /// showing the live conversation.
+    private(set) var viewingSessionID = ""
+    private(set) var loadingSessions = false
+
+    /// True while looking at a conversation that is over. Recording is hidden
+    /// rather than disabled-looking, because appending to a finished session is
+    /// not something the user should be invited to try and then refused.
+    var readOnly: Bool { !viewingSessionID.isEmpty }
+
+    func loadSessions() async {
+        guard !loadingSessions else { return }
+        loadingSessions = true
+        defer { loadingSessions = false }
+        do { sessions = try await api.sessions(); clearTransientError() }
+        catch { report("load your Live conversations", error) }
+    }
+
+    /// Open a past conversation, read-only.
+    ///
+    /// Refused while recording rather than silently stopping the microphone:
+    /// browsing is not a reason to end a recording the user started.
+    func view(session: LiveSessionSummary) async {
+        guard !capturing else {
+            error = "Stop recording first — then you can look back at another conversation."
+            return
+        }
+        guard session.id != viewingSessionID else { return }
+        viewingSessionID = session.id
+        transcript.removeAll()
+        clearPartial()
+        do {
+            let rows = try await api.transcript(liveSessionID: session.id, afterSeq: 0)
+            guard viewingSessionID == session.id else { return }
+            for row in rows { transcript.upsert(row) }
+            clearTransientError()
+        } catch {
+            report("load that conversation", error)
+        }
+    }
+
+    /// Back to the live conversation: drop the read-only view so Record returns.
+    func stopViewing() {
+        guard readOnly else { return }
+        viewingSessionID = ""
+        transcript.removeAll()
+        clearPartial()
+    }
+
+    /// Deliberately begin a NEW conversation instead of continuing the last one.
+    /// The rollover point is the server's to decide, but starting fresh on
+    /// purpose is the user's.
+    func startFreshSession() {
+        viewingSessionID = ""
+        transcript.removeAll()
+        clearPartial()
+        settings.forgetCursor()
+        resumeRequestedID = ""
+        liveSessionID = ""
+        chatSessionID = ""
+    }
 
     func translate(_ segment: LiveSegment, to target: String? = nil) async {
         guard !liveSessionID.isEmpty else { return }

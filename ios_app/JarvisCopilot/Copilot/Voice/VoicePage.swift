@@ -11,6 +11,9 @@ struct VoicePage: View {
     @State private var models: VoiceModelStore
     @State private var showPicker = false
     @State private var showSessionPicker = false
+    /// The LIVE conversation picker, which is a different thing from the voice
+    /// session picker above it.
+    @State private var showLiveSessions = false
     private let sessionSelection = VoiceSessionSelection.shared
     @State private var showMicDialog = false
     @State private var showDiagnostics = false
@@ -114,6 +117,9 @@ struct VoicePage: View {
         }
         .sheet(isPresented: $showSessionPicker) {
             VoiceSessionPicker(selection: sessionSelection) { store.sessionTargetChanged() }
+        }
+        .sheet(isPresented: $showLiveSessions) {
+            LiveSessionsSheet(store: LiveStore.shared)
         }
         .sheet(isPresented: $showDiagnostics) {
             VoiceDiagnosticsSheet(lines: store.diagnostics)
@@ -389,7 +395,21 @@ struct VoicePage: View {
             }
             .accessibilityLabel("Mode: \(liveMode ? "Live" : "Voice")")
         }
-        if !liveMode {
+        if liveMode {
+            // ONE control per side. The Live conversation picker — not the
+            // voice session picker, which governs voice turns and would be
+            // offering to change something a recording does not use. The model
+            // choice is a configuration, not a per-screen action, so it lives
+            // in Live settings rather than as a second chip up here.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showLiveSessions = true } label: {
+                    JcIcon("bubble.left", size: 15, weight: .medium)
+                        .foregroundStyle(JcTheme.accent)
+                }
+                .accessibilityLabel("Live conversations")
+                .accessibilityHint("Switch which recorded conversation you are looking at.")
+            }
+        } else {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSessionPicker = true } label: {
                     JcIcon("bubble.left", size: 15, weight: .medium)

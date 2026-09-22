@@ -38,6 +38,13 @@ struct LiveConfig: Equatable, Sendable {
     /// naming the number rather than trusting a context lookup. 0 = use the
     /// fraction.
     var sessionRolloverTokens = 0
+    /// How much of the recent conversation a fact-check reads, in tokens.
+    ///
+    /// Mirrors the server's `live.fact_check_tokens` default rather than being a
+    /// second opinion about it: the value the user sees is whatever
+    /// `/api/live/config` sends, and this is only what a struct built before the
+    /// first GET says.
+    var factCheckTokens = 1000
 
     static func from(_ d: [String: Any]) -> LiveConfig {
         // The server may nest it under `config`, or return it flat.
@@ -56,6 +63,7 @@ struct LiveConfig: Equatable, Sendable {
         if let v = d.string("embed_model") { out.embedModel = v }
         if let v = d.double("session_rollover_fraction") { out.sessionRolloverFraction = v }
         if let v = d.int("session_rollover_tokens") { out.sessionRolloverTokens = v }
+        if let v = d.int("fact_check_tokens") { out.factCheckTokens = v }
         return out
     }
 
@@ -73,7 +81,8 @@ struct LiveConfig: Equatable, Sendable {
          "primary_language": primaryLanguage,
          "embed_model": embedModel,
          "session_rollover_fraction": sessionRolloverFraction,
-         "session_rollover_tokens": sessionRolloverTokens]
+         "session_rollover_tokens": sessionRolloverTokens,
+         "fact_check_tokens": factCheckTokens]
     }
 
     /// How the rollover point reads in a sentence.
@@ -84,6 +93,55 @@ struct LiveConfig: Equatable, Sendable {
     }
 
     var spokenReplies: Bool { replyMode.lowercased() == "spoken" }
+}
+
+// MARK: - Sessions
+
+/// One Live conversation, from `GET /api/live/sessions` (a row of
+/// `live_session`).
+struct LiveSessionSummary: Equatable, Sendable, Identifiable {
+    var id = ""
+    var title = ""
+    var startedAt: Double = 0
+    var endedAt: Double?
+    var sourceLabel = ""
+    var chatSessionID = ""
+    var lastSeq = 0
+    /// `recording` | `ended`.
+    var state = "ended"
+
+    var isRecording: Bool { state.lowercased() == "recording" && endedAt == nil }
+
+    /// Never blank: an untitled conversation still has to be pickable.
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled conversation" : trimmed
+    }
+
+    /// "12 Sep, 14:02 · 48 lines".
+    var subtitle: String {
+        var parts: [String] = []
+        if startedAt > 0 {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "d MMM, HH:mm"
+            parts.append(formatter.string(from: Date(timeIntervalSince1970: startedAt)))
+        }
+        parts.append(lastSeq == 1 ? "1 line" : "\(lastSeq) lines")
+        if !sourceLabel.isEmpty { parts.append(sourceLabel) }
+        return parts.joined(separator: " · ")
+    }
+
+    static func from(_ d: [String: Any]) -> LiveSessionSummary {
+        LiveSessionSummary(
+            id: d.string("id") ?? d.string("live_session_id") ?? "",
+            title: d.string("title") ?? "",
+            startedAt: d.double("started_at") ?? 0,
+            endedAt: d.double("ended_at"),
+            sourceLabel: d.string("source_label") ?? "",
+            chatSessionID: d.string("chat_session_id") ?? "",
+            lastSeq: d.int("last_seq") ?? 0,
+            state: d.string("state") ?? "ended")
+    }
 }
 
 // MARK: - Speakers
@@ -323,9 +381,23 @@ struct LiveAPI: Sendable {
 
     // MARK: Watchers on demand
 
-    func factCheck(liveSessionID: String, seq: Int) async throws {
+    /// Check the recent conversation.
+    ///
+    /// No `seq`: the server reads a window of the conversation (bounded by
+    /// `live.fact_check_tokens`) rather than one utterance. A `seq` is what the
+    /// old per-line check sent, and per-line checking is gone — it was
+    /// meaningless on a line like "Yo, one, two, three, hello".
+    func factCheckConversation(liveSessionID: String) async throws {
         _ = try await api.post("/api/live/factcheck",
-                               json: ["live_session_id": liveSessionID, "seq": seq])
+                               json: ["live_session_id": liveSessionID])
+    }
+
+    // MARK: Sessions
+
+    /// Past and current Live conversations, newest first.
+    func sessions() async throws -> [LiveSessionSummary] {
+        let obj = try await api.get("/api/live/sessions").object()
+        return obj.list("sessions").map(LiveSessionSummary.from)
     }
 
     func translate(liveSessionID: String, seq: Int, target: String) async throws {

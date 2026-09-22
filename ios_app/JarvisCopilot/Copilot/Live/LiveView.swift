@@ -32,6 +32,12 @@ struct LiveView: View {
     /// bottom of every page, so a control row needs clearance from it.
     private static let controlsGap: CGFloat = 14
 
+    /// The control row now carries FOUR tiles beside Record (Fact-check,
+    /// Voices, Storage, Settings), so the tiles and the gaps were tightened
+    /// from 62/10 to leave Record a readable width on a 4.7" screen.
+    private static let tileWidth: CGFloat = 54
+    private static let controlGap: CGFloat = 8
+
     /// Recent input levels, oldest first, for the tape. Cleared when capture
     /// stops so a stopped meter cannot show a moving room.
     @State private var levels: [Double] = []
@@ -204,7 +210,8 @@ struct LiveView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if store.rows.isEmpty && store.partialText.isEmpty && store.wrapUp == nil {
+        if store.rows.isEmpty && store.partialText.isEmpty
+            && store.wrapUp == nil && store.factCheck == nil {
             VStack {
                 Spacer()
                 JcEmptyState(symbol: "waveform",
@@ -224,14 +231,11 @@ struct LiveView: View {
                             switch row {
                             case .segment(let segment):
                                 LiveSegmentRow(segment: segment,
-                                               onFactCheck: { Task { await store.factCheck(segment) } },
                                                onTranslate: { Task { await store.translate(segment) } },
                                                onName: {
                                                    nameDraft = segment.speakerName ?? ""
                                                    naming = segment
-                                               },
-                                               isChecking: store.checking.contains(segment.seq),
-                                               hasVerdict: store.factCheckedSeqs.contains(segment.seq))
+                                               })
                             case .insight(let insight):
                                 LiveInsightCard(insight: insight)
                             }
@@ -245,6 +249,12 @@ struct LiveView: View {
                                                startMs: store.partialStartMs)
                                 .id(Self.partialAnchor)
                                 .transition(.opacity)
+                        }
+                        // A verdict about the conversation, so it sits at the
+                        // end of it rather than against any one line.
+                        if let result = store.factCheck {
+                            LiveFactCheckCard(result: result)
+                                .padding(.top, 4)
                         }
                         // The wrap-up closes the transcript, after everything it
                         // summarises.
@@ -305,31 +315,106 @@ struct LiveView: View {
 
     // MARK: - Controls
 
+    /// Record, then the four things you can do to a conversation.
+    ///
+    /// Fact-check lives HERE, beside Record, because it is about the
+    /// conversation. It used to be a control on every transcript row, which was
+    /// both unreadable and meaningless — checking one utterance of "Yo, one,
+    /// two, three, hello" answers nothing.
     private var controls: some View {
-        HStack(spacing: 10) {
-            Button {
-                Task {
-                    if store.capturing { await store.stop() } else { await store.start() }
+        HStack(spacing: Self.controlGap) {
+            if store.readOnly {
+                // Looking at a conversation that is over. Record is not shown
+                // rather than shown-and-refused: a finished session cannot be
+                // appended to, and offering it would be an invitation to fail.
+                Button { store.stopViewing() } label: {
+                    HStack(spacing: 8) {
+                        JcIcon("arrow.uturn.left", size: 16)
+                        Text("Back to live").font(JcText.body.weight(.semibold))
+                            .lineLimit(1).minimumScaleFactor(0.85)
+                    }
+                    .foregroundStyle(JcTheme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    JcIcon(store.capturing ? "stop.fill" : "record.circle", size: 16)
-                    Text(store.capturing ? "Stop" : "Record")
-                        .font(JcText.body.weight(.semibold))
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    Task {
+                        if store.capturing { await store.stop() } else { await store.start() }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        JcIcon(store.capturing ? "stop.fill" : "record.circle", size: 16)
+                        Text(store.capturing ? "Stop" : "Record")
+                            .font(JcText.body.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                    }
+                    .foregroundStyle(store.capturing ? JcTheme.danger : JcTheme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .foregroundStyle(store.capturing ? JcTheme.danger : JcTheme.accent)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .buttonStyle(.plain)
+                .disabled(store.halt != nil)
+                .opacity(store.halt == nil ? 1 : 0.5)
             }
-            .buttonStyle(.plain)
-            .disabled(store.halt != nil)
-            .opacity(store.halt == nil ? 1 : 0.5)
 
+            factCheckTile
             secondary("person.2", "Voices") { showSpeakers = true }
             secondary("internaldrive", "Storage") { showStorage = true }
             secondary("gear", "Settings") { showSettings = true }
         }
+    }
+
+    /// Fact-check the recent conversation.
+    ///
+    /// The running state is a REAL spinner filling the tile, not a change of
+    /// shade: the request is a full agent turn with web tools and can sit there
+    /// for seconds, and "there should be a loading indicator over the button"
+    /// is what happens when it isn't obvious.
+    private var factCheckTile: some View {
+        Button {
+            Task { await store.factCheckConversation() }
+        } label: {
+            VStack(spacing: 3) {
+                if store.checkingConversation {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(JcTheme.accent)
+                        .frame(height: 16)
+                } else {
+                    JcIcon("checkmark.seal", size: 16)
+                }
+                Text(store.checkingConversation ? "Checking" : "Fact-check")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(store.checkingConversation
+                             ? JcTheme.accent : JcTheme.text.opacity(0.82))
+            .frame(width: Self.tileWidth, height: 52)
+            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                // A visible ring while it runs, so the control itself reads as
+                // busy from across the room and not only by its label.
+                if store.checkingConversation {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(JcTheme.accent.opacity(0.55), lineWidth: 1.5)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(store.checkingConversation || store.rows.isEmpty)
+        .opacity(store.rows.isEmpty && !store.checkingConversation ? 0.45 : 1)
+        .accessibilityLabel(store.checkingConversation
+                            ? "Checking the recent conversation"
+                            : "Fact-check the recent conversation")
+        .accessibilityHint("Asks Jarvis to check what has just been said and adds its "
+                         + "verdict at the end of the transcript. Nothing is checked "
+                         + "until you tap this.")
     }
 
     /// A glyph on its own was unguessable — a drive for Storage, two people for
@@ -340,10 +425,13 @@ struct LiveView: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 JcIcon(symbol, size: 16)
-                Text(title).font(.system(size: 10.5, weight: .medium))
+                Text(title)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(JcTheme.text.opacity(0.82))
-            .frame(width: 62, height: 52)
+            .frame(width: Self.tileWidth, height: 52)
             .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -381,13 +469,8 @@ struct LiveView: View {
 /// the server filled one in.
 struct LiveSegmentRow: View {
     let segment: LiveSegment
-    let onFactCheck: () -> Void
     let onTranslate: () -> Void
     let onName: () -> Void
-    /// A check this row asked for is running.
-    var isChecking = false
-    /// A verdict for this row has arrived and is on screen below it.
-    var hasVerdict = false
 
     private var speaker: String {
         LiveFormat.speakerLabel(id: segment.speakerID, name: segment.speakerName)
@@ -432,13 +515,14 @@ struct LiveSegmentRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            factCheckControl
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        // No fact-check here, deliberately. Checking one utterance was
+        // meaningless on a line like "Yo, one, two, three, hello", and a
+        // control on every row made the transcript unreadable. The check now
+        // reads a window of the CONVERSATION, from the button beside Record.
         .contextMenu {
-            Button("Check this claim", jcIcon: "checkmark.seal", action: onFactCheck)
             Button("Translate", jcIcon: "globe", action: onTranslate)
             Button("Copy", jcIcon: "doc.on.doc") {
                 LivePasteboard.copy(segment.text)
@@ -449,85 +533,6 @@ struct LiveSegmentRow: View {
         .accessibilityLabel("\(speaker) at \(LiveFormat.stamp(ms: segment.startMs)): \(segment.text)")
     }
 
-    /// Ask Jarvis to check this line — and, once it has, say so.
-    ///
-    /// **This was got badly wrong once and the way it failed is the design.**
-    /// The first version was a quiet `glassFill`+`muted` pill sitting in the
-    /// row's header, in among the speaker chip, the word "unconfirmed" and the
-    /// timestamp. In a line of metadata, styled like metadata, a pill reading
-    /// "Fact-check" does not parse as a verb — it parses as a STATUS meaning
-    /// "this line was fact-checked". The report was "why is it saying fact
-    /// check when I didn't fact check anything, there's no button to even click
-    /// fact check". Nothing had run; the label lied about what had happened.
-    /// Believing the app checks your conversation on its own is far worse than
-    /// not finding the button.
-    ///
-    /// So, three rules, all of them load-bearing:
-    ///
-    ///   * **Not in the metadata line.** It lives below the utterance, where a
-    ///     status about the speaker would never be.
-    ///   * **Shaped like a control** — accent fill and accent border. The
-    ///     accent means "you can tap this" everywhere else in this app, and the
-    ///     status chips beside it are deliberately `muted`, so the two can no
-    ///     longer be confused.
-    ///   * **Imperative wording.** "Fact-check" is both a noun and a verb in
-    ///     English, which is exactly how it was misread. "Check this claim"
-    ///     can only be an instruction.
-    ///
-    /// Only AFTER a verdict exists does a status appear here — and then it is
-    /// flat, muted and not tappable, so it cannot be mistaken for the button
-    /// that produced it.
-    @ViewBuilder
-    private var factCheckControl: some View {
-        if hasVerdict {
-            // Now — and only now — the noun is the truth.
-            HStack(spacing: 5) {
-                JcIcon("checkmark.seal.fill", size: 11)
-                Text("Fact-checked")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(JcTheme.muted)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Fact-checked. Jarvis's verdict is below this line.")
-        } else {
-            Button(action: onFactCheck) {
-                HStack(spacing: 5) {
-                    if isChecking {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .tint(JcTheme.accent)
-                    } else {
-                        JcIcon("checkmark.seal", size: 12)
-                    }
-                    Text(isChecking ? "Checking…" : "Check this claim")
-                        .font(.system(size: 11.5, weight: .semibold))
-                }
-                .foregroundStyle(JcTheme.accent)
-                .padding(.horizontal, 11)
-                .frame(height: Self.affordanceHeight)
-                .background(JcTheme.accent.opacity(0.12), in: Capsule())
-                .overlay(Capsule().strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
-                .opacity(isChecking ? 0.7 : 1)
-                // Drawn at 28pt so a row stays a row; the TAP is 44pt, per
-                // `buttons.md`. The negative padding hands the layout its 28pt
-                // back after `contentShape` has taken the bigger rectangle, so
-                // the extra reach falls in the gutter between rows where
-                // nothing else is tappable.
-                .padding(.vertical, (Self.minimumTarget - Self.affordanceHeight) / 2)
-                .contentShape(Rectangle())
-                .padding(.vertical, -(Self.minimumTarget - Self.affordanceHeight) / 2)
-            }
-            .buttonStyle(.plain)
-            .disabled(isChecking)
-            .accessibilityLabel(isChecking ? "Checking this claim" : "Check this claim")
-            .accessibilityHint("Asks Jarvis to verify what was said and add its verdict below. "
-                             + "Nothing is checked until you tap this.")
-        }
-    }
-
-    /// Drawn height of the row's affordance, and the hit region it must reach.
-    static let affordanceHeight: CGFloat = 28
-    static let minimumTarget: CGFloat = 44
 
     /// A confirmed voice gets the accent; an unconfirmed one stays neutral, so the
     /// colour carries the confidence rather than only the word beside it.
@@ -575,6 +580,79 @@ struct LiveProvisionalRow: View {
         .accessibilityElement(children: .ignore)
         // Announced as it grows, so a screen-reader user hears the room too.
         .accessibilityLabel("Being spoken: \(text)")
+    }
+}
+
+/// Jarvis's verdict on the recent conversation — or the honest news that it
+/// could not reach one.
+///
+/// Same card shape as the wrap-up, because it is the same kind of thing: an
+/// answer about the conversation as a whole, sitting at the end of it. Two
+/// things it must never do: present a FAILED check as a completed one, and
+/// print the provider's own words at the user (he was shown
+/// `API call failed after 3 retries: HTTP 404: model "" not found`, which is
+/// developer text, and worse, was dressed up as a verdict).
+struct LiveFactCheckCard: View {
+    let result: LiveFactCheckResult
+
+    private var failed: Bool { result.failed }
+
+    /// Amber, never the danger red: a check that did not run is a hiccup, not
+    /// the loud state that means recording stopped.
+    private var tint: Color { failed ? JcTheme.amber : JcTheme.accent }
+
+    var body: some View {
+        GlassCard(padding: 15,
+                  fill: tint.opacity(0.10),
+                  borderColor: tint.opacity(0.32)) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    JcIcon(failed ? "exclamationmark.circle" : "checkmark.seal", size: 14)
+                        .foregroundStyle(tint)
+                    Text(failed ? "Couldn't check" : "Fact-check")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(tint)
+                    Spacer(minLength: 0)
+                    // The grade only exists when there IS one.
+                    if !failed, !result.verdict.isEmpty {
+                        Text(result.verdict.capitalized)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(tint)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(tint.opacity(0.16), in: Capsule())
+                    }
+                }
+                Text(result.text)
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if !result.sources.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Sources")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(JcTheme.muted)
+                        ForEach(Array(result.sources.enumerated()), id: \.offset) { _, source in
+                            Text(source)
+                                .font(.system(size: 12))
+                                .foregroundStyle(JcTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                if !failed {
+                    Text("Checked the recent conversation, not the whole recording.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(JcTheme.muted)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(failed
+                            ? "Fact-check did not complete. \(result.text)"
+                            : "Fact-check verdict. \(result.text)")
     }
 }
 

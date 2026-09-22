@@ -603,6 +603,7 @@
 		D8E1D1327953EDB312AAC053 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6358EC26D522B891FC6A82E /* WatchBridge.swift */; };
 		D9471411A29FAAE1E381CFB8 /* VoiceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85B674E595DCFA0823883A2 /* VoiceAPI.swift */; };
 		D95F53BAE120CBBBB10DBBFF /* RingSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C659B43FE2C191B8FAB857 /* RingSceneView.swift */; };
+		DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */; };
 		DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B976A13B047F8380A8012B /* ClockSkillsTests.swift */; };
 		DB68A5EFC773E3A716FF06E6 /* TodosModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553E205366DFBAA2BD7031EE /* TodosModels.swift */; };
 		DB884D8794BDA94DB2C72E8A /* ServicesTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */; };
@@ -1291,6 +1292,7 @@
 		BF3E30F3BEC433A5D3BB3F89 /* LocalAiSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalAiSettingsTests.swift; sourceTree = "<group>"; };
 		BF44ECAF77CB35114ACA58C7 /* SessionVitals.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionVitals.swift; sourceTree = "<group>"; };
 		BFA44E462ADEBC5FBDDD2FF7 /* RingSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSession.swift; sourceTree = "<group>"; };
+		BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSessionsSheet.swift; sourceTree = "<group>"; };
 		C03F98ED6A45E260A67C5935 /* ChatUIFormat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormat.swift; sourceTree = "<group>"; };
 		C04A36F3466DF1D868E03D03 /* ScaleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleModels.swift; sourceTree = "<group>"; };
 		C0D11906CB17D802304BE126 /* EndpointerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EndpointerTests.swift; sourceTree = "<group>"; };
@@ -1992,6 +1994,7 @@
 				AF3D404BBE1F88EE7584A34B /* AmbientOpusEncoder.swift */,
 				9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */,
 				E91A0B07C81339B4AF3CD7C0 /* LiveCaptureBeacon.swift */,
+				BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3691,6 +3694,7 @@
 				0B0A37117DDD4C8853179A35 /* LiveCaptureBeacon.swift in Sources */,
 				8F1A0C33563FABB065D744A0 /* JcState.swift in Sources */,
 				F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */,
+				DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

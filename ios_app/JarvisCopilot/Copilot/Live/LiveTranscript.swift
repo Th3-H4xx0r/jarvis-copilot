@@ -15,13 +15,10 @@ struct LiveTranscript: Equatable, Sendable {
     /// it claims none (the server sends `seq: null`).
     private(set) var wrapUp: LiveWrapUp?
 
-    /// Rows that now have a fact-check verdict beneath them.
-    ///
-    /// Maintained here rather than scanned for in the view, and kept on the
-    /// TRANSCRIPT rather than the store, so `removeAll()` clears it with
-    /// everything else — a rollover that left this behind would show "Fact-
-    /// checked" against a brand-new conversation's rows.
-    private(set) var factCheckedSeqs: Set<Int> = []
+    /// The latest fact-check of the recent conversation, when one has been
+    /// asked for. Held apart from the rows for the same reason the wrap-up is:
+    /// it is about the conversation, not about any one line.
+    private(set) var factCheck: LiveFactCheckResult?
 
     /// Next local row id for an insight. Monotonic for the life of the
     /// transcript, so two notes stamped with the same `seq` are still two rows.
@@ -60,7 +57,7 @@ struct LiveTranscript: Equatable, Sendable {
         insights.removeAll()
         rows.removeAll()
         wrapUp = nil
-        factCheckedSeqs.removeAll()
+        factCheck = nil
         // Not reset: a row id must stay unique for the life of the view, and a
         // clear followed by new insights would otherwise reuse ids SwiftUI has
         // already seen.
@@ -72,6 +69,13 @@ struct LiveTranscript: Equatable, Sendable {
     mutating func apply(_ wrap: LiveWrapUp) {
         guard !wrap.isEmpty else { return }
         wrapUp = wrap
+    }
+
+    /// The latest verdict replaces the one before it: a second check of the same
+    /// conversation is a newer answer to the same question, not a second answer.
+    mutating func apply(_ result: LiveFactCheckResult) {
+        guard !result.isEmpty else { return }
+        factCheck = result
     }
 
     // MARK: - Rows
@@ -114,9 +118,6 @@ struct LiveTranscript: Equatable, Sendable {
         var placed = insight
         placed.localID = nextInsightID
         nextInsightID += 1
-        if LiveInsight.isFactCheck(kind: placed.kind) {
-            factCheckedSeqs.insert(placed.aboutSeq)
-        }
         // After every note already at this `seq`, so a window's notes read in
         // the order the watcher produced them; before anything later.
         if let index = insights.firstIndex(where: { $0.seq > placed.seq }) {

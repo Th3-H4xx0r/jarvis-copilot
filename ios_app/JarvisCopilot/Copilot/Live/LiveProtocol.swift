@@ -254,11 +254,79 @@ struct LiveInsight: Equatable, Sendable, Identifiable {
     static func isFactCheck(kind: String) -> Bool {
         ["factcheck", "fact_check"].contains(kind.lowercased())
     }
+}
 
-    /// The transcript row this insight is ABOUT. `run_fact_check` sends no
-    /// `ref_seq` — it stamps the verdict with the segment's own `seq` — so the
-    /// two spellings collapse here rather than at each call site.
-    var aboutSeq: Int { refSeq ?? seq }
+/// What came back from a fact-check of the recent conversation.
+///
+/// A conversation-level result, not a per-row one: checking a single utterance
+/// was meaningless on lines like "Yo, one, two, three, hello", so the check now
+/// reads a window of the conversation and its verdict belongs to the
+/// conversation.
+struct LiveFactCheckResult: Equatable, Sendable {
+    /// The prose to show. Already human — never a provider's error string.
+    var text = ""
+    /// "true" / "false" / "mixed" / "unverified", when the server graded it.
+    var verdict = ""
+    var sources: [String] = []
+    /// The check did NOT complete. A failure must never present as a successful
+    /// check, so this drives a different card and a different word.
+    var failed = false
+
+    var isEmpty: Bool { text.isEmpty && verdict.isEmpty && sources.isEmpty }
+
+    /// Build a result from a `fact_check` insight, turning a machine error into
+    /// a sentence.
+    ///
+    /// The server publishes whatever its model pass returned as the verdict
+    /// text, and a FAILED pass returns the transport's own words — the user was
+    /// shown `API call failed after 3 retries: HTTP 404: model "" not found`.
+    /// That is developer text in a user surface, and worse, it was presented as
+    /// though the claim had been checked.
+    static func from(insightText text: String, verdict: String,
+                     sources: [String]) -> LiveFactCheckResult {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !LiveFailureText.looksLikeMachineError(trimmed) else {
+            return LiveFactCheckResult(text: LiveFailureText.humanSentence,
+                                       verdict: "", sources: [], failed: true)
+        }
+        return LiveFactCheckResult(text: trimmed, verdict: verdict,
+                                   sources: sources, failed: false)
+    }
+}
+
+/// Telling a verdict from a stack trace.
+enum LiveFailureText {
+    /// What the user reads when a check did not complete. Deliberately does not
+    /// guess the cause — it states what happened and, above all, that nothing
+    /// was verified.
+    static let humanSentence =
+        "Jarvis couldn't finish the check, so nothing has been verified. "
+        + "Try again in a moment — the detail is in the app's logs."
+
+    /// High-precision markers only. A false positive would hide a real verdict,
+    /// so this matches the shapes only a machine produces, not merely
+    /// pessimistic-sounding prose.
+    private static let markers = [
+        "api call failed",
+        "after 3 retries",
+        "traceback (most recent call last)",
+        "connection refused",
+        "connection reset",
+        "read timed out",
+        "no such model",
+        "model \"\" not found",
+    ]
+
+    static func looksLikeMachineError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if markers.contains(where: lower.contains) { return true }
+        // "HTTP 404", "HTTP 500: …" — a status line, which prose does not carry.
+        if let range = lower.range(of: "http "),
+           lower[range.upperBound...].prefix(3).allSatisfy(\.isNumber) {
+            return true
+        }
+        return false
+    }
 }
 
 /// The end-of-session wrap-up: the summary, decisions and action items the
@@ -309,6 +377,10 @@ enum LiveServerFrame: Equatable, Sendable {
     /// is `artifacts`, and is split out here because it belongs at the end of
     /// the transcript rather than at `seq` 0.
     case wrapUp(LiveWrapUp)
+    /// A fact-check verdict. Also an `insight` frame; split out because the
+    /// check now reads a window of the CONVERSATION, so its answer belongs at
+    /// the end of the transcript rather than against one utterance.
+    case factCheck(LiveFactCheckResult)
     case speak(text: String)
     case state(LiveStateFrame)
     case error(String)
@@ -351,6 +423,12 @@ enum LiveServerFrame: Equatable, Sendable {
                     decisions: stringList(d["decisions"]),
                     actionItems: stringList(d["action_items"] ?? d["actions"]),
                     text: d.string("text") ?? ""))
+            }
+            if LiveInsight.isFactCheck(kind: kind) {
+                return .factCheck(LiveFactCheckResult.from(
+                    insightText: d.string("text") ?? "",
+                    verdict: d.string("verdict") ?? "",
+                    sources: stringList(d["sources"])))
             }
             return .insight(LiveInsight(
                 seq: d.int("seq") ?? 0,
