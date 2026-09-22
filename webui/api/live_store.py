@@ -117,6 +117,29 @@ CREATE VIRTUAL TABLE IF NOT EXISTS live_digest_fts USING fts5(
     summary, topics, id UNINDEXED, live_session_id UNINDEXED, tokenize='porter'
 );
 
+-- A watcher's output, kept rather than only fanned out. An insight used to
+-- exist solely as a frame, so one produced while the phone was backgrounded or
+-- reconnecting (design §8: the stream drops about once a minute) reached nobody
+-- and could never be asked for again — the paired chat kept it, the Live screen
+-- could not. `seq_from`/`seq_to` carry the RANGE it covers, because a
+-- conversation-level verdict is not about one utterance and pinning it to
+-- whichever row happened to be last is the behaviour that was complained about.
+CREATE TABLE IF NOT EXISTS live_insight (
+    id               TEXT PRIMARY KEY,
+    live_session_id  TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    text             TEXT NOT NULL,
+    seq_from         INTEGER,
+    seq_to           INTEGER,
+    scope            TEXT,
+    verdict          TEXT,
+    sources          TEXT,
+    digest_id        TEXT,
+    created_at       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_insight_session
+    ON live_insight(live_session_id, seq_to);
+
 CREATE TABLE IF NOT EXISTS live_audio (
     id               TEXT PRIMARY KEY,
     live_session_id  TEXT NOT NULL,
@@ -578,6 +601,70 @@ def add_digest(live_session_id: str, *, seq_from: int, seq_to: int,
     return {"id": did, "live_session_id": live_session_id,
             "seq_from": int(seq_from), "seq_to": int(seq_to),
             "summary": summary, "created_at": now, "scope": scope}
+
+
+def get_digest(digest_id: str) -> Optional[dict]:
+    """One digest by id — how an insight recovers the seq range of its window."""
+    if not digest_id:
+        return None
+    with connect() as conn:
+        cur = conn.execute("SELECT * FROM live_digest WHERE id=?", (digest_id,))
+        return _row_to_dict(cur.fetchone())
+
+
+# ── insights ───────────────────────────────────────────────────────────────
+
+
+def add_insight(live_session_id: str, *, kind: str, text: str,
+                seq_from: Optional[int] = None, seq_to: Optional[int] = None,
+                scope: str = "", verdict: str = "", sources=None,
+                digest_id: str = "", created_at: Optional[float] = None) -> dict:
+    """Record one watcher note so it can be fetched back, not just broadcast."""
+    iid = uuid.uuid4().hex
+    now = float(created_at or time.time())
+    row = {
+        "id": iid, "live_session_id": live_session_id, "kind": kind or "monitor",
+        "text": text, "seq_from": seq_from, "seq_to": seq_to,
+        "scope": scope or None, "verdict": verdict or None,
+        "sources": json.dumps(list(sources)) if sources else None,
+        "digest_id": digest_id or None, "created_at": now,
+    }
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO live_insight (id, live_session_id, kind, text,"
+            " seq_from, seq_to, scope, verdict, sources, digest_id, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (iid, live_session_id, row["kind"], text, seq_from, seq_to,
+             row["scope"], row["verdict"], row["sources"], row["digest_id"], now))
+        conn.commit()
+    row["sources"] = list(sources) if sources else []
+    return row
+
+
+def insights_for_session(live_session_id: str, after_seq: int = 0,
+                         limit: int = 200) -> list:
+    """Notes for a session, oldest first.
+
+    `after_seq` filters on `seq_to` so it lines up with the transcript's own
+    cursor — a client resuming from `after_seq` gets the segments it missed and
+    the notes about them in one coherent set. An insight with no `seq_to` is
+    never filtered out: it belongs to the session rather than to a position.
+    """
+    with connect() as conn:
+        cur = conn.execute(
+            "SELECT * FROM live_insight WHERE live_session_id=?"
+            " AND (seq_to IS NULL OR seq_to > ?)"
+            " ORDER BY created_at LIMIT ?",
+            (live_session_id, int(after_seq), int(limit)))
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            try:
+                item["sources"] = json.loads(item["sources"]) if item["sources"] else []
+            except (TypeError, ValueError):
+                item["sources"] = []
+            rows.append(item)
+        return rows
 
 
 def search_digests(query: str, limit: int = 20) -> list:

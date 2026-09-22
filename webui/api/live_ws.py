@@ -68,7 +68,71 @@ LIVE_WS_PATH = "/api/live/ws"
 # mirror's SESSION_EVENTS (no offline buffer, bounded queues, resync on drop) —
 # a separate instance only so a live session id can never collide with a chat
 # session id in one keyspace.
-LIVE_EVENTS = SessionEventBus()
+class _LiveEventBus(SessionEventBus):
+    """The live fan-out, plus the durability the Live screen needs.
+
+    An insight used to exist ONLY as a frame. `SessionEventBus.publish` returns
+    immediately when nobody is subscribed, so a note produced while the phone
+    was backgrounded, mid-reconnect (§8: the stream drops about once a minute)
+    or simply not on the Live screen reached no one and could never be asked
+    for again — while the paired chat kept it forever. That asymmetry is the
+    report "the fact-check showed up in the chat, but not in the live view".
+
+    Recording happens HERE, before the fan-out, rather than at each watcher's
+    call site: watchers publish straight onto this bus, so this is the one
+    place every insight must pass, and it means the frame a client sees and the
+    row it can fetch later cannot drift apart. It also needs no change in
+    `live_watchers`, which owns the watchers but not the transport.
+    """
+
+    def publish(self, session_id: str, event: str,
+                data: Optional[Dict[str, Any]] = None) -> None:
+        if event == "insight" and session_id:
+            _record_insight(session_id, data or {})
+        super().publish(session_id, event, data)
+
+
+LIVE_EVENTS = _LiveEventBus()
+
+
+def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
+    """Persist one insight. Never raises — a watcher's note is not worth a crash.
+
+    The seq RANGE matters more than a single anchor (§5.2's fact-check is
+    becoming conversation-level, and the artifacts note already covers a whole
+    session), so:
+
+    * a note that names a `seq` is about that one utterance;
+    * a monitor note carries a `digest_id`, and that digest knows the window it
+      summarised — the accurate range, recovered with one lookup;
+    * anything else is anchored at the last segment it could have seen, so a
+      client can still place it in order instead of dumping it at the end.
+    """
+    try:
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return
+        seq = payload.get("seq")
+        seq_from = seq_to = int(seq) if isinstance(seq, (int, float)) else None
+        digest_id = str(payload.get("digest_id") or "")
+        if seq_from is None and digest_id:
+            digest = live_store.get_digest(digest_id)
+            if digest:
+                seq_from = int(digest.get("seq_from") or 0) or None
+                seq_to = int(digest.get("seq_to") or 0) or None
+        if seq_to is None:
+            session = live_store.get_session(live_session_id)
+            seq_to = int((session or {}).get("last_seq") or 0) or None
+        live_store.add_insight(
+            live_session_id, kind=str(payload.get("kind") or "monitor"),
+            text=text, seq_from=seq_from, seq_to=seq_to,
+            scope=str(payload.get("scope") or ""),
+            verdict=str(payload.get("verdict") or ""),
+            sources=payload.get("sources") or [], digest_id=digest_id,
+            created_at=payload.get("created_at"))
+    except Exception:
+        logger.warning("live: an insight could not be stored for %s",
+                       live_session_id[:8] or "?", exc_info=True)
 
 LANE_EDGE = "edge"
 LANE_SERVER = "server"
@@ -571,8 +635,32 @@ def ingest_audio_chunk(live_session_id: str, payload: bytes, *, ts_ms: int = 0,
 
 # ── reading audio back for one utterance ───────────────────────────────────
 
-# `_codec_profile` writes this exact spelling for unframed PCM.
+# The two spellings `_codec_profile` writes that can be turned back into
+# samples. Anything else (an unknown codec stored as `<name>-len32@<rate>`) is
+# kept verbatim on disk but cannot be read back here.
 _PCM_CODEC_RE = re.compile(r"^pcm16@(\d+)$")
+_OPUS_CODEC_RE = re.compile(r"^opus-packets-len32@(\d+)$")
+
+# Opus decodes to any rate the caller asks for, so ask for the one the model
+# wants. That also sidesteps `live_voiceprint`'s crude resampler: libopus'
+# internal resampling is far better than a boxcar decimation.
+_OPUS_DECODE_RATE = 16000
+_MAX_OPUS_PACKET_BYTES = 1500
+# How many overlapping chunks to actually read before giving up. More than one
+# because a claimed extent can be wrong in either direction; small because each
+# try decodes audio.
+_MAX_CHUNK_TRIES = 3
+
+
+def _pcm_codec(codec: str) -> Tuple[str, int]:
+    """``("pcm16"|"opus", rate)`` for a stored codec label, else ``("", 0)``."""
+    match = _PCM_CODEC_RE.match(codec or "")
+    if match:
+        return "pcm16", int(match.group(1))
+    match = _OPUS_CODEC_RE.match(codec or "")
+    if match:
+        return "opus", int(match.group(1))
+    return "", 0
 
 
 def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
@@ -584,18 +672,19 @@ def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
     ms-since-session-start (`to_offset_ms` guarantees it) and so is a chunk's
     ``ts0_ms``, so the offset is a subtraction rather than a guess.
 
-    Two honest limits:
+    Both stored shapes are readable. ``pcm16`` is sliced by byte offset;
+    ``opus-packets-len32`` is unframed and decoded through ``api.voice_opus``,
+    the ctypes binding over the system libopus that the voice socket already
+    uses — so this costs no new dependency. **The iPhone streams Opus**, which
+    is the case that matters: an earlier version of this function recognised
+    only ``pcm16``, so it returned None for every real recording and
+    identification silently never ran.
 
-    * **Only raw ``pcm16`` chunks can be read back.** An
-      ``opus-packets-len32`` chunk is a framed packet stream, and turning it
-      into samples needs an Opus decoder — a new dependency for a feature that
-      is meant to add exactly one. A device streaming Opus gets no server-side
-      identification, which is why this returns None rather than pretending.
-    * The byte offset assumes the chunk's PCM runs contiguously at ``rate``
-      from ``ts0_ms``, which is what continuous ambient capture produces. A
-      client that stops and restarts inside one chunk leaves a gap no byte
-      offset can see, and the slice drifts. That costs one identification, not
-      the transcript.
+    One honest limit: the offset assumes the chunk's samples run contiguously
+    at ``rate`` from ``ts0_ms``, which is what continuous ambient capture
+    produces. A client that stops and restarts inside one chunk leaves a gap no
+    offset can see, and the slice drifts. That costs one identification, not
+    the transcript.
     """
     span_ms = max(0, int(ts_end_ms) - int(ts_start_ms))
     if span_ms <= 0:
@@ -619,26 +708,29 @@ def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
         logger.debug("live: could not list audio chunks for %s",
                      live_session_id, exc_info=True)
 
-    best: Optional[Tuple[int, Dict[str, Any], int]] = None
+    ranked: List[Tuple[int, Dict[str, Any], str, int]] = []
     for chunk in candidates:
-        match = _PCM_CODEC_RE.match(chunk["codec"])
-        if not match:
+        kind, rate = _pcm_codec(chunk["codec"])
+        if not kind or rate <= 0:
             continue
-        rate = int(match.group(1))
-        if rate <= 0:
-            continue
-        # How far the chunk actually reaches, derived from how many samples it
-        # HOLDS rather than from the last timestamp seen. `ts1_ms` is the
-        # highest `ts_ms` a packet carried, and a client that sends one large
-        # batch — or omits `ts_ms` entirely, which the protocol allows — leaves
-        # it equal to `ts0_ms` while the chunk holds minutes of audio. Ranking
-        # on that made every utterance look like it fell outside every chunk,
-        # so identification silently never ran.
         available = _chunk_bytes(chunk)
-        if available < 2:
+        if available < 8:
             continue
-        chunk_end_ms = max(int(chunk["ts1_ms"]),
-                           int(chunk["ts0_ms"]) + int(available / 2 * 1000 / rate))
+        if kind == "pcm16":
+            # Derived from how many samples the chunk HOLDS. Exact, and it has
+            # to be: `ts1_ms` is only the highest `ts_ms` a packet carried.
+            chunk_end_ms = max(
+                int(chunk["ts1_ms"]),
+                int(chunk["ts0_ms"]) + int(available / 2 * 1000 / rate))
+        else:
+            # Compressed bytes do not map to time, so there is no cheap exact
+            # extent for Opus, and `ts1_ms` cannot be trusted as one: a client
+            # that omits `ts_ms` gets wall-clock stamps that advance by the
+            # ARRIVAL time of its packets, so a spool replay uploading four
+            # seconds of audio in one burst claims a few milliseconds. Claim
+            # the roll period instead and let the decode settle it below.
+            chunk_end_ms = max(int(chunk["ts1_ms"]),
+                               int(chunk["ts0_ms"]) + _AUDIO_CHUNK_SECONDS * 1000)
         overlap = min(int(ts_end_ms), chunk_end_ms) - \
             max(int(ts_start_ms), int(chunk["ts0_ms"]))
         if overlap <= 0:
@@ -648,13 +740,99 @@ def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
         # from the mic that produced the transcript row.
         if device_id and chunk["device_id"] and chunk["device_id"] != device_id:
             overlap -= span_ms  # ranked below any same-device chunk
-        if best is None or overlap > best[0]:
-            best = (overlap, chunk, rate)
-    if best is None:
+        ranked.append((overlap, chunk, kind, rate))
+    if not ranked:
         return None
-    _overlap, chunk, rate = best
-    pcm = _read_pcm_span(chunk, rate, int(ts_start_ms), int(ts_end_ms))
-    return (pcm, rate) if pcm else None
+
+    # Try the best-ranked chunks in order and let the READ decide, rather than
+    # trusting any single extent. A claimed extent can be too small (a client
+    # that does not advance `ts_ms`) or too large (the permissive Opus fallback
+    # above, which let a finished chunk out-rank the one that genuinely held a
+    # later utterance and decode off its own end). Both failure modes look the
+    # same from here and both are settled by the same thing: whether real
+    # samples come back.
+    ranked.sort(key=lambda item: -item[0])
+    best_pcm, best_rate = b"", 0
+    for _overlap, chunk, kind, rate in ranked[:_MAX_CHUNK_TRIES]:
+        if kind == "opus":
+            pcm, out_rate = _decode_opus_span(
+                chunk, int(ts_start_ms), int(ts_end_ms)), _OPUS_DECODE_RATE
+        else:
+            pcm, out_rate = _read_pcm_span(
+                chunk, rate, int(ts_start_ms), int(ts_end_ms)), rate
+        if not pcm:
+            continue
+        wanted = int(span_ms * out_rate / 1000) * 2
+        if len(pcm) * 2 >= wanted:
+            # At least half the utterance: good enough to identify on, and the
+            # common case on the first try.
+            return pcm, out_rate
+        if len(pcm) > len(best_pcm):
+            best_pcm, best_rate = pcm, out_rate
+    return (best_pcm, best_rate) if best_pcm else None
+
+
+def _decode_opus_span(chunk: Dict[str, Any], ts_start_ms: int,
+                      ts_end_ms: int) -> bytes:
+    """Unframe and decode an Opus chunk, returning the requested window.
+
+    Opus carries decoder state between packets, so this decodes forward from
+    the start of the chunk rather than seeking — but stops as soon as it has
+    passed the window, so the cost is proportional to the utterance's position,
+    not the chunk's length. Measured on a real iPhone chunk: 531x realtime, so
+    even the far end of a five-minute chunk is well under a second on the
+    single background worker.
+    """
+    try:
+        from api import voice_opus
+    except Exception:
+        logger.debug("live: the Opus binding is unavailable", exc_info=True)
+        return b""
+    data = _chunk_data(chunk)
+    if len(data) < 8:
+        return b""
+    rate = _OPUS_DECODE_RATE
+    want_bytes = max(0, int((ts_end_ms - int(chunk["ts0_ms"])) * rate / 1000)) * 2
+    try:
+        decoder = voice_opus.OpusDecoder(sample_rate=rate, channels=1)
+    except Exception as exc:
+        # libopus missing is a deployment fact, not a bug: say it once and
+        # leave the voice provisional.
+        _report_identification("skipped: libopus is not installed, so Opus "
+                               "audio cannot be decoded", str(exc))
+        return b""
+    out = bytearray()
+    offset = 0
+    while offset + 4 <= len(data):
+        size = struct.unpack(">I", data[offset:offset + 4])[0]
+        offset += 4
+        if size <= 0 or size > _MAX_OPUS_PACKET_BYTES or offset + size > len(data):
+            # A truncated tail is normal: the chunk is still being written.
+            break
+        try:
+            # A packet libopus refuses decodes to nothing, which shifts
+            # everything after it earlier by that packet's duration. Rare, and
+            # the cost is one misaligned identification rather than a crash.
+            out += decoder.decode(data[offset:offset + size])
+        except Exception:
+            logger.debug("live: an Opus packet did not decode", exc_info=True)
+            break
+        offset += size
+        if want_bytes and len(out) >= want_bytes:
+            break
+    byte_from = max(0, int((ts_start_ms - int(chunk["ts0_ms"])) * rate / 1000)) * 2
+    return bytes(out[byte_from:want_bytes or None])
+
+
+def _chunk_data(chunk: Dict[str, Any]) -> bytes:
+    """The whole chunk: what is on disk plus the tail still buffered."""
+    path = Path(chunk["path"])
+    try:
+        on_disk = path.read_bytes() if path.exists() else b""
+    except OSError:
+        logger.debug("live: could not read an audio chunk", exc_info=True)
+        on_disk = b""
+    return on_disk + (chunk.get("buffered") or b"")
 
 
 def _chunk_bytes(chunk: Dict[str, Any]) -> int:
@@ -980,7 +1158,8 @@ def _ident_submit(fn, *args) -> bool:
         global _ident_inflight
         try:
             fn(*args)
-        except Exception:
+        except Exception as exc:
+            _report_identification("failed", f"{type(exc).__name__}: {exc}")
             logger.warning("live: identification job failed", exc_info=True)
         finally:
             with _ident_lock:
@@ -994,6 +1173,54 @@ def _ident_submit(fn, *args) -> bool:
             _ident_inflight -= 1
         logger.warning("live: could not schedule identification", exc_info=True)
         return False
+
+
+# Outcomes already announced at INFO. A fixed, small vocabulary, so this is
+# bounded: each distinct reason surfaces once and then drops to debug.
+_ident_reported: set = set()
+_ident_report_lock = threading.Lock()
+
+
+def _report_identification(outcome: str, detail: str = "") -> None:
+    """Say, once per distinct outcome, what identification actually did.
+
+    This exists because the first deployment of this feature was a SILENT
+    no-op: `pcm_for_range` recognised only raw PCM, every real (Opus) recording
+    returned None, the job exited before touching the model, and nothing was
+    logged at any level — so a completely broken feature was indistinguishable
+    from a working one in the journal. An outcome line per reason is the
+    difference between "diagnose in one minute" and "diagnose from a database
+    dump".
+    """
+    with _ident_report_lock:
+        first = outcome not in _ident_reported
+        if first:
+            _ident_reported.add(outcome)
+    message = "live: speaker identification %s%s"
+    suffix = f" — {detail}" if detail else ""
+    if first:
+        logger.info(message, outcome, suffix)
+    else:
+        logger.debug(message, outcome, suffix)
+
+
+def reset_identification_reports_for_tests() -> None:
+    with _ident_report_lock:
+        _ident_reported.clear()
+
+
+def _session_codecs(live_session_id: str) -> str:
+    """The codec labels stored for a session, for a skip line that can be acted on."""
+    seen = []
+    try:
+        with _writers_lock:
+            seen += [w.profile["stored"] for key, w in _writers.items()
+                     if key[0] == live_session_id]
+        seen += [str(row.get("codec") or "")
+                 for row in live_store.audio_chunks(live_session_id)]
+    except Exception:
+        logger.debug("live: could not list codecs", exc_info=True)
+    return ", ".join(sorted({c for c in seen if c})) or "no audio stored"
 
 
 def drain_identification(timeout: float = 5.0) -> bool:
@@ -1024,9 +1251,15 @@ def _identify_async(row: Dict[str, Any]) -> None:
             # Already attributed — an edge device whose voiceprints the
             # interlock trusts, or a re-ingested segment. Identifying it again
             # would fight the device for the label.
+            _report_identification(
+                "skipped: the capturing device already attributed this segment")
             return
         from api import live_voiceprint
         if not live_voiceprint.can_try():
+            _report_identification(
+                "skipped: no usable embedder",
+                "install the extra (pip install 'jarviscopilot[live-voiceprint]') "
+                "or check the log above for why the model would not load")
             return
         _ident_submit(_run_identification, str(row.get("live_session_id") or ""),
                       int(row.get("seq") or 0),
@@ -1050,9 +1283,17 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
 
     audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
     if audio is None:
+        _report_identification(
+            "skipped: no readable audio covering this segment",
+            f"segment {ts_start_ms}-{ts_end_ms}ms, stored codecs: "
+            f"{_session_codecs(live_session_id)}")
         return
     vec = live_voiceprint.embed(audio[0], audio[1])
     if vec is None:
+        _report_identification(
+            "skipped: the embedder produced nothing",
+            f"{len(audio[0]) // 2} samples at {audio[1]} Hz — too short to "
+            "carry a voice, or the model did not load (see the log above)")
         return
     # Seeding "me" from stored voice turns (§5.4) needs the model loaded, which
     # it now demonstrably is, and it belongs on this thread rather than the
@@ -1061,8 +1302,14 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
     decision = live_voiceprint.identify(vec, live_session_id=live_session_id,
                                         seq=seq)
     if not decision:
+        _report_identification("skipped: the embedding produced no decision")
         return
     _apply_identification(live_session_id, seq, row, decision)
+    _report_identification(
+        "succeeded",
+        f"voice {str(decision.get('speaker_id') or '')[:8]}, "
+        f"{decision.get('label_state')}, score {decision.get('score')}"
+        f"{', newly minted' if decision.get('new_speaker') else ''}")
 
 
 def _apply_identification(live_session_id: str, seq: int, row: Dict[str, Any],
@@ -1998,6 +2245,22 @@ def handle_live_get(handler, parsed) -> bool:
             speaker["samples"] = live_store.speaker_samples(speaker["id"])
         j(handler, {"speakers": speakers})
         return True
+    if path == "/api/live/digests":
+        # The rolling-window summaries (§6) had no route at all, so nothing
+        # could show a session's rollups. Separate from the transcript because
+        # a digest is the COARSE layer of the coarse→fine retrieval the design
+        # describes: you read digests to find the window, then pull the exact
+        # segments. A client rebuilding a transcript wants /api/live/transcript.
+        sid = (parse_qs(parsed.query).get("live_session_id", [""])[0] or "").strip()
+        if not sid:
+            bad(handler, "live_session_id required")
+            return True
+        if live_store.get_session(sid) is None:
+            bad(handler, "live session not found", 404)
+            return True
+        j(handler, {"live_session_id": sid,
+                    "digests": live_store.digests_for_session(sid)})
+        return True
     if path == "/api/live/storage":
         j(handler, live_store.storage_summary())
         return True
@@ -2154,8 +2417,23 @@ def _live_transcript(handler, parsed) -> bool:
         return True
     segments = [segment_frame(row) for row
                 in live_store.segments_after(sid, after_seq, limit=limit)]
+    # Insights ride WITH the segments rather than behind a second endpoint, so
+    # one request rebuilds a transcript complete with its notes: the client
+    # already has to walk `segments` in `seq` order, and each note carries the
+    # `seq_from`/`seq_to` it covers, so interleaving is a merge rather than a
+    # second round-trip that can arrive out of order. Purely additive — the
+    # existing keys are untouched, so the web and iOS clients that read
+    # `segments` today are unaffected.
+    insights = []
+    try:
+        insights = live_store.insights_for_session(sid, after_seq, limit=limit)
+    except Exception:
+        # A transcript without its notes still beats a 500.
+        logger.warning("live: could not read insights for %s", sid[:8] or "?",
+                       exc_info=True)
     j(handler, {"live_session_id": sid, "session": session,
                 "segments": segments,
+                "insights": insights,
                 "last_seq": int(session.get("last_seq") or 0)})
     return True
 

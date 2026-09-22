@@ -2419,3 +2419,128 @@ def test_an_unresolvable_model_context_still_yields_a_usable_budget():
     means sessions roll over sooner."""
     assert live_ws._model_context_tokens() >= 1000
     assert live_ws.rollover_token_budget({"session_rollover_fraction": 0.05}) >= 1000
+
+
+# ── insights survive nobody being connected (the Live-screen complaint) ────
+
+
+def test_an_insight_published_with_nobody_listening_is_still_fetchable():
+    """The exact report: "the fact check showed up in the chat, but not in the
+    live view".
+
+    `SessionEventBus.publish` returns immediately when nobody is subscribed, so
+    a note produced while the phone was backgrounded or reconnecting (§8: about
+    once a minute) reached no one and could never be asked for again. It has to
+    outlive the socket.
+    """
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "the grand canyon is in utah")
+
+    # Nobody is subscribed — this is the case that used to lose the note.
+    assert live_ws.LIVE_EVENTS.subscriber_count(sid) == 0
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "factcheck", "live_session_id": sid, "seq": None,
+        "scope": "conversation", "verdict": "false",
+        "text": "The Grand Canyon is primarily located in Arizona, not Utah.",
+        "sources": ["https://example.org/canyon"], "created_at": 1.0})
+
+    handler, claimed = _get(f"/api/live/transcript?live_session_id={sid}")
+    assert claimed and handler.status == 200
+    payload = handler.payload()
+    notes = payload["insights"]
+    assert len(notes) == 1
+    assert "Arizona" in notes[0]["text"]
+    assert notes[0]["kind"] == "factcheck"
+    assert notes[0]["sources"] == ["https://example.org/canyon"]
+    # Segments are untouched: this is additive, not a contract change.
+    assert [s["text"] for s in payload["segments"]] == \
+        ["the grand canyon is in utah"]
+
+
+def test_a_conversation_level_insight_is_anchored_not_pinned_to_one_row():
+    """A whole-window verdict carries a RANGE, so the client places it after the
+    segments it could have seen instead of pinning it to whichever utterance
+    happened to be last."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "one")
+    _final_seg(conn, "two")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "factcheck", "seq": None, "scope": "conversation",
+        "text": "checked the last minute"})
+    note = live_store.insights_for_session(sid)[0]
+    assert note["seq_from"] is None, "not claimed to start at one utterance"
+    assert note["seq_to"] == 2, "anchored at the last segment it could have seen"
+
+
+def test_an_utterance_insight_keeps_its_own_seq():
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "hola")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "translation", "seq": 1, "text": "hello"})
+    note = live_store.insights_for_session(sid)[0]
+    assert (note["seq_from"], note["seq_to"]) == (1, 1)
+
+
+def test_a_monitor_note_takes_the_window_its_digest_summarised():
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    for word in ("a", "b", "c"):
+        _final_seg(conn, word)
+    digest = live_store.add_digest(sid, seq_from=1, seq_to=3, summary="s")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "monitor", "seq": None, "digest_id": digest["id"],
+        "text": "they talked about the canyon"})
+    note = live_store.insights_for_session(sid)[0]
+    assert (note["seq_from"], note["seq_to"]) == (1, 3), \
+        "a monitor note covers its whole window, not just the last row"
+
+
+def test_resuming_gets_the_notes_about_the_segments_it_missed():
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "old")
+    live_ws.LIVE_EVENTS.publish(sid, "insight",
+                                {"kind": "monitor", "seq": 1, "text": "about old"})
+    _final_seg(conn, "new")
+    live_ws.LIVE_EVENTS.publish(sid, "insight",
+                                {"kind": "monitor", "seq": 2, "text": "about new"})
+    handler, _ = _get(f"/api/live/transcript?live_session_id={sid}&after_seq=1")
+    texts = [n["text"] for n in handler.payload()["insights"]]
+    assert texts == ["about new"], "the cursor lines up with the segments'"
+
+
+def test_a_storage_failure_costs_the_note_not_the_fan_out(monkeypatch):
+    """Capture is the floor, and so is delivery: a note that cannot be stored
+    must still reach a device that IS connected."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    monkeypatch.setattr(live_store, "add_insight",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("disk")))
+    viewer = live_ws.subscribe(sid)
+    try:
+        live_ws.LIVE_EVENTS.publish(sid, "insight",
+                                    {"kind": "monitor", "text": "still delivered"})
+        event, data = viewer.get(timeout=5)
+    finally:
+        live_ws.unsubscribe(sid, viewer)
+    assert event == "insight" and data["text"] == "still delivered"
+
+
+def test_the_digests_route_answers_a_sessions_rollups():
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "hello")
+    live_store.add_digest(sid, seq_from=1, seq_to=1, summary="they said hello",
+                          topics=["greeting"])
+    handler, claimed = _get(f"/api/live/digests?live_session_id={sid}")
+    assert claimed and handler.status == 200
+    digests = handler.payload()["digests"]
+    assert [d["summary"] for d in digests] == ["they said hello"]
+
+
+def test_the_digests_route_404s_for_a_session_it_does_not_have():
+    handler, claimed = _get("/api/live/digests?live_session_id=" + "0" * 32)
+    assert claimed and handler.status == 404

@@ -48,6 +48,7 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(live_ws, "_server_stt_cache", False)
     live_store.reset_for_tests()
     live_voiceprint.reset_for_tests()
+    live_ws.reset_identification_reports_for_tests()
     yield tmp_path
     assert live_ws.drain_identification(5.0), \
         "an identification job outlived its test"
@@ -97,6 +98,39 @@ def _tone(ms: int, hz: float = 220.0, rate: int = 16000, amp: int = 8000):
     t = np.arange(n, dtype=np.float64) / rate
     samples = (amp * np.sin(2 * math.pi * hz * t)).astype("<i2")
     return samples.tobytes()
+
+
+class _Client:
+    def __init__(self):
+        self.frames = []
+
+    def __call__(self, frame):
+        self.frames.append(frame)
+
+
+def _connect_edge(**hello):
+    """A real edge-lane handshake: on-device STT plus a matching embedder id."""
+    conn = live_ws.LiveConnection(_Client())
+    payload = {"t": "hello", "device_id": "iphone-17pm", "device_kind": "ios",
+               "caps": {"audio": "stream", "text": "stream", "stt": "on_device",
+                        "embed": "on_device",
+                        "embed_model": live_config.DEFAULTS["embed_model"],
+                        "codec": "opus", "rate": 16000, "speak": True}}
+    payload.update(hello)
+    conn.on_text(json.dumps(payload))
+    return conn, conn.live_session_id
+
+
+def _as_samples(pcm: bytes):
+    return np.frombuffer(pcm, dtype="<i2")
+
+
+def _opus_packets(pcm: bytes, rate: int = 16000):
+    """Encode PCM the way a phone does, so the test exercises the real decoder."""
+    voice_opus = pytest.importorskip("api.voice_opus")
+    if voice_opus.available() is not None:
+        pytest.skip(f"libopus unavailable: {voice_opus.available()}")
+    return voice_opus.OpusEncoder(sample_rate=rate, channels=1).encode(pcm)
 
 
 def _start_session(**body):
@@ -491,15 +525,35 @@ def test_the_audio_for_an_utterance_is_the_matching_region_of_the_chunk():
     assert len(pcm) == 2 * 16000 * 2
 
 
-def test_an_opus_chunk_yields_no_audio_rather_than_garbage():
-    """Framed Opus packets are not samples, and decoding them would be a whole
-    new dependency. So server-side identification declines instead of feeding
-    the model packet headers."""
+def test_an_opus_chunk_is_decoded_back_into_samples():
+    """THE case that matters: the iPhone streams Opus, not PCM.
+
+    The first deployment of this feature recognised only `pcm16`, so every real
+    recording returned None here, the job exited before reaching the model, and
+    identification silently never ran — on the only device that exists.
+    """
     session = _start_session(device_id="iphone")
     sid = session["live_session_id"]
-    live_ws.ingest_audio_chunk(sid, _tone(4000), ts_ms=0, device_id="iphone",
-                               codec="opus", rate=16000)
-    assert live_ws.pcm_for_range(sid, 0, 2000, "iphone") is None
+    for packet in _opus_packets(_tone(4000), rate=16000):
+        live_ws.ingest_audio_chunk(sid, packet, ts_ms=0, device_id="iphone",
+                                   codec="opus", rate=16000)
+    found = live_ws.pcm_for_range(sid, 500, 2500, "iphone")
+    assert found is not None, "an Opus chunk must decode back to samples"
+    pcm, rate = found
+    assert rate == 16000, "decoded straight to the rate the model wants"
+    # Two seconds, within a frame's rounding either way.
+    assert abs(len(pcm) - 2 * 16000 * 2) < 16000 * 2 * 0.1
+    assert max(abs(v) for v in _as_samples(pcm)) > 100, "decoded to real audio"
+
+
+def test_an_unknown_codec_still_yields_nothing_rather_than_garbage():
+    """A codec the server cannot turn back into samples must decline, not feed
+    the model packet headers."""
+    session = _start_session(device_id="odd")
+    sid = session["live_session_id"]
+    live_ws.ingest_audio_chunk(sid, _tone(4000), ts_ms=0, device_id="odd",
+                               codec="some-future-codec", rate=16000)
+    assert live_ws.pcm_for_range(sid, 0, 2000, "odd") is None
 
 
 # ── the wiring: a segment becomes a labelled voice, off the capture thread ─
@@ -546,6 +600,97 @@ def test_a_segment_with_audio_gets_a_speaker_and_the_clients_are_told(monkeypatc
     assert ops[0]["speaker_id"] == speaker_id
     assert ops[0]["seqs"] == [1]
     assert ops[0]["new_speaker"] is True
+
+
+def test_an_edge_lane_segment_with_opus_audio_gets_identified(monkeypatch):
+    """The regression that reached production, end to end.
+
+    An iPhone on the EDGE lane transcribes on-device and sends finished `seg`
+    frames while streaming Opus alongside. Identification has to fire for that
+    segment — the trigger is "a segment was appended and audio covering its
+    time range exists", NOT "the server transcribed something". This drives the
+    real `LiveConnection` seg path with real Opus bytes; only the model itself
+    is stubbed.
+    """
+    monkeypatch.setattr(live_voiceprint, "can_try", lambda: True)
+    monkeypatch.setattr(live_voiceprint, "load_session", lambda: object())
+    seen = {}
+
+    def fake_embed(pcm, rate):
+        seen["samples"] = len(pcm) // 2
+        seen["rate"] = rate
+        return _basis(0)
+
+    monkeypatch.setattr(live_voiceprint, "embed", fake_embed)
+
+    conn, sid = _connect_edge()
+    # Audio first, exactly as a streaming phone does it.
+    for packet in _opus_packets(_tone(4000), rate=16000):
+        conn.on_binary(live_ws.encode_audio_frame(1, 0, packet))
+    # Then the finished utterance the phone transcribed itself.
+    conn.on_text(json.dumps({"t": "seg", "partial": False, "text": "hello there",
+                             "ts_start_ms": 500, "ts_end_ms": 3000,
+                             "local_label": "me"}))
+    assert live_ws.drain_identification(10.0)
+
+    assert conn.lane == live_ws.LANE_EDGE, "this is the edge lane"
+    assert seen.get("rate") == 16000, "Opus decoded straight to the model's rate"
+    assert seen.get("samples", 0) > 16000, "a real span of audio reached the model"
+
+    speakers = live_store.list_speakers()
+    assert len(speakers) == 1, "an edge-lane segment must produce a voice"
+    stored = live_store.segments_after(sid, 0)[0]
+    assert stored["speaker_id"] == speakers[0]["id"]
+    assert stored["label_state"] == live_store.LABEL_CONFIRMED
+
+
+def test_the_first_attempt_says_at_info_what_it_actually_did(monkeypatch, caplog):
+    """A silent no-op is how the broken version shipped looking fine.
+
+    The first deployment recognised only `pcm16`, so every real recording was
+    skipped without a single line at any level — indistinguishable in the
+    journal from a working feature. Each distinct outcome now surfaces once at
+    INFO, and it has to name the reason well enough to act on.
+    """
+    import logging
+    live_ws.reset_identification_reports_for_tests()
+    monkeypatch.setattr(live_voiceprint, "can_try", lambda: True)
+    monkeypatch.setattr(live_voiceprint, "load_session", lambda: object())
+    session = _start_session(device_id="pod-1")
+    sid = session["live_session_id"]
+    # A segment with no audio stored for it at all.
+    with caplog.at_level(logging.INFO, logger="api.live_ws"):
+        live_ws.append_and_publish(sid, ts_start_ms=0, ts_end_ms=2000,
+                                   text="nothing recorded", device_id="pod-1")
+        assert live_ws.drain_identification(5.0)
+
+    lines = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+    skips = [line for line in lines if "speaker identification skipped" in line]
+    assert skips, f"the skip must be visible at INFO; got {lines}"
+    assert "no readable audio" in skips[0]
+    # And it must say what WAS stored, so "wrong codec" is diagnosable.
+    assert "codecs" in skips[0]
+
+
+def test_the_outcome_is_only_announced_once_per_reason(monkeypatch, caplog):
+    """Bounded: a per-utterance INFO line would be its own incident."""
+    import logging
+    live_ws.reset_identification_reports_for_tests()
+    monkeypatch.setattr(live_voiceprint, "can_try", lambda: True)
+    monkeypatch.setattr(live_voiceprint, "load_session", lambda: object())
+    session = _start_session(device_id="pod-1")
+    sid = session["live_session_id"]
+    with caplog.at_level(logging.INFO, logger="api.live_ws"):
+        for index in range(4):
+            live_ws.append_and_publish(sid, ts_start_ms=index * 3000,
+                                       ts_end_ms=index * 3000 + 2000,
+                                       text=f"utterance {index}",
+                                       device_id="pod-1")
+        assert live_ws.drain_identification(5.0)
+    skips = [r.getMessage() for r in caplog.records
+             if r.levelno >= logging.INFO
+             and "no readable audio" in r.getMessage()]
+    assert len(skips) == 1, f"one line per reason, not per utterance: {skips}"
 
 
 def test_a_provisional_decision_sends_no_confirm_frame(monkeypatch):
