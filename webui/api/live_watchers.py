@@ -647,9 +647,10 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
         # Design §4: the monitor's notes are the one thing that goes into the
         # paired chat as it happens. One appended message per window keeps the
         # prompt prefix — and therefore the cache — intact.
+        note = "Live note\n\n" + "\n\n".join(n["text"] for n in published)
         _append_to_paired_chat(
             live_session_id,
-            "Live note\n\n" + "\n\n".join(n["text"] for n in published))
+            note + "\n\n" + _transcript_block(segments, heading="### Transcript"))
 
     return {
         "digest_id": digest["id"],
@@ -1190,6 +1191,12 @@ def _write_artifacts(live_session_id: str, cfg: dict) -> Optional[dict]:
         scope="session")
 
     body = _render_artifact_message(summary, decisions, actions)
+    # The full transcript goes in the LAST message, so the summary is what a
+    # reader meets first and the words are there to check it against.
+    everything = live_store.segments_after(live_session_id, 0, 5000)
+    if everything:
+        body += "\n\n" + _transcript_block(everything,
+                                            heading="## Full transcript")
     # ONE message, appended. Not one per decision, not an edit of the header
     # message written at session start — see the module docstring on caching.
     _append_to_paired_chat(live_session_id, body)
@@ -1248,6 +1255,36 @@ def _load_chat_session(chat_session_id: str):
         logger.debug("live: paired chat %s not loadable", chat_session_id,
                      exc_info=True)
         return None
+
+
+def _transcript_block(segments: list, *, heading: str) -> str:
+    """The verbatim words, speaker-labelled, as one appended block.
+
+    The design kept the transcript OUT of the paired chat to protect prompt
+    caching, and the user's answer to that was direct: the transcript is the
+    thing he actually wants to read there. The original rationale was partly
+    over-cautious — caching keys on the PREFIX, so APPENDING costs tokens, not
+    a cache miss; what would break it is rewriting the header or emitting a
+    message per utterance. One block per window, and one at the end, is the
+    shape that gives him the transcript without either cost.
+    """
+    lines = [heading, ""]
+    for row in segments:
+        who = row.get("speaker_name") or row.get("local_label") or ""
+        stamp = _stamp(int(row.get("ts_start_ms") or 0))
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        lines.append(f"[{stamp}] {who + ': ' if who else ''}{text}")
+    return "\n".join(lines)
+
+
+def _stamp(ms: int) -> str:
+    total = max(0, ms // 1000)
+    hours, rest = divmod(total, 3600)
+    minutes, seconds = divmod(rest, 60)
+    return (f"{hours}:{minutes:02d}:{seconds:02d}" if hours
+            else f"{minutes}:{seconds:02d}")
 
 
 def _append_to_paired_chat(live_session_id: str, content: str) -> bool:

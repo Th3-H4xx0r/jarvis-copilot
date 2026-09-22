@@ -1547,3 +1547,39 @@ def test_a_recording_shorter_than_the_word_floor_is_still_summarised(
     assert live_store.digests_for_session(session), \
         "a short recording must still be summarised when it ends"
     assert model.calls, "and that costs exactly one pass"
+
+
+def test_the_paired_chat_carries_the_words_not_just_a_note(cfg, events, model, chat):
+    """The design kept the transcript out of the chat to protect caching; the
+    user's answer was that the transcript is the thing he wants to read there.
+    Appending costs tokens, not a cache miss — what would break caching is
+    rewriting the header or a message per utterance, neither of which this is."""
+    session = _session()
+    _say(session, "the pod firmware ships on thursday and I will write the notes")
+    model.reply = json.dumps({"summary": "firmware timing", "insights": [
+        {"kind": "note", "text": "Thursday was agreed."}]})
+
+    live_watchers.monitor_tick(session)
+
+    body = "\n".join(str(m.get("content") or "") for m in chat.messages)
+    assert "the pod firmware ships on thursday" in body, \
+        "the window note must carry the words it is about"
+    assert "Transcript" in body
+
+
+def test_the_wrap_up_ends_with_the_whole_conversation(cfg, events, model, chat):
+    """Summary first, so a reader meets the conclusion before the evidence."""
+    cfg["monitor"] = False
+    session = _session()
+    _say(session, "first thing that was said out loud")
+    _say(session, "and the second thing after it")
+    model.reply = json.dumps({"summary": "two things", "decisions": [], "actions": []})
+
+    live_watchers.on_session_ended(session, block=True)
+
+    body = "\n".join(str(m.get("content") or "") for m in chat.messages)
+    assert "Full transcript" in body
+    assert "first thing that was said out loud" in body
+    assert "and the second thing after it" in body
+    assert body.index("two things") < body.index("Full transcript"), \
+        "the summary comes before the transcript"
