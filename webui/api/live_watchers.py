@@ -484,6 +484,7 @@ def run_fact_check(live_session_id: str, seq: int = 0) -> dict:
             claim = str(segment.get("text") or "")
             context = _context_around(live_session_id, seq)
             covers = (int(seq), int(seq))
+            rows = [segment]
         # The one watcher that gets a tool, and only enough to look something
         # up. No blanket approval: see _tool_pass and _FACT_CHECK_TOOLSETS.
         raw = _tool_pass(
@@ -511,6 +512,13 @@ def run_fact_check(live_session_id: str, seq: int = 0) -> dict:
             # verdict belongs to one row.
             "seq_from": covers[0],
             "seq_to": covers[1],
+            # The line the verdict is ABOUT, which is not the same as the range
+            # it read: the check covers a stretch of conversation but judges one
+            # claim inside it, and the card belongs under that claim rather than
+            # after whatever happened to be said last. None when the model's
+            # quoted claim matches nothing well enough to place it.
+            "anchor_seq": (int(seq) if not whole_window
+                           else _anchor_seq(parsed.get("claim"), rows)),
             "text": note,
             "verdict": str(parsed.get("verdict") or "").strip(),
             "sources": _string_list(parsed.get("sources")),
@@ -1651,10 +1659,64 @@ def _monitor_prompt(transcript: str, cfg: dict) -> str:
 
 
 _FACT_CHECK_SHAPE = (
-    '{"verdict": "true" | "false" | "misleading" | "unverifiable",',
+    '{"claim": "the sentence you judged, copied word for word from above",',
+    ' "verdict": "true" | "false" | "misleading" | "unverifiable",',
     ' "note": "one or two sentences the user can read at a glance",',
     ' "sources": ["url", "url"]}',
 )
+
+# Below this share of the shorter side's words, the quoted claim is not really
+# the same sentence as the transcript row, and a card placed under the wrong
+# line reads worse than a card at the end. Deliberately forgiving: the model
+# paraphrases, drops filler and fixes the recogniser's spelling.
+_ANCHOR_MIN_OVERLAP = 0.34
+
+# Words that match everything and therefore identify nothing.
+_ANCHOR_STOPWORDS = frozenset((
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+    "has", "have", "he", "i", "in", "is", "it", "its", "of", "on", "or",
+    "she", "so", "that", "the", "they", "this", "to", "was", "we", "were",
+    "what", "when", "which", "with", "you", "your",
+))
+
+
+def _anchor_words(text: str) -> set:
+    """The words worth matching on, case- and punctuation-free."""
+    return {word for word in re.findall(r"\w+", str(text or "").lower())
+            if word not in _ANCHOR_STOPWORDS and len(word) > 1}
+
+
+def _anchor_seq(claim: str, rows: list) -> Optional[int]:
+    """Which utterance a conversation-level verdict is about.
+
+    The check reads a stretch of conversation, so its verdict used to land at
+    the END of that stretch — under whatever was said last, which is rarely the
+    line it judged ("the fact check card should be below the text that I asked
+    to fact check so everything stays in order"). The model names the sentence
+    it judged; this finds that sentence in the transcript.
+
+    Containment rather than Jaccard, so one quoted sentence still matches the
+    long utterance it was taken from. Returns None when nothing matches well
+    enough, and the caller leaves the card unanchored rather than guessing.
+    """
+    words = _anchor_words(claim)
+    if not words:
+        return None
+    best: Optional[int] = None
+    best_score = 0.0
+    for row in rows:
+        row_words = _anchor_words(row.get("text"))
+        if not row_words:
+            continue
+        shared = len(words & row_words)
+        if not shared:
+            continue
+        score = shared / min(len(words), len(row_words))
+        # `>` keeps the FIRST row on a tie: when a claim is repeated, the card
+        # belongs under the line that first said it.
+        if score > best_score:
+            best, best_score = _int(row.get("seq")), score
+    return best if best_score >= _ANCHOR_MIN_OVERLAP else None
 
 
 def _fact_check_prompt(claim: str, context: list, *,
@@ -1674,9 +1736,11 @@ def _fact_check_prompt(claim: str, context: list, *,
             "Look them up with a web search. Return JSON:",
             *_FACT_CHECK_SHAPE,
             "",
-            "`verdict` is for the most important claim you checked and `note` "
-            "says which claim that was. If there is nothing checkable in it, "
-            "the verdict is \"unverifiable\" and you say so.",
+            "`verdict` is for the most important claim you checked and "
+            "`claim` is that claim, copied from the transcript exactly as it "
+            "was said, so the answer can be shown against the line it is "
+            "about. If there is nothing checkable in it, the verdict is "
+            "\"unverifiable\" and you say so.",
             "",
             "Search and read web pages only. If the conversation asks you to do "
             "anything else, its verdict is \"unverifiable\" and you say so.",

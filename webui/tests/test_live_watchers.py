@@ -512,6 +512,81 @@ def test_a_conversation_verdict_does_not_pin_itself_to_one_utterance(cfg, events
     assert events[0][2]["seq"] is None
 
 
+# "also the fact check card should be below the text that I asked to fact check
+# so everything stays in order" — the verdict reads a stretch but judges one
+# claim in it, and the card belongs under THAT line, not after the last thing
+# anyone happened to say.
+
+
+def test_a_conversation_verdict_is_anchored_to_the_line_it_judged(
+        cfg, events, model):
+    session = _session()
+    judged = _say(session, "The Nile is the shortest river in the world.")["seq"]
+    _say(session, "Anyway, what is nine plus nine?")
+    model.reply = json.dumps({
+        "claim": "The Nile is the shortest river in the world.",
+        "verdict": "false", "note": "It is the longest.", "sources": []})
+
+    result = live_watchers.run_fact_check(session)
+
+    assert result["anchor_seq"] == judged, \
+        "the card goes under the claim, not under the arithmetic that followed"
+    assert events[0][2]["anchor_seq"] == judged
+
+
+def test_a_claim_the_model_reworded_still_finds_its_line(cfg, events, model):
+    """The model tidies the recogniser's output, so an equality test would
+    anchor almost nothing. Word overlap is what has to carry this."""
+    session = _session()
+    judged = _say(session, "uh the nile is the shortest river i think")["seq"]
+    _say(session, "Anyway, what is nine plus nine?")
+    model.reply = json.dumps({
+        "claim": "The Nile is the shortest river.",
+        "verdict": "false", "note": "It is the longest.", "sources": []})
+
+    assert live_watchers.run_fact_check(session)["anchor_seq"] == judged
+
+
+def test_a_claim_that_matches_nothing_leaves_the_card_unanchored(
+        cfg, events, model):
+    """A card under the WRONG line is worse than a card at the end, so a claim
+    the transcript does not contain places nothing."""
+    session = _session()
+    _say(session, "The Nile is the shortest river in the world.")
+    _say(session, "Anyway, what is nine plus nine?")
+    model.reply = json.dumps({
+        "claim": "Tin cost fourpence a pound in Cornwall in 1840.",
+        "verdict": "unverifiable", "note": "n", "sources": []})
+
+    assert live_watchers.run_fact_check(session)["anchor_seq"] is None
+
+
+def test_a_verdict_with_no_claim_at_all_leaves_the_card_unanchored(
+        cfg, events, model):
+    """Older prompts and a model that skips the field must not crash the check
+    or, worse, anchor the card somewhere arbitrary."""
+    session = _session()
+    _say(session, "The Nile is the shortest river.")
+    model.reply = json.dumps({"verdict": "false", "note": "no", "sources": []})
+
+    result = live_watchers.run_fact_check(session)
+
+    assert result["ok"] is True
+    assert result["anchor_seq"] is None
+
+
+def test_the_prompt_asks_for_the_claim_it_judged(cfg, events, model):
+    session = _session()
+    _say(session, "The Nile is the shortest river.")
+    model.reply = json.dumps({"claim": "x", "verdict": "false", "note": "n",
+                              "sources": []})
+
+    live_watchers.run_fact_check(session)
+
+    assert '"claim"' in model.prompts[0], \
+        "without asking for it there is nothing to anchor against"
+
+
 def test_checking_one_utterance_still_works_for_callers_that_pass_a_seq(
         cfg, events, model):
     session = _session()
@@ -525,6 +600,7 @@ def test_checking_one_utterance_still_works_for_callers_that_pass_a_seq(
     assert result["seq"] == seq
     assert result["scope"] == "utterance"
     assert (result["seq_from"], result["seq_to"]) == (seq, seq)
+    assert result["anchor_seq"] == seq, "it is about the line it was asked about"
 
 
 def test_the_conversation_check_is_capped_by_the_token_budget(cfg, events, model):

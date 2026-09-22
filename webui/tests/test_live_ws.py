@@ -2481,6 +2481,58 @@ def test_a_conversation_level_insight_is_anchored_not_pinned_to_one_row():
     assert note["seq_to"] == 2, "anchored at the last segment it could have seen"
 
 
+def test_a_refetched_note_carries_the_seq_its_card_is_placed_by():
+    """Clients place a card by `seq`; the table keeps a range. A note pinned to
+    one row has to come back with that row named, or reopening the session
+    drops every anchored card to the bottom."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "the nile is the shortest river")
+    _final_seg(conn, "anyway what is nine plus nine")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "fact_check", "seq": None, "anchor_seq": 1,
+        "scope": "conversation", "text": "It is the longest."})
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "monitor", "seq": None, "text": "a note about the window"})
+
+    handler, claimed = _get(f"/api/live/transcript?live_session_id={sid}")
+    assert claimed and handler.status == 200
+    notes = {n["kind"]: n for n in handler.payload()["insights"]}
+
+    assert notes["fact_check"]["seq"] == 1, "under the line it judged"
+    assert notes["monitor"]["seq"] is None, \
+        "a note that really spans the window is not pinned to its last row"
+
+
+def test_a_verdict_that_names_its_claim_is_stored_against_that_line():
+    """The fact-check reads a stretch but judges one claim inside it, so a
+    reload has to put the card back under the line it is about rather than at
+    the end of the stretch."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "the nile is the shortest river")
+    _final_seg(conn, "anyway what is nine plus nine")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "fact_check", "seq": None, "anchor_seq": 1,
+        "scope": "conversation", "text": "It is the longest."})
+    note = live_store.insights_for_session(sid)[0]
+    assert (note["seq_from"], note["seq_to"]) == (1, 1)
+
+
+def test_an_unanchored_verdict_still_lands_at_the_end():
+    """`anchor_seq: None` is the model failing to name a line it checked, not a
+    reason to drop the note or file it at the top."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "one")
+    _final_seg(conn, "two")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "fact_check", "seq": None, "anchor_seq": None,
+        "scope": "conversation", "text": "nothing checkable"})
+    note = live_store.insights_for_session(sid)[0]
+    assert note["seq_to"] == 2
+
+
 def test_an_utterance_insight_keeps_its_own_seq():
     conn, _client = _connect()
     sid = conn.live_session_id

@@ -103,6 +103,9 @@ def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
     session), so:
 
     * a note that names a `seq` is about that one utterance;
+    * a note that names an `anchor_seq` is about the line it quoted — a
+      conversation-level fact-check reads a stretch but judges one claim
+      inside it, and the card belongs under that claim;
     * a monitor note carries a `digest_id`, and that digest knows the window it
       summarised — the accurate range, recovered with one lookup;
     * anything else is anchored at the last segment it could have seen, so a
@@ -113,6 +116,8 @@ def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
         if not text:
             return
         seq = payload.get("seq")
+        if not isinstance(seq, (int, float)):
+            seq = payload.get("anchor_seq")
         seq_from = seq_to = int(seq) if isinstance(seq, (int, float)) else None
         digest_id = str(payload.get("digest_id") or "")
         if seq_from is None and digest_id:
@@ -133,6 +138,21 @@ def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
     except Exception:
         logger.warning("live: an insight could not be stored for %s",
                        live_session_id[:8] or "?", exc_info=True)
+
+def _insight_frame(note: Dict[str, Any]) -> Dict[str, Any]:
+    """A stored note, shaped like the `insight` frame a live client already reads.
+
+    The table keeps a RANGE; the frame carries a `seq`, which is the field every
+    client places a card by. A note pinned to one row (a translation, or a
+    fact-check that named the line it judged) has a range of exactly that row,
+    so it can say `seq` and be placed after a reload instead of falling to the
+    bottom of the transcript. A note that really does span a window keeps
+    `seq: null` and stays where it belongs, after everything it read.
+    """
+    seq_from, seq_to = note.get("seq_from"), note.get("seq_to")
+    pinned = seq_from is not None and seq_from == seq_to
+    return dict(note, seq=int(seq_to) if pinned else None)
+
 
 LANE_EDGE = "edge"
 LANE_SERVER = "server"
@@ -2431,7 +2451,7 @@ def _live_transcript(handler, parsed) -> bool:
                        exc_info=True)
     j(handler, {"live_session_id": sid, "session": session,
                 "segments": segments,
-                "insights": insights,
+                "insights": [_insight_frame(note) for note in insights],
                 "last_seq": int(session.get("last_seq") or 0)})
     return True
 

@@ -434,7 +434,10 @@ function _liveRecordInsight(raw) {
   const ins = {
     id: raw.id || null,
     kind: String(raw.kind || raw.type || 'note'),
-    seq: raw.seq != null ? Number(raw.seq) : null,
+    // `anchor_seq` is the line a conversation-level verdict actually
+    // judged; without it the card lands after whatever was said last.
+    seq: raw.seq != null ? Number(raw.seq)
+       : (raw.anchor_seq != null ? Number(raw.anchor_seq) : null),
     title: raw.title || '',
     text: raw.text || raw.summary || raw.verdict || raw.note || raw.message || '',
     verdict: raw.verdict || '',
