@@ -182,14 +182,33 @@ def sweep_orphan_audio_once() -> Optional[Dict[str, Any]]:
 def server_caps() -> Dict[str, Any]:
     """What this server can actually do, stated honestly.
 
-    ``embed`` is False until the phase-5 embedding spike lands; claiming it
-    would make a device trust server-side identification that does not exist.
+    ``embed`` is True only when the voiceprint model is loadable RIGHT NOW —
+    the extra installed and the checkpoint already on disk. It was hardcoded
+    False for a good reason and that reason has not changed: a device that
+    believes in server-side identification which does not exist trusts labels
+    nothing is producing. So this reports the machine, not the intention.
+
+    A fresh install therefore says False on its first handshake, because the
+    26 MB checkpoint is fetched in the background by the first identification
+    job rather than on the handshake path. Later handshakes say True.
     """
     return {
         "stt": _server_stt_available(),
-        "embed": False,
+        "embed": _embed_available(),
         "embed_model": live_config.load()["embed_model"],
     }
+
+
+def _embed_available() -> bool:
+    """Whether server-side identification can run. Never raises, never False-y
+    for the wrong reason: an import error in the optional module is exactly the
+    case that must answer False rather than break the handshake."""
+    try:
+        from api import live_voiceprint
+        return bool(live_voiceprint.available())
+    except Exception:
+        logger.debug("live: voiceprint module unavailable", exc_info=True)
+        return False
 
 
 _server_stt_cache: Optional[bool] = None
@@ -389,6 +408,23 @@ class _AudioWriter:
         with self._lock:
             return self._close_locked()
 
+    def snapshot(self) -> Optional[Dict[str, Any]]:
+        """What this writer currently holds, for reading audio back mid-chunk.
+
+        Speaker identification needs an utterance's audio while the chunk it
+        landed in is still open — a chunk is five minutes and an utterance is
+        seconds, so waiting for the roll would mean identifying nothing until
+        the recording was nearly over. The buffered tail is copied out because
+        it is about to be flushed under the caller.
+        """
+        with self._lock:
+            if self._path is None:
+                return None
+            return {"path": self._path, "ts0_ms": self._ts0_ms,
+                    "ts1_ms": self._ts1_ms, "buffered": bytes(self._buf),
+                    "codec": self.profile["stored"],
+                    "device_id": self.device_id}
+
     # ── internals (caller holds the lock) ──
 
     def _should_roll(self) -> bool:
@@ -531,6 +567,142 @@ def ingest_audio_chunk(live_session_id: str, payload: bytes, *, ts_ms: int = 0,
                        rate: int = 16000) -> Dict[str, Any]:
     writer = writer_for(live_session_id, device_id, codec, rate)
     return writer.append(payload, ts_ms)
+
+
+# ── reading audio back for one utterance ───────────────────────────────────
+
+# `_codec_profile` writes this exact spelling for unframed PCM.
+_PCM_CODEC_RE = re.compile(r"^pcm16@(\d+)$")
+
+
+def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
+                  device_id: str = "") -> Optional[Tuple[bytes, int]]:
+    """The stored samples covering one segment's time range: ``(pcm16, rate)``.
+
+    The region of the chunk covering the segment, located by the ONE time base
+    the module docstring describes — ``ts_start_ms``/``ts_end_ms`` are already
+    ms-since-session-start (`to_offset_ms` guarantees it) and so is a chunk's
+    ``ts0_ms``, so the offset is a subtraction rather than a guess.
+
+    Two honest limits:
+
+    * **Only raw ``pcm16`` chunks can be read back.** An
+      ``opus-packets-len32`` chunk is a framed packet stream, and turning it
+      into samples needs an Opus decoder — a new dependency for a feature that
+      is meant to add exactly one. A device streaming Opus gets no server-side
+      identification, which is why this returns None rather than pretending.
+    * The byte offset assumes the chunk's PCM runs contiguously at ``rate``
+      from ``ts0_ms``, which is what continuous ambient capture produces. A
+      client that stops and restarts inside one chunk leaves a gap no byte
+      offset can see, and the slice drifts. That costs one identification, not
+      the transcript.
+    """
+    span_ms = max(0, int(ts_end_ms) - int(ts_start_ms))
+    if span_ms <= 0:
+        return None
+    candidates: List[Dict[str, Any]] = []
+    with _writers_lock:
+        writers = [w for key, w in _writers.items() if key[0] == live_session_id]
+    for writer in writers:
+        snap = writer.snapshot()
+        if snap:
+            candidates.append(snap)
+    try:
+        for row in live_store.audio_chunks(live_session_id):
+            candidates.append({"path": Path(row["path"]),
+                               "ts0_ms": int(row.get("ts0_ms") or 0),
+                               "ts1_ms": int(row.get("ts1_ms") or 0),
+                               "buffered": b"",
+                               "codec": str(row.get("codec") or ""),
+                               "device_id": str(row.get("device_id") or "")})
+    except Exception:
+        logger.debug("live: could not list audio chunks for %s",
+                     live_session_id, exc_info=True)
+
+    best: Optional[Tuple[int, Dict[str, Any], int]] = None
+    for chunk in candidates:
+        match = _PCM_CODEC_RE.match(chunk["codec"])
+        if not match:
+            continue
+        rate = int(match.group(1))
+        if rate <= 0:
+            continue
+        # How far the chunk actually reaches, derived from how many samples it
+        # HOLDS rather than from the last timestamp seen. `ts1_ms` is the
+        # highest `ts_ms` a packet carried, and a client that sends one large
+        # batch — or omits `ts_ms` entirely, which the protocol allows — leaves
+        # it equal to `ts0_ms` while the chunk holds minutes of audio. Ranking
+        # on that made every utterance look like it fell outside every chunk,
+        # so identification silently never ran.
+        available = _chunk_bytes(chunk)
+        if available < 2:
+            continue
+        chunk_end_ms = max(int(chunk["ts1_ms"]),
+                           int(chunk["ts0_ms"]) + int(available / 2 * 1000 / rate))
+        overlap = min(int(ts_end_ms), chunk_end_ms) - \
+            max(int(ts_start_ms), int(chunk["ts0_ms"]))
+        if overlap <= 0:
+            continue
+        # The capturing device first: two mics on one conversation hear the
+        # same words at different distances, and the voiceprint should come
+        # from the mic that produced the transcript row.
+        if device_id and chunk["device_id"] and chunk["device_id"] != device_id:
+            overlap -= span_ms  # ranked below any same-device chunk
+        if best is None or overlap > best[0]:
+            best = (overlap, chunk, rate)
+    if best is None:
+        return None
+    _overlap, chunk, rate = best
+    pcm = _read_pcm_span(chunk, rate, int(ts_start_ms), int(ts_end_ms))
+    return (pcm, rate) if pcm else None
+
+
+def _chunk_bytes(chunk: Dict[str, Any]) -> int:
+    """Samples on disk plus the tail still buffered, in bytes.
+
+    The file is stat'd rather than trusting `live_audio.bytes`: an open chunk
+    has no row yet, and a row's size is written when the chunk closes.
+    """
+    try:
+        path = Path(chunk["path"])
+        on_disk = path.stat().st_size if path.exists() else 0
+    except OSError:
+        on_disk = 0
+    return on_disk + len(chunk.get("buffered") or b"")
+
+
+def _read_pcm_span(chunk: Dict[str, Any], rate: int, ts_start_ms: int,
+                   ts_end_ms: int) -> bytes:
+    """Bytes ``[ts_start, ts_end)`` of one pcm16 chunk, file plus buffered tail."""
+    def _byte_at(ts_ms: int) -> int:
+        samples = int(max(0, ts_ms - int(chunk["ts0_ms"])) * rate / 1000)
+        return samples * 2  # int16, mono — always sample-aligned
+
+    byte_from, byte_to = _byte_at(ts_start_ms), _byte_at(ts_end_ms)
+    if byte_to <= byte_from:
+        return b""
+    path = Path(chunk["path"])
+    buffered = chunk.get("buffered") or b""
+    out = bytearray()
+    try:
+        on_disk = path.stat().st_size if path.exists() else 0
+    except OSError:
+        on_disk = 0
+    if byte_from < on_disk:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(byte_from)
+                out += fh.read(min(byte_to, on_disk) - byte_from)
+        except OSError:
+            logger.debug("live: could not read audio for identification",
+                         exc_info=True)
+            return b""
+    if buffered and byte_to > on_disk:
+        lo = max(0, byte_from - on_disk)
+        out += buffered[lo:byte_to - on_disk]
+    if len(out) % 2:
+        out = out[:-1]
+    return bytes(out)
 
 
 _started_ms_cache: "OrderedDict[str, int]" = OrderedDict()
@@ -757,7 +929,229 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
     row = segment_frame(row)
     publish(live_session_id, "seg", row)
     _notify_segment_appended(live_session_id, int(row["seq"]))
+    _identify_async(row)
     return row
+
+
+# ── speaker identification (design §5.2, the authority lane) ───────────────
+
+# One worker: identification is ~40 ms of CPU for a 3-second utterance and it
+# runs beside the recorder. Serialising it keeps the order of decisions the
+# same as the order of speech, which is what makes the pending-group promotion
+# in `live_voiceprint` deterministic.
+_IDENT_WORKERS = 1
+# A memory bound on the queue, NOT a rate limit. This was 4, which looked
+# reasonable and was wrong: design §8's normal case is a phone whose socket
+# drops about once a minute and then uploads its spool, so utterances arrive in
+# bursts of dozens, and a cap of 4 meant everything after the fourth was
+# declined and stayed permanently unlabelled — nothing retries a dropped job.
+# Identification is ~40 ms of CPU per utterance, so a full queue drains in a
+# couple of seconds on the single worker; the cap only has to stop an
+# unbounded backlog from growing server memory.
+_MAX_IDENT_INFLIGHT = 64
+
+_ident_pool: Optional[Any] = None
+_ident_inflight = 0
+_ident_lock = threading.Lock()
+
+
+def _ident_submit(fn, *args) -> bool:
+    """Run `fn` off the capture thread, or decline. Never raises.
+
+    Same shape as `live_watchers._submit`, and for the same reason: the caller
+    is the thread appending segments, and the worst outcome available here is
+    an unlabelled voice, not a stalled recorder.
+    """
+    global _ident_inflight, _ident_pool
+    from concurrent.futures import ThreadPoolExecutor
+
+    with _ident_lock:
+        if _ident_inflight >= _MAX_IDENT_INFLIGHT:
+            logger.debug("live: identification queue full (%d); this segment "
+                         "stays provisional", _ident_inflight)
+            return False
+        if _ident_pool is None:
+            _ident_pool = ThreadPoolExecutor(
+                max_workers=_IDENT_WORKERS, thread_name_prefix="live-voiceprint")
+        pool = _ident_pool
+        _ident_inflight += 1
+
+    def _run() -> None:
+        global _ident_inflight
+        try:
+            fn(*args)
+        except Exception:
+            logger.warning("live: identification job failed", exc_info=True)
+        finally:
+            with _ident_lock:
+                _ident_inflight -= 1
+
+    try:
+        pool.submit(_run)
+        return True
+    except Exception:
+        with _ident_lock:
+            _ident_inflight -= 1
+        logger.warning("live: could not schedule identification", exc_info=True)
+        return False
+
+
+def drain_identification(timeout: float = 5.0) -> bool:
+    """Wait for queued identification to finish. True if the queue emptied.
+
+    Exists for the test suite: an identification job resolves STATE_DIR when it
+    runs, not when it was queued, so one outliving its test would open a
+    connection against whatever STATE_DIR points at by then — the real one.
+    """
+    deadline = time.time() + max(0.0, timeout)
+    while time.time() < deadline:
+        with _ident_lock:
+            if _ident_inflight <= 0:
+                return True
+        time.sleep(0.01)
+    with _ident_lock:
+        return _ident_inflight <= 0
+
+
+def _identify_async(row: Dict[str, Any]) -> None:
+    """Queue server-side identification for a freshly appended segment.
+
+    Wrapped whole: this is called from the thread that just made the transcript
+    durable, and design §8 is unambiguous that nothing optional may stop it.
+    """
+    try:
+        if row.get("speaker_id"):
+            # Already attributed — an edge device whose voiceprints the
+            # interlock trusts, or a re-ingested segment. Identifying it again
+            # would fight the device for the label.
+            return
+        from api import live_voiceprint
+        if not live_voiceprint.can_try():
+            return
+        _ident_submit(_run_identification, str(row.get("live_session_id") or ""),
+                      int(row.get("seq") or 0),
+                      int(row.get("ts_start_ms") or 0),
+                      int(row.get("ts_end_ms") or 0),
+                      str(row.get("device_id") or ""),
+                      dict(row))
+    except Exception:
+        logger.debug("live: identification could not be queued", exc_info=True)
+
+
+def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
+                        ts_end_ms: int, device_id: str,
+                        row: Dict[str, Any]) -> None:
+    """Embed this utterance's audio, decide whose voice it is, tell the clients.
+
+    Runs on the identification pool, so every failure mode here is a log line
+    and an unlabelled segment.
+    """
+    from api import live_voiceprint
+
+    audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
+    if audio is None:
+        return
+    vec = live_voiceprint.embed(audio[0], audio[1])
+    if vec is None:
+        return
+    # Seeding "me" from stored voice turns (§5.4) needs the model loaded, which
+    # it now demonstrably is, and it belongs on this thread rather than the
+    # recorder's. At most once per process.
+    live_voiceprint.enrol_me_once()
+    decision = live_voiceprint.identify(vec, live_session_id=live_session_id,
+                                        seq=seq)
+    if not decision:
+        return
+    _apply_identification(live_session_id, seq, row, decision)
+
+
+def _apply_identification(live_session_id: str, seq: int, row: Dict[str, Any],
+                          decision: Dict[str, Any]) -> None:
+    """Write the decision to the store and fan out what clients need to relabel.
+
+    The frame order matters and is set by what the shipped clients do with it:
+
+    1. the segment's own ``seg`` frame, re-published with the resolved
+       ``speaker_id``/``speaker_conf``/``label_state``. Both clients upsert a
+       segment by ``seq``, so this is how the chip appears at all — and it is
+       the ONLY frame a still-provisional decision sends, because a
+       ``speaker{op:"confirm"}`` marks rows confirmed unconditionally and would
+       overstate a middling match.
+    2. on a confirmed decision, ``speaker{op:"confirm"}`` naming every seq this
+       decision settles: the new one plus any that were being held
+       provisionally for this voice.
+    3. on a merge, a global ``speaker{op:"merge"}`` — a voice is not scoped to
+       one transcript.
+    """
+    speaker_id = str(decision.get("speaker_id") or "")
+    if not speaker_id:
+        return
+    label_state = str(decision.get("label_state")
+                      or live_store.LABEL_PROVISIONAL)
+    score = float(decision.get("score") or 0.0)
+    confirmed = label_state == live_store.LABEL_CONFIRMED
+    # A freshly minted voice has no similarity to report: `score` then holds
+    # how UNLIKE the nearest known voice it was, which is not a confidence in
+    # this label and read as "4% sure" in the UI's percentage badge. The column
+    # is nullable and both clients omit the badge for null, which is the honest
+    # rendering — the label is certain, the comparison is meaningless.
+    conf: Optional[float] = None if decision.get("new_speaker") else score
+    promoted = [int(q) for sid, q in (decision.get("promoted") or [])
+                if str(sid) == live_session_id and int(q) != int(seq)]
+
+    try:
+        live_store.assign_speaker(live_session_id, seq, speaker_id,
+                                  conf=conf, label_state=label_state)
+        for other in promoted:
+            live_store.assign_speaker(live_session_id, other, speaker_id,
+                                      conf=conf,
+                                      label_state=live_store.LABEL_CONFIRMED)
+    except Exception:
+        logger.warning("live: could not store the speaker for %s#%s",
+                       live_session_id[:8] or "?", seq, exc_info=True)
+        return
+
+    updated = dict(row)
+    updated.update({"speaker_id": speaker_id, "speaker_conf": conf,
+                    "label_state": label_state})
+    publish(live_session_id, "seg", segment_frame(updated))
+
+    speaker = None
+    try:
+        speaker = live_store.get_speaker(speaker_id)
+    except Exception:
+        logger.debug("live: could not read the speaker row", exc_info=True)
+
+    if confirmed:
+        publish(live_session_id, "speaker", {
+            "op": "confirm",
+            "live_session_id": live_session_id,
+            "speaker_id": speaker_id,
+            # `seqs` is what the web client reads to pin specific rows; iOS
+            # settles every row already carrying this speaker_id, which the
+            # `seg` frames above have just given it.
+            "seqs": sorted(set(promoted + [int(seq)])),
+            "speaker_conf": conf,
+            "label_state": live_store.LABEL_CONFIRMED,
+            "new_speaker": bool(decision.get("new_speaker")),
+            "kind": (speaker or {}).get("kind") or "other",
+            "name": (speaker or {}).get("name"),
+        })
+
+    merged_from = decision.get("merged_from")
+    if merged_from:
+        # Every spelling the shipped clients read: the web store takes
+        # `from_id`/`into_id`, and iOS takes the survivor from
+        # `speaker_id`/`into` and the folded ids from `from`.
+        _publish_speaker_op({
+            "op": "merge",
+            "speaker_id": speaker_id,
+            "into": speaker_id,
+            "into_id": speaker_id,
+            "from": [str(merged_from)],
+            "from_id": str(merged_from),
+            "name": (speaker or {}).get("name"),
+        })
 
 
 # ── sessions and the paired chat (design §4) ───────────────────────────────
@@ -1693,8 +2087,14 @@ def handle_live_post(handler, parsed, body) -> bool:
         moved = live_store.merge_speakers(from_id, into_id)
         # Clients apply a merge in place, relabelling earlier segments, which is
         # why the frame carries both ids rather than a reload instruction.
+        # Every spelling, because the two shipped clients read different keys:
+        # the web store takes `from_id`/`into_id`, and iOS takes the survivor
+        # from `speaker_id`/`into` and the folded ids from `from` — so a frame
+        # carrying only the first pair decoded on iOS as an empty rename.
         _publish_speaker_op({"op": "merge", "from_id": from_id,
-                             "into_id": into_id, "segments_moved": moved})
+                             "into_id": into_id, "segments_moved": moved,
+                             "speaker_id": into_id, "into": into_id,
+                             "from": [from_id]})
         j(handler, {"ok": True, "segments_moved": moved,
                     "speaker": live_store.get_speaker(into_id)})
         return True

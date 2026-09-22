@@ -34,7 +34,17 @@ DEFAULTS: Dict[str, Any] = {
     "artifacts": True,
     "reply_mode": "text",
     "primary_language": "en",
-    "embed_model": "ecapa-v1",
+    # Names the checkpoint the server actually runs (see api/live_voiceprint.py):
+    # WeSpeaker voxceleb_resnet34_LM. This used to say "ecapa-v1", which was a
+    # lie in a load-bearing place — ECAPA-TDNN and ResNet34 are different
+    # architectures producing incomparable vectors, and this id is the whole
+    # interlock (§5.3): a device declaring it is promising its voiceprints can
+    # be compared with the server's, and every `speaker_embedding` row is
+    # stamped with it. `embeddings_for_model` filters on it, so any row written
+    # under the old id simply stops matching — which is correct, not a
+    # migration problem: no such rows exist in practice, and if they did they
+    # would be ECAPA-shaped vectors this model cannot be compared against.
+    "embed_model": "wespeaker-resnet34-lm-v1",
     # Roll a live session over once its transcript reaches this share of the
     # model's context window. Recording used to open a new session (and a new
     # chat) on every tap of Record.

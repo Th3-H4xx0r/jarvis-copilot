@@ -1930,6 +1930,10 @@ homeassistant = [
 honcho = [
     { name = "honcho-ai" },
 ]
+live-voiceprint = [
+    { name = "numpy" },
+    { name = "onnxruntime" },
+]
 matrix = [
     { name = "aiohttp-socks" },
     { name = "aiosqlite" },
@@ -2084,7 +2088,9 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==1.26.0" },
     { name = "modal", marker = "extra == 'modal'", specifier = "==1.3.4" },
     { name = "numpy", marker = "extra == 'holographic'", specifier = "==2.4.3" },
+    { name = "numpy", marker = "extra == 'live-voiceprint'", specifier = "==2.4.3" },
     { name = "numpy", marker = "extra == 'voice'", specifier = "==2.4.3" },
+    { name = "onnxruntime", marker = "extra == 'live-voiceprint'", specifier = ">=1.24.4,<2" },
     { name = "openai", specifier = "==2.24.0" },
     { name = "parallel-web", marker = "extra == 'parallel-web'", specifier = "==0.4.2" },
     { name = "pillow", specifier = "==12.3.0" },
@@ -2127,7 +2133,7 @@ requires-dist = [
     { name = "webrtc-noise-gain", marker = "extra == 'pod-noise'", specifier = ">=1.2,<2" },
     { name = "youtube-transcript-api", marker = "extra == 'youtube'", specifier = "==1.2.4" },
 ]
-provides-extras = ["anthropic", "exa", "firecrawl", "parallel-web", "fal", "edge-tts", "pod-noise", "modal", "daytona", "vercel", "hindsight", "dev", "messaging", "cron", "slack", "matrix", "cli", "tts-premium", "voice", "pty", "honcho", "holographic", "mcp", "homeassistant", "sms", "computer-use", "acp", "bedrock", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
+provides-extras = ["anthropic", "exa", "firecrawl", "parallel-web", "fal", "edge-tts", "pod-noise", "modal", "daytona", "vercel", "hindsight", "dev", "messaging", "cron", "slack", "matrix", "cli", "tts-premium", "voice", "live-voiceprint", "pty", "honcho", "holographic", "mcp", "homeassistant", "sms", "computer-use", "acp", "bedrock", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
 
 [[package]]
 name = "jinja2"

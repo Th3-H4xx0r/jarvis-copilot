@@ -93,6 +93,28 @@ def stubbed_watchers(monkeypatch):
                           "facts_unattributable": 0})
 
 
+@pytest.fixture(autouse=True)
+def no_identification(monkeypatch):
+    """Keep this file about capture, the way `stubbed_watchers` does.
+
+    Server-side identification is queued for every unattributed segment, so on
+    a machine that HAS the voiceprint extra installed these tests would each
+    spawn a background job — and a job resolves STATE_DIR when it runs, not
+    when it was queued. One outliving its test opened a connection against the
+    previous test's temp dir and left `live_store`'s process-global
+    "schema already created" flag set for a database that no longer existed,
+    so a later test failed with `no such table: live_session`. It also would
+    have tried to fetch the 26 MB checkpoint over the network.
+
+    `test_live_voiceprint.py` opts back in per test.
+    """
+    from api import live_voiceprint
+    monkeypatch.setattr(live_voiceprint, "can_try", lambda: False)
+    yield
+    assert live_ws.drain_identification(5.0), \
+        "an identification job outlived its test"
+
+
 # ── harness ────────────────────────────────────────────────────────────────
 
 
@@ -232,10 +254,14 @@ def test_the_ready_frame_states_the_lane_and_the_servers_own_capabilities():
     ready = client.first("ready")
     assert ready["lane"] == live_ws.LANE_EDGE
     assert ready["server_caps"]["embed_model"] == live_config.DEFAULTS["embed_model"]
-    # Honesty about what the server cannot do yet matters more than the True:
-    # a device that believes in server-side embedding would trust identification
-    # that does not exist until the phase-5 spike lands.
-    assert ready["server_caps"]["embed"] is False
+    # Honesty is the invariant, not the value. `embed` now depends on whether
+    # the voiceprint model is actually loadable on THIS machine, so asserting a
+    # constant here would be a change-detector that fails on exactly the hosts
+    # where the feature works. What must hold is that the claim matches
+    # reality: a device that believes in server-side embedding which is not
+    # running would trust labels nothing is producing.
+    from api import live_voiceprint
+    assert ready["server_caps"]["embed"] is live_voiceprint.available()
 
 
 # ── handshake, paired chat, resume ─────────────────────────────────────────

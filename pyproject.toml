@@ -116,6 +116,23 @@ voice = [
   "sounddevice==0.5.5",
   "numpy==2.4.3",
 ]
+# Server-side speaker identification for Live Jarvis
+# (webui/api/live_voiceprint.py). Optional on purpose: without it Live Jarvis
+# still records and transcribes, every voice just stays provisional, and
+# `server_caps["embed"]` reports False so no device trusts identification that
+# is not running. The 26 MB WeSpeaker checkpoint is downloaded to STATE_DIR on
+# first use, not committed.
+#
+# The mel frontend is implemented in numpy rather than pulling torchaudio or
+# librosa — those are ~2 GB and ~10 transitive packages for forty lines of FFT,
+# and a larger install is a larger supply-chain surface, which is the whole
+# argument of the pinning policy above.
+#
+# Range rather than an exact pin, as AGENTS.md specifies for PyPI packages and
+# as `pod-noise` already does. The floor is the version uv.lock already resolves
+# (onnxruntime arrives transitively via faster-whisper), so declaring this extra
+# does not move the lock; verified locally against 1.26.0.
+live-voiceprint = ["onnxruntime>=1.24.4,<2", "numpy==2.4.3"]
 pty = [
   "ptyprocess==0.7.0; sys_platform != 'win32'",
   "pywinpty==2.0.15; sys_platform == 'win32'",
