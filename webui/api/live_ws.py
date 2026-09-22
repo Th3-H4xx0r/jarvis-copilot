@@ -892,6 +892,19 @@ class LiveConnection:
             data.setdefault("live_session_id", self.live_session_id)
             data.setdefault("device_id", self.device_id)
             publish(self.live_session_id, "state", data)
+        elif kind == "source":
+            # Which mic this session is capturing from — "AirPods Pro", "Jarvis
+            # glasses", "iPhone mic". The client sends it at start and again
+            # whenever the route changes mid-session (AirPods pulled out), so a
+            # recording carries the source that actually produced it.
+            # Rejecting this frame put "unsupported frame type 'source'" over
+            # the phone's controls while capture itself was fine.
+            label = str(msg.get("source_label") or msg.get("label") or "").strip()
+            if label:
+                live_store.set_source_label(self.live_session_id, label[:120])
+            publish(self.live_session_id, "state",
+                    {"live_session_id": self.live_session_id,
+                     "device_id": self.device_id, "source_label": label})
         elif kind == "end":
             row = end_live_session(self.live_session_id)
             self.send({"t": "state", "live_session_id": self.live_session_id,

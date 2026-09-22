@@ -2071,3 +2071,29 @@ def test_a_dead_socket_does_close_the_connection():
     conn = live_ws.LiveConnection(dead)
     conn.on_text(json.dumps({"t": "hello", "caps": _edge_caps()}))
     assert conn.closed is True
+
+
+def test_a_source_frame_records_which_mic_is_capturing():
+    """The client sends this at start and whenever the audio route changes. The
+    server used to reject it as an unknown frame, which put "unsupported frame
+    type 'source'" over the phone's controls while capture worked fine."""
+    conn, client = _connect()
+    sid = conn.live_session_id
+
+    conn.on_text(json.dumps({"t": "source", "source_label": "AirPods Pro"}))
+
+    assert client.of("error") == [], "a mic change is not an error"
+    assert live_store.get_session(sid)["source_label"] == "AirPods Pro"
+
+    conn.on_text(json.dumps({"t": "source", "source_label": "iPhone mic"}))
+    assert live_store.get_session(sid)["source_label"] == "iPhone mic", \
+        "a route change mid-session must update, not be ignored"
+
+
+def test_a_source_frame_without_a_label_keeps_the_last_known_mic():
+    conn, client = _connect()
+    conn.on_text(json.dumps({"t": "source", "source_label": "AirPods Pro"}))
+    conn.on_text(json.dumps({"t": "source"}))
+
+    assert client.of("error") == []
+    assert live_store.get_session(conn.live_session_id)["source_label"] == "AirPods Pro"
