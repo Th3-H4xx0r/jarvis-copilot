@@ -1439,6 +1439,16 @@ final class LiveStore {
             JcLog.voice.notice("live: undecodable text frame \(text.utf8.count, privacy: .public)B")
             return
         }
+        apply(frame)
+    }
+
+    /// One decoded frame, from the socket or from a replay.
+    ///
+    /// Split out so a note restored by `backfill` takes the SAME path a live one
+    /// takes — the alternative is a second, quietly diverging copy of every
+    /// placement rule (the wrap-up at the end, an anchored verdict under its
+    /// line) for the restore case.
+    private func apply(_ frame: LiveServerFrame) {
         switch frame {
         case .ready(let ready):
             apply(ready)
@@ -1533,8 +1543,10 @@ final class LiveStore {
     private func backfill(afterSeq: Int) async {
         guard !liveSessionID.isEmpty else { return }
         do {
-            let rows = try await api.transcript(liveSessionID: liveSessionID, afterSeq: afterSeq)
-            for row in rows { upsert(row) }
+            let page = try await api.transcript(liveSessionID: liveSessionID, afterSeq: afterSeq)
+            for row in page.segments { upsert(row) }
+            // After the rows, so a note that belongs under a line finds it.
+            for note in page.notes { apply(note) }
         } catch { report("load the transcript", error) }
     }
 
@@ -1727,9 +1739,12 @@ final class LiveStore {
         transcript.removeAll()
         clearPartial()
         do {
-            let rows = try await api.transcript(liveSessionID: session.id, afterSeq: 0)
+            let page = try await api.transcript(liveSessionID: session.id, afterSeq: 0)
             guard viewingSessionID == session.id else { return }
-            for row in rows { transcript.upsert(row) }
+            for row in page.segments { transcript.upsert(row) }
+            // Looking back at a finished conversation shows what was said about
+            // it too — the verdicts and the wrap-up, not just the utterances.
+            for note in page.notes { apply(note) }
             clearTransientError()
         } catch {
             report("load that conversation", error)
@@ -1826,9 +1841,19 @@ final class LiveStore {
 
     func delete(kind: LiveDeleteKind, id: String) async {
         do {
-            try await api.delete(kind: kind, id: id)
+            let outcome = try await api.delete(kind: kind, id: id)
             await loadStorage()
             await loadSpeakers()
+            // Said AFTER the reloads, because each of them clears the transient
+            // error on success — a message set before them would be wiped by
+            // the very refresh the delete triggered.
+            //
+            // Through `error` on purpose: this IS the case where the delete did
+            // not do everything it said, and there is no quieter place on this
+            // screen the user would actually read.
+            if let shortfall = outcome.shortfall {
+                error = "Deleted, but \(shortfall)."
+            }
             if kind == .session, id == liveSessionID {
                 transcript.removeAll()
                 // Asking to resume a session the user just deleted would have

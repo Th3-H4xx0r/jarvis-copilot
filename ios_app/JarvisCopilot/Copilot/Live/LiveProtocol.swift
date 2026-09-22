@@ -256,6 +256,61 @@ struct LiveInsight: Equatable, Sendable, Identifiable {
     }
 }
 
+/// What a Live delete actually did — including what it did NOT do.
+///
+/// The server works out which remembered facts a deletion owes, which of them
+/// are only STAGED for approval (so still in MEMORY.md), and which could not be
+/// tied to the voice being forgotten. A fact lives in every future agent's
+/// system prompt, so a delete that says "done" while one survives is the kind
+/// of quiet over-promise worth a sentence on screen.
+struct LiveDeleteOutcome: Sendable {
+    /// False when the server says part of what it promised did not happen.
+    var ok = true
+    var retracted = 0
+    var staged = 0
+    var unattributable = 0
+    var failure = ""
+    var note = ""
+
+    static func from(_ d: [String: Any]) -> LiveDeleteOutcome {
+        LiveDeleteOutcome(
+            ok: d.bool("ok") ?? true,
+            retracted: d.int("facts_retracted") ?? 0,
+            staged: d.int("facts_retraction_staged") ?? 0,
+            unattributable: d.int("facts_unattributable") ?? 0,
+            failure: d.string("facts_retraction_failed") ?? "",
+            note: d.string("facts_note") ?? d.string("warning") ?? "")
+    }
+
+    /// One sentence about what the delete left behind, or nil when it left
+    /// nothing — silence is only correct when there is nothing to say.
+    var shortfall: String? {
+        var parts: [String] = []
+        if staged > 0 {
+            parts.append(staged == 1
+                ? "1 remembered fact is still in memory until you approve its removal"
+                : "\(staged) remembered facts are still in memory until you approve their removal")
+        }
+        if unattributable > 0 {
+            parts.append(unattributable == 1
+                ? "1 could not be tied to this voice and was kept"
+                : "\(unattributable) could not be tied to this voice and were kept")
+        }
+        if !failure.isEmpty { parts.append("memory was not updated: \(failure)") }
+        if !note.isEmpty { parts.append(note) }
+        if parts.isEmpty && !ok { parts.append("part of the delete did not finish") }
+        return parts.isEmpty ? nil : parts.joined(separator: "; ")
+    }
+}
+
+/// One page of `/api/live/transcript`: the utterances, and the notes about them.
+struct LiveTranscriptPage: Sendable {
+    var segments: [LiveSegment] = []
+    /// Already-decoded frames — `insight`, `factCheck` or `wrapUp` — so the
+    /// caller applies them exactly as it applies a live one.
+    var notes: [LiveServerFrame] = []
+}
+
 /// What came back from a fact-check of the recent conversation.
 ///
 /// A conversation-level result, not a per-row one: checking a single utterance
@@ -433,6 +488,20 @@ enum LiveServerFrame: Equatable, Sendable {
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return nil }
         return decode(object: object)
+    }
+
+    /// One row of `/api/live/transcript`'s `insights`, as the frame it was when
+    /// it was live.
+    ///
+    /// The stored row is the frame minus its `t` — the table has no column for
+    /// a discriminator it never varies — so putting it back is all that stands
+    /// between a saved note and the decoder that already knows every shape it
+    /// can take. Anything else would be a second decoder to keep in step with
+    /// this one.
+    static func storedNote(from d: [String: Any]) -> LiveServerFrame {
+        var frame = d
+        frame["t"] = "insight"
+        return decode(object: frame)
     }
 
     static func decode(object d: [String: Any]) -> LiveServerFrame {

@@ -32,8 +32,13 @@ final class LiveStoreTests: XCTestCase {
         super.tearDown()
     }
 
+    /// `transcript` is a parameter rather than something a test routes for
+    /// itself: `MockTransport` matches the FIRST route registered for a path,
+    /// so a route added afterwards for `/api/live/transcript` is silently
+    /// ignored and the test reads an empty transcript it did not ask for.
     private func makeRig(spoolLimit: Int = 1024 * 1024,
                          readiness: SpeechReadiness = .ready,
+                         transcript: [String: Any] = ["segments": []],
                          keyValues: [String: Any] = [:]) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
@@ -60,7 +65,7 @@ final class LiveStoreTests: XCTestCase {
         transport.route("/api/live/config", json: [:])
         transport.route("/api/live/speakers", json: ["speakers": []])
         transport.route("/api/live/storage", json: ["total_bytes": 0])
-        transport.route("/api/live/transcript", json: ["segments": []])
+        transport.route("/api/live/transcript", json: transcript)
 
         let store = LiveStore(api: LiveAPI(api: api),
                               input: input,
@@ -949,5 +954,56 @@ final class LiveStoreTests: XCTestCase {
 
     private func json(_ object: [String: Any]) -> String {
         String(data: try! JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+    }
+
+    // MARK: - Notes survive being away
+
+    /// A verdict, a monitor note and the wrap-up only ever existed as frames on
+    /// this device, so closing the app lost them from the screen while the
+    /// paired chat kept them forever. The server stores every one.
+    func testLookingBackAtAConversationRestoresWhatWasSaidAboutIt() async {
+        let rig = makeRig(transcript: [
+            "segments": [["seq": 1, "ts_start_ms": 0, "ts_end_ms": 900,
+                          "text": "the nile is the shortest river"],
+                         ["seq": 2, "ts_start_ms": 1000, "ts_end_ms": 1900,
+                          "text": "anyway what is nine plus nine"]],
+            "insights": [["kind": "fact_check", "seq": 1, "anchor_seq": 1,
+                          "scope": "conversation", "verdict": "false",
+                          "text": "It is the longest.",
+                          "sources": ["https://example.invalid/nile"]]],
+        ])
+
+        await rig.store.view(session: LiveSessionSummary(id: "L9", state: "ended"))
+
+        XCTAssertEqual(rig.store.rows.count, 2, "both utterances are back")
+        XCTAssertEqual(rig.store.factCheck?.text, "It is the longest.")
+        XCTAssertEqual(rig.store.factCheck?.anchorSeq, 1,
+                       "and it still knows which line it was about")
+    }
+
+    /// The one thing a delete must never do quietly: claim to have removed a
+    /// remembered fact that is still in MEMORY.md.
+    func testADeleteThatKeptSomethingSaysSo() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/delete", json: [
+            "ok": true, "freed_bytes": 1024,
+            "facts_retracted": 2, "facts_unattributable": 1,
+        ])
+
+        await rig.store.delete(kind: .speakerForget, id: "spk_a")
+
+        XCTAssertEqual(rig.store.error,
+                       "Deleted, but 1 could not be tied to this voice and was kept.")
+    }
+
+    func testADeleteThatTookEverythingSaysNothing() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/delete",
+                            json: ["ok": true, "freed_bytes": 1024, "facts_retracted": 2])
+
+        await rig.store.delete(kind: .session, id: "L9")
+
+        XCTAssertTrue(rig.store.error.isEmpty,
+                      "nothing was kept, so there is nothing to say")
     }
 }

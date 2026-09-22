@@ -329,12 +329,20 @@ struct LiveAPI: Sendable {
     }
 
     /// Replay after a gap. `afterSeq` is a cursor, not a page number.
-    func transcript(liveSessionID: String, afterSeq: Int) async throws -> [LiveSegment] {
+    ///
+    /// Notes come back too, and they matter: a verdict, a monitor note and the
+    /// wrap-up only ever existed as frames on this device, so closing the app —
+    /// or a stream drop long enough to miss one — lost them from the screen
+    /// while the paired chat kept them forever. The server stores every one and
+    /// stamps it with the row it belongs under.
+    func transcript(liveSessionID: String, afterSeq: Int) async throws -> LiveTranscriptPage {
         let obj = try await api.get("/api/live/transcript",
                                     query: ["live_session_id": liveSessionID,
                                             "after_seq": String(afterSeq)]).object()
         let rows = obj.list("segments").isEmpty ? obj.list("rows") : obj.list("segments")
-        return rows.map(LiveServerFrame.segment(from:))
+        return LiveTranscriptPage(
+            segments: rows.map(LiveServerFrame.segment(from:)),
+            notes: obj.list("insights").map(LiveServerFrame.storedNote(from:)))
     }
 
     // MARK: Speakers
@@ -367,8 +375,14 @@ struct LiveAPI: Sendable {
         LiveStorage.from(try await api.get("/api/live/storage").object())
     }
 
-    func delete(kind: LiveDeleteKind, id: String) async throws {
-        _ = try await api.post("/api/live/delete", json: ["kind": kind.rawValue, "id": id])
+    @discardableResult
+    func delete(kind: LiveDeleteKind, id: String) async throws -> LiveDeleteOutcome {
+        let body = try await api.post("/api/live/delete",
+                                      json: ["kind": kind.rawValue, "id": id])
+        // A delete that worked but answered something unparseable is still a
+        // delete: the rows are gone either way, so an undecodable body means
+        // "nothing more to report", not a thrown error over the deletion.
+        return LiveDeleteOutcome.from((try? body.object()) ?? [:])
     }
 
     // MARK: Config
