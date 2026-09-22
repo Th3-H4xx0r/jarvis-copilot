@@ -27,18 +27,22 @@ enum LiveLanguageCatalog {
     }
 }
 
-/// Which languages Live listens for on this phone.
+/// Which languages this PHONE listens for while you are speaking.
 ///
-/// This exists because an ambient recogniser pinned to one locale does not fail
-/// on other languages — it HALLUCINATES them into that locale. Spanish came back
-/// as "Ola, Ola, Como, Stas", tagged `lang: en`, and the server's auto-translate
-/// (which fires only when a row's language differs from the primary one) then
-/// had nothing to act on.
+/// No longer required for anything to work, and the screen says so. The server
+/// re-hears every utterance and detects its language from the audio across 100
+/// of them (`webui/api/live_language.py`), so the saved transcript and its
+/// translation come out right whatever is or is not chosen here.
 ///
-/// Nothing here detects anything. Apple's framework has one locale per
-/// recogniser and no language-identification module, so the honest options are
-/// "ask the user" or "run several recognisers", and this screen does the first in
-/// order to do the second.
+/// What is left is the live preview. Apple's framework has one locale per
+/// recogniser and no language-identification module, so the words appearing on
+/// screen AS you speak come from whichever locales this phone was pointed at —
+/// naming a language you use often makes that preview match instead of showing
+/// the English spelling of it for a second. It is a comfort, not a correctness
+/// requirement, and it costs one recogniser per language.
+///
+/// This list is Apple's `supportedLocales`, which is far shorter than the
+/// server's 100. That gap is exactly why the server does the detecting.
 struct LiveLanguagesScreen: View {
     let store: LiveStore
 
@@ -71,9 +75,22 @@ struct LiveLanguagesScreen: View {
 
     private var explanation: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // The headline, because the screen used to imply the opposite: a
+            // language missing from this list was a language Live got wrong.
+            Text("Jarvis detects the language by itself. Every recording is "
+               + "re-heard on the server across 100 languages, so you do not "
+               + "have to add anything here.")
+                .font(JcText.small)
+                .foregroundStyle(JcTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
             Text(chosen.isEmpty
-                 ? "Live is listening in \(primaryName), the conversation's primary language."
-                 : "Live listens for these, in order. The first is preferred.")
+                 ? "While you speak, the words on screen come from this phone "
+                 + "listening in \(primaryName). Speak something else and they "
+                 + "will look wrong for a moment, then correct themselves. Add "
+                 + "a language below only to make that live preview match."
+                 : "While you speak, this phone previews these, in order — the "
+                 + "first is preferred. The saved transcript is corrected on "
+                 + "the server either way.")
                 .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -88,14 +105,24 @@ struct LiveLanguagesScreen: View {
                     .foregroundStyle(JcTheme.amber)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if loaded, available.isEmpty {
-                Text("This phone's speech engine can't be pointed at a language, so Live "
-                   + "uses the primary language above.")
+            if loaded, !available.isEmpty {
+                // Naming the number stops the list reading as the limit of what
+                // Jarvis understands, which is what it looked like.
+                Text("This phone can preview \(available.count) of them. The "
+                   + "server understands 100.")
                     .font(JcText.small)
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Takes effect the next time you start recording.")
+            if loaded, available.isEmpty {
+                Text("This phone's speech engine can't be pointed at a language, so the "
+                   + "live preview uses the primary language. The saved transcript is "
+                   + "still corrected on the server.")
+                    .font(JcText.small)
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Affects the live preview only, from the next recording.")
                 .font(JcText.small)
                 .foregroundStyle(JcTheme.muted)
         }

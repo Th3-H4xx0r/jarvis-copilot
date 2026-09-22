@@ -105,6 +105,26 @@ struct LiveTranscript: Equatable, Sendable {
     /// here: a monitor window emits several notes and stamps them all with the
     /// same `seq`, so keying on it collapsed a window's whole output down to
     /// its last note.
+    /// The utterance at `seq`, if this transcript holds it.
+    func segment(seq: Int) -> LiveSegment? {
+        segments.first { $0.seq == seq }
+    }
+
+    /// Put a translation under one utterance, from whichever translator got
+    /// there first — the phone's own or the server's.
+    ///
+    /// Last writer wins by design. Both produce the same field and the phone is
+    /// usually faster, so the server's later answer simply confirms it; letting
+    /// the first win instead would mean a worse translation could never be
+    /// corrected.
+    mutating func setTranslation(seq: Int, text: String) {
+        guard let index = segments.firstIndex(where: { $0.seq == seq }) else { return }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, segments[index].translation != clean else { return }
+        segments[index].translation = clean
+        rebuildRows()
+    }
+
     mutating func upsert(_ insight: LiveInsight) {
         if let index = insights.firstIndex(where: { $0.isSameNote(as: insight) }) {
             // Same note again (a resume replay). Keep the id the view is

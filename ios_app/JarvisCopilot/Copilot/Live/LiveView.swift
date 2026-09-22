@@ -1,5 +1,8 @@
 import Combine
 import SwiftUI
+#if canImport(Translation)
+import Translation
+#endif
 #if os(iOS)
 import UIKit
 #endif
@@ -75,6 +78,11 @@ struct LiveView: View {
                 .padding(.bottom, Self.controlsGap)
         }
         .task { await store.load() }
+        // On-device translation. The session cannot be built directly — this
+        // modifier is the only way to get one — so a foreign line gets its
+        // meaning without a round trip for as long as this screen is up, and
+        // the server covers everything else.
+        .liveTranslation(store.translator)
         .sheet(isPresented: $showSettings) {
             LiveSettingsSheet(store: store)
         }
@@ -867,3 +875,51 @@ enum LivePasteboard {
         #endif
     }
 }
+
+
+// MARK: - On-device translation
+
+extension View {
+    /// Give `translator` a session whenever it has a language pair to work on.
+    ///
+    /// Behind an availability check and a `canImport` so the app still builds
+    /// and runs where the framework does not exist — there the translator
+    /// reports everything as unavailable and the server does the work, which is
+    /// what happened before any of this.
+    @ViewBuilder
+    func liveTranslation(_ translator: LiveTranslator) -> some View {
+        #if canImport(Translation)
+        if #available(iOS 18.0, *) {
+            self.modifier(LiveTranslationModifier(translator: translator))
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+#if canImport(Translation)
+@available(iOS 18.0, *)
+private struct LiveTranslationModifier: ViewModifier {
+    let translator: LiveTranslator
+
+    func body(content: Content) -> some View {
+        content.translationTask(session) { session in
+            await translator.run(session)
+        }
+    }
+
+    /// The framework's own configuration, derived from the plain pair the
+    /// translator asked for. Nil means there is nothing waiting, and SwiftUI
+    /// then holds no session at all.
+    private var session: TranslationSession.Configuration? {
+        guard let want = translator.configuration else { return nil }
+        return TranslationSession.Configuration(
+            source: Locale.Language(identifier: want.sourceCode),
+            target: Locale.Language(identifier: want.targetCode))
+    }
+}
+#endif
+

@@ -404,6 +404,7 @@
 		8EFCCEE8E2210ECA77FDC001 /* CodingToolCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 631CA15B2928F452879D7BB4 /* CodingToolCard.swift */; };
 		8F1A0C33563FABB065D744A0 /* JcState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2E52F8017B52D5B1B85AD6 /* JcState.swift */; };
 		8F32DFBCDEA06CA2926DAFB5 /* InsightsChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A57264177A1165B099054ED /* InsightsChartData.swift */; };
+		8F9A361B1AD16E619B2D3C69 /* LiveTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB5A91DA5C61B6D8B1CAAA17 /* LiveTranslatorTests.swift */; };
 		8FAC3C89FC7741B5EB93AA6F /* MemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B173230D130E81EEAEB060 /* MemoryAPI.swift */; };
 		9053D14EB3DD232516508832 /* WatchDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F927409323D2CBEB230EDB28 /* WatchDataProvider.swift */; };
 		90A27505781A366F750DCF88 /* Composer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8023D162C95F038AAE3D644A /* Composer.swift */; };
@@ -538,6 +539,7 @@
 		C24032F08C932710362388BB /* WebViewCookieTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BB8EFCD594200901D0DEDC /* WebViewCookieTests.swift */; };
 		C2F67B47B91BB223825D52B2 /* RestAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45276929EF59EC622826D74A /* RestAlerts.swift */; };
 		C39318E8E50E6F9059B2191B /* RingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA44E462ADEBC5FBDDD2FF7 /* RingSession.swift */; };
+		C486B6A4B100DBD7DE646E91 /* LiveTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */; };
 		C499C8D5B309FF9B23E33696 /* JarvisWatchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */; };
 		C4C918CF2E1E639E211C6E22 /* DevicesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451350B37D84B249122DE911 /* DevicesModels.swift */; };
 		C523B6DB23478070B96CB497 /* LiveCaptureAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6731BC35052EE46AE1591D /* LiveCaptureAttributes.swift */; };
@@ -1240,6 +1242,7 @@
 		AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWearPrompt.swift; sourceTree = "<group>"; };
 		AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE7E2F9B2E7F80D2BAF90DA9 /* SkillRegistryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillRegistryTests.swift; sourceTree = "<group>"; };
+		AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranslator.swift; sourceTree = "<group>"; };
 		AF3BF55CFE693B3983E29FAC /* HealthSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthSettingsSection.swift; sourceTree = "<group>"; };
 		AF3D404BBE1F88EE7584A34B /* AmbientOpusEncoder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoder.swift; sourceTree = "<group>"; };
 		B019B56DEE3BBB4264CD0251 /* WorkspacesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesTests.swift; sourceTree = "<group>"; };
@@ -1370,6 +1373,7 @@
 		DB3B263227AE6CB95AF99B5A /* WebViewCookies.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebViewCookies.swift; sourceTree = "<group>"; };
 		DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementPage.swift; sourceTree = "<group>"; };
 		DB59ED4224F14087BA8945D4 /* ColmiR12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColmiR12Tests.swift; sourceTree = "<group>"; };
+		DB5A91DA5C61B6D8B1CAAA17 /* LiveTranslatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranslatorTests.swift; sourceTree = "<group>"; };
 		DBAE5308628C3C7DE9907031 /* WorkspacesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesModels.swift; sourceTree = "<group>"; };
 		DBB75BCC6096760AD3D53ACA /* QRScanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QRScanner.swift; sourceTree = "<group>"; };
 		DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
@@ -1998,6 +2002,7 @@
 				E91A0B07C81339B4AF3CD7C0 /* LiveCaptureBeacon.swift */,
 				BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */,
 				5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */,
+				AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -2768,6 +2773,7 @@
 				7334BC4CDF991F8F581254FC /* LiveTranscriptTests.swift */,
 				DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */,
 				F6942C704808E0CC4A39087C /* LiveStorageTests.swift */,
+				DB5A91DA5C61B6D8B1CAAA17 /* LiveTranslatorTests.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3218,6 +3224,7 @@
 				AD0149C434169BE24E61D230 /* LiveTranscriptTests.swift in Sources */,
 				14D5CE2A7E7FF2BB4D18027F /* AmbientOpusEncoderTests.swift in Sources */,
 				311D83F832D8AF558CA2351A /* LiveStorageTests.swift in Sources */,
+				8F9A361B1AD16E619B2D3C69 /* LiveTranslatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3699,6 +3706,7 @@
 				F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */,
 				DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */,
 				F002EE209025E0D5E6A29643 /* LiveLanguagesScreen.swift in Sources */,
+				C486B6A4B100DBD7DE646E91 /* LiveTranslator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

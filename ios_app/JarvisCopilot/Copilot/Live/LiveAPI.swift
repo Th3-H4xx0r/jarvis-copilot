@@ -426,6 +426,18 @@ struct LiveAPI: Sendable {
         return obj.list("sessions").map(LiveSessionSummary.from)
     }
 
+    /// Store a translation this device produced.
+    ///
+    /// The phone translates on-device for speed, and the result has to outlive
+    /// the app: without this it would vanish on close and never reach the web
+    /// or any other device watching the same conversation.
+    func saveTranslation(liveSessionID: String, seq: Int,
+                         translation: String) async throws {
+        _ = try await api.post("/api/live/translation",
+                               json: ["live_session_id": liveSessionID,
+                                      "seq": seq, "translation": translation])
+    }
+
     func translate(liveSessionID: String, seq: Int, target: String) async throws {
         _ = try await api.post("/api/live/translate",
                                json: ["live_session_id": liveSessionID, "seq": seq, "target": target])

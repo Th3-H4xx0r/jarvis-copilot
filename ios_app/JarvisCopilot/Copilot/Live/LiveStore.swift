@@ -200,6 +200,12 @@ final class LiveStore {
     private var segmenter = AmbientSegmenter()
     /// PCM16 → Opus for the uplink. Nil when this OS refused the format, which is
     /// the ONLY state in which `audioCodec` may say `pcm16` — see `prepareEncoder`.
+    /// On-device translation, so a foreign line gets its meaning in the same
+    /// breath instead of after a round trip (see `LiveTranslator`). The server
+    /// still does this for anything the phone cannot — a language Apple has no
+    /// pack for, or a recording running while the screen is closed.
+    let translator = LiveTranslator()
+
     private var encoder: AmbientOpusEncoder?
     private var socket: VoiceSocket?
     private var speech: SpeechSession?
@@ -291,6 +297,7 @@ final class LiveStore {
         session.onInterruption = { [weak self] event in self?.handle(interruption: event) }
         spooledFrames = spool.count
         spoolFill = spool.fill
+        adoptTranslator()
     }
 
     // MARK: - Device identity
@@ -1454,6 +1461,7 @@ final class LiveStore {
             apply(ready)
         case .segment(let segment):
             upsert(segment)
+            translateOnDevice(segment)
         case .speaker(let event):
             apply(event)
         case .insight(let insight):
@@ -1770,6 +1778,50 @@ final class LiveStore {
         resumeRequestedID = ""
         liveSessionID = ""
         chatSessionID = ""
+    }
+
+    /// Hand a foreign utterance to the phone's own translator.
+    ///
+    /// Only what is already known to need it: a line the transcript labels as
+    /// another language, with no translation yet. The server has the same rule,
+    /// so the two cannot disagree about what counts as foreign — and whichever
+    /// answers first wins, because both write the same field.
+    private func translateOnDevice(_ segment: LiveSegment) {
+        guard config.translate, !readOnly else { return }
+        guard (segment.translation ?? "").isEmpty else { return }
+        guard !segment.lang.isEmpty else { return }
+        translator.target = config.primaryLanguage
+        translator.request(seq: segment.seq, text: segment.text,
+                           source: segment.lang)
+    }
+
+    /// Wire the translator's answers into the transcript. Called once, at init.
+    private func adoptTranslator() {
+        translator.onTranslated = { [weak self] seq, text in
+            guard let self else { return }
+            // On screen immediately — this is the whole point of doing it here.
+            self.transcript.setTranslation(seq: seq, text: text)
+            // Then to the server, so it survives the app closing and reaches
+            // every other device looking at this conversation.
+            Task { [weak self] in await self?.storeTranslation(seq: seq, text: text) }
+        }
+        translator.onUnavailable = { [weak self] seq in
+            // The phone could not, so ask the server, which has more languages
+            // and does not need the screen to be open.
+            guard let self, let row = self.transcript.segment(seq: seq) else { return }
+            Task { [weak self] in await self?.translate(row) }
+        }
+    }
+
+    private func storeTranslation(seq: Int, text: String) async {
+        guard !liveSessionID.isEmpty else { return }
+        do { try await api.saveTranslation(liveSessionID: liveSessionID, seq: seq,
+                                           translation: text) }
+        catch {
+            // The words are already on screen; failing to persist them is worth
+            // a log and nothing louder.
+            JcLog.dropped(JcLog.voice, "store that translation", error)
+        }
     }
 
     func translate(_ segment: LiveSegment, to target: String? = nil) async {

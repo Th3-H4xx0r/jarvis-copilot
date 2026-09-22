@@ -1385,10 +1385,16 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
 
 # ── speaker identification (design §5.2, the authority lane) ───────────────
 
-# One worker: identification is ~40 ms of CPU for a 3-second utterance and it
-# runs beside the recorder. Serialising it keeps the order of decisions the
-# same as the order of speech, which is what makes the pending-group promotion
-# in `live_voiceprint` deterministic.
+# One worker: identification runs beside the recorder, and serialising it keeps
+# the order of decisions the same as the order of speech — which is what makes
+# the pending-group promotion in `live_voiceprint` deterministic.
+#
+# It is not cheap. Measured on this server over real utterances: 107 ms to read
+# and decode the Opus, 140 ms to embed, 29 ms to match — 276 ms mean and 467 ms
+# worst, per utterance, on top of the upload. An earlier comment here claimed
+# ~40 ms, which was never measured and is off by most of an order of magnitude.
+# That number is the whole argument for doing this on the device one day: the
+# phone holds the raw PCM already, so it skips both the upload and the decode.
 _IDENT_WORKERS = 1
 # A memory bound on the queue, NOT a rate limit. This was 4, which looked
 # reasonable and was wrong: design §8's normal case is a phone whose socket
@@ -2678,6 +2684,8 @@ def handle_live_post(handler, parsed, body) -> bool:
         return _live_watcher_call(handler, body, "run_fact_check")
     if path == "/api/live/translate":
         return _live_watcher_call(handler, body, "run_translate")
+    if path == "/api/live/translation":
+        return _live_store_translation(handler, body)
     if path == "/api/live/config":
         # POST is accepted alongside PUT: several shipped clients cannot send a
         # PUT, and a settings write must not depend on which verb they have.
@@ -2689,6 +2697,47 @@ def handle_live_put(handler, parsed, body) -> bool:
     if parsed.path == "/api/live/config":
         return _live_config_write(handler, body if isinstance(body, dict) else {})
     return False
+
+
+def _live_store_translation(handler, body) -> bool:
+    """Keep a translation a DEVICE produced.
+
+    The phone translates on-device because that is the only way it lands in the
+    same breath as the words (`LiveTranslator`), and the result has to outlive
+    the app: otherwise it is gone when the screen closes and never reaches the
+    web or any other device watching the same conversation.
+
+    The server may also translate the same row — whichever finishes first
+    writes, and a later answer overwrites it. That is deliberate: both fill the
+    same field, and letting the first win would mean a worse translation could
+    never be corrected.
+    """
+    sid = _require_session(handler, body)
+    if sid is None:
+        return True
+    try:
+        seq = int((body or {}).get("seq"))
+    except (TypeError, ValueError):
+        bad(handler, "seq must be an integer")
+        return True
+    translation = str((body or {}).get("translation") or "").strip()
+    if not translation:
+        bad(handler, "translation must not be empty")
+        return True
+    try:
+        live_store.set_translation(sid, seq, translation)
+    except Exception:
+        logger.warning("live: could not store a device translation for %s#%s",
+                       sid[:8] or "?", seq, exc_info=True)
+        bad(handler, "could not store that translation", 500)
+        return True
+    # Every other viewer of this conversation sees it too, through the same
+    # frame the server's own translator publishes.
+    publish(sid, "insight", {"kind": "translation", "live_session_id": sid,
+                             "seq": seq, "text": translation,
+                             "translation": translation})
+    j(handler, {"ok": True, "seq": seq})
+    return True
 
 
 def _live_config_write(handler, body) -> bool:
