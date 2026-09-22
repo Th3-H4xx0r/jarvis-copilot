@@ -155,3 +155,33 @@ def test_format_clarify_speech_appends_choices_but_skips_other():
     assert "Other" not in out
     # No usable choices → just the question.
     assert _format_clarify_speech("Proceed?", []) == "Proceed?"
+
+
+def test_a_failing_fish_audio_falls_back_instead_of_returning_silence(monkeypatch):
+    """Fish Audio answering 402 "Insufficient API credit" used to return no
+    audio at all, so a reply rendered as text, never spoke, and never
+    highlighted — the karaoke follows playback, so silence highlights nothing.
+    A paid provider running dry must cost quality, not speech."""
+    from api import voice as api_voice
+
+    monkeypatch.setattr(api_voice, "_read_hermes_config", lambda: {})
+    monkeypatch.setattr(api_voice, "_resolve_effective_tts_provider",
+                        lambda _cfg: ("fish-audio", {}))
+    monkeypatch.setattr(api_voice, "_speakable", lambda text: text)
+
+    def _out_of_credit(*_args, **_kwargs):
+        raise RuntimeError("Fish Audio unexpected status 402")
+    monkeypatch.setattr(api_voice, "_synthesize_fish_audio", _out_of_credit)
+
+    fallback_called = []
+
+    def _fallback(text, output_path):
+        fallback_called.append(text)
+        return '{"success": false}'
+    monkeypatch.setattr(api_voice, "_try_import_tts",
+                        lambda: (_fallback, None, None))
+
+    api_voice._tts_to_base64("hello there")
+
+    assert fallback_called == ["hello there"], \
+        "a fish-audio failure must reach the generic dispatcher"

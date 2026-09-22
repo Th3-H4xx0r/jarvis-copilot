@@ -1629,10 +1629,18 @@ def _tts_to_base64(text: str) -> str:
     if provider == "fish-audio":
         try:
             audio = _synthesize_fish_audio(text, tts_cfg=tts_section)
-            return base64.b64encode(audio).decode("ascii") if audio else ""
+            if audio:
+                return base64.b64encode(audio).decode("ascii")
+            # Empty audio with no exception is a failure too; fall through.
         except Exception:
             print("[webui] fish-audio TTS failed: " + traceback.format_exc(), flush=True)
-            return ""
+            # Fall through to the generic dispatcher rather than returning no
+            # audio, exactly as the piper branch below already does. Returning
+            # "" made a provider problem indistinguishable from a broken app:
+            # Fish Audio answering 402 "Insufficient API credit" produced a
+            # reply that rendered as text, never spoke, and never highlighted
+            # (the karaoke follows playback, so silence highlights nothing).
+            # A paid provider running dry should cost quality, not speech.
     if provider == "piper":
         audio_b64 = _synth_piper_to_base64(text, tts_section, suffix=".mp3")
         if audio_b64:
