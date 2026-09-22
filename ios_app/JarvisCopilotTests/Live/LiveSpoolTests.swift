@@ -304,4 +304,83 @@ final class LiveSpoolTests: XCTestCase {
         XCTAssertTrue(spool.isEmpty)
         XCTAssertTrue(makeSpool().isEmpty, "the reset must reach the file too")
     }
+
+    // MARK: - The codec the queued audio is in
+
+    /// The codec is declared once per socket, so it has to survive a relaunch with
+    /// the records it describes — otherwise the next launch cannot tell whether the
+    /// bytes it is about to drain are Opus packets or raw samples.
+    func testTheCodecSurvivesARelaunchWithItsRecords() throws {
+        let first = makeSpool()
+        first.adopt(sessionID: "L1")
+        first.adopt(codec: "opus-packets")
+        try first.append(.binary(Data([1, 2, 3])))
+
+        let recovered = makeSpool()
+        XCTAssertEqual(recovered.codec, "opus-packets")
+        XCTAssertEqual(recovered.count, 1)
+    }
+
+    /// **Never label PCM as Opus.** A launch that cannot build an encoder, holding a
+    /// backlog the previous launch encoded, must not drain it under a PCM label. The
+    /// bytes are set aside under their own codec, not deleted.
+    func testChangingCodecSetsTheOtherEncodingsBacklogAsideRatherThanSendingIt() throws {
+        let spool = makeSpool()
+        spool.adopt(sessionID: "L1")
+        spool.adopt(codec: "opus-packets")
+        try spool.append(.binary(Data([9, 9, 9])))
+        XCTAssertEqual(spool.count, 1)
+
+        spool.adopt(codec: "pcm16")
+
+        XCTAssertTrue(spool.isEmpty, "opus records must not go up as pcm16")
+        XCTAssertEqual(spool.codec, "pcm16")
+        let kept = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        XCTAssertTrue(kept.contains { $0.contains("codec-opus-packets") },
+                      "the audio must be recoverable, not destroyed: \(kept)")
+    }
+
+    /// Adopting the SAME codec is the ordinary case — every start does it — and must
+    /// keep the backlog it is about to drain.
+    func testAdoptingTheSameCodecKeepsTheBacklog() throws {
+        let spool = makeSpool()
+        spool.adopt(codec: "opus-packets")
+        try spool.append(.binary(Data([1])))
+        spool.adopt(codec: "opus-packets")
+        XCTAssertEqual(spool.count, 1)
+    }
+
+    /// The first adopt on a fresh spool has nothing to compare against, so whatever
+    /// was captured before the codec was known (the opening of a recording) is kept.
+    func testTheFirstCodecAdoptKeepsWhatWasAlreadyCaptured() throws {
+        let spool = makeSpool()
+        try spool.append(.binary(Data([4, 5])))
+        spool.adopt(codec: "opus-packets")
+        XCTAssertEqual(spool.count, 1)
+        XCTAssertEqual(spool.codec, "opus-packets")
+    }
+
+    /// A file written before the codec header existed holds PCM16 — that is history,
+    /// not a guess, because it is all this app has ever queued. Reading it as
+    /// untagged would let an Opus launch adopt those samples silently.
+    func testAFileFromBeforeTheCodecHeaderIsReadAsPCM() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let line = LiveSpool.encode(.binary(Data([7, 7, 7])))
+        try "S L1\n\(line)\n".write(to: directory.appendingPathComponent("outbox.log"),
+                                    atomically: true, encoding: .utf8)
+
+        let spool = makeSpool()
+        XCTAssertEqual(spool.count, 1)
+        XCTAssertEqual(spool.codec, "pcm16")
+    }
+
+    /// A reset spool is a fresh one: it must not carry the last recording's codec
+    /// into the next, or the first adopt would compare against a stale value.
+    func testResetLeavesTheSpoolWithoutACodec() throws {
+        let spool = makeSpool()
+        spool.adopt(codec: "opus-packets")
+        try spool.append(.binary(Data([1])))
+        spool.reset()
+        XCTAssertEqual(spool.codec, "")
+    }
 }

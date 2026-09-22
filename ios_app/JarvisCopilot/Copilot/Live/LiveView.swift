@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -27,11 +28,23 @@ struct LiveView: View {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { LiveStore.shared })
     }
 
+    /// Matches `VoicePage.controlsGap`: the shell's tab bar floats over the
+    /// bottom of every page, so a control row needs clearance from it.
+    private static let controlsGap: CGFloat = 14
+
+    /// Recent input levels, oldest first, for the tape. Cleared when capture
+    /// stops so a stopped meter cannot show a moving room.
+    @State private var levels: [Double] = []
+    @State private var startedAt: Date?
+    /// Re-renders the clock. Bound to the same tick as the tape so the two
+    /// never disagree about how long this has been running.
+    @State private var tick = Date()
+
     var body: some View {
         VStack(spacing: 0) {
-            statusLine
+            roomMeter
                 .padding(.horizontal, 20)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
 
             if let halt = store.halt {
                 haltBanner(halt)
@@ -48,6 +61,9 @@ struct LiveView: View {
             controls
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
+                // The tab bar floats over this, so without a gap the buttons
+                // read as part of it. Same 14pt VoicePage leaves.
+                .padding(.bottom, Self.controlsGap)
         }
         .task { await store.load() }
         .sheet(isPresented: $showSettings) {
@@ -81,61 +97,55 @@ struct LiveView: View {
             Text("This permanently deletes the part of the conversation that never reached "
                + "Jarvis. It cannot be recovered.")
         }
-        .overlay(alignment: .bottom) {
-            if !store.error.isEmpty { errorToast(store.error) }
+        // Above the controls, never on them: pinned to .bottom it covered the
+        // very buttons it was reporting about, including Stop.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !store.error.isEmpty {
+                errorToast(store.error)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
         }
     }
 
     // MARK: - Status
 
-    /// One line: what the recorder is doing, and how much audio is kept. Both,
-    /// because "recording" without a storage figure is how an ambient recorder
-    /// quietly fills a disk.
-    private var statusLine: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .opacity(store.capturing && !store.interrupted ? 1 : 0.55)
-            Text(store.statusText)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(JcTheme.text.opacity(0.9))
-            Text("·")
-                .font(.system(size: 12))
-                .foregroundStyle(JcTheme.muted)
-            Text(store.storageText)
-                .font(.system(size: 12))
-                .foregroundStyle(JcTheme.muted)
-            Spacer(minLength: 6)
-            Button { showSettings = true } label: {
-                JcIcon("gear", size: 15).foregroundStyle(JcTheme.accent)
+    /// The one thing this screen must answer at a glance: is the room being
+    /// heard, for how long, and how much has been kept. It replaced a thin
+    /// capsule that said "Not recording · No audio stored yet" (the same fact
+    /// twice) with a settings gear stranded at the far edge.
+    private var roomMeter: some View {
+        let split = LiveRecorderStatus.split(store.statusText)
+        return LiveRoomMeter(state: captureState,
+                             headline: split.headline,
+                             detail: split.detail,
+                             kept: store.storageText,
+                             elapsed: elapsed,
+                             tape: levels,
+                             notice: store.sttNotice)
+            .onChange(of: store.capturing) { _, capturing in
+                startedAt = capturing ? Date() : nil
+                if !capturing { levels = [] }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Live settings")
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 9)
-        .background(.white.opacity(0.045), in: Capsule())
-        .overlay(alignment: .bottomLeading) { sttNotice }
+            // Sampling only while capturing matters: every tab stays mounted in
+            // the shell, so an ungated ticker would run behind all five.
+            .onReceive(Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()) { _ in
+                guard store.capturing else { return }
+                levels.append(store.level)
+                if levels.count > 64 { levels.removeFirst(levels.count - 64) }
+                tick = Date()
+            }
     }
 
-    /// §8 requires a fall back to the server lane to be STATED, not silent.
-    @ViewBuilder
-    private var sttNotice: some View {
-        if !store.sttNotice.isEmpty {
-            Text(store.sttNotice)
-                .font(.system(size: 11))
-                .foregroundStyle(JcTheme.muted)
-                .lineLimit(2)
-                .offset(y: 26)
-        }
+    private var elapsed: TimeInterval? {
+        guard let startedAt, store.capturing else { return nil }
+        return max(0, tick.timeIntervalSince(startedAt))
     }
 
-    private var statusColor: Color {
-        if store.halt != nil { return JcTheme.danger }
-        if store.interrupted { return JcTheme.amber }
-        if !store.capturing { return JcTheme.muted }
-        return store.connected ? JcTheme.accent : JcTheme.amber
+    private var captureState: LiveCaptureState {
+        if store.halt != nil { return .stopped }
+        if store.capturing { return store.interrupted ? .paused : .recording }
+        return .idle
     }
 
     /// The loud state of §8. A red card that stays until dismissed, because the
@@ -288,24 +298,28 @@ struct LiveView: View {
             .disabled(store.halt != nil)
             .opacity(store.halt == nil ? 1 : 0.5)
 
-            Button { showSpeakers = true } label: {
-                JcIcon("person.2", size: 17)
-                    .foregroundStyle(JcTheme.accent)
-                    .frame(width: 48, height: 48)
-                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Voices")
-
-            Button { showStorage = true } label: {
-                JcIcon("internaldrive", size: 17)
-                    .foregroundStyle(JcTheme.accent)
-                    .frame(width: 48, height: 48)
-                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Storage")
+            secondary("person.2", "Voices") { showSpeakers = true }
+            secondary("internaldrive", "Storage") { showStorage = true }
+            secondary("gear", "Settings") { showSettings = true }
         }
+    }
+
+    /// A glyph on its own was unguessable — a drive for Storage, two people for
+    /// Voices — so each says its word. `buttons.md › Best practices` wants a
+    /// control both reachable and "instantly recognizable".
+    private func secondary(_ symbol: String, _ title: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                JcIcon(symbol, size: 16)
+                Text(title).font(.system(size: 10.5, weight: .medium))
+            }
+            .foregroundStyle(JcTheme.text.opacity(0.82))
+            .frame(width: 62, height: 52)
+            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     /// Tappable to dismiss. An error with no way out sits over the transcript for the

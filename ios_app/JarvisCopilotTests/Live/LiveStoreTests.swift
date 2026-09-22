@@ -555,6 +555,98 @@ final class LiveStoreTests: XCTestCase {
                        "nothing may be left holding the ambient claim after a stop")
     }
 
+    // MARK: - The codec is what the bytes are
+
+    /// **The claim the whole Opus change rests on.** `hello` tells the server how to
+    /// store everything that follows it, so a mismatch between the declared codec
+    /// and the encoding of the frames does not fail — it silently writes samples
+    /// into a file labelled `opus-packets-len32@48000`, which nothing can decode
+    /// afterwards.
+    ///
+    /// Deliberately written to pass EITHER way: if CoreAudio here will not encode
+    /// Opus, the honest outcome is `pcm16` and PCM-sized frames, and that is a pass.
+    /// What it will not accept is an Opus label over PCM-sized bytes.
+    func testTheDeclaredCodecIsWhatTheAudioFramesActuallyAre() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+
+        let caps = lastFrame(rig, t: "hello")?["caps"] as? [String: Any]
+        let declared = caps?["codec"] as? String
+        XCTAssertEqual(declared, rig.store.audioCodec,
+                       "hello must declare exactly what the store encodes with")
+        XCTAssertEqual(caps?["rate"] as? Int, rig.store.audioRate)
+
+        let speechMs = 400
+        rig.input.emitFrames(amplitude: 0.05, ms: speechMs)
+        await Task.yield()
+
+        let frames = (rig.connector.socket?.sentData ?? []).compactMap(LiveAudioFrame.decode)
+        XCTAssertFalse(frames.isEmpty, "speech has to reach the socket")
+        let sentBytes = frames.reduce(0) { $0 + $1.payload.count }
+        let pcmBytes = LiveStore.micRate * speechMs / 1000 * 2
+
+        if declared == AmbientOpusEncoder.wireCodec {
+            XCTAssertEqual(caps?["rate"] as? Int, 48000,
+                           "the declared rate must be the Opus rate a decoder needs")
+            XCTAssertLessThan(sentBytes, pcmBytes / 2,
+                              "\(sentBytes)B for \(pcmBytes)B of audio is not encoded")
+            for frame in frames {
+                XCTAssertLessThanOrEqual(frame.payload.count, AmbientOpusEncoder.maxPacketBytes,
+                                         "one frame must carry exactly ONE Opus packet")
+            }
+        } else {
+            XCTAssertEqual(declared, "pcm16", "the only honest alternative to Opus")
+            XCTAssertEqual(caps?["rate"] as? Int, LiveStore.micRate)
+            XCTAssertGreaterThanOrEqual(sentBytes, pcmBytes / 2,
+                                        "PCM16 declared, so PCM16 must be what went up")
+        }
+    }
+
+    /// The frame header exists to keep audio timing correct (§2.2), and each packet
+    /// is its own 20 ms of it — so the packets of one captured chunk must not all
+    /// claim the same instant.
+    func testEveryAudioFrameGetsItsOwnSeqAndPlaceOnTheClock() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        rig.input.emitFrames(amplitude: 0.05, ms: 400)
+        await Task.yield()
+
+        let frames = (rig.connector.socket?.sentData ?? []).compactMap(LiveAudioFrame.decode)
+        XCTAssertGreaterThan(frames.count, 1)
+        let seqs = frames.map { $0.seq }
+        XCTAssertEqual(seqs, seqs.sorted(), "a seq that goes backwards reorders the recording")
+        XCTAssertEqual(Set(seqs).count, seqs.count, "two frames may not share a seq")
+        let stamps = frames.map { $0.tsMs }
+        XCTAssertEqual(stamps, stamps.sorted(), "the audio clock must not run backwards")
+        XCTAssertGreaterThan(Set(stamps).count, 1,
+                             "every frame claiming one instant loses the timing the header is for")
+    }
+
+    /// The spool has to know which encoding it is holding, or a relaunch drains it
+    /// under whatever the next launch happens to declare.
+    func testTheSpoolIsToldWhichEncodingItsQueuedAudioIs() async {
+        let rig = makeRig()
+        await rig.store.start()
+        XCTAssertEqual(rig.spool.codec, rig.store.audioCodec)
+        XCTAssertFalse(rig.store.audioCodec.isEmpty)
+    }
+
+    /// Falling back to PCM16 is allowed; falling back QUIETLY is not, because the
+    /// cost lands on the user as ten times the storage.
+    func testAnyFallbackToUncompressedAudioIsStated() async {
+        let rig = makeRig()
+        await rig.store.start()
+        if rig.store.audioCodec == "pcm16" {
+            XCTAssertFalse(rig.store.codecNotice.isEmpty,
+                           "uncompressed recording has to be visible, not silent")
+        } else {
+            XCTAssertTrue(rig.store.codecNotice.isEmpty,
+                          "nothing to explain when the audio is compressed")
+        }
+    }
+
     // MARK: - Helpers
 
     private func json(_ object: [String: Any]) -> String {

@@ -83,7 +83,14 @@ def stubbed_watchers(monkeypatch):
     """
     _install_watchers(monkeypatch,
                       on_segment_appended=lambda sid, seq: None,
-                      on_session_ended=lambda sid: None)
+                      on_session_ended=lambda sid: None,
+                      # The delete paths retract the facts the monitor stored in
+                      # MEMORY.md. The stub answers "nothing to retract" so the
+                      # capture tests stay about capture; the retraction tests
+                      # below install their own recorder.
+                      retract_facts=lambda **_kw: {
+                          "facts_retracted": 0, "facts_retraction_staged": 0,
+                          "facts_unattributable": 0})
 
 
 # ── harness ────────────────────────────────────────────────────────────────
@@ -181,31 +188,43 @@ def test_a_device_with_on_device_stt_embedding_and_our_model_gets_the_edge_lane(
     assert live_ws.assign_lane(_edge_caps()) == live_ws.LANE_EDGE
 
 
-def test_a_mismatched_embed_model_is_refused_the_edge_lane():
-    """The interlock. Vectors from two checkpoints are not comparable, so this
-    device must not be allowed to write speaker identity — it loses the lane
-    instead of silently corrupting who said what."""
+def test_a_mismatched_embed_model_keeps_the_lane_but_loses_its_voiceprints():
+    """The interlock moved off the lane decision, because conflating the two
+    broke transcription outright: a phone with Apple's on-device transcriber and
+    no embedder was demoted to the server lane, which transcribes nothing, so a
+    recording produced audio and an empty transcript.
+
+    Vectors from two checkpoints are still not comparable, so this device must
+    not write speaker identity — it loses its VOICEPRINTS, not its ability to
+    turn speech into text."""
     caps = _edge_caps(embed_model="some-other-checkpoint-v9")
-    assert live_ws.assign_lane(caps) == live_ws.LANE_SERVER
+    assert live_ws.assign_lane(caps) == live_ws.LANE_EDGE
+    assert live_ws.embeddings_trusted(caps) is False
 
 
-def test_changing_the_servers_embed_model_drops_a_previously_edge_device():
-    assert live_ws.assign_lane(_edge_caps()) == live_ws.LANE_EDGE
+def test_changing_the_servers_embed_model_stops_trusting_a_devices_voiceprints():
+    assert live_ws.embeddings_trusted(_edge_caps()) is True
     live_config.save({"embed_model": "wespeaker-resnet34-v2"})
-    assert live_ws.assign_lane(_edge_caps()) == live_ws.LANE_SERVER
+    assert live_ws.embeddings_trusted(_edge_caps()) is False
+    assert live_ws.assign_lane(_edge_caps()) == live_ws.LANE_EDGE, \
+        "a voiceprint mismatch must not cost the device transcription"
 
 
-@pytest.mark.parametrize("caps", [
-    None,
-    {},
-    _edge_caps(stt="server"),
-    _edge_caps(embed="server"),
-    _edge_caps(embed_model=""),
-])
-def test_anything_less_than_the_full_declaration_streams_audio_instead(caps):
+@pytest.mark.parametrize("caps", [None, {}, _edge_caps(stt="server")])
+def test_a_device_that_cannot_transcribe_streams_audio_instead(caps):
     """A future device joins by declaring less; it gets the server lane and no
     server code changes."""
     assert live_ws.assign_lane(caps) == live_ws.LANE_SERVER
+
+
+@pytest.mark.parametrize("caps", [_edge_caps(embed="none", embed_model=""),
+                                  _edge_caps(embed="server")])
+def test_a_device_that_transcribes_but_cannot_embed_still_gets_the_edge_lane(caps):
+    """This is the phone as it actually ships today: SpeechAnalyzer on device,
+    no voiceprint model yet. It must transcribe locally; its speakers simply
+    stay provisional until identification exists."""
+    assert live_ws.assign_lane(caps) == live_ws.LANE_EDGE
+    assert live_ws.embeddings_trusted(caps) is False
 
 
 def test_the_ready_frame_states_the_lane_and_the_servers_own_capabilities():
@@ -2125,3 +2144,201 @@ def test_other_frames_before_hello_are_still_refused():
                              "ts_start_ms": 0, "ts_end_ms": 1000}))
 
     assert client.first("error")["code"] == "not_ready"
+
+
+# ── a delete must also retract what the monitor remembered ─────────────────
+#
+# The ambient monitor writes durable facts into MEMORY.md, stamped with the
+# recording and the voices they came from. Until this wiring existed, no Live
+# delete path touched them: "forget this voice" took their transcript, their
+# digests and their voiceprint while a derived fact about them stayed in the
+# system prompt of every future agent. These tests pin the four scopes and,
+# above all, that a failed retraction is reported instead of swallowed.
+
+
+def _recording_retractor(monkeypatch, counts=None, raises=None):
+    """Replace the watcher layer with a retract_facts recorder."""
+    calls = []
+
+    def _retract(**kwargs):
+        speaker_id = kwargs.get("speaker_id") or ""
+        calls.append(dict(
+            kwargs,
+            # Sampled at CALL time. The speaker scope reads the very
+            # `live_segment` rows forget_speaker deletes, so "was the voice
+            # still in the store when we were called" is the ordering contract.
+            speaker_still_known=(bool(live_store.get_speaker(speaker_id))
+                                 if speaker_id else None)))
+        if raises is not None:
+            raise raises
+        return dict(counts or {"facts_retracted": 0,
+                               "facts_retraction_staged": 0,
+                               "facts_unattributable": 0})
+
+    _install_watchers(monkeypatch,
+                      on_segment_appended=lambda sid, seq: None,
+                      on_session_ended=lambda sid: None,
+                      retract_facts=_retract)
+    return calls
+
+
+def test_deleting_a_session_retracts_the_facts_it_put_in_memory(monkeypatch):
+    calls = _recording_retractor(monkeypatch, {"facts_retracted": 2,
+                                               "facts_retraction_staged": 0,
+                                               "facts_unattributable": 0})
+    conn, _client = _connect()
+    sid = conn.live_session_id
+
+    handler, _ = _post("/api/live/delete", {"kind": "session", "id": sid})
+
+    assert handler.status == 200
+    assert handler.payload()["facts_retracted"] == 2
+    assert [c["live_session_id"] for c in calls] == [sid]
+    assert calls[0]["speaker_id"] == ""
+
+
+def test_forgetting_a_voice_retracts_its_facts_before_the_rows_it_needs_go(
+        monkeypatch):
+    calls = _recording_retractor(monkeypatch, {"facts_retracted": 1,
+                                               "facts_retraction_staged": 0,
+                                               "facts_unattributable": 3})
+    speaker = live_store.create_speaker(name="Rahul")
+    _session_with_audio(speaker_id=speaker["id"])
+
+    handler, _ = _post("/api/live/delete",
+                       {"kind": "speaker_forget", "id": speaker["id"]})
+
+    body = handler.payload()
+    assert body["segments_removed"] == 1, "the forget itself must still happen"
+    assert body["facts_retracted"] == 1
+    # The count the UI needs in order to tell the truth about what it kept.
+    assert body["facts_unattributable"] == 3
+    assert calls[0]["speaker_id"] == speaker["id"]
+    assert calls[0]["live_session_id"] == ""
+    assert calls[0]["speaker_still_known"] is True, \
+        "retraction must run before forget_speaker deletes the rows it reads"
+
+
+def test_deleting_a_voices_recordings_does_not_retract_anything(monkeypatch):
+    """This action deletes RECORDINGS, not the record of what was said — it
+    leaves the transcript standing, so a derived memory entry stays too."""
+    calls = _recording_retractor(monkeypatch)
+    speaker = live_store.create_speaker(name="Rahul")
+    _session_with_audio(speaker_id=speaker["id"])
+
+    handler, _ = _post("/api/live/delete",
+                       {"kind": "speaker_audio", "id": speaker["id"]})
+
+    assert handler.status == 200
+    assert handler.payload()["chunks_deleted"] == 1
+    assert calls == []
+    assert "facts_retracted" not in handler.payload()
+
+
+def test_deleting_a_day_reports_the_sum_of_every_sessions_retraction(
+        monkeypatch):
+    calls = _recording_retractor(monkeypatch, {"facts_retracted": 2,
+                                               "facts_retraction_staged": 1,
+                                               "facts_unattributable": 0,
+                                               "facts_note": "queued for review"})
+    first, _c1 = _connect()
+    _second, _c2 = _connect()
+    today = time.strftime("%Y-%m-%d", time.localtime(
+        live_store.get_session(first.live_session_id)["started_at"]))
+
+    handler, _ = _post("/api/live/delete", {"kind": "day", "id": today})
+
+    body = handler.payload()
+    assert body["sessions_deleted"] == 2
+    assert len(calls) == 2
+    assert body["facts_retracted"] == 4
+    assert body["facts_retraction_staged"] == 2
+    assert body["facts_note"] == "queued for review", \
+        "one sentence, not one identical copy per session"
+
+
+def test_a_failed_retraction_is_reported_and_the_delete_still_happens(
+        monkeypatch):
+    """A silent failure here is the exact bug this path exists to fix: the fact
+    stays in the system prompt of every future agent while the UI says gone."""
+    _recording_retractor(monkeypatch, raises=RuntimeError("MEMORY.md is locked"))
+    conn, _client = _connect()
+    sid = conn.live_session_id
+
+    handler, _ = _post("/api/live/delete", {"kind": "session", "id": sid})
+
+    body = handler.payload()
+    assert handler.status == 200
+    assert live_store.get_session(sid) is None, \
+        "a memory failure must never block the deletion itself"
+    assert body["ok"] is False
+    assert "MEMORY.md is locked" in body["facts_retraction_failed"]
+
+
+def test_a_failed_retraction_on_a_day_delete_surfaces_in_its_warnings(
+        monkeypatch):
+    _recording_retractor(monkeypatch, raises=RuntimeError("MEMORY.md is locked"))
+    conn, _client = _connect()
+    today = time.strftime("%Y-%m-%d", time.localtime(
+        live_store.get_session(conn.live_session_id)["started_at"]))
+
+    handler, _ = _post("/api/live/delete", {"kind": "day", "id": today})
+
+    body = handler.payload()
+    assert body["sessions_deleted"] == 1
+    assert body["ok"] is False
+    assert any("MEMORY.md is locked" in w for w in body["warnings"])
+
+
+def test_a_delete_with_no_watcher_layer_says_it_could_not_retract(monkeypatch):
+    """`api/live_watchers.py` may not be installed at all (design §8). Capture
+    works without it — but a delete that cannot reach MEMORY.md must say so
+    rather than imply the facts went with the rows."""
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _no_watchers(monkeypatch)
+
+    handler, _ = _post("/api/live/delete", {"kind": "session", "id": sid})
+
+    body = handler.payload()
+    assert handler.status == 200
+    assert live_store.get_session(sid) is None
+    assert body["ok"] is False
+    assert body["facts_retraction_failed"]
+
+
+@pytest.mark.skipif(_real_live_watchers is None,
+                    reason="the watcher layer is not installed")
+def test_end_to_end_a_session_delete_really_empties_the_memory_file(
+        tmp_path, monkeypatch):
+    """No stub anywhere in the chain: the real watcher module, the real
+    MemoryStore, a real MEMORY.md in a throwaway HERMES_HOME. Everything above
+    mocks `retract_facts`, and a wiring that resolved a different memory file
+    from the one the fact landed in would pass every one of those tests while
+    deleting nothing."""
+    from pathlib import Path
+
+    home = tmp_path / "hermes_home"
+    home.mkdir()
+    (home / "config.yaml").write_text("memory:\n  memory_enabled: true\n")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_CONFIG_PATH", str(home / "config.yaml"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    _install_watchers(monkeypatch,
+                      on_segment_appended=lambda sid, seq: None,
+                      on_session_ended=lambda sid: None,
+                      retract_facts=_real_live_watchers.retract_facts)
+
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    assert _real_live_watchers._store_facts(
+        ["Dana owns the infra rotation"], live_session_id=sid,
+        speaker_ids=["voice-1"]) == {"stored": 1, "staged": 0}
+    memory_file = home / "memories" / "MEMORY.md"
+    assert "Dana owns the infra rotation" in memory_file.read_text()
+
+    handler, _ = _post("/api/live/delete", {"kind": "session", "id": sid})
+
+    assert handler.status == 200
+    assert handler.payload()["facts_retracted"] == 1
+    assert "Dana owns the infra rotation" not in memory_file.read_text()

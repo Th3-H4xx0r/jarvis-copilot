@@ -30,9 +30,17 @@ struct LiveCaps: Equatable, Sendable {
     /// Always `"none"` until the embedding spike lands.
     var embed = "none"
     var embedModel = ""
-    /// PCM16 mono little-endian, NOT Opus: the app has no Opus encoder and this
-    /// task may not add a package dependency. The server chunks and encodes.
+    /// What the audio frames on this socket actually are: `"opus-packets"` (bare
+    /// Opus packets, one per binary frame, which the server length-prefixes and
+    /// stores as `opus-packets-len32@<rate>`) or `"pcm16"` (mono little-endian).
+    ///
+    /// The DEFAULT is `pcm16` on purpose. `LiveStore` sets this from the encoder it
+    /// managed to build, and a default of Opus would mean any caller that forgot to
+    /// pass one declared a codec the phone might not be able to produce — the one
+    /// mistake here that corrupts stored recordings rather than just wasting space.
     var codec = "pcm16"
+    /// The rate that goes WITH `codec`: 48000 for Opus, whatever the microphone
+    /// produces for PCM16. Not necessarily the capture rate.
     var rate = 16000
     /// This device can play a spoken reply.
     var speak = true

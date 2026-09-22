@@ -59,7 +59,8 @@ struct VoicePage: View {
                     voiceStage
                 }
             }
-            .jcScreen(liveMode ? "Live" : "Voice")
+            // The leading chip names the mode, so a centred title repeated it.
+            .jcScreen(liveMode ? "" : "Voice")
             .toolbar { toolbar }
         }
         // The Siri / Control-Center latch. On appear for a cold launch (the request
@@ -388,23 +389,25 @@ struct VoicePage: View {
             }
             .accessibilityLabel("Mode: \(liveMode ? "Live" : "Voice")")
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showSessionPicker = true } label: {
-                JcIcon("bubble.left", size: 15, weight: .medium)
-                    .foregroundStyle(JcTheme.accent)
-            }
-            .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showPicker = true } label: {
-                HStack(spacing: 6) {
-                    JcIcon("sparkles").foregroundStyle(JcTheme.accent)
-                    Text(models.chipLabel).lineLimit(1)
+        if !liveMode {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showSessionPicker = true } label: {
+                    JcIcon("bubble.left", size: 15, weight: .medium)
+                        .foregroundStyle(JcTheme.accent)
                 }
-                .font(.system(size: 14, weight: .medium))
-                .frame(maxWidth: 140)
+                .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
             }
-            .accessibilityLabel("Voice model: \(models.chipLabel)")
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showPicker = true } label: {
+                    HStack(spacing: 6) {
+                        JcIcon("sparkles").foregroundStyle(JcTheme.accent)
+                        Text(models.chipLabel).lineLimit(1)
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(maxWidth: 140)
+                }
+                .accessibilityLabel("Voice model: \(models.chipLabel)")
+            }
         }
     }
 

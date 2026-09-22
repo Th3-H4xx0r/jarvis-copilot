@@ -35,6 +35,9 @@ final class AmbientOpusEncoder {
     /// 20 ms per packet at 48 kHz — the Opus default and the best size/latency
     /// trade for speech.
     static let framesPerPacket: UInt32 = 960
+    /// `framesPerPacket` as milliseconds, which is what the caller needs to stamp
+    /// consecutive packets on the audio clock.
+    static let packetMs = 20
     /// Design §11's assumed archive rate.
     static let bitRate = 24000
     /// The largest an Opus packet can be.
@@ -42,10 +45,49 @@ final class AmbientOpusEncoder {
     /// Packets one `convert` call may produce. An 85 ms tap chunk is ~5 packets;
     /// this leaves generous headroom.
     static let packetCapacity: UInt32 = 32
+    /// How many times `flush` may push a packet of silence through to get the
+    /// look-ahead's held audio out. Three caps the padding at ~40 ms.
+    static let flushAttempts = 3
 
-    /// What the caller declares in `hello`, and what the server uses to pick a
-    /// decoder.
+    /// What the caller declares as `codec` in `hello` and on
+    /// `POST /api/live/audio`.
+    ///
+    /// NOT `codecLabel`. The server's `_codec_profile` recognises exactly `opus`
+    /// and `opus-packets`, and DERIVES the stored label from the declared name —
+    /// declaring the label itself would fall through to the unknown-codec branch
+    /// and store the audio as `opus-packets-len32@48000-len32@48000` in a `.bin`
+    /// file. One is what goes on the wire; the other is what the server writes
+    /// down afterwards.
+    static let wireCodec = "opus-packets"
+
+    /// The `rate` that accompanies `wireCodec`. The OPUS rate, not the
+    /// microphone's: it is what a decoder reading the stored label needs, and the
+    /// converter resamples from the mic rate as part of encoding.
+    static let wireRate = Int(rate)
+
+    /// How the server will record this on disk, given `wireCodec` and `wireRate`.
+    /// Kept for diagnostics and for the test that pins the two together.
     var codecLabel: String { "opus-packets-len32@\(Int(Self.rate))" }
+
+    /// One input chunk as SEPARATE packets, which is the shape the uplink needs.
+    ///
+    /// The server writes a 4-byte big-endian length in front of every payload it
+    /// is handed, so one payload must be one Opus packet: handing it the
+    /// length-prefixed blob from `encode` would nest the framing and the file's
+    /// packet boundaries would be wrong. Returns nil only when the encoder
+    /// errored, matching `encode`.
+    func encodePackets(_ pcm: Data) -> [Data]? {
+        guard let blob = encode(pcm) else { return nil }
+        if blob.isEmpty { return [] }
+        return Self.packets(in: blob)
+    }
+
+    /// The buffered tail, as separate packets. Empty when there is nothing held.
+    func flushPackets() -> [Data] {
+        let blob = flush()
+        guard !blob.isEmpty else { return [] }
+        return Self.packets(in: blob) ?? []
+    }
 
     /// Why encoding could not be set up, for the diagnostics and the status line.
     private(set) static var lastError = ""
@@ -130,13 +172,27 @@ final class AmbientOpusEncoder {
 
     /// Flush whatever is buffered at the end of an utterance or a session, padded to
     /// a packet boundary so the tail is not lost.
+    ///
+    /// The single-convert version of this lost the tail it exists to recover, which
+    /// an on-device test caught: the encoder has LOOK-AHEAD, so the first `convert`
+    /// of a stream consumes a packet of input and emits nothing, and a flush that
+    /// converts once and gives up returns empty while still holding real audio. So
+    /// it pushes silence through until a packet comes out — bounded, because a
+    /// converter that will never emit must not spin here, and because the padding is
+    /// itself audio being added to the recording.
     func flush() -> Data {
         guard !pending.isEmpty else { return Data() }
         let short = bytesPerPacketOfInput - pending.count
         if short > 0 { pending.append(Data(repeating: 0, count: short)) }
-        let packets = convertOnePacket() ?? Data()
+        var out = Data()
+        for _ in 0..<Self.flushAttempts {
+            guard let packets = convertOnePacket() else { break }
+            out.append(packets)
+            if !out.isEmpty { break }
+            pending = Data(repeating: 0, count: bytesPerPacketOfInput)
+        }
         pending.removeAll()
-        return packets
+        return out
     }
 
     /// How many source bytes make one 20 ms output packet, at the SOURCE rate.

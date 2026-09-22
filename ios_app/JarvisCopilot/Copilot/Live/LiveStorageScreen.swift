@@ -28,7 +28,7 @@ struct LiveStorageScreen: View {
                 total
                 if !store.storage.note.isEmpty { note }
                 rows("By session", store.storage.sessions, kind: .session)
-                rows("By day", store.storage.days, kind: nil)
+                rows("By day", store.storage.days, kind: .day)
                 speakers
             }
             .padding(.horizontal, 20)
@@ -83,40 +83,57 @@ struct LiveStorageScreen: View {
             .padding(.horizontal, 4)
     }
 
-    /// `kind` nil = nothing to delete at this granularity. A day-level delete is in
-    /// §3.1 but not in the frozen `/api/live/delete` contract (which takes
-    /// `session` | `speaker_forget` | `speaker_audio`), so the rows are shown
-    /// without a delete rather than with one that would 400.
+    /// A group of rows that delete at one granularity.
+    ///
+    /// `/api/live/delete` takes a `day` kind now — `{"kind":"day","id":"YYYY-MM-DD"}`,
+    /// the local calendar day — so the day rows are actionable rather than
+    /// decorative, which is what §3.1 asked for.
     @ViewBuilder
-    private func rows(_ title: String, _ items: [LiveStorageRow], kind: LiveDeleteKind?) -> some View {
+    private func rows(_ title: String, _ items: [LiveStorageRow], kind: LiveDeleteKind) -> some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 GlassQuietLabel(title)
                 GlassGroup {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, row in
-                        GlassRow(symbol: kind == nil ? "calendar" : "waveform",
-                                 title: row.label,
+                        GlassRow(symbol: kind == .day ? "calendar" : "waveform",
+                                 title: kind == .day ? Self.dayLabel(row.label) : row.label,
                                  subtitle: row.detail,
                                  last: index == items.count - 1) {
                             HStack(spacing: 10) {
                                 Text(LiveFormat.bytes(row.bytes))
                                     .font(JcText.small)
                                     .foregroundStyle(JcTheme.muted)
-                                if let kind {
-                                    Button {
-                                        pendingDelete = sessionDelete(row, kind: kind)
-                                    } label: {
-                                        JcIcon("trash", size: 14).foregroundStyle(JcTheme.danger)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("Delete \(row.label)")
+                                Button {
+                                    pendingDelete = kind == .day
+                                        ? dayDelete(row)
+                                        : sessionDelete(row, kind: kind)
+                                } label: {
+                                    JcIcon("trash", size: 14).foregroundStyle(JcTheme.danger)
                                 }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Delete \(row.label)")
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// `2026-09-21` as "Sunday 21 September". The id stays the raw day — that is
+    /// what the server matches on — but a date nobody can read is a poor thing to
+    /// ask someone to confirm the deletion of.
+    static func dayLabel(_ day: String) -> String {
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd"
+        // The day is a LOCAL calendar day (the server groups by localtime), so it
+        // must be parsed as one; parsing it as UTC shifts the name by a day for
+        // anybody west of Greenwich.
+        parser.timeZone = .current
+        guard let date = parser.date(from: day) else { return day }
+        let out = DateFormatter()
+        out.dateFormat = "EEEE d MMMM"
+        return out.string(from: date)
     }
 
     @ViewBuilder
@@ -165,6 +182,18 @@ struct LiveStorageScreen: View {
                       message: "Its transcript and its \(LiveFormat.bytes(row.bytes)) of audio go. "
                              + "This is exact — nothing else is affected.",
                       confirm: "Delete")
+    }
+
+    /// A day takes EVERY conversation recorded in it, which is more than the row's
+    /// own label suggests, so the dialog counts them out loud.
+    private func dayDelete(_ row: LiveStorageRow) -> PendingDelete {
+        PendingDelete(id: row.id, kind: .day,
+                      title: "Delete everything from \(Self.dayLabel(row.label))?",
+                      message: "Every session recorded that day goes — each one's "
+                             + "transcript, its paired chat, and \(LiveFormat.bytes(row.bytes)) "
+                             + "of audio in total. Other days are untouched. This cannot be "
+                             + "undone.",
+                      confirm: "Delete this day")
     }
 
     private func forgetDelete(_ row: LiveStorageRow) -> PendingDelete {

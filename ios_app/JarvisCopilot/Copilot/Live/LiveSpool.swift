@@ -38,10 +38,12 @@ enum LiveSpoolError: LocalizedError, Equatable {
 /// on reconnect.
 ///
 /// **Format.** One record per line, `T <base64-of-utf8-json>` or `B <base64>`,
-/// preceded by a single `S <live_session_id>` header line. Base64 because it
-/// cannot contain a newline, which is what makes line-splitting a safe framing
-/// for arbitrary audio bytes. A partially-written final line (killed mid-append)
-/// fails to decode and is discarded, costing one frame rather than the file.
+/// preceded by a `S <live_session_id>` header line and a `C <codec>` one. Base64
+/// because it cannot contain a newline, which is what makes line-splitting a safe
+/// framing for arbitrary audio bytes. A partially-written final line (killed
+/// mid-append) fails to decode and is discarded, costing one frame rather than the
+/// file. A file written before `C` existed is read as `pcm16`, which is not a
+/// guess: PCM16 is the only thing this app has ever queued.
 ///
 /// **Nothing here ever deletes conversation on its own.** Every discard is either
 /// something the caller explicitly asked for (`reset`) or a record that could not
@@ -79,6 +81,14 @@ final class LiveSpool {
     /// The live session these records belong to. Replaying a previous session's
     /// audio into a new one would attribute a conversation to the wrong transcript.
     private(set) var sessionID = ""
+    /// The encoding the queued audio is in — `"pcm16"` or `"opus-packets"`.
+    ///
+    /// The records are opaque bytes and the codec is declared ONCE per socket, in
+    /// `hello`, for everything that follows it. So the codec has to be remembered
+    /// with the queue: draining PCM16 records over a socket that declared Opus
+    /// would file raw samples in a chunk labelled `opus-packets-len32@48000`, and
+    /// a recording that cannot be decoded is worse than one that was never sent.
+    private(set) var codec = ""
     /// False once a disk write failed. The class claims to survive a crash; when it
     /// cannot, the caller has to be able to say so rather than keep the promise.
     private(set) var isDurable = true
@@ -141,6 +151,29 @@ final class LiveSpool {
             byteCount = 0
         }
         sessionID = id
+        persist()
+    }
+
+    /// Bind the spool to an audio encoding.
+    ///
+    /// Two real situations change it: a relaunch on an OS whose CoreAudio refuses
+    /// Opus when the previous launch's did not (or the reverse), and an encoder
+    /// that fails mid-capture and is honestly abandoned. In both, records in the
+    /// OTHER encoding cannot go up this socket — so they are moved aside under
+    /// their own codec's name, exactly as a previous session's are, and never
+    /// deleted.
+    func adopt(codec name: String) {
+        guard !name.isEmpty, codec != name else {
+            if codec.isEmpty { codec = name }
+            persist()
+            return
+        }
+        if !codec.isEmpty, !records.isEmpty {
+            quarantine(reason: "codec-\(codec)")
+            records.removeAll()
+            byteCount = 0
+        }
+        codec = name
         persist()
     }
 
@@ -220,6 +253,7 @@ final class LiveSpool {
         // Cleared too, so a spool reused for a NEW recording starts unbound and
         // keeps whatever it captures before that recording has an id.
         sessionID = ""
+        codec = ""
         persist()
     }
 
@@ -247,6 +281,10 @@ final class LiveSpool {
                 sessionID = String(line.dropFirst(2))
                 continue
             }
+            if line.hasPrefix("C ") {
+                codec = String(line.dropFirst(2))
+                continue
+            }
             guard let frame = Self.decode(line) else {
                 // A torn final line from a kill mid-append. One frame, not the file.
                 discarded += 1
@@ -257,6 +295,10 @@ final class LiveSpool {
         }
         records = restored
         byteCount = bytes
+        // A file with records but no codec line was written by a build that only
+        // ever queued PCM16. Leaving it untagged would let an Opus launch adopt
+        // those samples and send them up under an Opus label.
+        if codec.isEmpty, !restored.isEmpty { codec = "pcm16" }
         if discarded > 0 {
             JcLog.voice.notice("live spool: discarded \(discarded, privacy: .public) unreadable records")
         }
@@ -318,6 +360,7 @@ final class LiveSpool {
 
     private func headerAndBody() throws -> Data {
         var text = "S \(sessionID)\n"
+        if !codec.isEmpty { text += "C \(codec)\n" }
         for record in records { text += Self.encode(record.frame) + "\n" }
         guard let data = text.data(using: .utf8) else {
             throw LiveSpoolError.unwritable("could not encode the spool")

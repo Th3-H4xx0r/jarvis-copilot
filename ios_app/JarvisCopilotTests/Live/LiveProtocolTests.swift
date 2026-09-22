@@ -33,8 +33,9 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertEqual(caps["embed_model"] as? String, "")
     }
 
-    /// The app has no Opus encoder, so the codec it declares has to be what it can
-    /// actually produce.
+    /// The codec declared has to be what the phone can actually produce, so the
+    /// DEFAULT is the one it can always send. `LiveStore` raises it to
+    /// `opus-packets` only once it holds a working encoder.
     func testHelloDeclaresTheCodecItCanActuallySend() throws {
         let json = try object(.hello(deviceID: "d", caps: LiveCaps(stt: "none"), resume: nil))
         let caps = try XCTUnwrap(json["caps"] as? [String: Any])

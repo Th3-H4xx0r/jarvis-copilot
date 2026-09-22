@@ -62,6 +62,7 @@
 		12DE347B3BD69D365E123B9A /* ChatAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66380555B64440FBD1EBC697 /* ChatAttachments.swift */; };
 		13682FFE53560B9D0C42D8A5 /* VoiceTurnMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F729A9BCD2E7FE28C7F1435 /* VoiceTurnMachine.swift */; };
 		14850FF8C4B791E67CE3CA91 /* ChatStoreBoundaries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76EFFE82FA39C698D2D1520E /* ChatStoreBoundaries.swift */; };
+		14D5CE2A7E7FF2BB4D18027F /* AmbientOpusEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */; };
 		150BBFE9E62CC758680F56FD /* PhotonSetupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */; };
 		157F14FAA13E84F156A92D94 /* VoiceLocalLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8280FD20DD3AC63BC1A90061 /* VoiceLocalLaneTests.swift */; };
 		170114BF483753E0EF1AD6EC /* VoiceTurnMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */; };
@@ -144,6 +145,7 @@
 		2FC1B564DE1541DB7E758D8D /* PodSetupClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735A552C24DC3D89CA0A2FDF /* PodSetupClient.swift */; };
 		30072757920B44790320E054 /* PersonaLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1702051C73E8DD4087418F6 /* PersonaLoaderTests.swift */; };
 		30C4C5F4155A867BEAC970E4 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C934C1048A2F4D3A03D57842 /* RouteStore.swift */; };
+		311D83F832D8AF558CA2351A /* LiveStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6942C704808E0CC4A39087C /* LiveStorageTests.swift */; };
 		31CE78430DF9893DB44508B6 /* WorkspacesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B019B56DEE3BBB4264CD0251 /* WorkspacesTests.swift */; };
 		31DDAAE1980229F44305D1BD /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E8FC71A4C705599FEC75A4 /* ChatModels.swift */; };
 		32799A707359913FB5986CC5 /* StrengthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */; };
@@ -218,6 +220,7 @@
 		4837DA4DC2117A662C8B50AF /* IntegrationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B172AD0305445589AF5BDF95 /* IntegrationDetailView.swift */; };
 		48470BA5050232D0890D5601 /* SkillArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5A7079298755592C4A14CE /* SkillArgsTests.swift */; };
 		48EBED01AF2D775CA72C979B /* OnDeviceLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5FE8DCA271A7868ED473E098 /* OnDeviceLLM */; };
+		492B882D24A6C4F2725B093A /* LiveRoomMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */; };
 		4955B0954EB14C95944FCC4B /* RingFirmwareUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE029576C3EECD8DD6F9EC4A /* RingFirmwareUpdate.swift */; };
 		4A0B3B63E8C947CF07138CC5 /* VoiceLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF5836BFF32185E7E51741C /* VoiceLiveActivity.swift */; };
 		4A896AABBF3808C8639793C2 /* TodosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50286C204C30CC4F88E81AE1 /* TodosStore.swift */; };
@@ -1141,6 +1144,7 @@
 		94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsPage.swift; sourceTree = "<group>"; };
 		94DED9BEC0FECCC41973C909 /* RingModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingModelRenderTests.swift; sourceTree = "<group>"; };
 		94E9AD94F1C0459F59355A1C /* JcTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcTheme.swift; sourceTree = "<group>"; };
+		9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveRoomMeter.swift; sourceTree = "<group>"; };
 		951F9BF6AA0873028186B2A0 /* AssistantTurnCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AssistantTurnCard.swift; sourceTree = "<group>"; };
 		95AC21F22B83E0AFEF9A9BBA /* DevicesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesStore.swift; sourceTree = "<group>"; };
 		96790BC8E23FE3AA4932DABA /* RingStatsSections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingStatsSections.swift; sourceTree = "<group>"; };
@@ -1356,6 +1360,7 @@
 		DBAE5308628C3C7DE9907031 /* WorkspacesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesModels.swift; sourceTree = "<group>"; };
 		DBB75BCC6096760AD3D53ACA /* QRScanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QRScanner.swift; sourceTree = "<group>"; };
 		DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
+		DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoderTests.swift; sourceTree = "<group>"; };
 		DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
 		DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAPITests.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
@@ -1411,6 +1416,7 @@
 		F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCopilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F6358EC26D522B891FC6A82E /* WatchBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingModelsTests.swift; sourceTree = "<group>"; };
+		F6942C704808E0CC4A39087C /* LiveStorageTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveStorageTests.swift; sourceTree = "<group>"; };
 		F6EE315366F1707545A1FADD /* DetailSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DetailSheet.swift; sourceTree = "<group>"; };
 		F6F3CB09A458987759A7E8A9 /* LocalExecutor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalExecutor.swift; sourceTree = "<group>"; };
 		F7F16FA169627D2EED523E35 /* AudioQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioQueue.swift; sourceTree = "<group>"; };
@@ -1974,6 +1980,7 @@
 				655BCCC67E4543F1C0AA7E01 /* LiveView.swift */,
 				5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */,
 				AF3D404BBE1F88EE7584A34B /* AmbientOpusEncoder.swift */,
+				9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -2739,6 +2746,8 @@
 				D8295AE63E6B2896E74A3267 /* LiveSpoolTests.swift */,
 				14F6F9AD459413F173CF47EB /* LiveStoreTests.swift */,
 				7334BC4CDF991F8F581254FC /* LiveTranscriptTests.swift */,
+				DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */,
+				F6942C704808E0CC4A39087C /* LiveStorageTests.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3184,6 +3193,8 @@
 				39D2815CCE6A7FB6A8CCB6DB /* LiveSpoolTests.swift in Sources */,
 				7932A25DE32E74A9AFA727AD /* LiveStoreTests.swift in Sources */,
 				AD0149C434169BE24E61D230 /* LiveTranscriptTests.swift in Sources */,
+				14D5CE2A7E7FF2BB4D18027F /* AmbientOpusEncoderTests.swift in Sources */,
+				311D83F832D8AF558CA2351A /* LiveStorageTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3659,6 +3670,7 @@
 				22C38938595CCDFABA2E9984 /* LiveView.swift in Sources */,
 				EF4627157C3B1785819CE8BB /* LiveTranscript.swift in Sources */,
 				460C6E65E3AB16D9171480EE /* AmbientOpusEncoder.swift in Sources */,
+				492B882D24A6C4F2725B093A /* LiveRoomMeter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

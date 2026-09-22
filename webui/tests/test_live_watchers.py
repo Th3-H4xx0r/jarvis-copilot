@@ -1276,3 +1276,253 @@ def test_a_session_whose_digests_were_all_deleted_still_wraps_up(
     assert len(rollups) == 1
     assert json.loads(rollups[0]["speaker_ids"]) == [], \
         "no forgotten voice may reappear on the rollup"
+
+
+# ── retraction: a stored fact must not outlive the recording ────────────────
+#
+# These run the REAL memory write and the REAL removal against a throwaway
+# HERMES_HOME, for the same reason the two tests above do: a retraction that
+# quietly matches nothing is indistinguishable from a working one unless a file
+# is written and read back.
+
+
+def _memory_file(home):
+    return home / "memories" / "MEMORY.md"
+
+
+def _write_entries(home, *entries):
+    """Put entries in MEMORY.md without going through the store.
+
+    Used where the test needs an entry the writer could not have produced —
+    a hand-quoted provenance line, or one present while write_approval is on.
+    """
+    mem_dir = home / "memories"
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    (mem_dir / "MEMORY.md").write_text("\n§\n".join(entries), encoding="utf-8")
+
+
+def test_the_retraction_pattern_matches_what_the_writer_stamps():
+    """The one coupling the whole feature rests on. If `_fact_provenance` and
+    `_FACT_STAMP_RE` drift apart, every retraction silently matches nothing and
+    reports a cheerful zero."""
+    stamp = live_watchers._fact_provenance("sess-a", ["v2", "v1"])
+    assert live_watchers._fact_stamp(stamp + "a durable fact") == \
+        ("sess-a", ["v1", "v2"])
+    # The honest empty case, which is most early windows.
+    assert live_watchers._fact_stamp(
+        live_watchers._fact_provenance("", []) + "x") == ("unknown", ["unknown"])
+    assert live_watchers._fact_stamp("something the user typed") is None
+
+
+def test_retracting_a_session_removes_its_facts_and_only_its_facts(
+        tmp_path, monkeypatch):
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    _REAL_STORE_FACTS(["Dana owns the infra rotation"],
+                      live_session_id="sess-a", speaker_ids=["voice-1"])
+    _REAL_STORE_FACTS(["Sam moved to Berlin in March"],
+                      live_session_id="sess-b", speaker_ids=["voice-2"])
+    assert "Dana owns the infra rotation" in _memory_file(home).read_text()
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 1
+    assert result["facts_retraction_staged"] == 0
+    # Session scope matches on the recording, so nothing is unattributable here.
+    assert result["facts_unattributable"] == 0
+    assert "facts_retraction_failed" not in result
+    body = _memory_file(home).read_text()
+    assert "Dana owns the infra rotation" not in body, \
+        "the entry is still in the file the system prompt is built from"
+    # Removal, not a tombstone: the provenance stamp for that session is gone
+    # too, not rewritten as "retracted".
+    assert "live:sess-a" not in body
+    assert "Sam moved to Berlin in March" in body, \
+        "another recording's fact must survive"
+
+
+def test_forgetting_a_voice_retracts_its_facts_and_leaves_another_voices_alone(
+        tmp_path, monkeypatch):
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    _REAL_STORE_FACTS(["Dana owns the infra rotation"],
+                      live_session_id="sess-a", speaker_ids=["voice-1"])
+    _REAL_STORE_FACTS(["Sam moved to Berlin in March"],
+                      live_session_id="sess-a", speaker_ids=["voice-2"])
+
+    result = live_watchers.retract_facts(speaker_id="voice-1")
+
+    assert result["facts_retracted"] == 1
+    assert result["facts_unattributable"] == 0
+    body = _memory_file(home).read_text()
+    assert "Dana owns the infra rotation" not in body
+    assert "Sam moved to Berlin in March" in body, \
+        "forgetting one voice must not take another's fact with it"
+
+
+def test_a_fact_from_a_window_that_identified_nobody_is_counted_not_guessed_at(
+        tmp_path, monkeypatch):
+    """`voices:unknown` is the honest stamp for most early windows, and it
+    cannot be attributed to a person. So a speaker-scoped retraction reports it
+    instead of deleting it (which would take other people's facts) or keeping it
+    silently (which is the over-promise this whole path exists to end)."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    speaker = live_store.create_speaker(kind="other", name="Dana")["id"]
+    session = live_store.start_session(device_id="phone")["id"]
+    live_store.append_segment(session, ts_start_ms=0, ts_end_ms=1000,
+                              text="Dana said something", speaker_id=speaker)
+    _REAL_STORE_FACTS(["Someone is moving house in June"],
+                      live_session_id=session, speaker_ids=[])
+
+    result = live_watchers.retract_facts(speaker_id=speaker)
+
+    assert result["facts_retracted"] == 0
+    assert result["facts_unattributable"] == 1
+    assert "no voice was identified" in result["facts_note"]
+    assert "Someone is moving house in June" in _memory_file(home).read_text(), \
+        "an unattributable fact must be kept, not silently deleted"
+
+    # And the escape hatch the note points at really works: session scope
+    # matches on the recording, so it catches what the voice scope cannot.
+    after = live_watchers.retract_facts(live_session_id=session)
+    assert after["facts_retracted"] == 1
+    assert "Someone is moving house in June" not in _memory_file(home).read_text()
+
+
+def test_an_unattributable_fact_from_an_unrelated_session_is_not_even_counted(
+        tmp_path, monkeypatch):
+    """The unattributable count is scoped to sessions this voice was heard in.
+    Counting every `voices:unknown` entry ever stored would report a number the
+    user has no way to act on."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    speaker = live_store.create_speaker(kind="other", name="Dana")["id"]
+    heard_in = live_store.start_session(device_id="phone")["id"]
+    live_store.append_segment(heard_in, ts_start_ms=0, ts_end_ms=1000,
+                              text="Dana said something", speaker_id=speaker)
+    elsewhere = live_store.start_session(device_id="glasses")["id"]
+    _REAL_STORE_FACTS(["A fact from a room this voice was never in"],
+                      live_session_id=elsewhere, speaker_ids=[])
+
+    result = live_watchers.retract_facts(speaker_id=speaker)
+
+    assert result == {"facts_retracted": 0, "facts_retraction_staged": 0,
+                      "facts_unattributable": 0}
+    assert "A fact from a room this voice was never in" in \
+        _memory_file(home).read_text()
+
+
+def test_a_staged_retraction_is_never_reported_as_removed(tmp_path, monkeypatch):
+    """With memory.write_approval on, `memory_tool` queues the removal for
+    review and the entry stays in MEMORY.md. Counting that as retracted is
+    exactly the shape of bug this function was written to fix."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=True)
+    entry = (live_watchers._fact_provenance("sess-a", ["voice-1"])
+             + "Dana owns the infra rotation")
+    _write_entries(home, entry)
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 0, \
+        "a queued removal must not be reported as done"
+    assert result["facts_retraction_staged"] == 1
+    assert "write_approval" in result["facts_note"]
+    assert "Dana owns the infra rotation" in _memory_file(home).read_text(), \
+        "staging must not also remove the entry"
+
+
+def test_a_refused_removal_is_reported_rather_than_swallowed(
+        tmp_path, monkeypatch):
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    _REAL_STORE_FACTS(["Dana owns the infra rotation"],
+                      live_session_id="sess-a", speaker_ids=["voice-1"])
+
+    live_watchers._ensure_repo_on_path()
+    import tools.memory_tool as memory_module
+    monkeypatch.setattr(
+        memory_module, "memory_tool",
+        lambda **_kw: json.dumps({"success": False,
+                                  "error": "memory file drifted"}))
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 0
+    assert "memory file drifted" in result["facts_retraction_failed"]
+    assert "1 memory entry" in result["facts_retraction_failed"]
+    assert "Dana owns the infra rotation" in _memory_file(home).read_text()
+
+
+def test_an_unreachable_memory_store_is_reported_not_treated_as_nothing_to_do(
+        monkeypatch):
+    monkeypatch.setattr(
+        live_watchers, "_open_memory_store",
+        lambda **_kw: (None, None, "the memory store is unavailable"))
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 0
+    assert result["facts_retraction_failed"] == "the memory store is unavailable"
+
+
+def test_retracting_with_no_session_and_no_voice_is_refused_loudly():
+    """An empty scope would otherwise match `live:unknown` entries and delete
+    facts from every recording at once."""
+    result = live_watchers.retract_facts()
+    assert result["facts_retracted"] == 0
+    assert "no session or voice" in result["facts_retraction_failed"]
+
+
+def test_retraction_is_not_blocked_by_memory_being_turned_off(
+        tmp_path, monkeypatch):
+    """`memory.memory_enabled: false` withholds permission to WRITE new facts.
+    It is not permission to keep one the user asked to have deleted."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    _REAL_STORE_FACTS(["Dana owns the infra rotation"],
+                      live_session_id="sess-a", speaker_ids=["voice-1"])
+
+    live_watchers._ensure_repo_on_path()
+    import jarviscopilot_cli.config as cli_config
+    monkeypatch.setattr(cli_config, "load_config",
+                        lambda: {"memory": {"memory_enabled": False}})
+
+    # The writer stops...
+    assert _REAL_STORE_FACTS(["A second fact"], live_session_id="sess-a") == \
+        {"stored": 0, "staged": 0}
+    # ...and the retraction does not.
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+    assert result["facts_retracted"] == 1
+    assert "Dana owns the infra rotation" not in _memory_file(home).read_text()
+
+
+def test_a_memory_entry_that_is_not_a_live_fact_is_never_retracted(
+        tmp_path, monkeypatch):
+    """The stamp is matched at the START of an entry. A note that quotes the
+    provenance line mid-text is the user's own writing, not an ambient fact."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    own = "Pranav commits straight to main, no feature branches"
+    quoted = ("He asked what this line means: "
+              + live_watchers._fact_provenance("sess-a", ["voice-1"])
+              + "Dana owns the rotation")
+    _write_entries(home, own, quoted)
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 0
+    body = _memory_file(home).read_text()
+    assert own in body
+    assert quoted in body
+
+
+def test_several_facts_from_one_window_are_all_retracted(tmp_path, monkeypatch):
+    """They share an identical provenance stamp, so matching on the stamp would
+    make `MemoryStore.remove` refuse every one of them as ambiguous. The whole
+    entry is the key."""
+    home = _real_memory_home(tmp_path, monkeypatch, write_approval=False)
+    _REAL_STORE_FACTS(["Dana owns the infra rotation",
+                       "Dana is on call next week",
+                       "Dana prefers Thursday reviews"],
+                      live_session_id="sess-a", speaker_ids=["voice-1"])
+    assert _memory_file(home).read_text().count("live:sess-a") == 3
+
+    result = live_watchers.retract_facts(live_session_id="sess-a")
+
+    assert result["facts_retracted"] == 3
+    assert "facts_retraction_failed" not in result
+    assert _memory_file(home).read_text().strip() == ""

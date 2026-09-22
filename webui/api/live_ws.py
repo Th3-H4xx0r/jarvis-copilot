@@ -207,24 +207,43 @@ def _server_stt_available() -> bool:
 
 
 def assign_lane(caps: Optional[Dict[str, Any]]) -> str:
-    """Grant the edge lane only to a device the server can trust to label voices.
+    """Edge lane iff the device transcribes on its own.
 
-    All three conditions are the same condition: this device's vectors must be
-    comparable with the ones already stored. On-device STT without an on-device
-    embedder produces text with no voiceprint; a matching embedder id is what
-    makes the voiceprint mean anything.
+    Transcription and voiceprints are INDEPENDENT capabilities, and treating
+    them as one was a real bug: requiring a matching embedder before granting
+    the edge lane demoted a phone that had Apple's on-device transcriber but no
+    embedder yet, sending it to the server lane — which does not transcribe at
+    all. The result was a session that recorded audio and produced an empty
+    transcript, with the UI honestly reporting "transcribing on the server".
+
+    So the lane answers only "who turns audio into text". Whether this device
+    can also produce a comparable voiceprint is answered separately by
+    `embeddings_trusted`, and affects identification, not transcription: an
+    edge device without an embedder sends text, and its speakers stay
+    provisional until server-side identification exists.
     """
     if not isinstance(caps, dict):
         return LANE_SERVER
     if str(caps.get("stt") or "").strip() != "on_device":
         return LANE_SERVER
+    return LANE_EDGE
+
+
+def embeddings_trusted(caps: Optional[Dict[str, Any]]) -> bool:
+    """Whether this device's voiceprints are comparable with the stored ones.
+
+    The interlock of §5.3, kept intact and simply moved off the lane decision:
+    a vector computed by a different checkpoint is meaningless rather than
+    merely imprecise, so an id mismatch costs the device its voiceprints, not
+    its ability to transcribe.
+    """
+    if not isinstance(caps, dict):
+        return False
     if str(caps.get("embed") or "").strip() != "on_device":
-        return LANE_SERVER
+        return False
     declared = str(caps.get("embed_model") or "").strip()
     expected = str(live_config.load()["embed_model"] or "").strip()
-    if not declared or not expected or declared != expected:
-        return LANE_SERVER
-    return LANE_EDGE
+    return bool(declared and expected and declared == expected)
 
 
 # ── audio on disk ──────────────────────────────────────────────────────────
@@ -486,6 +505,11 @@ def session_started_ms(live_session_id: str) -> int:
     return started
 
 
+# SQLite's signed 64-bit ceiling. A timestamp above it cannot be stored,
+# and propagating one raised OverflowError on every chunk close.
+_MAX_TS_MS = (1 << 63) - 1
+
+
 def to_offset_ms(live_session_id: str, raw: Any) -> int:
     """Normalise any timestamp a client sends to ms since the session started.
 
@@ -498,12 +522,26 @@ def to_offset_ms(live_session_id: str, raw: Any) -> int:
     * an offset already — kept.
     """
     started = session_started_ms(live_session_id)
-    if raw is None:
+
+    def _stamped() -> int:
         return max(0, int(time.time() * 1000) - started) if started else 0
+
+    if raw is None:
+        return _stamped()
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        return max(0, int(time.time() * 1000) - started) if started else 0
+        return _stamped()
+    # A timestamp we cannot store is worse than one we do not have. The wire
+    # field is 8 bytes read UNSIGNED, so a client writing a top-bit-set value
+    # produces a number above SQLite's signed 64-bit ceiling: `register_audio`
+    # then raised OverflowError on every chunk close, which meant audio piled
+    # up on disk while the storage panel kept saying nothing was stored. Fall
+    # back to our own clock rather than propagating a number that cannot land.
+    if not (0 <= value <= _MAX_TS_MS):
+        logger.warning("live: refusing an unusable timestamp %r on %s",
+                       raw, live_session_id)
+        return _stamped()
     if value >= _EPOCH_THRESHOLD_MS:
         return max(0, value - started) if started else value
     return max(0, value)
@@ -1715,6 +1753,45 @@ def _live_audio_batch(handler, body) -> bool:
     return True
 
 
+def _fact_retraction(*, live_session_id: str = "",
+                     speaker_id: str = "") -> Dict[str, Any]:
+    """Retract the memory entries a Live deletion owes, as reportable counts.
+
+    Never raises. The watcher layer is optional by construction (§8) and
+    MEMORY.md lives outside this store entirely, so neither being unreachable
+    may stop a deletion the user asked for.
+
+    But it is never silent either. A fact extracted by the ambient monitor is
+    injected into the system prompt of every future agent, and until this
+    existed no Live delete path touched one — so a swallowed retraction here is
+    precisely the over-promise this code was added to end. The reason travels
+    back in the delete's own response.
+    """
+    try:
+        from api.live_watchers import retract_facts
+        return dict(retract_facts(live_session_id=live_session_id,
+                                  speaker_id=speaker_id) or {})
+    except Exception as exc:
+        logger.warning("live: retracting remembered facts failed "
+                       "(session %s, voice %s)",
+                       live_session_id[:8] or "-", speaker_id[:8] or "-",
+                       exc_info=True)
+        return {"facts_retraction_failed":
+                f"{type(exc).__name__}: {exc}"[:200]}
+
+
+def _merge_fact_retraction(result: Dict[str, Any],
+                           counts: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold retraction counts into a delete response, honestly."""
+    result.update(counts)
+    if counts.get("facts_retraction_failed"):
+        # The same posture as the paired-chat failure below: the rows are gone,
+        # but part of what the delete promised did not happen, and a bare 200
+        # would read as "all of it did".
+        result["ok"] = False
+    return result
+
+
 def _delete_one_session(live_session_id: str) -> Dict[str, Any]:
     """Delete a live session, its audio, and the chat it was paired with.
 
@@ -1742,7 +1819,13 @@ def _delete_one_session(live_session_id: str) -> Dict[str, Any]:
             result["warning"] = (
                 f"the paired chat {chat_session_id} could not be deleted "
                 f"({reason}); its notes and summary remain in Chats")
-    return result
+    # The last thing this recording left behind. The ambient monitor may have
+    # written durable facts derived from it into MEMORY.md, and those outlive
+    # every row and file the lines above remove. Session scope matches on the
+    # recording, so it also catches the `voices:unknown` entries no
+    # speaker-scoped retraction can reach.
+    return _merge_fact_retraction(
+        result, _fact_retraction(live_session_id=live_session_id))
 
 
 def _delete_chat_session(chat_session_id: str) -> Tuple[bool, str]:
@@ -1799,9 +1882,22 @@ def _live_delete(handler, body) -> bool:
         j(handler, _delete_one_session(target))
         return True
     if kind == "speaker_forget":
-        j(handler, live_store.forget_speaker(target))
+        # Retract FIRST. `_speaker_session_ids` reads the very `live_segment`
+        # rows `forget_speaker` is about to delete, and they are the only record
+        # of which sessions this voice was heard in — afterwards a
+        # `voices:unknown` fact could not even be counted as unattributable.
+        # Retraction cannot fail the forget (see _fact_retraction), and erring
+        # this way over-retracts at worst, which is the safe direction for a
+        # privacy deletion.
+        facts = _fact_retraction(speaker_id=target)
+        j(handler, _merge_fact_retraction(
+            dict(live_store.forget_speaker(target)), facts))
         return True
     if kind == "speaker_audio":
+        # No retraction here, on purpose: this action deletes RECORDINGS, not
+        # the record of what was said. It leaves the transcript standing ("the
+        # words are still true once the recording is gone"), so taking a
+        # derived memory entry with it would delete more than was asked for.
         close_writers()
         result = dict(live_store.delete_audio_with_speaker(target))
         unplaceable = _unplaceable_chunk_count()
@@ -1821,6 +1917,12 @@ def _live_delete(handler, body) -> bool:
         freed = 0
         chats_deleted = 0
         failures = []
+        # Each session retracts its own facts inside _delete_one_session; the
+        # day answer is the sum, so "delete this day" reports one honest total
+        # instead of burying a per-session failure in a 200.
+        facts = {"facts_retracted": 0, "facts_retraction_staged": 0,
+                 "facts_unattributable": 0}
+        notes = []
         for sid in sessions:
             one = _delete_one_session(sid)
             freed += int(one.get("freed_bytes") or 0)
@@ -1828,8 +1930,19 @@ def _live_delete(handler, body) -> bool:
                 chats_deleted += 1
             if one.get("warning"):
                 failures.append(one["warning"])
+            for key in facts:
+                facts[key] += int(one.get(key) or 0)
+            if one.get("facts_retraction_failed"):
+                failures.append(one["facts_retraction_failed"])
+            if one.get("facts_note"):
+                notes.append(one["facts_note"])
         out = {"day": target, "sessions_deleted": len(sessions),
                "freed_bytes": freed, "chats_deleted": chats_deleted}
+        out.update(facts)
+        if notes:
+            # Deduplicated: every session on a staged-writes profile produces
+            # the same sentence, and N copies of it is noise, not detail.
+            out["facts_note"] = "; ".join(dict.fromkeys(notes))
         if failures:
             out["ok"] = False
             out["warnings"] = failures

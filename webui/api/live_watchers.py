@@ -692,6 +692,48 @@ def _fact_provenance(live_session_id: str, speaker_ids) -> str:
             f"[live:{live_session_id or 'unknown'} voices:{voices}]: ")
 
 
+def _open_memory_store(*, require_enabled: bool):
+    """`(store, memory_tool, reason)`. `reason` is non-empty iff unusable.
+
+    Shared by the write path and the retraction path deliberately: a retraction
+    that resolved the store some other way could end up reading a different
+    MEMORY.md from the one the fact landed in, and then "forget this" would
+    delete nothing while reporting success.
+
+    `require_enabled` is the one difference between the two callers, and it is
+    not symmetry for its own sake. `memory.memory_enabled: false` is permission
+    withheld for NEW writes; it is not permission to keep an entry the user
+    asked to have deleted. So the writer honours the flag and the retraction
+    ignores it — turning memory off after a fact was stored must not make that
+    fact permanent.
+    """
+    _ensure_repo_on_path()
+    try:
+        from jarviscopilot_cli.config import load_config
+        from tools.memory_tool import MemoryStore, memory_tool
+    except Exception:
+        logger.warning("live: the memory store is unavailable", exc_info=True)
+        return None, None, "the memory store is unavailable"
+
+    try:
+        mem_cfg = ((load_config() or {}).get("memory") or {})
+    except Exception:
+        logger.warning("live: could not read the memory config", exc_info=True)
+        mem_cfg = {}
+    if require_enabled and not mem_cfg.get("memory_enabled"):
+        return None, None, "memory is turned off (memory.memory_enabled)"
+
+    try:
+        store = MemoryStore(
+            memory_char_limit=mem_cfg.get("memory_char_limit", 0),
+            user_char_limit=mem_cfg.get("user_char_limit", 0))
+        store.load_from_disk()
+    except Exception:
+        logger.warning("live: could not open the memory store", exc_info=True)
+        return None, None, "the memory store could not be opened"
+    return store, memory_tool, ""
+
+
 def _store_facts(facts: list, *, live_session_id: str = "",
                  speaker_ids=()) -> dict:
     """Write durable facts from a window straight to the memory store.
@@ -721,28 +763,12 @@ def _store_facts(facts: list, *, live_session_id: str = "",
     candidates = [f[:_MAX_FACT_CHARS].strip() for f in facts if str(f or "").strip()]
     if not candidates:
         return outcome_counts
-    _ensure_repo_on_path()
-    try:
-        from jarviscopilot_cli.config import load_config
-        from tools.memory_tool import MemoryStore, memory_tool
-    except Exception:
-        logger.warning("live: memory unavailable; extracted facts dropped",
-                       exc_info=True)
-        return outcome_counts
 
-    mem_cfg = ((load_config() or {}).get("memory") or {})
-    if not mem_cfg.get("memory_enabled"):
-        # The user turned memory off globally. Live's own toggle does not
-        # override that.
-        return outcome_counts
-
-    try:
-        store = MemoryStore(
-            memory_char_limit=mem_cfg.get("memory_char_limit", 0),
-            user_char_limit=mem_cfg.get("user_char_limit", 0))
-        store.load_from_disk()
-    except Exception:
-        logger.warning("live: could not open the memory store", exc_info=True)
+    # require_enabled=True: the user turning memory off globally is a refusal to
+    # WRITE, and Live's own toggle does not override it.
+    store, memory_tool, reason = _open_memory_store(require_enabled=True)
+    if reason:
+        logger.info("live: extracted facts dropped (%s)", reason)
         return outcome_counts
 
     prefix = _fact_provenance(live_session_id, speaker_ids)
@@ -774,6 +800,229 @@ def _store_facts(facts: list, *, live_session_id: str = "",
             "memory.write_approval is on. Review with `jarviscopilot pending "
             "list`.", outcome_counts["staged"])
     return outcome_counts
+
+
+# ── retraction: the other half of every Live delete path ───────────────────
+#
+# A stored fact is the one thing Live produces that no `DELETE` in live_store
+# reaches. Forgetting a voice removed their transcript, their digests and their
+# voiceprint while a fact derived from them sat in MEMORY.md — injected into the
+# system prompt of every future agent — forever. That is deletion promised and
+# not delivered, so it gets a path of its own.
+#
+# Matching is only possible because `_fact_provenance()` is a stable constant
+# plus two named fields. This regex is the read side of that format and must be
+# kept in step with it; a mismatch makes every retraction a silent no-op, which
+# is why the tests assert the round trip through a real MEMORY.md rather than
+# through a stub.
+_FACT_STAMP_RE = re.compile(
+    re.escape(_FACT_PROVENANCE)
+    + r"\s*\[live:(?P<live>[^\s\]]*)\s+voices:(?P<voices>[^\]]*)\]:")
+
+# What `_fact_provenance()` writes when the window had no identified speaker —
+# which is most early windows. NOT a placeholder to be papered over: an entry
+# stamped this way genuinely cannot be attributed to a person, so a
+# speaker-scoped retraction has to report it rather than guess either way.
+_VOICES_UNKNOWN = "unknown"
+
+
+def _fact_stamp(entry: str):
+    """`(live_session_id, [voice ids])` from a stored entry, or None.
+
+    Anchored at the start of the entry on purpose. A user's own note that
+    happens to quote the provenance line mid-text is not a Live-derived fact and
+    must not be deletable by this path.
+    """
+    match = _FACT_STAMP_RE.match(str(entry or ""))
+    if match is None:
+        return None
+    voices = [v.strip() for v in (match.group("voices") or "").split(",")
+              if v.strip()]
+    return match.group("live").strip(), voices
+
+
+def _speaker_session_ids(speaker_id: str) -> set:
+    """The live sessions this voice was heard in.
+
+    Read straight off `live_segment` because that is the ONLY place the mapping
+    exists: a window where nobody was identified names no speaker in its digest
+    either, so digests cannot answer this. Which means this must be called
+    BEFORE `forget_speaker`, whose whole job is to delete these rows.
+
+    Used only for the unattributable count, so a failure here is degraded
+    honesty (a count that reads low), never a failed deletion.
+    """
+    try:
+        with live_store.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT live_session_id FROM live_segment"
+                " WHERE speaker_id=?", (speaker_id,)).fetchall()
+        return {str(r["live_session_id"]) for r in rows if r["live_session_id"]}
+    except Exception:
+        logger.warning(
+            "live: could not resolve which sessions a voice was heard in; the "
+            "unattributable fact count will read low", exc_info=True)
+        return set()
+
+
+def _retraction_verdict(stamp_session: str, voices: list, *,
+                        live_session_id: str, speaker_id: str,
+                        session_ids: set) -> str:
+    """"retract", "unattributable", or "" for an entry this scope does not own.
+
+    The speaker case over-deletes on purpose. A window stamped
+    `voices:alice,bob` produced a fact that may be about either of them, and
+    nothing recorded which. `forget_speaker` already makes exactly this trade
+    one layer down — it deletes a whole digest that merely *mentions* the voice,
+    including other people's speech in that window — so retracting the window's
+    facts too is the consistent reading of "forget this voice", and the
+    privacy-preserving direction when we cannot know.
+    """
+    if live_session_id and stamp_session == live_session_id:
+        return "retract"
+    if speaker_id:
+        if speaker_id in voices:
+            return "retract"
+        if _VOICES_UNKNOWN in voices and stamp_session in session_ids:
+            # Heard in a session this voice spoke in, but the window identified
+            # nobody. Reported, never guessed at in either direction.
+            return "unattributable"
+    return ""
+
+
+def retract_facts(*, live_session_id: str = "", speaker_id: str = "") -> dict:
+    """Remove the memory entries a Live deletion is supposed to take with it.
+
+    Finds entries whose `_fact_provenance()` stamp carries this
+    `live:<session_id>` or this id in its `voices:` list, and removes them
+    through the same `memory_tool` the write went through — so the store's file
+    lock, its external-drift guard and the user's `memory.write_approval`
+    setting all behave identically in both directions.
+
+    `MemoryStore.remove()` really removes: it pops the entry and rewrites
+    MEMORY.md from what is left via an atomic replace. No tombstone, nothing
+    appended, and nothing left legible in the file.
+
+    Returns counts, shaped like `live_store`'s own delete results:
+
+    * ``facts_retracted`` — entries that are now gone from MEMORY.md.
+    * ``facts_retraction_staged`` — entries whose REMOVAL was queued for review
+      because `memory.write_approval` is on. These are **still in MEMORY.md**
+      until the user approves them; counting them as retracted would reproduce
+      the exact over-promise this function exists to fix.
+    * ``facts_unattributable`` — entries that mention a session this voice was
+      heard in but are stamped `voices:unknown`, so they cannot be tied to one
+      person. **Deliberately kept, and reported.** A window that identified
+      nobody is the common case early in a conversation, so a speaker-scoped
+      retraction genuinely cannot reach these; deleting them would take other
+      people's facts with them, and keeping them silently would be the lie.
+      Structurally zero for a session- or day-scoped retraction, which matches
+      on the recording and so catches `voices:unknown` entries too.
+    * ``facts_retraction_failed`` — present only when something was matched and
+      could not be removed (drift backup, an ambiguous substring match, a store
+      error). A retraction that fails silently is the bug being fixed.
+    * ``facts_note`` — plain-language detail for the other two honest cases,
+      when there is any.
+
+    What this CANNOT reach, stated plainly: an entry stamped
+    ``[live:unknown voices:unknown]`` (a fact extracted with neither a session
+    nor an identified voice) is unreachable by every scope; and a fact the
+    monitor rephrased into a form that no longer names its subject is still
+    deleted by session scope but is invisible to any other key.
+    """
+    counts = {"facts_retracted": 0, "facts_retraction_staged": 0,
+              "facts_unattributable": 0}
+    live_session_id = str(live_session_id or "").strip()
+    speaker_id = str(speaker_id or "").strip()
+    if not (live_session_id or speaker_id):
+        return dict(counts,
+                    facts_retraction_failed="no session or voice to retract for")
+
+    store, memory_tool, reason = _open_memory_store(require_enabled=False)
+    if reason:
+        # Reported, not swallowed: entries we could not even look at are still
+        # in the system prompt of every future agent.
+        return dict(counts, facts_retraction_failed=reason)
+
+    # Resolved BEFORE any deletion the caller is about to do (see
+    # _speaker_session_ids) and before we start mutating the store.
+    session_ids = _speaker_session_ids(speaker_id) if speaker_id else set()
+
+    failures: list = []
+    # A snapshot: `remove()` re-reads the file under its lock on every call, so
+    # iterating the store's live list while mutating it would skip entries.
+    for entry in list(getattr(store, "memory_entries", None) or []):
+        stamp = _fact_stamp(entry)
+        if stamp is None:
+            continue
+        verdict = _retraction_verdict(
+            stamp[0], stamp[1], live_session_id=live_session_id,
+            speaker_id=speaker_id, session_ids=session_ids)
+        if verdict == "unattributable":
+            counts["facts_unattributable"] += 1
+            continue
+        if verdict != "retract":
+            continue
+        try:
+            # The WHOLE entry as old_text, not the stamp: `remove()` matches on
+            # substring and refuses an ambiguous match, so passing the stamp
+            # (which every fact from the same window shares) would refuse every
+            # one of them instead of removing them.
+            raw = memory_tool(action="remove", target="memory",
+                              old_text=entry, store=store)
+        except Exception as exc:
+            logger.warning("live: removing a remembered fact raised",
+                           exc_info=True)
+            failures.append(type(exc).__name__)
+            continue
+        outcome = _parse_json_block(raw)
+        if outcome.get("staged"):
+            counts["facts_retraction_staged"] += 1
+        elif outcome.get("success"):
+            counts["facts_retracted"] += 1
+        else:
+            error = str(outcome.get("error") or raw or "unknown")
+            if error.startswith("No entry matched"):
+                # Another writer removed it between our snapshot and now. The
+                # post-condition we promised — it is not in MEMORY.md — holds.
+                counts["facts_retracted"] += 1
+                continue
+            logger.warning("live: a remembered fact was NOT removed: %s",
+                           error[:200])
+            failures.append(error[:120])
+
+    if failures:
+        counts["facts_retraction_failed"] = (
+            f"{len(failures)} memory entr"
+            f"{'y' if len(failures) == 1 else 'ies'} could not be removed: "
+            + "; ".join(sorted(set(failures))[:3]))
+
+    notes = []
+    if counts["facts_retraction_staged"]:
+        # Loud, because from the user's side a queued retraction is
+        # indistinguishable from a completed one until they read MEMORY.md.
+        logger.warning(
+            "live: %d memory entr%s were QUEUED FOR REMOVAL, not removed — "
+            "memory.write_approval is on, so they are STILL in memory. Approve "
+            "with `jarviscopilot pending list`.",
+            counts["facts_retraction_staged"],
+            "y" if counts["facts_retraction_staged"] == 1 else "ies")
+        notes.append(
+            f"{counts['facts_retraction_staged']} memory entr"
+            f"{'y is' if counts['facts_retraction_staged'] == 1 else 'ies are'} "
+            "queued for removal and still stored, because "
+            "memory.write_approval is on; approve with `jarviscopilot pending "
+            "list`")
+    if counts["facts_unattributable"]:
+        notes.append(
+            f"{counts['facts_unattributable']} memory entr"
+            f"{'y' if counts['facts_unattributable'] == 1 else 'ies'} came from "
+            "a window where no voice was identified, so they cannot be tied to "
+            "this person and were kept; delete the session or the day to remove "
+            "those")
+    if notes:
+        counts["facts_note"] = "; ".join(notes)
+    return counts
 
 
 def _language_matches(lang: str, primary: str) -> bool:

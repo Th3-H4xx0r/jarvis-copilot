@@ -128,16 +128,38 @@ struct LiveStorage: Equatable, Sendable {
     var days: [LiveStorageRow] = []
     var speakers: [LiveStorageRow] = []
 
+    /// Both spellings of every list are read.
+    ///
+    /// The contract says `sessions` / `days` / `speakers`; `live_store.storage_summary`
+    /// returns `per_session` / `per_day` / `per_speaker_approx`. Reading only the
+    /// contract's names left this screen showing a total with NO rows under it — and
+    /// silently, because an empty list and an absent one look the same. The id keys
+    /// differ the same way (`live_session_id`, `day`), and the id is what a delete is
+    /// addressed by, so getting it from the wrong key would mean a delete button that
+    /// sends a title to an endpoint expecting a hex id.
     static func from(_ d: [String: Any]) -> LiveStorage {
         var out = LiveStorage()
         out.totalBytes = d.int("total_bytes") ?? d.int("total") ?? 0
         out.note = d.string("note") ?? ""
-        out.sessions = rows(d.list("sessions"), labelKeys: ["title", "label", "id"],
-                            detailKeys: ["started_at", "day"])
-        out.days = rows(d.list("days"), labelKeys: ["day", "date", "label"], detailKeys: [])
-        out.speakers = rows(d.list("speakers"), labelKeys: ["name", "label", "id"],
-                            detailKeys: ["kind"], approximate: true)
+        out.sessions = rows(either(d, "sessions", "per_session"),
+                            labelKeys: ["title", "label", "id"],
+                            detailKeys: ["source_label", "day"],
+                            idKeys: ["id", "live_session_id"])
+        out.days = rows(either(d, "days", "per_day"),
+                        labelKeys: ["day", "date", "label"], detailKeys: [],
+                        idKeys: ["id", "day", "date"])
+        out.speakers = rows(either(d, "speakers", "per_speaker_approx"),
+                            labelKeys: ["name", "label", "id"],
+                            detailKeys: ["kind"],
+                            idKeys: ["id", "speaker_id"],
+                            approximate: true)
         return out
+    }
+
+    private static func either(_ d: [String: Any], _ first: String,
+                               _ second: String) -> [[String: Any]] {
+        let rows = d.list(first)
+        return rows.isEmpty ? d.list(second) : rows
     }
 
     /// Sorted by size, biggest first — §3.1 asks for the panel that way, and it is
@@ -145,6 +167,7 @@ struct LiveStorage: Equatable, Sendable {
     private static func rows(_ list: [[String: Any]],
                              labelKeys: [String],
                              detailKeys: [String],
+                             idKeys: [String],
                              approximate: Bool = false) -> [LiveStorageRow] {
         list.map { d in
             let label = labelKeys.compactMap { key -> String? in
@@ -152,9 +175,16 @@ struct LiveStorage: Equatable, Sendable {
                 return v
             }.first ?? "(untitled)"
             let detail = detailKeys.compactMap { d.string($0) }.first { !$0.isEmpty }
-            return LiveStorageRow(id: d.string("id") ?? d.string("day") ?? label,
+            // The label is the LAST resort for an id, not the first: it is a title a
+            // user typed and no delete endpoint accepts one.
+            let id = idKeys.compactMap { key -> String? in
+                guard let v = d.string(key), !v.isEmpty else { return nil }
+                return v
+            }.first ?? label
+            return LiveStorageRow(id: id,
                                   label: label,
-                                  bytes: d.int("bytes") ?? d.int("audio_bytes") ?? 0,
+                                  bytes: d.int("bytes") ?? d.int("audio_bytes")
+                                      ?? d.int("approx_bytes") ?? 0,
                                   approximate: approximate && (d.bool("exact") != true),
                                   detail: detail)
         }
@@ -166,6 +196,11 @@ struct LiveStorage: Equatable, Sendable {
 enum LiveDeleteKind: String, Equatable, Sendable {
     /// A whole live session: its segments and its chunks. Exact.
     case session
+    /// Every session recorded on one LOCAL calendar day, `YYYY-MM-DD` — the id the
+    /// storage panel's day rows already carry. The server deletes each session in
+    /// turn, so it is exact in the same way `session` is; what it is not is
+    /// reversible.
+    case day
     /// Forget a voice: the voiceprint and that speaker's transcript rows. Audio
     /// stays, so other people's recordings are untouched.
     case speakerForget = "speaker_forget"

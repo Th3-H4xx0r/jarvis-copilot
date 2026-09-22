@@ -94,6 +94,17 @@ final class LiveStore {
     private(set) var connected = false
     /// True while a call or Siri holds the mic. Capture auto-resumes (§8).
     private(set) var interrupted = false
+    /// The codec this device declares in `hello` AND the encoding its audio frames
+    /// are actually in — one value, read by both, because the failure mode worth
+    /// designing against is the two disagreeing. `"opus-packets"` normally,
+    /// `"pcm16"` when this OS's CoreAudio will not encode Opus.
+    private(set) var audioCodec = "pcm16"
+    /// The rate that goes with `audioCodec`: 48000 for Opus (the rate a decoder
+    /// needs), the microphone's rate for PCM16.
+    private(set) var audioRate = LiveStore.micRate
+    /// Why the recording is uncompressed, when it is. Shown rather than silently
+    /// costing the user ten times the disk.
+    private(set) var codecNotice = ""
     private(set) var lane = LiveLane.server
     private(set) var liveSessionID = ""
     private(set) var chatSessionID = ""
@@ -150,6 +161,9 @@ final class LiveStore {
     /// collide with the previous one), which means a SECOND recording in the same
     /// launch would otherwise start stamped at the first one's total duration.
     private var segmenter = AmbientSegmenter()
+    /// PCM16 → Opus for the uplink. Nil when this OS refused the format, which is
+    /// the ONLY state in which `audioCodec` may say `pcm16` — see `prepareEncoder`.
+    private var encoder: AmbientOpusEncoder?
     private var socket: VoiceSocket?
     private var speech: SpeechSession?
     /// Whether on-device transcription is actually running. A `Bool` and not a test
@@ -370,6 +384,11 @@ final class LiveStore {
         guard epoch == generation else { try? session.release(); return }
 
         captureRate = Self.micRate
+        // BEFORE the microphone: the first frame must already know what it is being
+        // encoded as, and `hello` — sent a few lines later — has to declare the same
+        // thing. Building the encoder after either would send audio under a codec
+        // decided afterwards.
+        prepareEncoder()
         do {
             try await input.start(sampleRate: Self.micRate)
         } catch {
@@ -488,6 +507,10 @@ final class LiveStore {
         guard epoch == generation else { return }
         preRoll.removeAll()
         pendingSpeechFrames.removeAll()
+        // Released only after `flushFinalUtterance` has had its tail: a converter
+        // dropped with audio inside it is that audio lost. The next `start` builds a
+        // fresh one, which is also what re-answers "will this OS encode Opus".
+        encoder = nil
 
         await input.stop()
         guard epoch == generation else { return }
@@ -645,7 +668,10 @@ final class LiveStore {
     }
 
     private func sendHello() {
-        let caps = LiveCaps(stt: declaredSTT, rate: Self.micRate)
+        // `audioCodec`/`audioRate`, never a literal: this frame is the server's only
+        // instruction for how to store what follows it, so it must be read from the
+        // same two properties `sendAudio` encodes with.
+        let caps = LiveCaps(stt: declaredSTT, codec: audioCodec, rate: audioRate)
         // Resume only when this device has a cursor in a session that is still the
         // one it is recording — otherwise the server would be asked to continue a
         // conversation that ended.
@@ -836,6 +862,9 @@ final class LiveStore {
             preRoll.removeAll()
         case .ended(let startMs, let endMs):
             sendAudio(pcm)
+            // The last 20 ms of the last word is inside the encoder; the utterance
+            // is over, so nothing more is coming to push it out.
+            flushEncoderTail()
             finishUtterance(startMs: startMs, endMs: endMs)
             // An utterance boundary is the cheap place to record the clocks: once
             // per utterance rather than once per 20 ms frame.
@@ -857,25 +886,122 @@ final class LiveStore {
             }
             sendAudio(pcm)
         } else {
-            // Silence is NOT uploaded. The app has no Opus encoder (this task may
-            // not add a dependency), so raw PCM16 at 16 kHz costs ~115 MB an hour
-            // against the ~11 MB the design's 24 kbps Opus assumed. A room is
-            // mostly silent, so gating on the segmenter recovers most of that gap
-            // honestly: every millisecond of SPEECH still goes up, plus the
+            // Silence is NOT uploaded, and still isn't now that the audio is Opus.
+            // Compression brought the archive to the design's ~11 MB an hour of
+            // SPEECH; uploading the silence too would put the continuous ambient
+            // recording back at roughly that rate all day, for hours of a quiet
+            // room. So the gate stays: every millisecond of speech goes up, plus the
             // pre-roll, and only true silence is dropped. The server therefore has
-            // the audio for every transcript row, but not a continuous ambient
-            // recording — a real difference from the design, noted here so it is
-            // not mistaken for a bug.
+            // the audio for every transcript row but not a continuous recording — a
+            // real difference from the design, noted here so it is not mistaken for
+            // a bug.
             preRoll.append(pcm)
             if preRoll.count > Self.preRollFrames { preRoll.removeFirst() }
         }
     }
 
+    /// Build the Opus encoder for this capture, or state why there isn't one.
+    ///
+    /// Design §11's archive rate assumed 24 kbps Opus: ~11 MB an hour against
+    /// PCM16's ~115, which over a feature the user has chosen to keep INDEFINITELY
+    /// is 31 GB a year against 300. CoreAudio encoding Opus was proved on this
+    /// device before any of this was wired (`AmbientOpusEncoderTests`), but "proved
+    /// on one phone" is not "true on every OS this app runs on", so a refusal here
+    /// is a first-class outcome: PCM16 stays, and it is DECLARED as PCM16.
+    private func prepareEncoder() {
+        if let made = AmbientOpusEncoder.make(sourceRate: Double(captureRate)) {
+            encoder = made
+            audioCodec = AmbientOpusEncoder.wireCodec
+            audioRate = AmbientOpusEncoder.wireRate
+            codecNotice = ""
+            JcLog.voice.notice("live: ambient audio as \(made.codecLabel, privacy: .public)")
+        } else {
+            encoder = nil
+            audioCodec = "pcm16"
+            audioRate = captureRate
+            codecNotice = "This phone won't encode Opus, so Live recordings are "
+                        + "uncompressed and take about ten times the space."
+            JcLog.voice.error("""
+                live: no Opus encoder (\(AmbientOpusEncoder.lastError, privacy: .public)); \
+                sending PCM16 and saying so
+                """)
+        }
+        // Anything still queued in the OTHER encoding cannot go up a socket that
+        // declares this one. The spool sets it aside rather than mislabelling it.
+        spool.adopt(codec: audioCodec)
+        refreshSpoolCounters()
+    }
+
+    /// Encode a captured chunk and put it on the wire.
+    ///
+    /// `tsMs` overrides the audio clock for the pre-roll, whose frames are older
+    /// than now and whose stamps are what keep the opening of an utterance in the
+    /// right place.
     private func sendAudio(_ pcm: Data, tsMs: Int? = nil) {
+        let stamp = max(tsMs ?? segmenter.elapsedMs, 0)
+        guard let encoder else {
+            emitAudio(pcm, tsMs: stamp)
+            return
+        }
+        guard let packets = encoder.encodePackets(pcm) else {
+            // The encoder failed after having worked. Sending these samples now
+            // would put PCM in a chunk the server has labelled Opus, so the label
+            // is changed FIRST and the bytes follow it.
+            fallBackToPCM(because: AmbientOpusEncoder.lastError)
+            emitAudio(pcm, tsMs: stamp)
+            return
+        }
+        emit(packets: packets, from: stamp)
+    }
+
+    /// One frame per packet.
+    ///
+    /// The server writes its own 4-byte big-endian length in front of every payload
+    /// it is handed, so a frame carrying several packets would be stored as one
+    /// mis-sized packet and the file's `opus-packets-len32@48000` framing would be a
+    /// lie. Each packet is 20 ms of audio, so the stamps step by that rather than
+    /// every packet in a chunk claiming the same instant.
+    private func emit(packets: [Data], from tsMs: Int) {
+        for (index, packet) in packets.enumerated() {
+            emitAudio(packet, tsMs: tsMs + index * AmbientOpusEncoder.packetMs)
+        }
+    }
+
+    private func emitAudio(_ payload: Data, tsMs: Int) {
+        guard !payload.isEmpty else { return }
         audioSeq += 1
-        enqueue(.binary(LiveAudioFrame.encode(seq: audioSeq,
-                                              tsMs: tsMs ?? segmenter.elapsedMs,
-                                              payload: pcm)))
+        enqueue(.binary(LiveAudioFrame.encode(seq: audioSeq, tsMs: tsMs, payload: payload)))
+    }
+
+    /// Give up the packet the encoder is holding.
+    ///
+    /// The encoder is packet-aligned, so at any moment up to 20 ms of real audio is
+    /// inside it — and at an utterance boundary that is the end of the last word.
+    /// Flushing also stops one utterance's tail being spliced onto the front of the
+    /// next one, which is what happens when the silence between them is dropped.
+    private func flushEncoderTail(tsMs: Int? = nil) {
+        guard let encoder else { return }
+        emit(packets: encoder.flushPackets(), from: max(tsMs ?? segmenter.elapsedMs, 0))
+    }
+
+    /// Stop claiming Opus, mid-capture, because the encoder stopped working.
+    ///
+    /// Modelled on `fallBackToServerTranscription`: the danger is not the
+    /// degradation, it is degrading while still declaring the old capability. A
+    /// re-`hello` is how this protocol re-declares caps, and the server keys its
+    /// audio writer by codec — so it opens a new chunk for the new encoding instead
+    /// of appending samples to an Opus file.
+    private func fallBackToPCM(because reason: String) {
+        guard encoder != nil else { return }
+        encoder = nil
+        audioCodec = "pcm16"
+        audioRate = captureRate
+        codecNotice = "Opus encoding stopped working, so the rest of this recording "
+                    + "is uncompressed."
+        JcLog.voice.error("live: opus encoder failed (\(reason, privacy: .public)); PCM16 from here")
+        spool.adopt(codec: audioCodec)
+        refreshSpoolCounters()
+        sendHello()
     }
 
     /// Open a transcription session for the utterance that just began.
@@ -975,6 +1101,9 @@ final class LiveStore {
         let finished = speech
         speech = nil
         pendingSpeechFrames.removeAll()
+        // Before the guards, and before `stop` closes the socket: the encoder's
+        // held packet is real audio whether or not this utterance produced any text.
+        flushEncoderTail()
         guard let event = segmenter.flush(), case .ended(let startMs, let endMs) = event else {
             finished?.cancel()
             return
@@ -1019,6 +1148,11 @@ final class LiveStore {
             interrupted = true
             interruptedAt = clock.now
             // End whatever was being said; the rest of it is lost to the call.
+            // The encoder's tail goes now, while the audio clock still points at the
+            // moment the call arrived — `resumeAfterInterruption` winds it forward by
+            // the length of the call, and a packet flushed after that would be
+            // stamped minutes away from the sound in it.
+            flushEncoderTail()
             if let ended = segmenter.flush(), case .ended(let startMs, let endMs) = ended {
                 finishUtterance(startMs: startMs, endMs: endMs)
             }
