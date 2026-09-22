@@ -82,6 +82,17 @@ function _lEsc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function _lEl(id) { return document.getElementById(id); }
+// "es" → "Spanish". Empty for a tag the browser cannot name, so the card shows
+// nothing rather than a raw code.
+function _liveLanguageName(code) {
+  const tag = String(code || '').trim();
+  if (!tag) return '';
+  try {
+    const names = new Intl.DisplayNames([navigator.language || 'en'], { type: 'language' });
+    const name = names.of(tag) || names.of(tag.split('-')[0]);
+    return name && name !== tag ? name : '';
+  } catch (e) { return ''; }
+}
 function _lToast(msg, ms, type) {
   if (typeof showToast === 'function') showToast(msg, ms, type);
   else console.log('[live]', msg);
@@ -349,6 +360,10 @@ function _liveLabelFor(seg) {
 function _liveSegHtml(seg) {
   const label = _liveLabelFor(seg);
   const conf = seg.speaker_conf == null ? '' : Math.round(Number(seg.speaker_conf) * 100) + '%';
+  // Which language a translation came out of. Without it a line of English
+  // under a line of Chinese characters is just two sentences, and a
+  // translation cannot be told from a correction.
+  const from = seg.translation ? _liveLanguageName(seg.lang) : '';
   return `
     <div class="live-seg-head">
       <button class="live-chip${label.provisional ? ' provisional' : ''}${label.kind === 'me' ? ' me' : ''}"
@@ -367,7 +382,8 @@ function _liveSegHtml(seg) {
       </span>
     </div>
     <div class="live-seg-text">${_lEsc(seg.text || '')}</div>
-    <div class="live-seg-translation"${seg.translation ? '' : ' hidden'}>${_lEsc(seg.translation || '')}</div>`;
+    <div class="live-seg-translation"${seg.translation ? '' : ' hidden'}>${_lEsc(seg.translation || '')}${
+      from ? `<span class="live-seg-from">from ${_lEsc(from)}</span>` : ''}</div>`;
 }
 
 function _liveSegNode(seg) {

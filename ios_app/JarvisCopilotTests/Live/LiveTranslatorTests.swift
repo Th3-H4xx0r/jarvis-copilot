@@ -26,7 +26,11 @@ final class LiveTranslatorTests: XCTestCase {
 
     final class Box {
         var done: [(Int, String)] = []
-        var gaveUp: [Int] = []
+        var skipped: [(Int, LiveTranslator.Skipped)] = []
+        /// Only the ones worth asking the server about.
+        var gaveUp: [Int] { skipped.filter { $0.1 == .cannot }.map(\.0) }
+        /// Answered here: already in the target language, ask nobody.
+        var settled: [Int] { skipped.filter { $0.1 == .alreadyInTarget }.map(\.0) }
     }
 
     private func makeTranslator() -> (LiveTranslator, Box) {
@@ -34,7 +38,7 @@ final class LiveTranslatorTests: XCTestCase {
         let box = Box()
         translator.target = "en"
         translator.onTranslated = { seq, text in box.done.append((seq, text)) }
-        translator.onUnavailable = { seq in box.gaveUp.append(seq) }
+        translator.onSkipped = { seq, why in box.skipped.append((seq, why)) }
         return (translator, box)
     }
 
@@ -59,7 +63,8 @@ final class LiveTranslatorTests: XCTestCase {
         translator.request(seq: 1, text: "Hello, are you there?", source: "en-US")
 
         XCTAssertNil(translator.configuration, "nothing to do")
-        XCTAssertEqual(box.gaveUp, [1])
+        XCTAssertEqual(box.settled, [1], "answered, not deferred to the server")
+        XCTAssertTrue(box.gaveUp.isEmpty)
     }
 
     func testAnUnlabelledUtteranceIsLeftToTheServer() {
@@ -78,7 +83,7 @@ final class LiveTranslatorTests: XCTestCase {
 
         translator.request(seq: 3, text: "Hello", source: "en-GB")
 
-        XCTAssertEqual(box.gaveUp, [3])
+        XCTAssertEqual(box.settled, [3])
     }
 
     func testTheSameUtteranceIsNotQueuedTwice() {
@@ -123,7 +128,7 @@ final class LiveTranslatorTests: XCTestCase {
         XCTAssertEqual(box.gaveUp.sorted(), [1, 2], "both go to the server")
         XCTAssertTrue(box.done.isEmpty)
 
-        box.gaveUp.removeAll()
+        box.skipped.removeAll()
         translator.request(seq: 3, text: "vale", source: "es")
         XCTAssertEqual(box.gaveUp, [3], "and a later one is not even attempted")
         XCTAssertNil(translator.configuration)
@@ -133,7 +138,7 @@ final class LiveTranslatorTests: XCTestCase {
         let (translator, box) = makeTranslator()
         translator.request(seq: 1, text: "hola", source: "es")
         await translator.run(FakeRunner(failure: Boom()))
-        box.gaveUp.removeAll()
+        box.skipped.removeAll()
 
         translator.request(seq: 2, text: "bonjour", source: "fr")
         await translator.run(FakeRunner(answers: ["bonjour": "hello"]))
@@ -151,7 +156,10 @@ final class LiveTranslatorTests: XCTestCase {
         await translator.run(FakeRunner(answers: ["OK": "OK"]))
 
         XCTAssertTrue(box.done.isEmpty)
-        XCTAssertEqual(box.gaveUp, [7])
+        XCTAssertEqual(box.settled, [7],
+                       "identical output means it was already English — the "
+                       + "server must not be asked to translate it again")
+        XCTAssertTrue(box.gaveUp.isEmpty)
     }
 
     func testEmptyOutputIsNotATranslation() async {
@@ -160,7 +168,7 @@ final class LiveTranslatorTests: XCTestCase {
 
         await translator.run(FakeRunner(answers: ["hola": "   "]))
 
-        XCTAssertEqual(box.gaveUp, [8])
+        XCTAssertEqual(box.settled, [8])
     }
 
     func testResetForgetsWhatFailed() async {
@@ -169,7 +177,7 @@ final class LiveTranslatorTests: XCTestCase {
         translator.request(seq: 1, text: "hola", source: "es")
         await translator.run(FakeRunner(failure: Boom()))
         translator.reset()
-        box.gaveUp.removeAll()
+        box.skipped.removeAll()
 
         translator.request(seq: 2, text: "hola", source: "es")
 
@@ -183,5 +191,18 @@ final class LiveTranslatorTests: XCTestCase {
         XCTAssertEqual(LiveTranslator.primarySubtag("EN_US"), "en")
         XCTAssertEqual(LiveTranslator.primarySubtag("  zh-Hans-CN "), "zh")
         XCTAssertEqual(LiveTranslator.primarySubtag(""), "")
+    }
+
+    func testNoTargetLanguageMeansNoTranslation() {
+        // Without this the comparison is "en" != "", which is true, so every
+        // line including English went off to be translated — into whatever the
+        // device felt like. That is how English got an English translation.
+        let (translator, box) = makeTranslator()
+        translator.target = ""
+
+        translator.request(seq: 9, text: "Hola", source: "es")
+
+        XCTAssertNil(translator.configuration)
+        XCTAssertEqual(box.gaveUp, [9], "the server still gets a chance")
     }
 }

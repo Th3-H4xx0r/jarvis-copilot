@@ -111,6 +111,7 @@ _CONFIG_FALLBACK = {
     # merges over this dict, so an older live_config (or one that has not
     # learned the key yet) still gets a working budget instead of zero.
     "fact_check_tokens": _FACT_CHECK_TOKENS,
+    "fact_check_timeout_seconds": 15,
 }
 
 
@@ -593,6 +594,9 @@ def run_translate(live_session_id: str, seq: int, target: str = "") -> dict:
             "seq": int(seq),
             "text": translation,
             "translation": translation,
+            # Both ends of the trip, so a card can say "Spanish → English"
+            # rather than leaving the reader to guess what was translated.
+            "source_lang": str(segment.get("lang") or ""),
             "target": want,
             "created_at": time.time(),
         }
@@ -1383,6 +1387,11 @@ def _write_artifacts(live_session_id: str, cfg: dict) -> Optional[dict]:
         "kind": "artifacts",
         "live_session_id": live_session_id,
         "seq": None,
+        # The last utterance this wrap-up covers. A recording does not end when
+        # one is written — the user stops and starts again — so the client
+        # needs this to place the summary at the point it closed rather than
+        # pinning it below everything said afterwards.
+        "seq_to": _last_seq(live_session_id),
         "text": body,
         "summary": summary,
         "decisions": decisions,
@@ -2019,11 +2028,66 @@ def _tool_pass(task: str, prompt: str, system: str, toolsets,
         skip_memory=True,
         session_id=task_session_id,
     )
-    result = agent.run_conversation(user_message=prompt, system_message=system,
-                                   task_id=task_session_id)
+    deadline = _tool_pass_timeout()
+    if deadline <= 0:
+        result = agent.run_conversation(user_message=prompt,
+                                        system_message=system,
+                                        task_id=task_session_id)
+    else:
+        result = _run_with_deadline(agent, prompt, system, task_session_id,
+                                    deadline)
     if isinstance(result, dict):
         return str(result.get("final_response") or "")
     return str(result or "")
+
+
+def _run_with_deadline(agent, prompt: str, system: str, task_id: str,
+                       seconds: float):
+    """Run the agent turn, or give up and say so.
+
+    A fact-check is a person waiting with a spinner on screen. This pass holds
+    a web-search tool and an agent loop, and when a search hangs there is
+    nothing in that loop that ever gives up — so the spinner did not either.
+
+    The turn is interrupted rather than merely abandoned: the agent exposes an
+    interrupt for exactly this, and a thread left running would keep spending
+    on a verdict nobody is waiting for any more. The thread is a daemon so a
+    turn that ignores the interrupt cannot hold the process open either.
+    """
+    import threading
+
+    box: Dict[str, Any] = {}
+
+    def _go() -> None:
+        try:
+            box["result"] = agent.run_conversation(
+                user_message=prompt, system_message=system, task_id=task_id)
+        except Exception as exc:
+            box["error"] = exc
+
+    worker = threading.Thread(target=_go, name=f"live-pass-{task_id[:24]}",
+                              daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        try:
+            agent.interrupt()
+        except Exception:
+            logger.debug("live: could not interrupt a timed-out pass",
+                         exc_info=True)
+        raise TimeoutError(
+            f"gave up after {seconds:.0f}s — the check did not come back")
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
+
+
+def _tool_pass_timeout() -> float:
+    """Seconds a tool-holding watcher pass may take. 0 disables the deadline."""
+    try:
+        return max(0.0, float(_config().get("fact_check_timeout_seconds") or 0))
+    except (TypeError, ValueError):
+        return float(_CONFIG_FALLBACK.get("fact_check_timeout_seconds") or 0)
 
 
 def _plain_pass(task: str, messages: list, max_tokens: int = 800) -> str:
@@ -2049,6 +2113,18 @@ def _toolless_pass(task: str, prompt: str, system: str,
 
 
 # ── shaping helpers ────────────────────────────────────────────────────────
+
+
+def _last_seq(live_session_id: str) -> Optional[int]:
+    """The newest utterance in this session, or None if it cannot be read."""
+    try:
+        session = live_store.get_session(live_session_id) or {}
+        seq = int(session.get("last_seq") or 0)
+        return seq or None
+    except Exception:
+        logger.debug("live: could not read the last seq for %s",
+                     live_session_id, exc_info=True)
+        return None
 
 
 def _segment(live_session_id: str, seq: int) -> Optional[dict]:
@@ -2127,6 +2203,26 @@ def _clock(ts_ms) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+def _readable_text(segment: dict) -> str:
+    """What this utterance says, in a language the reader can act on.
+
+    Prefers the translation when there is one. A claim made in Spanish could
+    not be fact-checked before this: the checker was handed the words as
+    spoken, so it either reasoned over a language it is weaker in or — worse,
+    when the device had transcribed with the wrong recogniser — over a
+    phonetic English spelling like "Ola, Komote, Yamas", which says nothing at
+    all. The user is reading the translation; this checks what they read.
+
+    The original is kept alongside so nothing is silently replaced: a summary
+    or a verdict can still quote what was actually said.
+    """
+    spoken = str(segment.get("text") or "").strip()
+    english = str(segment.get("translation") or "").strip()
+    if not english or english == spoken:
+        return spoken
+    return f"{english}  (spoken: {spoken})" if spoken else english
+
+
 def _render_transcript(segments: list):
     """`[mm:ss] Name: text` lines, truncated to a bounded prompt.
 
@@ -2137,7 +2233,7 @@ def _render_transcript(segments: list):
     names = _speaker_labels()
     lines, used, size = [], [], 0
     for segment in segments:
-        text = str(segment.get("text") or "").strip()
+        text = _readable_text(segment)
         if not text:
             used.append(segment)
             continue

@@ -1674,10 +1674,14 @@ final class LiveStore {
     }
 
     /// How long a verdict has to arrive over the socket before the loading card
-    /// gives up. A fact-check is a whole agent turn with web tools, so this is
-    /// generous — but not unbounded, because a card that spins forever is a lie
-    /// about work that is no longer happening.
-    static let factCheckDeadlineMs = 120_000
+    /// gives up.
+    ///
+    /// Sits just above the SERVER's own deadline (`fact_check_timeout_seconds`,
+    /// 15s), so the server stops the work and this only ever catches a verdict
+    /// lost in transit — a socket that dropped between the request and the
+    /// answer. Two minutes was the old value and it was a lie: the user was
+    /// watching a spinner long after anything was still happening.
+    static let factCheckDeadlineMs = 20_000
 
     private var factCheckDeadline: VoiceTimerToken?
 
@@ -1689,10 +1693,40 @@ final class LiveStore {
             // Only the card we put up. A verdict that landed in the meantime is
             // the answer and must not be overwritten by a timeout.
             guard self.transcript.factCheck?.pending == true else { return }
-            self.transcript.apply(LiveFactCheckResult(
-                text: "Jarvis didn't send a verdict back. Nothing has been verified.",
-                failed: true))
+            // Ask before declaring failure. The verdict is STORED the moment
+            // it is produced, and the frame carrying it can be lost — a socket
+            // that dropped between the request and the answer is the ordinary
+            // case here, and it is exactly why the same verdict turns up in
+            // the paired chat while this screen shows nothing.
+            Task { [weak self] in await self?.reconcileFactCheck() }
         }
+    }
+
+    /// Look for a verdict that was produced but never reached this device.
+    ///
+    /// Only on the timeout path: a refetch on every check would be a round trip
+    /// nobody needs when the frame arrives normally, which it usually does.
+    private func reconcileFactCheck() async {
+        guard !liveSessionID.isEmpty else {
+            failPendingFactCheck()
+            return
+        }
+        do {
+            let page = try await api.transcript(liveSessionID: liveSessionID,
+                                                afterSeq: 0)
+            for note in page.notes { apply(note) }
+        } catch {
+            JcLog.dropped(JcLog.voice, "look for the verdict", error)
+        }
+        // Still nothing, so it really did not happen.
+        failPendingFactCheck()
+    }
+
+    private func failPendingFactCheck() {
+        guard transcript.factCheck?.pending == true else { return }
+        transcript.apply(LiveFactCheckResult(
+            text: "Jarvis didn't send a verdict back. Nothing has been verified.",
+            failed: true))
     }
 
     private func cancelFactCheckDeadline() {
@@ -1805,11 +1839,20 @@ final class LiveStore {
             // every other device looking at this conversation.
             Task { [weak self] in await self?.storeTranslation(seq: seq, text: text) }
         }
-        translator.onUnavailable = { [weak self] seq in
-            // The phone could not, so ask the server, which has more languages
-            // and does not need the screen to be open.
-            guard let self, let row = self.transcript.segment(seq: seq) else { return }
-            Task { [weak self] in await self?.translate(row) }
+        translator.onSkipped = { [weak self] seq, why in
+            guard let self else { return }
+            switch why {
+            case .alreadyInTarget:
+                // Nothing to do, and nobody else should be asked. Passing this
+                // to the server is what produced an English line with an
+                // identical English "translation" under it.
+                break
+            case .cannot:
+                // This phone has no pack for that pair. The server has more
+                // languages and does not need the screen to be open.
+                guard let row = self.transcript.segment(seq: seq) else { return }
+                Task { [weak self] in await self?.translate(row) }
+            }
         }
     }
 

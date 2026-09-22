@@ -2220,3 +2220,126 @@ def test_translation_off_means_the_callback_does_nothing(
 
     assert model.prompts == []
 
+
+# "it should be able to fact check something that has been translated as well,
+# which it is not right now"
+
+
+def test_a_claim_made_in_another_language_is_checked_in_english(
+        cfg, events, model):
+    """Before this the checker saw the words as spoken — and when the device
+    had used the wrong recogniser, that was a phonetic English spelling like
+    "Ola, Komote, Yamas", which says nothing to check."""
+    session = _session()
+    seq = _say(session, "El Nilo es el río más corto.", lang="es")["seq"]
+    live_store.set_translation(session, seq, "The Nile is the shortest river.")
+    model.reply = json.dumps({"claim": "The Nile is the shortest river.",
+                              "verdict": "false", "note": "It is the longest.",
+                              "sources": []})
+
+    result = live_watchers.run_fact_check(session)
+
+    assert "The Nile is the shortest river." in model.prompts[0]
+    assert result["verdict"] == "false"
+
+
+def test_the_words_as_spoken_are_still_shown_to_the_model(cfg, events, model):
+    """Replacing them outright would stop a summary or a verdict being able to
+    quote what was actually said."""
+    session = _session()
+    seq = _say(session, "Hola, me llamo Pranav", lang="es")["seq"]
+    live_store.set_translation(session, seq, "Hello, my name is Pranav")
+    model.reply = json.dumps({"verdict": "unverifiable", "note": "n",
+                              "sources": []})
+
+    live_watchers.run_fact_check(session)
+
+    assert "Hello, my name is Pranav" in model.prompts[0]
+    assert "Hola, me llamo Pranav" in model.prompts[0]
+
+
+def test_an_untranslated_line_reads_exactly_as_before(cfg, events, model):
+    session = _session()
+    _say(session, "The Nile is the shortest river.", lang="en")
+    model.reply = json.dumps({"verdict": "false", "note": "n", "sources": []})
+
+    live_watchers.run_fact_check(session)
+
+    assert "(spoken:" not in model.prompts[0], "no noise when there is no translation"
+
+
+def test_a_translation_identical_to_the_words_adds_nothing(cfg, events, model):
+    session = _session()
+    seq = _say(session, "Hello there", lang="en")["seq"]
+    live_store.set_translation(session, seq, "Hello there")
+    model.reply = json.dumps({"verdict": "unverifiable", "note": "n",
+                              "sources": []})
+
+    live_watchers.run_fact_check(session)
+
+    assert "(spoken:" not in model.prompts[0]
+
+
+# "fact check sometimes glitches out and doesn't work, it should time out after
+# like 15s" — a spinner that never resolves is worse than a stated failure.
+
+
+def test_a_pass_that_never_returns_gives_up_and_says_so(cfg, monkeypatch):
+    """The fact-check holds a web-search tool, and when a search hangs there is
+    nothing in the agent loop that ever stops."""
+    import threading
+
+    started = threading.Event()
+    interrupted = threading.Event()
+
+    class _Hanging:
+        def run_conversation(self, **_kw):
+            started.set()
+            # Longer than any test should wait; the deadline is what ends it.
+            interrupted.wait(30)
+            return {"final_response": "too late"}
+
+        def interrupt(self):
+            interrupted.set()
+
+    cfg["fact_check_timeout_seconds"] = 1
+    with pytest.raises(TimeoutError) as caught:
+        live_watchers._run_with_deadline(_Hanging(), "p", "s", "t", 1)
+
+    assert started.is_set()
+    assert "gave up" in str(caught.value)
+    assert interrupted.is_set(), "the turn is stopped, not just abandoned"
+
+
+def test_a_pass_that_answers_in_time_is_untouched(cfg):
+    class _Quick:
+        def run_conversation(self, **_kw):
+            return {"final_response": "done"}
+
+        def interrupt(self):
+            raise AssertionError("must not interrupt a pass that answered")
+
+    out = live_watchers._run_with_deadline(_Quick(), "p", "s", "t", 5)
+
+    assert out["final_response"] == "done"
+
+
+def test_a_pass_that_raises_still_raises(cfg):
+    """The deadline must not swallow a real error into a timeout."""
+    class _Broken:
+        def run_conversation(self, **_kw):
+            raise RuntimeError("provider said no")
+
+        def interrupt(self):
+            pass
+
+    with pytest.raises(RuntimeError, match="provider said no"):
+        live_watchers._run_with_deadline(_Broken(), "p", "s", "t", 5)
+
+
+def test_the_timeout_is_configurable_and_can_be_switched_off(cfg):
+    cfg["fact_check_timeout_seconds"] = 42
+    assert live_watchers._tool_pass_timeout() == 42
+    cfg["fact_check_timeout_seconds"] = 0
+    assert live_watchers._tool_pass_timeout() == 0, "0 means no deadline"
+

@@ -179,6 +179,14 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
         return None
     if same_language(detected, declared_lang):
         return None
+    if _too_little_to_judge(heard):
+        # Measured in production: a clip that transcribed to "." was declared
+        # Norwegian, and the translate pass on the same audio invented "Then
+        # add 2 tablespoons of potato starch". A model that heard no words has
+        # not identified a language, whatever probability it reports.
+        logger.info("live: %r claimed on %r — too little heard to believe it",
+                    detected, heard[:20])
+        return None
     if not heard or _looks_hallucinated(heard):
         # It says the language is different but has no real words to show for
         # it. Relabelling without replacing the text would mark a line foreign
@@ -197,6 +205,11 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
                     "and relabelling only", detected)
     else:
         found["text"] = heard
+    # Kept even when the words are mojibake, because that case is measured and
+    # good: the same decode that produced unreadable Telugu script produced a
+    # correct "What are you doing now?". What made "." into "Then add 2
+    # tablespoons of potato starch" was not a broken transcript but an EMPTY
+    # one, and `_too_little_to_judge` has already refused that above.
     english = _to_english(model, samples, detected, translate_to)
     if english:
         found["translation"] = english
@@ -278,6 +291,17 @@ def same_language(a: str, b: str) -> bool:
     left = str(a or "").strip().lower().replace("_", "-").split("-")[0]
     right = str(b or "").strip().lower().replace("_", "-").split("-")[0]
     return bool(left) and bool(right) and left == right
+
+
+# Fewer real characters than this and there is nothing to identify a language
+# from. Deliberately low: real utterances here are two seconds of speech, and
+# the case being excluded is punctuation and silence, not brevity.
+MIN_HEARD_CHARS = 4
+
+
+def _too_little_to_judge(text: str) -> bool:
+    letters = [c for c in str(text or "") if c.isalpha()]
+    return len(letters) < MIN_HEARD_CHARS
 
 
 def _looks_broken(text: str) -> bool:

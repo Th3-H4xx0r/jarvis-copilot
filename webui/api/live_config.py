@@ -69,6 +69,10 @@ DEFAULTS: Dict[str, Any] = {
     # recent stretch, not one line — checking "Yo, one, two, three" on its
     # own is meaningless.
     "fact_check_tokens": 1000,
+    # How long a fact-check may take before it gives up and says so. It holds a
+    # web-search tool, and when a search hangs nothing in the agent loop ever
+    # stops — so the spinner did not either. 0 disables the deadline.
+    "fact_check_timeout_seconds": 15,
     "session_rollover_fraction": 0.5,
     # A hard token ceiling that wins over the fraction when non-zero, for a
     # user who would rather name the number than trust a context lookup.
@@ -79,7 +83,7 @@ _BOOL_KEYS = ("enabled", "monitor", "fact_check", "translate",
               "memory_extraction", "artifacts", "language_rescue")
 _INT_KEYS = ("window_seconds", "min_window_words",
              "session_rollover_tokens",
-             "fact_check_tokens")
+             "fact_check_tokens", "fact_check_timeout_seconds")
 _FLOAT_KEYS = ("session_rollover_fraction",)
 _STR_KEYS = ("reply_mode", "primary_language", "embed_model", "model",
              "rescue_model")
@@ -192,6 +196,8 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
     out["session_rollover_tokens"] = max(0, out["session_rollover_tokens"])
     if out["fact_check_tokens"] <= 0:
         out["fact_check_tokens"] = DEFAULTS["fact_check_tokens"]
+    if out["fact_check_timeout_seconds"] < 0:
+        out["fact_check_timeout_seconds"] = DEFAULTS["fact_check_timeout_seconds"]
     return out
 
 
@@ -238,6 +244,8 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
                 raise ValueError("session_rollover_tokens must be >= 0")
             if key == "fact_check_tokens" and value <= 0:
                 raise ValueError("fact_check_tokens must be > 0")
+            if key == "fact_check_timeout_seconds" and value < 0:
+                raise ValueError("fact_check_timeout_seconds must be >= 0")
             clean[key] = value
         else:
             value = str(raw or "").strip()

@@ -96,6 +96,10 @@
   font-size:13px;line-height:1.5;color:var(--em, var(--muted));font-style:italic;
 }
 .live-seg-translation[hidden]{display:none;}
+.live-seg-from{
+  display:block;margin-top:2px;font-size:11px;font-style:normal;
+  color:var(--muted);opacity:.8;
+}
 
 /* Speaker chip. Dashed + "?" while the label can still change; solid once the
    server has confirmed it. Clicking it is how a voice gets a name. */

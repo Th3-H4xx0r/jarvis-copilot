@@ -2733,9 +2733,13 @@ def _live_store_translation(handler, body) -> bool:
         return True
     # Every other viewer of this conversation sees it too, through the same
     # frame the server's own translator publishes.
+    rows = live_store.segments_after(sid, after_seq=seq - 1, limit=1)
+    row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
     publish(sid, "insight", {"kind": "translation", "live_session_id": sid,
                              "seq": seq, "text": translation,
-                             "translation": translation})
+                             "translation": translation,
+                             "source_lang": str((row or {}).get("lang") or ""),
+                             "target": str((body or {}).get("target") or "")})
     j(handler, {"ok": True, "seq": seq})
     return True
 

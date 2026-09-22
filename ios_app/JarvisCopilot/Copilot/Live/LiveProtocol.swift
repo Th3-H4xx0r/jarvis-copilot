@@ -435,6 +435,15 @@ enum LiveFailureText {
 /// insight card's single `text` field would flatten back into markdown the
 /// screen then has to render as prose.
 struct LiveWrapUp: Equatable, Sendable {
+    /// The last utterance this wrap-up covered, so it can sit at that point in
+    /// the conversation instead of being pinned to the bottom for ever.
+    ///
+    /// A recording does not end when a wrap-up is written — the user stops and
+    /// starts again, and everything said afterwards belongs BELOW the summary
+    /// of what came before. Rendering it after every row meant new speech
+    /// appeared above it and it slid down the screen for the rest of the
+    /// session.
+    var afterSeq: Int?
     var summary = ""
     var decisions: [String] = []
     var actionItems: [String] = []
@@ -530,6 +539,9 @@ enum LiveServerFrame: Equatable, Sendable {
             // whole conversation ABOVE the conversation.
             if LiveWrapUp.isWrapUp(kind: kind) {
                 return .wrapUp(LiveWrapUp(
+                    // `seq_to` is the last row it read; the live frame carries
+                    // it, and a stored one gets it from `_insight_frame`.
+                    afterSeq: d.int("seq_to") ?? d.int("anchor_seq") ?? d.int("seq"),
                     summary: d.string("summary") ?? "",
                     decisions: stringList(d["decisions"]),
                     actionItems: stringList(d["action_items"] ?? d["actions"]),

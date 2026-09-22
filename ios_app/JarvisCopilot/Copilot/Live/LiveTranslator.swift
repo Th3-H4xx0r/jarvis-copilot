@@ -47,9 +47,22 @@ final class LiveTranslator {
     /// main actor. The store decides what to do with it.
     var onTranslated: ((Int, String) -> Void)?
 
-    /// Utterances this could not do — an unsupported pair, or a failure. The
-    /// store hands these back to the server rather than dropping them.
-    var onUnavailable: ((Int) -> Void)?
+    /// Why an utterance came back without a translation. The two cases must
+    /// not be treated alike: one is worth asking the server about, the other
+    /// is the answer.
+    enum Skipped {
+        /// This phone cannot translate that pair — no language pack, or it
+        /// failed. The server has more languages, so it should be asked.
+        case cannot
+        /// There is nothing to translate: the words are already in the target
+        /// language. Asking anyone else produces "Hello, are you there?"
+        /// translated into "Hello, are you there?", which is the bug this
+        /// distinction exists to stop.
+        case alreadyInTarget
+    }
+
+    /// Utterances that came back without a translation, and why.
+    var onSkipped: ((Int, Skipped) -> Void)?
 
     /// What we are translating INTO, BCP-47.
     var target: String = "en"
@@ -74,17 +87,33 @@ final class LiveTranslator {
     func request(seq: Int, text: String, source: String) {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isAvailable, !words.isEmpty else {
-            onUnavailable?(seq)
+            onSkipped?(seq, .cannot)
+            return
+        }
+        let into = Self.primarySubtag(target)
+        guard !into.isEmpty else {
+            // No target language means no translation. Without this the
+            // comparison below is "en" != "", which is true, so EVERY line
+            // including English was sent to be translated — into whatever the
+            // device felt like, which is how English got an English
+            // "translation" under it.
+            onSkipped?(seq, .cannot)
             return
         }
         let from = Self.primarySubtag(source)
-        guard !from.isEmpty, from != Self.primarySubtag(target) else {
-            // Same language, or no idea what it is: not this class's problem.
-            onUnavailable?(seq)
+        guard !from.isEmpty else {
+            // No language on the row at all. The server may know better once
+            // it has re-heard the audio, so it is worth asking.
+            onSkipped?(seq, .cannot)
+            return
+        }
+        guard from != into else {
+            // Already the language we would translate into. Done, not deferred.
+            onSkipped?(seq, .alreadyInTarget)
             return
         }
         guard !unsupported.contains(from) else {
-            onUnavailable?(seq)
+            onSkipped?(seq, .cannot)
             return
         }
         guard !pending.contains(where: { $0.seq == seq }) else { return }
@@ -107,9 +136,11 @@ final class LiveTranslator {
                 let done = try await session.translate(job.text)
                 let clean = done.trimmingCharacters(in: .whitespacesAndNewlines)
                 if clean.isEmpty || clean == job.text {
-                    // Identical output means it had nothing to change — most
-                    // often the text really was the target language already.
-                    onUnavailable?(job.seq)
+                    // Identical output means it had nothing to change: the
+                    // words were already in the target language. That is an
+                    // ANSWER — handing it to the server instead produced
+                    // English "translated" into the same English.
+                    onSkipped?(job.seq, .alreadyInTarget)
                 } else {
                     onTranslated?(job.seq, clean)
                 }
@@ -118,9 +149,9 @@ final class LiveTranslator {
                 // cause is a language pack that is not installed and cannot be
                 // fetched, and retrying per utterance would ask forever.
                 unsupported.insert(pair)
-                onUnavailable?(job.seq)
+                onSkipped?(job.seq, .cannot)
                 for orphan in pending where orphan.source == pair {
-                    onUnavailable?(orphan.seq)
+                    onSkipped?(orphan.seq, .cannot)
                 }
                 pending.removeAll { $0.source == pair }
                 JcLog.voice.notice("live: on-device translation unavailable for \(pair)")

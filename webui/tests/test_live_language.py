@@ -342,11 +342,24 @@ def test_mangled_text_relabels_without_replacing_the_words(monkeypatch):
 
 def test_text_that_is_mostly_punctuation_is_not_words(monkeypatch):
     """The check counts shapes, not any particular alphabet — it has to work
-    for scripts it cannot read."""
+    for scripts it cannot read. With no letters at all there is nothing to
+    identify a language from either, so the whole correction is refused."""
     _fake_whisper(monkeypatch, language="ja", probability=0.9,
                   text="-- ||| ### @@@ ~~~ %%%")
 
-    assert "text" not in live_language.rescue(_pcm(), 16000, "en-US")
+    assert live_language.rescue(_pcm(), 16000, "en-US") is None
+
+
+def test_a_near_empty_transcript_never_relabels_anything(monkeypatch):
+    """Measured in production: a clip that transcribed to "." was declared
+    Norwegian at high confidence, and the translate pass on the same audio
+    invented "Then add 2 tablespoons of potato starch". A model that heard no
+    words has not identified a language, whatever probability it reports."""
+    _fake_whisper(monkeypatch, language="nn", probability=0.95, text=".",
+                  english="Then add 2 tablespoons of potato starch,")
+
+    assert live_language.rescue(_pcm(), 16000, "en-US",
+                                translate_to="en") is None
 
 
 def test_a_real_sentence_in_another_script_is_kept(monkeypatch):

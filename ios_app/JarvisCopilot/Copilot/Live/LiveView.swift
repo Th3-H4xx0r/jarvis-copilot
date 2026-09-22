@@ -240,6 +240,24 @@ struct LiveView: View {
         return anchoredFactCheck == nil ? result : nil
     }
 
+    /// The wrap-up, when the utterance it closes is on screen.
+    private var anchoredWrapUp: LiveWrapUp? {
+        guard let wrap = store.wrapUp, let seq = wrap.afterSeq,
+              store.rows.contains(where: {
+                  if case .segment(let segment) = $0 { return segment.seq == seq }
+                  return false
+              })
+        else { return nil }
+        return wrap
+    }
+
+    /// The same wrap-up when it has nowhere to sit, so it closes the list
+    /// rather than disappearing.
+    private var trailingWrapUp: LiveWrapUp? {
+        guard let wrap = store.wrapUp else { return nil }
+        return anchoredWrapUp == nil ? wrap : nil
+    }
+
     // MARK: - Transcript
 
     @ViewBuilder
@@ -279,6 +297,14 @@ struct LiveView: View {
                                     LiveFactCheckCard(result: anchored)
                                         .padding(.top, 2)
                                 }
+                                // The wrap-up closes the conversation it
+                                // summarised — and anything said afterwards
+                                // belongs underneath it, not above.
+                                if let wrap = anchoredWrapUp,
+                                   wrap.afterSeq == segment.seq {
+                                    LiveWrapUpCard(wrap: wrap)
+                                        .padding(.top, 2)
+                                }
                             case .insight(let insight):
                                 LiveInsightCard(insight: insight)
                             }
@@ -300,9 +326,11 @@ struct LiveView: View {
                             LiveFactCheckCard(result: result)
                                 .padding(.top, 4)
                         }
-                        // The wrap-up closes the transcript, after everything it
-                        // summarises.
-                        if let wrap = store.wrapUp {
+                        // Only when it belongs to no row on screen — a
+                        // wrap-up written before this device joined, or whose
+                        // last utterance has scrolled out of a trimmed
+                        // transcript. Otherwise it is already inline above.
+                        if let wrap = trailingWrapUp {
                             LiveWrapUpCard(wrap: wrap)
                                 .padding(.top, 4)
                         }
@@ -551,12 +579,24 @@ struct LiveSegmentRow: View {
                 .textSelection(.enabled)
 
             if let translation = segment.translation {
-                HStack(alignment: .top, spacing: 6) {
-                    JcIcon("globe", size: 11).foregroundStyle(JcTheme.muted)
-                    Text(translation)
-                        .font(.system(size: 13.5))
-                        .foregroundStyle(JcTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .top, spacing: 6) {
+                        JcIcon("globe", size: 11).foregroundStyle(JcTheme.muted)
+                        Text(translation)
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(JcTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // Which language this came out of. Without it a line of
+                    // English under a line of Chinese characters is just two
+                    // sentences, and there is no way to tell a translation
+                    // from a correction.
+                    if let trip = LiveLanguageName.trip(from: segment.lang) {
+                        Text(trip)
+                            .font(.system(size: 11))
+                            .foregroundStyle(JcTheme.muted.opacity(0.75))
+                            .padding(.leading, 17)
+                    }
                 }
             }
         }
@@ -922,4 +962,32 @@ private struct LiveTranslationModifier: ViewModifier {
     }
 }
 #endif
+
+
+/// Turning a BCP-47 tag into something a person reads.
+enum LiveLanguageName {
+    /// "Spanish → English", or nil when the source is unknown.
+    ///
+    /// The target is left implicit: it is the language the reader is reading,
+    /// and naming it on every card is noise. What they cannot tell by looking
+    /// is where the line CAME from.
+    static func trip(from source: String) -> String? {
+        guard let name = name(source) else { return nil }
+        return "from \(name)"
+    }
+
+    /// "es-419" → "Spanish". Nil for an empty or unrecognisable tag, so the
+    /// caller can show nothing rather than a raw code.
+    static func name(_ code: String) -> String? {
+        let trimmed = code.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let localized = Locale.current.localizedString(forIdentifier: trimmed)
+            ?? Locale.current.localizedString(
+                forLanguageCode: String(trimmed.split(separator: "-")[0]))
+        guard let localized, !localized.isEmpty, localized != trimmed else {
+            return nil
+        }
+        return localized
+    }
+}
 
