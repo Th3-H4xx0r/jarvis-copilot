@@ -208,4 +208,42 @@ final class LiveSettingsTests: XCTestCase {
         config.replyMode = "SPOKEN"
         XCTAssertTrue(config.spokenReplies, "the comparison must not be case-sensitive")
     }
+
+    // MARK: - Languages heard
+
+    /// Empty is the default and MEANS something: "whatever the conversation's
+    /// primary language is", which is what the app did before this setting
+    /// existed. It must not silently become a list of one.
+    func testNoLanguagesChosenMeansThePrimaryLanguage() {
+        XCTAssertTrue(LiveSettings(store: MemoryKeyValueStore()).sttLanguages.isEmpty)
+    }
+
+    func testChosenLanguagesSurviveARelaunch() {
+        let store = MemoryKeyValueStore()
+        LiveSettings(store: store).sttLanguages = ["en-US", "es-ES"]
+        XCTAssertEqual(LiveSettings(store: store).sttLanguages, ["en-US", "es-ES"],
+                       "and in order — the first is the preferred one")
+    }
+
+    /// The same language twice is two recognisers doing identical work, which is
+    /// the one cost this feature has.
+    func testTheSameLanguageTwiceIsStoredOnce() {
+        let store = MemoryKeyValueStore()
+        LiveSettings(store: store).sttLanguages = ["en-US", "EN-us", "es-ES"]
+        XCTAssertEqual(LiveSettings(store: store).sttLanguages, ["en-US", "es-ES"])
+    }
+
+    /// The cap is a battery rule, not a storage one: there is no multi-language
+    /// transcriber in Apple's framework, so N languages is N recognisers.
+    func testMoreLanguagesThanWillRunAreDropped() {
+        let store = MemoryKeyValueStore()
+        LiveSettings(store: store).sttLanguages = ["en-US", "es-ES", "fr-FR", "de-DE", "it-IT"]
+        XCTAssertEqual(LiveSettings(store: store).sttLanguages.count, LiveSettings.maxLanguages)
+    }
+
+    func testABlankOrRaggedStoredListDoesNotBecomeEmptyLanguages() {
+        XCTAssertEqual(LiveSettings.parseLanguages(" en-US , ,es-ES  "), ["en-US", "es-ES"])
+        XCTAssertTrue(LiveSettings.parseLanguages("   ").isEmpty)
+        XCTAssertTrue(LiveSettings.parseLanguages("").isEmpty)
+    }
 }

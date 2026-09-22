@@ -31,6 +31,26 @@ final class DefaultSpeechRecognizing: SpeechRecognizing {
         }
     }
 
+    /// A session that may hear any of `locales`.
+    ///
+    /// Only the modern engine can do this — `SFSpeechRecognizer` is fixed to the
+    /// recognizer's own locale — so on older systems this degrades to the single
+    /// -language session rather than refusing, and the caller's `lang` stands.
+    func startSession(sampleRate: Int, prompt: Bool, locales: [Locale]) async -> SpeechSession? {
+        guard !locales.isEmpty else { return await startSession(sampleRate: sampleRate, prompt: prompt) }
+        guard #available(iOS 26.0, macOS 26.0, *),
+              let engine = modernEngine as? AnalyzerSpeechEngine
+        else { return await startSession(sampleRate: sampleRate, prompt: prompt) }
+        if engine.preparedLanguages.isEmpty {
+            // Only a caller that means it pays for a model download here; the
+            // settings flow normally prepared these already.
+            guard prompt,
+                  await engine.prepare(locales: locales, onProgress: { _ in }) == .ready
+            else { return nil }
+        }
+        return engine.makeSession(sampleRate: sampleRate, locales: locales)
+    }
+
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession? {
         if #available(iOS 26.0, macOS 26.0, *), let engine = modernEngine as? AnalyzerSpeechEngine {
             if !engine.isPrepared {
@@ -49,6 +69,18 @@ final class DefaultSpeechRecognizing: SpeechRecognizing {
                                          channels: 1, interleaved: false)
         else { return nil }
         return DefaultSpeechSession(recognizer: recognizer, format: format)
+    }
+
+    /// Readiness for a SET of languages. Only the modern engine has per-language
+    /// models to install; the older one has a single recognizer and nothing to
+    /// download, so it answers the same question it always did.
+    func prepare(locales: [Locale],
+                 onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
+        if #available(iOS 26.0, macOS 26.0, *), let engine = modernEngine as? AnalyzerSpeechEngine,
+           !locales.isEmpty {
+            return await engine.prepare(locales: locales, onProgress: onProgress)
+        }
+        return await prepare(onProgress: onProgress)
     }
 
     /// The SFSpeechRecognizer engine's readiness: permission, a recognizer for

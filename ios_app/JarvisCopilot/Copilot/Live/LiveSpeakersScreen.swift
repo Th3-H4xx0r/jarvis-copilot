@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Every voice Jarvis has heard: sample utterances so you can tell who it is, and
-/// a rename (design §7.1).
+/// Every voice Jarvis has heard: sample utterances so you can tell who it is, a
+/// rename, and a merge for the times it heard one person as two (design §7.1).
 ///
 /// Playback of a sample is deliberately NOT here. The server returns sample text,
 /// and there is no per-utterance audio endpoint in the frozen contract — a play
@@ -12,6 +12,14 @@ struct LiveSpeakersScreen: View {
 
     @State private var renaming: LiveSpeaker?
     @State private var draft = ""
+
+    /// Merge mode: the cards become a two-of-N picker instead of a list.
+    @State private var merging = false
+    /// Speaker ids in tap order, at most two.
+    @State private var picked: [String] = []
+    /// The user overrode which of the pair survives.
+    @State private var swapped = false
+    @State private var confirming = false
 
     var body: some View {
         ScrollView {
@@ -24,8 +32,20 @@ struct LiveSpeakersScreen: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else {
+                    if merging {
+                        Text("Pick the two voices that are the same person.")
+                            .font(JcText.small)
+                            .foregroundStyle(JcTheme.muted)
+                            .padding(.horizontal, 4)
+                    }
                     ForEach(store.speakers) { speaker in
-                        card(speaker)
+                        if merging {
+                            Button { toggle(speaker) } label: { card(speaker) }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(isPicked(speaker) ? [.isSelected] : [])
+                        } else {
+                            card(speaker)
+                        }
                     }
                 }
             }
@@ -33,13 +53,26 @@ struct LiveSpeakersScreen: View {
             .padding(.vertical, 8)
         }
         .jcScreen("Voices")
+        .animation(.easeInOut(duration: 0.18), value: merging)
+        .animation(.easeInOut(duration: 0.18), value: picked)
         .toolbar {
+            // Merge lives in the toolbar rather than on each card: it is a claim
+            // about a PAIR, and a per-card button would have to invent a second
+            // step anyway to ask "the same as which one?".
+            ToolbarItem(placement: .topBarLeading) {
+                if store.speakers.count >= 2 {
+                    Button(merging ? "Cancel" : "Merge") { setMerging(!merging) }
+                        .font(JcText.body.weight(merging ? .regular : .semibold))
+                        .foregroundStyle(JcTheme.accent)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { dismiss() }
                     .font(JcText.body.weight(.semibold))
                     .foregroundStyle(JcTheme.accent)
             }
         }
+        .safeAreaInset(edge: .bottom) { mergeBar }
         .refreshable { await store.loadSpeakers() }
         .task { await store.loadSpeakers() }
         .alert("Rename voice", isPresented: Binding(get: { renaming != nil },
@@ -56,12 +89,136 @@ struct LiveSpeakersScreen: View {
         } message: {
             Text("The name follows every past and future utterance from this voice.")
         }
+        .alert("Merge these two voices?", isPresented: $confirming) {
+            Button("Cancel", role: .cancel) { }
+            Button("Merge") { commit() }
+        } message: {
+            // Both names, and what happens to the history — a merge rewrites the
+            // past, so the sentence says so before it happens rather than after.
+            if let pair {
+                Text("“\(pair.folded.displayName)” becomes “\(pair.survivor.displayName)”. "
+                   + "Every utterance already labelled “\(pair.folded.displayName)” is "
+                   + "relabelled, in this conversation and every earlier one. "
+                   + "This can't be undone.")
+            }
+        }
     }
+
+    // MARK: - The pair
+
+    private var pickedSpeakers: [LiveSpeaker] {
+        picked.compactMap { id in store.speakers.first { $0.id == id } }
+    }
+
+    /// Which voice survives and which is folded into it. The default comes from
+    /// `LiveStore.survivorOfMerge` — a named voice beats an unnamed one — and the
+    /// user can flip it, so the direction is always stated rather than guessed at.
+    private var pair: (survivor: LiveSpeaker, folded: LiveSpeaker)? {
+        let chosen = pickedSpeakers
+        guard chosen.count == 2 else { return nil }
+        let preferred = LiveStore.survivorOfMerge(chosen[0], chosen[1])
+        let other = preferred.id == chosen[0].id ? chosen[1] : chosen[0]
+        return swapped ? (survivor: other, folded: preferred)
+                       : (survivor: preferred, folded: other)
+    }
+
+    private func isPicked(_ speaker: LiveSpeaker) -> Bool { picked.contains(speaker.id) }
+
+    private func toggle(_ speaker: LiveSpeaker) {
+        // A new pair gets the default direction back; silently keeping a flip
+        // from the previous pair would merge the wrong way round.
+        swapped = false
+        if let index = picked.firstIndex(of: speaker.id) {
+            picked.remove(at: index)
+            return
+        }
+        if picked.count >= 2 { picked.removeFirst() }
+        picked.append(speaker.id)
+    }
+
+    private func setMerging(_ on: Bool) {
+        merging = on
+        picked.removeAll()
+        swapped = false
+    }
+
+    private func commit() {
+        guard let pair else { return }
+        let folded = pair.folded, survivor = pair.survivor
+        setMerging(false)
+        Task { await store.merge(folded, into: survivor) }
+    }
+
+    // MARK: - The bar
+
+    @ViewBuilder
+    private var mergeBar: some View {
+        if merging {
+            VStack(spacing: 10) {
+                if let pair {
+                    // Which one survives, spelled out and swappable. "Keeping" is
+                    // the word that matters, so it leads.
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Keeping")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(JcTheme.muted)
+                            Text(pair.survivor.displayName)
+                                .font(JcText.body.weight(.semibold))
+                                .foregroundStyle(JcTheme.text)
+                                .lineLimit(1)
+                            Text("“\(pair.folded.displayName)” folds into it")
+                                .font(JcText.small)
+                                .foregroundStyle(JcTheme.muted)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Button { swapped.toggle() } label: {
+                            JcIcon("arrow.left.arrow.right", size: 15)
+                                .foregroundStyle(JcTheme.accent)
+                                .frame(width: 40, height: 40)
+                                .jcLiquidGlass(in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Keep “\(pair.folded.displayName)” instead")
+                    }
+                } else {
+                    Text(picked.count == 1
+                         ? "Now pick the other one."
+                         : "Pick two voices.")
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button { confirming = true } label: {
+                    Text("Merge")
+                        .font(JcText.body.weight(.semibold))
+                        .foregroundStyle(pair == nil ? JcTheme.muted : JcTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(pair == nil)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .background(.ultraThinMaterial)
+        }
+    }
+
+    // MARK: - A voice
 
     private func card(_ speaker: LiveSpeaker) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
+                    if merging {
+                        JcIcon(isPicked(speaker) ? "checkmark.circle.fill" : "circle", size: 20)
+                            .foregroundStyle(isPicked(speaker) ? JcTheme.accent : JcTheme.muted)
+                    }
                     GlassCircleIcon(symbol: speaker.kind == "me" ? "person.fill" : "person",
                                     size: 36)
                     VStack(alignment: .leading, spacing: 2) {
@@ -73,14 +230,19 @@ struct LiveSpeakersScreen: View {
                             .foregroundStyle(JcTheme.muted)
                     }
                     Spacer(minLength: 4)
-                    Button {
-                        draft = speaker.name
-                        renaming = speaker
-                    } label: {
-                        JcIcon("pencil", size: 15).foregroundStyle(JcTheme.accent)
+                    // Hidden while picking: in merge mode the whole card is the
+                    // control, and a second tappable thing inside it would make
+                    // the outer tap ambiguous.
+                    if !merging {
+                        Button {
+                            draft = speaker.name
+                            renaming = speaker
+                        } label: {
+                            JcIcon("pencil", size: 15).foregroundStyle(JcTheme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Rename \(speaker.displayName)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Rename \(speaker.displayName)")
                 }
 
                 if !speaker.samples.isEmpty {
@@ -94,6 +256,12 @@ struct LiveSpeakersScreen: View {
                         }
                     }
                 }
+            }
+        }
+        .overlay {
+            if merging, isPicked(speaker) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(JcTheme.accent.opacity(0.6), lineWidth: 1.5)
             }
         }
     }

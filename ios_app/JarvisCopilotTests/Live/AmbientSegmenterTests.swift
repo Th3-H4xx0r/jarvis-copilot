@@ -107,7 +107,9 @@ final class AmbientSegmenterTests: XCTestCase {
     func testAudioBetweenTheTwoGatesCountsAsStillTalking() {
         let segmenter = AmbientSegmenter()
         _ = feed(segmenter, amp: loud, ms: 600)
-        let between = (AmbientSegmenter.speechThreshold + AmbientSegmenter.silenceThreshold) / 2
+        // The gates in force, not the constants: they are floors under gates that
+        // move with the room, so the band between them moves too.
+        let between = (segmenter.openGate + segmenter.closeGate) / 2
         let events = feed(segmenter, amp: between, ms: AmbientSegmenter.silenceMs * 2)
         XCTAssertTrue(events.isEmpty, "the hysteresis band must not end the utterance")
         XCTAssertTrue(segmenter.speaking)
@@ -121,6 +123,91 @@ final class AmbientSegmenterTests: XCTestCase {
         let ends = events.filter { if case .ended = $0 { return true } else { return false } }
         XCTAssertGreaterThanOrEqual(ends.count, 1, "a continuous talker must still produce rows")
         XCTAssertTrue(segmenter.speaking || !ends.isEmpty)
+    }
+
+    // MARK: - A real room
+
+    /// THE regression. Measured on live session `ea492bed`, every segment spanned
+    /// 15.05–15.08 s — `maxUtteranceMs` — including one holding the two words
+    /// "Can you hear me?". The gates were absolute, and `voicePeakAmplitude` is a
+    /// PEAK over a frame, so a single sample above 0.0022 (−53 dBFS) kept a frame
+    /// "voiced"; in a real room that never stops happening, `silenceRunMs` never
+    /// reached `silenceMs`, and `close()` was only ever reached by the chunking
+    /// cap. The server slices identification audio out of that span, so every
+    /// voiceprint was ~15 s of room tone and nobody could be told apart.
+    ///
+    /// So: a short burst must produce a SHORT span.
+    func testAShortBurstInANoisyRoomYieldsAShortSpanNotAFixedWindow() {
+        // A room the OLD absolute gate would have called speech, forever.
+        let room = AmbientSegmenter.silenceThreshold * 2.5
+        XCTAssertGreaterThan(room, AmbientSegmenter.silenceThreshold,
+                             "this test is only meaningful in a room above the old absolute gate")
+        let speech = room * 6
+
+        let segmenter = AmbientSegmenter()
+        // Long enough for the floor to learn the room it is in.
+        let settling = feed(segmenter, amp: room, ms: 3000)
+        XCTAssertTrue(settling.isEmpty, "room tone must not open an utterance")
+
+        _ = feed(segmenter, amp: speech, ms: 2000)
+        let closing = feed(segmenter, amp: room, ms: AmbientSegmenter.silenceMs + 200)
+
+        guard case .ended(let startMs, let endMs)? = closing.first else {
+            return XCTFail("a two-second burst never ended — the silence gate never closed")
+        }
+        let span = endMs - startMs
+        XCTAssertEqual(Double(span), 2000, accuracy: 400,
+                       "a 2 s burst must be stamped as about 2 s, got \(span) ms")
+        XCTAssertLessThan(span, AmbientSegmenter.maxUtteranceMs / 3,
+                          "a span at the chunking cap means the silence gate never closed")
+    }
+
+    /// The floor must not learn from the very voice it is meant to hear. If an
+    /// open utterance fed the estimate, the gate would climb until the talker's
+    /// own speech read as silence.
+    func testTheRoomFloorDoesNotLearnFromSpeech() {
+        let segmenter = AmbientSegmenter()
+        _ = feed(segmenter, amp: AmbientSegmenter.silenceThreshold * 2, ms: 2000)
+        let learned = segmenter.roomFloor
+
+        _ = feed(segmenter, amp: loud * 4, ms: 5000)
+        XCTAssertTrue(segmenter.speaking)
+        XCTAssertEqual(segmenter.roomFloor, learned, accuracy: 1e-12,
+                       "an open utterance taught the floor its own speaker's level")
+    }
+
+    /// The hysteresis holds at EVERY room level, including past both ceilings —
+    /// otherwise a loud room makes a voice on the boundary flap open and shut.
+    func testTheClosingGateStaysBelowTheOpeningOneAtEveryRoomLevel() {
+        for step in 0...400 {
+            let floor = Double(step) * 0.001
+            XCTAssertLessThan(AmbientSegmenter.closeGate(forFloor: floor),
+                              AmbientSegmenter.openGate(forFloor: floor),
+                              "the gates crossed at room floor \(floor)")
+        }
+    }
+
+    /// A silent room falls back to exactly the absolute gates that used to be the
+    /// whole rule, and a deafening one is clamped rather than climbing past the
+    /// level speech lives at.
+    func testTheGatesAreClampedBetweenTheirFloorsAndCeilings() {
+        XCTAssertEqual(AmbientSegmenter.openGate(forFloor: 0),
+                       AmbientSegmenter.speechThreshold, accuracy: 1e-12)
+        XCTAssertEqual(AmbientSegmenter.closeGate(forFloor: 0),
+                       AmbientSegmenter.silenceThreshold, accuracy: 1e-12)
+        XCTAssertEqual(AmbientSegmenter.openGate(forFloor: 1),
+                       AmbientSegmenter.maxSpeechGate, accuracy: 1e-12)
+        XCTAssertEqual(AmbientSegmenter.closeGate(forFloor: 1),
+                       AmbientSegmenter.maxSilenceGate, accuracy: 1e-12)
+    }
+
+    /// A quiet room must behave exactly as it did before the floor existed, or
+    /// this fix has traded one broken environment for another.
+    func testAQuietRoomStillUsesTheAbsoluteGates() {
+        let segmenter = AmbientSegmenter()
+        _ = feed(segmenter, amp: 0.0002, ms: 3000)
+        XCTAssertEqual(segmenter.openGate, AmbientSegmenter.speechThreshold, accuracy: 1e-12)
+        XCTAssertEqual(segmenter.closeGate, AmbientSegmenter.silenceThreshold, accuracy: 1e-12)
     }
 
     // MARK: - The audio clock

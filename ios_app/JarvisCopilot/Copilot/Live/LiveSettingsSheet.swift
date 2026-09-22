@@ -369,6 +369,18 @@ struct LiveSettingsSheet: View {
                         .frame(maxWidth: 120)
                         .onSubmit { push() }
                 }
+                // Device-local, and the sheet's own split says why: which
+                // languages THIS phone's recogniser listens for is meaningless on
+                // the server, which is not the thing doing the recognising.
+                NavigationLink {
+                    LiveLanguagesScreen(store: store)
+                } label: {
+                    GlassRow(symbol: "globe",
+                             title: "Languages heard",
+                             subtitle: languagesSubtitle,
+                             subtitleLineLimit: 2)
+                }
+                .buttonStyle(.plain)
                 GlassRow(symbol: "person.wave.2",
                          title: "Voice model",
                          subtitle: draft.embedModel.isEmpty
@@ -383,6 +395,15 @@ struct LiveSettingsSheet: View {
                 }
             }
         }
+    }
+
+    /// What this phone is actually listening for, not what it is configured to
+    /// prefer. Empty means "the primary language above", which is the default and
+    /// is worth saying rather than leaving blank.
+    private var languagesSubtitle: String {
+        let chosen = store.settings.sttLanguages
+        guard !chosen.isEmpty else { return "Just the primary language." }
+        return chosen.map(LiveLanguageCatalog.name).joined(separator: ", ")
     }
 
     private var footer: some View {

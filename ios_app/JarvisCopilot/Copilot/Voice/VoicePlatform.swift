@@ -146,6 +146,32 @@ protocol SpeechSession: AnyObject {
     /// End audio and resolve the final transcript ("" when nothing was heard).
     func stop() async -> String
     func cancel()
+
+    /// Where in this session's audio the recogniser actually found words, in ms
+    /// from the FIRST buffer fed to it. Nil when the engine does not report it.
+    ///
+    /// Read after `stop()`, because it is the final results that carry it. Live
+    /// uses it to stamp a transcript row with the real bounds of the utterance
+    /// rather than the bounds of the window its amplitude gate held open — a 15 s
+    /// window around two spoken words made the server embed 15 s of room tone and
+    /// identification could not tell anyone apart.
+    var transcribedRangeMs: ClosedRange<Int>? { get }
+
+    /// The locale that produced `stop()`'s text, when the engine knows it.
+    ///
+    /// Not cosmetic: the `lang` on a Live segment is what the server's
+    /// auto-translate keys on (`_language_matches(lang, primary_language)`), so a
+    /// Spanish sentence transcribed by an en-US recogniser and then labelled `en`
+    /// is never translated. Nil means "no better answer than the caller's own".
+    var resolvedLanguage: String? { get }
+}
+
+extension SpeechSession {
+    /// Engines that do not report timing or language. `SFSpeechRecognizer` is
+    /// one, and so is every test double — neither should have to grow a member
+    /// to keep compiling.
+    var transcribedRangeMs: ClosedRange<Int>? { nil }
+    var resolvedLanguage: String? { nil }
 }
 
 @MainActor
@@ -154,10 +180,37 @@ protocol SpeechRecognizing: AnyObject {
     /// so a user who never opted in is never surprised by a permission sheet.
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession?
 
+    /// The same, but for a caller that knows which languages might be spoken.
+    ///
+    /// `locales` is ORDERED and the first is the preferred one; an empty list
+    /// means "whatever the device is set to", which is what the single-argument
+    /// form does. Live passes the set the user chose, because an ambient
+    /// recorder pinned to one locale transcribes Spanish as English gibberish
+    /// ("Ola, Ola, Como, Stas") and then labels it `en`.
+    func startSession(sampleRate: Int, prompt: Bool, locales: [Locale]) async -> SpeechSession?
+
     /// Make on-device transcription usable: permission, language support and,
     /// for the newer engine, the language model — downloading it if needed and
     /// reporting progress 0…1 as it goes.
     func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness
+
+    /// The same, for a caller that knows which languages might be spoken: every
+    /// one of them needs its model on the device before a session can hear it.
+    func prepare(locales: [Locale],
+                 onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness
+}
+
+extension SpeechRecognizing {
+    /// An engine that cannot choose a language ignores the request rather than
+    /// refusing the session: one locale's transcript beats none.
+    func startSession(sampleRate: Int, prompt: Bool, locales: [Locale]) async -> SpeechSession? {
+        await startSession(sampleRate: sampleRate, prompt: prompt)
+    }
+
+    func prepare(locales: [Locale],
+                 onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
+        await prepare(onProgress: onProgress)
+    }
 }
 
 /// Whether on-device transcription can run, and if not, why — worded for the

@@ -37,14 +37,57 @@ final class AmbientSegmenter {
 
     // MARK: - Tuning
 
-    /// Opens an utterance. Well below `Endpointer.speechThreshold` (0.012) because
-    /// there is no AGC in the ambient path and the talker may be metres away.
-    /// Above the noise floor of a quiet room, which measures under 0.001.
+    /// The FLOOR under the opening gate — never the whole gate. Well below
+    /// `Endpointer.speechThreshold` (0.012) because there is no AGC in the ambient
+    /// path and the talker may be metres away. Above the noise floor of a quiet
+    /// room, which measures under 0.001.
     static let speechThreshold = 0.0045
 
-    /// Closes one. Hysteresis, same idea as `Endpointer`: a separate lower gate
-    /// stops a voice sitting on the boundary from chattering open and shut.
+    /// The floor under the closing gate. Hysteresis, same idea as `Endpointer`: a
+    /// separate lower gate stops a voice sitting on the boundary from chattering
+    /// open and shut.
     static let silenceThreshold = 0.0022
+
+    // MARK: Tuning — the room's own level
+
+    /// Why the two constants above are floors and not the gates themselves.
+    ///
+    /// They were absolute, and a real room sits ABOVE them. `voicePeakAmplitude`
+    /// is a PEAK over a frame, so one sample in a thousand above 0.0022 (that is
+    /// −53 dBFS) keeps a frame classified "voiced" — which a fridge, a fan, a
+    /// street or a second conversation manages continuously. `silenceRunMs` then
+    /// never reached `silenceMs`, so `close()` was only ever reached by the
+    /// `maxUtteranceMs` chunking rule, and EVERY utterance was stamped as exactly
+    /// one 15 s window. Measured on session `ea492bed`: spans of 15.05 / 15.08 /
+    /// 15.08 s, one of them for the two words "Can you hear me?". The server
+    /// slices identification audio from that span, so speaker embeddings were
+    /// ~15 s of room tone and could not separate anyone — two halves of one
+    /// utterance scored 0.29 against each other.
+    ///
+    /// So the gates are now relative to the room. The constants above remain as
+    /// floors (a silent room must not make the gates vanish) and the constants
+    /// below as ceilings (a loud room must not push them up into speech).
+
+    /// How fast the floor estimate follows the room DOWN, per frame. Fast: a
+    /// quietening room should stop holding the gates high almost at once.
+    static let floorFallRate = 0.25
+
+    /// And UP. Slow, so one door slam between utterances does not deafen the
+    /// detector for the next thing said.
+    static let floorRiseRate = 0.02
+
+    /// Speech must beat the room by this much to open an utterance.
+    static let speechOverFloor = 3.0
+
+    /// And fall back to within this much of it to close one. Below
+    /// `speechOverFloor`, which is what keeps the hysteresis.
+    static let silenceOverFloor = 1.6
+
+    /// Ceilings. A room loud enough to push the gates past these is a room where
+    /// the gates have stopped being about speech, and an utterance that never
+    /// opens is worse than one that runs long.
+    static let maxSpeechGate = 0.05
+    static let maxSilenceGate = 0.028
 
     /// End-of-utterance wait. Longer than the voice turn's 650 ms: nobody is
     /// waiting on a reply here, so cutting a sentence in half to feel responsive
@@ -83,6 +126,36 @@ final class AmbientSegmenter {
     /// ended — not `elapsedMs`, which by then includes the whole silent wait.
     private var lastVoicedEndMs = 0
 
+    /// The room's own peak level, learned between utterances.
+    ///
+    /// Seeded at `silenceThreshold` so the very first utterance of a session
+    /// behaves exactly as the absolute gates used to, and adapts from there.
+    /// Updated ONLY while not in an utterance: the frames inside one are speech,
+    /// and letting them teach the floor would raise it until the talker's own
+    /// voice read as silence.
+    private(set) var roomFloor = AmbientSegmenter.silenceThreshold
+
+    /// The level speech has to beat to open an utterance, for a given room.
+    static func openGate(forFloor floor: Double) -> Double {
+        min(max(speechThreshold, floor * speechOverFloor), maxSpeechGate)
+    }
+
+    /// The level the tail has to fall below to start closing one.
+    ///
+    /// Below `openGate` at EVERY floor, which is the hysteresis the whole design
+    /// rests on: `silenceOverFloor` < `speechOverFloor`, `silenceThreshold` <
+    /// `speechThreshold`, and `maxSilenceGate` < `maxSpeechGate`, so no room
+    /// level can make the two cross.
+    static func closeGate(forFloor floor: Double) -> Double {
+        min(max(silenceThreshold, floor * silenceOverFloor), maxSilenceGate)
+    }
+
+    /// The opening gate for the room as it currently measures.
+    var openGate: Double { Self.openGate(forFloor: roomFloor) }
+
+    /// The closing gate for the room as it currently measures.
+    var closeGate: Double { Self.closeGate(forFloor: roomFloor) }
+
     /// Feed one frame. `amp` is normalized PEAK amplitude 0...1 (use
     /// `voicePeakAmplitude`, the same measure `Endpointer` takes, so the two sets
     /// of thresholds are comparable), `dtMs` its duration from the byte count.
@@ -92,7 +165,13 @@ final class AmbientSegmenter {
         elapsedMs += dtMs
 
         if !speaking {
-            guard amp > Self.speechThreshold else { return .none }
+            guard amp > openGate else {
+                // Only the room teaches the room's level, so this is the one place
+                // the floor moves — and it is reached only by frames that did NOT
+                // open an utterance.
+                adaptFloor(to: amp)
+                return .none
+            }
             speaking = true
             startMs = max(elapsedMs - dtMs - Self.leadInMs, 0)
             voicedMs = dtMs
@@ -101,7 +180,7 @@ final class AmbientSegmenter {
             return .started(atMs: startMs)
         }
 
-        if amp < Self.silenceThreshold {
+        if amp < closeGate {
             silenceRunMs += dtMs
             if voicedMs < Self.minUtteranceMs {
                 // Not speech. Discard once the full wait has passed, so the
@@ -152,6 +231,13 @@ final class AmbientSegmenter {
         guard ms > 0 else { return }
         elapsedMs += ms
         lastVoicedEndMs = elapsedMs
+    }
+
+    /// Follow the room, fast down and slow up.
+    private func adaptFloor(to amp: Double) {
+        guard amp.isFinite, amp >= 0 else { return }
+        let rate = amp < roomFloor ? Self.floorFallRate : Self.floorRiseRate
+        roomFloor = max(roomFloor + (amp - roomFloor) * rate, 0)
     }
 
     private func close() -> AmbientSegmentEvent {

@@ -668,6 +668,7 @@
 		EFB1ACAC16F131B3CEFCC54B /* AppGroupIslandDesignCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF80D244E7502C4F6D2591D /* AppGroupIslandDesignCache.swift */; };
 		EFFC269A1DC505D512810084 /* PhotonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DDD351067C14D230E2285D /* PhotonTests.swift */; };
 		EFFEFAA97F1EEA6870A6C36A /* InsightsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A55E446DAE753E76FE9849B /* InsightsTests.swift */; };
+		F002EE209025E0D5E6A29643 /* LiveLanguagesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */; };
 		F09FF4DE6306C272913E80DA /* PhotonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BBE88D362C7D076BCDCBE9 /* PhotonModels.swift */; };
 		F0CCEB43E75B246A26F236E8 /* DevicesTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */; };
 		F148D36E52EB42687CC86F01 /* DeviceIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620783A3C8AF6257135DFB6D /* DeviceIcon.swift */; };
@@ -1011,6 +1012,7 @@
 		5B6A16D43A180F2C9D38FF70 /* JarvisDesignRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisDesignRenderer.swift; path = JarvisWidget/JarvisDesignRenderer.swift; sourceTree = "<group>"; };
 		5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranscript.swift; sourceTree = "<group>"; };
 		5D01C409D24FB62BBB311997 /* RouteThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteThumbnail.swift; sourceTree = "<group>"; };
+		5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveLanguagesScreen.swift; sourceTree = "<group>"; };
 		5E1327731224D0A859E94FE2 /* CronsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronsStore.swift; sourceTree = "<group>"; };
 		5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsSections.swift; sourceTree = "<group>"; };
 		5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceChatBridgeTests.swift; sourceTree = "<group>"; };
@@ -1995,6 +1997,7 @@
 				9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */,
 				E91A0B07C81339B4AF3CD7C0 /* LiveCaptureBeacon.swift */,
 				BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */,
+				5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3695,6 +3698,7 @@
 				8F1A0C33563FABB065D744A0 /* JcState.swift in Sources */,
 				F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */,
 				DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */,
+				F002EE209025E0D5E6A29643 /* LiveLanguagesScreen.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

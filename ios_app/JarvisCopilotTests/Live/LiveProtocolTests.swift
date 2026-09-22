@@ -285,6 +285,69 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertEqual(insight.kind, "monitor")
     }
 
+    // MARK: - A fact-check verdict
+
+    /// `anchor_seq` names the line the claim was judged on, so the card can sit
+    /// under that line instead of at the end of everything.
+    func testAFactCheckCarriesTheRowItWasAbout() {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "insight", "kind": "fact_check", "seq": 42,
+            "text": "The bridge opened in 1937.", "verdict": "true",
+            "anchor_seq": 39,
+        ])
+        guard case .factCheck(let result) = frame else {
+            return XCTFail("expected a fact-check, got \(String(describing: frame))")
+        }
+        XCTAssertEqual(result.anchorSeq, 39)
+    }
+
+    /// Without an anchor the verdict is about a WINDOW. It must not fall back to
+    /// `seq`, which every fact-check carries (the last row of the window it
+    /// read) — that would pin every verdict under whatever was said last.
+    func testAFactCheckWithNoAnchorDoesNotBorrowItsWindowsSeq() {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "insight", "kind": "fact_check", "seq": 42,
+            "text": "Nobody said anything checkable.", "verdict": "unverifiable",
+        ])
+        guard case .factCheck(let result) = frame else {
+            return XCTFail("expected a fact-check, got \(String(describing: frame))")
+        }
+        XCTAssertNil(result.anchorSeq)
+    }
+
+    /// Red means "this claim is false" and nothing else. The verdict is free text
+    /// written by a model, so only an unambiguous refutation may colour the card.
+    func testOnlyAnExplicitFalseVerdictReadsAsARefutation() {
+        for verdict in ["false", "False", " FALSE ", "incorrect", "untrue"] {
+            XCTAssertTrue(LiveFactCheckResult(text: "x", verdict: verdict).isRefuted,
+                          "\(verdict) should read as a refutation")
+        }
+        for verdict in ["true", "mixed", "misleading", "unverifiable", "partly false", ""] {
+            XCTAssertFalse(LiveFactCheckResult(text: "x", verdict: verdict).isRefuted,
+                           "\(verdict) is not a refutation and must not be painted red")
+        }
+    }
+
+    /// "We couldn't check" and "this is false" are different states, and
+    /// conflating them would be worse than having no colour at all.
+    func testAFailedCheckIsNeverARefutationAndCarriesNoAnchor() {
+        let failed = LiveFactCheckResult.from(
+            insightText: "API call failed after 3 retries: HTTP 404: model \"\" not found",
+            verdict: "false", sources: [], anchorSeq: 12)
+        XCTAssertTrue(failed.failed)
+        XCTAssertFalse(failed.isRefuted, "a failure must not read as a refutation")
+        XCTAssertNil(failed.anchorSeq, "a check that did not run judged no line")
+    }
+
+    /// The loading card is a local state with no text, and `apply` drops results
+    /// it considers empty — so "pending" has to survive that guard.
+    func testAPendingCheckIsNotTreatedAsAnEmptyResult() {
+        let pending = LiveFactCheckResult(pending: true)
+        XCTAssertFalse(pending.isEmpty)
+        XCTAssertFalse(pending.isRefuted)
+        XCTAssertTrue(LiveFactCheckResult().isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func object(_ message: LiveClientMessage) throws -> [String: Any] {

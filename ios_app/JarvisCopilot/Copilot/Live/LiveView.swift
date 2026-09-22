@@ -206,6 +206,32 @@ struct LiveView: View {
         }
     }
 
+    // MARK: - Where the fact-check card goes
+
+    /// The verdict, when the server tied it to a row that is actually on screen.
+    ///
+    /// Both conditions matter. No anchor means the check read a window and
+    /// belongs to no single line. An anchor pointing at a row we do not have —
+    /// scrolled out of a truncated transcript, or a session resumed past it —
+    /// would make the card disappear entirely, so it falls back to the end.
+    private var anchoredFactCheck: LiveFactCheckResult? {
+        guard let result = store.factCheck, !result.pending, let seq = result.anchorSeq,
+              store.rows.contains(where: {
+                  if case .segment(let segment) = $0 { return segment.seq == seq }
+                  return false
+              })
+        else { return nil }
+        return result
+    }
+
+    /// The same verdict when it has nowhere better to go — and always the
+    /// loading card, which has no anchor yet and rises to meet its verdict when
+    /// one lands.
+    private var trailingFactCheck: LiveFactCheckResult? {
+        guard let result = store.factCheck else { return nil }
+        return anchoredFactCheck == nil ? result : nil
+    }
+
     // MARK: - Transcript
 
     @ViewBuilder
@@ -236,6 +262,15 @@ struct LiveView: View {
                                                    nameDraft = segment.speakerName ?? ""
                                                    naming = segment
                                                })
+                                // A verdict the server tied to THIS line reads
+                                // under it. Against the sentence it judged, the
+                                // card needs no preamble explaining which claim
+                                // it means.
+                                if let anchored = anchoredFactCheck,
+                                   anchored.anchorSeq == segment.seq {
+                                    LiveFactCheckCard(result: anchored)
+                                        .padding(.top, 2)
+                                }
                             case .insight(let insight):
                                 LiveInsightCard(insight: insight)
                             }
@@ -250,9 +285,10 @@ struct LiveView: View {
                                 .id(Self.partialAnchor)
                                 .transition(.opacity)
                         }
-                        // A verdict about the conversation, so it sits at the
-                        // end of it rather than against any one line.
-                        if let result = store.factCheck {
+                        // A verdict about the whole window — or one still being
+                        // worked out — sits at the end of the conversation
+                        // rather than against any one line.
+                        if let result = trailingFactCheck {
                             LiveFactCheckCard(result: result)
                                 .padding(.top, 4)
                         }
@@ -596,10 +632,48 @@ struct LiveFactCheckCard: View {
     let result: LiveFactCheckResult
 
     private var failed: Bool { result.failed }
+    private var pending: Bool { result.pending }
 
-    /// Amber, never the danger red: a check that did not run is a hiccup, not
-    /// the loud state that means recording stopped.
-    private var tint: Color { failed ? JcTheme.amber : JcTheme.accent }
+    /// Three states, three colours, and the distinctions between them are the
+    /// point:
+    ///
+    ///  * **Red** only when the check came back and said the claim is FALSE.
+    ///    The verdict is free text from a model, so `isRefuted` matches a small
+    ///    exact set — "misleading" and "unverifiable" are not refutations and
+    ///    stay neutral.
+    ///  * **Amber** for a check that did NOT run. "We couldn't check" is not
+    ///    "this is false", and painting a failure red would tell the user
+    ///    something no check ever said.
+    ///  * **Accent** for everything else, including while it is still running.
+    private var tint: Color {
+        if failed { return JcTheme.amber }
+        return result.isRefuted ? JcTheme.danger : JcTheme.accent
+    }
+
+    private var title: String {
+        if pending { return "Checking" }
+        return failed ? "Couldn't check" : "Fact-check"
+    }
+
+    private var symbol: String {
+        if failed { return "exclamationmark.circle" }
+        return result.isRefuted ? "xmark.seal" : "checkmark.seal"
+    }
+
+    /// Standing in for the verdict until it arrives — same card, same place, so
+    /// it becomes the answer rather than being replaced by it.
+    private var pendingText: String {
+        "Reading the recent conversation and checking what was said."
+    }
+
+    /// A screen reader gets the same three states, in words — including the
+    /// refutation, which is the one a colour alone would not convey.
+    private var accessibilityText: String {
+        if pending { return "Fact-check running. \(pendingText)" }
+        if failed { return "Fact-check did not complete. \(result.text)" }
+        if result.isRefuted { return "Fact-check says this is false. \(result.text)" }
+        return "Fact-check verdict. \(result.text)"
+    }
 
     var body: some View {
         GlassCard(padding: 15,
@@ -607,14 +681,21 @@ struct LiveFactCheckCard: View {
                   borderColor: tint.opacity(0.32)) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
-                    JcIcon(failed ? "exclamationmark.circle" : "checkmark.seal", size: 14)
-                        .foregroundStyle(tint)
-                    Text(failed ? "Couldn't check" : "Fact-check")
+                    if pending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(tint)
+                            .frame(width: 14, height: 14)
+                    } else {
+                        JcIcon(symbol, size: 14)
+                            .foregroundStyle(tint)
+                    }
+                    Text(title)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(tint)
                     Spacer(minLength: 0)
                     // The grade only exists when there IS one.
-                    if !failed, !result.verdict.isEmpty {
+                    if !failed, !pending, !result.verdict.isEmpty {
                         Text(result.verdict.capitalized)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(tint)
@@ -623,9 +704,9 @@ struct LiveFactCheckCard: View {
                             .background(tint.opacity(0.16), in: Capsule())
                     }
                 }
-                Text(result.text)
+                Text(pending ? pendingText : result.text)
                     .font(.system(size: 14))
-                    .foregroundStyle(JcTheme.text)
+                    .foregroundStyle(pending ? JcTheme.muted : JcTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                 if !result.sources.isEmpty {
@@ -642,7 +723,7 @@ struct LiveFactCheckCard: View {
                         }
                     }
                 }
-                if !failed {
+                if !failed, !pending {
                     Text("Checked the recent conversation, not the whole recording.")
                         .font(.system(size: 11))
                         .foregroundStyle(JcTheme.muted)
@@ -650,9 +731,7 @@ struct LiveFactCheckCard: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(failed
-                            ? "Fact-check did not complete. \(result.text)"
-                            : "Fact-check verdict. \(result.text)")
+        .accessibilityLabel(accessibilityText)
     }
 }
 

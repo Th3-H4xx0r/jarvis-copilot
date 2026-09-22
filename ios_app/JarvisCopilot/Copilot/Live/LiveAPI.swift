@@ -349,6 +349,18 @@ struct LiveAPI: Sendable {
                                json: ["speaker_id": speakerID, "name": name])
     }
 
+    /// Fold one voice into another: they were the same person all along.
+    ///
+    /// `fromID` stops existing; `intoID` survives and inherits its rows, its
+    /// embeddings and — when the survivor has no name of its own — its name. The
+    /// server relabels every past segment and publishes a `speaker` frame with
+    /// `op: "merge"`, which every client applies retroactively, so this is a
+    /// rewrite of history and not a note about the future.
+    func merge(fromID: String, intoID: String) async throws {
+        _ = try await api.post("/api/live/speaker/merge",
+                               json: ["from_id": fromID, "into_id": intoID])
+    }
+
     // MARK: Storage
 
     func storage() async throws -> LiveStorage {

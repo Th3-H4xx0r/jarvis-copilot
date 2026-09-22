@@ -272,7 +272,45 @@ struct LiveFactCheckResult: Equatable, Sendable {
     /// check, so this drives a different card and a different word.
     var failed = false
 
-    var isEmpty: Bool { text.isEmpty && verdict.isEmpty && sources.isEmpty }
+    /// The check is RUNNING, and this is the card standing in for its answer.
+    ///
+    /// A local state, never decoded: the server has nothing to say yet. It exists
+    /// because the request is a whole agent turn with web tools, and for those
+    /// several seconds the only feedback used to be a spinner on a small tile at
+    /// the bottom of the screen. The card appears on tap, where the verdict will
+    /// land, and becomes the verdict in place.
+    var pending = false
+
+    /// The transcript row whose claim was judged, when the server named one.
+    ///
+    /// Nil when the model's quoted claim did not match any one row well enough —
+    /// a verdict about a whole window genuinely belongs to no single line, and
+    /// guessing one would put the card against a sentence it is not about.
+    var anchorSeq: Int?
+
+    var isEmpty: Bool { !pending && text.isEmpty && verdict.isEmpty && sources.isEmpty }
+
+    /// Verdicts that mean "this claim is not true", and nothing else.
+    ///
+    /// NOT a closed set on the wire: the server's prompt asks for
+    /// `"true" | "false" | "misleading" | "unverifiable"`, but the value is
+    /// whatever the model wrote into its JSON, so this matches conservatively and
+    /// exactly. "misleading", "mixed", "partly false" and "unverifiable" stay
+    /// neutral — painting them red would tell the user something the check did
+    /// not say, and a wrong red is worse than no red at all.
+    static let refutedVerdicts: Set<String> = [
+        "false", "incorrect", "untrue", "wrong", "debunked", "refuted", "disproven",
+    ]
+
+    /// Whether the card should read as a refutation.
+    ///
+    /// A FAILED check is never one. "We couldn't check" and "this is false" are
+    /// different states, and conflating them would be worse than having no colour.
+    var isRefuted: Bool {
+        guard !failed, !pending else { return false }
+        return Self.refutedVerdicts.contains(
+            verdict.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
 
     /// Build a result from a `fact_check` insight, turning a machine error into
     /// a sentence.
@@ -283,14 +321,18 @@ struct LiveFactCheckResult: Equatable, Sendable {
     /// That is developer text in a user surface, and worse, it was presented as
     /// though the claim had been checked.
     static func from(insightText text: String, verdict: String,
-                     sources: [String]) -> LiveFactCheckResult {
+                     sources: [String], anchorSeq: Int? = nil) -> LiveFactCheckResult {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !LiveFailureText.looksLikeMachineError(trimmed) else {
+            // A failed check is about nothing, so it carries no anchor: pinning
+            // "we couldn't check this" under one line would read as a judgement
+            // on that line.
             return LiveFactCheckResult(text: LiveFailureText.humanSentence,
                                        verdict: "", sources: [], failed: true)
         }
         return LiveFactCheckResult(text: trimmed, verdict: verdict,
-                                   sources: sources, failed: false)
+                                   sources: sources, failed: false,
+                                   anchorSeq: anchorSeq)
     }
 }
 
@@ -428,7 +470,18 @@ enum LiveServerFrame: Equatable, Sendable {
                 return .factCheck(LiveFactCheckResult.from(
                     insightText: d.string("text") ?? "",
                     verdict: d.string("verdict") ?? "",
-                    sources: stringList(d["sources"])))
+                    sources: stringList(d["sources"]),
+                    // `anchor_seq` ONLY. Absent or null means the verdict is
+                    // about a window rather than a line, and the card closes the
+                    // transcript instead of sitting under one.
+                    //
+                    // Deliberately NOT falling back to `seq`: on this frame `seq`
+                    // is the last segment of the window the watcher read, which
+                    // every fact-check carries, so reading it as an anchor would
+                    // pin every verdict under whatever was said last — including
+                    // the window-level ones the server explicitly declined to
+                    // anchor.
+                    anchorSeq: d.int("anchor_seq")))
             }
             return .insight(LiveInsight(
                 seq: d.int("seq") ?? 0,

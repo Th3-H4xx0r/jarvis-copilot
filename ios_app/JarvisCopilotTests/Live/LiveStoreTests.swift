@@ -812,6 +812,139 @@ final class LiveStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Stamping the real utterance
+
+    /// The recogniser knows where the words were; the amplitude gate only knows
+    /// where it was open. Narrowing to the former is the whole point — a 15 s
+    /// window around two spoken words had the server embed 15 s of room tone.
+    func testTheRecognisersRangeNarrowsTheGatesWindow() {
+        // Gate open 0…15000, recogniser found words 2000…2400 from its first
+        // sample, which sat at 1000 on the session clock.
+        let bounds = LiveStore.narrowedBounds(startMs: 0, endMs: 15_000, anchorMs: 1_000,
+                                              observedMs: 2_000...2_400)
+        XCTAssertEqual(bounds.start, 3_000 - LiveStore.boundsPadMs)
+        XCTAssertEqual(bounds.end, 3_400 + LiveStore.boundsPadMs)
+        XCTAssertLessThan(bounds.end - bounds.start, 1_000,
+                          "a short utterance must not keep a long window's span")
+    }
+
+    /// No range, no change. The engines that do not report one must not end up
+    /// with a zero-length segment.
+    func testNoReportedRangeLeavesTheGatesWindowAlone() {
+        let bounds = LiveStore.narrowedBounds(startMs: 400, endMs: 2_600, anchorMs: 300,
+                                              observedMs: nil)
+        XCTAssertEqual(bounds.start, 400)
+        XCTAssertEqual(bounds.end, 2_600)
+    }
+
+    /// A range that lands outside the window means the analyzer's clock is not
+    /// ours. A wrong span is worse than a loose one — the server slices the
+    /// identification audio out of exactly these numbers — so it is discarded.
+    func testARangeOutsideTheWindowIsDiscardedRatherThanTrusted() {
+        let far = LiveStore.narrowedBounds(startMs: 1_000, endMs: 2_000, anchorMs: 0,
+                                           observedMs: 90_000...95_000)
+        XCTAssertEqual(far.start, 1_000)
+        XCTAssertEqual(far.end, 2_000)
+
+        let before = LiveStore.narrowedBounds(startMs: 5_000, endMs: 6_000, anchorMs: 0,
+                                              observedMs: 10...20)
+        XCTAssertEqual(before.start, 5_000)
+        XCTAssertEqual(before.end, 6_000)
+    }
+
+    /// The narrowed bounds can never escape the window the audio gate opened, so
+    /// the padding cannot invent audio that was never captured.
+    func testTheNarrowedBoundsStayInsideTheCapturedWindow() {
+        let bounds = LiveStore.narrowedBounds(startMs: 1_000, endMs: 3_000, anchorMs: 1_000,
+                                              observedMs: 0...2_000)
+        XCTAssertGreaterThanOrEqual(bounds.start, 1_000)
+        XCTAssertLessThanOrEqual(bounds.end, 3_000)
+    }
+
+    // MARK: - Asking for a fact-check
+
+    /// The card appears on TAP, not when the answer arrives. The request is a
+    /// whole agent turn; without this the transcript showed nothing at all for
+    /// several seconds.
+    func testTappingFactCheckPutsALoadingCardUpAtOnce() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/factcheck", json: ["ok": true])
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        rig.store.receive(text: json(["t": "seg", "seq": 1, "text": "The bridge opened in 1937."]))
+
+        await rig.store.factCheckConversation()
+        XCTAssertEqual(rig.store.factCheck?.pending, true,
+                       "the card has to be up while the check runs")
+        XCTAssertTrue(rig.store.checkingConversation,
+                      "and the button has to stay busy for the same length of time")
+    }
+
+    /// The loading card BECOMES the verdict — same card, same place — rather than
+    /// a placeholder vanishing and a different card arriving.
+    func testTheLoadingCardBecomesTheVerdictInPlace() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/factcheck", json: ["ok": true])
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        rig.store.receive(text: json(["t": "seg", "seq": 1, "text": "The bridge opened in 1937."]))
+        await rig.store.factCheckConversation()
+
+        rig.store.receive(text: json(["t": "insight", "kind": "fact_check", "seq": 1,
+                                      "text": "It opened in 1937.", "verdict": "true",
+                                      "anchor_seq": 1]))
+        XCTAssertEqual(rig.store.factCheck?.pending, false)
+        XCTAssertEqual(rig.store.factCheck?.anchorSeq, 1)
+        XCTAssertFalse(rig.store.checkingConversation,
+                       "the button must come back once the verdict has landed")
+    }
+
+    /// The server refusing the job is not a verdict, and must not leave the card
+    /// spinning over work that is not happening.
+    func testARefusedFactCheckReplacesTheLoadingCardWithAFailure() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/factcheck", json: ["error": "nope"], status: 404)
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        rig.store.receive(text: json(["t": "seg", "seq": 1, "text": "something"]))
+
+        await rig.store.factCheckConversation()
+        XCTAssertEqual(rig.store.factCheck?.failed, true)
+        XCTAssertEqual(rig.store.factCheck?.pending, false)
+        XCTAssertFalse(rig.store.checkingConversation)
+        XCTAssertFalse(rig.store.factCheck?.isRefuted ?? true,
+                       "“we couldn't check” must never read as “this is false”")
+    }
+
+    // MARK: - Merging two voices
+
+    /// A name is the strongest signal there is — somebody typed it. Throwing it
+    /// away to keep an anonymous "Speaker 4" would undo work done by hand.
+    func testTheNamedVoiceSurvivesAMergeByDefault() {
+        let named = LiveSpeaker(id: "a", name: "Pranav", segmentCount: 2)
+        let anonymous = LiveSpeaker(id: "b", name: "", segmentCount: 90)
+        XCTAssertEqual(LiveStore.survivorOfMerge(named, anonymous).id, "a")
+        XCTAssertEqual(LiveStore.survivorOfMerge(anonymous, named).id, "a",
+                       "and regardless of which one was tapped first")
+    }
+
+    /// With nothing to choose between them, the bigger voiceprint wins: fewer
+    /// rows to rewrite and the better thing to keep matching against.
+    func testWithoutNamesTheVoiceWithMoreHistorySurvives() {
+        let small = LiveSpeaker(id: "a", segmentCount: 3)
+        let large = LiveSpeaker(id: "b", segmentCount: 40)
+        XCTAssertEqual(LiveStore.survivorOfMerge(small, large).id, "b")
+        XCTAssertEqual(LiveStore.survivorOfMerge(large, small).id, "b")
+    }
+
+    /// Two named voices are the user's call, not ours — so the choice is stable
+    /// and the screen offers a swap rather than picking a winner on a hunch.
+    func testTwoNamedVoicesFallBackToTheFirstRatherThanGuessing() {
+        let first = LiveSpeaker(id: "a", name: "Pranav", segmentCount: 5)
+        let second = LiveSpeaker(id: "b", name: "Alex", segmentCount: 5)
+        XCTAssertEqual(LiveStore.survivorOfMerge(first, second).id, "a")
+    }
+
     // MARK: - Helpers
 
     private func json(_ object: [String: Any]) -> String {

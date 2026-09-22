@@ -203,6 +203,12 @@ final class LiveStore {
     private var encoder: AmbientOpusEncoder?
     private var socket: VoiceSocket?
     private var speech: SpeechSession?
+    /// Where on the session's audio clock `speech` was handed its first sample.
+    ///
+    /// The recogniser reports its result ranges relative to its own first buffer,
+    /// so without this anchor those ranges cannot be turned back into the
+    /// timestamps a `seg` frame carries.
+    private var speechAnchorMs = 0
     /// Whether on-device transcription is actually running. A `Bool` and not a test
     /// against `sttNotice`: deriving control flow from a user-facing string means any
     /// future notice silently switches the transcriber off.
@@ -692,7 +698,10 @@ final class LiveStore {
         // the length of a download they were never told about.
         preparing = true
         prepareProgress = 0
-        let readiness = await recognizer.prepare { [weak self] fraction in
+        // Every language the user said might be spoken needs its model installed,
+        // not just the device's own — a locale with no model on the phone is a
+        // recogniser that silently never produces a word.
+        let readiness = await recognizer.prepare(locales: sttLocales) { [weak self] fraction in
             self?.prepareProgress = fraction
         }
         preparing = false
@@ -931,6 +940,10 @@ final class LiveStore {
             // stamping 400 ms of audio with one instant would have the server place
             // the opening of every utterance late.
             let preRollMs = preRoll.count * max(dtMs, 1)
+            // Where on the session's audio clock the FIRST sample handed to the
+            // recogniser sits. The recogniser's own result ranges are relative to
+            // that sample, so this is what turns them back into session time.
+            speechAnchorMs = max(segmenter.elapsedMs - dtMs - preRollMs, 0)
             for (index, buffered) in preRoll.enumerated() {
                 let backdated = segmenter.elapsedMs - preRollMs + index * max(dtMs, 1)
                 sendAudio(buffered, tsMs: max(backdated, 0))
@@ -1081,15 +1094,30 @@ final class LiveStore {
         sendHello()
     }
 
+    /// The languages this phone's recogniser should listen for.
+    ///
+    /// The user's explicit list when they made one, otherwise the conversation's
+    /// primary language — which is the behaviour that existed before the list did.
+    /// Empty only when neither is known, and an empty list means "device
+    /// language", the recogniser's own default.
+    var sttLocales: [Locale] {
+        let chosen = settings.sttLanguages
+        if !chosen.isEmpty { return chosen.map { Locale(identifier: $0) } }
+        let primary = config.primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return primary.isEmpty ? [] : [Locale(identifier: primary)]
+    }
+
     /// Open a transcription session for the utterance that just began.
     private func openSpeechSession() {
         guard declaredSTT == "on_device", speech == nil else { return }
         let epoch = generation
+        let locales = sttLocales
         Task { [weak self] in
             guard let self else { return }
             // `prompt: false` — a user who never opted into on-device speech is not
             // shown a permission sheet by an ambient recorder.
-            let made = await self.recognizer.startSession(sampleRate: Self.micRate, prompt: false)
+            let made = await self.recognizer.startSession(sampleRate: Self.micRate,
+                                                          prompt: false, locales: locales)
             guard epoch == self.generation, self.capturing else { made?.cancel(); return }
             guard let made else {
                 // The recognizer refused. On the EDGE lane that is not benign: the
@@ -1184,8 +1212,37 @@ final class LiveStore {
     /// The session is detached SYNCHRONOUSLY and replaced by nil so the next
     /// utterance can open its own immediately — awaiting the finalize inline would
     /// drop the opening of whatever is said next.
+    /// Narrow an amplitude-gate window down to the stretch the recogniser
+    /// actually found words in.
+    ///
+    /// `startMs`/`endMs` are what the gate held open; `observedMs` is the
+    /// recogniser's own range, in ms from the first sample it was fed, and
+    /// `anchorMs` is where that sample sits on the session's audio clock.
+    ///
+    /// Every failure mode falls back to the gate's own window. A wrong span is
+    /// worse than a loose one, because the server slices the identification audio
+    /// out of exactly these numbers — so a range that is missing, degenerate, or
+    /// lands outside the window (which would mean the analyzer's clock is not
+    /// ours) is discarded rather than trusted.
+    static func narrowedBounds(startMs: Int, endMs: Int, anchorMs: Int,
+                               observedMs: ClosedRange<Int>?) -> (start: Int, end: Int) {
+        guard endMs > startMs, let observed = observedMs else { return (startMs, endMs) }
+        // A little air either side: the recogniser's range covers the words, and
+        // the breath before the first one belongs to the speaker too.
+        let low = anchorMs + observed.lowerBound - Self.boundsPadMs
+        let high = anchorMs + observed.upperBound + Self.boundsPadMs
+        let clampedLow = max(low, startMs)
+        let clampedHigh = min(high, endMs)
+        guard clampedHigh > clampedLow else { return (startMs, endMs) }
+        return (clampedLow, clampedHigh)
+    }
+
+    /// Padding either side of the recogniser's word range, in ms.
+    static let boundsPadMs = 150
+
     private func finishUtterance(startMs: Int, endMs: Int) {
         let finished = speech
+        let anchorMs = speechAnchorMs
         speech = nil
         // The audio has ended; the row is in flight. The words stay put until
         // it lands (`upsert`) or the grace window closes.
@@ -1213,8 +1270,17 @@ final class LiveStore {
             // Nothing heard: a VAD opening on a door slam is normal and must not
             // become an empty transcript row.
             guard !trimmed.isEmpty else { return }
-            self.send(.segment(startMs: startMs, endMs: endMs, text: trimmed,
-                               lang: language,
+            // Read AFTER the await: it is the FINAL results that carry the range
+            // and the winning language, and those only exist once `stop()` has
+            // finalized.
+            let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
+                                             observedMs: finished.transcribedRangeMs)
+            self.send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
+                               // The locale that actually produced this text, not
+                               // the one we hoped for. The server's auto-translate
+                               // keys on this field, so labelling Spanish `en`
+                               // guarantees it is never translated.
+                               lang: finished.resolvedLanguage ?? language,
                                // "me" is provisional and local: this device's owner
                                // is the likeliest speaker into their own phone, and
                                // the server's identification is the authority that
@@ -1230,6 +1296,7 @@ final class LiveStore {
     /// mid-conversation and wrong at the end, where the socket is about to close.
     private func flushFinalUtterance() async {
         let finished = speech
+        let anchorMs = speechAnchorMs
         speech = nil
         pendingSpeechFrames.removeAll()
         // Before the guards, and before `stop` closes the socket: the encoder's
@@ -1246,8 +1313,11 @@ final class LiveStore {
         let text = await transcribe(finished, deadlineMs: Self.transcriptionDeadlineMs)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        send(.segment(startMs: startMs, endMs: endMs, text: trimmed,
-                      lang: config.primaryLanguage, localLabel: "me"))
+        let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
+                                         observedMs: finished.transcribedRangeMs)
+        send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
+                      lang: finished.resolvedLanguage ?? config.primaryLanguage,
+                      localLabel: "me"))
     }
 
     /// `stop()` bounded by a deadline: a wedged analyzer must not hold an utterance
@@ -1379,9 +1449,11 @@ final class LiveStore {
         case .insight(let insight):
             upsert(insight)
         case .factCheck(let result):
-            // A verdict about the CONVERSATION, so it lands at the end of the
-            // transcript rather than against a row — and a failed pass renders
-            // as a failure, never as a completed check.
+            // The answer is here, so the loading card's deadline is moot.
+            cancelFactCheckDeadline()
+            // A verdict the server anchored to one row sits under that row; one
+            // about a whole window lands at the end of the transcript. Either
+            // way a failed pass renders as a failure, never as a completed check.
             transcript.apply(result)
         case .wrapUp(let wrap):
             // Rendered at the end of the transcript AS WELL AS going into the
@@ -1528,7 +1600,14 @@ final class LiveStore {
     /// The request is a full agent turn with web tools, so this can be true for
     /// several seconds — which is exactly why the control has to show a real
     /// spinner rather than a change of shade.
-    private(set) var checkingConversation = false
+    /// DERIVED from the card, not a flag of its own.
+    ///
+    /// It used to be set around the `await` on the POST — but the server accepts
+    /// the job and returns at once (the agent turn runs off-thread), so the
+    /// button's spinner stopped after a fraction of a second while the actual
+    /// work had barely started. One source of truth means the button and the
+    /// card say the same thing for the same length of time.
+    var checkingConversation: Bool { transcript.factCheck?.pending == true }
 
     /// The latest verdict, or the reason there isn't one.
     var factCheck: LiveFactCheckResult? { transcript.factCheck }
@@ -1551,17 +1630,54 @@ final class LiveStore {
             return
         }
         guard !checkingConversation else { return }
-        checkingConversation = true
-        defer { checkingConversation = false }
+        // The card appears NOW, in its loading state, at the place the verdict
+        // will land — and becomes the verdict in place rather than a placeholder
+        // vanishing and a different card arriving. Until this, the only feedback
+        // during a multi-second agent turn was a spinner on a small tile at the
+        // bottom of the screen. It is also what keeps the BUTTON busy, so the
+        // two cannot disagree.
+        transcript.apply(LiveFactCheckResult(pending: true))
         do {
             try await api.factCheckConversation(liveSessionID: liveSessionID)
+            // Accepted, not answered: the verdict arrives later as an `insight`.
+            // Arm a deadline so a verdict that never comes stops the card
+            // spinning forever and says so instead.
+            armFactCheckDeadline()
         } catch {
             // A refusal must NOT read as a completed check. The server's own
             // words go to the log; the screen gets a sentence.
             JcLog.dropped(JcLog.voice, "fact-check the conversation", error)
+            cancelFactCheckDeadline()
             transcript.apply(LiveFactCheckResult(
                 text: Self.factCheckFailureText(error), failed: true))
         }
+    }
+
+    /// How long a verdict has to arrive over the socket before the loading card
+    /// gives up. A fact-check is a whole agent turn with web tools, so this is
+    /// generous — but not unbounded, because a card that spins forever is a lie
+    /// about work that is no longer happening.
+    static let factCheckDeadlineMs = 120_000
+
+    private var factCheckDeadline: VoiceTimerToken?
+
+    private func armFactCheckDeadline() {
+        cancelFactCheckDeadline()
+        factCheckDeadline = clock.schedule(after: Self.factCheckDeadlineMs) { [weak self] in
+            guard let self else { return }
+            self.factCheckDeadline = nil
+            // Only the card we put up. A verdict that landed in the meantime is
+            // the answer and must not be overwritten by a timeout.
+            guard self.transcript.factCheck?.pending == true else { return }
+            self.transcript.apply(LiveFactCheckResult(
+                text: "Jarvis didn't send a verdict back. Nothing has been verified.",
+                failed: true))
+        }
+    }
+
+    private func cancelFactCheckDeadline() {
+        factCheckDeadline?.cancel()
+        factCheckDeadline = nil
     }
 
     /// A sentence for a check that never started. The only case worth naming
@@ -1670,6 +1786,42 @@ final class LiveStore {
             try await api.rename(speakerID: speaker.id, name: trimmed)
             apply(LiveSpeakerEvent(op: .rename, speakerID: speaker.id, name: trimmed))
         } catch { report("rename that voice", error) }
+    }
+
+    /// Which of two voices should survive a merge, when the user has not said.
+    ///
+    /// A NAME is the strongest signal there is — somebody typed it, and throwing
+    /// it away to keep an anonymous "Speaker 4" would undo work the user did by
+    /// hand. After that, the voice with more history wins: fewer rows have to be
+    /// rewritten, and the bigger voiceprint is the better one to keep matching
+    /// against. The user can still flip it; this only decides what is offered.
+    static func survivorOfMerge(_ a: LiveSpeaker, _ b: LiveSpeaker) -> LiveSpeaker {
+        let aNamed = !a.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let bNamed = !b.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if aNamed != bNamed { return aNamed ? a : b }
+        if a.segmentCount != b.segmentCount { return a.segmentCount > b.segmentCount ? a : b }
+        return a
+    }
+
+    /// Fold `other` into `survivor`: the user says they are the same person.
+    ///
+    /// The relabel lands locally the moment the server accepts it, so the
+    /// transcript on screen changes under the user's finger rather than waiting
+    /// for a reload — `LiveTranscript.apply` rewrites every row already showing
+    /// the folded id. The server's own `speaker` frame then confirms it for every
+    /// other device.
+    func merge(_ other: LiveSpeaker, into survivor: LiveSpeaker) async {
+        guard !other.id.isEmpty, !survivor.id.isEmpty, other.id != survivor.id else { return }
+        // The survivor's own name wins; the folded voice's name is inherited only
+        // when the survivor has none, which is the same rule the server applies.
+        let survivorName = survivor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let otherName = other.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = survivorName.isEmpty ? (otherName.isEmpty ? nil : otherName) : survivorName
+        do {
+            try await api.merge(fromID: other.id, intoID: survivor.id)
+            apply(LiveSpeakerEvent(op: .merge, speakerID: survivor.id,
+                                   name: name, mergedFrom: [other.id]))
+        } catch { report("merge those voices", error) }
     }
 
     func delete(kind: LiveDeleteKind, id: String) async {
