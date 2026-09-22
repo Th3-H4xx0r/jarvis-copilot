@@ -2097,3 +2097,31 @@ def test_a_source_frame_without_a_label_keeps_the_last_known_mic():
 
     assert client.of("error") == []
     assert live_store.get_session(conn.live_session_id)["source_label"] == "AirPods Pro"
+
+
+def test_a_mic_label_sent_before_hello_is_held_rather_than_refused():
+    """The client reports its mic the moment the socket opens, which races the
+    hello/ready round trip. That put "send hello first" over the phone's
+    controls for a frame with no urgency at all."""
+    client = _Client()
+    conn = live_ws.LiveConnection(client)
+
+    conn.on_text(json.dumps({"t": "source", "source_label": "AirPods Pro"}))
+    assert client.of("error") == [], "a racing mic label is not an error"
+
+    conn.on_text(json.dumps({"t": "hello", "device_id": "iphone-17pm",
+                             "caps": _edge_caps()}))
+
+    assert live_store.get_session(conn.live_session_id)["source_label"] == "AirPods Pro"
+
+
+def test_other_frames_before_hello_are_still_refused():
+    """Holding a mic label is a narrow tolerance, not a general one — a seg
+    before the handshake has nowhere to go and must still say so."""
+    client = _Client()
+    conn = live_ws.LiveConnection(client)
+
+    conn.on_text(json.dumps({"t": "seg", "partial": False, "text": "hi",
+                             "ts_start_ms": 0, "ts_end_ms": 1000}))
+
+    assert client.first("error")["code"] == "not_ready"

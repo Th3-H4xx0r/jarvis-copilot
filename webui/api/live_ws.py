@@ -798,6 +798,8 @@ class LiveConnection:
         # Accumulating partials, keyed by the track a device is streaming, so a
         # two-mic device cannot interleave two sentences into one. Ordered so the
         # bound below can drop the oldest unfinished one.
+        # A mic label that arrived before hello (see on_text).
+        self._pending_source: str = ""
         self._partials: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         # Non-None only while a resume replay is in flight (see on_bus_event).
         self._replay_buffer: Optional[List[Dict[str, Any]]] = None
@@ -877,6 +879,16 @@ class LiveConnection:
             self._on_hello(msg)
             return
         if not self.ready:
+            if kind == "source":
+                # The client reports its mic as soon as the socket opens, which
+                # races the hello/ready round trip. Erroring put "send hello
+                # first" over the phone's controls for a frame that carries no
+                # urgency at all, so hold it and apply it once the session
+                # exists. Ordering the client's sends is the better fix; this
+                # keeps a harmless race from looking like a failure.
+                self._pending_source = str(
+                    msg.get("source_label") or msg.get("label") or "").strip()
+                return
             self.error("not_ready", "send hello first")
             return
         if kind == "seg":
@@ -1039,6 +1051,10 @@ class LiveConnection:
             last_seq = int(row.get("last_seq") or 0)
 
         self.ready = True
+        if self._pending_source:
+            live_store.set_source_label(self.live_session_id,
+                                        self._pending_source[:120])
+            self._pending_source = ""
         self.send({
             "t": "ready",
             "live_session_id": self.live_session_id,
