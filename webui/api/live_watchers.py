@@ -543,7 +543,7 @@ def _timer_fired(live_session_id: str) -> None:
     # nothing left to summarise until on_session_ended flushes the tail.
 
 
-def _window_pass(live_session_id: str, cfg: dict) -> Optional[dict]:
+def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Optional[dict]:
     # The boundary is derived from the digests, and digests are NOT immortal:
     # `forget_speaker` deletes every digest that mentions a voice, which moves
     # this backwards. That is deliberate and safe here — those windows' segments
@@ -562,10 +562,20 @@ def _window_pass(live_session_id: str, cfg: dict) -> Optional[dict]:
         floor = int(cfg.get("min_window_words") or 0)
     except (TypeError, ValueError):
         floor = int(_CONFIG_FALLBACK["min_window_words"])
-    if words < floor:
+    if words < _FINAL_FLOOR_WORDS:
+        # Too little to summarise at all. A final pass ignores the configured
+        # floor, but not this one: ending a session where someone said "mm"
+        # must stay free, and a summary of one word is worth nothing anyway.
+        return None
+    if words < floor and not final:
         # THE SILENCE SKIP. No model call, and deliberately no digest either:
         # writing one would advance the window boundary past speech nobody has
         # summarised yet. These segments roll forward instead.
+        #
+        # It does NOT apply to the final pass. Rolling forward assumes a later
+        # window; at session end there is none, so a recording shorter than the
+        # floor produced a transcript and no summary at all — no digest, and
+        # therefore no wrap-up in the paired chat either.
         return None
 
     transcript, segments = _render_transcript(segments)
@@ -1060,6 +1070,10 @@ def _auto_translate(live_session_id: str, seq: int) -> None:
 # up on the tail window, and how many tail passes it will run. Both bounded so a
 # pathological session cannot hang shutdown.
 _FINALIZE_LOCK_WAIT_SECONDS = 120.0
+# Below this, not even the final pass runs: a summary of two words costs a
+# model call and says nothing.
+_FINAL_FLOOR_WORDS = 4
+
 _MAX_TAIL_PASSES = 4
 
 
@@ -1104,7 +1118,7 @@ def _flush_tail(live_session_id: str, cfg: dict) -> None:
                 return
             # _window_pass, not monitor_tick: we already hold the lock, and
             # monitor_tick would try to take it again and find it busy.
-            if _window_pass(live_session_id, cfg) is None:
+            if _window_pass(live_session_id, cfg, final=True) is None:
                 # Silence skip or a failed pass — either way another attempt
                 # would make the same call again.
                 return

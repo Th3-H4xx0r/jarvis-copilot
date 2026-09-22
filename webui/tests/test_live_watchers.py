@@ -1526,3 +1526,24 @@ def test_several_facts_from_one_window_are_all_retracted(tmp_path, monkeypatch):
     assert result["facts_retracted"] == 3
     assert "facts_retraction_failed" not in result
     assert _memory_file(home).read_text().strip() == ""
+
+
+def test_a_recording_shorter_than_the_word_floor_is_still_summarised(
+        cfg, events, model, chat):
+    """The floor exists so a short burst rolls into the NEXT window. At session
+    end there is no next window, so a sub-minute recording used to produce a
+    transcript and nothing else — no digest, and therefore no wrap-up either,
+    since the wrap-up is built from digests."""
+    cfg["min_window_words"] = 40
+    cfg["artifacts"] = False
+    session = _session()
+    _say(session, "quick note before I run out the door")
+
+    assert live_watchers.monitor_tick(session) is None, "the floor holds mid-session"
+    assert live_store.digests_for_session(session) == []
+
+    live_watchers.on_session_ended(session, block=True)
+
+    assert live_store.digests_for_session(session), \
+        "a short recording must still be summarised when it ends"
+    assert model.calls, "and that costs exactly one pass"
