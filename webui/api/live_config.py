@@ -34,6 +34,12 @@ DEFAULTS: Dict[str, Any] = {
     "artifacts": True,
     "reply_mode": "text",
     "primary_language": "en",
+    # The model the watchers think with. Empty means "whatever a normal chat
+    # turn uses", which is the setting that needs no setup and the one most
+    # people should leave alone. `auxiliary.<task>.model` still wins over it,
+    # so a per-task pin (a cheap monitor, a strong fact-check) is not undone by
+    # picking one here.
+    "model": "",
     # Names the checkpoint the server actually runs (see api/live_voiceprint.py):
     # WeSpeaker voxceleb_resnet34_LM. This used to say "ecapa-v1", which was a
     # lie in a load-bearing place — ECAPA-TDNN and ResNet34 are different
@@ -64,7 +70,11 @@ _INT_KEYS = ("window_seconds", "min_window_words",
              "session_rollover_tokens",
              "fact_check_tokens")
 _FLOAT_KEYS = ("session_rollover_fraction",)
-_STR_KEYS = ("reply_mode", "primary_language", "embed_model")
+_STR_KEYS = ("reply_mode", "primary_language", "embed_model", "model")
+# Keys whose empty value MEANS something, so "" must round-trip instead of
+# being rejected or replaced by the default. Clearing the model row is how the
+# user says "follow the app", and there has to be a way back from a pick.
+_OPTIONAL_STR_KEYS = ("model",)
 
 REPLY_MODES = ("text", "spoken")
 
@@ -155,7 +165,7 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
     for key in _STR_KEYS:
         raw = out.get(key)
         out[key] = str(raw).strip() if isinstance(raw, (str, int, float)) else ""
-        if not out[key]:
+        if not out[key] and key not in _OPTIONAL_STR_KEYS:
             out[key] = DEFAULTS[key]
     if out["reply_mode"] not in REPLY_MODES:
         out["reply_mode"] = DEFAULTS["reply_mode"]
@@ -219,7 +229,7 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
             clean[key] = value
         else:
             value = str(raw or "").strip()
-            if not value:
+            if not value and key not in _OPTIONAL_STR_KEYS:
                 raise ValueError(f"{key} must not be empty")
             if key == "reply_mode" and value not in REPLY_MODES:
                 raise ValueError(

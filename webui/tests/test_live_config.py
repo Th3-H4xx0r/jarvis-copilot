@@ -97,6 +97,15 @@ def test_an_invalid_value_is_refused_so_the_client_learns_it_did_not_take(patch)
         live_config.save(patch)
 
 
+def test_the_model_can_be_picked_and_then_cleared_again(isolated_config):
+    """Empty is a real value here, not a missing one: it means "use whatever a
+    normal chat turn uses", and it has to be reachable from a pick or the row
+    is one-way."""
+    assert live_config.load()["model"] == ""
+    assert live_config.save({"model": "claude-opus-5"})["model"] == "claude-opus-5"
+    assert live_config.save({"model": ""})["model"] == ""
+
+
 def test_a_refused_write_changes_nothing(isolated_config):
     live_config.save({"window_seconds": 90})
     with pytest.raises(ValueError):

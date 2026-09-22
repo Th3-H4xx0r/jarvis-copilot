@@ -106,6 +106,7 @@ _CONFIG_FALLBACK = {
     "artifacts": False,
     "reply_mode": "text",
     "primary_language": "en",
+    "model": "",
     # Kept here as well as in live_config.DEFAULTS: `_load_config_uncached`
     # merges over this dict, so an older live_config (or one that has not
     # learned the key yet) still gets a working budget instead of zero.
@@ -1857,7 +1858,12 @@ def _resolve_pass_model(task: str):
     voice turn) would use, which is the behaviour that needs no setup.
     """
     aux = _aux_task_config(task)
-    want_model = str(aux.get("model") or "").strip()
+    # `auxiliary.<task>.model` is the per-task pin and stays the most specific
+    # thing there is. `live.model` is the one row in the Live settings sheet:
+    # "the model Live thinks with", for a user who does not want to learn what
+    # an auxiliary task is. Empty means the app's normal model.
+    want_model = (str(aux.get("model") or "").strip()
+                  or str(_config().get("model") or "").strip())
     want_provider = str(aux.get("provider") or "").strip().lower()
     if want_provider in {"auto", "main"}:
         want_provider = ""

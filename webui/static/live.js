@@ -1359,6 +1359,25 @@ async function _liveOpenSettings() {
                  placeholder="en" value="${_lEsc(cfg.primary_language || '')}">
           <div class="live-modal-hint">Transcription locale, and the target the translate action uses.</div>
         </div>
+        <div class="live-modal-row">
+          <label for="liveCfgFactTokens">Fact-check budget (tokens)</label>
+          <input type="number" id="liveCfgFactTokens" data-cfg="fact_check_tokens" min="50" max="100000" step="50"
+                 value="${_lEsc(cfg.fact_check_tokens != null ? cfg.fact_check_tokens : 1000)}">
+          <div class="live-modal-hint">How much recent conversation the Fact-check button sends.</div>
+        </div>
+        <div class="live-modal-row">
+          <label for="liveCfgRollover">New session at (share of context)</label>
+          <input type="number" id="liveCfgRollover" data-cfg="session_rollover_fraction" min="0.05" max="1" step="0.05"
+                 value="${_lEsc(cfg.session_rollover_fraction != null ? cfg.session_rollover_fraction : 0.5)}">
+          <div class="live-modal-hint">Recording rolls into a new session — and a new chat — once the transcript reaches this much of the model's context.</div>
+        </div>
+        <div class="live-modal-row live-modal-row--wide">
+          <label for="liveCfgModel">Model</label>
+          <select id="liveCfgModel" data-cfg="model">
+            <option value="">Follow the app's model</option>
+          </select>
+          <div class="live-modal-hint">What Live thinks with: the monitor, the fact-check and the wrap-up. A per-task pin in <code>auxiliary:</code> still wins.</div>
+        </div>
         <div class="live-modal-row live-modal-row--wide">
           <label for="liveCfgEmbed">Embedding model id</label>
           <input type="text" id="liveCfgEmbed" data-cfg="embed_model" autocomplete="off" spellcheck="false"
@@ -1378,6 +1397,40 @@ async function _liveOpenSettings() {
   wrap.querySelector('[data-live-settings="save"]').onclick = () => _liveSaveSettings();
   _liveSettingsKeyHandler = ev => { if (ev.key === 'Escape') _liveCloseSettings(); };
   document.addEventListener('keydown', _liveSettingsKeyHandler, true);
+  _liveFillModelOptions(wrap, cfg.model || '');
+}
+
+// The model row is populated after the modal is on screen: the list is a
+// network call, and a settings dialog that waits for it before opening feels
+// broken. Until it lands the row still shows the configured value, so a slow
+// or missing /api/models cannot silently reset the setting on save.
+async function _liveFillModelOptions(scope, current) {
+  const sel = scope && scope.querySelector('#liveCfgModel');
+  if (!sel) return;
+  if (current) {
+    const opt = document.createElement('option');
+    opt.value = current;
+    opt.textContent = current;
+    opt.selected = true;
+    sel.appendChild(opt);
+  }
+  const res = await _liveReq('/api/models');
+  const groups = (res && res.ok && res.data && Array.isArray(res.data.groups)) ? res.data.groups : [];
+  const seen = new Set(current ? [current] : []);
+  for (const g of groups) {
+    const og = document.createElement('optgroup');
+    og.label = g.provider || g.provider_id || 'Configured';
+    for (const m of (Array.isArray(g.models) ? g.models : [])) {
+      if (!m || !m.id || seen.has(m.id)) continue;
+      seen.add(m.id);
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label || m.id;
+      og.appendChild(opt);
+    }
+    if (og.children.length) sel.appendChild(og);
+  }
+  sel.value = current || '';
 }
 
 let _liveSettingsKeyHandler = null;

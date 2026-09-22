@@ -603,6 +603,42 @@ def test_checking_one_utterance_still_works_for_callers_that_pass_a_seq(
     assert result["anchor_seq"] == seq, "it is about the line it was asked about"
 
 
+# "or just put the model setting in the settings part of the live settings"
+
+
+def test_the_live_settings_model_is_what_the_watchers_think_with(cfg, monkeypatch):
+    monkeypatch.setattr(live_watchers, "_aux_task_config", lambda task: {})
+    monkeypatch.setattr(live_watchers, "_default_chat_model", lambda: "app-model")
+    cfg["model"] = "live-model"
+
+    model, _provider, _base, _key = live_watchers._resolve_pass_model("live_monitor")
+
+    assert model == "live-model"
+
+
+def test_a_per_task_pin_still_beats_the_live_settings_model(cfg, monkeypatch):
+    """`auxiliary.<task>` is how a cheap monitor and a strong fact-check are
+    configured (design §6); one row in a settings sheet must not undo that."""
+    monkeypatch.setattr(live_watchers, "_aux_task_config",
+                        lambda task: {"model": "pinned-model"})
+    monkeypatch.setattr(live_watchers, "_default_chat_model", lambda: "app-model")
+    cfg["model"] = "live-model"
+
+    model, _provider, _base, _key = live_watchers._resolve_pass_model("live_monitor")
+
+    assert model == "pinned-model"
+
+
+def test_no_live_model_means_the_model_the_rest_of_the_app_uses(cfg, monkeypatch):
+    monkeypatch.setattr(live_watchers, "_aux_task_config", lambda task: {})
+    monkeypatch.setattr(live_watchers, "_default_chat_model", lambda: "app-model")
+    cfg["model"] = ""
+
+    model, _provider, _base, _key = live_watchers._resolve_pass_model("live_monitor")
+
+    assert model == "app-model"
+
+
 def test_the_conversation_check_is_capped_by_the_token_budget(cfg, events, model):
     """Tokens are estimated as chars // 4, the same arithmetic session rollover
     uses — one estimate in the product, not two that disagree."""
