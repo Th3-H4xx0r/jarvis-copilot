@@ -754,10 +754,40 @@ def audio_dir(live_session_id: str) -> Path:
     return d
 
 
+# SQLite stores signed 64-bit integers and raises OverflowError on anything
+# wider. A client's clock is not trustworthy enough to hand straight to it.
+_MAX_SQLITE_INT = (1 << 63) - 1
+
+
+def _storable_ms(raw, label: str, live_session_id: str) -> int:
+    """A timestamp SQLite will accept, whatever the caller believed.
+
+    Callers already normalise timestamps, and this is still worth having: the
+    row is the audio file's ONLY handle. When this insert raised, the chunk was
+    written to disk and nothing knew it existed — invisible to the storage
+    panel, unreachable by every delete path, and unreadable by identification.
+    Losing a timestamp costs one chunk's position; losing the row costs the
+    chunk. Observed in production as `OverflowError: Python int too large to
+    convert to SQLite INTEGER`, twice, at a session end.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 0
+    if 0 <= value <= _MAX_SQLITE_INT:
+        return value
+    logger.warning("live: %s=%r is not a storable timestamp on %s; "
+                   "registering the chunk without it", label, raw,
+                   live_session_id[:8] or "?")
+    return 0
+
+
 def register_audio(live_session_id: str, path, *, codec: str = "opus",
                    ts0_ms: int = 0, ts1_ms: int = 0,
                    device_id: str = "") -> dict:
     aid = uuid.uuid4().hex
+    ts0_ms = _storable_ms(ts0_ms, "ts0_ms", live_session_id)
+    ts1_ms = _storable_ms(ts1_ms, "ts1_ms", live_session_id)
     try:
         size = int(Path(path).stat().st_size)
     except OSError:

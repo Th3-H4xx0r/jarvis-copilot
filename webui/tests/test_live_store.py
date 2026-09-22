@@ -492,3 +492,46 @@ def test_two_identical_words_without_timestamps_are_still_two_utterances():
 
     assert a["seq"] != b["seq"]
     assert len(live_store.segments_after(s)) == 2
+
+
+# A chunk's row is the file's only handle: without it the audio is invisible to
+# the storage panel, unreachable by every delete path and unreadable by
+# identification. Observed in production as OverflowError at a session end.
+
+
+def test_a_timestamp_too_wide_for_sqlite_costs_the_position_not_the_chunk(
+        tmp_path):
+    session = live_store.start_session(device_id="d1")["id"]
+    audio = tmp_path / "chunk.opus"
+    audio.write_bytes(b"0123456789")
+
+    row = live_store.register_audio(session, audio, codec="opus",
+                                    ts0_ms=0, ts1_ms=1 << 64)
+
+    assert row["bytes"] == 10, "the chunk is registered"
+    stored = live_store.audio_chunks(session)
+    assert len(stored) == 1
+    assert stored[0]["ts1_ms"] == 0, "the unusable timestamp is dropped, not the row"
+
+
+def test_a_nonsense_timestamp_is_treated_the_same_way(tmp_path):
+    session = live_store.start_session(device_id="d1")["id"]
+    audio = tmp_path / "chunk.opus"
+    audio.write_bytes(b"0123456789")
+
+    live_store.register_audio(session, audio, ts0_ms="not-a-number", ts1_ms=-5)
+
+    stored = live_store.audio_chunks(session)
+    assert (stored[0]["ts0_ms"], stored[0]["ts1_ms"]) == (0, 0)
+
+
+def test_an_ordinary_timestamp_is_stored_exactly(tmp_path):
+    session = live_store.start_session(device_id="d1")["id"]
+    audio = tmp_path / "chunk.opus"
+    audio.write_bytes(b"0123456789")
+
+    live_store.register_audio(session, audio, ts0_ms=1000, ts1_ms=301000)
+
+    stored = live_store.audio_chunks(session)
+    assert (stored[0]["ts0_ms"], stored[0]["ts1_ms"]) == (1000, 301000)
+
