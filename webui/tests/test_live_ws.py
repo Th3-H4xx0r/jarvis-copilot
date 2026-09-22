@@ -2586,7 +2586,8 @@ def test_a_refetched_note_carries_the_seq_its_card_is_placed_by():
 def test_a_verdict_that_names_its_claim_is_stored_against_that_line():
     """The fact-check reads a stretch but judges one claim inside it, so a
     reload has to put the card back under the line it is about rather than at
-    the end of the stretch."""
+    the end of the stretch — WITHOUT pretending the note only covered that row.
+    """
     conn, _client = _connect()
     sid = conn.live_session_id
     _final_seg(conn, "the nile is the shortest river")
@@ -2595,7 +2596,33 @@ def test_a_verdict_that_names_its_claim_is_stored_against_that_line():
         "kind": "fact_check", "seq": None, "anchor_seq": 1,
         "scope": "conversation", "text": "It is the longest."})
     note = live_store.insights_for_session(sid)[0]
-    assert (note["seq_from"], note["seq_to"]) == (1, 1)
+    assert note["anchor_seq"] == 1, "the card goes under the line it judged"
+    assert note["seq_to"] == 2, \
+        "and still covers everything it read, which is what the cursor filters on"
+
+
+def test_an_anchored_verdict_survives_a_resume_past_the_line_it_is_about():
+    """The regression this column exists to prevent.
+
+    Storing the anchor as the range made the note invisible to exactly the
+    client this table was built for: a phone that was away, whose cursor is
+    ahead of the anchor, asking for what it missed. `insights_for_session`
+    filters on `seq_to`, so an anchor of 1 hid a verdict from a phone resuming
+    at 1 or later — silently, and only on the path nobody tests by hand.
+    """
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "the nile is the shortest river")
+    _final_seg(conn, "anyway what is nine plus nine")
+    _final_seg(conn, "and then we went home")
+    live_ws.LIVE_EVENTS.publish(sid, "insight", {
+        "kind": "fact_check", "seq": None, "anchor_seq": 1,
+        "scope": "conversation", "text": "It is the longest."})
+
+    missed = live_store.insights_for_session(sid, after_seq=2)
+
+    assert len(missed) == 1, "a phone resuming at seq 2 still learns the verdict"
+    assert missed[0]["anchor_seq"] == 1
 
 
 def test_an_unanchored_verdict_still_lands_at_the_end():

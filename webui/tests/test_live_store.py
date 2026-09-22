@@ -535,3 +535,43 @@ def test_an_ordinary_timestamp_is_stored_exactly(tmp_path):
     stored = live_store.audio_chunks(session)
     assert (stored[0]["ts0_ms"], stored[0]["ts1_ms"]) == (1000, 301000)
 
+
+def test_an_existing_database_gains_the_anchor_column(tmp_path, monkeypatch):
+    """`CREATE TABLE IF NOT EXISTS` does nothing to a table that already
+    exists, so a column added after the first release reaches a real database
+    only through the ALTER — and a real database here holds recordings that
+    cannot be recreated."""
+    import sqlite3
+
+    from api import config as api_config
+
+    monkeypatch.setattr(api_config, "STATE_DIR", tmp_path)
+    live_store.reset_for_tests()
+
+    # A live.db from before the column existed.
+    db = tmp_path / "live.db"
+    with sqlite3.connect(db) as raw:
+        raw.execute("CREATE TABLE live_insight (id TEXT PRIMARY KEY,"
+                    " live_session_id TEXT NOT NULL, kind TEXT NOT NULL,"
+                    " text TEXT NOT NULL, seq_from INTEGER, seq_to INTEGER,"
+                    " scope TEXT, verdict TEXT, sources TEXT, digest_id TEXT,"
+                    " created_at REAL NOT NULL)")
+        raw.execute("INSERT INTO live_insight VALUES"
+                    " ('old', 's1', 'monitor', 'said before the upgrade',"
+                    "  NULL, 3, NULL, NULL, NULL, NULL, 1.0)")
+        raw.commit()
+
+    with live_store.connect() as conn:
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(live_insight)")}
+    assert "anchor_seq" in columns
+
+    kept = live_store.insights_for_session("s1")
+    assert [n["text"] for n in kept] == ["said before the upgrade"], \
+        "the rows that were already there survive the migration"
+    assert kept[0]["anchor_seq"] is None
+
+    live_store.add_insight("s1", kind="fact_check", text="new", seq_to=5,
+                           anchor_seq=2)
+    fresh = [n for n in live_store.insights_for_session("s1") if n["text"] == "new"]
+    assert fresh[0]["anchor_seq"] == 2
+

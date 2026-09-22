@@ -131,6 +131,13 @@ CREATE TABLE IF NOT EXISTS live_insight (
     text             TEXT NOT NULL,
     seq_from         INTEGER,
     seq_to           INTEGER,
+    -- WHERE the card goes, which is not the same question as what the note
+    -- covered. A conversation-level fact-check reads a stretch (the range) and
+    -- judges one claim inside it (the anchor). Collapsing the range onto the
+    -- anchor placed the card correctly and then hid it from every client
+    -- resuming past that row, because `insights_for_session` filters on
+    -- `seq_to`.
+    anchor_seq       INTEGER,
     scope            TEXT,
     verdict          TEXT,
     sources          TEXT,
@@ -167,8 +174,31 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         if _schema_ready:
             return
         conn.executescript(_SCHEMA)
+        _add_missing_columns(conn)
         conn.commit()
         _schema_ready = True
+
+
+# Columns added after the first release. `CREATE TABLE IF NOT EXISTS` is a
+# no-op on a table that already exists, so a new column reaches an existing
+# database only through an ALTER. Additive and nullable only: this runs on
+# every open, against a database holding recordings that cannot be recreated.
+_ADDED_COLUMNS = (
+    ("live_insight", "anchor_seq", "INTEGER"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, column, decl in _ADDED_COLUMNS:
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not have or column in have:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        except sqlite3.OperationalError:
+            # Another process added it between the check and the ALTER.
+            logger.debug("live: %s.%s already added", table, column,
+                         exc_info=True)
 
 
 def reset_for_tests() -> None:
@@ -617,6 +647,7 @@ def get_digest(digest_id: str) -> Optional[dict]:
 
 def add_insight(live_session_id: str, *, kind: str, text: str,
                 seq_from: Optional[int] = None, seq_to: Optional[int] = None,
+                anchor_seq: Optional[int] = None,
                 scope: str = "", verdict: str = "", sources=None,
                 digest_id: str = "", created_at: Optional[float] = None) -> dict:
     """Record one watcher note so it can be fetched back, not just broadcast."""
@@ -625,6 +656,7 @@ def add_insight(live_session_id: str, *, kind: str, text: str,
     row = {
         "id": iid, "live_session_id": live_session_id, "kind": kind or "monitor",
         "text": text, "seq_from": seq_from, "seq_to": seq_to,
+        "anchor_seq": anchor_seq,
         "scope": scope or None, "verdict": verdict or None,
         "sources": json.dumps(list(sources)) if sources else None,
         "digest_id": digest_id or None, "created_at": now,
@@ -632,10 +664,11 @@ def add_insight(live_session_id: str, *, kind: str, text: str,
     with connect() as conn:
         conn.execute(
             "INSERT INTO live_insight (id, live_session_id, kind, text,"
-            " seq_from, seq_to, scope, verdict, sources, digest_id, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " seq_from, seq_to, anchor_seq, scope, verdict, sources, digest_id,"
+            " created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (iid, live_session_id, row["kind"], text, seq_from, seq_to,
-             row["scope"], row["verdict"], row["sources"], row["digest_id"], now))
+             anchor_seq, row["scope"], row["verdict"], row["sources"],
+             row["digest_id"], now))
         conn.commit()
     row["sources"] = list(sources) if sources else []
     return row

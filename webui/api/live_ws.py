@@ -116,9 +116,13 @@ def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
         if not text:
             return
         seq = payload.get("seq")
-        if not isinstance(seq, (int, float)):
-            seq = payload.get("anchor_seq")
         seq_from = seq_to = int(seq) if isinstance(seq, (int, float)) else None
+        # WHERE it goes, kept apart from WHAT it covered. Collapsing the range
+        # onto the anchor placed the card correctly and then hid the note from
+        # any client resuming past that row, because the fetch filters on
+        # `seq_to` — which is exactly the case this table exists to serve.
+        anchor = payload.get("anchor_seq")
+        anchor_seq = int(anchor) if isinstance(anchor, (int, float)) else seq_from
         digest_id = str(payload.get("digest_id") or "")
         if seq_from is None and digest_id:
             digest = live_store.get_digest(digest_id)
@@ -130,7 +134,7 @@ def _record_insight(live_session_id: str, payload: Dict[str, Any]) -> None:
             seq_to = int((session or {}).get("last_seq") or 0) or None
         live_store.add_insight(
             live_session_id, kind=str(payload.get("kind") or "monitor"),
-            text=text, seq_from=seq_from, seq_to=seq_to,
+            text=text, seq_from=seq_from, seq_to=seq_to, anchor_seq=anchor_seq,
             scope=str(payload.get("scope") or ""),
             verdict=str(payload.get("verdict") or ""),
             sources=payload.get("sources") or [], digest_id=digest_id,
@@ -149,6 +153,9 @@ def _insight_frame(note: Dict[str, Any]) -> Dict[str, Any]:
     bottom of the transcript. A note that really does span a window keeps
     `seq: null` and stays where it belongs, after everything it read.
     """
+    anchor = note.get("anchor_seq")
+    if isinstance(anchor, (int, float)):
+        return dict(note, seq=int(anchor))
     seq_from, seq_to = note.get("seq_from"), note.get("seq_to")
     pinned = seq_from is not None and seq_from == seq_to
     return dict(note, seq=int(seq_to) if pinned else None)
