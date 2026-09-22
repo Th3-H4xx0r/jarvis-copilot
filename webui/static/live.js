@@ -1262,14 +1262,20 @@ function _liveDeleteCopy(kind, id) {
 function _liveDeleteFactSummary(data) {
   const parts = [];
   const n = key => Number(data[key] || 0);
-  if (n('facts_retracted')) parts.push(n('facts_retracted') + ' remembered fact(s) removed');
+  const one = key => n(key) === 1;
+  if (n('facts_retracted')) {
+    parts.push(n('facts_retracted') + (one('facts_retracted')
+      ? ' remembered fact removed' : ' remembered facts removed'));
+  }
   if (n('facts_retraction_staged')) {
-    parts.push(n('facts_retraction_staged')
-      + ' still in memory until you approve their removal');
+    parts.push(n('facts_retraction_staged') + (one('facts_retraction_staged')
+      ? ' is still in memory until you approve its removal'
+      : ' are still in memory until you approve their removal'));
   }
   if (n('facts_unattributable')) {
-    parts.push(n('facts_unattributable')
-      + ' could not be tied to this voice and were kept');
+    parts.push(n('facts_unattributable') + (one('facts_unattributable')
+      ? ' could not be tied to this voice and was kept'
+      : ' could not be tied to this voice and were kept'));
   }
   if (data.facts_retraction_failed) parts.push('memory was not updated: ' + data.facts_retraction_failed);
   if (data.facts_note) parts.push(String(data.facts_note));
@@ -1331,7 +1337,7 @@ async function _liveLoadConfig() {
 const _LIVE_CONFIG_HELP = {
   enabled: 'Master switch for ambient capture. Off means devices will not record.',
   monitor: 'The rolling-window watcher that can interject. Skipped when the window has little new speech.',
-  fact_check: 'Lets you ask for a verdict on an utterance. Uses a strong model with web tools.',
+  fact_check: 'The Fact-check button, which checks the recent conversation. Uses a strong model with web search.',
   translate: 'Fills in translations for utterances that are not in the primary language.',
   memory_extraction: 'Writes durable facts to the configured memory provider when a window closes.',
   artifacts: 'On session end, produces a summary, decisions and action items.',

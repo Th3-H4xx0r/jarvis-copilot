@@ -164,7 +164,8 @@ const STORAGE = {
 const CONFIG = {
   enabled: true, window_seconds: 120, min_window_words: 25, monitor: true, fact_check: true,
   translate: true, memory_extraction: false, artifacts: true, reply_mode: 'text',
-  primary_language: 'en', embed_model: 'ecapa-v1',
+  primary_language: 'en', embed_model: 'ecapa-v1', model: '',
+  fact_check_tokens: 1000, session_rollover_fraction: 0.5,
 };
 
 // ── fetch stub ───────────────────────────────────────────────────────────────
@@ -177,11 +178,22 @@ function reply(body, status) {
 }
 window.fetch = function (url, opts) {
   const u = String(url);
-  const path = u.replace(/^.*?(\/?api\/live)/, 'api/live').split('?')[0];
+  // Any /api/... path, not just /api/live/...: the settings sheet reads the
+  // model list from /api/models.
+  const path = u.replace(/^.*?(\/?api\/)/, 'api/').split('?')[0];
   const qs = new URLSearchParams((u.split('?')[1] || ''));
   const body = opts && opts.body ? JSON.parse(opts.body) : {};
   console.log('[fixture] fetch', path, body);
   if (broken) return reply({ error: 'not found' }, 404);
+  if (path === 'api/models') {
+    return reply({ groups: [
+      { provider: 'Anthropic', provider_id: 'anthropic',
+        models: [{ id: 'claude-opus-5', label: 'Claude Opus 5' },
+                 { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }] },
+      { provider: 'Ollama Cloud', provider_id: 'ollama-cloud',
+        models: [{ id: 'gemma4:31b', label: 'gemma4:31b' }] },
+    ] });
+  }
   if (path === 'api/live/sessions') return reply({ sessions: SESSIONS });
   if (path === 'api/live/transcript') {
     const after = Number(qs.get('after_seq') || 0);
@@ -214,6 +226,9 @@ window.fetch = function (url, opts) {
   if (path === 'api/live/factcheck') {
     if (watchersOff) return reply({ ok: true, result: { ok: false, error: 'fact-check is off' } });
     return reply({ ok: true, result: { ok: true, kind: 'fact_check', live_session_id: SID, seq: body.seq,
+      // A conversation-level check names the line it judged, so the card sits
+      // under that line rather than after whatever was said last.
+      anchor_seq: body.seq != null ? body.seq : 2, scope: 'conversation',
       verdict: 'Mostly true',
       text: 'The migration is reversible for 60 minutes; after that the down path drops a column.',
       sources: ['https://example.invalid/runbook', 'runbook.md'], created_at: Date.now() / 1000 } });
@@ -224,7 +239,12 @@ window.fetch = function (url, opts) {
       text: '[stub translation of segment ' + body.seq + ']',
       translation: '[stub translation of segment ' + body.seq + ']', target: 'en' } });
   }
-  if (path === 'api/live/delete') return reply({ ok: true, freed_bytes: 118_000_000 });
+  if (path === 'api/live/delete') {
+    // The counts a real delete answers with: what memory it took, and what it
+    // deliberately did not.
+    return reply({ ok: true, freed_bytes: 118_000_000, facts_retracted: 2,
+                   facts_retraction_staged: 0, facts_unattributable: 1 });
+  }
   return reply({ error: 'unhandled ' + path }, 404);
 };
 
