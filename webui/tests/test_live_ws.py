@@ -2421,6 +2421,27 @@ def test_the_budget_is_half_the_model_context_by_default():
         "an explicit ceiling wins over the fraction"
 
 
+def test_the_budget_follows_the_model_live_was_told_to_use():
+    """The budget protects the ability to read the session BACK, so once the
+    Live settings can pick a model, the app's default is the wrong window."""
+    from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS
+
+    # The longest key, so no other entry can be a substring of it — otherwise
+    # the test measures the catalogue's fuzzy matching, not this function.
+    known = max(DEFAULT_CONTEXT_LENGTHS, key=len)
+    context = int(DEFAULT_CONTEXT_LENGTHS[known])
+
+    assert live_ws._model_context_tokens({"model": known}) == context
+    # Provider-qualified is how /api/models spells it; the catalogue holds the
+    # bare name, and a known model must not fall back to the conservative one.
+    assert live_ws._model_context_tokens({"model": f"someprovider/{known}"}) == context
+    assert live_ws.rollover_token_budget(
+        {"model": known, "session_rollover_fraction": 0.5}) == context // 2
+    assert live_ws._model_context_tokens({"model": "no-such-model-anywhere"}) \
+        == live_ws._FALLBACK_CONTEXT_TOKENS, \
+        "an unknown model is the conservative window, not an exception"
+
+
 def test_an_unresolvable_model_context_still_yields_a_usable_budget():
     """An unknown model must not stop a recording; a conservative window only
     means sessions roll over sooner."""

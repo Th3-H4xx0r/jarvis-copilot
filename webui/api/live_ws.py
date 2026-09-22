@@ -336,27 +336,62 @@ def rollover_token_budget(cfg: Optional[Dict[str, Any]] = None) -> int:
     if explicit > 0:
         return explicit
     fraction = float(cfg.get("session_rollover_fraction") or 0.5)
-    return max(1000, int(_model_context_tokens() * fraction))
+    return max(1000, int(_model_context_tokens(cfg) * fraction))
 
 
-def _model_context_tokens() -> int:
+def _model_context_tokens(cfg: Optional[Dict[str, Any]] = None) -> int:
     """The context window of the model that reads these transcripts.
 
-    Falls back rather than raising: an unknown model must not stop a recording,
-    and a conservative window only means sessions roll over sooner.
+    `live.model` first: the whole point of this budget is the context of the
+    model that will have to read the session back, and since that model became
+    pickable in the Live settings, the app's default is no longer the right
+    answer for a user who chose one. Falls back to the app's model, and then to
+    a conservative constant — an unknown model must not stop a recording, and a
+    short guess only means sessions roll over sooner.
     """
-    try:
-        from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS_LOWER
-        from api import config as _config
-        model = str(getattr(_config, "DEFAULT_MODEL", "") or "").lower()
-        if model:
-            found = DEFAULT_CONTEXT_LENGTHS_LOWER.get(model)
-            if found:
-                return int(found)
-    except Exception:
-        logger.debug("live: could not resolve a model context window",
-                     exc_info=True)
+    cfg = cfg or {}
+    for name in (str(cfg.get("model") or ""), _app_model()):
+        found = _catalogue_context(name)
+        if found:
+            return found
     return _FALLBACK_CONTEXT_TOKENS
+
+
+def _app_model() -> str:
+    try:
+        from api import config as _config
+        return str(getattr(_config, "DEFAULT_MODEL", "") or "")
+    except Exception:
+        logger.debug("live: could not read the app's model", exc_info=True)
+        return ""
+
+
+def _catalogue_context(model: str) -> int:
+    """The offline context lookup, and only the offline one.
+
+    `get_model_context_length()` is the full resolver, and it can probe an
+    endpoint over the network — which is not something to do on the handshake
+    path of a recorder. This is its last offline step: the hardcoded
+    catalogue, longest key first so `claude-sonnet-4` cannot match the entry
+    for `claude-sonnet-4-6`. A provider-qualified id (`anthropic/claude-opus-5`
+    from /api/models) matches the same way, because the keys are substrings.
+
+    Previously this read a name that module does not export, so every lookup
+    raised and every session silently rolled over against the fallback.
+    """
+    lowered = str(model or "").strip().lower()
+    if not lowered:
+        return 0
+    try:
+        from agent.model_metadata import DEFAULT_CONTEXT_LENGTHS
+    except Exception:
+        logger.debug("live: the model catalogue is unavailable", exc_info=True)
+        return 0
+    for key, length in sorted(DEFAULT_CONTEXT_LENGTHS.items(),
+                              key=lambda kv: len(kv[0]), reverse=True):
+        if key.lower() in lowered:
+            return int(length)
+    return 0
 
 
 def session_is_full(live_session_id: str,
