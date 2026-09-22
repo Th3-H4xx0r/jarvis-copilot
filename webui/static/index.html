@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="static/style.css?v=__WEBUI_VERSION__">
 <link rel="stylesheet" href="static/voice.css?v=__WEBUI_VERSION__">
 <link rel="stylesheet" href="static/jarvis.css?v=__WEBUI_VERSION__">
+<link rel="stylesheet" href="static/live.css?v=__WEBUI_VERSION__">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" integrity="sha384-LJcOxlx9IMbNXDqJ2axpfEQKkAYbFjJfhXexLfiRJhjDU81mzgkiQq8rkV0j6dVh" crossorigin="anonymous">
   <!-- KaTeX math rendering CSS (loaded eagerly to prevent layout shift) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
@@ -149,6 +150,7 @@
     <button class="rail-btn nav-tab has-tooltip" data-panel="selfimprovement" onclick="switchPanel('selfimprovement',{fromRailClick:true})" data-tooltip="Learning" aria-label="Self-Improvement"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></button>
     <button class="rail-btn nav-tab has-tooltip" data-panel="codememory" onclick="switchPanel('codememory',{fromRailClick:true})" data-tooltip="Code Memory" aria-label="Code Memory"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></button>
     <button class="rail-btn nav-tab has-tooltip" data-panel="coding" onclick="switchPanel('coding',{fromRailClick:true})" data-tooltip="Coding" data-i18n-title="tab_coding" aria-label="Coding"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
+    <button class="rail-btn nav-tab has-tooltip" data-panel="live" onclick="switchPanel('live',{fromRailClick:true})" data-tooltip="Live" aria-label="Live"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="22"/><path d="M3.5 7.5a9 9 0 0 0 0 9"/><path d="M20.5 7.5a9 9 0 0 1 0 9"/></svg></button>
     <div class="rail-spacer"></div>
     <button class="rail-btn nav-tab has-tooltip" data-panel="settings" onclick="switchPanel('settings',{fromRailClick:true})" data-tooltip="Settings" data-i18n-title="tab_settings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </nav>
@@ -171,6 +173,7 @@
       <button class="nav-tab has-tooltip has-tooltip--bottom" data-panel="selfimprovement" data-label="Learning" onclick="switchPanel('selfimprovement',{fromRailClick:true})" data-tooltip="Learning"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg></button>
       <button class="nav-tab has-tooltip has-tooltip--bottom" data-panel="codememory" data-label="Code Memory" onclick="switchPanel('codememory',{fromRailClick:true})" data-tooltip="Code Memory"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></button>
       <button class="nav-tab has-tooltip has-tooltip--bottom" data-panel="coding" data-label="Coding" onclick="switchPanel('coding',{fromRailClick:true})" data-tooltip="Coding" data-i18n-title="tab_coding"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
+      <button class="nav-tab has-tooltip has-tooltip--bottom" data-panel="live" data-label="Live" onclick="switchPanel('live',{fromRailClick:true})" data-tooltip="Live"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="22"/><path d="M3.5 7.5a9 9 0 0 0 0 9"/><path d="M20.5 7.5a9 9 0 0 1 0 9"/></svg></button>
       <!-- Settings button mirrored here for mobile (rail is desktop-only via @media >=768px). Keep in sync with rail entry. -->
       <button class="nav-tab has-tooltip has-tooltip--bottom" data-panel="settings" onclick="switchPanel('settings',{fromRailClick:true})" data-tooltip="Settings" data-i18n-title="tab_settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
@@ -311,6 +314,18 @@
       </div>
       <div class="panel-head-sub" style="padding:0 12px 8px;color:var(--muted);font-size:12px">Devices that have paired with this server.</div>
       <div class="devices-list" id="devicesList" style="flex:1;overflow-y:auto;padding:4px 8px"><div style="padding:12px;color:var(--muted);font-size:12px">Loading...</div></div>
+    </div>
+    <!-- Live Jarvis panel (sidebar). The list is the only markup here; the rest
+         of the view is built by live.js into #liveSessionList. -->
+    <div class="panel-view" id="panelLive">
+      <div class="panel-head">
+        <span>Live</span>
+        <div class="panel-head-actions">
+          <button class="panel-head-btn has-tooltip has-tooltip--bottom" onclick="loadLive(true)" data-tooltip="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        </div>
+      </div>
+      <div class="panel-head-sub" style="padding:0 12px 8px;color:var(--muted);font-size:12px">Conversations captured by a device with a mic.</div>
+      <div id="liveSessionList" style="flex:1;overflow-y:auto;padding:4px 0"></div>
     </div>
     <!-- Workspaces panel -->
     <div class="panel-view" id="panelWorkspaces">
@@ -981,6 +996,17 @@
         <section class="cdg-detail" id="codingDetail"><div class="cm-detail-body"><div class="cm-empty">Select a session, or start a new one.</div></div></section>
       </div>
     </div>
+    <div id="mainLive" class="main-view">
+      <div class="main-view-header">
+        <div class="main-view-title-row">
+          <div class="main-view-title">Live</div>
+          <div class="live-tabs" id="liveTabs" role="tablist"></div>
+        </div>
+        <div class="main-view-actions" id="liveHeaderActions"></div>
+      </div>
+      <div class="live-status" id="liveStatus"></div>
+      <div class="main-view-body" id="liveBody"></div>
+    </div>
     <div id="mainSettings" class="main-view">
       <div class="settings-main">
           <div class="settings-pane active" id="settingsPaneConversation">
@@ -1496,6 +1522,10 @@
 <script src="static/vendor/three.min.js" defer></script>
 <script src="static/voice.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/devices.js?v=__WEBUI_VERSION__" defer></script>
+<!-- live_labels.js must come before live.js: it holds the speaker-label store
+     live.js resolves every chip through. -->
+<script src="static/live_labels.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/live.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/onboarding.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/boot.js?v=__WEBUI_VERSION__" defer></script>
 

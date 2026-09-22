@@ -231,7 +231,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory','coding'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory','coding','live'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -256,6 +256,10 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'codememory') await loadCodeMemory();
   if (nextPanel === 'coding' && typeof loadCoding === 'function') await loadCoding();
   if (prevPanel === 'coding' && nextPanel !== 'coding' && typeof onCodingPanelLeave === 'function') onCodingPanelLeave();
+  if (nextPanel === 'live' && typeof loadLive === 'function') await loadLive();
+  // Leaving Live closes its SSE stream — an ambient transcript is a long-lived
+  // connection and must not be left open behind another panel.
+  if (prevPanel === 'live' && nextPanel !== 'live' && typeof onLivePanelLeave === 'function') onLivePanelLeave();
   if (nextPanel === 'devices' && typeof loadDevices === 'function') await loadDevices();
   if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
   if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();

@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en" class="dark" data-skin="jarvis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Jarvis — render fixture</title>
+<!--
+  Dev fixture for webui/static/live.js. NOT part of the app: nothing links to
+  it and it talks to no server.
+
+  It exists because the /api/live/* endpoints were written in parallel with this
+  view, so the only honest way to check the rendering — and, more importantly,
+  the provisional→confirmed relabelling — was to drive live.js against a stub.
+  window.fetch and window.EventSource are replaced below; live.js itself is
+  loaded unmodified.
+
+  Open it directly (file:// works) or via the dev server:
+      webui/static/live_fixture.html
+  Buttons at the top push the SSE frames a real session would send.
+-->
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="jarvis.css">
+<link rel="stylesheet" href="live.css">
+<style>
+  body{margin:0;min-height:100vh;color:var(--text);font-family:var(--font-ui,system-ui);}
+  .fx-wrap{display:flex;min-height:100vh;}
+  .fx-side{width:270px;flex:0 0 270px;border-right:1px solid var(--border);display:flex;flex-direction:column;}
+  .fx-side-head{padding:12px 14px;font-size:13px;font-weight:650;border-bottom:1px solid var(--border);}
+  .fx-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .fx-bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface-subtle);}
+  .fx-bar button{font:inherit;font-size:11px;padding:4px 9px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--border2);background:var(--surface);color:var(--text);}
+  .fx-bar button:hover{background:var(--hover-bg);}
+  .fx-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 32px;border-bottom:1px solid var(--border);}
+  .fx-title-row{display:flex;align-items:center;gap:12px;}
+  .fx-title{font-size:18px;font-weight:600;}
+  #liveBody{flex:1;min-height:0;overflow-y:auto;padding:18px 32px;}
+  #liveSessionList{flex:1;overflow-y:auto;padding:6px 0;}
+</style>
+</head>
+<body>
+<div class="fx-wrap">
+  <aside class="fx-side">
+    <div class="fx-side-head">Live</div>
+    <div id="liveSessionList"></div>
+  </aside>
+  <section class="fx-main">
+    <div class="fx-bar">
+      <strong style="font-size:11px;align-self:center;color:var(--muted)">fixture:</strong>
+      <button onclick="FX.pushSeg()">stream a segment</button>
+      <button onclick="FX.rename()">speaker rename (spk_b → "Priya")</button>
+      <button onclick="FX.merge()">speaker merge (spk_c → spk_a)</button>
+      <button onclick="FX.confirm()">speaker confirm (seq 2)</button>
+      <button onclick="FX.insight()">monitor insight</button>
+      <button onclick="FX.factcheck()">fact-check insight</button>
+      <button onclick="FX.state()">state: paused + warning</button>
+      <button onclick="FX.resync()">resync</button>
+      <button onclick="FX.drop()">drop the stream</button>
+      <button onclick="FX.dropAndMiss()">drop + miss 2 utterances</button>
+      <button onclick="FX.toggleWatchers()">toggle watchers off/on</button>
+      <button onclick="FX.break404()">make endpoints 404</button>
+      <button onclick="FX.heal()">heal endpoints</button>
+    </div>
+    <div class="fx-head">
+      <div class="fx-title-row">
+        <div class="fx-title">Live</div>
+        <div class="live-tabs" id="liveTabs" role="tablist"></div>
+      </div>
+      <div class="main-view-actions" id="liveHeaderActions"></div>
+    </div>
+    <div class="live-status" id="liveStatus"></div>
+    <div id="liveBody"></div>
+  </section>
+</div>
+
+<script>
+// ── stand-ins for the app helpers live.js uses ───────────────────────────────
+// live.js deliberately calls the app's own dialogs (never the browser's), so
+// the fixture supplies minimal versions rather than the page going quiet.
+window.showToast = (msg) => { console.log('[toast]', msg); window.__lastToast = String(msg); };
+window.showConfirmDialog = (opts) => {
+  const text = [opts.title, opts.message].filter(Boolean).join('\n\n');
+  window.__lastConfirm = text;
+  console.log('[confirm]', text);
+  return Promise.resolve(window.__confirmAnswer === true);   // default: cancel
+};
+window.showPromptDialog = (opts) => {
+  window.__lastPrompt = [opts.title, opts.message].filter(Boolean).join('\n\n');
+  console.log('[prompt]', window.__lastPrompt);
+  return Promise.resolve(window.__promptAnswer != null ? window.__promptAnswer : null);
+};
+
+// ── fixture data ─────────────────────────────────────────────────────────────
+const NOW = Math.floor(Date.now() / 1000);
+const SID = 'ls_demo';
+let broken = false;
+let watchersOff = false;   // the watcher-declined path (HTTP 200, result.ok=false)
+
+const SESSIONS = [
+  { id: SID, started_at: NOW - 900, ended_at: null, title: 'Kitchen table, Sunday',
+    device_id: 'iphone-17pm', source_label: 'iPhone 17 Pro Max', chat_session_id: 'cs_1',
+    last_seq: 4, state: 'recording' },
+  { id: 'ls_old', started_at: NOW - 90000, ended_at: NOW - 86000, title: 'Standup',
+    device_id: 'mac-studio', source_label: 'Mac Studio', chat_session_id: 'cs_0',
+    last_seq: 220, state: 'ended' },
+];
+
+// ts_start_ms here is session-relative, which is one of the two shapes the
+// protocol allows; live_labels.formatSegmentTime resolves it against
+// started_at.
+const SEGMENTS = [
+  { live_session_id: SID, seq: 1, ts_start_ms: 4000, ts_end_ms: 9200, speaker_id: 'spk_a',
+    speaker_conf: 0.94, label_state: 'confirmed', local_label: 'me',
+    text: 'Right, so the deploy goes out tonight and the migration runs first.',
+    lang: 'en', translation: null, device_id: 'iphone-17pm', audio_ref: 'c0.opus' },
+  { live_session_id: SID, seq: 2, ts_start_ms: 10400, ts_end_ms: 15100, speaker_id: 'spk_b',
+    speaker_conf: 0.61, label_state: 'provisional', local_label: 'local:2',
+    text: 'Are we sure the migration is reversible? Last time it was not.',
+    lang: 'en', translation: null, device_id: 'iphone-17pm', audio_ref: 'c0.opus' },
+  { live_session_id: SID, seq: 3, ts_start_ms: 16200, ts_end_ms: 21000, speaker_id: null,
+    speaker_conf: null, label_state: 'provisional', local_label: 'local:3',
+    text: 'Es reversibel, pero solo dentro de la primera hora.',
+    lang: 'es', translation: 'It is reversible, but only within the first hour.',
+    device_id: 'iphone-17pm', audio_ref: 'c1.opus' },
+  { live_session_id: SID, seq: 4, ts_start_ms: 22800, ts_end_ms: 27400, speaker_id: 'spk_c',
+    speaker_conf: 0.55, label_state: 'provisional', local_label: 'local:4',
+    text: 'Then we put the rollback in the runbook and stop arguing about it.',
+    lang: 'en', translation: null, device_id: 'iphone-17pm', audio_ref: 'c1.opus' },
+];
+
+// Segments the "device" produced after the initial backlog. Kept server-side
+// in the stub so a reconnect's snapshot can deliver whatever was said while
+// the stream was down — the gap-fill case that matters most.
+const STREAMED = [];
+
+const SPEAKERS = [
+  { id: 'spk_a', kind: 'me', name: null, created_at: NOW - 400000, last_heard_at: NOW - 880,
+    segment_count: 412, speech_ms: 1_920_000,
+    samples: [{ live_session_id: SID, seq: 1, ts_start_ms: 4000, text: 'Right, so the deploy goes out tonight.' },
+              { live_session_id: 'ls_old', seq: 12, ts_start_ms: 33000, text: 'Let us keep the standup to ten minutes.' }] },
+  { id: 'spk_b', kind: 'other', name: null, created_at: NOW - 120000, last_heard_at: NOW - 870,
+    segment_count: 88, speech_ms: 402_000,
+    samples: [{ live_session_id: SID, seq: 2, ts_start_ms: 10400, text: 'Are we sure the migration is reversible?' }] },
+  { id: 'spk_c', kind: 'other', name: null, created_at: NOW - 3000, last_heard_at: NOW - 860,
+    segment_count: 6, speech_ms: 21_000,
+    samples: [{ live_session_id: SID, seq: 4, ts_start_ms: 22800, text: 'Then we put the rollback in the runbook.' }] },
+];
+
+const STORAGE = {
+  total_bytes: 7_412_334_080, chunks: 1183,
+  per_session: [
+    { live_session_id: SID, bytes: 118_000_000, chunks: 12, title: 'Kitchen table, Sunday', started_at: NOW - 900, source_label: 'iPhone 17 Pro Max' },
+    { live_session_id: 'ls_old', bytes: 7_294_334_080, chunks: 1171, title: 'Standup', started_at: NOW - 90000, source_label: 'Mac Studio' },
+  ],
+  per_day: [{ day: '2026-09-21', bytes: 118_000_000 }, { day: '2026-09-20', bytes: 7_294_334_080 }],
+  per_speaker_approx: [
+    { id: 'spk_a', name: null, kind: 'me', speech_ms: 1_920_000, segment_count: 412, approx_bytes: 5_900_000_000 },
+    { id: 'spk_b', name: null, kind: 'other', speech_ms: 402_000, segment_count: 88, approx_bytes: 1_230_000_000 },
+    { id: 'spk_c', name: null, kind: 'other', speech_ms: 21_000, segment_count: 6, approx_bytes: 64_000_000 },
+  ],
+  note: 'per-speaker bytes are estimated from speech time; one audio chunk contains every voice heard during it',
+};
+
+const CONFIG = {
+  enabled: true, window_seconds: 120, min_window_words: 25, monitor: true, fact_check: true,
+  translate: true, memory_extraction: false, artifacts: true, reply_mode: 'text',
+  primary_language: 'en', embed_model: 'ecapa-v1',
+};
+
+// ── fetch stub ───────────────────────────────────────────────────────────────
+function reply(body, status) {
+  return Promise.resolve({
+    ok: (status || 200) < 400, status: status || 200, statusText: '',
+    headers: { get: () => 'application/json' },
+    json: () => Promise.resolve(body), text: () => Promise.resolve(JSON.stringify(body)),
+  });
+}
+window.fetch = function (url, opts) {
+  const u = String(url);
+  const path = u.replace(/^.*?(\/?api\/live)/, 'api/live').split('?')[0];
+  const qs = new URLSearchParams((u.split('?')[1] || ''));
+  const body = opts && opts.body ? JSON.parse(opts.body) : {};
+  console.log('[fixture] fetch', path, body);
+  if (broken) return reply({ error: 'not found' }, 404);
+  if (path === 'api/live/sessions') return reply({ sessions: SESSIONS });
+  if (path === 'api/live/transcript') {
+    const after = Number(qs.get('after_seq') || 0);
+    const all = SEGMENTS.concat(STREAMED);
+    return reply({ live_session_id: SID, session: SESSIONS[0],
+                   segments: all.filter(s => s.seq > after),
+                   last_seq: all.length ? all[all.length - 1].seq : 0 });
+  }
+  if (path === 'api/live/speakers') return reply({ speakers: SPEAKERS });
+  if (path === 'api/live/storage') return reply(STORAGE);
+  if (path === 'api/live/config') {
+    // Shapes copied from webui/api/live_ws.py: GET wraps in {config,defaults},
+    // the write answers {ok,config,ignored_keys?}.
+    if (opts && (opts.method === 'PUT' || opts.method === 'POST')) {
+      const known = Object.keys(CONFIG);
+      const ignored = Object.keys(body).filter(k => !known.includes(k));
+      Object.assign(CONFIG, body);
+      return reply(ignored.length ? { ok: true, config: CONFIG, ignored_keys: ignored } : { ok: true, config: CONFIG });
+    }
+    return reply({ config: CONFIG, defaults: CONFIG });
+  }
+  if (path === 'api/live/speaker/rename') {
+    const spk = SPEAKERS.find(s => s.id === body.speaker_id);
+    if (spk) spk.name = body.name || null;
+    return reply({ ok: true });
+  }
+  if (path === 'api/live/speaker/merge') return reply({ ok: true, merged: 1 });
+  // Watcher endpoints answer {ok, result:{…}} and report an off/failed watcher
+  // as result.ok=false with HTTP 200 — the shape live_ws.py actually sends.
+  if (path === 'api/live/factcheck') {
+    if (watchersOff) return reply({ ok: true, result: { ok: false, error: 'fact-check is off' } });
+    return reply({ ok: true, result: { ok: true, kind: 'fact_check', live_session_id: SID, seq: body.seq,
+      verdict: 'Mostly true',
+      text: 'The migration is reversible for 60 minutes; after that the down path drops a column.',
+      sources: ['https://example.invalid/runbook', 'runbook.md'], created_at: Date.now() / 1000 } });
+  }
+  if (path === 'api/live/translate') {
+    if (watchersOff) return reply({ ok: true, result: { ok: false, error: 'translate is off' } });
+    return reply({ ok: true, result: { ok: true, kind: 'translation', seq: body.seq,
+      text: '[stub translation of segment ' + body.seq + ']',
+      translation: '[stub translation of segment ' + body.seq + ']', target: 'en' } });
+  }
+  if (path === 'api/live/delete') return reply({ ok: true, freed_bytes: 118_000_000 });
+  return reply({ error: 'unhandled ' + path }, 404);
+};
+
+// ── EventSource stub ─────────────────────────────────────────────────────────
+let CURRENT = null;
+class FakeEventSource {
+  constructor(url) {
+    this.url = url; this.readyState = 0; this.listeners = {};
+    this.onopen = null; this.onerror = null;
+    CURRENT = this;
+    console.log('[fixture] EventSource', url);
+    setTimeout(() => {
+      if (this.readyState === 2) return;
+      this.readyState = 1;
+      if (this.onopen) this.onopen({});
+      // The real server sends `snapshot` on connect, carrying everything after
+      // the cursor the client asked for. That is how a reconnect fills the gap
+      // a drop opened, so the stub sends it too.
+      const after = Number(new URLSearchParams((url.split('?')[1] || '')).get('after_seq') || 0);
+      const all = SEGMENTS.concat(STREAMED);
+      this.emit('snapshot', { live_session_id: SID, session: SESSIONS[0],
+        segments: all.filter(s => s.seq > after), last_seq: all.length ? all[all.length - 1].seq : 0,
+        after_seq: after });
+    }, 30);
+  }
+  addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
+  close() { this.readyState = 2; }
+  emit(type, data) {
+    for (const fn of (this.listeners[type] || [])) fn({ data: JSON.stringify(data) });
+  }
+  fail() { this.readyState = 2; if (this.onerror) this.onerror({}); }
+}
+FakeEventSource.CONNECTING = 0; FakeEventSource.OPEN = 1; FakeEventSource.CLOSED = 2;
+window.EventSource = FakeEventSource;
+
+// ── fixture controls ─────────────────────────────────────────────────────────
+let nextSeq = 5;
+const FX = {
+  // The open stub stream, so the console can push any frame by hand.
+  cur: () => CURRENT,
+  // `quiet` records the utterance on the "server" WITHOUT pushing a frame —
+  // what happens while a stream is down. The next reconnect's snapshot should
+  // deliver it.
+  pushSeg(quiet) {
+    const seq = nextSeq++;
+    const seg = {
+      live_session_id: SID, seq: seq, ts_start_ms: 27000 + seq * 4200, ts_end_ms: 30000 + seq * 4200,
+      speaker_id: seq % 2 ? 'spk_b' : 'spk_a', speaker_conf: 0.71, label_state: 'provisional',
+      local_label: 'local:2', text: 'Streamed utterance number ' + seq + ' arriving over SSE.',
+      lang: 'en', translation: null, device_id: 'iphone-17pm', audio_ref: 'c2.opus' };
+    STREAMED.push(seg);
+    if (quiet !== true && CURRENT) CURRENT.emit('seg', seg);
+    return seg;
+  },
+  // The whole drop cycle: stream dies, two things are said, the client
+  // reconnects and must end up holding both.
+  dropAndMiss() {
+    FX.drop();
+    FX.pushSeg(true);
+    FX.pushSeg(true);
+    console.log('[fixture] stream dropped; 2 utterances spoken while down');
+  },
+  // The stub mutates its own data as well as emitting the frame, because a
+  // real server would: a later /speakers refetch has to agree with the frame,
+  // and the disagreement is what exposed two bugs the first time round.
+  rename() {
+    const spk = SPEAKERS.find(s => s.id === 'spk_b');
+    if (spk) spk.name = 'Priya';
+    CURRENT && CURRENT.emit('speaker', { op: 'rename', speaker_id: 'spk_b', name: 'Priya' });
+  },
+  merge() {
+    // Note it does NOT drop spk_c from SPEAKERS: a stale list that still holds
+    // the dead voice is the realistic case, and the client must survive it.
+    CURRENT && CURRENT.emit('speaker', { op: 'merge', from_id: 'spk_c', into_id: 'spk_a' });
+  },
+  confirm() { CURRENT && CURRENT.emit('speaker', { op: 'confirm', speaker_id: 'spk_b', seq: 2, speaker_conf: 0.97 }); },
+  insight() {
+    CURRENT && CURRENT.emit('insight', { id: 'ins_' + Date.now(), kind: 'monitor',
+      title: 'Action item spotted',
+      text: 'Someone should add the rollback steps to the runbook before tonight\'s deploy.' });
+  },
+  factcheck() {
+    CURRENT && CURRENT.emit('insight', { id: 'ins_fc_live', kind: 'factcheck', seq: 2,
+      verdict: 'Needs context', confidence: 0.64,
+      text: 'The previous migration was reversible, but only because it was rolled back inside the hour.' });
+  },
+  state() {
+    CURRENT && CURRENT.emit('state', { state: 'paused', warning: 'mic interrupted by a phone call',
+      storage: { total_bytes: 7_500_000_000 } });
+  },
+  resync() { CURRENT && CURRENT.emit('resync', { reason: 'subscriber fell behind' }); },
+  drop() { CURRENT && CURRENT.fail(); },
+  toggleWatchers() { watchersOff = !watchersOff; console.log('[fixture] watchers off =', watchersOff); },
+  break404() { broken = true; console.log('[fixture] endpoints now 404'); },
+  heal() { broken = false; console.log('[fixture] endpoints healed'); },
+};
+window.FX = FX;
+</script>
+<script src="live_labels.js"></script>
+<script src="live.js"></script>
+<script>
+  // Boot the view the same way switchPanel() does.
+  window.addEventListener('DOMContentLoaded', () => { loadLive(); });
+</script>
+</body>
+</html>

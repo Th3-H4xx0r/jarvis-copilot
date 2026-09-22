@@ -1,0 +1,342 @@
+/* ============================================================================
+   Live Jarvis (web) — phase 3 of the Live Jarvis design.
+
+   Everything here is built from the same variables style.css/jarvis.css
+   already define (--surface, --border, --accent, --muted, --radius-card …) so
+   the view follows the active skin instead of pinning its own palette. The
+   jarvis-skin block at the bottom only does what jarvis.css does for every
+   other surface: translucent card + one backdrop blur, and a near-opaque modal
+   so it reads over the aurora.
+
+   Two things carry meaning and are not decoration:
+     - a PROVISIONAL speaker chip is dashed and carries a "?"; a confirmed one
+       is solid. The transcript's whole point is that a label can still change.
+     - an INSIGHT card is a different shape from an utterance (accent rail, no
+       chip) so a machine's note is never mistaken for something a person said.
+   ============================================================================ */
+
+/* ── sidebar: session list ─────────────────────────────────────────────────── */
+
+.live-session-item{
+  padding:9px 12px;border-radius:12px;cursor:pointer;margin:2px 6px;
+  border:1px solid transparent;
+}
+.live-session-item:hover{background:var(--hover-bg);}
+.live-session-item.active{
+  background:var(--accent-bg);border-color:var(--accent-bg-strong, var(--border2));
+}
+.live-session-top{display:flex;align-items:center;gap:6px;min-width:0;}
+.live-session-name{
+  font-size:13px;font-weight:550;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.live-session-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+
+/* A recording session pulses. prefers-reduced-motion drops the animation but
+   keeps the dot, because the dot is the information. */
+.live-rec-dot{
+  width:8px;height:8px;border-radius:50%;background:#E5484D;flex:0 0 auto;
+  box-shadow:0 0 0 0 rgba(229,72,77,.55);animation:live-pulse 1.8s ease-out infinite;
+}
+@keyframes live-pulse{
+  0%{box-shadow:0 0 0 0 rgba(229,72,77,.5);}
+  70%{box-shadow:0 0 0 7px rgba(229,72,77,0);}
+  100%{box-shadow:0 0 0 0 rgba(229,72,77,0);}
+}
+@media (prefers-reduced-motion:reduce){ .live-rec-dot{animation:none;} }
+
+/* ── main pane chrome ─────────────────────────────────────────────────────── */
+
+.live-tabs{display:flex;gap:2px;padding:2px;border-radius:999px;background:var(--surface-subtle);}
+.live-tab{
+  border:none;background:transparent;color:var(--muted);cursor:pointer;
+  font:inherit;font-size:12px;font-weight:550;padding:5px 12px;border-radius:999px;
+}
+.live-tab:hover{color:var(--text);}
+.live-tab.active{background:var(--accent-bg);color:var(--accent-text, var(--text));}
+
+.live-status{
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;
+  padding:8px 32px;border-bottom:1px solid var(--border-subtle, var(--border));
+  font-size:11.5px;color:var(--muted);
+}
+.live-status-item{display:inline-flex;align-items:center;gap:5px;}
+.live-status-state{font-weight:600;color:var(--muted);}
+.live-status-state.rec{color:#E5484D;}
+.live-status-state.paused{color:#E2A03F;}
+.live-status-stream--live{color:var(--accent-text, var(--accent));}
+.live-status-stream--reconnecting,
+.live-status-stream--connecting{color:#E2A03F;}
+.live-status-stream--unavailable{color:#E5484D;}
+.live-status-warn{color:#E2A03F;}
+
+/* ── transcript ───────────────────────────────────────────────────────────── */
+
+.live-timeline{
+  display:flex;flex-direction:column;gap:10px;
+  max-width:860px;margin:0 auto;width:100%;
+}
+.live-seg{
+  border:1px solid var(--border-subtle, var(--border));
+  background:var(--surface);border-radius:var(--radius-card,14px);
+  padding:10px 14px 12px;
+}
+.live-seg-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.live-seg-time{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.live-seg-conf,.live-seg-lang{
+  font-size:10.5px;color:var(--muted);border:1px solid var(--border);
+  border-radius:6px;padding:0 5px;line-height:16px;
+}
+.live-seg-text{
+  margin-top:6px;font-size:14px;line-height:1.55;color:var(--text);
+  white-space:pre-wrap;word-break:break-word;
+}
+.live-seg-translation{
+  margin-top:5px;padding-left:10px;border-left:2px solid var(--accent-bg-strong, var(--border2));
+  font-size:13px;line-height:1.5;color:var(--em, var(--muted));font-style:italic;
+}
+.live-seg-translation[hidden]{display:none;}
+
+/* Speaker chip. Dashed + "?" while the label can still change; solid once the
+   server has confirmed it. Clicking it is how a voice gets a name. */
+.live-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  border:1px solid var(--accent-bg-strong, var(--border2));
+  background:var(--accent-bg);color:var(--accent-text, var(--text));
+  border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;font-weight:600;
+  cursor:pointer;max-width:220px;
+}
+.live-chip:hover{filter:brightness(1.12);}
+.live-chip .live-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.live-chip.provisional{
+  border-style:dashed;background:var(--surface-subtle);color:var(--muted);
+}
+/* :not(.provisional) matters — a provisional chip must keep its muted, dashed
+   treatment even when the guess is "me", or a guess reads as a confirmation. */
+.live-chip.me:not(.provisional){background:var(--accent-bg-strong, var(--accent-bg));}
+.live-chip-mark{opacity:.75;font-weight:700;}
+
+/* Per-segment actions: quiet until the row is hovered or focused, because
+   three buttons on every utterance would shout over the conversation. On touch
+   (no hover) they are always visible — a hidden control is an absent one. */
+.live-seg-actions{margin-left:auto;display:flex;gap:4px;opacity:0;transition:opacity .12s ease;}
+.live-seg:hover .live-seg-actions,
+.live-seg:focus-within .live-seg-actions{opacity:1;}
+@media (hover:none){ .live-seg-actions{opacity:1;} }
+.live-act{
+  border:1px solid var(--border);background:transparent;color:var(--muted);
+  border-radius:8px;padding:2px 8px;font:inherit;font-size:11px;cursor:pointer;
+}
+.live-act:hover:not(:disabled){background:var(--hover-bg);color:var(--text);}
+.live-act:disabled{opacity:.55;cursor:default;}
+
+/* ── insight cards — deliberately not utterance-shaped ────────────────────── */
+
+.live-insight{
+  border:1px solid var(--accent-bg-strong, var(--border2));
+  border-left:3px solid var(--accent);
+  background:var(--accent-bg);
+  border-radius:var(--radius-md,12px);
+  padding:9px 13px;margin-left:24px;
+}
+/* The kind comes off the wire as "fact_check" / "translation"; the class is
+   that string with non-letters collapsed to a hyphen. Both spellings are
+   listed so a server-side rename of the kind does not silently un-colour the
+   card. */
+.live-insight--factcheck,.live-insight--fact-check{border-left-color:#E2A03F;}
+.live-insight--translate,.live-insight--translation{border-left-color:#3EA76A;}
+.live-insight.pending{opacity:.72;}
+.live-insight-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.live-insight-kind{
+  font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent-text, var(--accent));
+}
+.live-insight-verdict{
+  font-size:11px;font-weight:650;color:var(--text);
+  border:1px solid var(--border2);border-radius:6px;padding:0 6px;line-height:17px;
+}
+.live-insight-conf,.live-insight-anchor{font-size:10.5px;color:var(--muted);}
+.live-insight-anchor{margin-left:auto;font-variant-numeric:tabular-nums;}
+.live-insight-title{font-size:12.5px;font-weight:600;color:var(--text);margin-top:4px;}
+.live-insight-text{font-size:13px;line-height:1.55;color:var(--text);margin-top:4px;white-space:pre-wrap;}
+.live-insight-sources{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+.live-insight-src{font-size:11px;color:var(--accent-text, var(--accent));text-decoration:none;}
+.live-insight-src:hover{text-decoration:underline;}
+
+/* ── cards shared by the speakers and storage views ───────────────────────── */
+
+.live-speakers,.live-storage{
+  display:flex;flex-direction:column;gap:12px;max-width:860px;margin:0 auto;width:100%;
+}
+.live-card{
+  border:1px solid var(--border);background:var(--surface);
+  border-radius:var(--radius-card,14px);padding:14px 16px;
+}
+.live-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+.live-card-title{display:flex;align-items:center;gap:8px;}
+.live-card-meta{font-size:11.5px;color:var(--muted);}
+.live-card-h{
+  margin:0 0 10px;font-size:12px;font-weight:650;color:var(--text);
+  display:flex;align-items:center;gap:8px;
+}
+.live-count{
+  font-size:10.5px;color:var(--muted);border:1px solid var(--border);
+  border-radius:999px;padding:0 6px;line-height:16px;font-weight:500;
+}
+.live-approx{margin-left:auto;font-size:10.5px;color:var(--muted);font-weight:500;font-style:italic;}
+.live-tag{
+  font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+  border:1px solid var(--border);border-radius:5px;padding:0 5px;line-height:15px;
+}
+
+.live-rename-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+.live-input,.live-select{
+  background:var(--input-bg);border:1px solid var(--border);border-radius:10px;
+  color:var(--text);padding:6px 10px;font:inherit;font-size:13px;box-sizing:border-box;
+}
+.live-input{flex:1 1 180px;min-width:0;}
+/* The merge control is a dropdown, not a second text field — keep it sized
+   like a control so the row does not read as two inputs. */
+.live-select{flex:0 0 auto;max-width:220px;cursor:pointer;}
+.live-input:focus,.live-select:focus{outline:none;border-color:var(--accent);}
+
+.live-samples{margin-top:10px;display:flex;flex-direction:column;gap:5px;}
+.live-sample{display:flex;gap:8px;font-size:12.5px;line-height:1.5;}
+.live-sample-time{color:var(--muted);flex:0 0 auto;font-variant-numeric:tabular-nums;}
+.live-sample-text{color:var(--em, var(--text));}
+.live-card-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+
+.live-btn{
+  border:1px solid var(--border2);background:var(--surface-subtle);color:var(--text);
+  border-radius:10px;padding:6px 12px;font:inherit;font-size:12px;font-weight:550;cursor:pointer;
+}
+.live-btn:hover{background:var(--hover-bg);}
+.live-btn--sm{padding:3px 9px;font-size:11px;}
+.live-btn--primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.live-btn--primary:hover{filter:brightness(1.08);background:var(--accent);}
+.live-btn--danger{color:#E5484D;border-color:rgba(229,72,77,.35);}
+.live-btn--danger:hover{background:rgba(229,72,77,.12);}
+
+/* ── storage ──────────────────────────────────────────────────────────────── */
+
+.live-storage-total{display:flex;flex-direction:column;gap:4px;align-items:flex-start;}
+.live-storage-total-value{font-size:26px;font-weight:700;color:var(--text);letter-spacing:-.02em;}
+.live-storage-total-meta{font-size:12px;color:var(--muted);}
+.live-row{
+  display:flex;align-items:center;gap:10px;padding:7px 0;
+  border-top:1px solid var(--border-subtle, var(--border));font-size:12.5px;
+}
+.live-row:first-of-type{border-top:none;}
+.live-row-name{color:var(--text);font-weight:550;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;}
+.live-row-sub{color:var(--muted);font-size:11px;flex:0 1 auto;white-space:nowrap;}
+.live-row-size{color:var(--text);font-variant-numeric:tabular-nums;flex:0 0 auto;}
+/* The server's own wording about the estimate, rendered verbatim — the number
+   must never read as measured. */
+.live-storage-note{
+  margin-top:10px;padding:8px 10px;border-radius:10px;
+  background:var(--surface-subtle);border:1px solid var(--border);
+  font-size:11.5px;line-height:1.5;color:var(--muted);
+}
+
+/* ── notes, and the degraded (404) state ──────────────────────────────────── */
+
+.live-note{padding:10px 12px;font-size:12px;color:var(--muted);line-height:1.5;}
+.live-note--error{color:#E5484D;}
+.live-unavailable{
+  margin:12px;padding:14px 16px;border-radius:var(--radius-card,14px);
+  border:1px solid rgba(226,160,63,.4);background:rgba(226,160,63,.10);
+  max-width:620px;
+}
+.live-unavailable-title{font-size:13px;font-weight:650;color:var(--text);}
+.live-unavailable-body{font-size:12.5px;line-height:1.55;color:var(--muted);margin:5px 0 10px;}
+
+/* ── settings modal — same shape as the kanban modals ─────────────────────── */
+
+.live-modal-overlay{
+  position:fixed;inset:0;background:rgba(7,12,19,.62);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  display:flex;align-items:flex-start;justify-content:center;
+  z-index:1100;padding:24px;overflow-y:auto;
+}
+.live-modal{
+  width:min(560px,100%);box-sizing:border-box;
+  background:linear-gradient(180deg,rgba(21,31,45,.98),rgba(13,20,31,.98));
+  border:1px solid var(--accent-bg-strong, var(--border));
+  border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.45);
+  padding:18px 18px 16px;color:var(--text);margin:auto;
+}
+:root:not(.dark) .live-modal{
+  background:linear-gradient(180deg,#fff,#f5f0e8);border-color:rgba(0,0,0,.18);
+}
+.live-modal h3{margin:0 0 6px;font-size:15px;font-weight:650;color:var(--text);}
+.live-modal-note{font-size:11.5px;color:var(--muted);margin-bottom:14px;}
+.live-modal-note code{
+  background:var(--input-bg);padding:1px 5px;border-radius:4px;
+  font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:11px;
+}
+.live-modal-section{display:flex;flex-direction:column;gap:2px;margin-bottom:14px;}
+.live-toggle{display:flex;gap:10px;align-items:flex-start;padding:7px 8px;border-radius:10px;cursor:pointer;}
+.live-toggle:hover{background:var(--hover-bg);}
+.live-toggle input{margin-top:2px;accent-color:var(--accent);flex:0 0 auto;}
+.live-toggle-body{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.live-toggle-name{font-size:12.5px;font-weight:600;color:var(--text);text-transform:capitalize;}
+.live-toggle-help{font-size:11px;color:var(--muted);line-height:1.45;}
+.live-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.live-modal-row--wide{grid-column:1 / -1;}
+.live-modal-row label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500;}
+.live-modal-row input,.live-modal-row select{
+  width:100%;box-sizing:border-box;background:var(--input-bg);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);padding:8px 10px;font:inherit;font-size:13px;
+}
+/* Custom chevron + appearance:none, the same treatment .kanban-modal-row select
+   gets — without it the dark-theme select is indistinguishable from a text
+   field, which is how a dropdown goes unnoticed. */
+.live-modal-row select,.live-select{
+  -webkit-appearance:none;-moz-appearance:none;appearance:none;padding-right:30px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2390a0b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:15px;
+}
+.live-modal-row input:focus,.live-modal-row select:focus{outline:none;border-color:var(--accent);}
+.live-modal-hint{font-size:10.5px;color:var(--muted);line-height:1.45;margin-top:4px;}
+.live-modal-error{font-size:12px;color:#E5484D;min-height:16px;margin:8px 0 0;}
+.live-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}
+
+/* ── narrow screens ───────────────────────────────────────────────────────── */
+
+@media (max-width:768px){
+  /* Belt and braces with the (hover:none) rule above: a narrow window is where
+     hover is least trustworthy, and a control nobody can reveal is a control
+     that does not exist. */
+  .live-seg-actions{opacity:1;}
+  .live-status{padding:8px 16px;}
+  .live-insight{margin-left:10px;}
+  .live-modal-grid{grid-template-columns:1fr;}
+  .live-row{flex-wrap:wrap;}
+  .live-row-size{margin-left:auto;}
+}
+
+/* ── jarvis skin: translucent card + one blur, opaque modal (matches the
+   treatment jarvis.css gives every other card and dropdown) ───────────────── */
+
+:root.dark[data-skin="jarvis"] .live-seg,
+:root.dark[data-skin="jarvis"] .live-card{
+  background:rgba(22,24,36,0.50);
+  -webkit-backdrop-filter:blur(18px) saturate(1.2);backdrop-filter:blur(18px) saturate(1.2);
+  border:1px solid var(--border);border-radius:var(--radius-card);
+}
+:root.dark[data-skin="jarvis"] .live-insight{
+  -webkit-backdrop-filter:blur(18px) saturate(1.2);backdrop-filter:blur(18px) saturate(1.2);
+}
+:root.dark[data-skin="jarvis"] .live-modal{
+  background:rgba(16,18,28,0.97);
+  -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+  border:1px solid var(--border);border-radius:16px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.55);
+}
+@media (prefers-reduced-transparency:reduce){
+  :root.dark[data-skin="jarvis"] .live-seg,
+  :root.dark[data-skin="jarvis"] .live-card,
+  :root.dark[data-skin="jarvis"] .live-insight{
+    -webkit-backdrop-filter:none;backdrop-filter:none;background:#12141E;
+  }
+}

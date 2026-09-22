@@ -2528,7 +2528,7 @@ main.main > #mainSelfimprovement,
 main.main > #mainCodememory,
 main.main > #mainCoding,
 main.main > #mainLogs{display:none;}
-main.main:not(.showing-settings):not(.showing-skills):not(.showing-memory):not(.showing-tasks):not(.showing-kanban):not(.showing-workspaces):not(.showing-profiles):not(.showing-insights):not(.showing-devices):not(.showing-logs):not(.showing-selfimprovement):not(.showing-codememory):not(.showing-coding) > #mainChat{display:flex;}
+main.main:not(.showing-settings):not(.showing-skills):not(.showing-memory):not(.showing-tasks):not(.showing-kanban):not(.showing-workspaces):not(.showing-profiles):not(.showing-insights):not(.showing-devices):not(.showing-logs):not(.showing-selfimprovement):not(.showing-codememory):not(.showing-coding):not(.showing-live) > #mainChat{display:flex;}
 main.main.showing-settings > #mainSettings{display:flex;overflow-y:auto;}
 main.main.showing-skills > #mainSkills{display:flex;}
 main.main.showing-memory > #mainMemory{display:flex;}
@@ -2541,6 +2541,7 @@ main.main.showing-logs > #mainLogs{display:flex;}
 main.main.showing-selfimprovement > #mainSelfimprovement{display:flex;overflow-y:auto;}
 main.main.showing-codememory > #mainCodememory{display:flex;flex-direction:column;}
 main.main.showing-coding > #mainCoding{display:flex;flex-direction:column;}
+main.main.showing-live > #mainLive{display:flex;flex-direction:column;}
 /* Code Memory has its own project nav — reclaim the (empty) conversation sidebar
    for full-width content. Desktop only; on mobile the sidebar is the off-canvas
    nav menu, so leave it alone. */
