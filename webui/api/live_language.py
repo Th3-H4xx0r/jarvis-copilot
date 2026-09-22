@@ -58,7 +58,12 @@ ESCALATION_MODEL = "small"
 
 # Below this the detector is guessing. A wrong "correction" is worse than the
 # phone's honest mistake: it rewrites a line the user watched appear.
-MIN_CONFIDENCE = 0.60
+#
+# 0.70 rather than 0.60 because of a measured miss: a Telugu utterance was read
+# as Portuguese at 0.606 and turned "Naa, Peru, Pranavo." into "na pera para
+# não...", which is confident, wrong, and less useful than the romanisation it
+# replaced. The real detections on the same recording sat at 0.756-0.97.
+MIN_CONFIDENCE = 0.70
 
 # Whisper needs something to listen to. Under this, detection is noise — and
 # short fragments are exactly where it hallucinates a foreign language.
@@ -180,8 +185,18 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
         # and then translate the English spelling of it, which is worse than
         # doing nothing.
         return None
-    found = {"lang": detected, "text": heard,
-             "confidence": round(confidence, 3)}
+    found = {"lang": detected, "confidence": round(confidence, 3)}
+    if _looks_broken(heard):
+        # Trusting the LANGUAGE and trusting the TEXT are two decisions, and
+        # they can disagree. A small model asked for a script it barely knows
+        # returns confident mojibake: the Telugu "Emi chestunnavu" came back as
+        # "\ufffd aprove \u179b\u17d2\ufffdridges". Keeping the phone's
+        # readable romanisation while still relabelling the row is strictly
+        # better — the line stays legible AND it finally gets translated.
+        logger.info("live: %r text looked broken; keeping the device's words "
+                    "and relabelling only", detected)
+    else:
+        found["text"] = heard
     english = _to_english(model, samples, detected, translate_to)
     if english:
         found["translation"] = english
@@ -263,6 +278,24 @@ def same_language(a: str, b: str) -> bool:
     left = str(a or "").strip().lower().replace("_", "-").split("-")[0]
     right = str(b or "").strip().lower().replace("_", "-").split("-")[0]
     return bool(left) and bool(right) and left == right
+
+
+def _looks_broken(text: str) -> bool:
+    """Whether this text is too mangled to put in front of someone.
+
+    Replacement characters mean the decode already failed. A high share of
+    characters that are neither letters nor spaces means it is not words at
+    all, whatever script it claims to be in — the check has to work for
+    alphabets it cannot read, so it counts shapes rather than recognising any
+    particular language.
+    """
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return True
+    if "\ufffd" in cleaned:
+        return True
+    letters = sum(1 for c in cleaned if c.isalpha() or c.isspace())
+    return letters / len(cleaned) < 0.6
 
 
 def _looks_hallucinated(text: str) -> bool:

@@ -1231,6 +1231,14 @@ _lang_inflight = 0
 _lang_lock = threading.Lock()
 
 
+def _segment_text(live_session_id: str, seq: int) -> str:
+    """What the device heard, for when the rescue relabels without replacing."""
+    rows = live_store.segments_after(live_session_id, after_seq=seq - 1, limit=1)
+    if rows and int(rows[0].get("seq") or 0) == seq:
+        return str(rows[0].get("text") or "")
+    return ""
+
+
 def _notify_language_settled(live_session_id: str, seq: int) -> None:
     """Release the translation that was held while the language was in doubt.
 
@@ -1335,10 +1343,14 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
             translate_to=primary_language)
         if not found:
             return
+        row_text = _segment_text(live_session_id, seq)
 
         try:
-            live_store.set_transcription(live_session_id, seq, found["text"],
-                                         found["lang"])
+            # `text` is absent when the language was clear but the words came
+            # back mangled: relabel the row, keep what the device heard.
+            live_store.set_transcription(
+                live_session_id, seq,
+                found.get("text") or str(row_text or ""), found["lang"])
             # Whisper produced this from the audio in the same warm pass, so it
             # is already here — storing it now is what makes the translation
             # appear WITH the corrected line instead of seconds behind it.

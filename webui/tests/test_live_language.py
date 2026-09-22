@@ -319,3 +319,52 @@ def test_both_models_unsure_changes_nothing(monkeypatch):
 
     assert live_language.rescue(_pcm(), 16000, "en-US") is None
 
+
+# "a wrong correction is worse than the phone's honest mistake" — including
+# when the language is right and only the spelling of it is ruined.
+
+
+def test_mangled_text_relabels_without_replacing_the_words(monkeypatch):
+    """Measured: a small model asked for Telugu returned confident mojibake
+    while its ENGLISH was correct. Keeping the device's readable romanisation
+    and still relabelling the row is strictly better — the line stays legible
+    and it finally gets translated."""
+    _fake_whisper(monkeypatch, language="te", probability=0.9,
+                  text="\ufffd aprove \u179b\u17d2\ufffdridges",
+                  english="What are you doing?")
+
+    found = live_language.rescue(_pcm(), 16000, "en-US", translate_to="en")
+
+    assert found["lang"] == "te", "the language was still learned"
+    assert "text" not in found, "but the mangled words are not shown"
+    assert found["translation"] == "What are you doing?"
+
+
+def test_text_that_is_mostly_punctuation_is_not_words(monkeypatch):
+    """The check counts shapes, not any particular alphabet — it has to work
+    for scripts it cannot read."""
+    _fake_whisper(monkeypatch, language="ja", probability=0.9,
+                  text="-- ||| ### @@@ ~~~ %%%")
+
+    assert "text" not in live_language.rescue(_pcm(), 16000, "en-US")
+
+
+def test_a_real_sentence_in_another_script_is_kept(monkeypatch):
+    """The mojibake guard must not reject legitimate non-Latin writing."""
+    _fake_whisper(monkeypatch, language="zh", probability=0.9,
+                  text="你好我来自中国，你叫什么名字？")
+
+    found = live_language.rescue(_pcm(), 16000, "en-US")
+
+    assert found["text"] == "你好我来自中国，你叫什么名字？"
+
+
+def test_the_confidence_bar_rejects_the_measured_false_positive(monkeypatch):
+    """A Telugu utterance read as Portuguese at 0.606 turned "Naa, Peru,
+    Pranavo." into "na pera para não..." — confident, wrong, and less useful
+    than the romanisation it replaced. Real detections sat at 0.756-0.97."""
+    _fake_whisper(monkeypatch, language="pt", probability=0.606,
+                  text="na pera para não...")
+
+    assert live_language.rescue(_pcm(), 16000, "en-US") is None
+
