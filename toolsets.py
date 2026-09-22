@@ -59,6 +59,10 @@ _HERMES_CORE_TOOLS = [
     "send_email",
     # Session history search
     "session_search",
+    # Ambient conversations recorded in Live mode. Available everywhere but
+    # deliberately NOT in _LAZY_CORE_TOOLS: a chat asks about an overheard
+    # conversation rarely, so the schema belongs in the deferred manifest.
+    "live_transcript",
     # Clarifying questions
     "clarify",
     # Code execution + delegation
@@ -233,6 +237,20 @@ TOOLSETS = {
             "their next message."
         ),
         "tools": ["form_ask"],
+    },
+
+    # Ambient conversations recorded in Live mode (tools/live_transcript_tool.py).
+    # Read-only, and coarse-before-fine on purpose: window digests are searched
+    # to locate a stretch of talk, then its exact utterances are pulled. A full
+    # transcript is never loaded into the prompt.
+    "live": {
+        "description": (
+            "Search conversations recorded in Live mode: window digests "
+            "(coarse), exact utterances (fine), a time range, the voices heard, "
+            "and the recordings themselves."
+        ),
+        "tools": ["live_transcript"],
+        "includes": []
     },
 
     # The central registry: long-lived integration data (tools/registry_tools.py).
