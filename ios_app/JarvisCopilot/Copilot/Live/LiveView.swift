@@ -35,9 +35,12 @@ struct LiveView: View {
     /// Recent input levels, oldest first, for the tape. Cleared when capture
     /// stops so a stopped meter cannot show a moving room.
     @State private var levels: [Double] = []
-    @State private var startedAt: Date?
     /// Re-renders the clock. Bound to the same tick as the tape so the two
     /// never disagree about how long this has been running.
+    ///
+    /// The clock's ORIGIN is `store.captureStartedAt`, not a `Date` kept here:
+    /// the tab-bar indicator and the Live Activity read the store's, and two
+    /// origins for one recording is two answers to "how long".
     @State private var tick = Date()
 
     var body: some View {
@@ -124,7 +127,6 @@ struct LiveView: View {
                              tape: levels,
                              notice: store.sttNotice)
             .onChange(of: store.capturing) { _, capturing in
-                startedAt = capturing ? Date() : nil
                 if !capturing { levels = [] }
             }
             // Sampling only while capturing matters: every tab stays mounted in
@@ -138,7 +140,7 @@ struct LiveView: View {
     }
 
     private var elapsed: TimeInterval? {
-        guard let startedAt, store.capturing else { return nil }
+        guard let startedAt = store.captureStartedAt, store.capturing else { return nil }
         return max(0, tick.timeIntervalSince(startedAt))
     }
 
@@ -202,7 +204,7 @@ struct LiveView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if store.rows.isEmpty {
+        if store.rows.isEmpty && store.partialText.isEmpty && store.wrapUp == nil {
             VStack {
                 Spacer()
                 JcEmptyState(symbol: "waveform",
@@ -232,6 +234,22 @@ struct LiveView: View {
                                 LiveInsightCard(insight: insight)
                             }
                         }
+                        // The words being spoken right now, from this phone's
+                        // own recogniser. Always last, because it is by
+                        // definition the newest thing said — and it disappears
+                        // the moment its committed row arrives.
+                        if !store.partialText.isEmpty {
+                            LiveProvisionalRow(text: store.partialText,
+                                               startMs: store.partialStartMs)
+                                .id(Self.partialAnchor)
+                                .transition(.opacity)
+                        }
+                        // The wrap-up closes the transcript, after everything it
+                        // summarises.
+                        if let wrap = store.wrapUp {
+                            LiveWrapUpCard(wrap: wrap)
+                                .padding(.top, 4)
+                        }
                         // An anchor to scroll to, so following the newest row does
                         // not depend on the last row's identity (which changes when
                         // a provisional row is replaced).
@@ -246,6 +264,13 @@ struct LiveView: View {
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
                         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
+                }
+                // Following the LIVE words too, and unanimated: the text grows
+                // word by word, and a 0.22s ease on every one of them reads as
+                // the transcript sliding about rather than as speech arriving.
+                .onChange(of: store.partialText) { _, text in
+                    guard pinnedToBottom, !text.isEmpty else { return }
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
                 // Dragging is taken as "I am reading"; the newest row stops pulling
                 // the view away from what the user is looking at.
@@ -274,6 +299,7 @@ struct LiveView: View {
     }
 
     private static let bottomAnchor = "live-bottom"
+    private static let partialAnchor = "live-partial"
 
     // MARK: - Controls
 
@@ -383,6 +409,7 @@ struct LiveSegmentRow: View {
                 Text(LiveFormat.stamp(ms: segment.startMs))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(JcTheme.muted)
+                factCheckButton
             }
 
             Text(segment.text)
@@ -415,10 +442,168 @@ struct LiveSegmentRow: View {
         .accessibilityLabel("\(speaker) at \(LiveFormat.stamp(ms: segment.startMs)): \(segment.text)")
     }
 
+    /// Fact-check, on the row, where it can be found.
+    ///
+    /// It used to exist only in the long-press menu, and the honest report was
+    /// "not seeing any buttons for fact check or anything like that" — a hidden
+    /// control is not a control. So this one is visible on every line and says
+    /// its word, for the reason the Storage and Voices buttons on this screen
+    /// say theirs: a glyph alone was unguessable.
+    ///
+    /// Quiet, though: `glassFill` and `muted`, never the accent. A transcript is
+    /// meant to read as a conversation, and a bright button per line would make
+    /// the affordance louder than the thing it is about. The rest of the actions
+    /// stay in the menu.
+    private var factCheckButton: some View {
+        Button(action: onFactCheck) {
+            HStack(spacing: 4) {
+                JcIcon("checkmark.seal", size: 11)
+                Text("Fact-check")
+                    .font(.system(size: 10.5, weight: .semibold))
+            }
+            .foregroundStyle(JcTheme.muted)
+            .padding(.horizontal, 8)
+            .frame(height: Self.affordanceHeight)
+            .background(JcTheme.glassFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            // The drawn capsule is 26pt so a row stays a row; the TAP is 44pt,
+            // per `buttons.md`. The negative padding gives the layout its 26pt
+            // back after `contentShape` has already taken the bigger rectangle,
+            // so the extra reach lands in the 12pt gutter between rows — where
+            // nothing else is tappable.
+            .padding(.vertical, (Self.minimumTarget - Self.affordanceHeight) / 2)
+            .contentShape(Rectangle())
+            .padding(.vertical, -(Self.minimumTarget - Self.affordanceHeight) / 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Fact-check this line")
+        .accessibilityHint("Asks Jarvis to check what was said and adds its verdict to the transcript.")
+    }
+
+    /// Drawn height of the row's affordance, and the hit region it must reach.
+    static let affordanceHeight: CGFloat = 26
+    static let minimumTarget: CGFloat = 44
+
     /// A confirmed voice gets the accent; an unconfirmed one stays neutral, so the
     /// colour carries the confidence rather than only the word beside it.
     private var chipTint: Color {
         segment.labelState == .confirmed ? JcTheme.accent : JcTheme.muted
+    }
+}
+
+/// The utterance being spoken RIGHT NOW, from this phone's own recogniser.
+///
+/// Deliberately unlike `LiveSegmentRow`, because it is a different KIND of
+/// thing: a guess that is about to be replaced. No speaker chip (nobody has
+/// been identified yet), dimmer text, and a leading caret so it reads as
+/// in-progress rather than as a line someone actually said and Jarvis got
+/// wrong. It carries no actions at all — fact-checking, naming or translating a
+/// sentence that is still being said would address a row the server has never
+/// heard of.
+struct LiveProvisionalRow: View {
+    let text: String
+    let startMs: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("speaking")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(JcTheme.glassFill, in: Capsule())
+                    .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                Spacer(minLength: 4)
+                Text(LiveFormat.stamp(ms: startMs))
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(JcTheme.muted)
+            }
+            Text(text)
+                .font(.system(size: 15))
+                // Dimmer than a committed row: the difference between "this is
+                // the record" and "this is what Jarvis is hearing".
+                .foregroundStyle(JcTheme.text.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        // Announced as it grows, so a screen-reader user hears the room too.
+        .accessibilityLabel("Being spoken: \(text)")
+    }
+}
+
+/// The end of a session: the summary, the decisions and the action items the
+/// artifacts watcher wrote.
+///
+/// This also goes into the paired chat (the server does that, by design), but
+/// the screen that produced the conversation used to be the one place its
+/// conclusion never appeared — so it closes the transcript here as well.
+struct LiveWrapUpCard: View {
+    let wrap: LiveWrapUp
+
+    var body: some View {
+        GlassCard(padding: 15,
+                  fill: JcTheme.accent.opacity(0.10),
+                  borderColor: JcTheme.accent.opacity(0.32)) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    JcIcon("doc.text", size: 14).foregroundStyle(JcTheme.accent)
+                    Text("Conversation wrap-up")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(JcTheme.accent)
+                    Spacer(minLength: 0)
+                }
+                // The structured fields when the server sent them; its own
+                // rendered markdown when it sent only that.
+                if wrap.summary.isEmpty, wrap.decisions.isEmpty, wrap.actionItems.isEmpty {
+                    paragraph(wrap.text)
+                } else {
+                    if !wrap.summary.isEmpty { paragraph(wrap.summary) }
+                    list("Decisions", wrap.decisions)
+                    list("Action items", wrap.actionItems)
+                }
+                Text("Also in Chats, where you can ask about it later.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(JcTheme.muted)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Not called `body` — that name is the `View` requirement.
+    private func paragraph(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14))
+            .foregroundStyle(JcTheme.text)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func list(_ title: String, _ items: [String]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.muted)
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 6) {
+                        // A real bullet rather than a dash, and hidden from
+                        // VoiceOver so a list is not read as punctuation.
+                        Text("•")
+                            .font(.system(size: 14))
+                            .foregroundStyle(JcTheme.muted)
+                            .accessibilityHidden(true)
+                        Text(item)
+                            .font(.system(size: 14))
+                            .foregroundStyle(JcTheme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
     }
 }
 

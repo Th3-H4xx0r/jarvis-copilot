@@ -120,24 +120,48 @@ struct ChatSessionsSheet: View {
         .buttonStyle(.plain)
         .listRowBackground(active ? JcTheme.accent.opacity(0.12) : Color.clear)
         .listRowSeparatorTint(JcTheme.glassBorder)
+        // A swipe action's label must be `Label(_:systemImage:)`.
+        //
+        // SwiftUI bridges these to `UIContextualAction`, and to do that it has
+        // to recognise the title and the image in the label. Our `jcIcon:`
+        // initialiser builds a Phosphor `Image` in a fixed frame, which it
+        // cannot, so it hosted the whole label instead: the icon filled the
+        // action as a coloured blob and the words landed outside it, below the
+        // button. Hence SF Symbols HERE specifically — the long-press menu
+        // below renders in SwiftUI and keeps the app's own icons.
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 Task { await store.pinSession(session.id, pinned: !session.pinned) }
             } label: {
                 Label(session.pinned ? "Unpin" : "Pin",
-                      jcIcon: session.pinned ? "pin.slash" : "pin")
+                      systemImage: session.pinned ? "pin.slash.fill" : "pin.fill")
             }
             .tint(JcTheme.amber)
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { deleting = session } label: {
-                Label("Delete", jcIcon: "trash")
+            // NOT `role: .destructive`, deliberately. That role makes UIKit
+            // play its row-DELETE animation the moment the button is tapped —
+            // so the chat slid out of the list while the confirmation was still
+            // on screen, and Cancel had nothing to put back (the data source
+            // never changed, so the row only returned on a reload). The row now
+            // stays exactly where it is, and the ONE place a chat is deleted is
+            // the alert's confirm action.
+            //
+            // It still reads as a delete: `danger`, a trash glyph and the word.
+            // The accent is not used here — it means "you can tap this"
+            // everywhere else, and a delete has to look like a delete.
+            Button {
+                deleting = session
+            } label: {
+                Label("Delete", systemImage: "trash.fill")
             }
+            .tint(JcTheme.danger)
             Button {
                 renameText = session.displayTitle
                 renaming = session
-            } label: { Label("Rename", jcIcon: "pencil") }
-            .tint(JcTheme.primaryBlue)
+            } label: { Label("Rename", systemImage: "pencil") }
+            // Quiet: renaming is housekeeping, not an action worth a colour.
+            .tint(JcTheme.muted)
         }
         .contextMenu {
             Button {

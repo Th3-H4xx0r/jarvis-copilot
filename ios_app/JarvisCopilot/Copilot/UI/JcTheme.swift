@@ -61,9 +61,14 @@ enum JcTheme {
     static let primaryBlueHi = JcAccent.bright
 
     // Hex first so devices that can't take a SwiftUI Color (the Jarvis Pod) get the same values.
-    static let successHex: UInt32 = 0x5BE5A0
-    static let amberHex: UInt32 = 0xFFC34D
-    static let dangerHex: UInt32 = 0xFF6B7E
+    //
+    // Declared in `Copilot/Shared/JcState.swift` and re-exported here under the
+    // names screens already use: `JcTheme` is not compiled into the widget
+    // extension, and a Live Activity that reports recording has to use the SAME
+    // red as the recording light on the Live screen.
+    static let successHex: UInt32 = JcState.successHex
+    static let amberHex: UInt32 = JcState.amberHex
+    static let dangerHex: UInt32 = JcState.dangerHex
     static let success = Color(jcHex: successHex)
     static let amber = Color(jcHex: amberHex)           // warning / mock-mode
     /// A dark wash of the accent for the user's own bubbles in coding chats.

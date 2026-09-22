@@ -162,6 +162,61 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertNil(transcript.segments[0].speakerID)
     }
 
+    // MARK: - Several notes from one window
+
+    /// A monitor window emits SEVERAL notes and the server stamps them all with
+    /// the same `seq` (the last segment of the window). Keyed on `seq` each one
+    /// replaced the last, so a window with three things to say showed one — and
+    /// silently, which is why it was not obvious the notes were arriving.
+    func testEveryNoteFromOneWindowSurvives() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(4))
+        transcript.upsert(LiveInsight(seq: 4, kind: "monitor", text: "first note"))
+        transcript.upsert(LiveInsight(seq: 4, kind: "monitor", text: "second note"))
+        transcript.upsert(LiveInsight(seq: 4, kind: "monitor", text: "third note"))
+
+        XCTAssertEqual(transcript.insights.map(\.text),
+                       ["first note", "second note", "third note"])
+        // Distinct row ids, or SwiftUI renders one row for the lot.
+        XCTAssertEqual(Set(transcript.rows.map(\.id)).count, transcript.rows.count)
+        // And the utterance still comes before the notes about it.
+        XCTAssertEqual(transcript.rows.first?.id, "s4")
+    }
+
+    /// A resume replay re-delivers the same note. That must not become a second
+    /// card, and must not move the one already on screen.
+    func testAReDeliveredNoteIsAbsorbedRatherThanDuplicated() {
+        var transcript = LiveTranscript()
+        transcript.upsert(LiveInsight(seq: 4, kind: "monitor", text: "a note"))
+        let idBefore = transcript.rows.first?.id
+        transcript.upsert(LiveInsight(seq: 4, kind: "monitor", text: "a note"))
+
+        XCTAssertEqual(transcript.insights.count, 1)
+        XCTAssertEqual(transcript.rows.first?.id, idBefore)
+    }
+
+    // MARK: - The wrap-up
+
+    /// The end-of-session wrap-up arrives with no `seq` at all, so it is held
+    /// apart from the rows instead of being filed at seq 0 — at the top of the
+    /// conversation it summarises.
+    func testTheWrapUpIsHeldApartFromTheRows() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(1))
+        transcript.apply(LiveWrapUp(summary: "They agreed to ship on Friday.",
+                                    decisions: ["Ship Friday"], actionItems: [], text: ""))
+
+        XCTAssertEqual(transcript.rows.count, 1, "it is not a row")
+        XCTAssertEqual(transcript.wrapUp?.decisions, ["Ship Friday"])
+        XCTAssertEqual(transcript.cursor, 1, "and it cannot move the resume cursor")
+    }
+
+    func testAnEmptyWrapUpIsIgnored() {
+        var transcript = LiveTranscript()
+        transcript.apply(LiveWrapUp())
+        XCTAssertNil(transcript.wrapUp)
+    }
+
     // MARK: - Helpers
 
     private func insight(_ seq: Int) -> LiveInsight {

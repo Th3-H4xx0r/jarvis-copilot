@@ -10,6 +10,14 @@ struct LiveTranscript: Equatable, Sendable {
 
     private(set) var segments: [LiveSegment] = []
     private(set) var insights: [LiveInsight] = []
+    /// The end-of-session wrap-up, when one has arrived. Held apart from the
+    /// rows because it belongs after all of them whatever `seq` it claims — and
+    /// it claims none (the server sends `seq: null`).
+    private(set) var wrapUp: LiveWrapUp?
+
+    /// Next local row id for an insight. Monotonic for the life of the
+    /// transcript, so two notes stamped with the same `seq` are still two rows.
+    private var nextInsightID = 1
 
     /// Both streams in one timeline. They share the `seq` space, which is what lets
     /// an insight sit at the point in the conversation it was about instead of
@@ -22,8 +30,14 @@ struct LiveTranscript: Equatable, Sendable {
     private(set) var rows: [LiveRow] = []
 
     private mutating func rebuildRows() {
+        // A TOTAL order, not just `seq`: `sorted` is not stable, several
+        // insights share one `seq`, and an insight sits at the same `seq` as
+        // the segment it is about. Without the tiebreak those rows could swap
+        // places on any rebuild — which for SwiftUI is rows jumping while the
+        // user reads. `tiebreak` is 0 for a segment, so a note always follows
+        // the utterance it comments on.
         rows = (segments.map(LiveRow.segment) + insights.map(LiveRow.insight))
-            .sorted { $0.seq < $1.seq }
+            .sorted { ($0.seq, $0.tiebreak) < ($1.seq, $1.tiebreak) }
     }
 
     /// The highest `seq` seen, which is what `after_seq` resumes from.
@@ -31,12 +45,24 @@ struct LiveTranscript: Equatable, Sendable {
         max(segments.last?.seq ?? 0, insights.map(\.seq).max() ?? 0)
     }
 
-    var isEmpty: Bool { segments.isEmpty && insights.isEmpty }
+    var isEmpty: Bool { segments.isEmpty && insights.isEmpty && wrapUp == nil }
 
     mutating func removeAll() {
         segments.removeAll()
         insights.removeAll()
         rows.removeAll()
+        wrapUp = nil
+        // Not reset: a row id must stay unique for the life of the view, and a
+        // clear followed by new insights would otherwise reuse ids SwiftUI has
+        // already seen.
+    }
+
+    /// The wrap-up for this session. Replaces any earlier one — the server
+    /// refuses to bill a second artifacts pass, so a second frame is a
+    /// re-delivery of the same conclusion, not another one.
+    mutating func apply(_ wrap: LiveWrapUp) {
+        guard !wrap.isEmpty else { return }
+        wrapUp = wrap
     }
 
     // MARK: - Rows
@@ -59,13 +85,32 @@ struct LiveTranscript: Equatable, Sendable {
         rebuildRows()
     }
 
+    /// Insert an insight, absorbing only an exact re-delivery of one already
+    /// held.
+    ///
+    /// Deliberately NOT replace-by-`seq`, which is right for segments and wrong
+    /// here: a monitor window emits several notes and stamps them all with the
+    /// same `seq`, so keying on it collapsed a window's whole output down to
+    /// its last note.
     mutating func upsert(_ insight: LiveInsight) {
-        if let index = insights.firstIndex(where: { $0.seq == insight.seq }) {
-            insights[index] = insight
-        } else if let index = insights.firstIndex(where: { $0.seq > insight.seq }) {
-            insights.insert(insight, at: index)
+        if let index = insights.firstIndex(where: { $0.isSameNote(as: insight) }) {
+            // Same note again (a resume replay). Keep the id the view is
+            // already rendering rather than moving the card.
+            var refreshed = insight
+            refreshed.localID = insights[index].localID
+            insights[index] = refreshed
+            rebuildRows()
+            return
+        }
+        var placed = insight
+        placed.localID = nextInsightID
+        nextInsightID += 1
+        // After every note already at this `seq`, so a window's notes read in
+        // the order the watcher produced them; before anything later.
+        if let index = insights.firstIndex(where: { $0.seq > placed.seq }) {
+            insights.insert(placed, at: index)
         } else {
-            insights.append(insight)
+            insights.append(placed)
         }
         rebuildRows()
     }

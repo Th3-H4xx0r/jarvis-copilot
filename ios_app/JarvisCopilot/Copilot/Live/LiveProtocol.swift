@@ -231,8 +231,49 @@ struct LiveInsight: Equatable, Sendable, Identifiable {
     var text = ""
     /// The transcript row this is about, when it is about one.
     var refSeq: Int?
+    /// A LOCAL row identity, assigned by `LiveTranscript` on insert and never
+    /// read off the wire.
+    ///
+    /// `seq` cannot be the identity: one monitor window produces SEVERAL notes
+    /// and the server stamps every one of them with the same `seq` (the last
+    /// segment of the window). Keying rows on `seq` meant each note replaced
+    /// the one before it, so a window that had three things to say showed one —
+    /// silently, which is why it was not obvious the notes were arriving at all.
+    var localID = 0
 
-    var id: Int { seq }
+    var id: Int { localID }
+
+    /// What makes two insights the SAME insight rather than two. Used to absorb
+    /// a re-delivery (a resume replay) without turning it into a second card.
+    func isSameNote(as other: LiveInsight) -> Bool {
+        seq == other.seq && kind == other.kind && text == other.text
+    }
+}
+
+/// The end-of-session wrap-up: the summary, decisions and action items the
+/// `artifacts` watcher writes when a session ends.
+///
+/// Its own type rather than another `LiveInsight` for two reasons. It arrives
+/// with `seq: null` — decoded as 0, which would file it at the very TOP of the
+/// conversation it summarises — and it carries STRUCTURE (three lists) that the
+/// insight card's single `text` field would flatten back into markdown the
+/// screen then has to render as prose.
+struct LiveWrapUp: Equatable, Sendable {
+    var summary = ""
+    var decisions: [String] = []
+    var actionItems: [String] = []
+    /// The server's own rendered markdown, which is what goes into the paired
+    /// chat. Kept as the fallback for a server that sends only `text`.
+    var text = ""
+
+    var isEmpty: Bool {
+        summary.isEmpty && decisions.isEmpty && actionItems.isEmpty && text.isEmpty
+    }
+
+    /// `kind` values the artifacts watcher uses. Matched case-insensitively.
+    static func isWrapUp(kind: String) -> Bool {
+        ["artifacts", "artifact", "wrapup", "wrap_up", "summary"].contains(kind.lowercased())
+    }
 }
 
 /// Recording state and the numbers the status line shows.
@@ -253,6 +294,10 @@ enum LiveServerFrame: Equatable, Sendable {
     case segment(LiveSegment)
     case speaker(LiveSpeakerEvent)
     case insight(LiveInsight)
+    /// The end-of-session wrap-up. Arrives as an `insight` frame whose `kind`
+    /// is `artifacts`, and is split out here because it belongs at the end of
+    /// the transcript rather than at `seq` 0.
+    case wrapUp(LiveWrapUp)
     case speak(text: String)
     case state(LiveStateFrame)
     case error(String)
@@ -285,9 +330,20 @@ enum LiveServerFrame: Equatable, Sendable {
         case "speaker":
             return .speaker(speakerEvent(from: d))
         case "insight":
+            let kind = d.string("kind") ?? "monitor"
+            // The wrap-up rides the same frame type. Its `seq` is null on the
+            // wire, so reading it as an ordinary insight put the summary of the
+            // whole conversation ABOVE the conversation.
+            if LiveWrapUp.isWrapUp(kind: kind) {
+                return .wrapUp(LiveWrapUp(
+                    summary: d.string("summary") ?? "",
+                    decisions: stringList(d["decisions"]),
+                    actionItems: stringList(d["action_items"] ?? d["actions"]),
+                    text: d.string("text") ?? ""))
+            }
             return .insight(LiveInsight(
                 seq: d.int("seq") ?? 0,
-                kind: d.string("kind") ?? "monitor",
+                kind: kind,
                 text: d.string("text") ?? "",
                 refSeq: d.int("ref_seq")))
         case "speak":
@@ -343,6 +399,21 @@ enum LiveServerFrame: Equatable, Sendable {
                                 speakerID: target,
                                 name: nonEmpty(d.string("name")),
                                 mergedFrom: merged)
+    }
+
+    /// A JSON array of strings, tolerantly: a single string is read as a
+    /// one-element list, and blanks are dropped rather than rendered as empty
+    /// bullets.
+    private static func stringList(_ raw: Any?) -> [String] {
+        if let list = raw as? [Any] {
+            return list.compactMap { $0 as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        if let one = raw as? String, !one.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return [one.trimmingCharacters(in: .whitespacesAndNewlines)]
+        }
+        return []
     }
 
     /// An empty string from the server means "not set". Keeping it would show an

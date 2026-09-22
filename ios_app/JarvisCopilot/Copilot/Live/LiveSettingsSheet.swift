@@ -26,6 +26,7 @@ struct LiveSettingsSheet: View {
                     device
                     watchers
                     window
+                    rollover
                     replies
                     language
                     footer
@@ -90,7 +91,7 @@ struct LiveSettingsSheet: View {
                           "Reads a rolling window and can interject.",
                           get: { draft.monitor }, set: { draft.monitor = $0 })
                 toggleRow("checkmark.seal", "Fact-check",
-                          "On demand, from a segment's menu.",
+                          "On demand, from the Fact-check button on a line.",
                           get: { draft.factCheck }, set: { draft.factCheck = $0 })
                 toggleRow("globe", "Translate",
                           "Automatic for anything not in the primary language.",
@@ -143,6 +144,82 @@ struct LiveSettingsSheet: View {
 
     private static func windowLabel(_ seconds: Int) -> String {
         seconds < 60 ? "\(seconds)s" : "\(seconds / 60) min"
+    }
+
+    // MARK: - New session after
+    //
+    // Recording is ONE conversation across as many stops and starts as you
+    // like: the client always asks to continue the last session, and the server
+    // rolls it over once the transcript has grown past the point below. This is
+    // where that point is chosen. The server is the only thing that applies it
+    // — it knows the model and can answer the same way for every device — so
+    // nothing on this screen measures anything.
+
+    /// Shares of the model's context window offered. The server clamps to
+    /// 0.05–1.0; these are the ones worth a tap.
+    private static let rolloverFractions: [Double] = [0.1, 0.25, 0.5, 0.75, 1.0]
+
+    private var rollover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("New session after")
+            GlassGroup {
+                GlassRow(symbol: "square.on.square",
+                         title: "Share of model context",
+                         subtitle: draft.sessionRolloverTokens > 0
+                            ? "Overridden by the token ceiling below."
+                            : "A conversation keeps going until its transcript "
+                            + "reaches this much of the model's context window.",
+                         subtitleLineLimit: 3) {
+                    Picker("", selection: Binding(get: { Self.nearestFraction(draft.sessionRolloverFraction) },
+                                                  set: { draft.sessionRolloverFraction = $0; push() })) {
+                        ForEach(Self.rolloverFractions, id: \.self) { fraction in
+                            Text(Self.percentLabel(fraction)).tag(fraction)
+                        }
+                    }
+                    .labelsHidden()
+                    .tint(JcTheme.accent)
+                    .disabled(draft.sessionRolloverTokens > 0)
+                    .opacity(draft.sessionRolloverTokens > 0 ? 0.5 : 1)
+                }
+                GlassRow(symbol: "number",
+                         title: "Or a token ceiling",
+                         subtitle: draft.sessionRolloverTokens > 0
+                            ? "Rolls over at \(draft.sessionRolloverTokens) tokens."
+                            : "Leave at 0 to use the share above.",
+                         subtitleLineLimit: 2,
+                         last: true) {
+                    TextField("0", value: Binding(get: { draft.sessionRolloverTokens },
+                                                  set: { draft.sessionRolloverTokens = max(0, $0) }),
+                              format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .font(JcText.body)
+                        .foregroundStyle(JcTheme.text)
+                        .frame(maxWidth: 90)
+                        .onSubmit { push() }
+                }
+            }
+            Text("Stopping and starting continues the same conversation, so short "
+               + "bursts add up into one session Jarvis can summarise. Rolling over "
+               + "is the server's decision — shared with every device.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(JcTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
+        }
+    }
+
+    private static func percentLabel(_ fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded()))%"
+    }
+
+    /// The server may hold a fraction that is not one of the offered taps (the
+    /// web client, or config.yaml edited by hand). Snapped to the nearest
+    /// choice for display rather than shown as a blank picker — and only when
+    /// the user actually changes it does that snapped value get written back.
+    private static func nearestFraction(_ value: Double) -> Double {
+        rolloverFractions.min { abs($0 - value) < abs($1 - value) } ?? 0.5
     }
 
     // MARK: - Replies

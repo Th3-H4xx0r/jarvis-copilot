@@ -17,7 +17,20 @@ enum LiveRow: Identifiable, Equatable, Sendable {
     var id: String {
         switch self {
         case .segment(let s): return "s\(s.seq)"
-        case .insight(let i): return "i\(i.seq)"
+        // The insight's LOCAL id, not its `seq`: one monitor window's notes all
+        // carry the same `seq`, so `seq` is not unique and SwiftUI would render
+        // one row for the lot.
+        case .insight(let i): return "i\(i.localID)"
+        }
+    }
+
+    /// Orders rows that claim the same `seq`. 0 for an utterance, so a note
+    /// about it always follows it; the insight's local id otherwise, which is
+    /// the order the watcher produced them in.
+    var tiebreak: Int {
+        switch self {
+        case .segment: return 0
+        case .insight(let i): return i.localID
         }
     }
 }
@@ -132,6 +145,23 @@ final class LiveStore {
     private(set) var halt: LiveHalt?
     /// Level meter, 0...1.
     private(set) var level = 0.0
+    /// When capture began, or nil. One clock, read by the screen, the tab-bar
+    /// indicator and the Live Activity — a second `Date` kept in a view's
+    /// `@State` (which is where this used to live) drifts from this one the
+    /// moment capture restarts without the view being rebuilt.
+    private(set) var captureStartedAt: Date?
+    /// The utterance being spoken RIGHT NOW, straight from this phone's own
+    /// recogniser — before any server round trip.
+    ///
+    /// Not part of `transcript`: it is a guess that is about to be replaced, so
+    /// it must not reach the resume cursor, the rollover budget, fact-check,
+    /// naming or translation. Cleared the instant its committed row lands.
+    private(set) var partialText = ""
+    /// Where the in-progress utterance began on the session clock, for its
+    /// timestamp.
+    private(set) var partialStartMs = 0
+    /// The end-of-session wrap-up, once the artifacts watcher has produced one.
+    var wrapUp: LiveWrapUp? { transcript.wrapUp }
     private(set) var config = LiveConfig()
     private(set) var speakers: [LiveSpeaker] = []
     private(set) var storage = LiveStorage()
@@ -155,6 +185,13 @@ final class LiveStore {
     private let clock: VoiceClock
     private let spool: LiveSpool
     private let preferences: KeyValueStore
+
+    /// The recording indicator outside this screen: the tab-bar dot and the
+    /// Live Activity. A computed property rather than an injected collaborator
+    /// because it is a process-wide fact about the phone, not a dependency of
+    /// this store — and because it must be reachable from `stop()` even on the
+    /// paths where nothing else was ever set up.
+    private var beacon: LiveCaptureBeacon { .shared }
 
     /// A `var`, and replaced for every new session: `AmbientSegmenter.reset()`
     /// deliberately never rewinds its audio clock (so an utterance boundary cannot
@@ -205,6 +242,21 @@ final class LiveStore {
     /// gap it heard nothing during, and this is the one thing in the capture path a
     /// wall clock is the right tool for.
     private var interruptedAt: Date?
+    /// The session id this device ASKED to continue in its last `hello`.
+    /// Compared against the id `ready` comes back with: the server decides when
+    /// a conversation has grown past its budget and rolls it over, and this is
+    /// how the client finds out (see `apply(_ ready:)`).
+    private var resumeRequestedID = ""
+    /// Drops an in-progress utterance that never produced a committed row — a
+    /// recogniser that gave text and then died would otherwise leave that text
+    /// on screen for the rest of the session.
+    private var partialExpiry: VoiceTimerToken?
+
+    /// How long an in-progress utterance may sit on screen after its audio
+    /// ended without its committed row arriving. Long enough to cover the
+    /// transcription deadline plus a round trip, short enough that a guess is
+    /// never mistaken for the record.
+    static let partialGraceMs = 6000
 
     init(api: LiveAPI = LiveAPI(),
          input: AudioInput? = nil,
@@ -285,6 +337,7 @@ final class LiveStore {
             // live estimate between panel loads.
             storageBytes = storage.totalBytes
             clearTransientError()
+            pushBeacon()
         } catch { report("load storage", error) }
     }
 
@@ -402,6 +455,11 @@ final class LiveStore {
             return
         }
         capturing = true
+        captureStartedAt = Date()
+        // The indicator and the Live Activity come up with the microphone, not
+        // after the socket: the phone is already listening to the room, and the
+        // one thing that must never lag is the notice that says so.
+        beacon.began(at: captureStartedAt ?? Date(), kept: storageText, detail: activityDetail)
         await openOrResumeSession(epoch: epoch)
         guard epoch == generation else { return }
         armMicWatchdog(epoch: epoch)
@@ -493,6 +551,14 @@ final class LiveStore {
         capturing = false
         interrupted = false
         level = 0
+        captureStartedAt = nil
+        // FIRST, and unconditionally. Everything below this line can throw, be
+        // superseded by a new `start()`, or return early; an indicator or a
+        // Live Activity still claiming to record after the microphone stopped
+        // is the worst outcome this feature has, so it is retired before
+        // anything that could fail.
+        beacon.ended()
+        clearPartial()
         spokenReply?.stop()
 
         // A part-spoken utterance still counts — dropping it would lose the last
@@ -526,9 +592,16 @@ final class LiveStore {
         do { try await api.endSession(liveSessionID: id) }
         catch { report("end the Live session", error) }
         guard epoch == generation else { return }
-        // Only once nothing is still waiting to go up.
+        // The CURSOR SURVIVES A STOP. Tapping Stop and Record again is one
+        // conversation with a pause in it, not two, so the next `start()` asks
+        // to continue this same session — which is also what makes a burst of
+        // short recordings add up into one summarisable window instead of a
+        // pile of one-minute chats. Whether it may continue is the server's
+        // decision: it rolls the session over once the transcript reaches its
+        // share of the model's context, and says which session it bound in
+        // `ready` (see `apply(_ ready:)`). There is deliberately no size or
+        // time rule on this side — one decision-maker only.
         if spool.isEmpty {
-            settings.forgetCursor()
             spool.reset()
         } else {
             spoolWarning = "\(LiveFormat.bytes(spool.byteCount)) of this conversation hasn't "
@@ -680,6 +753,10 @@ final class LiveStore {
         if !remembered.isEmpty {
             resume = LiveResume(liveSessionID: remembered, afterSeq: settings.lastSeq)
         }
+        // Remembered so `ready` can be compared against it. The client ALWAYS
+        // asks to continue the last session — it has no way to know the budget
+        // — and the server answers with the id it actually bound.
+        resumeRequestedID = remembered
         send(.hello(deviceID: deviceID, caps: caps, resume: resume))
     }
 
@@ -1025,9 +1102,57 @@ final class LiveStore {
             // A session that finished arriving after the utterance ended is useless.
             guard self.segmenter.speaking, self.speech == nil else { made.cancel(); return }
             self.speech = made
+            // The words as they are said. Apple's transcriber emits volatile
+            // results for the stretch it is still hearing and re-states them as
+            // they firm up, so this is the live text with no server round trip
+            // in it — the same source the regular voice screen displays from.
+            self.partialStartMs = max(self.segmenter.startMs, 0)
+            made.onPartial = { [weak self, weak made] text in
+                guard let self, let made, self.speech === made else { return }
+                self.showPartial(text)
+            }
             // Everything said while it was opening, in order.
             for frame in self.pendingSpeechFrames { made.feed(frame) }
             self.pendingSpeechFrames.removeAll()
+        }
+    }
+
+    // MARK: - The utterance in progress
+
+    /// Put the recogniser's current guess on screen.
+    private func showPartial(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard capturing, !interrupted else { return }
+        guard !trimmed.isEmpty else { return }
+        partialText = trimmed
+        // Still being spoken, so the grace window has not started. Re-armed
+        // when the utterance ends.
+        partialExpiry?.cancel()
+        partialExpiry = nil
+    }
+
+    /// Take the in-progress row off screen. Called from every path that ends an
+    /// utterance, ends capture, or commits a row.
+    private func clearPartial() {
+        partialExpiry?.cancel()
+        partialExpiry = nil
+        partialText = ""
+        partialStartMs = 0
+    }
+
+    /// The utterance's audio has ended and its committed row is on its way.
+    /// Keep the words visible across the transcription deadline and the round
+    /// trip — but not forever: a recogniser that produced text and then failed,
+    /// or an utterance the server discards, must not leave a guess on screen
+    /// wearing the transcript's clothes.
+    private func expirePartialSoon() {
+        guard !partialText.isEmpty else { return }
+        partialExpiry?.cancel()
+        partialExpiry = clock.schedule(after: Self.partialGraceMs) { [weak self] in
+            guard let self else { return }
+            self.partialExpiry = nil
+            self.partialText = ""
+            self.partialStartMs = 0
         }
     }
 
@@ -1045,6 +1170,9 @@ final class LiveStore {
         speech?.cancel()
         speech = nil
         pendingSpeechFrames.removeAll()
+        // The recogniser this text came from is gone, so nothing will ever
+        // commit it. Dropped at once rather than left to age out.
+        clearPartial()
         // Re-introduce ourselves with the reduced capability; the lane rule is the
         // server's to apply and it can only apply it to what we declare.
         sendHello()
@@ -1059,6 +1187,9 @@ final class LiveStore {
     private func finishUtterance(startMs: Int, endMs: Int) {
         let finished = speech
         speech = nil
+        // The audio has ended; the row is in flight. The words stay put until
+        // it lands (`upsert`) or the grace window closes.
+        expirePartialSoon()
         // Anything still queued belonged to the utterance that just ended; it must
         // not be fed to the NEXT one's session.
         pendingSpeechFrames.removeAll()
@@ -1164,6 +1295,14 @@ final class LiveStore {
             // post-interruption timestamps, twenty minutes away from the sound in them.
             preRoll.removeAll()
             pendingSpeechFrames.removeAll()
+            // `finishUtterance` above may have left words in flight; the
+            // recogniser they came from has just been cancelled, so they are
+            // the last thing that should stay on screen behind a "Paused".
+            clearPartial()
+            // Amber, frozen clock, and the word "Paused" on the island and the
+            // tab: the phone is no longer hearing the room and must not keep
+            // claiming it is.
+            pushBeacon()
             JcLog.voice.notice("live capture paused by an audio interruption")
         case .ended:
             guard interrupted else { return }
@@ -1195,6 +1334,7 @@ final class LiveStore {
             interrupted = false
             refreshSources()
             armMicWatchdog(epoch: epoch)
+            pushBeacon()
             JcLog.voice.notice("live capture resumed after the interruption")
         } catch {
             report("resume Live recording", error)
@@ -1238,6 +1378,12 @@ final class LiveStore {
             apply(event)
         case .insight(let insight):
             upsert(insight)
+        case .wrapUp(let wrap):
+            // Rendered at the end of the transcript AS WELL AS going into the
+            // paired chat (the server does that; §4). The screen that produced
+            // the conversation used to be the one place its conclusion never
+            // appeared.
+            transcript.apply(wrap)
         case .speak(let text):
             speakReply(text)
         case .state(let state):
@@ -1261,7 +1407,27 @@ final class LiveStore {
             report("read the Live session id", APIError.badResponse("ready carried no session id"))
             return
         }
-        let resumed = !liveSessionID.isEmpty && liveSessionID == ready.liveSessionID
+        // THE SERVER'S ID WINS. We asked to continue `resumeRequestedID`; a
+        // different id coming back means the server declined — either because
+        // that conversation has grown past its share of the model's context and
+        // was rolled over, or because this server no longer has it at all. Both
+        // mean the rows on screen belong to a conversation that is over, and
+        // carrying them (or our cursor, or the audio clock) into a new session
+        // would interleave two conversations under one transcript.
+        let rolledOver = !resumeRequestedID.isEmpty && resumeRequestedID != ready.liveSessionID
+        if rolledOver {
+            JcLog.voice.notice("live: server started a new session; clearing the previous transcript")
+            transcript.removeAll()
+            clearPartial()
+            // The audio clock restarts with the session. `AmbientSegmenter`
+            // deliberately never rewinds, so it is REPLACED — the same reason
+            // `openOrResumeSession` replaces it for a new conversation.
+            segmenter = AmbientSegmenter()
+            audioSeq = 0
+            settings.forgetCursor()
+        }
+        let resumed = !rolledOver && !liveSessionID.isEmpty && liveSessionID == ready.liveSessionID
+        resumeRequestedID = ready.liveSessionID
         liveSessionID = ready.liveSessionID
         if !ready.chatSessionID.isEmpty {
             chatSessionID = ready.chatSessionID
@@ -1296,6 +1462,11 @@ final class LiveStore {
     }
 
     private func upsert(_ segment: LiveSegment) {
+        // The committed row REPLACES the in-progress one, in the same render:
+        // the guess and the record must never both be on screen. Any `seg` will
+        // do as the trigger — it means the transcript has moved past whatever
+        // the recogniser was still chewing on.
+        clearPartial()
         transcript.upsert(segment)
         settings.rememberCursor(sessionID: liveSessionID, seq: segment.seq)
     }
@@ -1322,6 +1493,8 @@ final class LiveStore {
         // reaches the status line rather than only the log.
         if let paused = state.paused { serverPaused = paused }
         if let recording = state.recording, recording { serverPaused = false }
+        // The figure and the qualifier the island shows both come from here.
+        pushBeacon()
     }
 
     /// Design §6: replies honour the spoken-vs-text setting. Spoken output uses the
@@ -1387,7 +1560,15 @@ final class LiveStore {
             try await api.delete(kind: kind, id: id)
             await loadStorage()
             await loadSpeakers()
-            if kind == .session, id == liveSessionID { transcript.removeAll() }
+            if kind == .session, id == liveSessionID {
+                transcript.removeAll()
+                // Asking to resume a session the user just deleted would have
+                // the server mint a new one and the client reset anyway — but
+                // via a round trip and a log line about a session it cannot
+                // find. Forget it here instead.
+                settings.forgetCursor()
+                resumeRequestedID = ""
+            }
         } catch { report("delete that", error) }
     }
 
@@ -1427,6 +1608,36 @@ final class LiveStore {
 
     var storageText: String {
         storageBytes > 0 ? "\(LiveFormat.bytes(storageBytes)) stored" : "No audio stored yet"
+    }
+
+    /// Seconds since capture began, by the wall clock, or nil when nothing is
+    /// being captured. The same figure the screen's clock and the Live
+    /// Activity's both read, so the two can never disagree.
+    var elapsedSeconds: TimeInterval? {
+        guard let captureStartedAt, capturing else { return nil }
+        return max(0, Date().timeIntervalSince(captureStartedAt))
+    }
+
+    /// The qualifier `statusText` attached to the state, if any — the one thing
+    /// the island has to say beyond "recording" and the figure.
+    ///
+    /// Derived from `statusText` rather than rebuilt: every branch of that
+    /// property exists because it is a state where the honest answer is not
+    /// "Recording", and a second derivation here would quietly miss the ones it
+    /// forgot about.
+    private var activityDetail: String {
+        LiveRecorderStatus.split(statusText).detail ?? ""
+    }
+
+    /// Hand the indicator and the Live Activity the current truth. Cheap: the
+    /// beacon drops anything already on screen and rate-limits the rest, so
+    /// this can be called from any state change without thinking about budget.
+    private func pushBeacon() {
+        guard capturing else { return }
+        beacon.update(interrupted: interrupted,
+                      elapsed: elapsedSeconds ?? 0,
+                      kept: storageText,
+                      detail: activityDetail)
     }
 
     /// The warning worth showing, if any: ours about the backlog, or the server's.

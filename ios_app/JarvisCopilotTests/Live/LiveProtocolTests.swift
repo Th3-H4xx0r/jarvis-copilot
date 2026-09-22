@@ -238,6 +238,53 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertEqual(LiveFormat.bytes(5 * 1024 * 1024), "5.0 MB")
     }
 
+    // MARK: - The wrap-up rides the insight frame
+
+    /// The artifacts watcher publishes its wrap-up as an `insight` whose `seq`
+    /// is null. Read as an ordinary insight that became seq 0 — so the summary
+    /// of the whole conversation was filed ABOVE the conversation.
+    func testAnArtifactsInsightDecodesAsTheWrapUpWithItsLists() throws {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "insight",
+            "kind": "artifacts",
+            "seq": NSNull(),
+            "text": "## Conversation wrap-up\n\nThey agreed to ship.",
+            "summary": "They agreed to ship.",
+            "decisions": ["Ship on Friday", ""],
+            "action_items": ["Alan to cut the release"],
+        ])
+        guard case .wrapUp(let wrap) = frame else {
+            return XCTFail("expected a wrap-up, got \(frame)")
+        }
+        XCTAssertEqual(wrap.summary, "They agreed to ship.")
+        XCTAssertEqual(wrap.decisions, ["Ship on Friday"], "blanks are dropped, not bulleted")
+        XCTAssertEqual(wrap.actionItems, ["Alan to cut the release"])
+    }
+
+    /// `actions` is the other spelling the watcher has used.
+    func testTheWrapUpReadsEitherSpellingOfItsActionList() throws {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "insight", "kind": "artifacts",
+            "summary": "s", "actions": ["do the thing"],
+        ])
+        guard case .wrapUp(let wrap) = frame else {
+            return XCTFail("expected a wrap-up, got \(frame)")
+        }
+        XCTAssertEqual(wrap.actionItems, ["do the thing"])
+    }
+
+    /// An ordinary monitor note is still an insight, not a wrap-up.
+    func testAMonitorNoteIsStillAnInsight() throws {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "insight", "kind": "monitor", "seq": 7, "text": "worth noting",
+        ])
+        guard case .insight(let insight) = frame else {
+            return XCTFail("expected an insight, got \(frame)")
+        }
+        XCTAssertEqual(insight.seq, 7)
+        XCTAssertEqual(insight.kind, "monitor")
+    }
+
     // MARK: - Helpers
 
     private func object(_ message: LiveClientMessage) throws -> [String: Any] {

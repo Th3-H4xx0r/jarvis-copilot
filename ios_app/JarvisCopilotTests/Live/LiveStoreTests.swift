@@ -320,6 +320,126 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertEqual(segments.first?["partial"] as? Bool, false)
     }
 
+    // MARK: - The utterance in progress
+
+    /// Speech shows up as it is said, from this phone's own recogniser, without
+    /// waiting for the server.
+    func testTheWordsBeingSpokenAppearBeforeAnyServerRoundTrip() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+
+        rig.recognizer.latest?.onPartial?("we should ship on")
+
+        XCTAssertEqual(rig.store.partialText, "we should ship on")
+        XCTAssertTrue(rig.store.rows.isEmpty, "and it is not a transcript row")
+        XCTAssertEqual(rig.store.transcript.cursor, 0,
+                       "so it cannot move the resume cursor or count toward the rollover budget")
+    }
+
+    /// The guess and the record must never both be on screen. The committed row
+    /// arriving is what takes the in-progress one away.
+    func testTheCommittedRowReplacesTheInProgressOne() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.onPartial?("we should ship on")
+        XCTAssertFalse(rig.store.partialText.isEmpty)
+
+        rig.store.receive(text: json(["t": "seg", "seq": 1,
+                                      "text": "We should ship on Friday."]))
+
+        XCTAssertEqual(rig.store.partialText, "",
+                       "the guess goes the moment the record lands")
+        XCTAssertEqual(rig.store.segments.map(\.text), ["We should ship on Friday."])
+    }
+
+    /// A partial must not outlive its utterance. Stopping mid-sentence drops it
+    /// rather than leaving a guess on screen wearing the transcript's clothes.
+    func testStoppingMidSentenceDropsTheInProgressRow() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.onPartial?("half a sentence")
+        XCTAssertFalse(rig.store.partialText.isEmpty)
+
+        await rig.store.stop()
+
+        XCTAssertEqual(rig.store.partialText, "")
+    }
+
+    /// And it ages out if no committed row ever arrives — a recogniser that
+    /// produced text and then failed must not strand it there for the session.
+    func testAnInProgressRowThatIsNeverCommittedAgesOut() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.onPartial?("never committed")
+
+        // The utterance ends, and nothing comes back for it.
+        rig.input.emitFrames(amplitude: 0.0, ms: 1500)
+        await Task.yield()
+        await Task.yield()
+        rig.clock.advance(ms: LiveStore.partialGraceMs + 100)
+
+        XCTAssertEqual(rig.store.partialText, "")
+    }
+
+    // MARK: - The indicator and the Live Activity cannot outlive capture
+
+    /// The tab-bar dot and the Live Activity both read `LiveCaptureBeacon`. A
+    /// beacon still saying "recording" after the microphone stopped tells the
+    /// user their room is being listened to when it is not, which is the worst
+    /// thing this feature can do.
+    func testTheRecordingBeaconGoesDownWithTheMicrophone() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+
+        XCTAssertTrue(LiveCaptureBeacon.shared.capturing)
+        XCTAssertNotNil(rig.store.captureStartedAt)
+
+        await rig.store.stop()
+
+        XCTAssertFalse(LiveCaptureBeacon.shared.capturing)
+        XCTAssertNil(LiveCaptureBeacon.shared.startedAt)
+        XCTAssertNil(rig.store.captureStartedAt)
+    }
+
+    /// Including when capture stops ITSELF. A halt is exactly the case where
+    /// the user is not watching the screen.
+    func testAHaltTakesTheRecordingBeaconDownToo() async {
+        let rig = makeRig(spoolLimit: 4096)
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        rig.connector.socket?.serverClosed(nil)
+        rig.input.emitFrames(amplitude: 0.05, ms: 2000)
+        await Task.yield()
+        await Task.yield()
+        // The halt's own teardown is a detached `stop()`.
+        for _ in 0..<8 { await Task.yield() }
+
+        XCTAssertNotNil(rig.store.halt)
+        XCTAssertFalse(rig.store.capturing)
+        XCTAssertFalse(LiveCaptureBeacon.shared.capturing,
+                       "capture stopped itself, so the indicator must have gone with it")
+    }
+
+    /// Opens an utterance: enough voiced audio for the segmenter to call it
+    /// speech and for the store to attach a transcription session.
+    private func openUtterance(_ rig: Rig) async {
+        rig.input.emitFrames(amplitude: 0.05, ms: 200)
+        await Task.yield()
+        await Task.yield()
+        rig.input.emitFrames(amplitude: 0.05, ms: 400)
+        await Task.yield()
+        await Task.yield()
+    }
+
     // MARK: - Unsent conversation is never discarded
 
     /// The invariant behind `haltCapture`'s promise. It used to call `spool.reset()`
@@ -361,15 +481,24 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertFalse(rig.store.warningText.isEmpty, "and the user must be told it is still waiting")
     }
 
-    /// A clean stop — everything uploaded — does clear up after itself.
-    func testStoppingWithNothingBufferedClearsTheCursor() async {
+    /// A clean stop clears the SPOOL but keeps the CURSOR: Stop followed by
+    /// Record is one conversation with a pause in it, not two. Clearing the
+    /// cursor is what made every tap of Record open a new session — and a new
+    /// chat — so a burst of short recordings never added up into a window worth
+    /// summarising.
+    func testACleanStopKeepsTheCursorSoTheNextRecordContinues() async {
         let rig = makeRig()
         await rig.store.start()
         rig.store.receive(text: readyFrame())
         await rig.store.stop()
 
         XCTAssertEqual(rig.store.spooledFrames, 0)
-        XCTAssertEqual(rig.settings.lastSessionID, "")
+        XCTAssertEqual(rig.settings.lastSessionID, "L1")
+
+        await rig.store.start()
+        let resume = lastFrame(rig, t: "hello")?["resume"] as? [String: Any]
+        XCTAssertEqual(resume?["live_session_id"] as? String, "L1",
+                       "the next start asks to continue the same conversation")
     }
 
     /// The one path that deletes unsent conversation is the user choosing it.
@@ -449,27 +578,63 @@ final class LiveStoreTests: XCTestCase {
 
     // MARK: - Session isolation
 
-    /// A second recording in the same launch must not inherit the first one's audio
-    /// clock or its rows — the first row of the new one used to be stamped at the old
-    /// one's total duration, and its `seq`s overwrote the old rows.
-    func testASecondRecordingStartsACleanTimeline() async {
+    /// Stop, then Record again: the transcript must still be there. Clearing it
+    /// on the second tap of Record is exactly the report — "when I click stop
+    /// and start again it is clearing the chat".
+    func testASecondRecordingContinuesTheSameConversation() async {
         let rig = makeRig()
         await rig.store.start()
-        rig.store.receive(text: readyFrame(sessionID: "L1"))
+        rig.store.receive(text: readyFrame(sessionID: "L1", seq: 5))
         rig.store.receive(text: json(["t": "seg", "seq": 5, "text": "from the first meeting"]))
         rig.input.emitFrames(amplitude: 0.05, ms: 1500)
         await Task.yield()
         await rig.store.stop()
-        XCTAssertEqual(rig.settings.lastSessionID, "", "a clean stop clears the cursor")
 
         await rig.store.start()
+        rig.store.receive(text: readyFrame(sessionID: "L1", seq: 5))
+
+        XCTAssertEqual(rig.store.segments.map(\.seq), [5],
+                       "the conversation so far stays on screen")
+        let resume = lastFrame(rig, t: "hello")?["resume"] as? [String: Any]
+        XCTAssertEqual(resume?["live_session_id"] as? String, "L1")
+        XCTAssertEqual(resume?["after_seq"] as? Int, 5,
+                       "and it resumes from where it got to, not from zero")
+    }
+
+    /// The SERVER decides when a conversation has grown past its budget. The
+    /// client always asks to continue the last one; a different id in `ready` is
+    /// how it learns it was rolled over, and the old rows, cursor and audio
+    /// clock all belong to the session that just ended.
+    func testTheServerRollingOverClearsTheTimelineAndTheCursor() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame(sessionID: "L1", seq: 5))
+        rig.store.receive(text: json(["t": "seg", "seq": 5, "text": "from the first meeting"]))
+        await rig.store.stop()
+
+        await rig.store.start()
+        // The server declines the resume and mints a new session.
+        rig.store.receive(text: readyFrame(sessionID: "L2", seq: 0))
 
         XCTAssertTrue(rig.store.segments.isEmpty,
                       "the previous conversation's rows must not still be on screen")
-        // The cursor is what matters: a fresh recording must not ask the server to
-        // continue from a seq the first one reached.
-        let resume = lastFrame(rig, t: "hello")?["resume"] as? [String: Any]
-        XCTAssertEqual(resume?["after_seq"] as? Int, 0)
+        XCTAssertEqual(rig.store.liveSessionID, "L2", "the server's id wins")
+        XCTAssertEqual(rig.settings.lastSessionID, "L2")
+        XCTAssertEqual(rig.settings.lastSeq, 0,
+                       "a new session must not be asked to continue from a seq it never reached")
+    }
+
+    /// A session the user deleted is not resumed on the next tap of Record.
+    func testDeletingTheSessionBeingRecordedForgetsItsCursor() async {
+        let rig = makeRig()
+        rig.transport.route("/api/live/delete", json: ["ok": true])
+        await rig.store.start()
+        rig.store.receive(text: readyFrame(sessionID: "L1", seq: 3))
+
+        await rig.store.delete(kind: .session, id: "L1")
+
+        XCTAssertTrue(rig.store.segments.isEmpty)
+        XCTAssertEqual(rig.settings.lastSessionID, "")
     }
 
     /// A `ready` with no session id used to blank `liveSessionID` — which silently

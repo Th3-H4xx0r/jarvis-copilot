@@ -103,6 +103,15 @@ struct GlassNavBar: View {
     /// A workout under way marks the Health tab live: a beating dot on its
     /// icon and the workout's time in place of its name.
     @ObservedObject var workout: RingWorkoutController = WearablesHub.shared.ring.workout
+    /// Live Jarvis capturing marks the Voice tab: a solid dot on its icon and
+    /// "Rec" in place of its name, so the one fact that matters — this phone is
+    /// listening to the room — is legible from every other tab.
+    ///
+    /// `LiveCaptureBeacon`, not `LiveStore`: the nav bar is built at launch and
+    /// the store owns a microphone, an audio session, a recogniser and a spool.
+    /// A plain `let` is enough because the beacon is `@Observable`, so SwiftUI
+    /// tracks the properties this body reads.
+    var recording: LiveCaptureBeacon = .shared
 
     /// `nav.dart`: a 68 pt bar with `6 + bottomInset * 0.3` beneath it.
     static let barHeight: CGFloat = 68
@@ -172,14 +181,35 @@ struct GlassNavBar: View {
             }
         } label: {
             let live = tab == .health && workout.isActive
+            // The room is being recorded. Amber while another app holds the
+            // mic, because "paused" and "recording" are not the same promise.
+            let capturing = tab == .voice && recording.capturing
             VStack(spacing: 4) {
                 JcIcon(active ? tab.filledSymbol : tab.symbol)
                     .font(.system(size: 20, weight: .medium))
                     .frame(height: 25)
                     .overlay(alignment: .topTrailing) {
-                        if live { LiveDot().offset(x: 7, y: -1) }
+                        if live {
+                            LiveDot().offset(x: 7, y: -1)
+                        } else if capturing {
+                            // Solid, not hollow, and it does not beat while
+                            // paused — shape and motion carry the state as well
+                            // as the hue (`LiveCaptureDot`).
+                            LiveDot(tint: recording.interrupted ? JcTheme.amber : JcTheme.danger,
+                                    beats: !recording.interrupted)
+                                .offset(x: 7, y: -1)
+                        }
                     }
-                if live {
+                if capturing {
+                    // The WORD, not just the dot: a tab bar is exactly where a
+                    // small red dot could pass for a badge count.
+                    Text(recording.interrupted ? "Paused" : "Rec")
+                        .font(.system(size: Self.labelSize, weight: .semibold))
+                        .foregroundStyle(recording.interrupted ? JcTheme.amber : JcTheme.danger)
+                        .lineLimit(1)
+                        .minimumScaleFactor(Self.labelMinimumScale)
+                        .allowsTightening(true)
+                } else if live {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(WorkoutLiveView.clock(workout.elapsed(at: context.date)))
                             .font(.system(size: Self.labelSize, weight: .semibold, design: .rounded))
@@ -218,22 +248,39 @@ struct GlassNavBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab == .health && workout.isActive ? "Health, workout in progress" : tab.title)
+        .accessibilityLabel(accessibilityLabel(tab))
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func accessibilityLabel(_ tab: AppTab) -> String {
+        if tab == .health, workout.isActive { return "Health, workout in progress" }
+        if tab == .voice, recording.capturing {
+            // Said in full. The dot is the visual cue; this is the whole
+            // sentence, because a screen reader user has no dot.
+            return recording.interrupted
+                ? "Voice, recording paused — another app is using the microphone"
+                : "Voice, this phone is recording the room"
+        }
+        return tab.title
     }
 }
 
-/// A small red dot that beats: something is live.
+/// A small dot that beats: something is live.
 struct LiveDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Defaults to the workout red this started life as.
+    var tint: Color = JcTheme.danger
+    /// A live thing pulses; a paused one sits still, so motion is a cue too.
+    var beats: Bool = true
 
     var body: some View {
         Circle()
-            .fill(JcTheme.danger)
+            .fill(tint)
             .frame(width: 8, height: 8)
             .overlay(Circle().strokeBorder(JcTheme.bg, lineWidth: 1.5))
             .phaseAnimator([false, true]) { dot, beat in
-                dot.scaleEffect(beat && !reduceMotion ? 1.25 : 1).opacity(beat ? 0.6 : 1)
+                dot.scaleEffect(beat && beats && !reduceMotion ? 1.25 : 1)
+                    .opacity(beat && beats ? 0.6 : 1)
             } animation: { _ in .easeInOut(duration: 0.7) }
     }
 }

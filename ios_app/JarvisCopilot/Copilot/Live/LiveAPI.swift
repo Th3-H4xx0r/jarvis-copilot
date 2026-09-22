@@ -27,6 +27,17 @@ struct LiveConfig: Equatable, Sendable {
     /// the interlock is the server's to declare, and a client that edited it could
     /// silently corrupt speaker identity.
     var embedModel = ""
+    /// When a live session rolls over into a new one: once its transcript
+    /// reaches this share of the model's context window. 0.05...1.0.
+    ///
+    /// The DECISION is the server's and only the server's — it is the one place
+    /// that knows the model, counts the tokens, and can answer the same way for
+    /// every device. This is the knob, not the rule.
+    var sessionRolloverFraction = 0.5
+    /// An explicit token ceiling that wins over the fraction when non-zero, for
+    /// naming the number rather than trusting a context lookup. 0 = use the
+    /// fraction.
+    var sessionRolloverTokens = 0
 
     static func from(_ d: [String: Any]) -> LiveConfig {
         // The server may nest it under `config`, or return it flat.
@@ -43,6 +54,8 @@ struct LiveConfig: Equatable, Sendable {
         if let v = d.string("reply_mode"), !v.isEmpty { out.replyMode = v }
         if let v = d.string("primary_language"), !v.isEmpty { out.primaryLanguage = v }
         if let v = d.string("embed_model") { out.embedModel = v }
+        if let v = d.double("session_rollover_fraction") { out.sessionRolloverFraction = v }
+        if let v = d.int("session_rollover_tokens") { out.sessionRolloverTokens = v }
         return out
     }
 
@@ -58,7 +71,16 @@ struct LiveConfig: Equatable, Sendable {
          "artifacts": artifacts,
          "reply_mode": replyMode,
          "primary_language": primaryLanguage,
-         "embed_model": embedModel]
+         "embed_model": embedModel,
+         "session_rollover_fraction": sessionRolloverFraction,
+         "session_rollover_tokens": sessionRolloverTokens]
+    }
+
+    /// How the rollover point reads in a sentence.
+    var rolloverText: String {
+        sessionRolloverTokens > 0
+            ? "\(sessionRolloverTokens) tokens"
+            : "\(Int((sessionRolloverFraction * 100).rounded()))% of the model's context"
     }
 
     var spokenReplies: Bool { replyMode.lowercased() == "spoken" }

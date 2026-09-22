@@ -19,7 +19,14 @@ struct JarvisCopilotApp: App {
     init() {
         // System alerts and action sheets tint from the window, not SwiftUI.
         UIWindow.appearance().tintColor = UIColor(JcTheme.accent)
-        MainActor.assumeIsolated { AppServices.shared.start() }
+        MainActor.assumeIsolated {
+            AppServices.shared.start()
+            // Before anything can show a stale one: a "recording" Live Activity
+            // that outlives the recording tells the user their room is being
+            // listened to when it is not.
+            LiveCaptureBeacon.shared.observeAppLifecycle()
+            LiveCaptureBeacon.shared.reapOrphans()
+        }
     }
 
     var body: some Scene {
@@ -42,6 +49,11 @@ struct JarvisCopilotApp: App {
                     // exactly where a voice-driven "start the stopwatch" runs;
                     // open the island we owe as soon as we come forward.
                     if phase == .active { StopwatchService.shared.resyncActivity() }
+                    // The backstop for the recording activity. `willTerminate`
+                    // is not guaranteed and an activity outlives the process,
+                    // so a fresh foreground — which by definition is not
+                    // capturing yet — is where a ghost is caught.
+                    if phase == .active { LiveCaptureBeacon.shared.reapOrphans() }
                 }
         }
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
