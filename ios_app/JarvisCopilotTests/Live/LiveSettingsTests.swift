@@ -208,4 +208,35 @@ final class LiveSettingsTests: XCTestCase {
         config.replyMode = "SPOKEN"
         XCTAssertTrue(config.spokenReplies, "the comparison must not be case-sensitive")
     }
+
+    /// The phone translates its own lines unless told otherwise, and remembers.
+    func testTranslatingOnThePhoneIsTheDefaultAndPersists() {
+        let values = MemoryKeyValueStore()
+        XCTAssertTrue(LiveSettings(store: values).translateOnPhone)
+        LiveSettings(store: values).translateOnPhone = false
+        XCTAssertFalse(LiveSettings(store: values).translateOnPhone)
+    }
+
+    /// Removing the model a choice runs on moves the choice to what is left,
+    /// rather than leaving "This phone" ticked while the server does the work.
+    /// (Nothing is downloaded in the simulator, so nothing is left.)
+    func testRemovingTheChosenModelFallsBackToWhatIsLeft() {
+        let values = MemoryKeyValueStore()
+        values.set(LiveHearing.phoneAll.rawValue, forKey: LiveModels.hearingKey)
+        let models = LiveModels(defaults: values)
+        XCTAssertEqual(models.hearing, .phoneAll)
+
+        models.remove(.senseVoice)
+
+        XCTAssertEqual(models.hearing, .server)
+        XCTAssertEqual(LiveModels(defaults: values).hearing, .server, "and it is remembered")
+    }
+
+    /// Server means the phone does not re-hear lines, even with models on it.
+    func testChoosingTheServerBuildsNoTranscriber() async {
+        let values = MemoryKeyValueStore()
+        values.set(LiveHearing.server.rawValue, forKey: LiveModels.hearingKey)
+        let made = await LiveModels(defaults: values).transcriber()
+        XCTAssertNil(made)
+    }
 }

@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(Speech)
+import Speech
+#endif
 
 /// Live Jarvis settings: the server's `live:` section, plus the two choices that
 /// belong to this device.
@@ -28,14 +31,15 @@ struct LiveSettingsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     device
+                    language
+                    LiveHearingSection()
+                    translation
                     watchers
-                    factCheckWindow
-                    model
                     window
+                    factCheckWindow
                     rollover
                     replies
-                    language
-                    LiveOnPhoneSection(store: store, serverEmbedModel: draft.embedModel)
+                    LivePhoneInfoSection(store: store, serverEmbedModel: draft.embedModel)
                     footer
                 }
                 .padding(.horizontal, 20)
@@ -80,7 +84,7 @@ struct LiveSettingsSheet: View {
 
     private var device: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("This device")
+            GlassQuietLabel("Recording")
             GlassGroup {
                 GlassRow(symbol: "mic",
                          title: "Record on this phone",
@@ -116,21 +120,81 @@ struct LiveSettingsSheet: View {
                 toggleRow("checkmark.seal", "Fact-check",
                           "On demand, from the Fact-check button beside Record.",
                           get: { draft.factCheck }, set: { draft.factCheck = $0 })
-                toggleRow("globe", "Translate",
-                          "Automatic for anything not in the primary language.",
-                          get: { draft.translate }, set: { draft.translate = $0 })
                 toggleRow("brain", "Remember facts",
                           "Writes durable facts to your memory provider.",
                           get: { draft.memoryExtraction }, set: { draft.memoryExtraction = $0 })
-                toggleRow("doc.text", "End-of-session artifacts",
+                toggleRow("doc.text", "End-of-session summary",
                           "Summary, decisions and action items when a session ends.",
-                          get: { draft.artifacts }, set: { draft.artifacts = $0 }, last: true)
+                          get: { draft.artifacts }, set: { draft.artifacts = $0 })
+                GlassRow(symbol: "sparkles",
+                         title: "Model",
+                         subtitle: modelSubtitle,
+                         subtitleLineLimit: 2,
+                         last: true,
+                         action: { pickingModel = true }) {
+                    if modelName == nil {
+                        ProgressView().controlSize(.small).tint(JcTheme.accent)
+                    } else {
+                        JcIcon("chevron.right", size: 13).foregroundStyle(JcTheme.muted)
+                    }
+                }
             }
-            Text("Shared with the web client — these are one setting, not one per device.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(JcTheme.muted)
-                .padding(.horizontal, 4)
-                .padding(.top, 8)
+            LiveSettingsNote("Shared with the web. The watchers, and translation on the "
+                           + "server, run on this model; Auto follows the app's own.")
+        }
+    }
+
+    // MARK: - Translation
+
+    /// Where a line in another language is translated — or whether at all.
+    ///
+    /// Off is the server's `live.translate`, shared with the web. Phone or
+    /// Server is this phone's own choice: its language packs are here.
+    private enum TranslateChoice: CaseIterable {
+        case off, phone, server
+    }
+
+    private var translateChoice: TranslateChoice {
+        guard draft.translate else { return .off }
+        return store.settings.translateOnPhone ? .phone : .server
+    }
+
+    private func chooseTranslate(_ choice: TranslateChoice) {
+        switch choice {
+        case .off:
+            draft.translate = false
+        case .phone:
+            draft.translate = true
+            store.settings.translateOnPhone = true
+        case .server:
+            draft.translate = true
+            store.settings.translateOnPhone = false
+        }
+        push()
+    }
+
+    private var translation: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Translate into \(primaryName)")
+            GlassGroup {
+                LiveRadioRow(title: "Off",
+                             subtitle: "Lines stay in the language they were spoken in.",
+                             selected: translateChoice == .off,
+                             action: { chooseTranslate(.off) })
+                LiveRadioRow(title: "This phone",
+                             subtitle: "Apple, on this iPhone: instant and private. A language "
+                                     + "this phone has no pack for goes to the server.",
+                             selected: translateChoice == .phone,
+                             action: { chooseTranslate(.phone) })
+                LiveRadioRow(title: "Server",
+                             subtitle: "The watchers' model translates each line, a few "
+                                     + "seconds later.",
+                             selected: translateChoice == .server,
+                             last: true,
+                             action: { chooseTranslate(.server) })
+            }
+            LiveSettingsNote("Only lines in another language are translated. Off applies "
+                           + "on the web too.")
         }
     }
 
@@ -178,43 +242,6 @@ struct LiveSettingsSheet: View {
 
     // MARK: - The model the watchers use
 
-    /// Which model the LIVE watchers run on — the monitor, fact-check,
-    /// artifacts and translate passes. Not the voice model: the Voice screen's
-    /// chip governs voice turns and has no effect on a recording.
-    ///
-    /// **Read-only, and honestly so.** The watchers resolve their model from
-    /// `auxiliary.live_*` in `config.yaml`, falling back to the server's default
-    /// model when that is unset — and there is no endpoint that writes it, so a
-    /// picker here would be a control that silently does nothing. It shows the
-    /// effective model and says where to change it. It never renders a blank:
-    /// if the catalogue has not arrived, it says that in words.
-    private var model: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("Model")
-            GlassGroup {
-                GlassRow(symbol: "sparkles",
-                         title: "Watchers use",
-                         subtitle: modelSubtitle,
-                         subtitleLineLimit: 3,
-                         last: true,
-                         action: { pickingModel = true }) {
-                    if modelName == nil {
-                        ProgressView().controlSize(.small).tint(JcTheme.accent)
-                    } else {
-                        JcIcon("chevron.right", size: 13).foregroundStyle(JcTheme.muted)
-                    }
-                }
-            }
-            Text("Monitor, fact-check, translate and the end-of-session summary all run "
-               + "on this. Auto follows the app's own model.")
-                .font(.system(size: 11.5))
-                .foregroundStyle(JcTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 4)
-                .padding(.top, 8)
-        }
-    }
-
     /// The effective model's human label, or nil while unknown.
     ///
     /// A LABEL, never a bare id fragment: "31b" tells nobody anything. The
@@ -253,7 +280,7 @@ struct LiveSettingsSheet: View {
 
     private var window: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("Monitor window")
+            GlassQuietLabel("Monitor timing")
             GlassGroup {
                 GlassRow(symbol: "timer", title: "Every") {
                     Picker("", selection: Binding(get: { draft.windowSeconds },
@@ -367,8 +394,8 @@ struct LiveSettingsSheet: View {
             GlassQuietLabel("Replies")
             GlassGroup {
                 GlassRow(symbol: "bubble.left",
-                         title: "Spoken replies",
-                         subtitle: "Read insights aloud in the phone's own voice.",
+                         title: "Read insights aloud",
+                         subtitle: "In the phone's own voice.",
                          subtitleLineLimit: 3,
                          last: true) {
                     Toggle("", isOn: Binding(get: { draft.spokenReplies },
@@ -382,26 +409,28 @@ struct LiveSettingsSheet: View {
 
     // MARK: - Language
 
+    private var primaryName: String {
+        let code = draft.primaryLanguage.trimmingCharacters(in: .whitespaces)
+        guard !code.isEmpty else { return "your language" }
+        return LiveLanguageName.name(code) ?? code
+    }
+
     private var language: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("Language")
+            GlassQuietLabel("Your language")
             GlassGroup {
-                GlassRow(symbol: "character.bubble", title: "Primary",
-                         subtitle: "What Apple's recogniser listens in, and what lines are "
-                                 + "translated into.",
-                         subtitleLineLimit: 3, last: true) {
-                    // A free text field rather than a picker: the server's locale
-                    // list is the authority and hardcoding one here would go stale.
-                    TextField("en-US", text: Binding(get: { draft.primaryLanguage },
-                                                     set: { draft.primaryLanguage = $0 }))
-                        .multilineTextAlignment(.trailing)
-                        .font(JcText.body)
-                        .foregroundStyle(JcTheme.text)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .frame(maxWidth: 120)
-                        .onSubmit { push() }
+                NavigationLink {
+                    LiveLanguageScreen(selected: draft.primaryLanguage) { code in
+                        draft.primaryLanguage = code
+                        push()
+                    }
+                } label: {
+                    GlassRow(symbol: "character.bubble", title: primaryName,
+                             subtitle: "Apple writes it down as it is said, and lines in "
+                                     + "other languages are translated into it.",
+                             subtitleLineLimit: 3, last: true)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -514,5 +543,77 @@ struct LiveCaptureSourceScreen: View {
 
     private func choose(_ source: LiveCaptureSource) {
         notice = store.select(source: source) ?? ""
+    }
+}
+
+/// Your language, picked from a list rather than typed as a code: "en" in a
+/// text box was the only way to set it, and it said nothing about which
+/// languages the phone can actually write down.
+struct LiveLanguageScreen: View {
+    let selected: String
+    let pick: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var codes = LiveLanguageScreen.common
+
+    /// Shown until Apple says which languages it transcribes, and on an iOS
+    /// too old to ask.
+    static let common = ["en", "es", "fr", "de", "it", "pt", "nl", "sv", "da", "nb", "fi",
+                         "pl", "ru", "uk", "tr", "ar", "he", "hi", "zh", "yue", "ja", "ko",
+                         "vi", "th", "id", "ms"]
+
+    private var shown: [String] {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let named = codes.map { ($0, LiveLanguageName.name($0) ?? $0) }
+            .sorted { $0.1.localizedCaseInsensitiveCompare($1.1) == .orderedAscending }
+        return named.filter { needle.isEmpty || $0.1.lowercased().contains(needle)
+                              || $0.0.lowercased().hasPrefix(needle) }
+            .map(\.0)
+    }
+
+    var body: some View {
+        let list = shown
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassGroup {
+                    ForEach(Array(list.enumerated()), id: \.element) { index, code in
+                        LiveRadioRow(title: LiveLanguageName.name(code) ?? code,
+                                     selected: LiveTranslator.primarySubtag(code)
+                                        == LiveTranslator.primarySubtag(selected),
+                                     last: index == list.count - 1,
+                                     action: {
+                                         pick(code)
+                                         dismiss()
+                                     })
+                    }
+                }
+                if list.isEmpty {
+                    LiveSettingsNote("No language matches.")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+        }
+        .jcScreen("Your language")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search languages")
+        .task { codes = await Self.transcribable() }
+    }
+
+    /// The languages Apple's recogniser can write down, one entry per
+    /// language: its locale is matched to the nearest region when recording
+    /// starts, so "English" rather than eleven Englishes.
+    static func transcribable() async -> [String] {
+        #if canImport(Speech)
+        if #available(iOS 26.0, *) {
+            let locales = await SpeechTranscriber.supportedLocales
+            var seen = Set<String>()
+            let codes = locales.compactMap { $0.language.languageCode?.identifier }
+                .filter { seen.insert($0).inserted }
+            if !codes.isEmpty { return codes }
+        }
+        #endif
+        return common
     }
 }

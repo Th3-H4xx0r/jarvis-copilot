@@ -61,6 +61,17 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertNil(plain["emb"], "no voiceprint, no key")
     }
 
+    /// A line the phone translates itself says so, and only then: without the
+    /// key the server translates it, which is what a line from the web needs.
+    func testASegmentSaysWhenThePhoneTranslatesIt() throws {
+        let mine = try object(.segment(startMs: 0, endMs: 900, text: "hola", lang: "es",
+                                       localLabel: "me", translatesHere: true))
+        XCTAssertEqual(mine["translate"] as? String, "device")
+        let theirs = try object(.segment(startMs: 0, endMs: 900, text: "hola", lang: "es",
+                                         localLabel: "me"))
+        XCTAssertNil(theirs["translate"])
+    }
+
     func testSegmentFrameIsAlwaysFinal() throws {
         let json = try object(.segment(startMs: 1200, endMs: 3400, text: "hello there",
                                        lang: "en-US", localLabel: "me"))

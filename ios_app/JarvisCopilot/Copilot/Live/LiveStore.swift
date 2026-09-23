@@ -315,6 +315,7 @@ final class LiveStore {
     /// it made. Nil when this build does not run them (tests).
     private var onDeviceLoader: (@MainActor () async -> OnDeviceTranscribing?)?
     private var onDevice: OnDeviceTranscribing?
+    private var onDeviceLoading = false
     private var wordsChangedAtMs: Int?
     private var firstWordsAtMs: Int?
 
@@ -510,12 +511,7 @@ final class LiveStore {
         // NOT awaited: the first load compiles a 470 MB model for this phone and
         // takes seconds, and the microphone must not wait on it. Lines committed
         // before it is ready keep Apple's words.
-        if let loader = onDeviceLoader, onDevice == nil {
-            Task { [weak self] in
-                let made = await loader()
-                self?.onDevice = made
-            }
-        }
+        refreshOnDevice()
         // Every early return from here on releases the claim: leaving it held keeps
         // the system recording indicator lit over a screen saying "Not recording".
         guard epoch == generation else { try? session.release(); return }
@@ -1345,6 +1341,19 @@ final class LiveStore {
         utteranceDroppedMs += drop / bytesPerMs
     }
 
+    /// Ask again for the on-device transcriber, in the background. The loader
+    /// answers at once when nothing changed, and nil when the user chose the
+    /// server — so this is also how picking Server stops the phone re-hearing.
+    private func refreshOnDevice() {
+        guard let loader = onDeviceLoader, !onDeviceLoading else { return }
+        onDeviceLoading = true
+        Task { [weak self] in
+            let made = await loader()
+            self?.onDevice = made
+            self?.onDeviceLoading = false
+        }
+    }
+
     /// Padding either side of the recogniser's word range for the second
     /// hearing — the recogniser's range can shave an onset a model needs.
     static let secondHearingPadMs = 500
@@ -1352,6 +1361,9 @@ final class LiveStore {
     /// The words a committed line carries, and their language.
     private func bestLine(apple: String, appleLang: String, heard: Data, heardStartMs: Int,
                           bounds: (start: Int, end: Int)) async -> (text: String, lang: String) {
+        // For the NEXT line: a download that just finished, or a different
+        // choice in Settings, takes effect without stopping the recording.
+        refreshOnDevice()
         guard let onDevice, !heard.isEmpty else { return (apple, appleLang) }
         let bytesPerMs = Self.micRate * 2 / 1000
         let from = min(max(0, (bounds.start - Self.secondHearingPadMs - heardStartMs) * bytesPerMs),
@@ -1532,7 +1544,8 @@ final class LiveStore {
                                // the server's identification is the authority that
                                // overrides it (design §5.2).
                                localLabel: "me",
-                               voiceprint: voice))
+                               voiceprint: voice,
+                               translatesHere: self.translatesHere))
         }
     }
 
@@ -1573,7 +1586,7 @@ final class LiveStore {
                                   heard: heard, heardStartMs: heardStartMs, bounds: bounds)
         send(.segment(startMs: bounds.start, endMs: bounds.end, text: line.text,
                       lang: line.lang,
-                      localLabel: "me", voiceprint: voice))
+                      localLabel: "me", voiceprint: voice, translatesHere: translatesHere))
     }
 
     /// `stop()` bounded by a deadline: a wedged analyzer must not hold an utterance
@@ -2063,6 +2076,11 @@ final class LiveStore {
         chatSessionID = ""
     }
 
+    /// This phone translates the lines it sends, rather than the server. Said
+    /// on every line (`translate: "device"`) instead of once in `hello`, so
+    /// changing it in Settings holds from the next line, not the next connection.
+    var translatesHere: Bool { config.translate && settings.translateOnPhone }
+
     /// Hand a foreign utterance to the phone's own translator.
     ///
     /// Only what is already known to need it: a line the transcript labels as
@@ -2070,7 +2088,7 @@ final class LiveStore {
     /// so the two cannot disagree about what counts as foreign — and whichever
     /// answers first wins, because both write the same field.
     private func translateOnDevice(_ segment: LiveSegment) {
-        guard config.translate, !readOnly else { return }
+        guard translatesHere, !readOnly else { return }
         // The row as held, not the frame: a row re-sent after identification or
         // the language rescue carries no translation even when the line already
         // has one, and reading the frame translated it a second time.

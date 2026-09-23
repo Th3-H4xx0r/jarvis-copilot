@@ -35,19 +35,25 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .parakeet: return "Any-language transcription"
-        case .senseVoice: return "Chinese, Japanese & Korean"
+        case .parakeet: return "Parakeet (European languages)"
+        case .senseVoice: return "SenseVoice (Chinese, Japanese & Korean)"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .parakeet: return "Parakeet"
+        case .senseVoice: return "SenseVoice"
         }
     }
 
     var detail: String {
         switch self {
         case .parakeet:
-            return "Parakeet v3 · 25 European languages. Re-hears each line on the phone "
-                 + "and corrects the ones spoken in another language."
+            return "Re-hears lines in 25 European languages."
         case .senseVoice:
-            return "SenseVoice · Mandarin, Cantonese, Japanese, Korean. Used only for "
-                 + "lines Parakeet cannot place."
+            return "Re-hears Mandarin, Cantonese, Japanese and Korean, for the lines "
+                 + "Parakeet cannot place."
         }
     }
 
@@ -71,6 +77,50 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Who re-hears a line spoken in a language other than the primary one: the
+/// server's Whisper, a few seconds later, or a model on this phone at once.
+///
+/// One choice rather than a switch per model, because that is the decision the
+/// user is actually making, and SenseVoice without Parakeet is not a useful
+/// combination: SenseVoice only speaks when Parakeet cannot place a line.
+enum LiveHearing: String, CaseIterable, Identifiable, Sendable {
+    case server
+    case phone
+    case phoneAll
+
+    var id: String { rawValue }
+
+    /// The models this choice runs, in the order they are tried.
+    var kinds: [LiveModelKind] {
+        switch self {
+        case .server: return []
+        case .phone: return [.parakeet]
+        case .phoneAll: return [.parakeet, .senseVoice]
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .server: return "Server"
+        case .phone: return "This phone"
+        case .phoneAll: return "This phone, plus Chinese, Japanese & Korean"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .server: return "Nothing to download. Lines are corrected a few seconds later."
+        case .phone: return "25 European languages, corrected as each line ends."
+        case .phoneAll: return "Adds Mandarin, Cantonese, Japanese and Korean."
+        }
+    }
+
+    /// What picking it would still download.
+    var bytesToGet: Int64 {
+        kinds.filter { !LiveModels.onDisk($0) }.reduce(0) { $0 + $1.approxBytes }
+    }
+}
+
 enum LiveModelState: Equatable, Sendable {
     case absent
     case downloading(fraction: Double, phase: String)
@@ -85,6 +135,11 @@ enum LiveModelState: Equatable, Sendable {
         case .downloading, .preparing: return true
         default: return false
         }
+    }
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
     }
 }
 
@@ -101,8 +156,42 @@ final class LiveModels {
 
     private var tasks: [LiveModelKind: Task<Void, Never>] = [:]
     private var engine: OnDeviceTranscriber?
+    /// The models `engine` was built from, so a changed choice rebuilds it.
+    private var engineKinds: [LiveModelKind] = []
 
-    init() { refresh() }
+    static let hearingKey = "jc_live_hearing"
+    private let defaults: KeyValueStore
+
+    /// Who re-hears other languages. Per phone: the models are on THIS phone.
+    private(set) var hearing: LiveHearing
+
+    init(defaults: KeyValueStore = UserDefaults.standard) {
+        self.defaults = defaults
+        // Nothing chosen yet: whatever is already downloaded is what was meant
+        // (models fetched before this choice existed were all in use).
+        hearing = defaults.string(Self.hearingKey).flatMap(LiveHearing.init(rawValue:))
+            ?? (Self.onDisk(.senseVoice) ? .phoneAll : Self.onDisk(.parakeet) ? .phone : .server)
+        refresh()
+    }
+
+    /// Pick who re-hears other languages, fetching whatever that needs.
+    ///
+    /// A download the new choice no longer needs is stopped; a model already
+    /// on disk stays there, since picking Server for a day should not cost a
+    /// 469 MB download to come back. Removing it is Downloads' job.
+    func choose(_ choice: LiveHearing) {
+        hearing = choice
+        defaults.set(choice.rawValue, forKey: Self.hearingKey)
+        for kind in LiveModelKind.allCases where !choice.kinds.contains(kind) {
+            if case .downloading = state(kind) { cancel(kind) }
+        }
+        for kind in choice.kinds where !Self.onDisk(kind) { download(kind) }
+    }
+
+    /// What the downloaded models take on this phone.
+    var bytesOnDisk: Int64 {
+        LiveModelKind.allCases.filter { Self.onDisk($0) }.reduce(0) { $0 + $1.approxBytes }
+    }
 
     func state(_ kind: LiveModelKind) -> LiveModelState { states[kind] ?? .absent }
 
@@ -158,15 +247,26 @@ final class LiveModels {
         if let folder = Self.folder(kind) { try? FileManager.default.removeItem(at: folder) }
         engine = nil
         states[kind] = .absent
+        // The choice follows what is left, rather than naming a model that is
+        // gone — which would read as "This phone" while the server did the work.
+        if hearing.kinds.contains(kind) {
+            let left: LiveHearing = kind == .senseVoice && Self.onDisk(.parakeet) ? .phone : .server
+            hearing = left
+            defaults.set(left.rawValue, forKey: Self.hearingKey)
+        }
     }
 
     func dismissFinished() { justFinished = nil }
 
-    /// The transcriber for a recording, built from the models on disk — or nil
-    /// when there are none, and Apple's recogniser stands alone as before.
+    /// The transcriber for a recording, built from the models the user chose
+    /// that are on disk — or nil, and Apple's recogniser stands alone as before.
+    /// Cheap when nothing changed, so the store asks again after every line and
+    /// a finished download or a changed choice is picked up mid-recording.
     func transcriber() async -> OnDeviceTranscribing? {
-        if let engine { return engine }
-        let wanted = LiveModelKind.allCases.filter { Self.onDisk($0) }
+        let wanted = hearing.kinds.filter { Self.onDisk($0) }
+        if let engine, engineKinds == wanted { return engine }
+        engine = nil
+        engineKinds = wanted
         guard !wanted.isEmpty else { return nil }
         for kind in wanted { states[kind] = .preparing }
         let made = await OnDeviceTranscriber.load(wanted)

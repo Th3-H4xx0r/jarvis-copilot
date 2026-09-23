@@ -1,97 +1,165 @@
 import SwiftUI
 
-// MARK: - Settings: what runs on this phone
+// MARK: - A radio choice
 
-/// Every model Live uses on the phone, what it does, and whether it is here —
-/// with the downloads started, followed and removed from the same rows.
-struct LiveOnPhoneSection: View {
-    let store: LiveStore
-    /// The server's voiceprint model id, from the shared Live config.
-    let serverEmbedModel: String
+/// One option of a choice where exactly one holds: a ring on the leading
+/// edge, filled when it is the one. The settings used to put "On" beside rows
+/// that were not switches, which read as a control that could not be moved.
+struct LiveRadioRow<Trailing: View>: View {
+    let title: String
+    var subtitle: String?
+    let selected: Bool
+    var last: Bool
+    let action: () -> Void
+    let trailing: Trailing
 
+    init(title: String, subtitle: String? = nil, selected: Bool, last: Bool = false,
+         action: @escaping () -> Void, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.selected = selected
+        self.last = last
+        self.action = action
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(selected ? JcTheme.accent : JcTheme.muted.opacity(0.55),
+                                          lineWidth: 2)
+                        if selected { Circle().fill(JcTheme.accent).padding(5) }
+                    }
+                    .frame(width: 22, height: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(JcText.body.weight(.semibold))
+                            .foregroundStyle(JcTheme.text)
+                            .multilineTextAlignment(.leading)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(JcText.small)
+                                .foregroundStyle(JcTheme.muted)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    trailing
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            if !last {
+                Rectangle().fill(JcTheme.glassBorder)
+                    .frame(height: 1)
+                    .padding(.leading, 50)
+            }
+        }
+    }
+}
+
+extension LiveRadioRow where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, selected: Bool, last: Bool = false,
+         action: @escaping () -> Void) {
+        self.init(title: title, subtitle: subtitle, selected: selected, last: last,
+                  action: action) { EmptyView() }
+    }
+}
+
+/// A small muted note under a settings group.
+struct LiveSettingsNote: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5))
+            .foregroundStyle(JcTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+            .padding(.top, 8)
+    }
+}
+
+enum LiveBytes {
+    static func text(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+// MARK: - Settings: who hears other languages
+
+/// Server, or a model on this phone — one radio choice, with the download it
+/// needs started by picking it and followed on the row that asked for it.
+struct LiveHearingSection: View {
     @State private var models = LiveModels.shared
-    @State private var confirming: LiveModelKind?
+    @State private var confirming: LiveHearing?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("On this phone")
+            GlassQuietLabel("Other languages, heard by")
             GlassGroup {
-                GlassRow(symbol: "waveform", title: "Live words",
-                         subtitle: liveWordsSubtitle, subtitleLineLimit: 3) {
-                    badge(store.preparing ? "\(Int(store.prepareProgress * 100))%"
-                          : store.sttNotice.isEmpty ? "On" : "Server",
-                          tint: store.sttNotice.isEmpty ? JcTheme.success : JcTheme.amber)
-                }
-                ForEach(LiveModelKind.allCases) { kind in
-                    GlassRow(symbol: kind == .parakeet ? "translate" : "character.bubble",
-                             title: kind.title, subtitle: subtitle(kind), subtitleLineLimit: 4) {
-                        control(kind)
+                ForEach(Array(LiveHearing.allCases.enumerated()), id: \.element) { index, choice in
+                    LiveRadioRow(title: choice.title,
+                                 subtitle: subtitle(choice),
+                                 selected: models.hearing == choice,
+                                 last: index == LiveHearing.allCases.count - 1,
+                                 action: { pick(choice) }) {
+                        status(choice)
                     }
                 }
-                GlassRow(symbol: "person.wave.2", title: "Voiceprints",
-                         subtitle: "WeSpeaker ResNet34, built into the app (25 MB). The phone "
-                                 + "makes each speaker's voiceprint; the server matches it "
-                                 + "against the voices it knows.",
-                         subtitleLineLimit: 4) {
-                    voiceprintBadge
-                }
-                GlassRow(symbol: "globe", title: "Translation",
-                         subtitle: "Apple, on this phone. A language's pack downloads the first "
-                                 + "time it is heard; the server translates what the phone can't.",
-                         subtitleLineLimit: 4, last: true) {
-                    badge("On", tint: JcTheme.success)
-                }
             }
-            Text(footer)
-                .font(.system(size: 11.5))
-                .foregroundStyle(JcTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 4)
-                .padding(.top, 8)
+            LiveSettingsNote(models.hearing == .server
+                ? "Apple writes down every line in your language as it is said. A line in "
+                  + "another language is re-heard on the server and corrected a few seconds later."
+                : "Apple writes down every line as it is said; the moment it ends, this iPhone "
+                  + "re-hears it and corrects one spoken in another language. The server still "
+                  + "checks the lines the phone can't place.")
         }
         .onAppear { models.refresh() }
-        .confirmationDialog(confirming.map { "Download \($0.title)?" } ?? "",
+        .confirmationDialog(confirming.map { "Download \(LiveBytes.text($0.bytesToGet))?" } ?? "",
                             isPresented: Binding(get: { confirming != nil },
                                                  set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible) {
-            if let kind = confirming {
-                Button("Download \(Self.size(kind.approxBytes))") { models.download(kind) }
+            if let choice = confirming {
+                Button("Download") { models.choose(choice) }
                 Button("Not now", role: .cancel) {}
             }
         } message: {
-            Text("It runs entirely on this iPhone. Best on Wi-Fi — the download continues "
+            Text("It runs entirely on this iPhone. Best on Wi-Fi; the download carries on "
                + "if you close this screen.")
         }
     }
 
-    private var liveWordsSubtitle: String {
-        if store.preparing { return "Downloading Apple's speech model for your language." }
-        if !store.sttNotice.isEmpty { return store.sttNotice }
-        let primary = store.config.primaryLanguage.isEmpty ? "your language"
-            : (LiveLanguageName.name(store.config.primaryLanguage) ?? store.config.primaryLanguage)
-        return "Apple's recogniser, listening in \(primary). Words appear as they are said."
+    /// Picking a choice that needs a download asks first: half a gigabyte is
+    /// not something a stray tap should start on a cellular plan.
+    private func pick(_ choice: LiveHearing) {
+        guard choice != models.hearing else { return }
+        if choice.bytesToGet > 0 { confirming = choice } else { models.choose(choice) }
     }
 
-    private func subtitle(_ kind: LiveModelKind) -> String {
-        switch models.state(kind) {
-        case .failed(let why): return kind.detail + "\nLast try failed: \(why)"
-        default: return kind.detail
-        }
-    }
-
-    @ViewBuilder
-    private func control(_ kind: LiveModelKind) -> some View {
-        switch models.state(kind) {
-        case .absent:
-            Button { confirming = kind } label: {
-                Text("Get · \(Self.size(kind.approxBytes))")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(JcTheme.accent)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .jcLiquidGlass(in: Capsule())
+    private func subtitle(_ choice: LiveHearing) -> String {
+        for kind in choice.kinds {
+            if case .failed(let why) = models.state(kind) {
+                return choice.detail + "\nThe download failed: \(why)"
             }
-            .buttonStyle(.plain)
-        case .downloading(let fraction, _):
+        }
+        return choice.detail
+    }
+
+    /// The chosen row says how its download is going; the others say what
+    /// picking them would cost.
+    @ViewBuilder
+    private func status(_ choice: LiveHearing) -> some View {
+        let chosen = models.hearing == choice
+        if chosen, let (kind, fraction) = downloading(choice) {
             HStack(spacing: 8) {
                 Text("\(Int(fraction * 100))%")
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
@@ -101,55 +169,169 @@ struct LiveOnPhoneSection: View {
                     .foregroundStyle(JcTheme.muted)
                     .accessibilityLabel("Cancel download")
             }
-        case .preparing:
+        } else if chosen, choice.kinds.contains(where: { models.state($0) == .preparing }) {
             ProgressView().controlSize(.small)
-        case .ready:
-            Menu {
-                Button("Remove from this iPhone", role: .destructive) { models.remove(kind) }
-            } label: {
-                badge("On phone", tint: JcTheme.success)
-            }
-        case .failed:
-            Button { models.download(kind) } label: {
-                badge("Retry", tint: JcTheme.amber)
+        } else if chosen, let failed = choice.kinds.first(where: { models.state($0).isFailed }) {
+            Button { models.download(failed) } label: {
+                Text("Retry")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcTheme.amber)
             }
             .buttonStyle(.plain)
+        } else if choice.bytesToGet > 0 {
+            Text(LiveBytes.text(choice.bytesToGet))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
+        }
+    }
+
+    private func downloading(_ choice: LiveHearing) -> (LiveModelKind, Double)? {
+        for kind in choice.kinds {
+            if case .downloading(let fraction, _) = models.state(kind) { return (kind, fraction) }
+        }
+        return nil
+    }
+}
+
+// MARK: - Settings: what this phone is running
+
+/// Read-only, and it looks it: a tick or a warning, never a word like "On"
+/// beside a row that cannot be switched.
+struct LivePhoneInfoSection: View {
+    let store: LiveStore
+    /// The server's voiceprint model id, from the shared Live config.
+    let serverEmbedModel: String
+
+    @State private var models = LiveModels.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("On this phone")
+            GlassGroup {
+                GlassRow(symbol: "waveform", title: "Apple speech",
+                         subtitle: speechSubtitle, subtitleLineLimit: 3) {
+                    if store.preparing {
+                        Text("\(Int(store.prepareProgress * 100))%")
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(JcTheme.text)
+                    } else {
+                        mark(ok: store.sttNotice.isEmpty)
+                    }
+                }
+                GlassRow(symbol: "person.wave.2", title: "Voiceprints",
+                         subtitle: voiceprintSubtitle, subtitleLineLimit: 3) {
+                    mark(ok: serverEmbedModel == LiveVoiceprint.modelID)
+                }
+                NavigationLink {
+                    LiveDownloadsScreen()
+                } label: {
+                    GlassRow(symbol: "arrow.down.circle", title: "Downloads",
+                             subtitle: downloadsSubtitle, last: true)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .onAppear { models.refresh() }
+    }
+
+    private var speechSubtitle: String {
+        if store.preparing { return "Downloading Apple's speech model for your language." }
+        if !store.sttNotice.isEmpty { return store.sttNotice }
+        let primary = store.config.primaryLanguage.isEmpty ? "your language"
+            : (LiveLanguageName.name(store.config.primaryLanguage) ?? store.config.primaryLanguage)
+        return "Writes down \(primary) as it is said."
+    }
+
+    private var voiceprintSubtitle: String {
+        if serverEmbedModel == LiveVoiceprint.modelID {
+            return "Made on this iPhone (built in, 25 MB) and matched on the server."
+        }
+        if serverEmbedModel.isEmpty {
+            return "Made on this iPhone. The server hasn't said which model it uses."
+        }
+        // The interlock: vectors from two checkpoints are not comparable.
+        return "The server uses another model, so it works voices out from the audio instead."
+    }
+
+    private var downloadsSubtitle: String {
+        let here = LiveModelKind.allCases.filter { models.state($0) == .ready }
+        guard !here.isEmpty else { return "Nothing downloaded." }
+        return "\(LiveBytes.text(models.bytesOnDisk)) · "
+             + here.map(\.shortName).joined(separator: ", ")
+    }
+
+    private func mark(ok: Bool) -> some View {
+        JcIcon(ok ? "checkmark.circle.fill" : "exclamationmark.circle", size: 17)
+            .foregroundStyle(ok ? JcTheme.success : JcTheme.amber)
+            .accessibilityLabel(ok ? "Working" : "Needs attention")
+    }
+}
+
+/// The downloaded models, and the only place one is deleted.
+struct LiveDownloadsScreen: View {
+    @State private var models = LiveModels.shared
+    @State private var removing: LiveModelKind?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassQuietLabel("Models")
+                GlassGroup {
+                    ForEach(Array(LiveModelKind.allCases.enumerated()), id: \.element) { index, kind in
+                        GlassRow(symbol: kind == .parakeet ? "translate" : "character.bubble",
+                                 title: kind.title,
+                                 subtitle: "\(kind.detail) \(LiveBytes.text(kind.approxBytes)).",
+                                 subtitleLineLimit: 3,
+                                 last: index == LiveModelKind.allCases.count - 1) {
+                            trailing(kind)
+                        }
+                    }
+                }
+                LiveSettingsNote("Pick a model under \"Other languages, heard by\" to download it. "
+                               + "Removing one the phone is using moves that choice back to "
+                               + "what is left.")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
+        }
+        .jcScreen("Downloads")
+        .onAppear { models.refresh() }
+        .confirmationDialog(removing.map { "Remove \($0.shortName)?" } ?? "",
+                            isPresented: Binding(get: { removing != nil },
+                                                 set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible) {
+            if let kind = removing {
+                Button("Remove \(LiveBytes.text(kind.approxBytes))", role: .destructive) {
+                    models.remove(kind)
+                }
+                Button("Keep it", role: .cancel) {}
+            }
+        } message: {
+            Text("Getting it back means downloading it again.")
         }
     }
 
     @ViewBuilder
-    private var voiceprintBadge: some View {
-        if serverEmbedModel == LiveVoiceprint.modelID {
-            badge("Matches server", tint: JcTheme.success)
-        } else if serverEmbedModel.isEmpty {
-            badge("Server not reported", tint: JcTheme.muted)
-        } else {
-            // The interlock: vectors from two checkpoints are not comparable, so
-            // the server identifies from the audio instead. Read-only here on
-            // purpose — an edited id would corrupt identity on every device.
-            badge("Server uses another model", tint: JcTheme.amber)
+    private func trailing(_ kind: LiveModelKind) -> some View {
+        switch models.state(kind) {
+        case .ready:
+            Button { removing = kind } label: {
+                Text("Remove")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcTheme.danger)
+            }
+            .buttonStyle(.plain)
+        case .downloading(let fraction, _):
+            Text("\(Int(fraction * 100))%")
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(JcTheme.text)
+        case .preparing:
+            ProgressView().controlSize(.small)
+        case .absent, .failed:
+            Text("Not downloaded")
+                .font(.system(size: 12.5))
+                .foregroundStyle(JcTheme.muted)
         }
-    }
-
-    private func badge(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(tint)
-            .lineLimit(1)
-    }
-
-    private var footer: String {
-        let here = LiveModelKind.allCases.filter { models.state($0) == .ready }
-        guard !here.isEmpty else {
-            return "Without the downloads, lines are corrected on the server, a few seconds later."
-        }
-        let bytes = here.reduce(Int64(0)) { $0 + $1.approxBytes }
-        return "\(Self.size(bytes)) of models on this iPhone. Each line is re-heard here the "
-             + "moment it ends; nothing waits on the server."
-    }
-
-    static func size(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }
 
@@ -201,8 +383,8 @@ struct LiveModelPopup: ViewModifier {
                 let got = Int64(Double(kind.approxBytes) * fraction)
                 return Card(key: "download-\(kind.rawValue)", symbol: "arrow.down.circle",
                             title: "Downloading \(kind.title)",
-                            detail: "\(phase) · \(LiveOnPhoneSection.size(got)) of "
-                                  + "\(LiveOnPhoneSection.size(kind.approxBytes))",
+                            detail: "\(phase) · \(LiveBytes.text(got)) of "
+                                  + "\(LiveBytes.text(kind.approxBytes))",
                             fraction: fraction, cancel: kind)
             default:
                 return Card(key: "prepare-\(kind.rawValue)", symbol: "cpu",
@@ -221,7 +403,7 @@ struct LiveModelPopup: ViewModifier {
         if let done = models.justFinished {
             return Card(key: "done-\(done.rawValue)", symbol: "checkmark.circle",
                         title: "\(done.title) is on this iPhone",
-                        detail: "It will be used from the next recording.", done: true)
+                        detail: "Lines are re-heard with it from now on.", done: true)
         }
         return nil
     }

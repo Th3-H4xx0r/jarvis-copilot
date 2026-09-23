@@ -2775,6 +2775,56 @@ def test_a_corrected_line_goes_out_before_its_translation(monkeypatch):
     ]
 
 
+def test_a_line_the_phone_translates_is_not_translated_here(monkeypatch):
+    """The phone says `translate: "device"` when its settings have it translate
+    its own lines. Translating them here as well billed a model call for words
+    already on screen — so only a line WITHOUT that flag reaches the watcher."""
+    released = []
+    monkeypatch.setattr(live_ws, "_notify_segment_appended",
+                        lambda _sid, seq, translate=True: released.append(translate))
+    rescued = []
+    monkeypatch.setattr(live_ws, "_rescue_language_async",
+                        lambda row, device_translates=False:
+                        rescued.append(device_translates) or False)
+    conn, _client = _connect()
+
+    _final_seg(conn, "hola", lang="es", translate="device")
+    _final_seg(conn, "bonjour", lang="fr")
+
+    assert released == [False, True]
+    assert rescued == [True, False], "the rescue is told, so it holds back too"
+
+
+def test_the_rescue_leaves_a_phone_translated_line_to_the_phone(monkeypatch):
+    """No Whisper English pass and no translation released afterwards: the
+    corrected row going back to the phone is what gets it translated."""
+    from api import live_language
+
+    sid = _start_session(device_id="iphone")["live_session_id"]
+    row = live_store.append_segment(sid, ts_start_ms=0, ts_end_ms=2000,
+                                    text="Ola, Como, Stas", lang="en-US")
+    monkeypatch.setattr(live_ws, "pcm_for_range",
+                        lambda *a, **k: (b"\0\0" * 32000, 16000))
+    monkeypatch.setattr(live_ws, "publish", lambda *a, **k: None)
+    asked = []
+
+    def fake_rescue(pcm, rate, declared, *, model_name, translate_to, on_heard=None):
+        asked.append(translate_to)
+        return {"lang": "es", "text": "Hola, ¿cómo estás?", "confidence": 0.9}
+
+    monkeypatch.setattr(live_language, "rescue", fake_rescue)
+    settled = []
+    monkeypatch.setattr(live_ws, "_notify_language_settled",
+                        lambda _sid, seq: settled.append(seq))
+
+    live_ws._run_language_rescue(sid, row["seq"], 0, 2000, "", "en-US", "", "en", True)
+    assert asked == [""] and settled == []
+
+    live_ws._run_language_rescue(sid, row["seq"], 0, 2000, "", "en-US", "", "en")
+    assert asked == ["", "en"] and settled == [row["seq"]], \
+        "a line from a device that does not translate is released as before"
+
+
 # ── a voiceprint made on the device ────────────────────────────────────────
 
 

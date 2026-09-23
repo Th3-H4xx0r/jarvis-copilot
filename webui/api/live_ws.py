@@ -1228,12 +1228,19 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
                        speaker_conf: Optional[float] = None,
                        device_id: str = "",
                        audio_ref: str = "",
-                       voiceprint: Optional[List[float]] = None) -> Dict[str, Any]:
+                       voiceprint: Optional[List[float]] = None,
+                       device_translates: bool = False) -> Dict[str, Any]:
     """Append one utterance, fan it out, then poke the watchers.
 
     `voiceprint` is the capturing device's own embedding of the utterance,
     already validated — identification then matches it directly instead of
     reading the audio back and embedding it here.
+
+    `device_translates` is the device saying it translates this line itself
+    (the phone's on-device translation, chosen in its Live settings). The
+    server then leaves it alone: translating it here too bills a model call
+    for an answer the phone already put on screen. A pair the phone cannot do
+    still reaches the server, through `/api/live/translate`.
 
     Order matters: the row is durable before anyone is told about it, and the
     watchers run last so a slow or broken one delays nothing a viewer sees.
@@ -1249,9 +1256,9 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
     # it. Otherwise an utterance gets translated on a label that is about to
     # change, which is how English spoken into a phone set to another locale
     # ended up with an English "translation" under it.
-    rescuing = _rescue_language_async(row)
+    rescuing = _rescue_language_async(row, device_translates=device_translates)
     _notify_segment_appended(live_session_id, int(row["seq"]),
-                             translate=not rescuing)
+                             translate=not rescuing and not device_translates)
     _identify_async(row, voiceprint)
     return row
 
@@ -1292,7 +1299,8 @@ def _notify_language_settled(live_session_id: str, seq: int) -> None:
                      live_session_id[:8] or "?", seq, exc_info=True)
 
 
-def _rescue_language_async(row: Dict[str, Any]) -> bool:
+def _rescue_language_async(row: Dict[str, Any], *,
+                           device_translates: bool = False) -> bool:
     """Queue a second opinion on what language this utterance was in.
 
     Returns whether a rescue is really going to run, because the caller holds
@@ -1321,7 +1329,8 @@ def _rescue_language_async(row: Dict[str, Any]) -> bool:
             str(row.get("device_id") or ""),
             str(row.get("lang") or ""),
             str(cfg.get("rescue_model") or ""),
-            str(cfg.get("primary_language") or ""))
+            str(cfg.get("primary_language") or ""),
+            device_translates)
     except Exception:
         logger.debug("live: language rescue could not be queued", exc_info=True)
         return False
@@ -1371,7 +1380,8 @@ def _republish_segment(live_session_id: str, seq: int) -> None:
 
 def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
                          ts_end_ms: int, device_id: str, declared_lang: str,
-                         model_name: str, primary_language: str) -> None:
+                         model_name: str, primary_language: str,
+                         device_translates: bool = False) -> None:
     """Re-hear one utterance and, if it was another language, correct it.
 
     Every failure here is a log line and an unchanged segment: the phone's
@@ -1380,7 +1390,9 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
 
     Translation is released in `finally` whatever happens, because the caller
     held it back for us. A rescue that fails must cost a correction, never the
-    translation that was waiting on it.
+    translation that was waiting on it. Unless the device translates its own
+    lines: then nothing was held, Whisper's English pass is skipped, and the
+    corrected row going back to the phone is what gets it translated.
     """
     from api import live_language
 
@@ -1419,7 +1431,7 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
         found = live_language.rescue(
             audio[0], audio[1], declared_lang,
             model_name=model_name or live_language.DEFAULT_MODEL,
-            translate_to=primary_language,
+            translate_to="" if device_translates else primary_language,
             on_heard=_store_correction)
         if not found or not _store_correction(found):
             return
@@ -1437,7 +1449,8 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
         # Now the language is settled, whichever way it went. If this segment
         # really was the primary language, the gate will skip it — which is the
         # whole point: an English line no longer gets an English "translation".
-        _notify_language_settled(live_session_id, seq)
+        if not device_translates:
+            _notify_language_settled(live_session_id, seq)
 
 
 # ── speaker identification (design §5.2, the authority lane) ───────────────
@@ -2319,7 +2332,8 @@ class LiveConnection:
                 text=final_text[:_MAX_SEGMENT_CHARS], lang=lang,
                 local_label=local_label, device_id=self.device_id,
                 voiceprint=(device_voiceprint(msg.get("emb"))
-                            if self.embeds else None))
+                            if self.embeds else None),
+                device_translates=str(msg.get("translate") or "") == "device")
         except KeyError:
             self.error("no_session", "live session no longer exists")
         except Exception:

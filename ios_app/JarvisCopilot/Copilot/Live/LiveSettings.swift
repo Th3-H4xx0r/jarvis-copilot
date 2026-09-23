@@ -31,6 +31,9 @@ final class LiveSettings {
     static let lastAudioSeqKey = "jc_live_last_audio_seq"
     /// The paired chat session, so a resumed recording still knows it has one.
     static let lastChatSessionKey = "jc_live_last_chat_session"
+    /// Whether THIS phone translates the lines it records (Apple, on device) or
+    /// leaves them to the server. Per phone: the language packs are on it.
+    static let translateOnPhoneKey = "jc_live_translate_on_phone"
 
     private let store: KeyValueStore
 
@@ -45,6 +48,9 @@ final class LiveSettings {
         _lastElapsedMs = Int(store.string(Self.lastElapsedKey) ?? "") ?? 0
         _lastAudioSeq = Int(store.string(Self.lastAudioSeqKey) ?? "") ?? 0
         _lastChatSessionID = store.string(Self.lastChatSessionKey) ?? ""
+        // Default ON: the phone is instant and private, and hands the server
+        // any pair it has no pack for anyway.
+        _translateOnPhone = store.bool(Self.translateOnPhoneKey) ?? true
     }
 
     private var _captureSourceID: String
@@ -54,6 +60,7 @@ final class LiveSettings {
     private var _lastElapsedMs: Int
     private var _lastAudioSeq: Int
     private var _lastChatSessionID: String
+    private var _translateOnPhone: Bool
 
     var captureSourceID: String {
         get { _captureSourceID }
@@ -67,6 +74,11 @@ final class LiveSettings {
     var captureHere: Bool {
         get { _captureHere }
         set { _captureHere = newValue; store.set(newValue, forKey: Self.captureHereKey) }
+    }
+
+    var translateOnPhone: Bool {
+        get { _translateOnPhone }
+        set { _translateOnPhone = newValue; store.set(newValue, forKey: Self.translateOnPhoneKey) }
     }
 
     var lastSessionID: String {

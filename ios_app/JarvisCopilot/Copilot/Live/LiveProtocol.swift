@@ -73,8 +73,10 @@ enum LiveClientMessage: Equatable, Sendable {
     /// overwrite the committed row.
     /// `voiceprint` is this phone's own embedding of the utterance, when it makes
     /// them; the server then matches it instead of re-reading the audio.
+    /// `translatesHere` tells the server this phone translates the line itself,
+    /// so it does not translate it a second time.
     case segment(startMs: Int, endMs: Int, text: String, lang: String, localLabel: String,
-                 voiceprint: [Float]? = nil)
+                 voiceprint: [Float]? = nil, translatesHere: Bool = false)
     /// The capture source changed mid-session (AirPods connected, route lost), so
     /// the transcript can say where the audio came from from here on.
     case source(label: String)
@@ -87,7 +89,8 @@ enum LiveClientMessage: Equatable, Sendable {
                                       "device_kind": "ios", "caps": caps.payload]
             if let resume { out["resume"] = resume.payload }
             return out
-        case .segment(let startMs, let endMs, let text, let lang, let label, let voiceprint):
+        case .segment(let startMs, let endMs, let text, let lang, let label, let voiceprint,
+                      let translatesHere):
             var out: [String: Any] = ["t": "seg", "partial": false,
                                       "ts_start_ms": startMs, "ts_end_ms": endMs,
                                       "text": text, "lang": lang, "local_label": label]
@@ -96,6 +99,7 @@ enum LiveClientMessage: Equatable, Sendable {
             if let voiceprint {
                 out["emb"] = voiceprint.map { (Double($0) * 1e5).rounded() / 1e5 }
             }
+            if translatesHere { out["translate"] = "device" }
             return out
         case .source(let label):
             return ["t": "source", "source_label": label]

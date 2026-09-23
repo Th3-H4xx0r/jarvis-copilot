@@ -621,6 +621,26 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertEqual(segs(rig).first?["lang"] as? String, "es")
     }
 
+    /// A line tells the server the phone translates it only when this phone is
+    /// set to; otherwise the server translates it, as it would a web line.
+    func testALineSaysWhetherThisPhoneTranslatesIt() async {
+        for onPhone in [true, false] {
+            let rig = makeRig()
+            rig.settings.translateOnPhone = onPhone
+            rig.recognizer.nextTranscript = "Hola"
+            await rig.store.start()
+            rig.store.receive(text: readyFrame())
+            await openUtterance(rig)
+            rig.recognizer.latest?.emitPartial("Hola")
+            rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+            await waitForSeg(rig)
+
+            XCTAssertEqual(segs(rig).first?["translate"] as? String, onPhone ? "device" : nil,
+                           "on phone: \(onPhone)")
+            await rig.store.stop()
+        }
+    }
+
     /// NaturalLanguage on the model's own output, as measured on his recordings:
     /// real Spanish is certain; a romanised Telugu guess must not pass as a
     /// language the model transcribes.
