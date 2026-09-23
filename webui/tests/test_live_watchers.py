@@ -195,6 +195,8 @@ def no_memory_writes(monkeypatch):
         return {"stored": len(facts), "staged": 0}
 
     monkeypatch.setattr(live_watchers, "_store_facts", _record)
+    # Nor the real long-term store: tests that want one patch in a fake.
+    monkeypatch.setattr(live_watchers, "_long_term_memory", lambda: None)
     return written
 
 
@@ -1960,7 +1962,7 @@ def test_an_unattributable_fact_from_an_unrelated_session_is_not_even_counted(
     result = live_watchers.retract_facts(speaker_id=speaker)
 
     assert result == {"facts_retracted": 0, "facts_retraction_staged": 0,
-                      "facts_unattributable": 0}
+                      "facts_unattributable": 0, "memories_forgotten": 0}
     assert "A fact from a room this voice was never in" in \
         _memory_file(home).read_text()
 
@@ -2343,3 +2345,107 @@ def test_the_timeout_is_configurable_and_can_be_switched_off(cfg):
     cfg["fact_check_timeout_seconds"] = 0
     assert live_watchers._tool_pass_timeout() == 0, "0 means no deadline"
 
+
+# ── long-term memory: who said what, and when ─────────────────────────────
+
+
+class _FakeMemory:
+    def __init__(self):
+        self.remembered, self.forgotten = [], []
+
+    def remember(self, body, *, source, tags="", created_at=None, dedup=True, **_):
+        self.remembered.append({"body": body, "source": source, "tags": tags,
+                                "created_at": created_at, "dedup": dedup})
+        return f"id{len(self.remembered)}"
+
+    def forget(self, *, source_prefix="", tag=""):
+        self.forgotten.append(source_prefix or tag)
+        return 1
+
+
+# 2026-09-22 21:31:00 UTC
+_STARTED = 1790112660.0
+
+
+def _utc():
+    from datetime import timezone
+    return timezone.utc
+
+
+def test_a_window_memory_says_who_said_what_and_when(monkeypatch):
+    monkeypatch.setattr(live_watchers, "_speaker_labels", lambda: {"s1": "Pranav", "s2": "Brenda"})
+    monkeypatch.setattr(live_watchers, "_speaker_label",
+                        lambda seg, names: names.get(seg.get("speaker_id"), "Someone"))
+    segments = [
+        {"seq": 4, "ts_start_ms": 5000, "ts_end_ms": 7000, "speaker_id": "s1",
+         "text": "Are you there?", "lang": "en-US"},
+        {"seq": 5, "ts_start_ms": 65_000, "ts_end_ms": 68_000, "speaker_id": "s2",
+         "text": "Hola, ¿cómo estás?", "lang": "es", "translation": "Hello, how are you?"},
+    ]
+    memories = live_watchers._window_memories(
+        "abcdef1234", segments, summary="They greeted each other.",
+        started_at=_STARTED, zone=_utc())
+
+    assert len(memories) == 1
+    body, when = memories[0]
+    assert body.splitlines()[0] == ("Live conversation on Tuesday 22 September 2026, "
+                                    "21:31–21:32 UTC (recording abcdef12)")
+    assert "Speakers: Pranav, Brenda" in body
+    assert "Summary: They greeted each other." in body
+    assert "[21:31:05] Pranav: Are you there?" in body
+    assert "[21:32:05] Brenda (es): Hello, how are you?  (spoken: Hola, ¿cómo estás?)" in body
+    assert when == _STARTED + 5
+
+
+def test_a_long_window_is_split_and_every_part_keeps_who_and_when(monkeypatch):
+    monkeypatch.setattr(live_watchers, "_speaker_labels", lambda: {"s1": "Pranav"})
+    monkeypatch.setattr(live_watchers, "_speaker_label",
+                        lambda seg, names: names.get(seg.get("speaker_id"), "Someone"))
+    segments = [{"seq": i, "ts_start_ms": i * 1000, "ts_end_ms": i * 1000 + 900,
+                 "speaker_id": "s1", "text": "word " * 60, "lang": "en"} for i in range(12)]
+    memories = live_watchers._window_memories("abcdef1234", segments, summary="",
+                                              started_at=_STARTED, zone=_utc())
+    assert len(memories) > 1
+    for body, _when in memories:
+        assert len(body) <= live_watchers._MEMORY_CHUNK_CHARS + 400
+        assert body.startswith("Live conversation on Tuesday 22 September 2026")
+        assert "Speakers: Pranav" in body
+
+
+def test_a_window_and_its_facts_go_to_long_term_memory_with_their_stamp(monkeypatch):
+    memory = _FakeMemory()
+    monkeypatch.setattr(live_watchers, "_long_term_memory", lambda: memory)
+    monkeypatch.setattr(live_watchers, "_local_zone", _utc)
+    monkeypatch.setattr(live_watchers, "_speaker_labels", lambda: {"s1": "Pranav"})
+    monkeypatch.setattr(live_watchers, "_speaker_label",
+                        lambda seg, names: names.get(seg.get("speaker_id"), "Someone"))
+    monkeypatch.setattr(live_store, "get_session",
+                        lambda sid: {"id": sid, "started_at": _STARTED})
+    segments = [{"seq": 7, "ts_start_ms": 1000, "ts_end_ms": 3000, "speaker_id": "s1",
+                 "text": "I live in Houston.", "lang": "en-US"}]
+
+    counts = live_watchers._remember_window("sess123456", segments, summary="Where he lives.",
+                                            facts=["Pranav lives in Houston."],
+                                            speaker_ids=["s1"])
+
+    assert counts["remembered"] == 1 and counts["stored"] == 1
+    window, fact = memory.remembered
+    assert window["source"] == "live:sess123456:7-7"
+    assert window["tags"] == "live,conversation,speaker:s1"
+    assert window["created_at"] == _STARTED + 1 and window["dedup"] is False
+    assert "[21:31:01] Pranav: I live in Houston." in window["body"]
+    assert fact["source"] == "live:sess123456:fact:7-7"
+    assert fact["tags"] == "live,fact,overheard,speaker:s1"
+    assert fact["body"].startswith("Pranav lives in Houston. (overheard in a Live conversation "
+                                   "on Tue 22 Sep 2026 at 21:31 UTC; voices: Pranav;")
+
+
+def test_deleting_a_recording_or_a_voice_forgets_its_memories(monkeypatch):
+    memory = _FakeMemory()
+    monkeypatch.setattr(live_watchers, "_long_term_memory", lambda: memory)
+
+    by_session = live_watchers.retract_facts(live_session_id="sess123456")
+    by_voice = live_watchers.retract_facts(speaker_id="s1")
+
+    assert memory.forgotten == ["live:sess123456:", "speaker:s1"]
+    assert by_session["memories_forgotten"] == 1 and by_voice["memories_forgotten"] == 1

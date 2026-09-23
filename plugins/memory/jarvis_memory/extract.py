@@ -129,6 +129,12 @@ class OllamaFactExtractor(FactExtractor):
         return _parse_facts(content)
 
 
+def _model_missing(exc: Exception) -> bool:
+    """Whether a provider error says the requested model does not exist."""
+    text = str(exc).lower()
+    return "model" in text and ("not found" in text or "404" in text)
+
+
 class AuxiliaryExtractor(FactExtractor):
     """Extract via the user's configured model (e.g. gpt-5.5) through the gateway's
     auxiliary LLM client. Far better fact quality than a tiny local model, no extra
@@ -147,18 +153,35 @@ class AuxiliaryExtractor(FactExtractor):
         if assistant_text:
             user_block += f"\nAssistant said: {assistant_text}"
         user_block += "\n\nJSON array of durable facts:"
-        resp = call_llm(
-            task="memory_extraction",          # reads auxiliary.memory_extraction.* if configured
-            provider=self._provider,
-            model=self._model,                  # explicit override, else auto-detect main model
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_block},
-            ],
-            max_tokens=512,
-            temperature=0.0,
-            timeout=self._timeout,
-        )
+
+        def ask(model):
+            return call_llm(
+                task="memory_extraction",      # reads auxiliary.memory_extraction.* if configured
+                provider=self._provider,
+                model=model,                    # explicit override, else auto-detect main model
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_block},
+                ],
+                max_tokens=512,
+                temperature=0.0,
+                timeout=self._timeout,
+            )
+
+        try:
+            resp = ask(self._model)
+        except Exception as exc:
+            # A pinned model the provider no longer has ("model ... not found")
+            # skipped EVERY turn: memory stored nothing for twelve days after
+            # the main provider changed underneath a pinned gpt-5.4-mini. The
+            # main model is a working answer, so fall back to it — once, and
+            # for good, rather than failing the same way on every turn.
+            if not self._model or not _model_missing(exc):
+                raise
+            logger.warning("jarvis_memory: extraction model %r is unavailable (%s); "
+                           "using the main model instead", self._model, str(exc)[:160])
+            self._model = None
+            resp = ask(None)
         content = (resp.choices[0].message.content or "") if resp and resp.choices else ""
         return _parse_facts(content)
 

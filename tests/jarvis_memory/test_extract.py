@@ -41,6 +41,28 @@ def test_auxiliary_extractor_uses_call_llm(monkeypatch):
     assert captured["model"] == "gpt-5.5" and captured["task"] == "memory_extraction"
 
 
+def test_a_missing_pinned_model_falls_back_to_the_main_model(monkeypatch):
+    """Measured on his server: a pinned gpt-5.4-mini the provider no longer had
+    (404 "model not found") skipped every turn for twelve days."""
+    from types import SimpleNamespace
+    import agent.auxiliary_client as auxc
+    asked = []
+
+    def fake_call_llm(**kw):
+        asked.append(kw["model"])
+        if kw["model"]:
+            raise RuntimeError("Error code: 404 - {'error': {'message': "
+                               "'model \"gpt-5.4-mini\" not found'}}")
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='["Pranav lives in Houston"]'))])
+
+    monkeypatch.setattr(auxc, "call_llm", fake_call_llm)
+    extractor = AuxiliaryExtractor(model="gpt-5.4-mini")
+    assert extractor.extract("I live in Houston", "") == ["Pranav lives in Houston"]
+    assert extractor.extract("again", "") == ["Pranav lives in Houston"]
+    assert asked == ["gpt-5.4-mini", None, None], "falls back once, then stays on the main model"
+
+
 def test_sweep_transient_once(tmp_path):
     import time
     p = _prov(tmp_path, None, sweep_transient=False)  # avoid racing the bg sweep

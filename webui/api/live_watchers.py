@@ -753,12 +753,19 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
 
     facts = {"stored": 0, "staged": 0}
     if cfg.get("memory_extraction"):
-        # The recording and the voices go into the entry itself: a fact outlives
-        # every Live delete path, so it has to carry the key that lets a later
-        # "forget this voice" find it.
-        facts = _store_facts(_string_list(parsed.get("facts")),
-                             live_session_id=live_session_id,
-                             speaker_ids=window_speakers)
+        if _long_term_memory() is not None:
+            # Into the memory chat and voice recall from, with who said what and
+            # when — not MEMORY.md, which rides in every prompt of every chat.
+            facts = _remember_window(live_session_id, segments, summary=summary,
+                                     facts=_string_list(parsed.get("facts")),
+                                     speaker_ids=window_speakers)
+        else:
+            # The recording and the voices go into the entry itself: a fact
+            # outlives every Live delete path, so it has to carry the key that
+            # lets a later "forget this voice" find it.
+            facts = _store_facts(_string_list(parsed.get("facts")),
+                                 live_session_id=live_session_id,
+                                 speaker_ids=window_speakers)
 
     published = []
     for note in insights:
@@ -809,6 +816,146 @@ def _window_pass(live_session_id: str, cfg: dict, *, final: bool = False) -> Opt
 
 
 # ── memory extraction ──────────────────────────────────────────────────────
+
+# ── long-term memory: what chat and voice recall from ──────────────────────
+#
+# Live used to put only a handful of "facts" into MEMORY.md, which is pasted
+# into EVERY prompt of every chat, and kept nothing of who said what or when.
+# With jarvis_memory as the provider, each window goes into the same store a
+# chat turn does — searched per prompt, the relevant few injected — as the
+# window's own words with names, date and time, and the extracted facts with
+# the same stamp.
+
+# A stored memory is embedded whole; past this a window is split into several,
+# each carrying the header, so none loses who and when.
+_MEMORY_CHUNK_CHARS = 1500
+
+
+def _long_term_memory():
+    """`plugins.memory.jarvis_memory.external`, or None when it is not the
+    memory agents recall from (another provider, or not importable)."""
+    _ensure_repo_on_path()
+    try:
+        from plugins.memory.jarvis_memory import external
+    except Exception:
+        logger.debug("live: jarvis_memory is unavailable", exc_info=True)
+        return None
+    return external if external.is_active() else None
+
+
+def _local_zone():
+    """The user's timezone when configured, else UTC — named in every stamp,
+    so a UTC time is never read as local."""
+    _ensure_repo_on_path()
+    try:
+        from jarviscopilot_time import get_timezone
+        zone = get_timezone()
+        if zone is not None:
+            return zone
+    except Exception:
+        pass
+    from datetime import timezone
+    return timezone.utc
+
+
+def _window_memories(live_session_id: str, segments: list, *, summary: str,
+                     started_at: float, zone) -> list:
+    """`(body, created_at)` for each memory a window becomes: a header with
+    date, time, speakers, recording and summary, then `[HH:MM:SS] Name: text`
+    lines — split so no memory passes `_MEMORY_CHUNK_CHARS`."""
+    from datetime import datetime
+
+    names = _speaker_labels()
+    lines, first_ms, last_ms, voices = [], None, None, []
+    for segment in segments:
+        text = _readable_text(segment)
+        if not text:
+            continue
+        start_ms = _int(segment.get("ts_start_ms"))
+        first_ms = start_ms if first_ms is None else first_ms
+        last_ms = max(last_ms or 0, _int(segment.get("ts_end_ms")) or start_ms)
+        speaker = _speaker_label(segment, names)
+        if speaker not in voices:
+            voices.append(speaker)
+        spoken_at = datetime.fromtimestamp(started_at + start_ms / 1000, zone)
+        lang = str(segment.get("lang") or "").split("-")[0]
+        tag = f" ({lang})" if lang and lang != "en" else ""
+        lines.append(f"[{spoken_at:%H:%M:%S}] {speaker}{tag}: {text}")
+    if not lines:
+        return []
+    begin = datetime.fromtimestamp(started_at + (first_ms or 0) / 1000, zone)
+    end = datetime.fromtimestamp(started_at + (last_ms or 0) / 1000, zone)
+    header = [f"Live conversation on {begin:%A} {begin.day} {begin:%B %Y}, "
+              f"{begin:%H:%M}\u2013{end:%H:%M} {begin:%Z} "
+              f"(recording {live_session_id[:8]})",
+              "Speakers: " + ", ".join(voices)]
+    if summary:
+        header.append("Summary: " + summary)
+    head = "\n".join(header)
+    chunks, current = [], []
+    for line in lines:
+        size = len(head) + sum(len(x) + 1 for x in current) + len(line)
+        if current and size > _MEMORY_CHUNK_CHARS:
+            chunks.append(current)
+            current = []
+        current.append(line)
+    chunks.append(current)
+    return [(head + "\n" + "\n".join(part), begin.timestamp()) for part in chunks]
+
+
+def _remember_window(live_session_id: str, segments: list, *, summary: str,
+                     facts: list, speaker_ids) -> dict:
+    """Store one window and its facts in the long-term memory. Returns
+    `{"stored": facts stored, "staged": 0, "remembered": window memories}`."""
+    counts = {"stored": 0, "staged": 0, "remembered": 0}
+    memory = _long_term_memory()
+    if memory is None or not segments:
+        return counts
+    session = live_store.get_session(live_session_id) or {}
+    started_at = float(session.get("started_at") or time.time())
+    zone = _local_zone()
+    seq_range = f"{_int(segments[0].get('seq'))}-{_int(segments[-1].get('seq'))}"
+    voice_tags = ",".join(f"speaker:{s}" for s in sorted({str(v) for v in speaker_ids or [] if v}))
+    tags = "live,conversation" + (f",{voice_tags}" if voice_tags else "")
+    memories = _window_memories(live_session_id, segments, summary=summary,
+                                started_at=started_at, zone=zone)
+    for part, (body, when) in enumerate(memories, start=1):
+        source = f"live:{live_session_id}:{seq_range}" + (f":p{part}" if part > 1 else "")
+        if memory.remember(body, source=source, tags=tags, created_at=when, dedup=False):
+            counts["remembered"] += 1
+
+    candidates = [f[:_MAX_FACT_CHARS].strip() for f in facts if str(f or "").strip()]
+    if candidates and memories:
+        from datetime import datetime
+        when = memories[0][1]
+        heard = datetime.fromtimestamp(when, zone)
+        voices = memories[0][0].split("\n")[1].removeprefix("Speakers: ")
+        stamp = (f"(overheard in a Live conversation on {heard:%a} {heard.day} {heard:%b %Y} "
+                 f"at {heard:%H:%M} {heard:%Z}; voices: {voices}; recording "
+                 f"{live_session_id[:8]} \u2014 unverified, not told to Jarvis directly)")
+        fact_tags = "live,fact,overheard" + (f",{voice_tags}" if voice_tags else "")
+        for fact in candidates[:_MAX_FACTS_PER_WINDOW]:
+            if memory.remember(f"{fact} {stamp}", source=f"live:{live_session_id}:fact:{seq_range}",
+                               tags=fact_tags, created_at=when):
+                counts["stored"] += 1
+    if counts["remembered"] or counts["stored"]:
+        logger.info("live: remembered %d window(s) and %d fact(s) from %s",
+                    counts["remembered"], counts["stored"], live_session_id[:8])
+    return counts
+
+
+def _forget_long_term(live_session_id: str, speaker_id: str) -> int:
+    """Remove a recording's or a voice's memories from the long-term store."""
+    memory = _long_term_memory()
+    if memory is None:
+        return 0
+    gone = 0
+    if live_session_id:
+        gone += memory.forget(source_prefix=f"live:{live_session_id}:")
+    if speaker_id:
+        gone += memory.forget(tag=f"speaker:{speaker_id}")
+    return gone
+
 
 # Caps on what one window may commit to memory. A conversation that "remembers"
 # forty things per window is an attack or a malfunction, and either way the user
@@ -1087,6 +1234,10 @@ def retract_facts(*, live_session_id: str = "", speaker_id: str = "") -> dict:
     if not (live_session_id or speaker_id):
         return dict(counts,
                     facts_retraction_failed="no session or voice to retract for")
+
+    # The long-term memory first — that is where Live writes now. A recording's
+    # windows and facts carry its id in their source; a voice's carry its tag.
+    counts["memories_forgotten"] = _forget_long_term(live_session_id, speaker_id)
 
     store, memory_tool, reason = _open_memory_store(require_enabled=False)
     if reason:
