@@ -2840,3 +2840,30 @@ def test_a_device_voiceprint_is_matched_without_reading_audio(monkeypatch):
     live_ws._run_identification(sid, row["seq"], 0, 2000, "iphone", dict(row), vec)
 
     assert matched == [vec]
+
+
+def test_a_message_in_pieces_is_read_whole():
+    """A `seg` with a voiceprint is ~3 KB: it straddled a socket read and came
+    out of wsproto as two events, each parsed alone — "frame was not JSON",
+    and the line was lost."""
+    from wsproto import ConnectionType, WSConnection
+    from wsproto.events import AcceptConnection, Request, TextMessage
+
+    client = WSConnection(ConnectionType.CLIENT)
+    server = WSConnection(ConnectionType.SERVER)
+    server.receive_data(client.send(Request(host="localhost", target="/x")))
+    list(server.events())
+    client.receive_data(server.send(AcceptConnection()))
+    list(client.events())
+
+    message = json.dumps({"t": "seg", "text": "hola", "emb": [0.0625] * 256})
+    thirds = [message[:1000], message[1000:2000], message[2000:]]
+    wire = b"".join(client.send(TextMessage(data=part, message_finished=i == 2))
+                    for i, part in enumerate(thirds))
+
+    assembler = live_ws._Assembler()
+    server.receive_data(wire)
+    out = [assembler.text(e) for e in server.events() if isinstance(e, TextMessage)]
+
+    assert out[:-1] == [None] * (len(out) - 1), "nothing is handed on half-read"
+    assert json.loads(out[-1])["emb"] == [0.0625] * 256
