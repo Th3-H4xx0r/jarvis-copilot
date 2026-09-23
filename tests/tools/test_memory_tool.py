@@ -287,6 +287,20 @@ class TestExternalDriftGuard:
         path.write_text(existing + block, encoding="utf-8")
         return path
 
+    def test_a_stray_trailing_separator_is_not_drift(self, store):
+        """A "§" after the last entry is an empty entry: nothing is lost by
+        dropping it. Treated as drift it refused every write, and a user's
+        memory stayed frozen for days behind one stray separator."""
+        store.add("memory", "User lives in Houston.")
+        path = store._path_for("memory")
+        path.write_text(path.read_text(encoding="utf-8") + "\n§\n", encoding="utf-8")
+
+        result = store.add("memory", "User practises Spanish.")
+
+        assert result["success"] is True
+        text = path.read_text(encoding="utf-8")
+        assert "User lives in Houston." in text and "User practises Spanish." in text
+
     def test_replace_refuses_on_drift(self, store):
         store.add("memory", "User likes brevity.")
         path = self._plant_drift(store)

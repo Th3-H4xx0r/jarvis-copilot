@@ -566,7 +566,19 @@ class MemoryStore:
         char_limit = self._char_limit(target)
         max_entry_len = max((len(e) for e in parsed), default=0)
 
-        drift_detected = (raw.strip() != roundtrip) or (max_entry_len > char_limit)
+        # A separator with no entry on one side of it — a trailing "§", the
+        # usual residue of an append that writes the separator first — is an
+        # empty entry, and dropping it loses nothing. Counting it as drift
+        # refused EVERY write: one stray "§" at the end of MEMORY.md froze a
+        # user's memory (and Live's fact extraction with it) for two days.
+        text = raw.strip()
+        bare = ENTRY_DELIMITER.strip()
+        while bare and text.endswith(bare):
+            text = text[: -len(bare)].rstrip()
+        while bare and text.startswith(bare):
+            text = text[len(bare):].lstrip()
+
+        drift_detected = (text != roundtrip) or (max_entry_len > char_limit)
         if not drift_detected:
             return None
 
