@@ -1,6 +1,7 @@
 import Foundation
 
-/// Everything one voice said until someone else spoke, read as one block.
+/// Everything one voice said in one language until someone else spoke — or
+/// they switched language — read as one block.
 ///
 /// A row per committed line put a speaker chip, a clock, a globe and "from
 /// Spanish" on every clause a person paused after — five short lines from one
@@ -22,6 +23,10 @@ struct LiveTurn: Identifiable, Equatable {
     var endMs: Int { last.endMs }
 
     var speakerKey: String { LiveTurns.speakerKey(first) }
+
+    /// The language this turn is in: its first labelled line's. Nil while no
+    /// line carries a label.
+    var language: String? { lines.lazy.compactMap(LiveTurns.language).first }
 
     /// Unsure while ANY line in it is: a merge can still move one of them.
     var unconfirmed: Bool { lines.contains { $0.labelState == .provisional } }
@@ -45,23 +50,15 @@ struct LiveTurn: Identifiable, Equatable {
         }
     }
 
-    /// The turn in the reader's language: each line's translation, or the line
-    /// itself when it was already in that language. Nil when nothing in it has
-    /// been translated — a turn in your own language needs no second paragraph.
-    /// A foreign line still waiting for its translation is left out until it
-    /// arrives, rather than shown untranslated in the translation.
+    /// The turn in the reader's language: its lines' translations, in order.
+    /// Nil when nothing in it has been translated — a turn in your own
+    /// language needs no second paragraph. A line still waiting for its
+    /// translation is left out until it arrives, rather than shown untranslated
+    /// in the translation.
     func readerText(primary: String) -> String? {
-        guard lines.contains(where: { !($0.translation ?? "").isEmpty }) else { return nil }
-        let own = LiveTurns.subtag(primary)
-        let parts: [String] = lines.compactMap { line in
-            if let translation = line.translation?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !translation.isEmpty {
-                return translation
-            }
-            let subtag = LiveTurns.subtag(line.lang)
-            let foreign = !subtag.isEmpty && subtag != own
-            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return foreign || text.isEmpty ? nil : text
+        let parts = lines.compactMap { line -> String? in
+            let translation = (line.translation ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return translation.isEmpty ? nil : translation
         }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
@@ -94,10 +91,13 @@ enum LiveTurns {
         for row in rows {
             switch row {
             case .segment(let line):
-                // Same voice, and not a two-minute silence: the turn goes on,
-                // even past a note that arrived in the middle of it — the note
-                // stays after everything this turn says.
+                // Same voice, same language, and not a two-minute silence: the
+                // turn goes on, even past a note that arrived in the middle of
+                // it — the note stays after everything this turn says. A switch
+                // of language starts a new block, so each block has one
+                // language tag and a translation that matches it.
                 if var turn = open, speakerKey(line) == turn.speakerKey,
+                   sameLanguage(line, turn),
                    line.startMs - turn.endMs <= maxPauseMs {
                     turn.lines.append(line)
                     open = turn
@@ -128,6 +128,20 @@ enum LiveTurns {
     }
 
     static let unplacedKey = "unplaced"
+
+    /// A line's language for grouping — its primary subtag, so `en-US` and
+    /// `en` are one language — or nil when it carries no label.
+    static func language(_ line: LiveSegment) -> String? {
+        let tag = subtag(line.lang)
+        return tag.isEmpty ? nil : tag
+    }
+
+    /// An unlabelled line, or a turn with no label yet, goes with anything:
+    /// there is no language on it to disagree about.
+    static func sameLanguage(_ line: LiveSegment, _ turn: LiveTurn) -> Bool {
+        guard let mine = language(line), let theirs = turn.language else { return true }
+        return mine == theirs
+    }
 
     /// `es-419` → `es`. Kept here rather than borrowed from `LiveTranslator`,
     /// whose copy is main-actor isolated.

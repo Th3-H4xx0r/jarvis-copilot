@@ -315,6 +315,30 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertEqual(turns(items).map(\.speakerKey), ["id:A", "id:B", "id:A"])
     }
 
+    /// His screenshot: "Olá, como temos?" and the English after it sat in one
+    /// block tagged Portuguese, with a translation mixing both. A change of
+    /// language is a new block, even from the same voice.
+    func testAChangeOfLanguageStartsANewBlock() {
+        let items = LiveTurns.timeline([
+            line(1, "me", atS: 0, "Olá, como temos?", lang: "pt", translation: "Hello, how are we?"),
+            line(2, "me", atS: 4, "Hello, are you there?", lang: "en-US"),
+            line(3, "me", atS: 8, "Just checking.", lang: "en"),
+            line(4, "me", atS: 12, "Hola.", lang: "es-419", translation: "Hello."),
+        ])
+        XCTAssertEqual(turns(items).map(\.language), ["pt", "en", "es"])
+        XCTAssertEqual(turns(items)[1].text, "Hello, are you there? Just checking.",
+                       "en-US and en are one language")
+        XCTAssertNil(turns(items)[1].readerText(primary: "en"))
+    }
+
+    /// A line with no label yet is not a language change.
+    func testAnUnlabelledLineStaysInItsTurn() {
+        let items = LiveTurns.timeline([
+            line(1, "me", atS: 0, "Hola.", lang: "es"), line(2, "me", atS: 3, "¿Qué tal?", lang: ""),
+        ])
+        XCTAssertEqual(turns(items).count, 1)
+    }
+
     func testATwoMinuteSilenceStartsANewTurn() {
         let items = LiveTurns.timeline([line(1, "A", atS: 0, "before"), line(2, "A", atS: 200, "after")])
         XCTAssertEqual(turns(items).count, 2)
@@ -331,17 +355,16 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertEqual(turns(items).first?.notes.map(\.text), ["they are practising Spanish"])
     }
 
-    /// One paragraph in the reader's language: translations where there are
-    /// some, the line itself where it was already English, and a foreign line
-    /// still waiting left out rather than shown untranslated.
+    /// One paragraph in the reader's language, and a line still waiting for
+    /// its translation left out rather than shown untranslated.
     func testTheTranslationReadsAsOneParagraph() {
         let items = LiveTurns.timeline([
             line(1, "A", atS: 0, "Hola.", lang: "es", translation: "Hello."),
-            line(2, "A", atS: 3, "Okay, so.", lang: "en-US"),
+            line(2, "A", atS: 3, "Buenos días.", lang: "es", translation: "Good morning."),
             line(3, "A", atS: 6, "¿Cómo estás?", lang: "es"),
         ])
         let turn = turns(items)[0]
-        XCTAssertEqual(turn.readerText(primary: "en"), "Hello. Okay, so.")
+        XCTAssertEqual(turn.readerText(primary: "en"), "Hello. Good morning.")
         XCTAssertEqual(turn.foreignLanguages(primary: "en"), ["es"])
 
         let english = turns(LiveTurns.timeline([line(1, "A", atS: 0, "just English")]))[0]
