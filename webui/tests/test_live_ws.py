@@ -1100,6 +1100,46 @@ def test_too_many_concurrent_checks_are_refused_rather_than_queued(monkeypatch):
         release.set()
 
 
+def test_translations_queue_past_the_fact_check_ceiling(monkeypatch):
+    """The phone asks for a translation automatically for every line in a
+    language it has no pack for. Held to the fact-check ceiling, the third in a
+    burst of fast talk was refused and that line never translated."""
+    release = threading.Event()
+    started = threading.Semaphore(0)
+
+    def slow(sid, seq, target):
+        started.release()
+        release.wait(5)
+        return {"ok": True}
+
+    module = _install_watchers(monkeypatch, run_translate=slow)
+    queued = []
+    module._submit = lambda job: queued.append(job) or True
+    live_config.save({"translate": True})
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    _final_seg(conn, "uno")
+    try:
+        for _ in range(live_ws._MAX_WATCHER_INFLIGHT + 3):
+            handler, _ = _post("/api/live/translate", {"live_session_id": sid, "seq": 1})
+            assert handler.status == 202
+        assert len(queued) == live_ws._MAX_WATCHER_INFLIGHT + 3
+        assert live_ws._watcher_inflight == 0, "translations do not use the check ceiling"
+    finally:
+        release.set()
+
+
+def test_a_full_translation_queue_is_busy_not_an_unbounded_thread(monkeypatch):
+    module = _install_watchers(monkeypatch, run_translate=lambda *a: {"ok": True})
+    module._submit = lambda job: False
+    live_config.save({"translate": True})
+    conn, _client = _connect()
+    _final_seg(conn, "uno")
+    handler, _ = _post("/api/live/translate",
+                       {"live_session_id": conn.live_session_id, "seq": 1})
+    assert handler.status == 429
+
+
 def test_an_on_demand_watcher_call_reports_a_missing_watcher_rather_than_lying(
         monkeypatch):
     """Unlike the capture path, this is a button the user pressed — silence would

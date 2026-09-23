@@ -3263,13 +3263,21 @@ def _live_watcher_call(handler, body, func_name: str) -> bool:
           status=503)
         return True
 
-    with _watcher_inflight_lock:
-        if _watcher_inflight >= _MAX_WATCHER_INFLIGHT:
-            j(handler, {"ok": False, "error": "too many checks already running; "
-                                              "try again in a moment"},
-              status=429)
-            return True
-        _watcher_inflight += 1
+    # Translations are not held to the two-at-a-time fact-check ceiling. The
+    # phone asks for one automatically for every line in a language it has no
+    # pack for, so fast talk in such a language sent three at once, the third
+    # was refused, and that line was never translated. They go to the watcher
+    # pool's bounded queue instead (2 workers, 32 waiting) and are refused only
+    # when THAT is full — the client retries those.
+    counted = func_name != "run_translate"
+    if counted:
+        with _watcher_inflight_lock:
+            if _watcher_inflight >= _MAX_WATCHER_INFLIGHT:
+                j(handler, {"ok": False, "error": "too many checks already running; "
+                                                  "try again in a moment"},
+                  status=429)
+                return True
+            _watcher_inflight += 1
 
     target = str(body.get("target") or "").strip()
     job_id = uuid.uuid4().hex
@@ -3300,13 +3308,21 @@ def _live_watcher_call(handler, body, func_name: str) -> bool:
                 "message": f"{func_name} could not be completed",
             })
         finally:
-            with _watcher_inflight_lock:
-                _watcher_inflight -= 1
+            if counted:
+                with _watcher_inflight_lock:
+                    _watcher_inflight -= 1
 
     submitted = False
     submit = getattr(live_watchers, "_submit", None)
     if callable(submit):
         submitted = bool(submit(_job))
+    if callable(submit) and not submitted and not counted:
+        # The translation queue is full: busy, not broken, and bounded — a
+        # thread of its own here would make the queue's bound meaningless.
+        j(handler, {"ok": False, "error": "translations are queued up; "
+                                          "try again in a moment"},
+          status=429)
+        return True
     if not submitted:
         # No pool (or it declined): our own bounded thread, since the in-flight
         # count above is already the ceiling.
@@ -3318,8 +3334,9 @@ def _live_watcher_call(handler, body, func_name: str) -> bool:
             logger.warning("live: could not dispatch %s", func_name,
                            exc_info=True)
     if not submitted:
-        with _watcher_inflight_lock:
-            _watcher_inflight -= 1
+        if counted:
+            with _watcher_inflight_lock:
+                _watcher_inflight -= 1
         j(handler, {"ok": False, "error": f"could not start {func_name}"},
           status=503)
         return True

@@ -2255,7 +2255,7 @@ final class LiveStore {
                 // This phone has no pack for that pair. The server has more
                 // languages and does not need the screen to be open.
                 guard let row = self.transcript.segment(seq: seq) else { return }
-                Task { [weak self] in await self?.translate(row) }
+                Task { [weak self] in await self?.translate(row, quietly: true) }
             }
         }
     }
@@ -2271,12 +2271,38 @@ final class LiveStore {
         }
     }
 
-    func translate(_ segment: LiveSegment, to target: String? = nil) async {
+    /// Ask the server to translate a line.
+    ///
+    /// `quietly` is the automatic path — a line in a language this phone has no
+    /// pack for. That one is retried after a short wait instead of dropped, and
+    /// never shown as an error: in fast talk the server can be busy for a
+    /// moment, and a request refused then used to leave that line untranslated
+    /// for good, under an error the user had not asked for. A Translate tapped
+    /// by hand is tried once and says so if it fails.
+    func translate(_ segment: LiveSegment, to target: String? = nil, quietly: Bool = false) async {
         guard !liveSessionID.isEmpty else { return }
         let language = target ?? config.primaryLanguage
-        do { try await api.translate(liveSessionID: liveSessionID, seq: segment.seq, target: language) }
-        catch { report("translate that", error) }
+        let waits = quietly ? Self.translateRetryWaits : []
+        for attempt in 0...waits.count {
+            do {
+                try await api.translate(liveSessionID: liveSessionID, seq: segment.seq, target: language)
+                return
+            } catch {
+                guard attempt < waits.count else {
+                    if quietly { JcLog.dropped(JcLog.voice, "translate a line", error) }
+                    else { report("translate that", error) }
+                    return
+                }
+                try? await Task.sleep(for: .seconds(waits[attempt]))
+                // Translated meanwhile (the server's own pass, or another device).
+                if let held = transcript.segment(seq: segment.seq),
+                   !(held.translation ?? "").isEmpty { return }
+            }
+        }
     }
+
+    /// Waits between retries of an automatic translation request.
+    static var translateRetryWaits: [Double] = [2, 5]
 
     /// Give the voice in this row a name. The rename lands locally at once so the
     /// chip changes under the user's finger, and the server's `speaker` frame

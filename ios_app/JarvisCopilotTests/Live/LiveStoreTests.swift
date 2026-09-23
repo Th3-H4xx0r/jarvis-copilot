@@ -745,6 +745,25 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertEqual(segs(rig).map { $0["text"] as? String }, ["just me talking"])
     }
 
+    /// A line the phone could not translate is retried when the server is
+    /// busy, quietly — fast talk used to leave it untranslated under an error.
+    func testAnAutomaticTranslationIsRetriedQuietlyWhenTheServerIsBusy() async {
+        let rig = makeRig()
+        LiveStore.translateRetryWaits = [0, 0]
+        defer { LiveStore.translateRetryWaits = [2, 5] }
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        let row = LiveSegment(seq: 7, text: "你好吗", lang: "zh")
+        rig.transport.enqueue(json: ["ok": false, "error": "translations are queued up"], status: 429)
+        rig.transport.enqueue(json: ["ok": true, "accepted": true], status: 202)
+
+        await rig.store.translate(row, quietly: true)
+
+        let asked = rig.transport.requests.filter { $0.url?.path.contains("/api/live/translate") == true }
+        XCTAssertEqual(asked.count, 2, "refused once, then accepted")
+        XCTAssertEqual(rig.store.error, "", "an automatic request shows no error")
+    }
+
     /// NaturalLanguage on the model's own output, as measured on his recordings:
     /// real Spanish is certain; a romanised Telugu guess must not pass as a
     /// language the model transcribes.
