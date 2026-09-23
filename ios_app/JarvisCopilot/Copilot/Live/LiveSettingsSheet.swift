@@ -34,6 +34,7 @@ struct LiveSettingsSheet: View {
                     rollover
                     replies
                     language
+                    LiveOnPhoneSection(store: store, serverEmbedModel: draft.embedModel)
                     footer
                 }
                 .padding(.horizontal, 20)
@@ -41,6 +42,7 @@ struct LiveSettingsSheet: View {
                 .padding(.bottom, 36)
             }
             .jcScreen("Live settings")
+            .liveModelPopup(store)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -356,7 +358,10 @@ struct LiveSettingsSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Language")
             GlassGroup {
-                GlassRow(symbol: "character.bubble", title: "Primary") {
+                GlassRow(symbol: "character.bubble", title: "Primary",
+                         subtitle: "What Apple's recogniser listens in, and what lines are "
+                                 + "translated into.",
+                         subtitleLineLimit: 3, last: true) {
                     // A free text field rather than a picker: the server's locale
                     // list is the authority and hardcoding one here would go stale.
                     TextField("en-US", text: Binding(get: { draft.primaryLanguage },
@@ -369,41 +374,8 @@ struct LiveSettingsSheet: View {
                         .frame(maxWidth: 120)
                         .onSubmit { push() }
                 }
-                // Device-local, and the sheet's own split says why: which
-                // languages THIS phone's recogniser listens for is meaningless on
-                // the server, which is not the thing doing the recognising.
-                NavigationLink {
-                    LiveLanguagesScreen(store: store)
-                } label: {
-                    GlassRow(symbol: "globe",
-                             title: "Languages heard",
-                             subtitle: languagesSubtitle,
-                             subtitleLineLimit: 2)
-                }
-                .buttonStyle(.plain)
-                GlassRow(symbol: "person.wave.2",
-                         title: "Voice model",
-                         subtitle: draft.embedModel.isEmpty
-                            ? "The server hasn't reported one yet."
-                            : draft.embedModel,
-                         subtitleLineLimit: 2,
-                         last: true) {
-                    // Read-only on purpose: the embedding-model id is the interlock
-                    // of design §5.3, and a client that edited it could silently
-                    // corrupt speaker identity across every device.
-                    JcIcon("lock", size: 13).foregroundStyle(JcTheme.muted)
-                }
             }
         }
-    }
-
-    /// What this phone is actually listening for, not what it is configured to
-    /// prefer. Empty means "the primary language above", which is the default and
-    /// is worth saying rather than leaving blank.
-    private var languagesSubtitle: String {
-        let chosen = store.settings.sttLanguages
-        guard !chosen.isEmpty else { return "Just the primary language." }
-        return chosen.map(LiveLanguageCatalog.name).joined(separator: ", ")
     }
 
     private var footer: some View {

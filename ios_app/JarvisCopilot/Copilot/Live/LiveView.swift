@@ -78,11 +78,12 @@ struct LiveView: View {
                 .padding(.bottom, Self.controlsGap)
         }
         .task { await store.load() }
-        // On-device translation. The session cannot be built directly — this
-        // modifier is the only way to get one — so a foreign line gets its
-        // meaning without a round trip for as long as this screen is up, and
-        // the server covers everything else.
+        // On-device translation for a pair whose language pack is NOT installed:
+        // only a session from this modifier can ask to download one. Installed
+        // pairs translate without any view (`InstalledTranslationSessions`).
         .liveTranslation(store.translator)
+        // Any model download or preparation, where it can be seen.
+        .liveModelPopup(store)
         .sheet(isPresented: $showSettings) {
             LiveSettingsSheet(store: store)
         }

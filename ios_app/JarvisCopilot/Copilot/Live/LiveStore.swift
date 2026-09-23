@@ -50,7 +50,8 @@ struct LiveHalt: Equatable, Sendable {
 final class LiveStore {
 
     static let shared = LiveStore(translationSessions: LiveStore.systemTranslationSessions(),
-                                  voiceprints: { LiveVoiceprintEmbedder() })
+                                  voiceprints: { LiveVoiceprintEmbedder() },
+                                  onDevice: { await LiveModels.shared.transcriber() })
 
     /// Translation sessions that need no view, where this OS has them. Only the
     /// app's own store gets Apple's: a test store would otherwise reach into the
@@ -304,8 +305,16 @@ final class LiveStore {
     private var voiceprints: VoiceprintEmbedding?
     private var voiceprintsTried = false
     /// The open utterance's samples, exactly as the recogniser was fed them, so
-    /// its voiceprint is made from the same audio its word range refers to.
+    /// its voiceprint and its second hearing are cut from the same audio its word
+    /// range refers to. Rolling: in a noisy room the window can be open on room
+    /// tone long before anyone speaks, so the OLDEST audio goes, never the words.
     private var utterancePCM = Data()
+    /// How much audio has rolled off the front of `utterancePCM`.
+    private var utteranceDroppedMs = 0
+    /// Loads the downloaded on-device models (Parakeet, SenseVoice), and what
+    /// it made. Nil when this build does not run them (tests).
+    private var onDeviceLoader: (@MainActor () async -> OnDeviceTranscribing?)?
+    private var onDevice: OnDeviceTranscribing?
     private var wordsChangedAtMs: Int?
     private var firstWordsAtMs: Int?
 
@@ -325,7 +334,8 @@ final class LiveStore {
          settings: LiveSettings? = nil,
          preferences: KeyValueStore = UserDefaults.standard,
          translationSessions: DirectTranslationSessions? = nil,
-         voiceprints: (@Sendable () -> VoiceprintEmbedding?)? = nil) {
+         voiceprints: (@Sendable () -> VoiceprintEmbedding?)? = nil,
+         onDevice: (@MainActor () async -> OnDeviceTranscribing?)? = nil) {
         self.api = api
         self.input = input ?? AmbientAudioInput()
         self.session = session ?? AmbientAudioSession()
@@ -337,6 +347,7 @@ final class LiveStore {
         self.preferences = preferences
         translator.direct = translationSessions
         voiceprintLoader = voiceprints
+        onDeviceLoader = onDevice
         wire()
     }
 
@@ -496,6 +507,15 @@ final class LiveStore {
         await prepareTranscription()
         // Before `hello`, which declares whether this phone makes voiceprints.
         await loadVoiceprints()
+        // NOT awaited: the first load compiles a 470 MB model for this phone and
+        // takes seconds, and the microphone must not wait on it. Lines committed
+        // before it is ready keep Apple's words.
+        if let loader = onDeviceLoader, onDevice == nil {
+            Task { [weak self] in
+                let made = await loader()
+                self?.onDevice = made
+            }
+        }
         // Every early return from here on releases the claim: leaving it held keeps
         // the system recording indicator lit over a screen saying "Not recording".
         guard epoch == generation else { try? session.release(); return }
@@ -1023,7 +1043,9 @@ final class LiveStore {
             pendingSpeechFrames = preRoll
             // The recogniser's first sample is the pre-roll's, so the voiceprint
             // buffer starts there too.
-            utterancePCM = voiceprints == nil ? Data() : preRoll.reduce(into: Data()) { $0.append($1) }
+            utterancePCM = Data()
+            utteranceDroppedMs = 0
+            for frame in preRoll { keepForLater(frame) }
             preRoll.removeAll()
         case .ended(let startMs, let endMs):
             sendAudio(pcm)
@@ -1041,9 +1063,7 @@ final class LiveStore {
                 // lost to the gap.
                 pendingSpeechFrames.append(pcm)
             }
-            if voiceprints != nil, utterancePCM.count < Self.maxVoiceprintBytes {
-                utterancePCM.append(pcm)
-            }
+            keepForLater(pcm)
             sendAudio(pcm)
             if wordsAreOver(), case .ended(let startMs, let endMs)? = segmenter.endUtterance() {
                 closeUtterance(startMs: startMs, endMs: endMs)
@@ -1167,15 +1187,15 @@ final class LiveStore {
         sendHello()
     }
 
-    /// The languages this phone's recogniser should listen for.
+    /// The language Apple's recogniser listens in: the conversation's primary
+    /// one, or the device's when that is unknown (an empty list).
     ///
-    /// The user's explicit list when they made one, otherwise the conversation's
-    /// primary language — which is the behaviour that existed before the list did.
-    /// Empty only when neither is known, and an empty list means "device
-    /// language", the recogniser's own default.
+    /// There used to be a user-picked list of up to three, each its own
+    /// recogniser over the same audio — three times the battery, and still only
+    /// the languages someone predicted. The downloaded models (`LiveModels`)
+    /// re-hear every line instead, in 25 European languages plus Chinese,
+    /// Japanese and Korean, without anyone choosing.
     var sttLocales: [Locale] {
-        let chosen = settings.sttLanguages
-        if !chosen.isEmpty { return chosen.map { Locale(identifier: $0) } }
         let primary = config.primaryLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
         return primary.isEmpty ? [] : [Locale(identifier: primary)]
     }
@@ -1307,8 +1327,55 @@ final class LiveStore {
 
     // MARK: - Voiceprints
 
-    /// Twenty seconds of 16 kHz mono int16 — the most the server embeds.
-    static let maxVoiceprintBytes = LiveStore.micRate * 2 * LiveVoiceprint.maxSpeechMs / 1000
+    /// Twenty seconds of 16 kHz mono int16 — the most the server embeds, and
+    /// more than a line can hold once the words have run for the cap.
+    static let maxHeardBytes = LiveStore.micRate * 2 * LiveVoiceprint.maxSpeechMs / 1000
+
+    /// Keep a frame of the open utterance for its voiceprint and second hearing,
+    /// dropping the oldest few seconds at once when it is full.
+    private func keepForLater(_ pcm: Data) {
+        guard voiceprints != nil || onDeviceLoader != nil else { return }
+        utterancePCM.append(pcm)
+        guard utterancePCM.count > Self.maxHeardBytes else { return }
+        let bytesPerMs = Self.micRate * 2 / 1000
+        let drop = (utterancePCM.count - Self.maxHeardBytes + 5000 * bytesPerMs) / 2 * 2
+        // A fresh buffer, not `removeFirst`: a trimmed `Data` keeps its old
+        // indices, and every slice below counts from zero.
+        utterancePCM = utterancePCM.subdata(in: drop..<utterancePCM.count)
+        utteranceDroppedMs += drop / bytesPerMs
+    }
+
+    /// Padding either side of the recogniser's word range for the second
+    /// hearing — the recogniser's range can shave an onset a model needs.
+    static let secondHearingPadMs = 500
+
+    /// The words a committed line carries, and their language.
+    private func bestLine(apple: String, appleLang: String, heard: Data, heardStartMs: Int,
+                          bounds: (start: Int, end: Int)) async -> (text: String, lang: String) {
+        guard let onDevice, !heard.isEmpty else { return (apple, appleLang) }
+        let bytesPerMs = Self.micRate * 2 / 1000
+        let from = min(max(0, (bounds.start - Self.secondHearingPadMs - heardStartMs) * bytesPerMs),
+                       heard.count)
+        let to = min(max(from, (bounds.end + Self.secondHearingPadMs - heardStartMs) * bytesPerMs),
+                     heard.count)
+        guard to > from else { return (apple, appleLang) }
+        let clip = heard.subdata(in: from..<to)
+        let second = await onDevice.transcribe(pcm16: clip)
+        return Self.chooseLine(apple: apple, appleLang: appleLang, heard: second)
+    }
+
+    /// Apple's words, unless the phone's own second hearing is sure the line was
+    /// in ANOTHER language. Apple's recogniser takes one locale, so a line in
+    /// another language comes out as phonetic English ("Hola, Como Stas") — and
+    /// labelled English, so it is never translated. Same language: Apple's words
+    /// stay, being the ones the user just watched appear.
+    static func chooseLine(apple: String, appleLang: String,
+                           heard: OnDeviceHeard?) -> (text: String, lang: String) {
+        guard let heard, !heard.text.isEmpty, heard.confidence >= 0.9, !heard.language.isEmpty,
+              LiveTranslator.primarySubtag(heard.language) != LiveTranslator.primarySubtag(appleLang)
+        else { return (apple, appleLang) }
+        return (heard.text, heard.language)
+    }
 
     /// Load the embedder once. A failure leaves `voiceprints` nil, and the
     /// server identifies from the audio exactly as before.
@@ -1407,7 +1474,9 @@ final class LiveStore {
         let finished = speech
         let anchorMs = speechAnchorMs
         let heard = utterancePCM
+        let heardStartMs = anchorMs + utteranceDroppedMs
         utterancePCM = Data()
+        utteranceDroppedMs = 0
         speech = nil
         forgetWords()
         // The audio has ended; the row is in flight. The words stay put until
@@ -1446,15 +1515,18 @@ final class LiveStore {
             // finalized.
             let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                              observedMs: finished.transcribedRangeMs)
-            let voice = await self.voiceprint(of: heard, anchorMs: anchorMs,
+            let voice = await self.voiceprint(of: heard, anchorMs: heardStartMs,
                                               startMs: bounds.start, endMs: bounds.end)
+            let line = await self.bestLine(apple: trimmed,
+                                           appleLang: finished.resolvedLanguage ?? language,
+                                           heard: heard, heardStartMs: heardStartMs, bounds: bounds)
             guard epoch == self.generation else { return }
-            self.send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
+            self.send(.segment(startMs: bounds.start, endMs: bounds.end, text: line.text,
                                // The locale that actually produced this text, not
                                // the one we hoped for. The server's auto-translate
                                // keys on this field, so labelling Spanish `en`
                                // guarantees it is never translated.
-                               lang: finished.resolvedLanguage ?? language,
+                               lang: line.lang,
                                // "me" is provisional and local: this device's owner
                                // is the likeliest speaker into their own phone, and
                                // the server's identification is the authority that
@@ -1473,7 +1545,9 @@ final class LiveStore {
         let finished = speech
         let anchorMs = speechAnchorMs
         let heard = utterancePCM
+        let heardStartMs = anchorMs + utteranceDroppedMs
         utterancePCM = Data()
+        utteranceDroppedMs = 0
         speech = nil
         pendingSpeechFrames.removeAll()
         // Before the guards, and before `stop` closes the socket: the encoder's
@@ -1492,10 +1566,13 @@ final class LiveStore {
         guard !trimmed.isEmpty else { return }
         let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                          observedMs: finished.transcribedRangeMs)
-        let voice = await voiceprint(of: heard, anchorMs: anchorMs,
+        let voice = await voiceprint(of: heard, anchorMs: heardStartMs,
                                      startMs: bounds.start, endMs: bounds.end)
-        send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
-                      lang: finished.resolvedLanguage ?? config.primaryLanguage,
+        let line = await bestLine(apple: trimmed,
+                                  appleLang: finished.resolvedLanguage ?? config.primaryLanguage,
+                                  heard: heard, heardStartMs: heardStartMs, bounds: bounds)
+        send(.segment(startMs: bounds.start, endMs: bounds.end, text: line.text,
+                      lang: line.lang,
                       localLabel: "me", voiceprint: voice))
     }
 

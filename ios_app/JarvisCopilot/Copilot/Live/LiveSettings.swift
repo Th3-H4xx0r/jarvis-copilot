@@ -31,17 +31,6 @@ final class LiveSettings {
     static let lastAudioSeqKey = "jc_live_last_audio_seq"
     /// The paired chat session, so a resumed recording still knows it has one.
     static let lastChatSessionKey = "jc_live_last_chat_session"
-    /// Which languages this phone's recogniser should listen for. Comma-joined
-    /// BCP-47, because `KeyValueStore` exposes only `string` and `bool`.
-    static let sttLanguagesKey = "jc_live_stt_languages"
-
-    /// How many languages may run at once.
-    ///
-    /// Not a storage limit — a battery one. There is no multi-language
-    /// transcriber in Apple's framework, so each language is its own recogniser
-    /// over the same audio and the cost is linear. Three is already three times
-    /// the transcription work of one, all day, on a phone in a pocket.
-    static let maxLanguages = 3
 
     private let store: KeyValueStore
 
@@ -56,25 +45,6 @@ final class LiveSettings {
         _lastElapsedMs = Int(store.string(Self.lastElapsedKey) ?? "") ?? 0
         _lastAudioSeq = Int(store.string(Self.lastAudioSeqKey) ?? "") ?? 0
         _lastChatSessionID = store.string(Self.lastChatSessionKey) ?? ""
-        _sttLanguages = Self.parseLanguages(store.string(Self.sttLanguagesKey) ?? "")
-    }
-
-    /// Split a stored list. Tolerant of what a text field produces: commas or
-    /// spaces, stray blanks, and the same language twice in different case.
-    static func parseLanguages(_ raw: String) -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for piece in raw.split(whereSeparator: { $0 == "," || $0 == " " || $0 == "\n" }) {
-            let clean = piece.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !clean.isEmpty, seen.insert(clean.lowercased()).inserted else { continue }
-            out.append(clean)
-            if out.count >= maxLanguages { break }
-        }
-        return out
-    }
-
-    static func joinLanguages(_ list: [String]) -> String {
-        parseLanguages(list.joined(separator: ",")).joined(separator: ",")
     }
 
     private var _captureSourceID: String
@@ -84,23 +54,6 @@ final class LiveSettings {
     private var _lastElapsedMs: Int
     private var _lastAudioSeq: Int
     private var _lastChatSessionID: String
-    private var _sttLanguages: [String]
-
-    /// The languages this phone listens for, ordered, the first preferred.
-    ///
-    /// EMPTY means "whatever the server's primary language is", which is what the
-    /// app did before this existed and what most people want. A non-empty list is
-    /// a deliberate choice, and it is what stops a Spanish sentence being run
-    /// through an en-US recogniser and then labelled `en` — which is why the
-    /// server never auto-translated it.
-    var sttLanguages: [String] {
-        get { _sttLanguages }
-        set {
-            let clean = Self.parseLanguages(newValue.joined(separator: ","))
-            _sttLanguages = clean
-            store.set(clean.joined(separator: ","), forKey: Self.sttLanguagesKey)
-        }
-    }
 
     var captureSourceID: String {
         get { _captureSourceID }

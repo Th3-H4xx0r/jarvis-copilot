@@ -110,6 +110,7 @@
 		241BE35B973590CD32111922 /* ModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60AE7B30050678209FB5F068 /* ModelsAPI.swift */; };
 		241FD27051FC237FFA506091 /* PodSetupFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D9ED059DAAEDB954A3DE400 /* PodSetupFlowTests.swift */; };
 		2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */; };
+		2486E4F0943A0893606C1C13 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = EEE4E2C730CC268239B00CE4 /* FluidAudio */; };
 		2487A78DE85FF6052426B6BB /* TodosTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE665D52087C0F184FC8D07E /* TodosTests.swift */; };
 		25350B7D3A9573372049A13F /* RenderHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09DCE2A73AC7636FCB8673D5 /* RenderHarness.swift */; };
 		255DBFED48D33A8559C60008 /* ToolRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4173328AB81A5A728A6B18 /* ToolRow.swift */; };
@@ -239,6 +240,7 @@
 		4E2A4A0A46F916F351C1C30F /* JarvisWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69FA7730EB649964FC16077 /* JarvisWatchApp.swift */; };
 		4E9010FC8F7AE0A25EAAD1DE /* TrainingMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5FC917F0D7B080182B104D /* TrainingMathTests.swift */; };
 		4F42FB5C55DDE1FFD2C6C7BF /* CodingUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EBA49DE17EE2BAF01FB8F30 /* CodingUI.swift */; };
+		4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */; };
 		4FCCFCC9F1DB56F7151921D5 /* CodingLaunchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FB74466198A0BA3DB45A8F /* CodingLaunchSheet.swift */; };
 		4FDD75F5F15B6B2745FF1974 /* IslandDesignsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */; };
 		4FFA284655C8E6BA134AC088 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FF13324EF0D56A9B56834F /* PushService.swift */; };
@@ -493,6 +495,7 @@
 		AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */; };
 		AE53E894B2CF31A62248DD37 /* RouteRecordingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8EDB517D89B29E58364D2E /* RouteRecordingTests.swift */; };
 		AE8A7D9AD31931B0D415D4F5 /* JarvisLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737ECD2335407D3C6AA3B54A /* JarvisLiveActivity.swift */; };
+		AEE7360F51FBFF2C02D49215 /* LiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2A317E20A5E208791DCAA4 /* LiveModels.swift */; };
 		AF0BC9EDAD58CECFAB19B07F /* ChatEntryPointsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737A19BDFB5239958D40F58A /* ChatEntryPointsTests.swift */; };
 		AF6D678A6C1C577AF3BC91DC /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26B49D665BD0D905F5E26589 /* JarvisAPI.swift */; };
 		AF8B33B9F6B079BCF3DC0734 /* PodSetupFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EED26F185CDA727DCE0E891 /* PodSetupFlow.swift */; };
@@ -673,7 +676,6 @@
 		EFB1ACAC16F131B3CEFCC54B /* AppGroupIslandDesignCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF80D244E7502C4F6D2591D /* AppGroupIslandDesignCache.swift */; };
 		EFFC269A1DC505D512810084 /* PhotonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DDD351067C14D230E2285D /* PhotonTests.swift */; };
 		EFFEFAA97F1EEA6870A6C36A /* InsightsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A55E446DAE753E76FE9849B /* InsightsTests.swift */; };
-		F002EE209025E0D5E6A29643 /* LiveLanguagesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */; };
 		F09FF4DE6306C272913E80DA /* PhotonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BBE88D362C7D076BCDCBE9 /* PhotonModels.swift */; };
 		F0CCEB43E75B246A26F236E8 /* DevicesTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */; };
 		F148D36E52EB42687CC86F01 /* DeviceIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620783A3C8AF6257135DFB6D /* DeviceIcon.swift */; };
@@ -919,6 +921,7 @@
 		31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmTests.swift; sourceTree = "<group>"; };
 		322E1110A5953ECE2DE854A9 /* Endpointer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Endpointer.swift; sourceTree = "<group>"; };
 		325184FC8D98E2485468EC47 /* AppleHealthWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthWriter.swift; sourceTree = "<group>"; };
+		333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveModelsViews.swift; sourceTree = "<group>"; };
 		3374BB246B978CAE1C310365 /* LivePollPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LivePollPolicy.swift; sourceTree = "<group>"; };
 		33B976A13B047F8380A8012B /* ClockSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkillsTests.swift; sourceTree = "<group>"; };
 		34B173230D130E81EEAEB060 /* MemoryAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryAPI.swift; sourceTree = "<group>"; };
@@ -1017,7 +1020,6 @@
 		5B6A16D43A180F2C9D38FF70 /* JarvisDesignRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisDesignRenderer.swift; path = JarvisWidget/JarvisDesignRenderer.swift; sourceTree = "<group>"; };
 		5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranscript.swift; sourceTree = "<group>"; };
 		5D01C409D24FB62BBB311997 /* RouteThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteThumbnail.swift; sourceTree = "<group>"; };
-		5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveLanguagesScreen.swift; sourceTree = "<group>"; };
 		5E1327731224D0A859E94FE2 /* CronsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronsStore.swift; sourceTree = "<group>"; };
 		5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsSections.swift; sourceTree = "<group>"; };
 		5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceChatBridgeTests.swift; sourceTree = "<group>"; };
@@ -1467,6 +1469,7 @@
 		FEA0C0B3D8AECE1A1E1024D8 /* MemoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryTests.swift; sourceTree = "<group>"; };
 		FEB8B049A1D4CC82D1EABBF8 /* JarvisPodStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodStore.swift; sourceTree = "<group>"; };
 		FEECBD4B5207707D0F7D6AAF /* CodingChatModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatModels.swift; sourceTree = "<group>"; };
+		FF2A317E20A5E208791DCAA4 /* LiveModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveModels.swift; sourceTree = "<group>"; };
 		FF62BEF2FA9BF96229F9DA3A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisWatchWidget/Info.plist; sourceTree = "<group>"; };
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -1496,6 +1499,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				48EBED01AF2D775CA72C979B /* OnDeviceLLM in Frameworks */,
+				2486E4F0943A0893606C1C13 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2007,10 +2011,11 @@
 				9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */,
 				E91A0B07C81339B4AF3CD7C0 /* LiveCaptureBeacon.swift */,
 				BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */,
-				5D154876B9FDC74C35725FEC /* LiveLanguagesScreen.swift */,
 				AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */,
 				84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */,
 				9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */,
+				FF2A317E20A5E208791DCAA4 /* LiveModels.swift */,
+				333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -2878,6 +2883,7 @@
 			name = JarvisCopilot;
 			packageProductDependencies = (
 				5FE8DCA271A7868ED473E098 /* OnDeviceLLM */,
+				EEE4E2C730CC268239B00CE4 /* FluidAudio */,
 			);
 			productName = JarvisCopilot;
 			productReference = F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */;
@@ -2943,6 +2949,7 @@
 			mainGroup = E0C1FCE8599CFD8B29DA77CF;
 			packageReferences = (
 				437F339FC221FA9B1FC91E13 /* XCLocalSwiftPackageReference "OnDeviceLLM" */,
+				7F8B8DED985EAB9E9A844864 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			productRefGroup = AA456876F5B490EF67C72CA6 /* Products */;
 			projectDirPath = "";
@@ -3715,10 +3722,11 @@
 				8F1A0C33563FABB065D744A0 /* JcState.swift in Sources */,
 				F4EC66C8205D1247A162B410 /* LiveCaptureAttributes.swift in Sources */,
 				DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */,
-				F002EE209025E0D5E6A29643 /* LiveLanguagesScreen.swift in Sources */,
 				C486B6A4B100DBD7DE646E91 /* LiveTranslator.swift in Sources */,
 				93EF274C3A1D8F085247237C /* LiveVoiceprint.swift in Sources */,
 				5B7D1AF12BB8AB5BB17CA63D /* WeSpeakerResNet34.mlpackage in Sources */,
+				AEE7360F51FBFF2C02D49215 /* LiveModels.swift in Sources */,
+				4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4212,10 +4220,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		7F8B8DED985EAB9E9A844864 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.16.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		5FE8DCA271A7868ED473E098 /* OnDeviceLLM */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = OnDeviceLLM;
+		};
+		EEE4E2C730CC268239B00CE4 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7F8B8DED985EAB9E9A844864 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

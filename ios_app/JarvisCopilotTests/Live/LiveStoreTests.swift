@@ -40,7 +40,8 @@ final class LiveStoreTests: XCTestCase {
                          readiness: SpeechReadiness = .ready,
                          transcript: [String: Any] = ["segments": []],
                          keyValues: [String: Any] = [:],
-                         voiceprints: VoiceprintEmbedding? = nil) -> Rig {
+                         voiceprints: VoiceprintEmbedding? = nil,
+                         onDevice: OnDeviceTranscribing? = nil) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
         directories.append(directory)
@@ -77,7 +78,8 @@ final class LiveStoreTests: XCTestCase {
                               spool: spool,
                               settings: settings,
                               preferences: MemoryKeyValueStore(keyValues),
-                              voiceprints: voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } })
+                              voiceprints: voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } },
+                              onDevice: onDevice.map { made -> (@MainActor () async -> OnDeviceTranscribing?) in { made } })
         return Rig(store: store, transport: transport, input: input, recognizer: recognizer,
                    connector: connector, clock: clock, spool: spool, settings: settings,
                    applier: applier, arbiter: arbiter, directory: directory)
@@ -566,6 +568,70 @@ final class LiveStoreTests: XCTestCase {
 
         XCTAssertEqual(segs(rig).count, 1)
         XCTAssertNil(segs(rig).first?["emb"])
+    }
+
+    // MARK: - The second hearing, on the phone
+
+    private final class FakeSecondHearing: OnDeviceTranscribing, @unchecked Sendable {
+        let answer: OnDeviceHeard?
+        init(_ answer: OnDeviceHeard?) { self.answer = answer }
+        func transcribe(pcm16: Data) async -> OnDeviceHeard? { answer }
+    }
+
+    /// Apple's recogniser takes one locale: Spanish into an English phone comes
+    /// out as phonetic English, labelled English, and is never translated.
+    func testALineTheModelHeardInAnotherLanguageTakesItsWords() {
+        let line = LiveStore.chooseLine(apple: "Hola, Como Stas", appleLang: "en-US",
+                                        heard: OnDeviceHeard(text: "Hola, ¿cómo estás?",
+                                                             language: "es", confidence: 0.99))
+        XCTAssertEqual(line.text, "Hola, ¿cómo estás?")
+        XCTAssertEqual(line.lang, "es")
+    }
+
+    /// Same language: Apple's words stay — they are the ones the user just
+    /// watched appear, and the model is no better at English.
+    func testTheSameLanguageKeepsApplesWords() {
+        let line = LiveStore.chooseLine(apple: "Hello, hello, are you there?", appleLang: "en-US",
+                                        heard: OnDeviceHeard(text: "Hello, hello are there?",
+                                                             language: "en", confidence: 0.95))
+        XCTAssertEqual(line.text, "Hello, hello, are you there?")
+        XCTAssertEqual(line.lang, "en-US")
+    }
+
+    func testAGuessIsNotALanguage() {
+        let unsure = LiveStore.chooseLine(apple: "Okay, plus okay, is Modo", appleLang: "en-US",
+                                          heard: OnDeviceHeard(text: "Okati plus Okati is Modu.",
+                                                               language: "tr", confidence: 0.6))
+        XCTAssertEqual(unsure.text, "Okay, plus okay, is Modo")
+        XCTAssertEqual(LiveStore.chooseLine(apple: "hi", appleLang: "en", heard: nil).text, "hi")
+    }
+
+    func testACommittedLineCarriesTheSecondHearingsLanguage() async {
+        let rig = makeRig(onDevice: FakeSecondHearing(
+            OnDeviceHeard(text: "Hola, ¿cómo estás?", language: "es", confidence: 0.99)))
+        rig.recognizer.nextTranscript = "Hola, Como Stas"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("Hola, Como Stas")
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        await waitForSeg(rig)
+
+        XCTAssertEqual(segs(rig).first?["text"] as? String, "Hola, ¿cómo estás?")
+        XCTAssertEqual(segs(rig).first?["lang"] as? String, "es")
+    }
+
+    /// NaturalLanguage on the model's own output, as measured on his recordings:
+    /// real Spanish is certain; a romanised Telugu guess must not pass as a
+    /// language the model transcribes.
+    func testTheLanguageLabelOnRealOutputs() {
+        let spanish = OnDeviceTranscriber.label("Hola, ¿cómo te llamas? Me gusta dinero.")
+        XCTAssertEqual(spanish.language, "es")
+        XCTAssertGreaterThanOrEqual(spanish.confidence, 0.9)
+        let telugu = OnDeviceTranscriber.label("Okati plus Okati is Modu.")
+        XCTAssertFalse(telugu.confidence >= 0.9
+                       && LiveModelKind.parakeet.languages.contains(telugu.language),
+                       "\(telugu.language) \(telugu.confidence) would relabel a Telugu line")
     }
 
     private func segs(_ rig: Rig) -> [[String: Any]] {

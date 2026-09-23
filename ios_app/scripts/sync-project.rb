@@ -135,9 +135,42 @@ begin
     added
   end
 
+  # Swift packages the app links, pinned to an EXACT version: a package is code
+  # run on the phone, so it moves only when someone decides it should.
+  #   FluidAudio — CoreML Parakeet / SenseVoice for Live's on-device language
+  #   correction. Its models are downloaded at run time, not bundled.
+  SWIFT_PACKAGES = [
+    { url: 'https://github.com/FluidInference/FluidAudio.git', version: '0.16.1', product: 'FluidAudio' },
+  ].freeze
+
+  def ensure_packages(project, target, packages)
+    added = 0
+    packages.each do |spec|
+      ref = project.root_object.package_references.find { |r| r.respond_to?(:repositoryURL) && r.repositoryURL == spec[:url] }
+      unless ref
+        ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+        ref.repositoryURL = spec[:url]
+        project.root_object.package_references << ref
+        added += 1
+      end
+      ref.requirement = { 'kind' => 'exactVersion', 'version' => spec[:version] }
+      next if target.package_product_dependencies.any? { |d| d.product_name == spec[:product] }
+      dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+      dep.package = ref
+      dep.product_name = spec[:product]
+      target.package_product_dependencies << dep
+      build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+      build_file.product_ref = dep
+      target.frameworks_build_phase.files << build_file
+      added += 1
+    end
+    added
+  end
+
   app_group = project.main_group[APP_DIR] or abort 'JarvisCopilot group missing'
   added_app = sync_sources(project, app, APP_DIR, app_group)
   added_app += sync_models(project, app, APP_DIR, app_group)
+  added_app += ensure_packages(project, app, SWIFT_PACKAGES)
 
   test = project.targets.find { |t| t.name == TEST_TARGET }
   unless test
