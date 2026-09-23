@@ -80,6 +80,11 @@ struct LiveView: View {
                 .padding(.bottom, Self.controlsGap)
         }
         .task { await store.load() }
+        // The on-device models load while the page is being looked at, not
+        // when Record is pressed — so the first line is already re-heard.
+        .onTabVisibilityChange(.voice) { visible in
+            if visible { LiveModels.shared.prepare() }
+        }
         // On-device translation for a pair whose language pack is NOT installed:
         // only a session from this modifier can ask to download one. Installed
         // pairs translate without any view (`InstalledTranslationSessions`).

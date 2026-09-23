@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import NaturalLanguage
 #if canImport(FluidAudio)
@@ -159,6 +160,16 @@ final class LiveModels {
     /// The models `engine` was built from, so a changed choice rebuilds it.
     private var engineKinds: [LiveModelKind] = []
 
+    /// Each model loaded onto the Neural Engine, kept for the life of the app.
+    /// Loaded one at a time and only when Record was pressed, the slow one
+    /// (SenseVoice, ~7 s on every launch, measured on the Mac) held Parakeet
+    /// (0.1-0.2 s) back with it, into the recording, under a popup that said
+    /// "Getting Parakeet ready" the whole time.
+    private var loaded: [LiveModelKind: LiveLoadedModel] = [:]
+    private var loading: [LiveModelKind: Task<Void, Never>] = [:]
+    /// How long each took to load this launch, shown in Downloads.
+    private(set) var loadSeconds: [LiveModelKind: Double] = [:]
+
     static let hearingKey = "jc_live_hearing"
     private let defaults: KeyValueStore
 
@@ -184,8 +195,48 @@ final class LiveModels {
         defaults.set(choice.rawValue, forKey: Self.hearingKey)
         for kind in LiveModelKind.allCases where !choice.kinds.contains(kind) {
             if case .downloading = state(kind) { cancel(kind) }
+            unload(kind)
         }
         for kind in choice.kinds where !Self.onDisk(kind) { download(kind) }
+        prepare()
+    }
+
+    /// Start loading every chosen model that is on disk and not loaded yet —
+    /// all at once, and without anyone waiting on it. Called when the Live tab
+    /// shows and when a download lands, so a recording finds them ready.
+    func prepare() {
+        for kind in hearing.kinds
+        where Self.onDisk(kind) && loaded[kind] == nil && loading[kind] == nil && !state(kind).isBusy {
+            states[kind] = .preparing
+            let started = Date()
+            loading[kind] = Task { [weak self] in
+                let model = await LiveLoadedModel.load(kind)
+                guard let self else { return }
+                self.loading[kind] = nil
+                guard !Task.isCancelled, self.hearing.kinds.contains(kind) else {
+                    if self.state(kind) == .preparing { self.states[kind] = .ready }
+                    return
+                }
+                if let model {
+                    let seconds = Date().timeIntervalSince(started)
+                    self.loaded[kind] = model
+                    self.loadSeconds[kind] = seconds
+                    self.states[kind] = .ready
+                    JcLog.voice.info("live: \(kind.rawValue, privacy: .public) loaded in \(seconds, format: .fixed(precision: 2)) s")
+                } else {
+                    self.states[kind] = .failed("It would not load on this iPhone.")
+                }
+            }
+        }
+    }
+
+    /// Let go of a model the choice no longer uses — each holds hundreds of MB.
+    private func unload(_ kind: LiveModelKind) {
+        loading[kind]?.cancel()
+        loading[kind] = nil
+        loaded[kind] = nil
+        loadSeconds[kind] = nil
+        if state(kind) == .preparing { states[kind] = Self.onDisk(kind) ? .ready : .absent }
     }
 
     /// What the downloaded models take on this phone.
@@ -226,8 +277,10 @@ final class LiveModels {
                 }
                 guard let self, !Task.isCancelled else { return }
                 self.states[kind] = .ready
-                self.engine = nil          // rebuilt with the new model next time
                 self.justFinished = kind
+                self.tasks[kind] = nil
+                // Onto the Neural Engine now, not when Record is next pressed.
+                self.prepare()
             } catch {
                 guard let self else { return }
                 self.states[kind] = Task.isCancelled ? .absent : .failed(error.localizedDescription)
@@ -244,8 +297,8 @@ final class LiveModels {
 
     func remove(_ kind: LiveModelKind) {
         cancel(kind)
+        unload(kind)
         if let folder = Self.folder(kind) { try? FileManager.default.removeItem(at: folder) }
-        engine = nil
         states[kind] = .absent
         // The choice follows what is left, rather than naming a model that is
         // gone — which would read as "This phone" while the server did the work.
@@ -258,23 +311,18 @@ final class LiveModels {
 
     func dismissFinished() { justFinished = nil }
 
-    /// The transcriber for a recording, built from the models the user chose
-    /// that are on disk — or nil, and Apple's recogniser stands alone as before.
-    /// Cheap when nothing changed, so the store asks again after every line and
-    /// a finished download or a changed choice is picked up mid-recording.
+    /// The transcriber for a recording, from the chosen models that are loaded
+    /// RIGHT NOW — or nil, and Apple's recogniser stands alone as before. It
+    /// never waits for a load: it starts any that are missing and answers with
+    /// what is ready, and the store asks again after every line, so Parakeet
+    /// is used the moment it is loaded whatever SenseVoice is doing.
     func transcriber() async -> OnDeviceTranscribing? {
-        let wanted = hearing.kinds.filter { Self.onDisk($0) }
-        if let engine, engineKinds == wanted { return engine }
-        engine = nil
-        engineKinds = wanted
-        guard !wanted.isEmpty else { return nil }
-        for kind in wanted { states[kind] = .preparing }
-        let made = await OnDeviceTranscriber.load(wanted)
-        for kind in wanted {
-            states[kind] = made?.has(kind) == true ? .ready : .failed("It would not load on this iPhone.")
-        }
-        engine = made
-        return made
+        prepare()
+        let ready = hearing.kinds.filter { loaded[$0] != nil }
+        if let engine, engineKinds == ready { return engine }
+        engineKinds = ready
+        engine = ready.isEmpty ? nil : OnDeviceTranscriber(ready.compactMap { loaded[$0] })
+        return engine
     }
 
     // MARK: - Disk
@@ -329,41 +377,86 @@ final class LiveModels {
     }
 }
 
-/// Parakeet first, SenseVoice for what Parakeet cannot place.
+/// One downloaded model, loaded onto the Neural Engine.
+final class LiveLoadedModel: @unchecked Sendable {
+    let kind: LiveModelKind
+    #if canImport(FluidAudio)
+    fileprivate let parakeet: AsrManager?
+    fileprivate let senseVoice: SenseVoiceManager?
+
+    private init(kind: LiveModelKind, parakeet: AsrManager? = nil,
+                 senseVoice: SenseVoiceManager? = nil) {
+        self.kind = kind
+        self.parakeet = parakeet
+        self.senseVoice = senseVoice
+    }
+
+    static func load(_ kind: LiveModelKind) async -> LiveLoadedModel? {
+        switch kind {
+        case .parakeet:
+            guard let folder = LiveModels.folder(.parakeet) else { return nil }
+            do {
+                let models = try await AsrModels.load(from: folder, version: .v3)
+                let manager = AsrManager(config: .default)
+                try await manager.loadModels(models)
+                return LiveLoadedModel(kind: kind, parakeet: manager)
+            } catch {
+                JcLog.dropped(JcLog.voice, "load Parakeet", error)
+                return nil
+            }
+        case .senseVoice:
+            do { return LiveLoadedModel(kind: kind, senseVoice: try loadSenseVoiceOnCPU()) }
+            catch {
+                JcLog.dropped(JcLog.voice, "load SenseVoice", error)
+                return nil
+            }
+        }
+    }
+
+    /// SenseVoice on the CPU, not FluidAudio's default of the Neural Engine.
+    /// Measured on the Mac with his Mandarin clips: the Neural Engine build
+    /// is never cached, so it took 7.3-7.6 s on EVERY load, and it was slower
+    /// per line too (131-256 ms against 40-76 ms on the CPU, same words). The
+    /// CPU loads in under a second and keeps working with the phone locked.
+    private static func loadSenseVoiceOnCPU() throws -> SenseVoiceManager {
+        guard let folder = LiveModels.folder(.senseVoice) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let cpu = MLModelConfiguration()
+        cpu.computeUnits = .cpuOnly
+        let preprocessor = try MLModel(
+            contentsOf: folder.appendingPathComponent("SenseVoicePreprocessor.mlmodelc"),
+            configuration: cpu)
+        let encoder = try MLModel(
+            contentsOf: folder.appendingPathComponent("SenseVoiceSmall.mlmodelc"), configuration: cpu)
+        let data = try Data(contentsOf: folder.appendingPathComponent("vocab.json"))
+        // FluidAudio's own loader accepts an array or an id-keyed object.
+        var vocabulary: [Int: String] = [:]
+        if let tokens = try JSONSerialization.jsonObject(with: data) as? [String] {
+            for (id, token) in tokens.enumerated() { vocabulary[id] = token }
+        } else if let byID = try JSONSerialization.jsonObject(with: data) as? [String: String] {
+            for (key, token) in byID { if let id = Int(key) { vocabulary[id] = token } }
+        }
+        guard !vocabulary.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+        return SenseVoiceManager(models: SenseVoiceModels(preprocessor: preprocessor, encoder: encoder,
+                                                          vocabulary: vocabulary))
+    }
+    #else
+    private init(kind: LiveModelKind) { self.kind = kind }
+    static func load(_ kind: LiveModelKind) async -> LiveLoadedModel? { nil }
+    #endif
+}
+
+/// Parakeet first, SenseVoice for what Parakeet cannot place — from whichever
+/// of them are loaded.
 final class OnDeviceTranscriber: OnDeviceTranscribing, @unchecked Sendable {
     #if canImport(FluidAudio)
     private let parakeet: AsrManager?
     private let senseVoice: SenseVoiceManager?
 
-    private init(parakeet: AsrManager?, senseVoice: SenseVoiceManager?) {
-        self.parakeet = parakeet
-        self.senseVoice = senseVoice
-    }
-
-    func has(_ kind: LiveModelKind) -> Bool {
-        kind == .parakeet ? parakeet != nil : senseVoice != nil
-    }
-
-    static func load(_ kinds: [LiveModelKind]) async -> OnDeviceTranscriber? {
-        var parakeet: AsrManager?
-        var senseVoice: SenseVoiceManager?
-        if kinds.contains(.parakeet), let folder = LiveModels.folder(.parakeet) {
-            do {
-                let models = try await AsrModels.load(from: folder, version: .v3)
-                let manager = AsrManager(config: .default)
-                try await manager.loadModels(models)
-                parakeet = manager
-            } catch {
-                JcLog.dropped(JcLog.voice, "load Parakeet", error)
-            }
-        }
-        if kinds.contains(.senseVoice) {
-            do { senseVoice = try await SenseVoiceManager.load() } catch {
-                JcLog.dropped(JcLog.voice, "load SenseVoice", error)
-            }
-        }
-        guard parakeet != nil || senseVoice != nil else { return nil }
-        return OnDeviceTranscriber(parakeet: parakeet, senseVoice: senseVoice)
+    init(_ models: [LiveLoadedModel]) {
+        parakeet = models.lazy.compactMap(\.parakeet).first
+        senseVoice = models.lazy.compactMap(\.senseVoice).first
     }
 
     func transcribe(pcm16: Data) async -> OnDeviceHeard? {
@@ -392,8 +485,7 @@ final class OnDeviceTranscriber: OnDeviceTranscribing, @unchecked Sendable {
         return nil
     }
     #else
-    func has(_ kind: LiveModelKind) -> Bool { false }
-    static func load(_ kinds: [LiveModelKind]) async -> OnDeviceTranscriber? { nil }
+    init(_ models: [LiveLoadedModel]) {}
     func transcribe(pcm16: Data) async -> OnDeviceHeard? { nil }
     #endif
 

@@ -280,7 +280,10 @@ struct LiveDownloadsScreen: View {
                     ForEach(Array(LiveModelKind.allCases.enumerated()), id: \.element) { index, kind in
                         GlassRow(symbol: kind == .parakeet ? "translate" : "character.bubble",
                                  title: kind.title,
-                                 subtitle: "\(kind.detail) \(LiveBytes.text(kind.approxBytes)).",
+                                 subtitle: "\(kind.detail) \(LiveBytes.text(kind.approxBytes))."
+                                     + (models.loadSeconds[kind].map {
+                                         String(format: " Loaded in %.1f s.", $0)
+                                     } ?? ""),
                                  subtitleLineLimit: 3,
                                  last: index == LiveModelKind.allCases.count - 1) {
                             trailing(kind)
@@ -387,6 +390,9 @@ struct LiveModelPopup: ViewModifier {
                                   + "\(LiveBytes.text(kind.approxBytes))",
                             fraction: fraction, cancel: kind)
             default:
+                // Loading ahead of time happens whenever Live is open; it
+                // only matters to say so while a recording is waiting on it.
+                guard store.capturing else { break }
                 return Card(key: "prepare-\(kind.rawValue)", symbol: "cpu",
                             title: "Getting \(kind.title) ready",
                             detail: "Loading it onto this iPhone's Neural Engine. The first "
