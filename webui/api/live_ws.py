@@ -1318,6 +1318,19 @@ def _lang_submit(fn, *args) -> bool:
         return False
 
 
+def _republish_segment(live_session_id: str, seq: int) -> None:
+    """Send one stored row out again, so every client replaces it in place.
+
+    The same `seg` frame an utterance arrives on — clients key on `seq` and
+    upsert. `segments_after` is the only single-row reader the store has;
+    asking for one row from just before this seq is how the watchers do it too.
+    """
+    rows = live_store.segments_after(live_session_id, after_seq=seq - 1, limit=1)
+    row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
+    if row:
+        publish(live_session_id, "seg", segment_frame(row))
+
+
 def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
                          ts_end_ms: int, device_id: str, declared_lang: str,
                          model_name: str, primary_language: str) -> None:
@@ -1333,49 +1346,55 @@ def _run_language_rescue(live_session_id: str, seq: int, ts_start_ms: int,
     """
     from api import live_language
 
-    try:
-        audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
-        if audio is None:
-            return
-        found = live_language.rescue(
-            audio[0], audio[1], declared_lang,
-            model_name=model_name or live_language.DEFAULT_MODEL,
-            translate_to=primary_language)
-        if not found:
-            return
-        row_text = _segment_text(live_session_id, seq)
+    corrected = {"stored": False}
 
+    def _store_correction(found: Dict[str, Any]) -> bool:
+        """Relabel the row and put it in front of every viewer, once."""
+        if corrected["stored"]:
+            return True
+        row_text = _segment_text(live_session_id, seq)
         try:
             # `text` is absent when the language was clear but the words came
             # back mangled: relabel the row, keep what the device heard.
             live_store.set_transcription(
                 live_session_id, seq,
                 found.get("text") or str(row_text or ""), found["lang"])
-            # Whisper produced this from the audio in the same warm pass, so it
-            # is already here — storing it now is what makes the translation
-            # appear WITH the corrected line instead of seconds behind it.
-            if found.get("translation"):
-                live_store.set_translation(live_session_id, seq,
-                                           found["translation"])
         except Exception:
             logger.warning("live: could not store the corrected transcript "
                            "for %s#%s", live_session_id[:8] or "?", seq,
                            exc_info=True)
-            return
-
+            return False
+        corrected["stored"] = True
         logger.info("live: %s#%s was %s, not %s (%.2f) — transcript corrected",
                     live_session_id[:8] or "?", seq, found["lang"],
                     declared_lang or "unlabelled", found["confidence"])
+        _republish_segment(live_session_id, seq)
+        return True
 
-        # `segments_after` is the only single-row reader the store has; asking
-        # for one row from just before this seq is how the watchers do it too.
-        rows = live_store.segments_after(live_session_id, after_seq=seq - 1,
-                                         limit=1)
-        row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
-        if row:
-            # The same `seg` frame an utterance arrives on, so every client
-            # replaces the line in place — clients key on `seq` and upsert.
-            publish(live_session_id, "seg", segment_frame(row))
+    try:
+        audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
+        if audio is None:
+            return
+        # The corrected line goes out as soon as it is heard, before Whisper
+        # decodes its English: a phone translates it itself in a third of a
+        # second, where waiting cost ~1.7 s of the wrong words on screen.
+        found = live_language.rescue(
+            audio[0], audio[1], declared_lang,
+            model_name=model_name or live_language.DEFAULT_MODEL,
+            translate_to=primary_language,
+            on_heard=_store_correction)
+        if not found or not _store_correction(found):
+            return
+        if found.get("translation"):
+            try:
+                live_store.set_translation(live_session_id, seq,
+                                           found["translation"])
+            except Exception:
+                logger.warning("live: could not store the rescue's translation "
+                               "for %s#%s", live_session_id[:8] or "?", seq,
+                               exc_info=True)
+                return
+            _republish_segment(live_session_id, seq)
     finally:
         # Now the language is settled, whichever way it went. If this segment
         # really was the primary language, the gate will skip it — which is the

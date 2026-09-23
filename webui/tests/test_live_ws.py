@@ -2712,3 +2712,42 @@ def test_the_digests_route_answers_a_sessions_rollups():
 def test_the_digests_route_404s_for_a_session_it_does_not_have():
     handler, claimed = _get("/api/live/digests?live_session_id=" + "0" * 32)
     assert claimed and handler.status == 404
+
+
+# ── the language rescue job ────────────────────────────────────────────────
+
+
+def test_a_corrected_line_goes_out_before_its_translation(monkeypatch):
+    """A phone translates a corrected line itself in a third of a second, so
+    holding the line back until Whisper had decoded its English as well cost
+    ~1.7 s of the wrong words on screen. The line goes out when it is heard,
+    and again once its translation is stored."""
+    from api import live_language
+
+    sid = _start_session(device_id="iphone")["live_session_id"]
+    row = live_store.append_segment(sid, ts_start_ms=0, ts_end_ms=2000,
+                                    text="Ola, Como, Stas", lang="en-US")
+    monkeypatch.setattr(live_ws, "pcm_for_range",
+                        lambda *a, **k: (b"\0\0" * 32000, 16000))
+    sent = []
+    monkeypatch.setattr(live_ws, "publish",
+                        lambda _sid, event, data: sent.append((event, dict(data))))
+
+    def fake_rescue(pcm, rate, declared, *, model_name, translate_to,
+                    on_heard=None):
+        found = {"lang": "es", "text": "Hola, ¿cómo estás?", "confidence": 0.9}
+        on_heard(dict(found))
+        sent.append(("translating", {}))
+        return dict(found, translation="Hello, how are you?")
+
+    monkeypatch.setattr(live_language, "rescue", fake_rescue)
+
+    live_ws._run_language_rescue(sid, row["seq"], 0, 2000, "", "en-US", "", "en")
+
+    order = [(event, data.get("text"), data.get("translation"), data.get("lang"))
+             for event, data in sent if event in ("seg", "translating")]
+    assert order == [
+        ("seg", "Hola, ¿cómo estás?", None, "es"),
+        ("translating", None, None, None),
+        ("seg", "Hola, ¿cómo estás?", "Hello, how are you?", "es"),
+    ]

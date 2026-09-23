@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +77,20 @@ _HALLUCINATIONS = (
     "♪", "music", "[music]", "silence",
 )
 
-_model: Any = None
-_model_name = ""
+# Every model asked for stays loaded. It was one slot: an escalation evicted
+# `base` to load `small` (2.0 s on this server) and the next utterance evicted
+# `small` to reload `base` (0.8 s), so every unsure clip cost ~3 s of loading on
+# the single worker every later utterance queues behind.
+_models: Dict[str, Any] = {}
 _model_lock = threading.Lock()
 _unavailable_reason = ""
+
+# Decoding stops here, per second of audio. Unbounded, a clip of room noise on
+# this server decoded a hallucination for 8.4 s (10.6 s on `small`) where a
+# real sentence of the same length took 1.7 s. Real speech needs a handful of
+# tokens a second even in scripts that cost several tokens a syllable.
+_TOKENS_PER_SECOND = 16
+_MIN_TOKENS = 32
 
 
 def available() -> bool:
@@ -98,44 +108,45 @@ def unavailable_reason() -> str:
 
 
 def reset_for_tests() -> None:
-    global _model, _model_name, _unavailable_reason
+    global _unavailable_reason
     with _model_lock:
-        _model = None
-        _model_name = ""
+        _models.clear()
         _unavailable_reason = ""
 
 
 def _load(model_name: str):
-    """One model per process, loaded on first use.
+    """A model by name, loaded on first use and kept.
 
     CPU + int8 without trying CUDA first: this runs beside a recorder on a
     server with no GPU, and faster-whisper's `device="auto"` can load happily
     and then fail at the first transcribe on a host without the NVIDIA runtime
     — which would turn every utterance into an exception instead of a skip.
     """
-    global _model, _model_name, _unavailable_reason
+    global _unavailable_reason
     with _model_lock:
-        if _model is not None and _model_name == model_name:
-            return _model
+        model = _models.get(model_name)
+        if model is not None:
+            return model
         try:
             from faster_whisper import WhisperModel
-            _model = WhisperModel(model_name, device="cpu", compute_type="int8")
-            _model_name = model_name
+            model = WhisperModel(model_name, device="cpu", compute_type="int8")
+            _models[model_name] = model
             _unavailable_reason = ""
             logger.info("live: language rescue using faster-whisper %r",
                         model_name)
         except Exception as exc:
-            _model = None
-            _model_name = ""
+            model = None
             _unavailable_reason = f"{type(exc).__name__}: {exc}"[:200]
             logger.warning("live: could not load faster-whisper %r for language "
                            "rescue: %s", model_name, _unavailable_reason)
-        return _model
+        return model
 
 
 def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
            model_name: str = DEFAULT_MODEL,
-           translate_to: str = "") -> Optional[Dict[str, Any]]:
+           translate_to: str = "",
+           on_heard: Optional[Callable[[Dict[str, Any]], None]] = None,
+           ) -> Optional[Dict[str, Any]]:
     """Re-hear one utterance. Returns a correction, or None to leave it alone.
 
     None is the common and correct answer: most utterances really are in the
@@ -143,12 +154,19 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
     `{"lang", "text", "confidence"}`, plus `"translation"` when it could be
     produced here.
 
+    The language is DETECTED first, which costs only the encoder, and the
+    utterance is transcribed only when it disagrees with the device — measured
+    on this server, 0.75 s against 1.7 s for a full pass, and most lines agree.
+
     `translate_to` is the user's primary language. When that is English, the
     translation comes from a second decode of audio this function has already
-    loaded, with the model already warm — which is why it lands in the same
-    breath as the corrected line instead of seconds later. Whisper's translate
-    task only ever outputs English, so any other target is left to the caller's
-    own translator.
+    loaded, with the model already warm. Whisper's translate task only ever
+    outputs English, so any other target is left to the caller's own
+    translator.
+
+    `on_heard` is handed the correction BEFORE that translation is decoded, so
+    the caller can put the corrected line in front of people ~1.7 s sooner — a
+    phone translates it itself in a third of a second.
     """
     samples = _to_float32(pcm16, rate)
     if samples is None:
@@ -156,15 +174,16 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
     duration_ms = int(len(samples) * 1000 / 16000)
     if duration_ms < MIN_AUDIO_MS:
         return None
-    heard, detected, confidence, model = "", "", 0.0, None
+    heard, detected, confidence, model = None, "", 0.0, None
     for name in _ladder(model_name):
-        model = _load(name)
-        if model is None:
+        loaded = _load(name)
+        if loaded is None:
             continue
-        one = _listen(model, samples)
+        one = _identify(loaded, samples)
         if one is None:
             continue
-        heard, detected, confidence = one
+        model = loaded
+        detected, confidence, heard = one
         if confidence >= MIN_CONFIDENCE:
             break
         # Not sure enough to act on, and not sure enough to stop either: the
@@ -178,7 +197,12 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
     if not detected or confidence < MIN_CONFIDENCE:
         return None
     if same_language(detected, declared_lang):
+        # The common case, and now it costs no transcription at all.
         return None
+    if heard is None:
+        heard = _transcribe(model, samples, detected)
+        if heard is None:
+            return None
     if _too_little_to_judge(heard):
         # Measured in production: a clip that transcribed to "." was declared
         # Norwegian, and the translate pass on the same audio invented "Then
@@ -210,6 +234,12 @@ def rescue(pcm16: bytes, rate: int, declared_lang: str, *,
     # correct "What are you doing now?". What made "." into "Then add 2
     # tablespoons of potato starch" was not a broken transcript but an EMPTY
     # one, and `_too_little_to_judge` has already refused that above.
+    if on_heard is not None:
+        try:
+            on_heard(dict(found))
+        except Exception:
+            logger.debug("live: the corrected line could not be handed on early",
+                         exc_info=True)
     english = _to_english(model, samples, detected, translate_to)
     if english:
         found["translation"] = english
@@ -235,7 +265,8 @@ def _to_english(model: Any, samples: Any, detected: str,
     try:
         segments, _info = model.transcribe(
             samples, task="translate", language=detected, beam_size=1,
-            vad_filter=False, condition_on_previous_text=False)
+            vad_filter=False, condition_on_previous_text=False,
+            max_new_tokens=_token_budget(samples))
         english = " ".join(s.text.strip() for s in segments).strip()
     except Exception:
         logger.debug("live: could not translate this utterance locally",
@@ -254,8 +285,14 @@ def _ladder(model_name: str) -> tuple:
     return (first, ESCALATION_MODEL)
 
 
-def _listen(model: Any, samples: Any):
-    """One model's opinion: `(text, language, confidence)`, or None if it threw.
+def _identify(model: Any, samples: Any):
+    """One model's opinion: `(language, confidence, text-or-None)`, or None.
+
+    Detection alone when the model offers it — the encoder and one decoder
+    step, measured 0.71-0.91 s on `base` against 1.5-1.8 s for a transcription
+    — and the text comes back None, to be decoded only if it is needed. A build
+    without `detect_language` can only detect by transcribing, so that path
+    returns the text it already paid for.
 
     No VAD filter. It was here to stop Whisper hallucinating over silence, and
     on a recorder that is mostly silence that sounded right — but these clips
@@ -264,6 +301,16 @@ def _listen(model: Any, samples: Any):
     to 0.756 without it. Hallucinations are caught by their text instead, which
     is what `_looks_hallucinated` is for.
     """
+    detect = getattr(model, "detect_language", None)
+    if callable(detect):
+        try:
+            language, probability, _all = detect(samples)
+            return (str(language or "").strip().lower(),
+                    float(probability or 0.0), None)
+        except Exception:
+            logger.warning("live: language detection failed on one utterance",
+                           exc_info=True)
+            return None
     try:
         segments, info = model.transcribe(
             samples,
@@ -271,14 +318,44 @@ def _listen(model: Any, samples: Any):
             task="transcribe",
             beam_size=1,
             vad_filter=False,
-            condition_on_previous_text=False)
-        return (" ".join(s.text.strip() for s in segments).strip(),
-                str(getattr(info, "language", "") or "").strip().lower(),
-                float(getattr(info, "language_probability", 0.0) or 0.0))
+            condition_on_previous_text=False,
+            max_new_tokens=_token_budget(samples))
+        return (str(getattr(info, "language", "") or "").strip().lower(),
+                float(getattr(info, "language_probability", 0.0) or 0.0),
+                " ".join(s.text.strip() for s in segments).strip())
     except Exception:
         logger.warning("live: language rescue failed on one utterance",
                        exc_info=True)
         return None
+
+
+def _transcribe(model: Any, samples: Any, language: str) -> Optional[str]:
+    """The words, in the language already detected. None if it threw.
+
+    Told the language rather than left to detect it again: detection has
+    already been paid for, and a second opinion from the same model could only
+    disagree by chance.
+    """
+    try:
+        segments, _info = model.transcribe(
+            samples,
+            task="transcribe",
+            language=language,
+            beam_size=1,
+            vad_filter=False,
+            condition_on_previous_text=False,
+            max_new_tokens=_token_budget(samples))
+        return " ".join(s.text.strip() for s in segments).strip()
+    except Exception:
+        logger.warning("live: language rescue failed on one utterance",
+                       exc_info=True)
+        return None
+
+
+def _token_budget(samples: Any) -> int:
+    """How many tokens a clip this long can honestly need."""
+    seconds = len(samples) / 16000
+    return max(_MIN_TOKENS, int(seconds * _TOKENS_PER_SECOND))
 
 
 def same_language(a: str, b: str) -> bool:

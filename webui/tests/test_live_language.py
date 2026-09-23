@@ -32,11 +32,17 @@ def _fake_whisper(monkeypatch, *, language, probability, text,
     Records every call, because WHICH task was asked for is the contract:
     `transcribe` detects and gives native text, `translate` gives English.
     """
-    calls = {"tasks": []}
+    calls = {"tasks": [], "detects": 0, "loads": []}
 
     class _Model:
         def __init__(self, name, device=None, compute_type=None):
             calls["model"] = name
+            calls["loads"].append(name)
+
+        def detect_language(self, samples):
+            calls["detects"] += 1
+            calls["samples"] = samples
+            return language, probability, [(language, probability)]
 
         def transcribe(self, samples, **kwargs):
             calls["tasks"].append(kwargs.get("task"))
@@ -86,14 +92,16 @@ def test_an_unlabelled_segment_can_also_be_corrected(monkeypatch):
 
 
 def test_it_asks_the_model_to_detect_rather_than_assume(monkeypatch):
-    """Naming a language would defeat the point — detection is what removes
-    the need to list languages in advance."""
+    """Naming a language up front would defeat the point — detection is what
+    removes the need to list languages in advance. Once detected, the
+    transcription is told the answer rather than paying to detect it again."""
     calls = _fake_whisper(monkeypatch, language="fr", probability=0.9,
                           text="bonjour tout le monde")
 
     live_language.rescue(_pcm(), 16000, "en")
 
-    assert "language" not in calls["kwargs"], "it must detect, not be told"
+    assert calls["detects"] == 1, "it must detect, not be told"
+    assert calls["kwargs"]["language"] == "fr"
     assert calls["kwargs"]["vad_filter"] is False, (
         "the VAD trims two-second clips down to nothing and makes detection "
         "guess — measured 0.275 with it against 0.756 without; hallucinations "
@@ -311,6 +319,98 @@ def test_a_confident_first_answer_costs_nothing_extra(monkeypatch):
 
     assert calls["model"] == live_language.DEFAULT_MODEL
     assert len(calls["tasks"]) == 1, "one model, one pass"
+
+
+def test_a_line_in_the_language_the_device_said_is_never_transcribed(monkeypatch):
+    """Most lines are. Transcribing them only to throw the text away cost
+    1.5-1.8 s each on the server's single rescue worker, where detection alone
+    costs 0.7-0.9 s — and every foreign line queued behind them."""
+    calls = _fake_whisper(monkeypatch, language="en", probability=0.95,
+                          text="hello there")
+
+    assert live_language.rescue(_pcm(), 16000, "en-US") is None
+    assert calls["detects"] == 1
+    assert calls["tasks"] == [], "no transcription, no translation"
+
+
+def test_both_models_stay_loaded_between_utterances(monkeypatch):
+    """One slot meant every unsure clip evicted `base` to load `small` (2.0 s)
+    and the next clip evicted `small` to reload `base` (0.8 s)."""
+    loads = []
+
+    class _Model:
+        def __init__(self, name, device=None, compute_type=None):
+            self.name = name
+            loads.append(name)
+
+        def detect_language(self, samples):
+            if self.name == live_language.DEFAULT_MODEL:
+                return "pl", 0.3, []
+            return "te", 0.8, []
+
+        def transcribe(self, samples, **kwargs):
+            return [_Seg("నా పేరు ప్రణవ్")], types.SimpleNamespace(
+                language="te", language_probability=0.8)
+
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = _Model
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+
+    for _ in range(3):
+        assert live_language.rescue(_pcm(), 16000, "en-US")["lang"] == "te"
+
+    assert loads == [live_language.DEFAULT_MODEL, live_language.ESCALATION_MODEL]
+
+
+def test_decoding_is_bounded_by_the_length_of_the_clip(monkeypatch):
+    """Unbounded, six seconds of room noise decoded a hallucination for 8.4 s
+    where a real sentence took 1.7 s."""
+    calls = _fake_whisper(monkeypatch, language="es", probability=0.95,
+                          text="hola")
+
+    live_language.rescue(_pcm(ms=2000), 16000, "en-US")
+    short = calls["kwargs"]["max_new_tokens"]
+    live_language.rescue(_pcm(ms=10000), 16000, "en-US")
+    long = calls["kwargs"]["max_new_tokens"]
+
+    assert 0 < short < long
+    assert long <= 10 * 20, "a handful of tokens a second, not the model's 448"
+
+
+def test_the_corrected_line_is_handed_on_before_its_translation(monkeypatch):
+    """The phone translates a corrected line itself in a third of a second, so
+    holding the line back for Whisper's own translation cost ~1.7 s of it
+    sitting on screen uncorrected."""
+    calls = _fake_whisper(monkeypatch, language="es", probability=0.96,
+                          text="¿cómo estás?", english="How are you?")
+    seen = []
+
+    def _heard(found):
+        seen.append((dict(found), list(calls["tasks"])))
+
+    found = live_language.rescue(_pcm(), 16000, "en-US", translate_to="en",
+                                 on_heard=_heard)
+
+    assert len(seen) == 1
+    early, tasks_then = seen[0]
+    assert early["text"] == "¿cómo estás?" and "translation" not in early
+    assert "translate" not in tasks_then, "handed on before the translate pass"
+    assert found["translation"] == "How are you?"
+
+
+def test_a_detector_that_raises_is_a_skip(monkeypatch):
+    class _Model:
+        def __init__(self, *a, **kw):
+            pass
+
+        def detect_language(self, samples):
+            raise RuntimeError("ctranslate2 exploded")
+
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = _Model
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+
+    assert live_language.rescue(_pcm(), 16000, "en") is None
 
 
 def test_both_models_unsure_changes_nothing(monkeypatch):
