@@ -39,7 +39,8 @@ final class LiveStoreTests: XCTestCase {
     private func makeRig(spoolLimit: Int = 1024 * 1024,
                          readiness: SpeechReadiness = .ready,
                          transcript: [String: Any] = ["segments": []],
-                         keyValues: [String: Any] = [:]) -> Rig {
+                         keyValues: [String: Any] = [:],
+                         voiceprints: VoiceprintEmbedding? = nil) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
         directories.append(directory)
@@ -75,7 +76,8 @@ final class LiveStoreTests: XCTestCase {
                               clock: clock,
                               spool: spool,
                               settings: settings,
-                              preferences: MemoryKeyValueStore(keyValues))
+                              preferences: MemoryKeyValueStore(keyValues),
+                              voiceprints: voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } })
         return Rig(store: store, transport: transport, input: input, recognizer: recognizer,
                    connector: connector, clock: clock, spool: spool, settings: settings,
                    applier: applier, arbiter: arbiter, directory: directory)
@@ -494,6 +496,76 @@ final class LiveStoreTests: XCTestCase {
 
         XCTAssertEqual(rig.store.committingText, "")
         XCTAssertTrue(segs(rig).isEmpty)
+    }
+
+    // MARK: - Voiceprints made on the phone
+
+    /// Stands in for the CoreML embedder: records what it was handed.
+    private final class FakeVoiceprints: VoiceprintEmbedding, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _bytes: [Int] = []
+        var bytes: [Int] { lock.withLock { _bytes } }
+        func embed(pcm16: Data) -> [Float]? {
+            lock.withLock { _bytes.append(pcm16.count) }
+            return [Float](repeating: 1.0 / 16, count: LiveVoiceprint.dimension)
+        }
+    }
+
+    /// The embedding runs off the main actor, so wait for the frame rather
+    /// than counting yields.
+    private func waitForSeg(_ rig: Rig) async {
+        for _ in 0..<200 where segs(rig).isEmpty {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// The server only trusts a voiceprint from a device that says which model
+    /// made it — and a phone without the model must not claim one.
+    func testHelloDeclaresVoiceprintsOnlyWhenThePhoneMakesThem() async {
+        let with = makeRig(voiceprints: FakeVoiceprints())
+        await with.store.start()
+        let caps = lastFrame(with, t: "hello")?["caps"] as? [String: Any]
+        XCTAssertEqual(caps?["embed"] as? String, "on_device")
+        XCTAssertEqual(caps?["embed_model"] as? String, LiveVoiceprint.modelID)
+
+        let without = makeRig()
+        await without.store.start()
+        let plain = lastFrame(without, t: "hello")?["caps"] as? [String: Any]
+        XCTAssertEqual(plain?["embed"] as? String, "none")
+    }
+
+    /// The phone already holds the samples; sending the voiceprint saves the
+    /// server reading the audio back, decoding it and embedding it.
+    func testACommittedLineCarriesItsVoiceprint() async {
+        let fake = FakeVoiceprints()
+        let rig = makeRig(voiceprints: fake)
+        rig.recognizer.nextTranscript = "hello there"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("hello there")
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        await waitForSeg(rig)
+
+        let emb = segs(rig).first?["emb"] as? [Double]
+        XCTAssertEqual(emb?.count, LiveVoiceprint.dimension)
+        XCTAssertGreaterThanOrEqual(fake.bytes.first ?? 0,
+                                    LiveVoiceprint.minSpeechMs * LiveStore.micRate * 2 / 1000,
+                                    "the utterance's own audio, not a sliver")
+    }
+
+    func testWithoutTheModelALineCarriesNoVoiceprint() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "hello there"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("hello there")
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        await waitForSeg(rig)
+
+        XCTAssertEqual(segs(rig).count, 1)
+        XCTAssertNil(segs(rig).first?["emb"])
     }
 
     private func segs(_ rig: Rig) -> [[String: Any]] {

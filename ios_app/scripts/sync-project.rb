@@ -117,8 +117,27 @@ begin
     added
   end
 
+  # CoreML models are compiled in the Sources phase — Xcode turns a .mlpackage
+  # into the .mlmodelc the app loads at run time — so they register like code.
+  def sync_models(project, target, dir, group)
+    added = 0
+    existing = target.source_build_phase.files.map { |bf| bf.file_ref&.real_path.to_s }
+    Dir.glob(File.join(project.project_dir, dir, '**', '*.mlpackage')).sort.each do |abs|
+      next if existing.include?(abs)
+      rel = Pathname.new(abs).relative_path_from(Pathname.new(File.join(project.project_dir, dir)))
+      g = group
+      rel.dirname.each_filename { |part| g = g[part] || g.new_group(part, part) }
+      ref = g.files.find { |f| f.real_path.to_s == abs } || g.new_file(abs)
+      ref.last_known_file_type = 'folder.mlpackage'
+      target.add_file_references([ref])
+      added += 1
+    end
+    added
+  end
+
   app_group = project.main_group[APP_DIR] or abort 'JarvisCopilot group missing'
   added_app = sync_sources(project, app, APP_DIR, app_group)
+  added_app += sync_models(project, app, APP_DIR, app_group)
 
   test = project.targets.find { |t| t.name == TEST_TARGET }
   unless test

@@ -50,6 +50,17 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertEqual(sent["after_seq"] as? Int, 4417)
     }
 
+    /// Five decimals on the wire: the server renormalises, so rounding cannot
+    /// drift the scale, and a line costs ~2 KB instead of ~5.
+    func testASegmentCarriesItsVoiceprintRounded() throws {
+        let json = try object(.segment(startMs: 0, endMs: 900, text: "hi", lang: "en-US",
+                                       localLabel: "me", voiceprint: [0.123456789, -0.5]))
+        XCTAssertEqual(json["emb"] as? [Double], [0.12346, -0.5])
+        let plain = try object(.segment(startMs: 0, endMs: 900, text: "hi", lang: "en-US",
+                                        localLabel: "me"))
+        XCTAssertNil(plain["emb"], "no voiceprint, no key")
+    }
+
     func testSegmentFrameIsAlwaysFinal() throws {
         let json = try object(.segment(startMs: 1200, endMs: 3400, text: "hello there",
                                        lang: "en-US", localLabel: "me"))

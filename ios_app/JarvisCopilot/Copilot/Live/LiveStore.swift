@@ -49,7 +49,8 @@ struct LiveHalt: Equatable, Sendable {
 @Observable
 final class LiveStore {
 
-    static let shared = LiveStore(translationSessions: LiveStore.systemTranslationSessions())
+    static let shared = LiveStore(translationSessions: LiveStore.systemTranslationSessions(),
+                                  voiceprints: { LiveVoiceprintEmbedder() })
 
     /// Translation sessions that need no view, where this OS has them. Only the
     /// app's own store gets Apple's: a test store would otherwise reach into the
@@ -297,6 +298,14 @@ final class LiveStore {
     /// The recogniser's last words for the open utterance, and when on the audio
     /// clock they last changed and first appeared. `wordsAreOver()` reads these.
     private var lastWords = ""
+    /// Makes the voiceprint embedder, once, off the main actor — it loads a
+    /// 13 MB model. Nil when this build does not make voiceprints (tests).
+    private var voiceprintLoader: (@Sendable () -> VoiceprintEmbedding?)?
+    private var voiceprints: VoiceprintEmbedding?
+    private var voiceprintsTried = false
+    /// The open utterance's samples, exactly as the recogniser was fed them, so
+    /// its voiceprint is made from the same audio its word range refers to.
+    private var utterancePCM = Data()
     private var wordsChangedAtMs: Int?
     private var firstWordsAtMs: Int?
 
@@ -315,7 +324,8 @@ final class LiveStore {
          spool: LiveSpool? = nil,
          settings: LiveSettings? = nil,
          preferences: KeyValueStore = UserDefaults.standard,
-         translationSessions: DirectTranslationSessions? = nil) {
+         translationSessions: DirectTranslationSessions? = nil,
+         voiceprints: (@Sendable () -> VoiceprintEmbedding?)? = nil) {
         self.api = api
         self.input = input ?? AmbientAudioInput()
         self.session = session ?? AmbientAudioSession()
@@ -326,6 +336,7 @@ final class LiveStore {
         self.settings = settings ?? LiveSettings()
         self.preferences = preferences
         translator.direct = translationSessions
+        voiceprintLoader = voiceprints
         wire()
     }
 
@@ -483,6 +494,8 @@ final class LiveStore {
         if activeSource.canStream { _ = LiveCaptureSources.apply(activeSource) }
 
         await prepareTranscription()
+        // Before `hello`, which declares whether this phone makes voiceprints.
+        await loadVoiceprints()
         // Every early return from here on releases the claim: leaving it held keeps
         // the system recording indicator lit over a screen saying "Not recording".
         guard epoch == generation else { try? session.release(); return }
@@ -804,7 +817,10 @@ final class LiveStore {
         // `audioCodec`/`audioRate`, never a literal: this frame is the server's only
         // instruction for how to store what follows it, so it must be read from the
         // same two properties `sendAudio` encodes with.
-        let caps = LiveCaps(stt: declaredSTT, codec: audioCodec, rate: audioRate)
+        let caps = LiveCaps(stt: declaredSTT,
+                            embed: voiceprints == nil ? "none" : "on_device",
+                            embedModel: voiceprints == nil ? "" : LiveVoiceprint.modelID,
+                            codec: audioCodec, rate: audioRate)
         // Resume only when this device has a cursor in a session that is still the
         // one it is recording — otherwise the server would be asked to continue a
         // conversation that ended.
@@ -1005,6 +1021,9 @@ final class LiveStore {
                 sendAudio(buffered, tsMs: max(backdated, 0))
             }
             pendingSpeechFrames = preRoll
+            // The recogniser's first sample is the pre-roll's, so the voiceprint
+            // buffer starts there too.
+            utterancePCM = voiceprints == nil ? Data() : preRoll.reduce(into: Data()) { $0.append($1) }
             preRoll.removeAll()
         case .ended(let startMs, let endMs):
             sendAudio(pcm)
@@ -1021,6 +1040,9 @@ final class LiveStore {
                 // The session is still opening; hold this so its first word is not
                 // lost to the gap.
                 pendingSpeechFrames.append(pcm)
+            }
+            if voiceprints != nil, utterancePCM.count < Self.maxVoiceprintBytes {
+                utterancePCM.append(pcm)
             }
             sendAudio(pcm)
             if wordsAreOver(), case .ended(let startMs, let endMs)? = segmenter.endUtterance() {
@@ -1283,6 +1305,33 @@ final class LiveStore {
             || now - first >= AmbientSegmenter.maxUtteranceMs
     }
 
+    // MARK: - Voiceprints
+
+    /// Twenty seconds of 16 kHz mono int16 — the most the server embeds.
+    static let maxVoiceprintBytes = LiveStore.micRate * 2 * LiveVoiceprint.maxSpeechMs / 1000
+
+    /// Load the embedder once. A failure leaves `voiceprints` nil, and the
+    /// server identifies from the audio exactly as before.
+    private func loadVoiceprints() async {
+        guard !voiceprintsTried, let loader = voiceprintLoader else { return }
+        voiceprintsTried = true
+        voiceprints = await Task.detached(priority: .utility) { loader() }.value
+        if voiceprints == nil { JcLog.voice.notice("live: voiceprint model unavailable; the server identifies") }
+    }
+
+    /// The voiceprint of `startMs...endMs` — the same word-bounded range the
+    /// server would read back — cut from the samples the recogniser heard.
+    /// Nil when there is no embedder or too little speech to carry a voice.
+    private func voiceprint(of pcm: Data, anchorMs: Int, startMs: Int, endMs: Int) async -> [Float]? {
+        guard let embedder = voiceprints, !pcm.isEmpty else { return nil }
+        let bytesPerMs = Self.micRate * 2 / 1000
+        let from = min(max(0, (startMs - anchorMs) * bytesPerMs), pcm.count)
+        let to = min(max(from, (endMs - anchorMs) * bytesPerMs), pcm.count)
+        guard to - from >= LiveVoiceprint.minSpeechMs * bytesPerMs else { return nil }
+        let slice = pcm.subdata(in: from..<to)
+        return await Task.detached(priority: .userInitiated) { embedder.embed(pcm16: slice) }.value
+    }
+
     /// An utterance boundary, however it was reached: the level gate's silence
     /// or cap, or the recogniser's words settling.
     private func closeUtterance(startMs: Int, endMs: Int) {
@@ -1311,6 +1360,7 @@ final class LiveStore {
         speech?.cancel()
         speech = nil
         pendingSpeechFrames.removeAll()
+        utterancePCM = Data()
         // The recogniser this text came from is gone, so nothing will ever
         // commit it. Dropped at once rather than left to age out.
         clearPartial()
@@ -1356,6 +1406,8 @@ final class LiveStore {
     private func finishUtterance(startMs: Int, endMs: Int) {
         let finished = speech
         let anchorMs = speechAnchorMs
+        let heard = utterancePCM
+        utterancePCM = Data()
         speech = nil
         forgetWords()
         // The audio has ended; the row is in flight. The words stay put until
@@ -1394,6 +1446,9 @@ final class LiveStore {
             // finalized.
             let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                              observedMs: finished.transcribedRangeMs)
+            let voice = await self.voiceprint(of: heard, anchorMs: anchorMs,
+                                              startMs: bounds.start, endMs: bounds.end)
+            guard epoch == self.generation else { return }
             self.send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
                                // The locale that actually produced this text, not
                                // the one we hoped for. The server's auto-translate
@@ -1404,7 +1459,8 @@ final class LiveStore {
                                // is the likeliest speaker into their own phone, and
                                // the server's identification is the authority that
                                // overrides it (design §5.2).
-                               localLabel: "me"))
+                               localLabel: "me",
+                               voiceprint: voice))
         }
     }
 
@@ -1416,6 +1472,8 @@ final class LiveStore {
     private func flushFinalUtterance() async {
         let finished = speech
         let anchorMs = speechAnchorMs
+        let heard = utterancePCM
+        utterancePCM = Data()
         speech = nil
         pendingSpeechFrames.removeAll()
         // Before the guards, and before `stop` closes the socket: the encoder's
@@ -1434,9 +1492,11 @@ final class LiveStore {
         guard !trimmed.isEmpty else { return }
         let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                          observedMs: finished.transcribedRangeMs)
+        let voice = await voiceprint(of: heard, anchorMs: anchorMs,
+                                     startMs: bounds.start, endMs: bounds.end)
         send(.segment(startMs: bounds.start, endMs: bounds.end, text: trimmed,
                       lang: finished.resolvedLanguage ?? config.primaryLanguage,
-                      localLabel: "me"))
+                      localLabel: "me", voiceprint: voice))
     }
 
     /// `stop()` bounded by a deadline: a wedged analyzer must not hold an utterance

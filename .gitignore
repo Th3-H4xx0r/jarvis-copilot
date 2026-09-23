@@ -85,3 +85,7 @@ mac_app/.build/
 # setuptools output from a local `pip wheel` / `pip install` of the client
 desktop_client/build/
 desktop_client/*.egg-info/
+
+# A CoreML package keeps its weights in a `Data/` folder, which `data/` above
+# swallows on a case-insensitive checkout — and a model without its weights.
+!**/*.mlpackage/Data/

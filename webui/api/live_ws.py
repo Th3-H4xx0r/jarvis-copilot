@@ -44,6 +44,7 @@ import base64
 import binascii
 import json
 import logging
+import math
 import atexit
 import queue
 import re
@@ -1226,8 +1227,13 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
                        local_label: str = "", speaker_id: str = "",
                        speaker_conf: Optional[float] = None,
                        device_id: str = "",
-                       audio_ref: str = "") -> Dict[str, Any]:
+                       audio_ref: str = "",
+                       voiceprint: Optional[List[float]] = None) -> Dict[str, Any]:
     """Append one utterance, fan it out, then poke the watchers.
+
+    `voiceprint` is the capturing device's own embedding of the utterance,
+    already validated — identification then matches it directly instead of
+    reading the audio back and embedding it here.
 
     Order matters: the row is durable before anyone is told about it, and the
     watchers run last so a slow or broken one delays nothing a viewer sees.
@@ -1246,7 +1252,7 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
     rescuing = _rescue_language_async(row)
     _notify_segment_appended(live_session_id, int(row["seq"]),
                              translate=not rescuing)
-    _identify_async(row)
+    _identify_async(row, voiceprint)
     return row
 
 
@@ -1569,8 +1575,32 @@ def drain_identification(timeout: float = 5.0) -> bool:
         return _ident_inflight <= 0
 
 
-def _identify_async(row: Dict[str, Any]) -> None:
-    """Queue server-side identification for a freshly appended segment.
+def device_voiceprint(raw: Any) -> Optional[List[float]]:
+    """A device's voiceprint off the wire, or None when it is not one.
+
+    Exactly the model's dimension, every value finite, renormalised to unit
+    length — `identify` compares by dot product, and a device rounding its
+    floats for the wire must not drift the scale. Anything else is ignored
+    rather than refused: the utterance is still identified the old way.
+    """
+    from api.live_voiceprint import EMBED_DIM
+    if not isinstance(raw, list) or len(raw) != EMBED_DIM:
+        return None
+    try:
+        vec = [float(v) for v in raw]
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in vec):
+        return None
+    norm = math.sqrt(sum(v * v for v in vec))
+    if not norm:
+        return None
+    return [v / norm for v in vec]
+
+
+def _identify_async(row: Dict[str, Any],
+                    voiceprint: Optional[List[float]] = None) -> None:
+    """Queue identification for a freshly appended segment.
 
     Wrapped whole: this is called from the thread that just made the transcript
     durable, and design §8 is unambiguous that nothing optional may stop it.
@@ -1584,7 +1614,9 @@ def _identify_async(row: Dict[str, Any]) -> None:
                 "skipped: the capturing device already attributed this segment")
             return
         from api import live_voiceprint
-        if not live_voiceprint.can_try():
+        # A device's voiceprint needs no model here: matching is arithmetic
+        # over the stored voices.
+        if voiceprint is None and not live_voiceprint.can_try():
             _report_identification(
                 "skipped: no usable embedder",
                 "install the extra (pip install 'jarviscopilot[live-voiceprint]') "
@@ -1595,21 +1627,27 @@ def _identify_async(row: Dict[str, Any]) -> None:
                       int(row.get("ts_start_ms") or 0),
                       int(row.get("ts_end_ms") or 0),
                       str(row.get("device_id") or ""),
-                      dict(row))
+                      dict(row), voiceprint)
     except Exception:
         logger.debug("live: identification could not be queued", exc_info=True)
 
 
 def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
                         ts_end_ms: int, device_id: str,
-                        row: Dict[str, Any]) -> None:
+                        row: Dict[str, Any],
+                        voiceprint: Optional[List[float]] = None) -> None:
     """Embed this utterance's audio, decide whose voice it is, tell the clients.
 
     Runs on the identification pool, so every failure mode here is a log line
-    and an unlabelled segment.
+    and an unlabelled segment. With the device's own `voiceprint` it goes
+    straight to the match: no audio read back, no Opus decode, no embedding —
+    107 ms + 140 ms of the 276 ms mean this cost per line on the server.
     """
     from api import live_voiceprint
 
+    if voiceprint is not None:
+        _decide_identity(live_session_id, seq, row, voiceprint, source="device")
+        return
     audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
     if audio is None:
         _report_identification(
@@ -1628,6 +1666,14 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
     # it now demonstrably is, and it belongs on this thread rather than the
     # recorder's. At most once per process.
     live_voiceprint.enrol_me_once()
+    _decide_identity(live_session_id, seq, row, vec, source="server")
+
+
+def _decide_identity(live_session_id: str, seq: int, row: Dict[str, Any],
+                     vec: List[float], *, source: str) -> None:
+    """Match one voiceprint against the stored voices and apply the answer."""
+    from api import live_voiceprint
+
     decision = live_voiceprint.identify(vec, live_session_id=live_session_id,
                                         seq=seq)
     if not decision:
@@ -1638,7 +1684,8 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
         "succeeded",
         f"voice {str(decision.get('speaker_id') or '')[:8]}, "
         f"{decision.get('label_state')}, score {decision.get('score')}"
-        f"{', newly minted' if decision.get('new_speaker') else ''}")
+        f"{', newly minted' if decision.get('new_speaker') else ''}"
+        f", {source} voiceprint")
 
 
 def _apply_identification(live_session_id: str, seq: int, row: Dict[str, Any],
@@ -1853,6 +1900,9 @@ class LiveConnection:
         self.codec = ""
         self.rate = 16000
         self.can_speak = False
+        # Whether this device's voiceprints are comparable with the stored ones
+        # (`embeddings_trusted`). Only then is an `emb` on its `seg` used.
+        self.embeds = False
         # What this device can PRESENT (design §13.1). Filled from hello.caps;
         # a device that never declares one keeps the legacy shape, so the phone
         # that shipped before this existed is unaffected.
@@ -2062,6 +2112,7 @@ class LiveConnection:
         if codec:
             self.codec = codec
         self.lane = assign_lane(caps)
+        self.embeds = embeddings_trusted(caps)
         logger.info("live: %s re-declared caps, lane now %s",
                     self.live_session_id, self.lane)
         self.send({
@@ -2109,6 +2160,7 @@ class LiveConnection:
         self.can_speak = bool(caps.get("speak"))
         self.out = live_deliver.device_out(caps)
         self.lane = assign_lane(caps)
+        self.embeds = embeddings_trusted(caps)
 
         resume = msg.get("resume") if isinstance(msg.get("resume"), dict) else {}
         want_sid = str(resume.get("live_session_id") or "").strip()
@@ -2265,7 +2317,9 @@ class LiveConnection:
             append_and_publish(
                 self.live_session_id, ts_start_ms=ts_start, ts_end_ms=ts_end,
                 text=final_text[:_MAX_SEGMENT_CHARS], lang=lang,
-                local_label=local_label, device_id=self.device_id)
+                local_label=local_label, device_id=self.device_id,
+                voiceprint=(device_voiceprint(msg.get("emb"))
+                            if self.embeds else None))
         except KeyError:
             self.error("no_session", "live session no longer exists")
         except Exception:

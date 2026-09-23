@@ -27,7 +27,9 @@ struct LiveCaps: Equatable, Sendable {
     /// `"on_device"` when Apple's transcriber is ready here, `"none"` when the
     /// server has to do it (design §8: model not downloaded → server lane).
     var stt: String
-    /// Always `"none"` until the embedding spike lands.
+    /// `"on_device"` when this phone makes voiceprints the server can compare
+    /// with its own (`LiveVoiceprint`), with `embedModel` naming the checkpoint;
+    /// the server trusts them only when that name matches its own.
     var embed = "none"
     var embedModel = ""
     /// What the audio frames on this socket actually are: `"opus-packets"` (bare
@@ -69,7 +71,10 @@ enum LiveClientMessage: Equatable, Sendable {
     /// A finished utterance. `partial: false` — this client does not stream
     /// interim text, because a partial that arrives after its own final would
     /// overwrite the committed row.
-    case segment(startMs: Int, endMs: Int, text: String, lang: String, localLabel: String)
+    /// `voiceprint` is this phone's own embedding of the utterance, when it makes
+    /// them; the server then matches it instead of re-reading the audio.
+    case segment(startMs: Int, endMs: Int, text: String, lang: String, localLabel: String,
+                 voiceprint: [Float]? = nil)
     /// The capture source changed mid-session (AirPods connected, route lost), so
     /// the transcript can say where the audio came from from here on.
     case source(label: String)
@@ -82,10 +87,16 @@ enum LiveClientMessage: Equatable, Sendable {
                                       "device_kind": "ios", "caps": caps.payload]
             if let resume { out["resume"] = resume.payload }
             return out
-        case .segment(let startMs, let endMs, let text, let lang, let label):
-            return ["t": "seg", "partial": false,
-                    "ts_start_ms": startMs, "ts_end_ms": endMs,
-                    "text": text, "lang": lang, "local_label": label]
+        case .segment(let startMs, let endMs, let text, let lang, let label, let voiceprint):
+            var out: [String: Any] = ["t": "seg", "partial": false,
+                                      "ts_start_ms": startMs, "ts_end_ms": endMs,
+                                      "text": text, "lang": lang, "local_label": label]
+            // Five decimals: ~2 KB a line instead of ~5, and the server
+            // renormalises, so the rounding cannot drift the scale.
+            if let voiceprint {
+                out["emb"] = voiceprint.map { (Double($0) * 1e5).rounded() / 1e5 }
+            }
+            return out
         case .source(let label):
             return ["t": "source", "source_label": label]
         case .bye:

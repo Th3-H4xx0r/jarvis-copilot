@@ -2773,3 +2773,70 @@ def test_a_corrected_line_goes_out_before_its_translation(monkeypatch):
         ("translating", None, None, None),
         ("seg", "Hola, ¿cómo estás?", "Hello, how are you?", "es"),
     ]
+
+
+# ── a voiceprint made on the device ────────────────────────────────────────
+
+
+def _capture_identification(monkeypatch):
+    queued = []
+    monkeypatch.setattr(live_ws, "_identify_async",
+                        lambda row, voiceprint=None: queued.append(voiceprint))
+    return queued
+
+
+def test_a_trusted_devices_voiceprint_goes_to_identification(monkeypatch):
+    """The phone embeds the utterance itself — it already holds the samples —
+    so the server can skip reading the audio back, decoding it and embedding
+    it: 247 ms of the 276 ms mean identification cost per line."""
+    queued = _capture_identification(monkeypatch)
+    conn, _client = _connect()  # embed: on_device, the server's own model id
+
+    _final_seg(conn, "hello there", emb=[0.5] * 256)
+
+    assert len(queued) == 1 and queued[0] is not None
+    assert abs(sum(v * v for v in queued[0]) - 1.0) < 1e-9, "renormalised"
+
+
+def test_a_voiceprint_from_another_model_is_ignored(monkeypatch):
+    """Vectors from a different checkpoint are meaningless, not imprecise."""
+    queued = _capture_identification(monkeypatch)
+    conn, _client = _connect(caps=_edge_caps(embed_model="some-other-checkpoint-v9"))
+
+    _final_seg(conn, "hello there", emb=[0.5] * 256)
+
+    assert queued == [None], "identified the old way, from the audio"
+
+
+def test_a_malformed_voiceprint_is_ignored_not_refused(monkeypatch):
+    queued = _capture_identification(monkeypatch)
+    conn, _client = _connect()
+
+    _final_seg(conn, "one", emb=[0.5] * 10)
+    _final_seg(conn, "two", emb=[float("nan")] * 256)
+    _final_seg(conn, "three", emb="not a vector")
+
+    assert queued == [None, None, None]
+    assert [s["text"] for s in live_store.segments_after(conn.live_session_id)] == \
+        ["one", "two", "three"], "the words are stored whatever the vector was"
+
+
+def test_a_device_voiceprint_is_matched_without_reading_audio(monkeypatch):
+    from api import live_voiceprint
+
+    sid = _start_session(device_id="iphone")["live_session_id"]
+    row = live_store.append_segment(sid, ts_start_ms=0, ts_end_ms=2000, text="hi")
+
+    def _no_audio(*a, **k):
+        raise AssertionError("the audio must not be read back")
+
+    matched = []
+    monkeypatch.setattr(live_ws, "pcm_for_range", _no_audio)
+    monkeypatch.setattr(live_voiceprint, "embed", _no_audio)
+    monkeypatch.setattr(live_voiceprint, "identify",
+                        lambda vec, **kw: matched.append(vec) or None)
+
+    vec = live_ws.device_voiceprint([0.25] * 256)
+    live_ws._run_identification(sid, row["seq"], 0, 2000, "iphone", dict(row), vec)
+
+    assert matched == [vec]
