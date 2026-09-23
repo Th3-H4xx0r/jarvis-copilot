@@ -350,17 +350,30 @@ struct LiveView: View {
                     .padding(.vertical, 4)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // Opening the page — or a conversation — lands on its newest
+                // line. This scroll view is created when the first rows arrive
+                // (before that the empty state stands in its place), so its
+                // appearance IS "the transcript loaded". Twice, because a lazy
+                // stack only knows its real height after the first layout.
+                .onAppear {
+                    pinnedToBottom = true
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    DispatchQueue.main.async { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                }
                 .onChange(of: store.rows.count) { _, _ in
                     guard pinnedToBottom else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
                         proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
                 }
-                // Following the LIVE words too, and unanimated: the text grows
-                // word by word, and a 0.22s ease on every one of them reads as
+                // Everything else that grows the bottom while someone speaks: the
+                // live words, the line on its way to the server, the last row
+                // being corrected or gaining its translation. Following only the
+                // row COUNT left all of that growing below the fold. Unanimated:
+                // the text grows word by word, and an ease on every word reads as
                 // the transcript sliding about rather than as speech arriving.
-                .onChange(of: store.partialText) { _, text in
-                    guard pinnedToBottom, !text.isEmpty else { return }
+                .onChange(of: tailSignature) { _, _ in
+                    guard pinnedToBottom else { return }
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
                 // Dragging is taken as "I am reading"; the newest row stops pulling
@@ -368,6 +381,10 @@ struct LiveView: View {
                 .simultaneousGesture(DragGesture().onChanged { value in
                     if value.translation.height > 12 { pinnedToBottom = false }
                 })
+                // ...and scrolling back down to the end is taken as "follow
+                // again", which the drag rule alone never allowed: only the
+                // arrow button could re-pin.
+                .modifier(LiveFollowsBottom(pinned: $pinnedToBottom))
                 .overlay(alignment: .bottomTrailing) {
                     if !pinnedToBottom {
                         Button {
@@ -391,6 +408,20 @@ struct LiveView: View {
 
     private static let bottomAnchor = "live-bottom"
     private static let partialAnchor = "live-partial"
+
+    /// Changes whenever the bottom of the transcript grows without a row being
+    /// added.
+    private var tailSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(store.partialText)
+        hasher.combine(store.committingText)
+        if case .segment(let last)? = store.rows.last {
+            hasher.combine(last.seq)
+            hasher.combine(last.text)
+            hasher.combine(last.translation)
+        }
+        return hasher.finalize()
+    }
 
     // MARK: - Controls
 
@@ -998,3 +1029,37 @@ enum LiveLanguageName {
     }
 }
 
+
+/// Re-pins the transcript to its newest line once the user's own scroll comes
+/// to rest at the end, and opens it there.
+///
+/// Decided when the scroll SETTLES, not on every offset change: while text is
+/// arriving the content grows under a still finger, and an offset rule would
+/// flip the pin back and forth mid-drag. iOS 17 keeps the drag rule and the
+/// arrow button only.
+private struct LiveFollowsBottom: ViewModifier {
+    @Binding var pinned: Bool
+    @State private var atBottom = true
+
+    /// How close to the end still counts as "at the end".
+    private static let slack: CGFloat = 48
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    let shownTo = geometry.contentOffset.y + geometry.containerSize.height
+                        - geometry.contentInsets.bottom
+                    return shownTo >= geometry.contentSize.height - Self.slack
+                } action: { _, isAtBottom in
+                    atBottom = isAtBottom
+                }
+                .onScrollPhaseChange { _, phase in
+                    if phase == .idle { pinned = atBottom }
+                }
+        } else {
+            content
+        }
+    }
+}
