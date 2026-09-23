@@ -135,6 +135,15 @@ struct LiveTranscript: Equatable, Sendable {
     }
 
     mutating func upsert(_ insight: LiveInsight) {
+        // A translation is ABOUT one line, so it goes under that line and never
+        // beside it as a card. The phone's own on-device translation comes back
+        // from the server as one of these, and taking it as a card is how every
+        // translated line showed its meaning twice. A line not loaded yet loses
+        // nothing: the server stores the translation on the row itself.
+        if insight.isTranslation {
+            setTranslation(seq: insight.refSeq ?? insight.seq, text: insight.text)
+            return
+        }
         if let index = insights.firstIndex(where: { $0.isSameNote(as: insight) }) {
             // Same note again (a resume replay). Keep the id the view is
             // already rendering rather than moving the card.

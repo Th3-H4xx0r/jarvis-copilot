@@ -63,6 +63,23 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertNil(transcript.segment(seq: 5)?.translation)
     }
 
+    /// Every translated line showed its meaning twice: under the line, and
+    /// again as a "Translation" card — the phone's own translation, echoed back
+    /// by the server as an insight.
+    func testATranslationNoteGoesUnderItsLineNotBesideIt() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(5, text: "Hola, ¿cómo estás?"))
+        var note = LiveInsight()
+        note.seq = 5
+        note.kind = "translation"
+        note.text = "Hello, how are you?"
+
+        transcript.upsert(note)
+
+        XCTAssertTrue(transcript.insights.isEmpty, "no card")
+        XCTAssertEqual(transcript.segment(seq: 5)?.translation, "Hello, how are you?")
+    }
+
     /// A translation the frame itself carries always wins.
     func testATranslationInTheFrameReplacesTheOneHeld() {
         var transcript = LiveTranscript()

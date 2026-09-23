@@ -256,6 +256,10 @@ struct LiveInsight: Equatable, Sendable, Identifiable {
 
     /// What makes two insights the SAME insight rather than two. Used to absorb
     /// a re-delivery (a resume replay) without turning it into a second card.
+    /// A translation of one line (`translate` from the watcher, `translation`
+    /// from a device), which belongs under that line rather than as a card.
+    var isTranslation: Bool { kind.lowercased().hasPrefix("translat") }
+
     func isSameNote(as other: LiveInsight) -> Bool {
         seq == other.seq && kind == other.kind && text == other.text
     }
