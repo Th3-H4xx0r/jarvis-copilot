@@ -386,12 +386,50 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.emitPartial("hello there")
+        rig.input.emitFrames(amplitude: 0.12, ms: 300)
 
-        // The room stays loud; the words have stopped.
-        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        // The voice has stopped; the room stays above anything the level gate
+        // could close on (its highest close gate is 0.028).
+        rig.input.emitFrames(amplitude: 0.03, ms: LiveStore.wordsSettledMs + 200)
         await settle()
 
         XCTAssertEqual(segs(rig).map { $0["text"] as? String }, ["hello there"])
+    }
+
+    /// Apple's English recogniser makes no words for a stretch of Chinese, so
+    /// settled words alone cut "你好,我来自中国 | 你好吗" in two while the
+    /// speaker was still talking. The line stays open while the voice does.
+    func testSettledWordsDoNotEndALineWhileTheVoiceGoesOn() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "Ni hao"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("Ni hao")
+
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 600)
+        await settle()
+        XCTAssertTrue(segs(rig).isEmpty, "still talking, however settled the words")
+
+        rig.input.emitFrames(amplitude: 0.01, ms: 600)
+        await settle()
+        XCTAssertEqual(segs(rig).count, 1, "and it ends when the voice does")
+    }
+
+    /// Continuous sound cannot hold a line open to the 15 s cap: after
+    /// `wordsSettledAnywayMs` without new words it ends regardless.
+    func testALineStillEndsWhenTheSoundNeverStops() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "hello"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("hello")
+
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledAnywayMs + 200)
+        await settle()
+
+        XCTAssertEqual(segs(rig).count, 1)
     }
 
     /// A pause shorter than the settle time is the same line, not two.
@@ -408,7 +446,7 @@ final class LiveStoreTests: XCTestCase {
         }
         XCTAssertTrue(segs(rig).isEmpty)
 
-        rig.input.emitFrames(amplitude: 0.05, ms: 500)
+        rig.input.emitFrames(amplitude: 0.01, ms: 500)
         await settle()
         XCTAssertEqual(segs(rig).count, 1)
     }
@@ -469,7 +507,7 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.emitPartial("first line")
-        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        wordsStop(rig)
         await settle()
         XCTAssertEqual(rig.store.committingText, "first line")
         XCTAssertEqual(rig.recognizer.sessions.count, 2,
@@ -546,7 +584,7 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.emitPartial("hello there")
-        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        wordsStop(rig)
         await waitForSeg(rig)
 
         let emb = segs(rig).first?["emb"] as? [Double]
@@ -563,7 +601,7 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.emitPartial("hello there")
-        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        wordsStop(rig)
         await waitForSeg(rig)
 
         XCTAssertEqual(segs(rig).count, 1)
@@ -614,7 +652,7 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.emitPartial("Hola, Como Stas")
-        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        wordsStop(rig)
         await waitForSeg(rig)
 
         XCTAssertEqual(segs(rig).first?["text"] as? String, "Hola, ¿cómo estás?")
@@ -632,7 +670,7 @@ final class LiveStoreTests: XCTestCase {
             rig.store.receive(text: readyFrame())
             await openUtterance(rig)
             rig.recognizer.latest?.emitPartial("Hola")
-            rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+            wordsStop(rig)
             await waitForSeg(rig)
 
             XCTAssertEqual(segs(rig).first?["translate"] as? String, onPhone ? "device" : nil,
@@ -740,6 +778,11 @@ final class LiveStoreTests: XCTestCase {
 
     /// Opens an utterance: enough voiced audio for the segmenter to call it
     /// speech and for the store to attach a transcription session.
+    /// The speaker stops: the words settle and the voice goes quiet.
+    private func wordsStop(_ rig: Rig) {
+        rig.input.emitFrames(amplitude: 0.01, ms: LiveStore.wordsSettledMs + 200)
+    }
+
     private func openUtterance(_ rig: Rig) async {
         rig.input.emitFrames(amplitude: 0.05, ms: 200)
         await Task.yield()

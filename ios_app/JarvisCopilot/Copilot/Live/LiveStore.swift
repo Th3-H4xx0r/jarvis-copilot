@@ -88,6 +88,25 @@ final class LiveStore {
     /// of its own words. Replayed against the same recordings: 0.5–2.1 s.
     static let wordsSettledMs = 1200
 
+    /// Settled words end a line only once the VOICE has gone quiet too: every
+    /// frame of the last `quietForMs` under `quietShare` of how loud this line
+    /// has been. Apple's English recogniser produces no words for a stretch of
+    /// another language, so "the words stopped changing" fired mid-sentence —
+    /// "你好,我来自中国 | 你好吗" was cut in two at 23.37 s with the voice still
+    /// at full level. Replayed on his recordings: English lines close at the
+    /// same instant as before, and that sentence stays whole.
+    static let quietForMs = 400
+    static let quietShare = 0.4
+
+    /// After this long with no new words the line ends however loud the room
+    /// is, so continuous sound — a second person starting at once, a noisy
+    /// room — costs at most 1.8 s over `wordsSettledMs`, never the 15 s cap.
+    static let wordsSettledAnywayMs = 3000
+
+    /// How fast the line's remembered loudness fades (half-life), so a single
+    /// shout early in a line does not make the rest of it read as quiet.
+    static let voiceLevelHalfLifeMs = 3000.0
+
     /// Audio kept before speech opens, so an utterance's first consonant is not
     /// clipped off the recording. ~400 ms.
     static let preRollFrames = 5
@@ -300,6 +319,11 @@ final class LiveStore {
     /// The recogniser's last words for the open utterance, and when on the audio
     /// clock they last changed and first appeared. `wordsAreOver()` reads these.
     private var lastWords = ""
+    /// How loud the open line's voice has been (a slowly fading peak), and the
+    /// frames of the last `quietForMs` — what `wordsAreOver` asks "has the
+    /// voice stopped?" with.
+    private var lineVoiceLevel = 0.0
+    private var recentLevels: [(atMs: Int, amp: Double)] = []
     /// Makes the voiceprint embedder, once, off the main actor — it loads a
     /// 13 MB model. Nil when this build does not make voiceprints (tests).
     private var voiceprintLoader: (@Sendable () -> VoiceprintEmbedding?)?
@@ -1062,6 +1086,7 @@ final class LiveStore {
             }
             keepForLater(pcm)
             sendAudio(pcm)
+            noteLevel(amp, dtMs: dtMs)
             if wordsAreOver(), case .ended(let startMs, let endMs)? = segmenter.endUtterance() {
                 closeUtterance(startMs: startMs, endMs: endMs)
             }
@@ -1306,19 +1331,39 @@ final class LiveStore {
         lastWords = ""
         wordsChangedAtMs = nil
         firstWordsAtMs = nil
+        lineVoiceLevel = 0
+        recentLevels.removeAll()
+    }
+
+    private func noteLevel(_ amp: Double, dtMs: Int) {
+        guard speech != nil else { return }
+        let now = segmenter.elapsedMs
+        lineVoiceLevel = max(amp, lineVoiceLevel * pow(0.5, Double(dtMs) / Self.voiceLevelHalfLifeMs))
+        recentLevels.append((now, amp))
+        recentLevels.removeAll { $0.atMs <= now - Self.quietForMs }
+    }
+
+    /// Whether the voice has stopped: nothing in the last `quietForMs` came
+    /// near how loud this line has been.
+    private var voiceIsQuiet: Bool {
+        let loudest = recentLevels.map(\.amp).max() ?? 0
+        return loudest < lineVoiceLevel * Self.quietShare
     }
 
     /// Whether the open utterance is over by the recogniser's account: its
-    /// words have not changed for `wordsSettledMs`, or they have run for the
-    /// whole chunking cap. Measured from the first WORD, not from when the level
-    /// gate opened — in a loud room the gate can have been open on noise for a
-    /// long time before anyone spoke.
+    /// words have not changed for `wordsSettledMs` and the voice has gone
+    /// quiet, or they have not changed for `wordsSettledAnywayMs`, or they have
+    /// run for the whole chunking cap. Measured from the first WORD, not from
+    /// when the level gate opened — in a loud room the gate can have been open
+    /// on noise for a long time before anyone spoke.
     private func wordsAreOver() -> Bool {
         guard sttEnabled, speech != nil,
               let changed = wordsChangedAtMs, let first = firstWordsAtMs
         else { return false }
         let now = segmenter.elapsedMs
-        return now - changed >= Self.wordsSettledMs
+        let settled = now - changed
+        return (settled >= Self.wordsSettledMs && voiceIsQuiet)
+            || settled >= Self.wordsSettledAnywayMs
             || now - first >= AmbientSegmenter.maxUtteranceMs
     }
 
