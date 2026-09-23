@@ -178,6 +178,16 @@ _WS_AUDIO_BUFFER_LIMIT_BYTES = 4 * 1024 * 1024
 _AUDIO_FLUSH_BYTES = 64 * 1024
 # ~5-minute chunks (design §3): deletes stay granular and a crash costs one chunk.
 _AUDIO_CHUNK_SECONDS = 300
+# A jump this big in the client's OWN packet clock means audio it chose not to
+# send — the phone does not upload the silence between utterances — so the next
+# packet starts a new chunk. Every reader assumes a chunk's samples run on
+# unbroken from its `ts0_ms`; across a skipped silence that put every later line
+# in the chunk seconds away from its own audio, so identification and the
+# language rescue heard someone else's words. Packets inside an utterance are
+# 20 ms apart. Rate-limited by the chunk's wall-clock age, so a client
+# alternating its timestamps cannot mint a file per packet.
+_AUDIO_GAP_ROLL_MS = 300
+_AUDIO_GAP_MIN_CHUNK_SECONDS = 1.0
 
 _SSE_HEARTBEAT_INTERVAL_SECONDS = 5
 _FANOUT_POLL_SECONDS = 1.0
@@ -494,6 +504,8 @@ class _AudioWriter:
         self._ts0_ms = 0
         self._ts1_ms = 0
         self._opened_at = 0.0
+        # The last timestamp the CLIENT stamped, for spotting audio it skipped.
+        self._last_client_ms: Optional[int] = None
         self.last_write = time.time()
         self.dropped_bytes = 0
         self.refused = False
@@ -511,6 +523,12 @@ class _AudioWriter:
             now_ms = to_offset_ms(self.live_session_id, ts_ms or None)
             if self._path is not None and self._should_roll():
                 rolled = self._close_locked()
+            elif self._path is not None and ts_ms and self._skipped_audio(now_ms):
+                rolled = self._close_locked()
+            if ts_ms:
+                # Only a client's own stamps: wall-clock stand-ins advance by
+                # ARRIVAL, and a burst after a stall would look like a gap.
+                self._last_client_ms = now_ms
             if self._path is None and not self._open_locked(now_ms):
                 # The session was deleted under us. Writing would recreate its
                 # directory and register rows for a session row that no longer
@@ -567,6 +585,14 @@ class _AudioWriter:
         """
         return bool(self._opened_at
                     and time.time() - self._opened_at >= _AUDIO_CHUNK_SECONDS)
+
+    def _skipped_audio(self, now_ms: int) -> bool:
+        """Whether this packet comes after audio the client did not send."""
+        last = self._last_client_ms
+        if last is None or now_ms - last <= _AUDIO_GAP_ROLL_MS:
+            return False
+        return bool(self._opened_at and time.time() - self._opened_at
+                    >= _AUDIO_GAP_MIN_CHUNK_SECONDS)
 
     def _open_locked(self, now_ms: int) -> bool:
         if session_is_gone(self.live_session_id):
@@ -842,7 +868,13 @@ def pcm_for_range(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
     # later utterance and decode off its own end). Both failure modes look the
     # same from here and both are settled by the same thing: whether real
     # samples come back.
-    ranked.sort(key=lambda item: -item[0])
+    # Equal overlaps are the normal case for Opus, whose claimed extent is the
+    # whole roll period: then the chunk that began most recently before the
+    # line is the one holding it, now that a skipped silence starts a new chunk.
+    start = int(ts_start_ms)
+    ranked.sort(key=lambda item: (
+        -item[0],
+        -int(item[1]["ts0_ms"]) if int(item[1]["ts0_ms"]) <= start else float("inf")))
     best_pcm, best_rate = b"", 0
     for _overlap, chunk, kind, rate in ranked[:_MAX_CHUNK_TRIES]:
         if kind == "opus":

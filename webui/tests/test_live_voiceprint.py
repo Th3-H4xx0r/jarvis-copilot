@@ -528,6 +528,28 @@ def test_the_audio_for_an_utterance_is_the_matching_region_of_the_chunk():
     assert len(pcm) == 2 * 16000 * 2
 
 
+def test_a_line_after_a_silence_the_phone_skipped_hears_its_own_audio(monkeypatch):
+    """The phone does not upload the silence between utterances, and every
+    reader assumed a chunk's samples ran on unbroken from its start. So the
+    second line in a chunk was read seconds away from where it was said, and
+    identification and the language rescue heard someone else's words."""
+    monkeypatch.setattr(live_ws, "_AUDIO_GAP_MIN_CHUNK_SECONDS", 0)
+    session = _start_session(device_id="pod-1")
+    sid = session["live_session_id"]
+    live_ws.ingest_audio_chunk(sid, _tone(1000, amp=500), ts_ms=1000,
+                               device_id="pod-1", codec="pcm16", rate=16000)
+    # Twenty seconds of room the phone did not send, then a louder voice.
+    live_ws.ingest_audio_chunk(sid, _tone(1000, amp=12000), ts_ms=21_000,
+                               device_id="pod-1", codec="pcm16", rate=16000)
+
+    found = live_ws.pcm_for_range(sid, 21_000, 22_000, "pod-1")
+
+    assert found is not None, "the second line's audio is where it was said"
+    pcm, _rate = found
+    assert len(pcm) == 16000 * 2
+    assert max(abs(v) for v in _as_samples(pcm)) > 10_000, "the loud voice, not the quiet one"
+
+
 def test_an_opus_chunk_is_decoded_back_into_samples():
     """THE case that matters: the iPhone streams Opus, not PCM.
 

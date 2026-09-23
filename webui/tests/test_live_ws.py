@@ -523,6 +523,28 @@ def test_audio_rolls_into_a_new_chunk_so_a_crash_costs_one_chunk(monkeypatch):
     assert len({r["path"] for r in rows}) == 2, "each chunk needs its own file"
 
 
+def test_audio_the_client_skipped_starts_a_new_chunk(monkeypatch):
+    """The phone does not upload the silence between utterances. A chunk that
+    ran across the gap would place everything after it at the wrong offset."""
+    monkeypatch.setattr(live_ws, "_AUDIO_GAP_MIN_CHUNK_SECONDS", 0)
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    for i, ts in enumerate((1000, 1020, 1040, 9000, 9020)):
+        conn.on_binary(live_ws.encode_audio_frame(i, ts, b"x" * 64))
+    live_ws.close_writers(sid)
+    assert [r["ts0_ms"] for r in live_store.audio_chunks(sid)] == [1000, 9000]
+
+
+def test_packets_a_few_ms_apart_stay_in_one_chunk(monkeypatch):
+    monkeypatch.setattr(live_ws, "_AUDIO_GAP_MIN_CHUNK_SECONDS", 0)
+    conn, _client = _connect()
+    sid = conn.live_session_id
+    for i in range(50):
+        conn.on_binary(live_ws.encode_audio_frame(i, 1000 + i * 20, b"x" * 64))
+    live_ws.close_writers(sid)
+    assert len(live_store.audio_chunks(sid)) == 1
+
+
 def test_a_client_cannot_force_a_chunk_per_packet_with_its_own_clock():
     """Rolling on the CLIENT's timestamp let a client alternating a small and a
     huge ts_ms create a file and a live_audio row every 20 ms."""
