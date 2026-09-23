@@ -193,6 +193,93 @@ final class LiveTranslatorTests: XCTestCase {
         XCTAssertEqual(LiveTranslator.primarySubtag(""), "")
     }
 
+    // MARK: - Sessions that need no view (iOS 26)
+
+    /// Hands out one runner per installed source language, and nil for the rest.
+    private final class FakeDirect: DirectTranslationSessions {
+        var installed: [String: TranslationRunner] = [:]
+        private(set) var asked: [String] = []
+        func runner(source: String, target: String) async -> TranslationRunner? {
+            asked.append(source)
+            return installed[source]
+        }
+    }
+
+    /// Counts what it was asked, so a warm-up can be seen to have happened.
+    private final class CountingRunner: TranslationRunner {
+        private(set) var seen: [String] = []
+        func translate(_ text: String) async throws -> String {
+            seen.append(text)
+            return "translated: \(text)"
+        }
+    }
+
+    private func settle() async {
+        for _ in 0..<8 { await Task.yield() }
+    }
+
+    /// The line is translated the moment it is asked for, with no view in the
+    /// picture — which is what lets a recording with the screen closed get its
+    /// meaning from the phone instead of a server round trip.
+    func testAnInstalledPairIsTranslatedWithoutAView() async {
+        let (translator, box) = makeTranslator()
+        let direct = FakeDirect()
+        direct.installed["es"] = FakeRunner(answers: ["hola": "hello"])
+        translator.direct = direct
+
+        translator.request(seq: 1, text: "hola", source: "es")
+        await settle()
+
+        XCTAssertEqual(box.done.map(\.1), ["hello"])
+        XCTAssertNil(translator.configuration, "no view session was needed")
+    }
+
+    /// A pair whose pack is not on the phone goes to the view path, the only one
+    /// that can ask the user to download it.
+    func testAPairThatIsNotInstalledGoesToTheViewPath() async {
+        let (translator, box) = makeTranslator()
+        translator.direct = FakeDirect()
+
+        translator.request(seq: 2, text: "bonjour", source: "fr")
+        await settle()
+
+        XCTAssertEqual(translator.configuration?.sourceCode, "fr")
+        await translator.run(FakeRunner(answers: ["bonjour": "hello"]))
+        XCTAssertEqual(box.done.map(\.1), ["hello"])
+    }
+
+    /// Loading the model is the point of a warm-up; nothing about it reaches the
+    /// transcript, and it happens once per language.
+    func testAWarmUpLoadsTheModelAndReportsNothing() async {
+        let (translator, box) = makeTranslator()
+        let direct = FakeDirect()
+        let runner = CountingRunner()
+        direct.installed["es"] = runner
+        translator.direct = direct
+
+        translator.warmUp(sources: ["es-ES", "en-US"])
+        await settle()
+        translator.warmUp(sources: ["es-ES"])
+        await settle()
+
+        XCTAssertEqual(runner.seen.count, 1, "once, and not for the target language")
+        XCTAssertTrue(box.done.isEmpty)
+        XCTAssertTrue(box.skipped.isEmpty)
+    }
+
+    /// A warm-up for a pack that is not installed is dropped rather than left to
+    /// put a view session up for nothing.
+    func testAWarmUpForAMissingPackIsDropped() async {
+        let (translator, box) = makeTranslator()
+        translator.direct = FakeDirect()
+
+        translator.warmUp(sources: ["fr"])
+        await settle()
+
+        XCTAssertNil(translator.configuration)
+        XCTAssertTrue(box.skipped.isEmpty)
+    }
+
     func testNoTargetLanguageMeansNoTranslation() {
         // Without this the comparison is "en" != "", which is true, so every
         // line including English went off to be translated — into whatever the

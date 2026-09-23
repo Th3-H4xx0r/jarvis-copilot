@@ -262,7 +262,7 @@ struct LiveView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if store.rows.isEmpty && store.partialText.isEmpty
+        if store.rows.isEmpty && store.partialText.isEmpty && store.committingText.isEmpty
             && store.wrapUp == nil && store.factCheck == nil {
             VStack {
                 Spacer()
@@ -309,10 +309,16 @@ struct LiveView: View {
                                 LiveInsightCard(insight: insight)
                             }
                         }
+                        // The line that just ended, on its way to the server.
+                        // It goes the moment its committed row arrives.
+                        if !store.committingText.isEmpty {
+                            LiveProvisionalRow(text: store.committingText,
+                                               startMs: store.committingStartMs)
+                                .transition(.opacity)
+                        }
                         // The words being spoken right now, from this phone's
                         // own recogniser. Always last, because it is by
-                        // definition the newest thing said — and it disappears
-                        // the moment its committed row arrives.
+                        // definition the newest thing said.
                         if !store.partialText.isEmpty {
                             LiveProvisionalRow(text: store.partialText,
                                                startMs: store.partialStartMs)

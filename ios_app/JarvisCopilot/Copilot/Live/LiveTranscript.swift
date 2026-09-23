@@ -87,7 +87,16 @@ struct LiveTranscript: Equatable, Sendable {
     /// twice.
     mutating func upsert(_ segment: LiveSegment) {
         if let index = segments.firstIndex(where: { $0.seq == segment.seq }) {
-            segments[index] = segment
+            var incoming = segment
+            // A re-sent row (identification, the language rescue) usually has
+            // no translation on it. Taking it wholesale erased the one already
+            // here, so the phone translated the line again and stored it again.
+            // Kept only while the words are the same: a corrected row's old
+            // translation is of words it no longer says.
+            if (incoming.translation ?? "").isEmpty, incoming.text == segments[index].text {
+                incoming.translation = segments[index].translation
+            }
+            segments[index] = incoming
         } else if let index = segments.firstIndex(where: { $0.seq > segment.seq }) {
             // A late frame is PLACED, not appended: appended, it would read as
             // having been said last.

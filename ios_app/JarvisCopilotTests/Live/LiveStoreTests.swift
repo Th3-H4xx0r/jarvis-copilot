@@ -343,22 +343,167 @@ final class LiveStoreTests: XCTestCase {
                        "so it cannot move the resume cursor or count toward the rollover budget")
     }
 
-    /// The guess and the record must never both be on screen. The committed row
-    /// arriving is what takes the in-progress one away.
+    /// The guess and the record must never both be on screen. When the utterance
+    /// ends its words wait in their own slot, and the committed row arriving is
+    /// what takes them away.
     func testTheCommittedRowReplacesTheInProgressOne() async {
         let rig = makeRig()
+        rig.recognizer.nextTranscript = "we should ship on friday"
         await rig.store.start()
         rig.store.receive(text: readyFrame())
         await openUtterance(rig)
         rig.recognizer.latest?.onPartial?("we should ship on")
         XCTAssertFalse(rig.store.partialText.isEmpty)
 
+        rig.input.emitFrames(amplitude: 0.0, ms: 1500)
+        await settle()
+        XCTAssertEqual(rig.store.committingText, "we should ship on",
+                       "the words stay up while their row is on its way")
+        XCTAssertEqual(rig.store.partialText, "")
+
         rig.store.receive(text: json(["t": "seg", "seq": 1,
                                       "text": "We should ship on Friday."]))
 
-        XCTAssertEqual(rig.store.partialText, "",
+        XCTAssertEqual(rig.store.committingText, "",
                        "the guess goes the moment the record lands")
         XCTAssertEqual(rig.store.segments.map(\.text), ["We should ship on Friday."])
+    }
+
+    // MARK: - The recogniser decides when a line is over
+
+    /// Why rows took up to fifteen seconds: in a room whose noise sits above the
+    /// level gate, the gate never closes, so only the cap ever ended an
+    /// utterance — measured on real sessions, every row landed on a 15 s grid.
+    /// The recogniser knows when the words stopped, and that is what ends it.
+    func testALineIsCommittedOnceItsWordsStopEvenInANoisyRoom() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "hello there"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("hello there")
+
+        // The room stays loud; the words have stopped.
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        await settle()
+
+        XCTAssertEqual(segs(rig).map { $0["text"] as? String }, ["hello there"])
+    }
+
+    /// A pause shorter than the settle time is the same line, not two.
+    func testWordsStillArrivingKeepTheLineOpen() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "one two three"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        for words in ["one", "one two", "one two three"] {
+            rig.recognizer.latest?.emitPartial(words)
+            rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs - 300)
+            await settle()
+        }
+        XCTAssertTrue(segs(rig).isEmpty)
+
+        rig.input.emitFrames(amplitude: 0.05, ms: 500)
+        await settle()
+        XCTAssertEqual(segs(rig).count, 1)
+    }
+
+    /// Room noise with no words in it is not cut into windows. Cutting it at the
+    /// cap is what split a sentence that began just before the boundary into two
+    /// rows ("Hello." / "Como te llamas…"), measured on a real recording.
+    func testNoiseWithNoWordsIsNotCutIntoWindows() async {
+        let rig = makeRig()
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+
+        rig.input.emitFrames(amplitude: 0.05, ms: AmbientSegmenter.maxUtteranceMs + 2000)
+        await settle()
+
+        XCTAssertEqual(rig.recognizer.sessions.count, 1, "one window, never cut and reopened")
+        XCTAssertEqual(rig.recognizer.latest?.stopCount, 0)
+        XCTAssertTrue(segs(rig).isEmpty)
+    }
+
+    /// A monologue still reaches the transcript in pieces while it is being
+    /// spoken — but the cap counts from the first WORD, so the noise before
+    /// anyone spoke does not shorten the first piece.
+    func testALongMonologueIsStillChunkedFromItsFirstWord() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "a very long story"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.input.emitFrames(amplitude: 0.05, ms: 5000)
+        await settle()
+
+        var said = ""
+        for n in 0..<28 {  // 14 s of words, 19 s into the window
+            said += " w\(n)"
+            rig.recognizer.latest?.emitPartial(said)
+            rig.input.emitFrames(amplitude: 0.05, ms: 500)
+            await settle()
+        }
+        XCTAssertTrue(segs(rig).isEmpty, "not yet: the words have run 14 s")
+
+        for n in 28..<34 {
+            said += " w\(n)"
+            rig.recognizer.sessions.first?.emitPartial(said)
+            rig.input.emitFrames(amplitude: 0.05, ms: 500)
+            await settle()
+        }
+        XCTAssertEqual(segs(rig).count, 1, "cut once the words have run for the cap")
+    }
+
+    /// Lines now end back to back. The echo of the one just committed must take
+    /// only ITS words away, never the next line being spoken.
+    func testTheEchoOfOneLineLeavesTheNextLinesWordsOnScreen() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "first line"
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("first line")
+        rig.input.emitFrames(amplitude: 0.05, ms: LiveStore.wordsSettledMs + 200)
+        await settle()
+        XCTAssertEqual(rig.store.committingText, "first line")
+        XCTAssertEqual(rig.recognizer.sessions.count, 2,
+                       "the room is still loud, so the next window is already open")
+
+        rig.recognizer.latest?.emitPartial("and the second")
+        rig.store.receive(text: json(["t": "seg", "seq": 1, "text": "First line."]))
+
+        XCTAssertEqual(rig.store.committingText, "")
+        XCTAssertEqual(rig.store.partialText, "and the second")
+        XCTAssertEqual(rig.store.segments.map(\.text), ["First line."])
+    }
+
+    /// Nothing heard means nothing waits: an utterance the recogniser produced no
+    /// text for must not leave its guess up for the grace window.
+    func testAnUtteranceThatTranscribesToNothingTakesItsWordsDownAtOnce() async {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = ""
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("uh")
+
+        rig.input.emitFrames(amplitude: 0.0, ms: 1500)
+        await settle()
+
+        XCTAssertEqual(rig.store.committingText, "")
+        XCTAssertTrue(segs(rig).isEmpty)
+    }
+
+    private func segs(_ rig: Rig) -> [[String: Any]] {
+        sent(rig).filter { ($0["t"] as? String) == "seg" }
+    }
+
+    /// Enough turns of the main actor for a detached transcription to finish
+    /// and send its frame.
+    private func settle() async {
+        for _ in 0..<8 { await Task.yield() }
     }
 
     /// A partial must not outlive its utterance. Stopping mid-sentence drops it
@@ -392,6 +537,7 @@ final class LiveStoreTests: XCTestCase {
         rig.clock.advance(ms: LiveStore.partialGraceMs + 100)
 
         XCTAssertEqual(rig.store.partialText, "")
+        XCTAssertEqual(rig.store.committingText, "")
     }
 
     // MARK: - The indicator and the Live Activity cannot outlive capture

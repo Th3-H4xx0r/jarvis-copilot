@@ -159,8 +159,14 @@ final class AmbientSegmenter {
     /// Feed one frame. `amp` is normalized PEAK amplitude 0...1 (use
     /// `voicePeakAmplitude`, the same measure `Endpointer` takes, so the two sets
     /// of thresholds are comparable), `dtMs` its duration from the byte count.
+    ///
+    /// `capArmed: false` holds off the `maxUtteranceMs` cut. The caller passes it
+    /// while a recogniser is listening and has heard no words yet: a window of
+    /// room noise has nothing to chunk, and cutting it at an arbitrary instant
+    /// is how a sentence that began just before the cut was split in two. The
+    /// caller then chunks by the recogniser's words instead.
     @discardableResult
-    func update(_ amp: Double, _ dtMs: Int) -> AmbientSegmentEvent {
+    func update(_ amp: Double, _ dtMs: Int, capArmed: Bool = true) -> AmbientSegmentEvent {
         guard dtMs > 0 else { return .none }
         elapsedMs += dtMs
 
@@ -197,10 +203,23 @@ final class AmbientSegmenter {
 
         // Checked after the silence rule so a naturally-ending utterance reports
         // its real end rather than the cap.
-        if elapsedMs - startMs >= Self.maxUtteranceMs, voicedMs >= Self.minUtteranceMs {
+        if capArmed, elapsedMs - startMs >= Self.maxUtteranceMs, voicedMs >= Self.minUtteranceMs {
             return close()
         }
         return .none
+    }
+
+    /// End the open utterance because the RECOGNISER says its words are over.
+    ///
+    /// The level gate cannot say so in a room whose noise sits above it — the
+    /// deadlock measured on real sessions, where the floor never learned the room
+    /// because every frame of the room opened an utterance, so every row ran to
+    /// the 15 s cap. Unlike `flush()` this does not insist on `minUtteranceMs` of
+    /// voiced audio: the words are the evidence, and a quiet talker in a quiet
+    /// room can say a whole sentence the gate barely counted.
+    func endUtterance() -> AmbientSegmentEvent? {
+        guard speaking else { return nil }
+        return close()
     }
 
     /// End the open utterance now — capture is stopping, or the mic was

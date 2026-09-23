@@ -34,6 +34,48 @@ final class LiveTranscriptTests: XCTestCase {
         XCTAssertEqual(transcript.segments[0].labelState, .confirmed)
     }
 
+    /// The server re-sends a row once the language rescue or identification has
+    /// looked at it, and that frame usually carries no translation. Taking it
+    /// wholesale erased the one the phone had just made, so the phone translated
+    /// the line again and stored it again — every translation reached the server
+    /// twice.
+    func testARowSentAgainKeepsTheTranslationItAlreadyHad() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(5, text: "hola"))
+        transcript.setTranslation(seq: 5, text: "hello")
+
+        transcript.upsert(segment(5, speaker: "sp-2", state: .confirmed, text: "hola"))
+
+        XCTAssertEqual(transcript.segment(seq: 5)?.translation, "hello")
+        XCTAssertEqual(transcript.segment(seq: 5)?.speakerID, "sp-2")
+    }
+
+    /// But a row whose WORDS changed — the rescue re-heard it — has a translation
+    /// of the old words, and keeping it would put the wrong meaning under the
+    /// corrected line.
+    func testACorrectedRowDropsTheTranslationOfItsOldWords() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(5, text: "Ola, Como, Stas"))
+        transcript.setTranslation(seq: 5, text: "Ola, Como, Stas")
+
+        transcript.upsert(segment(5, text: "Hola, ¿cómo estás?"))
+
+        XCTAssertNil(transcript.segment(seq: 5)?.translation)
+    }
+
+    /// A translation the frame itself carries always wins.
+    func testATranslationInTheFrameReplacesTheOneHeld() {
+        var transcript = LiveTranscript()
+        transcript.upsert(segment(5, text: "hola"))
+        transcript.setTranslation(seq: 5, text: "hi")
+        var sent = segment(5, text: "hola")
+        sent.translation = "hello"
+
+        transcript.upsert(sent)
+
+        XCTAssertEqual(transcript.segment(seq: 5)?.translation, "hello")
+    }
+
     /// A late frame is placed, not appended — appended it would read as having been
     /// said last.
     func testALateFrameIsPlacedInOrderNotAppended() {

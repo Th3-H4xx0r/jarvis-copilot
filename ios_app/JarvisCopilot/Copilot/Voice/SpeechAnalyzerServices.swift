@@ -53,9 +53,18 @@ final class AnalyzerSpeechEngine {
     ///
     /// The voice turn deliberately keeps `.progressiveTranscription` — it has one
     /// language and no reason to take the change.
+    ///
+    /// `.fastResults` is what `.progressiveTranscription` itself carries (read
+    /// off the framework: `[.volatileResults, .fastResults]`), and building this
+    /// preset by hand had silently dropped it. Replayed at real time over real
+    /// Live recordings, it put each line's words on screen 0.9–2.0 s sooner —
+    /// one or two of the recogniser's ~940 ms steps — and since Live ends a line
+    /// when its words settle (`LiveStore.wordsSettledMs`), the row lands that
+    /// much sooner too. It also invented no text out of room noise where the
+    /// slower setting produced a whole phantom line.
     static let livePreset = SpeechTranscriber.Preset(
         transcriptionOptions: [],
-        reportingOptions: [.volatileResults],
+        reportingOptions: [.volatileResults, .fastResults],
         attributeOptions: [.audioTimeRange, .transcriptionConfidence])
 
     /// Whether the device language is ready, so a voice turn can start at once.

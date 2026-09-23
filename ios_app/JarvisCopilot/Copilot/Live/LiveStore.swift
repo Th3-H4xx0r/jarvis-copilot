@@ -49,7 +49,17 @@ struct LiveHalt: Equatable, Sendable {
 @Observable
 final class LiveStore {
 
-    static let shared = LiveStore()
+    static let shared = LiveStore(translationSessions: LiveStore.systemTranslationSessions())
+
+    /// Translation sessions that need no view, where this OS has them. Only the
+    /// app's own store gets Apple's: a test store would otherwise reach into the
+    /// real framework the moment a foreign row arrived.
+    static func systemTranslationSessions() -> DirectTranslationSessions? {
+        #if canImport(Translation)
+        if #available(iOS 26.0, *) { return InstalledTranslationSessions() }
+        #endif
+        return nil
+    }
 
     /// The rate the ambient mic produces and the rate declared in `hello`.
     static let micRate = 16000
@@ -63,6 +73,18 @@ final class LiveStore {
     /// on it and send the audio-only path instead. A wedged analyzer must not stall
     /// the next utterance.
     static let transcriptionDeadlineMs = 4000
+
+    /// How long the recogniser's words must stay unchanged before the line is
+    /// over and gets committed.
+    ///
+    /// This, not the level gate, is what ends a line now. Measured on real
+    /// sessions: the room's noise sat above the gate, the gate never closed, and
+    /// every row waited for the 15 s cap — a median of 11.5 s between the last
+    /// word and the row. Apple's transcriber stops producing words when the
+    /// words stop, whatever the room is doing, and it publishes them in steps of
+    /// about 940 ms, so anything much under this would end a line between two
+    /// of its own words. Replayed against the same recordings: 0.5–2.1 s.
+    static let wordsSettledMs = 1200
 
     /// Audio kept before speech opens, so an utterance's first consonant is not
     /// clipped off the recording. ~400 ms.
@@ -160,6 +182,15 @@ final class LiveStore {
     /// Where the in-progress utterance began on the session clock, for its
     /// timestamp.
     private(set) var partialStartMs = 0
+    /// The words of the utterance that just ENDED, on screen until its committed
+    /// row lands.
+    ///
+    /// A slot of its own because lines now end back to back: the next line's
+    /// words are already arriving in `partialText` while this one is on its way to
+    /// the server, and the echo of this one must take away only these words —
+    /// clearing `partialText` on it would blank the sentence being spoken.
+    private(set) var committingText = ""
+    private(set) var committingStartMs = 0
     /// The end-of-session wrap-up, once the artifacts watcher has produced one.
     var wrapUp: LiveWrapUp? { transcript.wrapUp }
     private(set) var config = LiveConfig()
@@ -263,6 +294,11 @@ final class LiveStore {
     /// recogniser that gave text and then died would otherwise leave that text
     /// on screen for the rest of the session.
     private var partialExpiry: VoiceTimerToken?
+    /// The recogniser's last words for the open utterance, and when on the audio
+    /// clock they last changed and first appeared. `wordsAreOver()` reads these.
+    private var lastWords = ""
+    private var wordsChangedAtMs: Int?
+    private var firstWordsAtMs: Int?
 
     /// How long an in-progress utterance may sit on screen after its audio
     /// ended without its committed row arriving. Long enough to cover the
@@ -278,7 +314,8 @@ final class LiveStore {
          clock: VoiceClock? = nil,
          spool: LiveSpool? = nil,
          settings: LiveSettings? = nil,
-         preferences: KeyValueStore = UserDefaults.standard) {
+         preferences: KeyValueStore = UserDefaults.standard,
+         translationSessions: DirectTranslationSessions? = nil) {
         self.api = api
         self.input = input ?? AmbientAudioInput()
         self.session = session ?? AmbientAudioSession()
@@ -288,6 +325,7 @@ final class LiveStore {
         self.spool = spool ?? LiveSpool()
         self.settings = settings ?? LiveSettings()
         self.preferences = preferences
+        translator.direct = translationSessions
         wire()
     }
 
@@ -473,6 +511,12 @@ final class LiveStore {
         // after the socket: the phone is already listening to the room, and the
         // one thing that must never lag is the notice that says so.
         beacon.began(at: captureStartedAt ?? Date(), kept: storageText, detail: activityDetail)
+        // Load the translation models for the languages this recording expects
+        // now, while the room is quiet, rather than on the first foreign line.
+        if config.translate {
+            translator.target = config.primaryLanguage
+            translator.warmUp(sources: sttLocales.map(\.identifier))
+        }
         await openOrResumeSession(epoch: epoch)
         guard epoch == generation else { return }
         armMicWatchdog(epoch: epoch)
@@ -933,7 +977,12 @@ final class LiveStore {
         let amp = voicePeakAmplitude(pcm)
         level = min(amp * 24, 1)
 
-        let event = segmenter.update(amp, dtMs)
+        // While a recogniser is listening, IT chunks the utterance (see
+        // `wordsAreOver`); the level gate's cap would only cut room noise at an
+        // arbitrary instant. With no session the cap stays, because it is also
+        // how a session that never opened reaches `finishUtterance` and hands
+        // transcription back to the server.
+        let event = segmenter.update(amp, dtMs, capArmed: !(sttEnabled && speech != nil))
         switch event {
         case .started:
             openSpeechSession()
@@ -959,15 +1008,7 @@ final class LiveStore {
             preRoll.removeAll()
         case .ended(let startMs, let endMs):
             sendAudio(pcm)
-            // The last 20 ms of the last word is inside the encoder; the utterance
-            // is over, so nothing more is coming to push it out.
-            flushEncoderTail()
-            finishUtterance(startMs: startMs, endMs: endMs)
-            // An utterance boundary is the cheap place to record the clocks: once
-            // per utterance rather than once per 20 ms frame.
-            settings.rememberAudioClock(sessionID: liveSessionID,
-                                        elapsedMs: segmenter.elapsedMs,
-                                        audioSeq: audioSeq)
+            closeUtterance(startMs: startMs, endMs: endMs)
             return
         case .none:
             break
@@ -982,6 +1023,9 @@ final class LiveStore {
                 pendingSpeechFrames.append(pcm)
             }
             sendAudio(pcm)
+            if wordsAreOver(), case .ended(let startMs, let endMs)? = segmenter.endUtterance() {
+                closeUtterance(startMs: startMs, endMs: endMs)
+            }
         } else {
             // Silence is NOT uploaded, and still isn't now that the audio is Opus.
             // Compression brought the archive to the design's ~11 MB an hour of
@@ -1137,6 +1181,7 @@ final class LiveStore {
             // A session that finished arriving after the utterance ended is useless.
             guard self.segmenter.speaking, self.speech == nil else { made.cancel(); return }
             self.speech = made
+            self.forgetWords()
             // The words as they are said. Apple's transcriber emits volatile
             // results for the stretch it is still hearing and re-states them as
             // they firm up, so this is the live text with no server round trip
@@ -1144,6 +1189,7 @@ final class LiveStore {
             self.partialStartMs = max(self.segmenter.startMs, 0)
             made.onPartial = { [weak self, weak made] text in
                 guard let self, let made, self.speech === made else { return }
+                self.noteWords(text)
                 self.showPartial(text)
             }
             // Everything said while it was opening, in order.
@@ -1166,29 +1212,89 @@ final class LiveStore {
         partialExpiry = nil
     }
 
-    /// Take the in-progress row off screen. Called from every path that ends an
-    /// utterance, ends capture, or commits a row.
+    /// Take every provisional row off screen — the words being spoken and the
+    /// words waiting on their row. For the paths that end capture outright.
     private func clearPartial() {
-        partialExpiry?.cancel()
-        partialExpiry = nil
         partialText = ""
         partialStartMs = 0
+        clearCommitting()
+    }
+
+    /// Take away only the words that were waiting on a committed row.
+    private func clearCommitting() {
+        partialExpiry?.cancel()
+        partialExpiry = nil
+        committingText = ""
+        committingStartMs = 0
     }
 
     /// The utterance's audio has ended and its committed row is on its way.
-    /// Keep the words visible across the transcription deadline and the round
-    /// trip — but not forever: a recogniser that produced text and then failed,
-    /// or an utterance the server discards, must not leave a guess on screen
-    /// wearing the transcript's clothes.
-    private func expirePartialSoon() {
-        guard !partialText.isEmpty else { return }
+    /// Its words move to their own slot so the next line can start filling
+    /// `partialText` at once, and stay visible across the transcription deadline
+    /// and the round trip — but not forever: a recogniser that produced text and
+    /// then failed, or an utterance the server discards, must not leave a guess
+    /// on screen wearing the transcript's clothes.
+    /// Returns whether there were words to hand off.
+    @discardableResult
+    private func handOffPartial() -> Bool {
+        guard !partialText.isEmpty else { return false }
+        committingText = partialText
+        committingStartMs = partialStartMs
+        partialText = ""
+        partialStartMs = 0
         partialExpiry?.cancel()
         partialExpiry = clock.schedule(after: Self.partialGraceMs) { [weak self] in
             guard let self else { return }
             self.partialExpiry = nil
-            self.partialText = ""
-            self.partialStartMs = 0
+            self.committingText = ""
+            self.committingStartMs = 0
         }
+        return true
+    }
+
+    // MARK: - When a line is over
+
+    /// Record the recogniser's latest words for the open utterance.
+    private func noteWords(_ text: String) {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, words != lastWords else { return }
+        lastWords = words
+        wordsChangedAtMs = segmenter.elapsedMs
+        if firstWordsAtMs == nil { firstWordsAtMs = segmenter.elapsedMs }
+    }
+
+    private func forgetWords() {
+        lastWords = ""
+        wordsChangedAtMs = nil
+        firstWordsAtMs = nil
+    }
+
+    /// Whether the open utterance is over by the recogniser's account: its
+    /// words have not changed for `wordsSettledMs`, or they have run for the
+    /// whole chunking cap. Measured from the first WORD, not from when the level
+    /// gate opened — in a loud room the gate can have been open on noise for a
+    /// long time before anyone spoke.
+    private func wordsAreOver() -> Bool {
+        guard sttEnabled, speech != nil,
+              let changed = wordsChangedAtMs, let first = firstWordsAtMs
+        else { return false }
+        let now = segmenter.elapsedMs
+        return now - changed >= Self.wordsSettledMs
+            || now - first >= AmbientSegmenter.maxUtteranceMs
+    }
+
+    /// An utterance boundary, however it was reached: the level gate's silence
+    /// or cap, or the recogniser's words settling.
+    private func closeUtterance(startMs: Int, endMs: Int) {
+        // The last 20 ms of the last word is inside the encoder; the utterance
+        // is over, so nothing more is coming to push it out.
+        flushEncoderTail()
+        finishUtterance(startMs: startMs, endMs: endMs)
+        // An utterance boundary is the cheap place to record the clocks: once
+        // per utterance rather than once per 20 ms frame.
+        settings.rememberAudioClock(sessionID: liveSessionID,
+                                    elapsedMs: segmenter.elapsedMs,
+                                    audioSeq: audioSeq)
     }
 
     /// Give the transcription job back to the server, and say so.
@@ -1251,9 +1357,10 @@ final class LiveStore {
         let finished = speech
         let anchorMs = speechAnchorMs
         speech = nil
+        forgetWords()
         // The audio has ended; the row is in flight. The words stay put until
         // it lands (`upsert`) or the grace window closes.
-        expirePartialSoon()
+        let handedOff = handOffPartial() ? committingText : nil
         // Anything still queued belonged to the utterance that just ended; it must
         // not be fed to the NEXT one's session.
         pendingSpeechFrames.removeAll()
@@ -1275,8 +1382,13 @@ final class LiveStore {
             guard epoch == self.generation else { return }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Nothing heard: a VAD opening on a door slam is normal and must not
-            // become an empty transcript row.
-            guard !trimmed.isEmpty else { return }
+            // become an empty transcript row — nor leave its guess on screen for
+            // a row that is not coming. Only if those words are still the ones
+            // waiting: a later line may have taken the slot since.
+            guard !trimmed.isEmpty else {
+                if let handedOff, self.committingText == handedOff { self.clearCommitting() }
+                return
+            }
             // Read AFTER the await: it is the FINAL results that carry the range
             // and the winning language, and those only exist once `stop()` has
             // finalized.
@@ -1559,11 +1671,11 @@ final class LiveStore {
     }
 
     private func upsert(_ segment: LiveSegment) {
-        // The committed row REPLACES the in-progress one, in the same render:
-        // the guess and the record must never both be on screen. Any `seg` will
-        // do as the trigger — it means the transcript has moved past whatever
-        // the recogniser was still chewing on.
-        clearPartial()
+        // The committed row REPLACES the words that were waiting on it, in the
+        // same render: the guess and the record must never both be on screen.
+        // Only those words — `partialText` is the NEXT line, still being spoken,
+        // and blanking it here is what an echo landing mid-sentence used to do.
+        clearCommitting()
         transcript.upsert(segment)
         settings.rememberCursor(sessionID: liveSessionID, seq: segment.seq)
     }
@@ -1822,11 +1934,14 @@ final class LiveStore {
     /// answers first wins, because both write the same field.
     private func translateOnDevice(_ segment: LiveSegment) {
         guard config.translate, !readOnly else { return }
-        guard (segment.translation ?? "").isEmpty else { return }
-        guard !segment.lang.isEmpty else { return }
+        // The row as held, not the frame: a row re-sent after identification or
+        // the language rescue carries no translation even when the line already
+        // has one, and reading the frame translated it a second time.
+        let held = transcript.segment(seq: segment.seq) ?? segment
+        guard (held.translation ?? "").isEmpty else { return }
+        guard !held.lang.isEmpty else { return }
         translator.target = config.primaryLanguage
-        translator.request(seq: segment.seq, text: segment.text,
-                           source: segment.lang)
+        translator.request(seq: held.seq, text: held.text, source: held.lang)
     }
 
     /// Wire the translator's answers into the transcript. Called once, at init.

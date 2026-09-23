@@ -8,21 +8,24 @@ import Translation
 /// Translation used to be a model call on the server made after an utterance
 /// had already landed, and the gap was visible — several seconds between the
 /// line appearing and its meaning. Apple's Translation framework runs on the
-/// device, offline, in the tens of milliseconds, which is the only way this
-/// gets to feel immediate.
+/// device and offline. Measured (Apple silicon, es→en and zh→en): about 330 ms
+/// a line once its model is loaded, and 0.7–1.6 s for the FIRST line, which
+/// pays for loading it.
 ///
-/// Two things about it shape everything here:
+/// Three things about it shape everything here:
 ///
-/// * **A session cannot be constructed.** `TranslationSession` has no public
-///   initialiser; the only way to get one is SwiftUI's `.translationTask`,
-///   which binds it to a view's lifetime. So this translates while the Live
-///   screen is on screen and not otherwise — which is exactly when someone is
-///   watching for it, and why the server still does the same work for
-///   everything else (a backgrounded recording, a closed screen, a language
-///   Apple does not have).
+/// * **Two ways to get a session.** On iOS 26 one can be built directly for a
+///   pair whose languages are installed (`DirectTranslationSessions`): it needs
+///   no view, so it works with the Live screen closed, and it is kept warm
+///   between lines. Otherwise, or when a pack is missing, SwiftUI's
+///   `.translationTask` is the only way — and the only one that can ask the
+///   user to download a pack — which binds it to the Live screen's lifetime.
+///   The server still covers everything the phone cannot.
 /// * **A session is per language pair.** Changing the pair means a new session,
-///   so work is grouped by source language and the configuration is swapped
-///   between groups rather than per utterance.
+///   so work is grouped by source language.
+/// * **`prepareTranslation()` does not load the model** (measured: the first line
+///   after it still cost 740 ms). Translating something throwaway does, so
+///   `warmUp` translates each expected language's own name when capture starts.
 ///
 /// This never decides WHETHER something should be translated. It is handed
 /// utterances the transcript already believes are foreign, and it reports what
@@ -67,11 +70,24 @@ final class LiveTranslator {
     /// What we are translating INTO, BCP-47.
     var target: String = "en"
 
+    /// Sessions that need no view, when this OS can make them (iOS 26+). Nil
+    /// means every pair goes through the `.translationTask` path.
+    var direct: DirectTranslationSessions?
+
     private var pending: [Job] = []
     /// Pairs Apple has told us it cannot do. Asking again every utterance
     /// would mean a failed download prompt per line.
     private var unsupported: Set<String> = []
+    /// Pairs the direct path could not serve because their languages are not
+    /// on the phone. They go to the `.translationTask` path, which can ask to
+    /// download them.
+    private var viewPairs: Set<String> = []
     private var inFlight = false
+    private var draining = false
+    /// Languages already warmed this launch, and the sentinel `seq`s warm-ups
+    /// run under — negative, so no callback ever reports one.
+    private var warmed: Set<String> = []
+    private var warmUpSeq = 0
 
     /// Whether this build and OS can translate on device at all.
     static var isAvailable: Bool {
@@ -118,7 +134,32 @@ final class LiveTranslator {
         }
         guard !pending.contains(where: { $0.seq == seq }) else { return }
         pending.append(Job(seq: seq, text: words, source: from))
-        configureForNextPair()
+        if direct != nil, !viewPairs.contains(from) {
+            drainDirect()
+        } else {
+            configureForNextPair()
+        }
+    }
+
+    /// Load the models for the languages this recording expects, before anyone
+    /// speaks them, so the first foreign line costs ~330 ms rather than the
+    /// 0.7–1.6 s of loading. Only through the direct path: the view path would
+    /// have to put a session up just for this.
+    func warmUp(sources: [String]) {
+        guard Self.isAvailable, direct != nil else { return }
+        let into = Self.primarySubtag(target)
+        guard !into.isEmpty else { return }
+        for source in sources.map(Self.primarySubtag) where !source.isEmpty && source != into {
+            guard !warmed.contains(source), !unsupported.contains(source),
+                  let name = Locale(identifier: source).localizedString(forLanguageCode: source),
+                  !name.isEmpty
+            else { continue }
+            warmed.insert(source)
+            warmUpSeq -= 1
+            // The language's own name is always real text in that language.
+            pending.append(Job(seq: warmUpSeq, text: name, source: source))
+        }
+        drainDirect()
     }
 
     /// Drain everything queued for the configured pair. Called from
@@ -132,31 +173,7 @@ final class LiveTranslator {
         }
         while let job = pending.first(where: { $0.source == pair }) {
             pending.removeAll { $0.seq == job.seq }
-            do {
-                let done = try await session.translate(job.text)
-                let clean = done.trimmingCharacters(in: .whitespacesAndNewlines)
-                if clean.isEmpty || clean == job.text {
-                    // Identical output means it had nothing to change: the
-                    // words were already in the target language. That is an
-                    // ANSWER — handing it to the server instead produced
-                    // English "translated" into the same English.
-                    onSkipped?(job.seq, .alreadyInTarget)
-                } else {
-                    onTranslated?(job.seq, clean)
-                }
-            } catch {
-                // One failure condemns the PAIR, not just this line: the usual
-                // cause is a language pack that is not installed and cannot be
-                // fetched, and retrying per utterance would ask forever.
-                unsupported.insert(pair)
-                onSkipped?(job.seq, .cannot)
-                for orphan in pending where orphan.source == pair {
-                    onSkipped?(orphan.seq, .cannot)
-                }
-                pending.removeAll { $0.source == pair }
-                JcLog.voice.notice("live: on-device translation unavailable for \(pair)")
-                return
-            }
+            guard await translate(job, with: session) else { return }
         }
     }
 
@@ -165,8 +182,65 @@ final class LiveTranslator {
     func reset() {
         pending.removeAll()
         unsupported.removeAll()
+        viewPairs.removeAll()
         configuration = nil
         inFlight = false
+    }
+
+    // MARK: - The direct path
+
+    /// Translate everything the direct path can serve, one line at a time, in
+    /// the order it was asked for. A pair it cannot serve moves to the view path.
+    private func drainDirect() {
+        guard let direct, !draining else { return }
+        draining = true
+        Task { [weak self] in
+            while let self, let job = self.pending.first(where: { !self.viewPairs.contains($0.source) }) {
+                guard let runner = await direct.runner(source: job.source, target: self.target) else {
+                    // Not installed on this phone. The view path can ask the user
+                    // to download it; until then the server answers.
+                    self.viewPairs.insert(job.source)
+                    self.pending.removeAll { $0.source == job.source && $0.seq < 0 }
+                    self.configureForNextPair()
+                    continue
+                }
+                self.pending.removeAll { $0.seq == job.seq }
+                _ = await self.translate(job, with: runner)
+            }
+            self?.draining = false
+        }
+    }
+
+    /// One line through one session. False when the pair failed, which
+    /// condemns it: the usual cause is a pack that is not installed and cannot
+    /// be fetched, and retrying per utterance would ask forever.
+    private func translate(_ job: Job, with session: TranslationRunner) async -> Bool {
+        do {
+            let done = try await session.translate(job.text)
+            // A warm-up: loading the model was the point, the words are not.
+            guard job.seq >= 0 else { return true }
+            let clean = done.trimmingCharacters(in: .whitespacesAndNewlines)
+            if clean.isEmpty || clean == job.text {
+                // Identical output means it had nothing to change: the
+                // words were already in the target language. That is an
+                // ANSWER — handing it to the server instead produced
+                // English "translated" into the same English.
+                onSkipped?(job.seq, .alreadyInTarget)
+            } else {
+                onTranslated?(job.seq, clean)
+            }
+            return true
+        } catch {
+            let pair = job.source
+            unsupported.insert(pair)
+            if job.seq >= 0 { onSkipped?(job.seq, .cannot) }
+            for orphan in pending where orphan.source == pair && orphan.seq >= 0 {
+                onSkipped?(orphan.seq, .cannot)
+            }
+            pending.removeAll { $0.source == pair }
+            JcLog.voice.notice("live: on-device translation unavailable for \(pair)")
+            return false
+        }
     }
 
     // MARK: - Private
@@ -178,7 +252,8 @@ final class LiveTranslator {
     /// row needs an explicit nudge through nil.
     private func configureForNextPair(force: Bool = false) {
         guard !inFlight || force else { return }
-        guard let next = pending.first else {
+        // With a direct path, only the pairs it handed over are this path's.
+        guard let next = pending.first(where: { direct == nil || viewPairs.contains($0.source) }) else {
             configuration = nil
             return
         }
@@ -220,7 +295,49 @@ protocol TranslationRunner {
     func translate(_ text: String) async throws -> String
 }
 
+/// Sessions that need no view: one per pair, made on demand and kept.
+///
+/// A protocol so the routing between this and the view path can be tested
+/// without a device or a language pack.
+@MainActor
+protocol DirectTranslationSessions: AnyObject {
+    /// A session for this pair, or nil when its languages are not installed on
+    /// the phone — which only the view path can do anything about.
+    func runner(source: String, target: String) async -> TranslationRunner?
+}
+
 #if canImport(Translation)
+/// iOS 26's `TranslationSession(installedSource:target:)`.
+///
+/// Prefers the low-latency model where the phone has it (iOS 26.4); it is a
+/// separate download from the standard one, so where it is only "supported"
+/// the standard model is used rather than failing the line.
+@available(iOS 26.0, macOS 26.0, *)
+@MainActor
+final class InstalledTranslationSessions: DirectTranslationSessions {
+    private var sessions: [String: TranslationSession] = [:]
+
+    func runner(source: String, target: String) async -> TranslationRunner? {
+        let key = source + ">" + target
+        if let session = sessions[key] { return session }
+        let from = Locale.Language(identifier: source)
+        let into = Locale.Language(identifier: target)
+        let session: TranslationSession
+        if #available(iOS 26.4, macOS 26.4, *),
+           await LanguageAvailability(preferredStrategy: .lowLatency)
+               .status(from: from, to: into) == .installed {
+            session = TranslationSession(installedSource: from, target: into,
+                                         preferredStrategy: .lowLatency)
+        } else if await LanguageAvailability().status(from: from, to: into) == .installed {
+            session = TranslationSession(installedSource: from, target: into)
+        } else {
+            return nil
+        }
+        sessions[key] = session
+        return session
+    }
+}
+
 @available(iOS 18.0, macOS 15.0, *)
 extension TranslationSession: TranslationRunner {
     func translate(_ text: String) async throws -> String {

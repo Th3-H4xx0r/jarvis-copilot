@@ -270,4 +270,37 @@ final class AmbientSegmenterTests: XCTestCase {
         _ = feed(segmenter, amp: loud, ms: AmbientSegmenter.minUtteranceMs - 100)
         XCTAssertNil(segmenter.flush(), "a blip must not be flushed out as a row")
     }
+
+    // MARK: - When the recogniser, not the level, knows where speech is
+
+    /// A room whose noise sits above the opening gate holds a window open with no
+    /// words in it. Cutting that window at the cap is what split a sentence that
+    /// happened to start just before the boundary, so the caller can hold the
+    /// cap off until words have actually been heard.
+    func testTheCapCanBeHeldOffWhileNoWordsHaveBeenHeard() {
+        let segmenter = AmbientSegmenter()
+        var events: [AmbientSegmentEvent] = []
+        for _ in 0..<((AmbientSegmenter.maxUtteranceMs + 5000) / dt) {
+            let event = segmenter.update(loud, dt, capArmed: false)
+            if event != .none { events.append(event) }
+        }
+        XCTAssertEqual(events.count, 1, "opened once and never cut")
+        guard case .started = events.first else { return XCTFail("expected the opening") }
+        XCTAssertTrue(segmenter.speaking)
+    }
+
+    /// The words are the evidence. An utterance the recogniser heard words in is
+    /// ended on the caller's say-so, however little of it the level gate counted
+    /// as voiced — a quiet speaker in a quiet room is exactly that case.
+    func testEndingOnTheRecognisersWordReportsTheUtterance() {
+        let segmenter = AmbientSegmenter()
+        XCTAssertNil(segmenter.endUtterance(), "nothing open, nothing to end")
+        _ = feed(segmenter, amp: loud, ms: AmbientSegmenter.minUtteranceMs / 2)
+        XCTAssertTrue(segmenter.speaking)
+        guard case .ended(let startMs, let endMs)? = segmenter.endUtterance() else {
+            return XCTFail("an utterance with words in it must be reported")
+        }
+        XCTAssertLessThan(startMs, endMs)
+        XCTAssertFalse(segmenter.speaking)
+    }
 }
