@@ -34,8 +34,61 @@ struct LiveRoomMeter: View {
     var tape: [Double] = []
     /// A lane fallback or similar notice that must be stated, not implied.
     var notice: String = ""
+    /// One line instead of a card, for while a recording is simply running: the
+    /// full card took a quarter of the screen from the transcript it was
+    /// recording. The caller only asks for it when there is nothing to warn
+    /// about, and the light, the clock and the moving tape all stay.
+    var compact = false
 
     var body: some View {
+        if compact { slim } else { full }
+    }
+
+    private var slim: some View {
+        GlassCard(padding: 11, fill: fill, borderColor: border) {
+            HStack(spacing: 10) {
+                LiveCaptureDot(state: state)
+                Text("Recording")
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.text)
+                    .lineLimit(1)
+                    .fixedSize()
+                if let elapsed {
+                    Text(LiveFormat.stamp(ms: Int(elapsed * 1000)))
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(JcTheme.text)
+                        .contentTransition(.numericText())
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: Int(elapsed))
+                        .fixedSize()
+                }
+                LiveRoomTape(samples: tape, live: state == .recording, reduceMotion: reduceMotion,
+                             height: 18)
+                    .frame(minWidth: 40)
+                if let size = keptSize {
+                    Text(size)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenLabel)
+        .accessibilityHint("Shows the full recorder")
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// "2.4 MB stored" → "2.4 MB". Nothing before the first byte: "No audio
+    /// stored yet" does not fit on the line, and the full card says it.
+    private var keptSize: String? {
+        let suffix = " stored"
+        guard kept.hasSuffix(suffix) else { return nil }
+        return String(kept.dropLast(suffix.count))
+    }
+
+    private var full: some View {
         GlassCard(padding: 15, fill: fill, borderColor: border) {
             VStack(alignment: .leading, spacing: 12) {
                 header.layoutPriority(1)
@@ -247,11 +300,13 @@ struct LiveRoomTape: View {
     let live: Bool
     var reduceMotion: Bool = false
 
+    /// 34 in the full card, less on the slim bar.
+    var height: CGFloat = 34
+
     /// Bar geometry. Fixed rather than scaled with Dynamic Type: this is a
     /// graphic, and the app's type scale is deliberately fixed (`JcTheme`).
     private static let barWidth: CGFloat = 3
     private static let gap: CGFloat = 2
-    private static let height: CGFloat = 34
 
     var body: some View {
         Canvas { context, size in
@@ -283,7 +338,7 @@ struct LiveRoomTape: View {
                              with: .color(JcTheme.text.opacity(live ? opacity : 0.25)))
             }
         }
-        .frame(height: Self.height)
+        .frame(height: height)
         .frame(maxWidth: .infinity)
         // Only the newest bar changes per tick, so this is a 100ms fade on one
         // column rather than a sweep. Off entirely under Reduce Motion, where

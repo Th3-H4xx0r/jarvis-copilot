@@ -24,6 +24,8 @@ struct LiveView: View {
     @State private var discarding = false
     /// Follow the newest row unless the user has scrolled up to read.
     @State private var pinnedToBottom = true
+    /// The user tapped the slim recorder bar open.
+    @State private var meterExpanded = false
 
     /// A view's `init` is not main-actor isolated, so the store cannot be a default
     /// argument — the same reason `VoicePage.init` takes an optional.
@@ -134,15 +136,30 @@ struct LiveView: View {
     /// twice) with a settings gear stranded at the far edge.
     private var roomMeter: some View {
         let split = LiveRecorderStatus.split(store.statusText)
+        // Slim while a recording is simply running; the full card whenever
+        // there is something to say (a warning, a notice, not recording) or
+        // the user tapped it open.
+        let slim = captureState == .recording && split.detail == nil
+            && store.sttNotice.isEmpty && !meterExpanded
         return LiveRoomMeter(state: captureState,
                              headline: split.headline,
                              detail: split.detail,
                              kept: store.storageText,
                              elapsed: elapsed,
                              tape: levels,
-                             notice: store.sttNotice)
+                             notice: store.sttNotice,
+                             compact: slim)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard captureState == .recording else { return }
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { meterExpanded.toggle() }
+            }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.25), value: slim)
             .onChange(of: store.capturing) { _, capturing in
-                if !capturing { levels = [] }
+                if !capturing {
+                    levels = []
+                    meterExpanded = false
+                }
             }
             // Sampling only while capturing matters: every tab stays mounted in
             // the shell, so an ungated ticker would run behind all five.
@@ -279,50 +296,49 @@ struct LiveView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(store.rows) { row in
-                            switch row {
-                            case .segment(let segment):
-                                LiveSegmentRow(segment: segment,
-                                               onTranslate: { Task { await store.translate(segment) } },
-                                               onName: {
-                                                   nameDraft = segment.speakerName ?? ""
-                                                   naming = segment
-                                               })
-                                // A verdict the server tied to THIS line reads
-                                // under it. Against the sentence it judged, the
-                                // card needs no preamble explaining which claim
-                                // it means.
-                                if let anchored = anchoredFactCheck,
-                                   anchored.anchorSeq == segment.seq {
+                    let items = store.timeline
+                    let tints = Self.speakerTints(items)
+                    let live = liveText
+                    let joinsLast = liveJoinsLastTurn(items)
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(items) { item in
+                            switch item {
+                            case .turn(let turn):
+                                LiveTurnView(turn: turn,
+                                             primary: store.config.primaryLanguage,
+                                             tint: tints[turn.speakerKey] ?? JcTheme.muted,
+                                             liveTail: joinsLast && item.id == items.last?.id ? live : "",
+                                             onTranslate: { translate(turn) },
+                                             onName: {
+                                                 nameDraft = turn.first.speakerName ?? ""
+                                                 naming = turn.first
+                                             })
+                                // A verdict the server tied to a line in THIS
+                                // turn reads under it. Against the words it
+                                // judged, the card needs no preamble.
+                                if let anchored = anchoredFactCheck, let seq = anchored.anchorSeq,
+                                   turn.contains(seq: seq) {
                                     LiveFactCheckCard(result: anchored)
-                                        .padding(.top, 2)
                                 }
                                 // The wrap-up closes the conversation it
                                 // summarised — and anything said afterwards
                                 // belongs underneath it, not above.
-                                if let wrap = anchoredWrapUp,
-                                   wrap.afterSeq == segment.seq {
+                                if let wrap = anchoredWrapUp, let seq = wrap.afterSeq,
+                                   turn.contains(seq: seq) {
                                     LiveWrapUpCard(wrap: wrap)
-                                        .padding(.top, 2)
                                 }
-                            case .insight(let insight):
-                                LiveInsightCard(insight: insight)
+                                ForEach(turn.notes, id: \.localID) { note in
+                                    LiveInsightCard(insight: note)
+                                }
+                            case .note(let note):
+                                LiveInsightCard(insight: note)
                             }
                         }
-                        // The line that just ended, on its way to the server.
-                        // It goes the moment its committed row arrives.
-                        if !store.committingText.isEmpty {
-                            LiveProvisionalRow(text: store.committingText,
-                                               startMs: store.committingStartMs)
-                                .transition(.opacity)
-                        }
-                        // The words being spoken right now, from this phone's
-                        // own recogniser. Always last, because it is by
-                        // definition the newest thing said.
-                        if !store.partialText.isEmpty {
-                            LiveProvisionalRow(text: store.partialText,
-                                               startMs: store.partialStartMs)
+                        // Words being spoken that do not look like the last
+                        // turn carrying on: their own block, until the line is
+                        // committed and the server says whose they were.
+                        if !live.isEmpty, !joinsLast {
+                            LiveProvisionalRow(text: live, startMs: liveStartMs)
                                 .id(Self.partialAnchor)
                                 .transition(.opacity)
                         }
@@ -408,6 +424,53 @@ struct LiveView: View {
 
     private static let bottomAnchor = "live-bottom"
     private static let partialAnchor = "live-partial"
+
+    /// What is being said and not yet a line: the line on its way to the
+    /// server, then the words after it.
+    private var liveText: String {
+        [store.committingText, store.partialText]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private var liveStartMs: Int {
+        store.committingText.isEmpty ? store.partialStartMs : store.committingStartMs
+    }
+
+    /// The live words go on the end of the last turn when they started soon
+    /// after it — dimmed, and firmed up in place once committed.
+    private func liveJoinsLastTurn(_ items: [LiveTimelineItem]) -> Bool {
+        guard !liveText.isEmpty, case .turn(let last)? = items.last else { return false }
+        return LiveTurns.liveContinues(last, liveStartMs: liveStartMs)
+    }
+
+    /// A colour per voice, in the order they first speak, so two people
+    /// talking back and forth never share one.
+    static func speakerTints(_ items: [LiveTimelineItem]) -> [String: Color] {
+        var tints: [String: Color] = [:]
+        var next = 0
+        for case .turn(let turn) in items where tints[turn.speakerKey] == nil {
+            if turn.speakerKey == LiveTurns.unplacedKey {
+                tints[turn.speakerKey] = JcTheme.muted
+                continue
+            }
+            tints[turn.speakerKey] = JcTheme.speakers[next % JcTheme.speakers.count]
+            next += 1
+        }
+        return tints
+    }
+
+    /// Ask for the lines in this turn that are in another language and have
+    /// no translation yet.
+    private func translate(_ turn: LiveTurn) {
+        let own = LiveTurns.subtag(store.config.primaryLanguage)
+        let waiting = turn.lines.filter {
+            ($0.translation ?? "").isEmpty && !LiveTurns.subtag($0.lang).isEmpty
+                && LiveTurns.subtag($0.lang) != own
+        }
+        Task { for line in waiting { await store.translate(line) } }
+    }
 
     /// Changes whenever the bottom of the transcript grows without a row being
     /// added.
@@ -575,101 +638,133 @@ struct LiveView: View {
 
 // MARK: - Rows
 
-/// One utterance: who, when, what was said, and the translation beneath it when
-/// the server filled one in.
-struct LiveSegmentRow: View {
-    let segment: LiveSegment
+/// One speaker turn: who, when, everything they said until someone else spoke,
+/// and the same in the reader's language beneath it.
+///
+/// It replaced a row per committed line, which put a chip, a clock, a globe
+/// and "from Spanish" on every clause a person paused after — a few sentences
+/// from one voice filled the screen with headers and read as noise.
+struct LiveTurnView: View {
+    let turn: LiveTurn
+    /// The reader's language, which the translation paragraph is in.
+    let primary: String
+    /// This voice's colour, from `JcTheme.speakers`.
+    let tint: Color
+    /// Words still being spoken that most likely carry this turn on. Dimmed:
+    /// they are a guess until the line is committed and placed.
+    var liveTail: String = ""
     let onTranslate: () -> Void
     let onName: () -> Void
 
     private var speaker: String {
-        LiveFormat.speakerLabel(id: segment.speakerID, name: segment.speakerName)
+        LiveFormat.speakerLabel(id: turn.first.speakerID, name: turn.first.speakerName)
+    }
+
+    private var languages: String {
+        turn.foreignLanguages(primary: primary)
+            .map { LiveLanguageName.name($0) ?? $0 }
+            .joined(separator: ", ")
+    }
+
+    private var canTranslate: Bool {
+        let own = LiveTurns.subtag(primary)
+        return turn.lines.contains {
+            ($0.translation ?? "").isEmpty && !LiveTurns.subtag($0.lang).isEmpty
+                && LiveTurns.subtag($0.lang) != own
+        }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(speaker)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(chipTint)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(chipTint.opacity(0.14), in: Capsule())
-                    .overlay(Capsule().strokeBorder(chipTint.opacity(0.30), lineWidth: 1))
-                // A provisional label may still be relabelled, including
-                // retroactively by a merge. Saying so is the difference between
-                // "Jarvis is unsure" and "Jarvis got it wrong".
-                if segment.labelState == .provisional {
-                    Text("unconfirmed")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(JcTheme.muted)
-                }
-                Spacer(minLength: 4)
-                Text(LiveFormat.stamp(ms: segment.startMs))
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(JcTheme.muted)
-            }
-
-            Text(segment.text)
-                .font(.system(size: 15))
-                .foregroundStyle(JcTheme.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            if let translation = segment.translation {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .top, spacing: 6) {
-                        JcIcon("globe", size: 11).foregroundStyle(JcTheme.muted)
-                        Text(translation)
-                            .font(.system(size: 13.5))
-                            .foregroundStyle(JcTheme.muted)
-                            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 7) {
+            header
+            said
+            if let reader = turn.readerText(primary: primary) {
+                Text(reader)
+                    .font(.system(size: 14.5))
+                    .foregroundStyle(JcTheme.text.opacity(0.74))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .padding(.leading, 11)
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(tint.opacity(0.55)).frame(width: 2)
                     }
-                    // Which language this came out of. Without it a line of
-                    // English under a line of Chinese characters is just two
-                    // sentences, and there is no way to tell a translation
-                    // from a correction.
-                    if let trip = LiveLanguageName.trip(from: segment.lang) {
-                        Text(trip)
-                            .font(.system(size: 11))
-                            .foregroundStyle(JcTheme.muted.opacity(0.75))
-                            .padding(.leading, 17)
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        // No fact-check here, deliberately. Checking one utterance was
-        // meaningless on a line like "Yo, one, two, three, hello", and a
-        // control on every row made the transcript unreadable. The check now
-        // reads a window of the CONVERSATION, from the button beside Record.
         .contextMenu {
-            Button("Translate", jcIcon: "globe", action: onTranslate)
+            if canTranslate {
+                Button("Translate", jcIcon: "globe", action: onTranslate)
+            }
             Button("Copy", jcIcon: "doc.on.doc") {
-                LivePasteboard.copy(segment.text)
+                LivePasteboard.copy([turn.text, turn.readerText(primary: primary)]
+                    .compactMap { $0 }.joined(separator: "\n"))
             }
             Button("Name this voice", jcIcon: "person.crop.circle", action: onName)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(speaker) at \(LiveFormat.stamp(ms: segment.startMs)): \(segment.text)")
+        .accessibilityLabel(accessibilityText)
     }
 
+    private var header: some View {
+        HStack(spacing: 7) {
+            Circle().fill(tint).frame(width: 8, height: 8)
+            Text(speaker)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+            // A provisional label may still be relabelled, including
+            // retroactively by a merge. Saying so is the difference between
+            // "Jarvis is unsure" and "Jarvis got it wrong".
+            if turn.unconfirmed {
+                Text("unconfirmed")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            // Which language it came out of, once for the turn. Without it a
+            // paragraph of English under Chinese characters is just two
+            // paragraphs, with no telling a translation from a correction.
+            if !languages.isEmpty {
+                Text("· \(languages)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Text(LiveFormat.stamp(ms: turn.startMs))
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(JcTheme.muted)
+        }
+    }
 
-    /// A confirmed voice gets the accent; an unconfirmed one stays neutral, so the
-    /// colour carries the confidence rather than only the word beside it.
-    private var chipTint: Color {
-        segment.labelState == .confirmed ? JcTheme.accent : JcTheme.muted
+    /// The words, with the live tail appended in a dimmer weight so the turn
+    /// grows where it will end up rather than in a box of its own.
+    private var said: some View {
+        let tail = liveTail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let committed = Text(turn.text).foregroundStyle(JcTheme.text)
+        let growing = tail.isEmpty ? Text("")
+            : Text((turn.text.isEmpty ? "" : " ") + tail).foregroundStyle(JcTheme.text.opacity(0.5))
+        return (committed + growing)
+            .font(.system(size: 15.5))
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+
+    private var accessibilityText: String {
+        var parts = ["\(speaker) at \(LiveFormat.stamp(ms: turn.startMs))", turn.text]
+        if let reader = turn.readerText(primary: primary) { parts.append("Translation: \(reader)") }
+        return parts.joined(separator: ". ")
     }
 }
 
 /// The utterance being spoken RIGHT NOW, from this phone's own recogniser.
 ///
-/// Deliberately unlike `LiveSegmentRow`, because it is a different KIND of
-/// thing: a guess that is about to be replaced. No speaker chip (nobody has
-/// been identified yet), dimmer text, and a leading caret so it reads as
-/// in-progress rather than as a line someone actually said and Jarvis got
-/// wrong. It carries no actions at all — fact-checking, naming or translating a
+/// Shown only when the words do not look like the last turn carrying on
+/// (`LiveTurns.liveContinues`); otherwise they grow at the end of that turn.
+/// Deliberately unlike `LiveTurnView`, because it is a different KIND of
+/// thing: a guess that is about to be replaced. No speaker (nobody has been
+/// identified yet) and dimmer text, so it reads as in-progress rather than as
+/// a line someone actually said and Jarvis got wrong. It carries no actions at all — fact-checking, naming or translating a
 /// sentence that is still being said would address a row the server has never
 /// heard of.
 struct LiveProvisionalRow: View {
@@ -678,21 +773,20 @@ struct LiveProvisionalRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text("speaking")
-                    .font(.system(size: 11.5, weight: .semibold))
+            HStack(spacing: 7) {
+                // A hollow dot where a turn has a filled one: the same header,
+                // saying nobody has been placed yet.
+                Circle().strokeBorder(JcTheme.muted, lineWidth: 1.5).frame(width: 8, height: 8)
+                Text("Speaking")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(JcTheme.muted)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(JcTheme.glassFill, in: Capsule())
-                    .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
                 Spacer(minLength: 4)
                 Text(LiveFormat.stamp(ms: startMs))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(JcTheme.muted)
             }
             Text(text)
-                .font(.system(size: 15))
+                .font(.system(size: 15.5))
                 // Dimmer than a committed row: the difference between "this is
                 // the record" and "this is what Jarvis is hearing".
                 .foregroundStyle(JcTheme.text.opacity(0.62))

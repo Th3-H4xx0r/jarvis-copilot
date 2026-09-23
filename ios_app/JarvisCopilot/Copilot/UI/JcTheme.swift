@@ -47,6 +47,17 @@ enum JcTheme {
 
     static let accent = JcAccent.color
     static let accentAlt = Color(jcHex: 0xFF6FD8)       // pink
+    /// Voices in a Live transcript, handed out in the order people first speak
+    /// so neighbours differ. The accent leads; amber, danger and success are
+    /// left out because on that screen they already mean "waiting", "recording"
+    /// and "confirmed".
+    static let speakers: [Color] = [
+        accent, accentAlt,
+        Color(jcHex: 0xA78BFA),     // violet
+        Color(jcHex: 0x7CB7FF),     // sky
+        Color(jcHex: 0xFF9F6B),     // peach
+        Color(jcHex: 0xC6E36B),     // lime
+    ]
     /// The accent, under the name the voice states and data colours use.
     static let cyan = JcAccent.color
     /// The secondary accent — info chips, a running tool, your own message's

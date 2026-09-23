@@ -34,6 +34,12 @@ struct LiveTranscript: Equatable, Sendable {
     /// frames. Rebuilt only when a row actually changes.
     private(set) var rows: [LiveRow] = []
 
+    /// The rows as the screen reads them: one block per speaker turn. Cached
+    /// with `rows` for the same reason — the live words change every second,
+    /// and regrouping an hours-long transcript on each of them is main-actor
+    /// work between audio frames.
+    private(set) var timeline: [LiveTimelineItem] = []
+
     private mutating func rebuildRows() {
         // A TOTAL order, not just `seq`: `sorted` is not stable, several
         // insights share one `seq`, and an insight sits at the same `seq` as
@@ -43,6 +49,7 @@ struct LiveTranscript: Equatable, Sendable {
         // the utterance it comments on.
         rows = (segments.map(LiveRow.segment) + insights.map(LiveRow.insight))
             .sorted { ($0.seq, $0.tiebreak) < ($1.seq, $1.tiebreak) }
+        timeline = LiveTurns.timeline(rows)
     }
 
     /// The highest `seq` seen, which is what `after_seq` resumes from.
@@ -56,6 +63,7 @@ struct LiveTranscript: Equatable, Sendable {
         segments.removeAll()
         insights.removeAll()
         rows.removeAll()
+        timeline.removeAll()
         wrapUp = nil
         factCheck = nil
         // Not reset: a row id must stay unique for the life of the view, and a

@@ -281,4 +281,87 @@ final class LiveTranscriptTests: XCTestCase {
     private func insight(_ seq: Int) -> LiveInsight {
         LiveInsight(seq: seq, kind: "monitor", text: "note \(seq)", refSeq: nil)
     }
+
+    // MARK: - Speaker turns
+
+    private func line(_ seq: Int, _ speaker: String?, atS start: Int, _ text: String,
+                      lang: String = "en", translation: String? = nil) -> LiveRow {
+        .segment(LiveSegment(seq: seq, startMs: start * 1000, endMs: start * 1000 + 1500,
+                             speakerID: speaker, text: text, lang: lang,
+                             translation: translation))
+    }
+
+    private func turns(_ items: [LiveTimelineItem]) -> [LiveTurn] {
+        items.compactMap { if case .turn(let turn) = $0 { return turn } else { return nil } }
+    }
+
+    /// The screenshot that asked for this: one person, three pauses, three
+    /// headers. Pauses from the same voice are one turn.
+    func testPausesFromOneVoiceStayOneTurn() {
+        let items = LiveTurns.timeline([
+            line(1, "A", atS: 0, "practicar hablar español."),
+            line(2, "A", atS: 20, "con hispanohablantes."),
+            line(3, "A", atS: 45, "algunos tips profesionales para ti."),
+        ])
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(turns(items).first?.text,
+                       "practicar hablar español. con hispanohablantes. algunos tips profesionales para ti.")
+    }
+
+    func testAnotherVoiceStartsANewTurn() {
+        let items = LiveTurns.timeline([
+            line(1, "A", atS: 0, "hi"), line(2, "B", atS: 3, "hello"), line(3, "A", atS: 6, "how are you"),
+        ])
+        XCTAssertEqual(turns(items).map(\.speakerKey), ["id:A", "id:B", "id:A"])
+    }
+
+    func testATwoMinuteSilenceStartsANewTurn() {
+        let items = LiveTurns.timeline([line(1, "A", atS: 0, "before"), line(2, "A", atS: 200, "after")])
+        XCTAssertEqual(turns(items).count, 2)
+    }
+
+    /// A watcher note written mid-turn goes after the turn, not wedged in it.
+    func testANoteSitsAfterItsTurnNotInsideIt() {
+        var note = LiveInsight(seq: 1, kind: "monitor", text: "they are practising Spanish")
+        note.localID = 7
+        let items = LiveTurns.timeline([line(1, "A", atS: 0, "uno"), .insight(note),
+                                        line(2, "A", atS: 5, "dos")])
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(turns(items).first?.lines.map(\.seq), [1, 2])
+        XCTAssertEqual(turns(items).first?.notes.map(\.text), ["they are practising Spanish"])
+    }
+
+    /// One paragraph in the reader's language: translations where there are
+    /// some, the line itself where it was already English, and a foreign line
+    /// still waiting left out rather than shown untranslated.
+    func testTheTranslationReadsAsOneParagraph() {
+        let items = LiveTurns.timeline([
+            line(1, "A", atS: 0, "Hola.", lang: "es", translation: "Hello."),
+            line(2, "A", atS: 3, "Okay, so.", lang: "en-US"),
+            line(3, "A", atS: 6, "¿Cómo estás?", lang: "es"),
+        ])
+        let turn = turns(items)[0]
+        XCTAssertEqual(turn.readerText(primary: "en"), "Hello. Okay, so.")
+        XCTAssertEqual(turn.foreignLanguages(primary: "en"), ["es"])
+
+        let english = turns(LiveTurns.timeline([line(1, "A", atS: 0, "just English")]))[0]
+        XCTAssertNil(english.readerText(primary: "en"), "nothing translated, no second paragraph")
+    }
+
+    func testTheLiveWordsCarryOnARecentTurnOnly() {
+        let turn = turns(LiveTurns.timeline([line(1, "A", atS: 10, "hi")]))[0]
+        XCTAssertTrue(LiveTurns.liveContinues(turn, liveStartMs: 14_000))
+        XCTAssertFalse(LiveTurns.liveContinues(turn, liveStartMs: 40_000))
+    }
+
+    /// The transcript keeps the turns current as rows change, so the screen
+    /// never regroups on its own.
+    func testTheTranscriptKeepsItsTurnsCurrent() {
+        var transcript = LiveTranscript()
+        transcript.upsert(LiveSegment(seq: 1, startMs: 0, endMs: 900, speakerID: "A", text: "one"))
+        transcript.upsert(LiveSegment(seq: 2, startMs: 2000, endMs: 2900, speakerID: "A", text: "two"))
+        XCTAssertEqual(transcript.timeline.count, 1)
+        transcript.upsert(LiveSegment(seq: 2, startMs: 2000, endMs: 2900, speakerID: "B", text: "two"))
+        XCTAssertEqual(transcript.timeline.count, 2, "identification moved line 2 to another voice")
+    }
 }

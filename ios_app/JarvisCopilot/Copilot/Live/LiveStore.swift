@@ -126,6 +126,7 @@ final class LiveStore {
     var insights: [LiveInsight] { transcript.insights }
     /// Transcript and insights in one timeline.
     var rows: [LiveRow] { transcript.rows }
+    var timeline: [LiveTimelineItem] { transcript.timeline }
 
     private(set) var capturing = false
     private(set) var connected = false

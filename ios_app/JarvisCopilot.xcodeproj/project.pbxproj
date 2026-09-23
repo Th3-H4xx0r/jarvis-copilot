@@ -510,6 +510,7 @@
 		B3751CDAC9705ED8D11D260F /* BottleSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D9B59BF874209D4DD6281A /* BottleSceneView.swift */; };
 		B375CE098E28E861891A9751 /* LocalRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566A186B39D80F5F0CA7266B /* LocalRouterTests.swift */; };
 		B4672DBE761AB31389BEE8E4 /* MoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BE714F3A0C55A9A3FF5555C /* MoreTestSupport.swift */; };
+		B4D7A6197B64717C4BAD46CC /* LiveTurns.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE16112C9EEFEDE8EDE2BA7 /* LiveTurns.swift */; };
 		B4FD01264217310C2FECBE61 /* WeightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F60B76A48FCF7E435B836D /* WeightTests.swift */; };
 		B52CEA91DACFBB135723CA34 /* MemoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53594B4B0809B49BE3F0440 /* MemoryPage.swift */; };
 		B5E15D908A555E272321F8E6 /* RingWorkout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68F90FA4094E69A21A10278 /* RingWorkout.swift */; };
@@ -1378,6 +1379,7 @@
 		D98D32B53BC2BBD562E2A31C /* SetKeypad.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SetKeypad.swift; sourceTree = "<group>"; };
 		D9AE49D111FC69C08C9C180F /* ChatPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPage.swift; sourceTree = "<group>"; };
 		DA89F6A2747B18365631BFB3 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
+		DAE16112C9EEFEDE8EDE2BA7 /* LiveTurns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTurns.swift; sourceTree = "<group>"; };
 		DB3B263227AE6CB95AF99B5A /* WebViewCookies.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebViewCookies.swift; sourceTree = "<group>"; };
 		DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementPage.swift; sourceTree = "<group>"; };
 		DB59ED4224F14087BA8945D4 /* ColmiR12Tests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColmiR12Tests.swift; sourceTree = "<group>"; };
@@ -2016,6 +2018,7 @@
 				9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */,
 				FF2A317E20A5E208791DCAA4 /* LiveModels.swift */,
 				333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */,
+				DAE16112C9EEFEDE8EDE2BA7 /* LiveTurns.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3727,6 +3730,7 @@
 				5B7D1AF12BB8AB5BB17CA63D /* WeSpeakerResNet34.mlpackage in Sources */,
 				AEE7360F51FBFF2C02D49215 /* LiveModels.swift in Sources */,
 				4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */,
+				B4D7A6197B64717C4BAD46CC /* LiveTurns.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
