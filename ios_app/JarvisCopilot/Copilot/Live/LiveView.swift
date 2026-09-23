@@ -324,6 +324,7 @@ struct LiveView: View {
                                 if let anchored = anchoredFactCheck, let seq = anchored.anchorSeq,
                                    turn.contains(seq: seq) {
                                     LiveFactCheckCard(result: anchored)
+                                        .id(Self.factCheckAnchor)
                                 }
                                 // The wrap-up closes the conversation it
                                 // summarised — and anything said afterwards
@@ -353,6 +354,7 @@ struct LiveView: View {
                         if let result = trailingFactCheck {
                             LiveFactCheckCard(result: result)
                                 .padding(.top, 4)
+                                .id(Self.factCheckAnchor)
                         }
                         // Only when it belongs to no row on screen — a
                         // wrap-up written before this device joined, or whose
@@ -397,6 +399,20 @@ struct LiveView: View {
                     guard pinnedToBottom else { return }
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
+                // A fact-check is asked for with a tap, so its card is brought
+                // into view wherever it lands — the "Checking" card at the end,
+                // then the verdict at the end or under the line it judged. It
+                // appears without a new row, so following rows never showed it:
+                // it arrived below the fold.
+                .onChange(of: factCheckSignature) { _, _ in
+                    guard store.factCheck != nil else { return }
+                    pinnedToBottom = trailingFactCheck != nil
+                    DispatchQueue.main.async {
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+                            proxy.scrollTo(Self.factCheckAnchor, anchor: .bottom)
+                        }
+                    }
+                }
                 // Dragging is taken as "I am reading"; the newest row stops pulling
                 // the view away from what the user is looking at.
                 .simultaneousGesture(DragGesture().onChanged { value in
@@ -429,6 +445,19 @@ struct LiveView: View {
 
     private static let bottomAnchor = "live-bottom"
     private static let partialAnchor = "live-partial"
+    private static let factCheckAnchor = "live-factcheck"
+
+    /// Changes whenever the fact-check card appears, fills in or moves.
+    private var factCheckSignature: Int {
+        var hasher = Hasher()
+        if let result = store.factCheck {
+            hasher.combine(result.pending)
+            hasher.combine(result.failed)
+            hasher.combine(result.text)
+            hasher.combine(result.anchorSeq)
+        }
+        return hasher.finalize()
+    }
 
     /// What is being said and not yet a line: the line on its way to the
     /// server, then the words after it.
@@ -488,6 +517,9 @@ struct LiveView: View {
             hasher.combine(last.text)
             hasher.combine(last.translation)
         }
+        // A wrap-up closing the conversation grows the bottom too.
+        hasher.combine(store.wrapUp?.text)
+        hasher.combine(store.wrapUp?.summary)
         return hasher.finalize()
     }
 
@@ -555,6 +587,8 @@ struct LiveView: View {
     /// is what happens when it isn't obvious.
     private var factCheckTile: some View {
         Button {
+            // Follow the conversation down to where the card will appear.
+            pinnedToBottom = true
             Task { await store.factCheckConversation() }
         } label: {
             VStack(spacing: 3) {
