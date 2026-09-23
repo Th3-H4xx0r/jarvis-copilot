@@ -462,6 +462,23 @@ def test_a_near_empty_transcript_never_relabels_anything(monkeypatch):
                                 translate_to="en") is None
 
 
+def test_three_chinese_characters_are_a_sentence_not_too_little(monkeypatch):
+    """Measured on his recording: "你好嗎" was detected as Chinese at 0.977
+    and refused as too little to judge — three characters, each a syllable,
+    counted as three letters. The phone's "Ni hama." stayed on screen."""
+    _fake_whisper(monkeypatch, language="zh", probability=0.977, text="你好嗎")
+
+    found = live_language.rescue(_pcm(), 16000, "en-US")
+
+    assert found["lang"] == "zh" and found["text"] == "你好嗎"
+
+
+def test_a_single_syllable_is_still_too_little(monkeypatch):
+    for text in ("嗯", "好。", "ok."):
+        assert live_language._too_little_to_judge(text), text
+    assert not live_language._too_little_to_judge("你好嗎")
+
+
 def test_a_real_sentence_in_another_script_is_kept(monkeypatch):
     """The mojibake guard must not reject legitimate non-Latin writing."""
     _fake_whisper(monkeypatch, language="zh", probability=0.9,

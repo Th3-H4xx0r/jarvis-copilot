@@ -375,10 +375,22 @@ def same_language(a: str, b: str) -> bool:
 # the case being excluded is punctuation and silence, not brevity.
 MIN_HEARD_CHARS = 4
 
+# Scripts where one character is a whole syllable — Chinese characters, kana,
+# Hangul blocks. Counted letter by letter they looked like nothing: "你好嗎"
+# ("how are you", 98% Chinese) is three characters and was refused as "too
+# little heard", leaving the phone's "Ni hama." on screen.
+_SYLLABIC_RANGES = ((0x3040, 0x30FF), (0x3400, 0x4DBF), (0x4E00, 0x9FFF),
+                    (0xAC00, 0xD7AF), (0xF900, 0xFAFF))
+
+
+def _letter_weight(c: str) -> int:
+    o = ord(c)
+    return 2 if any(lo <= o <= hi for lo, hi in _SYLLABIC_RANGES) else 1
+
 
 def _too_little_to_judge(text: str) -> bool:
-    letters = [c for c in str(text or "") if c.isalpha()]
-    return len(letters) < MIN_HEARD_CHARS
+    heard = sum(_letter_weight(c) for c in str(text or "") if c.isalpha())
+    return heard < MIN_HEARD_CHARS
 
 
 def _looks_broken(text: str) -> bool:
