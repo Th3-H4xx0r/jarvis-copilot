@@ -19,6 +19,7 @@ struct LiveSettingsSheet: View {
     /// The model catalogue, shared with the Voice picker, purely to turn the
     /// server's effective model id into a name a person recognises.
     @State private var models = VoiceModelStore.shared
+    @State private var pickingModel = false
 
     private static let windowChoices = [30, 60, 120, 300, 600]
 
@@ -43,6 +44,20 @@ struct LiveSettingsSheet: View {
             }
             .jcScreen("Live settings")
             .liveModelPopup(store)
+            .sheet(isPresented: $pickingModel) {
+                CatalogModelPickerSheet(
+                    title: "Watchers model",
+                    catalog: models.catalog,
+                    selectedID: draft.model.isEmpty ? nil : draft.model,
+                    autoSubtitle: models.catalog.flatMap(appModel).map {
+                        "Follow the app — \(label($0, in: models.catalog!))."
+                    } ?? "Follow the app's own model.",
+                    load: { await models.load() },
+                    select: { picked in
+                        draft.model = picked?.id ?? ""
+                        push()
+                    })
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -181,15 +196,17 @@ struct LiveSettingsSheet: View {
                          title: "Watchers use",
                          subtitle: modelSubtitle,
                          subtitleLineLimit: 3,
-                         last: true) {
+                         last: true,
+                         action: { pickingModel = true }) {
                     if modelName == nil {
                         ProgressView().controlSize(.small).tint(JcTheme.accent)
+                    } else {
+                        JcIcon("chevron.right", size: 13).foregroundStyle(JcTheme.muted)
                     }
                 }
             }
             Text("Monitor, fact-check, translate and the end-of-session summary all run "
-               + "on this. Give them their own model with `auxiliary.live_*` in "
-               + "config.yaml.")
+               + "on this. Auto follows the app's own model.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(JcTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -204,9 +221,20 @@ struct LiveSettingsSheet: View {
     /// catalogue's own name is used when it has one, and the full id otherwise.
     private var modelName: String? {
         guard let catalog = models.catalog else { return nil }
+        // The watchers' own pick wins; empty means they follow the app.
+        if !draft.model.isEmpty { return label(draft.model, in: catalog) }
+        guard let app = appModel(catalog) else { return nil }
+        return "\(label(app, in: catalog)) · Auto"
+    }
+
+    /// The app's own model, which "Auto" follows.
+    private func appModel(_ catalog: ModelCatalog) -> String? {
         let id = (catalog.activeModel?.isEmpty == false ? catalog.activeModel : nil)
             ?? (catalog.defaultModel.isEmpty ? nil : catalog.defaultModel)
-        guard let id, !id.isEmpty else { return nil }
+        return id?.isEmpty == false ? id : nil
+    }
+
+    private func label(_ id: String, in catalog: ModelCatalog) -> String {
         if let match = catalog.models.first(where: { $0.id == id }), !match.label.isEmpty {
             return match.label
         }

@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The chat model picker, ported from `widgets/model_picker_sheet.dart`: the
-/// catalogue grouped by provider, searchable, with the current choice ticked.
+/// The chat model picker, ported from `widgets/model_picker_sheet.dart`.
 ///
 /// "Auto" is the top row and clears the explicit pick, so the server's active /
 /// default model decides. Selection is persisted through
@@ -10,11 +9,32 @@ import SwiftUI
 struct ChatModelPickerSheet: View {
     let store: ChatStore
 
+    var body: some View {
+        CatalogModelPickerSheet(title: "Chat model",
+                                catalog: store.models,
+                                selectedID: store.selectedModelID,
+                                load: { await store.loadModels() },
+                                select: { store.selectModel($0) })
+    }
+}
+
+/// A model picker over the server's catalogue: grouped by provider, searchable,
+/// the current choice ticked, "Auto" on top. One sheet for every place that
+/// picks a model — chat, and the Live watchers — so they all look and search
+/// the same.
+struct CatalogModelPickerSheet: View {
+    let title: String
+    let catalog: ModelCatalog?
+    /// Nil means "Auto" is the current choice.
+    let selectedID: String?
+    /// How "Auto" reads. Nil gives the server's own default, named.
+    var autoSubtitle: String? = nil
+    let load: () async -> Void
+    let select: (ChatModel?) -> Void
+
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var loading = false
-
-    private var catalog: ModelCatalog? { store.models }
 
     private func models(for provider: String) -> [ChatModel] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -30,7 +50,7 @@ struct ChatModelPickerSheet: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle("Chat model")
+                .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
@@ -40,9 +60,9 @@ struct ChatModelPickerSheet: View {
         }
         .presentationDetents([.large])
         .task {
-            guard store.models == nil else { return }
+            guard catalog == nil else { return }
             loading = true
-            await store.loadModels()
+            await load()
             loading = false
         }
     }
@@ -54,7 +74,7 @@ struct ChatModelPickerSheet: View {
             VStack(spacing: 12) {
                 CenteredMessage(text: "Couldn’t load models.")
                 Button("Retry") {
-                    Task { loading = true; await store.loadModels(); loading = false }
+                    Task { loading = true; await load(); loading = false }
                 }
                 .font(JcText.label)
                 .foregroundStyle(JcTheme.accent)
@@ -65,16 +85,16 @@ struct ChatModelPickerSheet: View {
             List {
                 Section {
                     row(title: "Auto",
-                        subtitle: defaultSubtitle,
-                        selected: store.selectedModelID == nil) { store.selectModel(nil) }
+                        subtitle: autoSubtitle ?? defaultSubtitle,
+                        selected: selectedID == nil) { select(nil) }
                 }
                 ForEach(providers, id: \.self) { provider in
                     Section(provider.isEmpty ? "Models" : provider) {
                         ForEach(models(for: provider)) { model in
                             row(title: model.label,
                                 subtitle: model.label == model.id ? nil : model.id,
-                                selected: model.id == store.selectedModelID) {
-                                store.selectModel(model)
+                                selected: model.id == selectedID) {
+                                select(model)
                             }
                         }
                     }

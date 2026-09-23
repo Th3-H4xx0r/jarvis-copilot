@@ -45,6 +45,9 @@ struct LiveConfig: Equatable, Sendable {
     /// `/api/live/config` sends, and this is only what a struct built before the
     /// first GET says.
     var factCheckTokens = 1000
+    /// The model the watchers run on (`live.model`). EMPTY means "whatever the
+    /// app's own model is" — a real choice the server stores as "", not a gap.
+    var model = ""
 
     static func from(_ d: [String: Any]) -> LiveConfig {
         // The server may nest it under `config`, or return it flat.
@@ -64,6 +67,7 @@ struct LiveConfig: Equatable, Sendable {
         if let v = d.double("session_rollover_fraction") { out.sessionRolloverFraction = v }
         if let v = d.int("session_rollover_tokens") { out.sessionRolloverTokens = v }
         if let v = d.int("fact_check_tokens") { out.factCheckTokens = v }
+        if let v = d.string("model") { out.model = v }
         return out
     }
 
@@ -82,7 +86,8 @@ struct LiveConfig: Equatable, Sendable {
          "embed_model": embedModel,
          "session_rollover_fraction": sessionRolloverFraction,
          "session_rollover_tokens": sessionRolloverTokens,
-         "fact_check_tokens": factCheckTokens]
+         "fact_check_tokens": factCheckTokens,
+         "model": model]
     }
 
     /// How the rollover point reads in a sentence.
