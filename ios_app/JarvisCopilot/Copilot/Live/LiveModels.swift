@@ -31,6 +31,8 @@ protocol OnDeviceTranscribing: AnyObject, Sendable {
 enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
     case parakeet
     case senseVoice
+    /// Sortformer: who is speaking, frame by frame — not a transcriber.
+    case speakers
 
     var id: String { rawValue }
 
@@ -38,6 +40,7 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .parakeet: return "Parakeet (European languages)"
         case .senseVoice: return "SenseVoice (Chinese, Japanese & Korean)"
+        case .speakers: return "Sortformer (overlapping voices)"
         }
     }
 
@@ -45,6 +48,7 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .parakeet: return "Parakeet"
         case .senseVoice: return "SenseVoice"
+        case .speakers: return "Sortformer"
         }
     }
 
@@ -55,6 +59,9 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
         case .senseVoice:
             return "Re-hears Mandarin, Cantonese, Japanese and Korean, for the lines "
                  + "Parakeet cannot place."
+        case .speakers:
+            return "Tells voices apart while they overlap, and splits a line where the "
+                 + "speaker changes."
         }
     }
 
@@ -63,6 +70,9 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .parakeet: return 469_000_000
         case .senseVoice: return 453_000_000
+        // The palettized build: 106 MB against 469 MB, and on his overlap
+        // clip it found the same second voice at the same frames.
+        case .speakers: return 106_000_000
         }
     }
 
@@ -74,6 +84,8 @@ enum LiveModelKind: String, CaseIterable, Identifiable, Sendable {
                     "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]
         case .senseVoice:
             return ["zh", "yue", "ja", "ko"]
+        case .speakers:
+            return []
         }
     }
 }
@@ -176,12 +188,21 @@ final class LiveModels {
     /// Who re-hears other languages. Per phone: the models are on THIS phone.
     private(set) var hearing: LiveHearing
 
+    static let splitsSpeakersKey = "jc_live_split_speakers"
+    /// Whether this phone tells overlapping voices apart (Sortformer) and
+    /// splits a line where the speaker changes.
+    private(set) var splitsSpeakers: Bool
+
+    /// Every model the current choices run.
+    private var wanted: [LiveModelKind] { hearing.kinds + (splitsSpeakers ? [.speakers] : []) }
+
     init(defaults: KeyValueStore = UserDefaults.standard) {
         self.defaults = defaults
         // Nothing chosen yet: whatever is already downloaded is what was meant
         // (models fetched before this choice existed were all in use).
         hearing = defaults.string(Self.hearingKey).flatMap(LiveHearing.init(rawValue:))
             ?? (Self.onDisk(.senseVoice) ? .phoneAll : Self.onDisk(.parakeet) ? .phone : .server)
+        splitsSpeakers = defaults.bool(Self.splitsSpeakersKey) ?? false
         refresh()
     }
 
@@ -193,7 +214,7 @@ final class LiveModels {
     func choose(_ choice: LiveHearing) {
         hearing = choice
         defaults.set(choice.rawValue, forKey: Self.hearingKey)
-        for kind in LiveModelKind.allCases where !choice.kinds.contains(kind) {
+        for kind in LiveModelKind.allCases where !wanted.contains(kind) {
             if case .downloading = state(kind) { cancel(kind) }
             unload(kind)
         }
@@ -201,11 +222,37 @@ final class LiveModels {
         prepare()
     }
 
+    /// Turn overlapping-voice splitting on or off, fetching Sortformer if needed.
+    func setSplitsSpeakers(_ on: Bool) {
+        splitsSpeakers = on
+        defaults.set(on, forKey: Self.splitsSpeakersKey)
+        if on {
+            if !Self.onDisk(.speakers) { download(.speakers) }
+            prepare()
+        } else {
+            if case .downloading = state(.speakers) { cancel(.speakers) }
+            unload(.speakers)
+        }
+    }
+
+    /// A fresh speaker tracker for one recording — nil until Sortformer is
+    /// loaded, or when splitting is off. Fresh because its voice slots belong
+    /// to the audio it has heard.
+    func speakerTracker() -> LiveSpeakerTracking? {
+        prepare()
+        #if canImport(FluidAudio)
+        guard splitsSpeakers, let models = loaded[.speakers]?.sortformer else { return nil }
+        return SortformerSpeakerTracker(models: models)
+        #else
+        return nil
+        #endif
+    }
+
     /// Start loading every chosen model that is on disk and not loaded yet —
     /// all at once, and without anyone waiting on it. Called when the Live tab
     /// shows and when a download lands, so a recording finds them ready.
     func prepare() {
-        for kind in hearing.kinds
+        for kind in wanted
         where Self.onDisk(kind) && loaded[kind] == nil && loading[kind] == nil && !state(kind).isBusy {
             states[kind] = .preparing
             let started = Date()
@@ -213,7 +260,7 @@ final class LiveModels {
                 let model = await LiveLoadedModel.load(kind)
                 guard let self else { return }
                 self.loading[kind] = nil
-                guard !Task.isCancelled, self.hearing.kinds.contains(kind) else {
+                guard !Task.isCancelled, self.wanted.contains(kind) else {
                     if self.state(kind) == .preparing { self.states[kind] = .ready }
                     return
                 }
@@ -307,6 +354,10 @@ final class LiveModels {
             hearing = left
             defaults.set(left.rawValue, forKey: Self.hearingKey)
         }
+        if kind == .speakers, splitsSpeakers {
+            splitsSpeakers = false
+            defaults.set(false, forKey: Self.splitsSpeakersKey)
+        }
     }
 
     func dismissFinished() { justFinished = nil }
@@ -335,6 +386,11 @@ final class LiveModels {
         switch kind {
         case .parakeet: return AsrModels.modelsExist(at: folder, version: .v3)
         case .senseVoice: return SenseVoiceModels.modelsExist(at: folder)
+        case .speakers:
+            guard let bundle = ModelNames.Sortformer.bundle(for: SortformerSpeakerTracker.config)
+            else { return false }
+            return FileManager.default.fileExists(
+                atPath: folder.appendingPathComponent(bundle).appendingPathComponent("coremldata.bin").path)
         }
         #else
         return false
@@ -350,6 +406,9 @@ final class LiveModels {
         case .parakeet: return parakeet
         case .senseVoice:
             return parakeet.deletingLastPathComponent().appendingPathComponent("sensevoice-small",
+                                                                                isDirectory: true)
+        case .speakers:
+            return parakeet.deletingLastPathComponent().appendingPathComponent("sortformer",
                                                                                 isDirectory: true)
         }
         #else
@@ -372,6 +431,9 @@ final class LiveModels {
         switch kind {
         case .parakeet: _ = try await AsrModels.download(version: .v3, progressHandler: handler)
         case .senseVoice: _ = try await SenseVoiceModels.download(progressHandler: handler)
+        case .speakers:
+            _ = try await SortformerModels.loadFromHuggingFace(config: SortformerSpeakerTracker.config,
+                                                               progressHandler: handler)
         }
         #endif
     }
@@ -383,12 +445,14 @@ final class LiveLoadedModel: @unchecked Sendable {
     #if canImport(FluidAudio)
     fileprivate let parakeet: AsrManager?
     fileprivate let senseVoice: SenseVoiceManager?
+    let sortformer: SortformerModels?
 
     private init(kind: LiveModelKind, parakeet: AsrManager? = nil,
-                 senseVoice: SenseVoiceManager? = nil) {
+                 senseVoice: SenseVoiceManager? = nil, sortformer: SortformerModels? = nil) {
         self.kind = kind
         self.parakeet = parakeet
         self.senseVoice = senseVoice
+        self.sortformer = sortformer
     }
 
     static func load(_ kind: LiveModelKind) async -> LiveLoadedModel? {
@@ -408,6 +472,15 @@ final class LiveLoadedModel: @unchecked Sendable {
             do { return LiveLoadedModel(kind: kind, senseVoice: try loadSenseVoiceOnCPU()) }
             catch {
                 JcLog.dropped(JcLog.voice, "load SenseVoice", error)
+                return nil
+            }
+        case .speakers:
+            do {
+                let models = try await SortformerModels.loadFromHuggingFace(
+                    config: SortformerSpeakerTracker.config)
+                return LiveLoadedModel(kind: kind, sortformer: models)
+            } catch {
+                JcLog.dropped(JcLog.voice, "load Sortformer", error)
                 return nil
             }
         }

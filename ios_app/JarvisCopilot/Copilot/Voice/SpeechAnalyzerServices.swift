@@ -211,6 +211,7 @@ final class AnalyzerSpeechSession: SpeechSession {
     /// still being heard and their range moves.
     private var rangeStartMs: Int?
     private var rangeEndMs: Int?
+    private(set) var words: [SpeechWord] = []
 
     /// Confidence, weighted by how much text each run covers, so a long
     /// well-recognised sentence outranks one confident word.
@@ -239,6 +240,7 @@ final class AnalyzerSpeechSession: SpeechSession {
                     if result.isFinal {
                         self.note(range: result.range)
                         self.note(confidenceOf: result.text)
+                        self.note(wordsOf: result.text)
                         self.finalized = Self.join(self.finalized, text)
                         self.onPartial?(self.finalized)
                     } else {
@@ -318,6 +320,20 @@ final class AnalyzerSpeechSession: SpeechSession {
         let endMs = Int((end * 1000).rounded())
         rangeStartMs = min(rangeStartMs ?? startMs, startMs)
         rangeEndMs = max(rangeEndMs ?? endMs, endMs)
+    }
+
+    /// Every timed run of committed text, in order. The preset asks for
+    /// `.audioTimeRange`, which the transcriber attaches per word.
+    private func note(wordsOf text: AttributedString) {
+        for run in text.runs {
+            guard let range = run.audioTimeRange else { continue }
+            let start = range.start.seconds, end = range.end.seconds
+            guard start.isFinite, end.isFinite, start >= 0, end >= start else { continue }
+            let piece = String(text[run.range].characters).trimmingCharacters(in: .whitespaces)
+            guard !piece.isEmpty else { continue }
+            words.append(SpeechWord(text: piece, startMs: Int((start * 1000).rounded()),
+                                    endMs: Int((end * 1000).rounded())))
+        }
     }
 
     private func note(confidenceOf text: AttributedString) {
@@ -432,4 +448,5 @@ final class MultiLocaleSpeechSession: SpeechSession {
 
     var transcribedRangeMs: ClosedRange<Int>? { winner?.transcribedRangeMs }
     var resolvedLanguage: String? { winner?.resolvedLanguage }
+    var words: [SpeechWord] { winner?.words ?? [] }
 }

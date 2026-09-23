@@ -11,6 +11,7 @@
 		0068B7796282AF96C4B1942C /* PhoneDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A39F960D71FEDFAF350D453 /* PhoneDeviceTests.swift */; };
 		00C60A94953A39CB9D4C3153 /* JarvisPodStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEB8B049A1D4CC82D1EABBF8 /* JarvisPodStore.swift */; };
 		0132838BB4ED7C7F1A48F67C /* ConnectionMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3584FB51E25BF86374E4A4A0 /* ConnectionMonitorTests.swift */; };
+		015A1D06A0F5229E88607D27 /* LiveSpeakerSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */; };
 		01F92B3226C2848737E91BC4 /* InvokeRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 413E3BCBB775B509259D57DF /* InvokeRunner.swift */; };
 		0200298A63ED687ACBC0516F /* IslandDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5CE744A8FC299B69D9691E /* IslandDemo.swift */; };
 		02924514331E5FC5C4CA6004 /* ChatJSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3E7176C46606A0A20279B7 /* ChatJSONValue.swift */; };
@@ -568,6 +569,7 @@
 		C87714A591757D26D0C9CFBB /* SkillBoundaries.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90919F6985E18CFAB878801 /* SkillBoundaries.swift */; };
 		C8962CE34CB8C60477680A9A /* AudioInputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD3843097850821EB958726 /* AudioInputEngine.swift */; };
 		C8A07494419A603D23EABE7D /* KanbanStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */; };
+		C91188379B1CA9905D2435C8 /* LiveSpeakerTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */; };
 		C951B6E6413AC78801ABBB41 /* DetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EE315366F1707545A1FADD /* DetailSheet.swift */; };
 		C9906D5F89A8BEB0190F3605 /* BottleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02DCCD3CD284FCC808A1665 /* BottleManager.swift */; };
 		C9E33D14B5DFB01F72328B66 /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB31C1D5D1C17CAEA923456 /* SettingsPage.swift */; };
@@ -1121,6 +1123,7 @@
 		83932DC6F3E44032B3655D15 /* WearablesDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesDevice.swift; sourceTree = "<group>"; };
 		83C429F206CC9CEAC921AA8F /* RingLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingLog.swift; sourceTree = "<group>"; };
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
+		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
 		858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureSource.swift; sourceTree = "<group>"; };
 		8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelSelection.swift; sourceTree = "<group>"; };
@@ -1260,6 +1263,7 @@
 		B172AD0305445589AF5BDF95 /* IntegrationDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationDetailView.swift; sourceTree = "<group>"; };
 		B225BC7B720833E133240924 /* CodingApprovalCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingApprovalCard.swift; sourceTree = "<group>"; };
 		B29D1AF169D0CE441CDDC9CF /* HealthTabSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTabSettings.swift; sourceTree = "<group>"; };
+		B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerTracker.swift; sourceTree = "<group>"; };
 		B3048AE0F95563C1E6BD0B85 /* IslandAutoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandAutoTests.swift; sourceTree = "<group>"; };
 		B33FB3FAB1036008A4F39AF9 /* JarvisWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = JarvisWidget.entitlements; path = JarvisWidget/JarvisWidget.entitlements; sourceTree = "<group>"; };
 		B37DF0C3DF7421F1CE6005EC /* PairingPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairingPayload.swift; sourceTree = "<group>"; };
@@ -2019,6 +2023,8 @@
 				FF2A317E20A5E208791DCAA4 /* LiveModels.swift */,
 				333A60E54A98F29ECFE7DBB8 /* LiveModelsViews.swift */,
 				DAE16112C9EEFEDE8EDE2BA7 /* LiveTurns.swift */,
+				8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */,
+				B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3731,6 +3737,8 @@
 				AEE7360F51FBFF2C02D49215 /* LiveModels.swift in Sources */,
 				4F61942830F068A833542E1B /* LiveModelsViews.swift in Sources */,
 				B4D7A6197B64717C4BAD46CC /* LiveTurns.swift in Sources */,
+				015A1D06A0F5229E88607D27 /* LiveSpeakerSplit.swift in Sources */,
+				C91188379B1CA9905D2435C8 /* LiveSpeakerTracker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

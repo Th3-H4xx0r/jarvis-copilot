@@ -187,6 +187,8 @@ final class MockSpeechSession: SpeechSession {
     private(set) var isDone = false
     /// Resolved by `stop()`.
     var finalTranscript = ""
+    /// The committed words' timings, as the real engine reports them.
+    var words: [SpeechWord] = []
     /// Never resolve `stop()` on its own — SFSpeech's final callback is not
     /// guaranteed, which is the whole reason the caller needs a timeout.
     var stallStop = false
@@ -233,6 +235,8 @@ final class MockSpeechRecognizing: SpeechRecognizing {
     var isAvailable = true
     /// nil = no on-device recognition here; the store falls back to server STT.
     var nextTranscript: String?
+    /// Word timings every new session reports.
+    var nextWords: [SpeechWord] = []
     private(set) var sessions: [MockSpeechSession] = []
     private(set) var startCount = 0
     private(set) var promptFlags: [Bool] = []
@@ -252,6 +256,7 @@ final class MockSpeechRecognizing: SpeechRecognizing {
         guard isAvailable else { return nil }
         let session = MockSpeechSession()
         session.finalTranscript = nextTranscript ?? ""
+        session.words = nextWords
         sessions.append(session)
         return session
     }

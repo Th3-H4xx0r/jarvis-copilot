@@ -387,4 +387,83 @@ final class LiveTranscriptTests: XCTestCase {
         transcript.upsert(LiveSegment(seq: 2, startMs: 2000, endMs: 2900, speakerID: "B", text: "two"))
         XCTAssertEqual(transcript.timeline.count, 2, "identification moved line 2 to another voice")
     }
+
+    // MARK: - Splitting a line by voice
+
+    /// 80 ms frames from 0 ms; `on` lists, per slot, the stretches (ms) it speaks.
+    private func activity(ms: Int, _ on: [[ClosedRange<Int>]]) -> LiveSpeakerActivity {
+        let frames = (0..<(ms / 80)).map { frame -> [Float] in
+            let at = frame * 80 + 40
+            return on.map { spans in spans.contains { $0.contains(at) } ? 0.95 : 0.02 }
+        }
+        return LiveSpeakerActivity(startMs: 0, frameMs: 80, frames: frames)
+    }
+
+    private func words(_ spec: [(String, Int, Int)]) -> [SpeechWord] {
+        spec.map { SpeechWord(text: $0.0, startMs: $0.1, endMs: $0.2) }
+    }
+
+    /// His recording: the video's voice runs through the whole line, his own
+    /// comes in for 1.7 s, and Apple wrote only his English. Every word was
+    /// said while both were active, so they go to the voice speaking OVER the
+    /// backdrop — his — not to the video, which is where the line was filed.
+    func testWordsSpokenOverABackdropGoToTheVoiceOnTop() {
+        let heard = activity(ms: 9000, [[0...9000], [6350...8050]])
+        let pieces = LiveSpeakerSplit.pieces(
+            of: words([("Hello,", 6400, 6800), ("are", 6900, 7100), ("you", 7150, 7350),
+                       ("there?", 7400, 7900)]),
+            activity: heard)
+        XCTAssertEqual(pieces.map(\.slot), [1])
+        XCTAssertEqual(pieces.first?.text, "Hello, are you there?")
+    }
+
+    /// Two people taking turns inside one line become two pieces.
+    func testATurnInsideALineSplitsIt() {
+        let heard = activity(ms: 6000, [[0...2600], [2700...6000]])
+        let pieces = LiveSpeakerSplit.pieces(
+            of: words([("so", 200, 500), ("what", 600, 900), ("now", 1000, 1500),
+                       ("I", 2900, 3100), ("have", 3200, 3500), ("no", 3600, 3900),
+                       ("idea", 4000, 4600)]),
+            activity: heard)
+        XCTAssertEqual(pieces.map(\.slot), [0, 1])
+        XCTAssertEqual(pieces.map(\.text), ["so what now", "I have no idea"])
+    }
+
+    /// A shared word follows the voice that was speaking just before it.
+    func testASharedWordStaysWithTheSpeakerBeforeIt() {
+        let heard = activity(ms: 4000, [[0...4000], [2000...2600]])
+        let pieces = LiveSpeakerSplit.pieces(
+            of: words([("I", 100, 300), ("was", 400, 700), ("saying", 800, 1400),
+                       ("that", 2100, 2500), ("again", 2700, 3300)]),
+            activity: heard)
+        XCTAssertEqual(pieces.map(\.slot), [0], "one voice, with a brief overlap")
+    }
+
+    /// A flicker shorter than a real turn is not a turn.
+    func testAFragmentTooShortToBeATurnIsFoldedIn() {
+        let heard = activity(ms: 4000, [[0...1900, 2300...4000], [1950...2250]])
+        let pieces = LiveSpeakerSplit.pieces(
+            of: words([("one", 100, 800), ("two", 900, 1800), ("uh", 2000, 2200),
+                       ("three", 2400, 3200)]),
+            activity: heard)
+        XCTAssertEqual(pieces.count, 1)
+        XCTAssertEqual(pieces.first?.slot, 0)
+    }
+
+    /// No diarizer, or one that heard nobody: the line is left whole.
+    func testNoActivityLeavesTheLineWhole() {
+        let spoken = words([("hi", 0, 300), ("there", 400, 800)])
+        XCTAssertEqual(LiveSpeakerSplit.pieces(of: spoken, activity: nil).count, 1)
+        XCTAssertEqual(LiveSpeakerSplit.pieces(of: spoken, activity: nil).first?.slot, nil)
+        XCTAssertTrue(LiveSpeakerSplit.pieces(of: [], activity: nil).isEmpty)
+    }
+
+    /// A voiceprint of one voice is made only from where it speaks alone.
+    func testSoloStretchesLeaveOutTheOverlap() {
+        let heard = activity(ms: 4000, [[0...4000], [1600...3200]])
+        XCTAssertEqual(LiveSpeakerSplit.soloRanges(of: 0, in: heard, fromMs: 0, toMs: 4000),
+                       [0...1600, 3200...4000])
+        XCTAssertEqual(LiveSpeakerSplit.soloRanges(of: 1, in: heard, fromMs: 0, toMs: 4000), [],
+                       "the voice on top was never alone")
+    }
 }

@@ -41,7 +41,8 @@ final class LiveStoreTests: XCTestCase {
                          transcript: [String: Any] = ["segments": []],
                          keyValues: [String: Any] = [:],
                          voiceprints: VoiceprintEmbedding? = nil,
-                         onDevice: OnDeviceTranscribing? = nil) -> Rig {
+                         onDevice: OnDeviceTranscribing? = nil,
+                         speakers: LiveSpeakerTracking? = nil) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
         directories.append(directory)
@@ -79,7 +80,8 @@ final class LiveStoreTests: XCTestCase {
                               settings: settings,
                               preferences: MemoryKeyValueStore(keyValues),
                               voiceprints: voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } },
-                              onDevice: onDevice.map { made -> (@MainActor () async -> OnDeviceTranscribing?) in { made } })
+                              onDevice: onDevice.map { made -> (@MainActor () async -> OnDeviceTranscribing?) in { made } },
+                              speakers: speakers.map { made -> (@MainActor () -> LiveSpeakerTracking?) in { made } })
         return Rig(store: store, transport: transport, input: input, recognizer: recognizer,
                    connector: connector, clock: clock, spool: spool, settings: settings,
                    applier: applier, arbiter: arbiter, directory: directory)
@@ -608,6 +610,25 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertNil(segs(rig).first?["emb"])
     }
 
+    // MARK: - Overlapping voices
+
+    /// Voice slot 0 until `switchAfterMs` past the start of the line's window,
+    /// slot 1 after it — laid out wide enough around the window that the
+    /// recogniser's own clock offset cannot move a word across the switch.
+    private final class FakeSpeakerTracker: LiveSpeakerTracking, @unchecked Sendable {
+        let switchAfterMs: Int
+        private(set) var fedFrames = 0
+        init(switchAfterMs: Int) { self.switchAfterMs = switchAfterMs }
+        func feed(_ pcm16: Data, atMs: Int) { fedFrames += 1 }
+        func activity(fromMs: Int, toMs: Int) async -> LiveSpeakerActivity? {
+            let start = fromMs - 2000, pivot = fromMs + switchAfterMs
+            let frames = (0..<(12_000 / 80)).map { index -> [Float] in
+                start + index * 80 < pivot ? [0.95, 0.02, 0.02, 0.02] : [0.02, 0.95, 0.02, 0.02]
+            }
+            return LiveSpeakerActivity(startMs: start, frameMs: 80, frames: frames)
+        }
+    }
+
     // MARK: - The second hearing, on the phone
 
     private final class FakeSecondHearing: OnDeviceTranscribing, @unchecked Sendable {
@@ -677,6 +698,51 @@ final class LiveStoreTests: XCTestCase {
                            "on phone: \(onPhone)")
             await rig.store.stop()
         }
+    }
+
+    /// One voice, then another, inside one line: two rows, each with its own
+    /// words and time range, instead of everything under whoever was louder.
+    func testALineWhoseVoiceChangesIsSentAsTwoRows() async {
+        let tracker = FakeSpeakerTracker(switchAfterMs: 2500)
+        let rig = makeRig(speakers: tracker)
+        rig.recognizer.nextTranscript = "one two three four"
+        rig.recognizer.nextWords = [
+            SpeechWord(text: "one", startMs: 0, endMs: 300), SpeechWord(text: "two", startMs: 300, endMs: 600),
+            SpeechWord(text: "three", startMs: 5000, endMs: 5300),
+            SpeechWord(text: "four", startMs: 5300, endMs: 5600),
+        ]
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("one two three four")
+        wordsStop(rig)
+        await waitForSeg(rig)
+        await settle()
+
+        XCTAssertEqual(segs(rig).map { $0["text"] as? String }, ["one two", "three four"])
+        let starts = segs(rig).compactMap { $0["ts_start_ms"] as? Int }
+        XCTAssertEqual(starts.count, 2)
+        XCTAssertLessThan(starts[0], starts[1])
+        XCTAssertGreaterThan(tracker.fedFrames, 0, "every captured frame reaches the tracker")
+    }
+
+    /// One voice throughout: the line goes up whole, exactly as before.
+    func testALineWithOneVoiceStaysWhole() async {
+        let tracker = FakeSpeakerTracker(switchAfterMs: 1_000_000)
+        let rig = makeRig(speakers: tracker)
+        rig.recognizer.nextTranscript = "just me talking"
+        rig.recognizer.nextWords = [SpeechWord(text: "just", startMs: 0, endMs: 300),
+                                    SpeechWord(text: "me", startMs: 300, endMs: 500),
+                                    SpeechWord(text: "talking", startMs: 500, endMs: 900)]
+        await rig.store.start()
+        rig.store.receive(text: readyFrame())
+        await openUtterance(rig)
+        rig.recognizer.latest?.emitPartial("just me talking")
+        wordsStop(rig)
+        await waitForSeg(rig)
+        await settle()
+
+        XCTAssertEqual(segs(rig).map { $0["text"] as? String }, ["just me talking"])
     }
 
     /// NaturalLanguage on the model's own output, as measured on his recordings:

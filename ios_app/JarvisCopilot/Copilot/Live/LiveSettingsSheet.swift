@@ -33,6 +33,7 @@ struct LiveSettingsSheet: View {
                     device
                     language
                     LiveHearingSection()
+                    LiveSpeakersSection()
                     translation
                     watchers
                     window

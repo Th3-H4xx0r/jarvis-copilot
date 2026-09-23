@@ -193,6 +193,78 @@ struct LiveHearingSection: View {
     }
 }
 
+// MARK: - Settings: overlapping voices
+
+/// Whether this phone tells voices apart while they overlap (Sortformer) and
+/// splits a line where the speaker changes.
+struct LiveSpeakersSection: View {
+    @State private var models = LiveModels.shared
+    @State private var confirming = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Overlapping voices")
+            GlassGroup {
+                LiveRadioRow(title: "One voice per line",
+                             subtitle: "A line goes to whoever was loudest in it.",
+                             selected: !models.splitsSpeakers,
+                             action: { models.setSplitsSpeakers(false) })
+                LiveRadioRow(title: "Split by voice on this phone",
+                             subtitle: "Hears who is speaking as they talk over each other, "
+                                     + "and cuts a line where the speaker changes.",
+                             selected: models.splitsSpeakers,
+                             last: true,
+                             action: pickSplit) {
+                    status
+                }
+            }
+            LiveSettingsNote("Two people talking at the very same moment still share one "
+                           + "line: the words are one recording of both.")
+        }
+        .confirmationDialog("Download \(LiveBytes.text(LiveModelKind.speakers.approxBytes))?",
+                            isPresented: $confirming, titleVisibility: .visible) {
+            Button("Download") { models.setSplitsSpeakers(true) }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("It runs entirely on this iPhone. Best on Wi-Fi.")
+        }
+    }
+
+    private func pickSplit() {
+        guard !models.splitsSpeakers else { return }
+        if LiveModels.onDisk(.speakers) { models.setSplitsSpeakers(true) } else { confirming = true }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch models.state(.speakers) {
+        case .downloading(let fraction, _) where models.splitsSpeakers:
+            HStack(spacing: 8) {
+                Text("\(Int(fraction * 100))%")
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(JcTheme.text)
+                Button { models.setSplitsSpeakers(false) } label: { JcIcon("xmark", size: 12) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(JcTheme.muted)
+                    .accessibilityLabel("Cancel download")
+            }
+        case .preparing where models.splitsSpeakers:
+            ProgressView().controlSize(.small)
+        case .failed where models.splitsSpeakers:
+            Button { models.download(.speakers) } label: {
+                Text("Retry").font(.system(size: 13, weight: .semibold)).foregroundStyle(JcTheme.amber)
+            }
+            .buttonStyle(.plain)
+        default:
+            if !LiveModels.onDisk(.speakers) {
+                Text(LiveBytes.text(LiveModelKind.speakers.approxBytes))
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
+            }
+        }
+    }
+}
+
 // MARK: - Settings: what this phone is running
 
 /// Read-only, and it looks it: a tick or a warning, never a word like "On"
@@ -278,7 +350,8 @@ struct LiveDownloadsScreen: View {
                 GlassQuietLabel("Models")
                 GlassGroup {
                     ForEach(Array(LiveModelKind.allCases.enumerated()), id: \.element) { index, kind in
-                        GlassRow(symbol: kind == .parakeet ? "translate" : "character.bubble",
+                        GlassRow(symbol: kind == .parakeet ? "translate"
+                                    : kind == .speakers ? "person.2.wave.2" : "character.bubble",
                                  title: kind.title,
                                  subtitle: "\(kind.detail) \(LiveBytes.text(kind.approxBytes))."
                                      + (models.loadSeconds[kind].map {
@@ -409,7 +482,9 @@ struct LiveModelPopup: ViewModifier {
         if let done = models.justFinished {
             return Card(key: "done-\(done.rawValue)", symbol: "checkmark.circle",
                         title: "\(done.title) is on this iPhone",
-                        detail: "Lines are re-heard with it from now on.", done: true)
+                        detail: done == .speakers ? "Lines are split by voice from now on."
+                                                  : "Lines are re-heard with it from now on.",
+                        done: true)
         }
         return nil
     }

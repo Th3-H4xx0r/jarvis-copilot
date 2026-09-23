@@ -51,7 +51,8 @@ final class LiveStore {
 
     static let shared = LiveStore(translationSessions: LiveStore.systemTranslationSessions(),
                                   voiceprints: { LiveVoiceprintEmbedder() },
-                                  onDevice: { await LiveModels.shared.transcriber() })
+                                  onDevice: { await LiveModels.shared.transcriber() },
+                                  speakers: { LiveModels.shared.speakerTracker() })
 
     /// Translation sessions that need no view, where this OS has them. Only the
     /// app's own store gets Apple's: a test store would otherwise reach into the
@@ -341,6 +342,13 @@ final class LiveStore {
     private var onDeviceLoader: (@MainActor () async -> OnDeviceTranscribing?)?
     private var onDevice: OnDeviceTranscribing?
     private var onDeviceLoading = false
+    /// Makes a Sortformer speaker tracker for a recording, when the user has
+    /// turned overlapping-voice splitting on and the model is loaded.
+    private var speakerTrackerLoader: (@MainActor () -> LiveSpeakerTracking?)?
+    private var speakerTracker: LiveSpeakerTracking?
+    /// Each tracker voice's print, from audio where it spoke ALONE — what a
+    /// line it spoke over someone else gets, instead of a print of the mix.
+    private var slotPrints: [Int: [Float]] = [:]
     private var wordsChangedAtMs: Int?
     private var firstWordsAtMs: Int?
 
@@ -361,7 +369,8 @@ final class LiveStore {
          preferences: KeyValueStore = UserDefaults.standard,
          translationSessions: DirectTranslationSessions? = nil,
          voiceprints: (@Sendable () -> VoiceprintEmbedding?)? = nil,
-         onDevice: (@MainActor () async -> OnDeviceTranscribing?)? = nil) {
+         onDevice: (@MainActor () async -> OnDeviceTranscribing?)? = nil,
+         speakers: (@MainActor () -> LiveSpeakerTracking?)? = nil) {
         self.api = api
         self.input = input ?? AmbientAudioInput()
         self.session = session ?? AmbientAudioSession()
@@ -374,6 +383,7 @@ final class LiveStore {
         translator.direct = translationSessions
         voiceprintLoader = voiceprints
         onDeviceLoader = onDevice
+        speakerTrackerLoader = speakers
         wire()
     }
 
@@ -537,6 +547,9 @@ final class LiveStore {
         // takes seconds, and the microphone must not wait on it. Lines committed
         // before it is ready keep Apple's words.
         refreshOnDevice()
+        // A fresh tracker: its voice slots belong to the audio it has heard.
+        speakerTracker = speakerTrackerLoader?()
+        slotPrints = [:]
         // Every early return from here on releases the claim: leaving it held keeps
         // the system recording indicator lit over a screen saying "Not recording".
         guard epoch == generation else { try? session.release(); return }
@@ -682,6 +695,8 @@ final class LiveStore {
         // Each await is an opportunity for a new `start()` to have begun; the rest of
         // this teardown would then dismantle THAT recording's mic, claim and cursor.
         guard epoch == generation else { return }
+        speakerTracker = nil
+        slotPrints = [:]
         preRoll.removeAll()
         pendingSpeechFrames.removeAll()
         // Released only after `flushFinalUtterance` has had its tail: a converter
@@ -1033,6 +1048,8 @@ final class LiveStore {
         let dtMs = Endpointer.frameMsForPcm16(byteLength: pcm.count, sampleRate: Self.micRate)
         let amp = voicePeakAmplitude(pcm)
         level = min(amp * 24, 1)
+        // Every frame, silence included: the tracker's clock is the session's.
+        speakerTracker?.feed(pcm, atMs: segmenter.elapsedMs)
 
         // While a recogniser is listening, IT chunks the utterance (see
         // `wordsAreOver`); the level gate's cap would only cut room noise at an
@@ -1410,6 +1427,7 @@ final class LiveStore {
         // For the NEXT line: a download that just finished, or a different
         // choice in Settings, takes effect without stopping the recording.
         refreshOnDevice()
+        if speakerTracker == nil, capturing { speakerTracker = speakerTrackerLoader?() }
         guard let onDevice, !heard.isEmpty else { return (apple, appleLang) }
         let bytesPerMs = Self.micRate * 2 / 1000
         let from = min(max(0, (bounds.start - Self.secondHearingPadMs - heardStartMs) * bytesPerMs),
@@ -1573,27 +1591,101 @@ final class LiveStore {
             // finalized.
             let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                              observedMs: finished.transcribedRangeMs)
-            let voice = await self.voiceprint(of: heard, anchorMs: heardStartMs,
-                                              startMs: bounds.start, endMs: bounds.end)
-            let line = await self.bestLine(apple: trimmed,
-                                           appleLang: finished.resolvedLanguage ?? language,
-                                           heard: heard, heardStartMs: heardStartMs, bounds: bounds)
-            guard epoch == self.generation else { return }
-            self.send(.segment(startMs: bounds.start, endMs: bounds.end, text: line.text,
-                               // The locale that actually produced this text, not
-                               // the one we hoped for. The server's auto-translate
-                               // keys on this field, so labelling Spanish `en`
-                               // guarantees it is never translated.
-                               lang: line.lang,
-                               // "me" is provisional and local: this device's owner
-                               // is the likeliest speaker into their own phone, and
-                               // the server's identification is the authority that
-                               // overrides it (design §5.2).
-                               localLabel: "me",
-                               voiceprint: voice,
-                               translatesHere: self.translatesHere))
+            await self.commitLine(text: trimmed, appleLang: finished.resolvedLanguage ?? language,
+                                  words: finished.words, anchorMs: anchorMs,
+                                  window: (startMs, endMs), bounds: bounds,
+                                  heard: heard, heardStartMs: heardStartMs,
+                                  stillCurrent: { [weak self] in epoch == self?.generation })
         }
     }
+
+    /// Send one committed line: as one row, or as one row per voice when the
+    /// on-device speaker tracker heard the speaker change inside it.
+    private func commitLine(text: String, appleLang: String, words: [SpeechWord], anchorMs: Int,
+                            window: (start: Int, end: Int), bounds: (start: Int, end: Int),
+                            heard: Data, heardStartMs: Int,
+                            stillCurrent: () -> Bool) async {
+        let (pieces, activity) = await speakerPieces(words: words, anchorMs: anchorMs, window: window)
+        // One voice the tracker could not name, or no tracker: the line as it
+        // was, whole, with a print of its own audio.
+        let byVoice = pieces.count > 1 || pieces.first?.slot != nil
+        let rows: [(text: String, range: (start: Int, end: Int), slot: Int?)] = byVoice
+            ? pieces.map { piece in
+                pieces.count == 1 ? (text, bounds, piece.slot)
+                                  : (piece.text, (piece.startMs, piece.endMs), piece.slot)
+            }
+            : [(text, bounds, nil)]
+        for row in rows {
+            let voice = await voiceprint(slot: row.slot, activity: activity, heard: heard,
+                                         heardStartMs: heardStartMs, range: row.range)
+            let line = await bestLine(apple: row.text, appleLang: appleLang,
+                                      heard: heard, heardStartMs: heardStartMs, bounds: row.range)
+            guard stillCurrent() else { return }
+            send(.segment(startMs: row.range.start, endMs: row.range.end, text: line.text,
+                          // The locale that actually produced this text, not the
+                          // one we hoped for. The server's auto-translate keys on
+                          // this field, so labelling Spanish `en` guarantees it is
+                          // never translated.
+                          lang: line.lang,
+                          // "me" is provisional and local: this device's owner is
+                          // the likeliest speaker into their own phone, and the
+                          // server's identification is the authority that
+                          // overrides it (design §5.2).
+                          localLabel: "me",
+                          voiceprint: voice,
+                          translatesHere: translatesHere))
+        }
+    }
+
+    /// The line's words by voice, and the activity they were judged on. Empty
+    /// without a tracker or word timings.
+    private func speakerPieces(words: [SpeechWord], anchorMs: Int,
+                               window: (start: Int, end: Int))
+        async -> ([LiveLinePiece], LiveSpeakerActivity?) {
+        guard let tracker = speakerTracker, !words.isEmpty else { return ([], nil) }
+        // The recogniser's times count from the first sample it was fed.
+        let onClock = words.map {
+            SpeechWord(text: $0.text, startMs: $0.startMs + anchorMs, endMs: $0.endMs + anchorMs)
+        }
+        let activity = await tracker.activity(fromMs: window.start, toMs: window.end)
+        return (LiveSpeakerSplit.pieces(of: onClock, activity: activity), activity)
+    }
+
+    /// A row's voiceprint. For a voice the tracker placed, from where that
+    /// voice spoke ALONE — a print of overlapped audio is as much the other
+    /// voice's, which is how his words over a video were filed under the video
+    /// — and otherwise that voice's print from an earlier line. Only a row with
+    /// no placed voice falls back to a print of its own audio.
+    private func voiceprint(slot: Int?, activity: LiveSpeakerActivity?, heard: Data,
+                            heardStartMs: Int, range: (start: Int, end: Int)) async -> [Float]? {
+        guard let slot, let activity else {
+            return await voiceprint(of: heard, anchorMs: heardStartMs,
+                                    startMs: range.start, endMs: range.end)
+        }
+        let bytesPerMs = Self.micRate * 2 / 1000
+        var alone = Data()
+        for span in LiveSpeakerSplit.soloRanges(of: slot, in: activity, fromMs: range.start - 300,
+                                                toMs: range.end + 300) {
+            let from = min(max(0, (span.lowerBound - heardStartMs) * bytesPerMs), heard.count) / 2 * 2
+            let to = min(max(from, (span.upperBound - heardStartMs) * bytesPerMs), heard.count) / 2 * 2
+            if to > from { alone.append(heard.subdata(in: from..<to)) }
+        }
+        let aloneMs = alone.count / bytesPerMs
+        if aloneMs >= LiveVoiceprint.minSpeechMs, let embedder = voiceprints {
+            let made = await Task.detached(priority: .userInitiated) { embedder.embed(pcm16: alone) }.value
+            if let made {
+                // Enough of this voice alone to stand for it on lines to come.
+                if aloneMs >= Self.slotPrintMinMs { slotPrints[slot] = made }
+                return made
+            }
+        }
+        if let known = slotPrints[slot] { return known }
+        // Never heard alone yet: a print of the row's own audio, as before.
+        return await voiceprint(of: heard, anchorMs: heardStartMs, startMs: range.start, endMs: range.end)
+    }
+
+    /// How much of a voice alone makes a print worth keeping for later lines.
+    static let slotPrintMinMs = 1500
 
     /// The last utterance of a session, sent before anything is torn down.
     ///
@@ -1625,14 +1717,10 @@ final class LiveStore {
         guard !trimmed.isEmpty else { return }
         let bounds = Self.narrowedBounds(startMs: startMs, endMs: endMs, anchorMs: anchorMs,
                                          observedMs: finished.transcribedRangeMs)
-        let voice = await voiceprint(of: heard, anchorMs: heardStartMs,
-                                     startMs: bounds.start, endMs: bounds.end)
-        let line = await bestLine(apple: trimmed,
-                                  appleLang: finished.resolvedLanguage ?? config.primaryLanguage,
-                                  heard: heard, heardStartMs: heardStartMs, bounds: bounds)
-        send(.segment(startMs: bounds.start, endMs: bounds.end, text: line.text,
-                      lang: line.lang,
-                      localLabel: "me", voiceprint: voice, translatesHere: translatesHere))
+        await commitLine(text: trimmed, appleLang: finished.resolvedLanguage ?? config.primaryLanguage,
+                         words: finished.words, anchorMs: anchorMs,
+                         window: (startMs, endMs), bounds: bounds,
+                         heard: heard, heardStartMs: heardStartMs, stillCurrent: { true })
     }
 
     /// `stop()` bounded by a deadline: a wedged analyzer must not hold an utterance

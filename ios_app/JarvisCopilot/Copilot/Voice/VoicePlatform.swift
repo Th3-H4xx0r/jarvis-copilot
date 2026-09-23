@@ -164,6 +164,20 @@ protocol SpeechSession: AnyObject {
     /// Spanish sentence transcribed by an en-US recogniser and then labelled `en`
     /// is never translated. Nil means "no better answer than the caller's own".
     var resolvedLanguage: String? { get }
+
+    /// Each committed word and where it was, in ms from the FIRST buffer fed
+    /// (the same clock as `transcribedRangeMs`). Empty when the engine does not
+    /// report timing. Live uses it to tell which words fall on which side of a
+    /// change of speaker inside one line.
+    var words: [SpeechWord] { get }
+}
+
+/// One recognised word (or the engine's smallest timed run of text) and when
+/// it was said.
+struct SpeechWord: Equatable, Sendable {
+    var text: String
+    var startMs: Int
+    var endMs: Int
 }
 
 extension SpeechSession {
@@ -172,6 +186,7 @@ extension SpeechSession {
     /// to keep compiling.
     var transcribedRangeMs: ClosedRange<Int>? { nil }
     var resolvedLanguage: String? { nil }
+    var words: [SpeechWord] { [] }
 }
 
 @MainActor
