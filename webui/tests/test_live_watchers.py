@@ -2449,3 +2449,29 @@ def test_deleting_a_recording_or_a_voice_forgets_its_memories(monkeypatch):
 
     assert memory.forgotten == ["live:sess123456:", "speaker:s1"]
     assert by_session["memories_forgotten"] == 1 and by_voice["memories_forgotten"] == 1
+
+
+def test_a_recording_shorter_than_a_window_is_remembered_when_it_stops(
+        cfg, events, model, monkeypatch):
+    """Under the window's word floor nothing is stored while it runs; stopping
+    runs the final pass, which ignores that floor — so a short recording still
+    reaches the long-term memory the moment it ends."""
+    memory = _FakeMemory()
+    monkeypatch.setattr(live_watchers, "_long_term_memory", lambda: memory)
+    cfg["memory_extraction"] = True
+    cfg["min_window_words"] = 200
+    session = _session()
+    _say(session, "we moved the dentist appointment to Friday at nine")
+    model.reply = _monitor_reply("They moved the dentist appointment.",
+                                 facts=["The dentist appointment is Friday at 9."])
+
+    assert live_watchers.monitor_tick(session) is None, "too few words for a window"
+    assert memory.remembered == []
+
+    live_watchers.on_session_ended(session, block=True)
+
+    sources = [m["source"] for m in memory.remembered]
+    assert any(s.startswith(f"live:{session}:") and ":fact:" not in s for s in sources)
+    assert any(":fact:" in s for s in sources)
+    window = next(m for m in memory.remembered if ":fact:" not in m["source"])
+    assert "dentist appointment to Friday" in window["body"]
