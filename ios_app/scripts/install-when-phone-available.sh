@@ -2,7 +2,7 @@
 # Poll for the paired iPhone and install + launch the already-built app when it appears.
 # Usage: scripts/install-when-phone-available.sh [max_minutes]   (default 300)
 cd "$(dirname "$0")/.."
-DEVICE="393A51CD-2632-5DC4-8704-B58E9B7C9B2C"   # Pranav's iPhone 17 Pro Max (coredevice UUID)
+DEVICE="${JC_PHONE_UDID:-00008150-001130180232401C}"   # Pranav's iPhone 17 Pro Max (devicectl now lists the UDID)
 APP="build/dd/Build/Products/Debug-iphoneos/JarvisCopilot.app"
 BUNDLE_ID="com.jarviscopilot.jarviscopilotMobileAndIOS"
 MAX=${1:-300}; LOG=build/install-watch.log
