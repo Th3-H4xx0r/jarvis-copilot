@@ -13,7 +13,8 @@ from pathlib import Path
 ENV_KEY = "SONIOX_API_KEY"
 
 
-def _env_file() -> Path:
+def env_path() -> Path:
+    """The `.env` this key is read from — and the one a settings write must target."""
     try:
         from jarviscopilot_constants import get_hermes_home
         return Path(get_hermes_home()) / ".env"
@@ -24,7 +25,7 @@ def _env_file() -> Path:
 
 def _from_file(name: str) -> str:
     try:
-        lines = _env_file().read_text(encoding="utf-8").splitlines()
+        lines = env_path().read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
         return ""
     for raw in lines:
