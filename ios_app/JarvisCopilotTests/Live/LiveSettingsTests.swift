@@ -164,6 +164,7 @@ final class LiveSettingsTests: XCTestCase {
         config.replyMode = "spoken"
         config.primaryLanguage = "fr-FR"
         config.embedModel = "ecapa-v1"
+        config.speakerSplit = "engine"
 
         XCTAssertEqual(LiveConfig.from(config.payload), config)
     }
@@ -174,7 +175,7 @@ final class LiveSettingsTests: XCTestCase {
         let payload = LiveConfig().payload
         for key in ["enabled", "window_seconds", "min_window_words", "monitor", "fact_check",
                     "translate", "memory_extraction", "artifacts", "reply_mode",
-                    "primary_language", "embed_model"] {
+                    "primary_language", "embed_model", "speaker_split"] {
             XCTAssertNotNil(payload[key], "\(key) is missing from the PUT body")
         }
     }

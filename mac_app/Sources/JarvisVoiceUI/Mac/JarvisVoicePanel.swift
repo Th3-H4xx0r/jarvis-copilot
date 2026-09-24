@@ -86,6 +86,14 @@ public final class JarvisVoicePanel: NSObject {
         VoiceStore.shared.startWatchTurn(text: text)
     }
 
+    /// Open Jarvis Settings — the tray's "Settings…" menu item. The proxy is the
+    /// one the panel was built with, so the server's own sections load signed in.
+    @objc(showSettings)
+    @MainActor
+    public static func showSettings() {
+        MacSettingsWindow.show()
+    }
+
     /// Stop whatever is running and release the mic — for the tray's Quit, and
     /// for a re-pair that invalidates the proxy behind us.
     ///

@@ -1699,3 +1699,19 @@ window.addEventListener('pageshow', async (event) => {
     } catch (_) {}
   }
 });
+
+// ── deep link: ?panel=<name>[&section=<settings section>] ───────────────────
+// How the Mac client's settings window (one server section per sidebar item)
+// and the phone's "Server settings" open the page onto the right place. Runs
+// after load, so the page's own start-up (which lands on Chat) goes first.
+function _jcDeepLinkPanel(){
+  const qs=new URLSearchParams(location.search||'');
+  const panel=qs.get('panel');
+  if(!panel||typeof switchPanel!=='function') return;
+  Promise.resolve(switchPanel(panel,{bypassSettingsGuard:true})).then(()=>{
+    const section=qs.get('section');
+    if(panel==='settings'&&section&&typeof switchSettingsSection==='function') switchSettingsSection(section);
+  });
+}
+if(document.readyState==='complete') setTimeout(_jcDeepLinkPanel,0);
+else window.addEventListener('load',()=>setTimeout(_jcDeepLinkPanel,0),{once:true});

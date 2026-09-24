@@ -29,3 +29,11 @@ def test_start_new_chat_goes_to_chat_then_uses_the_plus():
     body = _block(BOOT, "async function startNewChat", "\n}\n")
     assert re.search(r"switchPanel\('chat'", body)
     assert "$('btnNewChat').click()" in body
+
+
+def test_a_link_can_open_one_settings_section():
+    # ?panel=settings&section=providers — how the Mac settings window (and the
+    # phone's Server settings) open straight onto one section.
+    body = _block(BOOT, "function _jcDeepLinkPanel", "\n}\n")
+    assert "get('panel')" in body and "get('section')" in body
+    assert "switchSettingsSection(" in body

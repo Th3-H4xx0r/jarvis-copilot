@@ -273,6 +273,19 @@ class TrayApp:
 
     # ── Menu actions ─────────────────────────────────────────────────
 
+    def _act_settings(self, _icon, _item) -> None:
+        """Jarvis Settings — the native window in the voice panel's dylib."""
+        def show() -> None:
+            try:
+                import objc
+                objc.lookUpClass("JarvisVoicePanel").showSettings()
+            except Exception:
+                log.exception("tray: could not open Jarvis Settings")
+                url = credentials.load().server_url
+                if url:
+                    webbrowser.open(url.rstrip("/") + "/?panel=settings", new=2)
+        _on_main_thread(show)
+
     def _act_open_dashboard(self, _icon, _item) -> None:
         url = credentials.load().server_url
         if url:
@@ -540,6 +553,7 @@ class TrayApp:
             Sep,
             *[_device_slot(i) for i in range(_MAX_DEVICE_ROWS)],
             Sep,
+            MenuItem("Settings…", self._act_settings),
             MenuItem("Open dashboard", self._act_open_dashboard),
             MenuItem(_voice_label, self._act_voice_menu_item),
             MenuItem("Re-pair…", self._act_repair),

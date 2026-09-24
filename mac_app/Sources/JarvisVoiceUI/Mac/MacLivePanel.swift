@@ -25,6 +25,7 @@ struct MacLivePanel: View {
             HStack(spacing: 6) {
                 MacPanelModeSwitch(mode: $mode)
                 Spacer(minLength: 2)
+                MacSettingsButton()
                 if showsOpenInWindow { MacOpenInWindowButton() }
             }
             .padding(.top, 4)

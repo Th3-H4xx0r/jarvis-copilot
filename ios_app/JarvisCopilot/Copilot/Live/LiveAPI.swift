@@ -48,6 +48,10 @@ struct LiveConfig: Equatable, Sendable {
     /// The model the watchers run on (`live.model`). EMPTY means "whatever the
     /// app's own model is" — a real choice the server stores as "", not a gap.
     var model = ""
+    /// Who decides which lines are one person (`live.speaker_split`):
+    /// `"voiceprint"`, or `"engine"` — the speech engine's labels split the
+    /// speakers and voiceprints only name them.
+    var speakerSplit = "voiceprint"
 
     static func from(_ d: [String: Any]) -> LiveConfig {
         // The server may nest it under `config`, or return it flat.
@@ -68,6 +72,7 @@ struct LiveConfig: Equatable, Sendable {
         if let v = d.int("session_rollover_tokens") { out.sessionRolloverTokens = v }
         if let v = d.int("fact_check_tokens") { out.factCheckTokens = v }
         if let v = d.string("model") { out.model = v }
+        if let v = d.string("speaker_split"), !v.isEmpty { out.speakerSplit = v }
         return out
     }
 
@@ -87,7 +92,8 @@ struct LiveConfig: Equatable, Sendable {
          "session_rollover_fraction": sessionRolloverFraction,
          "session_rollover_tokens": sessionRolloverTokens,
          "fact_check_tokens": factCheckTokens,
-         "model": model]
+         "model": model,
+         "speaker_split": speakerSplit]
     }
 
     /// How the rollover point reads in a sentence.

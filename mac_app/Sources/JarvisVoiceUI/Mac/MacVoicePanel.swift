@@ -194,6 +194,7 @@ struct MacVoicePanel: View {
             HStack(spacing: 6) {
                 MacPanelModeSwitch(mode: panelMode)
                 Spacer(minLength: 2)
+                MacSettingsButton()
                 if showsOpenInWindow { MacOpenInWindowButton() }
             }
             HStack(spacing: 6) {
