@@ -100,6 +100,8 @@ struct JarvisPodView: View {
                            isOn: Binding(get: { settings?.noiseCancel ?? true },
                                          set: { on in Task { await store.update(podID, ["noise_cancel": on]) } }))
                     divider
+                    endPause
+                    divider
                     toggle("24-hour time", "For the clock home screen", "clock",
                            isOn: Binding(get: { settings?.clock24h ?? JarvisPodLook.clock24h },
                                          set: { on in Task { await store.update(podID, ["clock_24h": on]) } }))
@@ -486,6 +488,42 @@ struct JarvisPodView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
+    }
+
+    /// How long a pause ends your turn. Longer lets you think mid-sentence; shorter
+    /// answers sooner.
+    private var endPause: some View {
+        let current = settings?.endPauseMs ?? 1000
+        return HStack(spacing: 12) {
+            iconTile("timer")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Pause before Jarvis answers").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                Text("How long you can pause mid-sentence").font(.caption).foregroundStyle(JcTheme.muted)
+            }
+            Spacer()
+            Menu {
+                ForEach(JarvisPodSettings.endPauseChoices, id: \.self) { ms in
+                    Button {
+                        Task { await store.update(podID, ["end_pause_ms": ms]) }
+                    } label: {
+                        if ms == current {
+                            Label(JarvisPodSettings.endPauseLabel(ms), jcIcon: "checkmark")
+                        } else {
+                            Text(JarvisPodSettings.endPauseLabel(ms))
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(JarvisPodSettings.endPauseLabel(current))
+                    JcIcon("chevron.up.chevron.down").font(.caption2)
+                }
+                .font(.subheadline)
+                .foregroundStyle(JcTheme.accent)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     /// The chat and model the Pod talks to, and the engine that hears it — the

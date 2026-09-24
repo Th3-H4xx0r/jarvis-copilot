@@ -36,6 +36,12 @@ final class JarvisPodAPITests: XCTestCase {
         XCTAssertEqual(JarvisPodRecording(json: ["id": "2", "ts": 1, "cleaned": true])?.cleaned, true)
         XCTAssertTrue(JarvisPodSettings(json: [:]).noiseCancel)
         XCTAssertFalse(JarvisPodSettings(json: ["noise_cancel": false]).noiseCancel)
+        // "Pause before Jarvis answers": an older Pod that doesn't send it gets the new default.
+        XCTAssertEqual(JarvisPodSettings(json: [:]).endPauseMs, 1000)
+        XCTAssertEqual(JarvisPodSettings(json: ["end_pause_ms": 1500]).endPauseMs, 1500)
+        XCTAssertEqual(JarvisPodSettings.endPauseChoices.first, 600)
+        XCTAssertEqual(JarvisPodSettings.endPauseLabel(1000), "1 s")
+        XCTAssertEqual(JarvisPodSettings.endPauseLabel(1300), "1.3 s")
     }
 
     func testSetupCodeRejectsOtherCodes() {

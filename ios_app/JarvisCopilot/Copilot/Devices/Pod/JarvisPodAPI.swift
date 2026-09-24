@@ -79,6 +79,16 @@ struct JarvisPodSettings: Equatable, Sendable {
     var tzPosix = ""
     var clock24h = false
     var noiseCancel = true
+    /// How long a pause ends your turn ("Pause before Jarvis answers"). The Pod's old
+    /// fixed 550 ms cut sentences in half at a breath.
+    var endPauseMs = 1000
+
+    static let endPauseChoices = [600, 800, 1000, 1300, 1600, 2000, 2500]
+
+    static func endPauseLabel(_ ms: Int) -> String {
+        let seconds = Double(ms) / 1000
+        return seconds == seconds.rounded() ? "\(Int(seconds)) s" : String(format: "%.1f s", seconds)
+    }
 
     init(json o: [String: Any]) {
         home = o["home"] as? String ?? "orb"
@@ -90,6 +100,7 @@ struct JarvisPodSettings: Equatable, Sendable {
         tzPosix = o["tz_posix"] as? String ?? ""
         clock24h = o["clock_24h"] as? Bool ?? false
         noiseCancel = o["noise_cancel"] as? Bool ?? true
+        endPauseMs = o["end_pause_ms"] as? Int ?? 1000
     }
 }
 
