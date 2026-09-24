@@ -875,6 +875,12 @@ $('btnNewChat').onclick=async()=>{
   }
   await newSession();await renderSessionList();closeMobileSidebar();$('msg').focus();
 };
+// The rail's and the title bar's +: a new chat from any page, and with the Chat
+// sidebar (home of the original +) collapsed.
+async function startNewChat(){
+  if(_currentPanel!=='chat' && (await switchPanel('chat'))===false) return;
+  $('btnNewChat').click();
+}
 $('btnDownload').onclick=()=>{
   if(!S.session)return;
   const blob=new Blob([transcript()],{type:'text/markdown'});
