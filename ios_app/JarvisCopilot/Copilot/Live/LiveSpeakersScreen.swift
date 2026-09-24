@@ -20,6 +20,8 @@ struct LiveSpeakersScreen: View {
     /// The user overrode which of the pair survives.
     @State private var swapped = false
     @State private var confirming = false
+    /// The voice whose whole history is open, as a popup.
+    @State private var openVoice: LiveSpeaker?
 
     var body: some View {
         ScrollView {
@@ -44,7 +46,11 @@ struct LiveSpeakersScreen: View {
                                 .buttonStyle(.plain)
                                 .accessibilityAddTraits(isPicked(speaker) ? [.isSelected] : [])
                         } else {
+                            // The whole card opens everything this voice said.
                             card(speaker)
+                                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .onTapGesture { openVoice = speaker }
+                                .accessibilityAction(named: "Everything they said") { openVoice = speaker }
                         }
                     }
                 }
@@ -53,6 +59,18 @@ struct LiveSpeakersScreen: View {
             .padding(.vertical, 8)
         }
         .jcScreen("Voices")
+        .sheet(item: $openVoice) { speaker in
+            NavigationStack {
+                LiveVoiceHistoryScreen(name: speaker.displayName,
+                                       history: store.voiceHistory(speakerID: speaker.id))
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { openVoice = nil }
+                        }
+                    }
+            }
+            .presentationDragIndicator(.visible)
+        }
         .animation(.easeInOut(duration: 0.18), value: merging)
         .animation(.easeInOut(duration: 0.18), value: picked)
         .toolbar {
@@ -259,9 +277,8 @@ struct LiveSpeakersScreen: View {
 
                 // Not in merge mode: there the whole card is the control.
                 if !merging, speaker.segmentCount > 0 {
-                    NavigationLink {
-                        LiveVoiceHistoryScreen(name: speaker.displayName,
-                                               history: store.voiceHistory(speakerID: speaker.id))
+                    Button {
+                        openVoice = speaker
                     } label: {
                         HStack(spacing: 6) {
                             Text("Everything they said")

@@ -1126,7 +1126,6 @@ function _liveSpeakerDisplay(spk) {
 function _liveRenderSpeakers() {
   const body = _lEl('liveBody');
   if (!body) return;
-  if (_liveVoice) { _liveRenderVoice(body); return; }
   if (!_liveSpeakers.length) {
     body.innerHTML = `<div class="main-view-empty">
       <div class="main-view-empty-title">No voices yet</div>
@@ -1183,16 +1182,34 @@ let _liveVoice = null;           // {id, lines, next, total, loading, done, erro
 let _liveVoiceObserver = null;
 const _LIVE_VOICE_PAGE = 50;
 
+// A popup over the page: the voice's history scrolls inside it, and Esc, the
+// backdrop or × closes it.
 function _liveOpenVoice(id) {
   _liveVoice = { id, lines: [], next: null, total: 0, loading: false, done: false, error: '' };
-  _liveRenderBody();
+  let modal = _lEl('liveVoiceModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'liveVoiceModal';
+    modal.className = 'live-voice-modal';
+    modal.innerHTML = '<div class="live-voice-dialog" role="dialog" aria-modal="true"><div id="liveVoiceBody"></div></div>';
+    modal.addEventListener('mousedown', ev => { if (ev.target === modal) _liveCloseVoice(); });
+    document.body.appendChild(modal);
+    document.addEventListener('keydown', _liveVoiceKey);
+  }
+  _liveRenderVoice();
   _liveVoiceMore();
+}
+
+function _liveVoiceKey(ev) {
+  if (ev.key === 'Escape') _liveCloseVoice();
 }
 
 function _liveCloseVoice() {
   _liveVoice = null;
   if (_liveVoiceObserver) { _liveVoiceObserver.disconnect(); _liveVoiceObserver = null; }
-  _liveRenderBody();
+  const modal = _lEl('liveVoiceModal');
+  if (modal) modal.remove();
+  document.removeEventListener('keydown', _liveVoiceKey);
 }
 
 async function _liveVoiceMore() {
@@ -1213,8 +1230,7 @@ async function _liveVoiceMore() {
     view.done = !view.next;
     view.error = '';
   }
-  const body = _lEl('liveBody');
-  if (body && _liveTab === 'speakers') _liveRenderVoice(body);
+  _liveRenderVoice();
 }
 
 function _liveVoiceWhen(line) {
@@ -1224,8 +1240,11 @@ function _liveVoiceWhen(line) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function _liveRenderVoice(body) {
+function _liveRenderVoice() {
   const view = _liveVoice;
+  const body = _lEl('liveVoiceBody');
+  if (!view || !body) return;
+  const scroller = body.parentElement;
   const spk = _liveSpeakers.find(s => s.id === view.id) || { id: view.id };
   let lastSession = '';
   const rows = view.lines.map(line => {
@@ -1243,9 +1262,9 @@ function _liveRenderVoice(body) {
       : '<div class="live-voice-more" id="liveVoiceMore">Loading…</div>');
   body.innerHTML = `<div class="live-voice">
     <div class="live-voice-head">
-      <button class="live-btn" data-voice-back>← Voices</button>
       <div class="live-voice-title">${_lEsc(_liveSpeakerDisplay(spk))}</div>
       <div class="live-voice-count">${_lEsc(view.total || view.lines.length)} line${Number(view.total) === 1 ? '' : 's'}</div>
+      <button class="live-btn" data-voice-back aria-label="Close">✕</button>
     </div>
     <div class="live-voice-lines">${rows}</div>
     ${foot}
@@ -1257,7 +1276,7 @@ function _liveRenderVoice(body) {
   if (more && typeof IntersectionObserver !== 'undefined') {
     _liveVoiceObserver = new IntersectionObserver(entries => {
       if (entries.some(e => e.isIntersecting)) _liveVoiceMore();
-    }, { root: body, rootMargin: '400px' });
+    }, { root: scroller, rootMargin: '400px' });
     _liveVoiceObserver.observe(more);
   }
 }
@@ -1304,6 +1323,13 @@ function _liveBindSpeakerCards(scope) {
   });
   scope.querySelectorAll('[data-voice-open]').forEach(btn => {
     btn.onclick = () => _liveOpenVoice(btn.dataset.voiceOpen);
+  });
+  // The whole card opens the voice — anywhere but its own controls.
+  scope.querySelectorAll('.live-card[data-speaker]').forEach(card => {
+    card.addEventListener('click', ev => {
+      if (ev.target.closest('button, input, select, a, textarea')) return;
+      _liveOpenVoice(card.dataset.speaker);
+    });
   });
   scope.querySelectorAll('[data-purge-audio]').forEach(btn => {
     btn.onclick = () => _liveDelete('speaker_audio', btn.dataset.purgeAudio);
@@ -1941,10 +1967,7 @@ function _liveCaptureAction(action) {
 
 function _liveSetTab(tab) {
   _liveTab = tab || 'transcript';
-  if (_liveTab !== 'speakers' && _liveVoice) {
-    _liveVoice = null;
-    if (_liveVoiceObserver) { _liveVoiceObserver.disconnect(); _liveVoiceObserver = null; }
-  }
+  if (_liveTab !== 'speakers' && _liveVoice) _liveCloseVoice();
   _liveRenderTabs();
   _liveRenderBody();
   // Refresh the data the tab is about, so a panel is never stale on open.

@@ -42,3 +42,9 @@ def test_a_voice_opens_onto_everything_it_said_a_page_at_a_time():
     assert 'data-voice-open=' in js
     assert "api/live/speaker_lines" in js and "IntersectionObserver" in js
     assert "before=" in js
+
+
+def test_a_voice_opens_as_a_popup_from_its_card():
+    js = _read("live.js")
+    assert "live-voice-modal" in js and "Escape" in js
+    assert "_liveOpenVoice(card.dataset.speaker)" in js

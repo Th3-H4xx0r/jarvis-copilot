@@ -392,6 +392,11 @@
 @media (max-width:640px){ .live-mic-select{display:none;} }
 
 /* One voice's whole history (Speakers → "Everything they said"). */
+.live-voice-modal{position:fixed;inset:0;z-index:1200;background:rgba(7,12,19,.62);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;padding:24px;}
+.live-voice-dialog{width:min(760px,100%);max-height:86vh;overflow-y:auto;background:var(--bg);
+  border:1px solid var(--border2);border-radius:16px;padding:0 22px 16px;box-shadow:0 24px 60px rgba(0,0,0,.45);}
+.live-card[data-speaker]{cursor:pointer;}
 .live-voice{max-width:760px;margin:0 auto;}
 .live-voice-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;position:sticky;top:0;padding:6px 0;background:var(--bg);z-index:1;}
 .live-voice-title{font-size:16px;font-weight:600;color:var(--text);}
