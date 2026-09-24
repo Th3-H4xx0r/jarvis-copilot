@@ -21,6 +21,8 @@ struct LiveView: View {
     @State private var showStorage = false
     @State private var naming: LiveSegment?
     @State private var nameDraft = ""
+    /// The voice "Who said this?" is naming.
+    @State private var namingVoice: LiveSpeaker?
     @State private var discarding = false
     /// Follow the newest row unless the user has scrolled up to read.
     @State private var pinnedToBottom = true
@@ -70,6 +72,12 @@ struct LiveView: View {
                     .padding(.bottom, 12)
             }
 
+            if let voice = store.voiceToName {
+                whoSaidThis(voice)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
+
             transcript
 
             controls
@@ -110,6 +118,21 @@ struct LiveView: View {
                     Task { await store.nameVoice(of: segment, as: name) }
                 }
                 naming = nil
+            }
+        } message: {
+            Text("Everything this voice has said, and everything it says from now on, "
+               + "will carry the name.")
+        }
+        .alert("Who is this?", isPresented: Binding(get: { namingVoice != nil },
+                                                   set: { if !$0 { namingVoice = nil } })) {
+            TextField("Name", text: $nameDraft)
+            Button("Cancel", role: .cancel) { namingVoice = nil }
+            Button("Save") {
+                if let voice = namingVoice {
+                    let name = nameDraft
+                    Task { await store.rename(speaker: voice, to: name) }
+                }
+                namingVoice = nil
             }
         } message: {
             Text("Everything this voice has said, and everything it says from now on, "
@@ -209,6 +232,38 @@ struct LiveView: View {
                     JcIcon("xmark", size: 13).foregroundStyle(JcTheme.muted)
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// A voice that has talked for a while and still has no name.
+    private func whoSaidThis(_ voice: LiveSpeaker) -> some View {
+        GlassCard(padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    JcIcon("person.wave.2", size: 15).foregroundStyle(JcTheme.accent)
+                    Text("Who said this?")
+                        .font(JcText.body.weight(.semibold))
+                        .foregroundStyle(JcTheme.text)
+                    Spacer(minLength: 0)
+                }
+                if let sample = voice.samples.first, !sample.isEmpty {
+                    Text("“\(sample)”")
+                        .font(JcText.small)
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(2)
+                }
+                HStack(spacing: 16) {
+                    Button("Name this voice") {
+                        nameDraft = ""
+                        namingVoice = voice
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcTheme.accent)
+                    Button("Not now") { store.dismissVoicePrompt(voice) }
+                        .font(.system(size: 13))
+                        .foregroundStyle(JcTheme.muted)
+                }
             }
         }
     }

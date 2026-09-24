@@ -33,3 +33,9 @@ def test_live_view_renders_server_words_and_offers_the_engine():
     js = _read("live.js")
     assert "addEventListener('partial'" in js
     assert "api/speech/config" in js
+
+
+def test_live_view_asks_who_said_this():
+    js = _read("live.js")
+    assert "Who said this?" in js and "function _liveVoiceToName" in js
+    assert 'id="liveWhoPrompt"' in js

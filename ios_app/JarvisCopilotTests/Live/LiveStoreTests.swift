@@ -42,7 +42,8 @@ final class LiveStoreTests: XCTestCase {
                          keyValues: [String: Any] = [:],
                          voiceprints: VoiceprintEmbedding? = nil,
                          onDevice: OnDeviceTranscribing? = nil,
-                         speakers: LiveSpeakerTracking? = nil) -> Rig {
+                         speakers: LiveSpeakerTracking? = nil,
+                         voices: [[String: Any]] = []) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
         directories.append(directory)
@@ -66,7 +67,7 @@ final class LiveStoreTests: XCTestCase {
                         json: ["live_session_id": "L1", "chat_session_id": "C1"])
         transport.route("/api/live/session/end", json: [:])
         transport.route("/api/live/config", json: [:])
-        transport.route("/api/live/speakers", json: ["speakers": []])
+        transport.route("/api/live/speakers", json: ["speakers": voices])
         transport.route("/api/live/storage", json: ["total_bytes": 0])
         transport.route("/api/live/transcript", json: transcript)
 
@@ -208,6 +209,34 @@ final class LiveStoreTests: XCTestCase {
         rig.store.receive(text: json(["t": "state", "warning": "speech_engine",
                                       "message": "Soniox stopped transcribing (no key)."]))
         XCTAssertEqual(rig.store.warningText, "Soniox stopped transcribing (no key).")
+    }
+
+    // MARK: - Who said this?
+
+    func testAnUnnamedVoiceThatHasTalkedForTwoMinutesIsAskedAbout() async {
+        let now = Date().timeIntervalSince1970
+        let rig = makeRig(voices: [
+            ["id": "brief", "kind": "other", "name": "", "speech_ms": 20_000, "last_heard_at": now],
+            ["id": "me", "kind": "me", "name": "", "speech_ms": 900_000, "last_heard_at": now],
+            ["id": "named", "kind": "other", "name": "Sam", "speech_ms": 300_000, "last_heard_at": now],
+            ["id": "stale", "kind": "other", "name": "", "speech_ms": 300_000,
+             "last_heard_at": now - 8 * 86_400],
+            ["id": "ask", "kind": "other", "name": "", "speech_ms": 130_000, "last_heard_at": now,
+             "samples": ["vamos a la playa"]],
+        ])
+        await rig.store.loadSpeakers()
+        XCTAssertEqual(rig.store.voiceToName?.id, "ask")
+        XCTAssertEqual(rig.store.voiceToName?.samples.first, "vamos a la playa")
+    }
+
+    func testNotNowIsRemembered() async {
+        let now = Date().timeIntervalSince1970
+        let voices: [[String: Any]] = [["id": "ask", "kind": "other", "name": "", "speech_ms": 130_000,
+                                        "last_heard_at": now]]
+        let rig = makeRig(voices: voices)
+        await rig.store.loadSpeakers()
+        rig.store.dismissVoicePrompt(rig.store.voiceToName!)
+        XCTAssertNil(rig.store.voiceToName)
     }
 
     func testReadyAdoptsTheSessionIdsAndTheCursor() async {

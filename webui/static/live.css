@@ -91,6 +91,15 @@
   margin-top:6px;font-size:14px;line-height:1.55;color:var(--text);
   white-space:pre-wrap;word-break:break-word;
 }
+/* "Who said this?" — naming a voice that has talked for a while. */
+.live-who{
+  border:1px solid var(--border-subtle, var(--border));background:var(--surface);
+  border-radius:var(--radius-card,14px);padding:10px 14px;margin:0 0 10px;
+}
+.live-who-title{font-size:13px;font-weight:600;color:var(--text);}
+.live-who-sample{margin-top:4px;font-size:13px;color:var(--muted);font-style:italic;}
+.live-who-row{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;}
+.live-who-name{flex:1;min-width:140px;}
 /* Words a server speech engine is still hearing; the finished line replaces it. */
 .live-partial{
   padding:6px 14px;font-size:14px;line-height:1.55;color:var(--muted);

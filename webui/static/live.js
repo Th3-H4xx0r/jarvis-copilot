@@ -543,7 +543,8 @@ function _liveTimelineHtmlEmpty() {
 function _liveRenderTranscript() {
   const body = _lEl('liveBody');
   if (!body) return;
-  body.innerHTML = '<div class="live-timeline" id="liveTimeline"></div>';
+  body.innerHTML = '<div id="liveWhoPrompt"></div><div class="live-timeline" id="liveTimeline"></div>';
+  _liveRenderWhoPrompt();
   const tl = _lEl('liveTimeline');
   _liveSegNodes.clear();
   if (!_liveSegs.length && !_liveInsights.length) {
@@ -1055,7 +1056,57 @@ async function _liveLoadSpeakers() {
   // transcript is repainted rather than left stale.
   _liveRepaintSpeakers(null);
   if (_liveTab === 'speakers') _liveRenderSpeakers();
+  _liveRenderWhoPrompt();
   return true;
+}
+
+// "Who said this?" — an unnamed voice (not "Me") that has talked for two
+// minutes and was heard this week. Named through the same rename as the
+// Speakers tab; "Not now" is remembered in this browser only.
+const _LIVE_NAME_AFTER_MS = 120000;
+const _LIVE_ASK_WITHIN_S = 7 * 86400;
+const _LIVE_DISMISSED_KEY = 'jc.live.dismissedVoices';
+
+function _liveDismissedVoices() {
+  try { return JSON.parse(localStorage.getItem(_LIVE_DISMISSED_KEY) || '[]') || []; } catch (e) { return []; }
+}
+
+function _liveVoiceToName() {
+  const dismissed = _liveDismissedVoices();
+  const now = Date.now() / 1000;
+  return (_liveSpeakers || []).find(s => s && s.kind !== 'me' && !s.name
+    && Number(s.speech_ms || 0) >= _LIVE_NAME_AFTER_MS
+    && !dismissed.includes(s.id)
+    && !(Number(s.last_heard_at) && now - Number(s.last_heard_at) > _LIVE_ASK_WITHIN_S)) || null;
+}
+
+function _liveRenderWhoPrompt() {
+  const el = _lEl('liveWhoPrompt');
+  if (!el) return;
+  const voice = _liveVoiceToName();
+  if (!voice) { el.innerHTML = ''; return; }
+  const sample = (voice.samples || []).map(x => typeof x === 'string' ? x : ((x && x.text) || '')).find(Boolean) || '';
+  el.innerHTML = `<div class="live-who">
+      <div class="live-who-title">Who said this?</div>
+      ${sample ? `<div class="live-who-sample">“${_lEsc(sample)}”</div>` : ''}
+      <div class="live-who-row">
+        <input type="text" class="live-who-name" placeholder="Name this voice" autocomplete="off">
+        <button type="button" class="live-btn live-btn--primary" data-who="save">Save</button>
+        <button type="button" class="live-btn" data-who="later">Not now</button>
+      </div>
+    </div>`;
+  const input = el.querySelector('.live-who-name');
+  const save = el.querySelector('[data-who="save"]');
+  save.onclick = async () => {
+    const name = input.value.trim();
+    if (name && await _liveRenameSpeaker(voice.id, name)) _liveRenderWhoPrompt();
+  };
+  input.onkeydown = ev => { if (ev.key === 'Enter') save.click(); };
+  el.querySelector('[data-who="later"]').onclick = () => {
+    const ids = _liveDismissedVoices().concat([voice.id]).slice(-200);
+    try { localStorage.setItem(_LIVE_DISMISSED_KEY, JSON.stringify(ids)); } catch (e) { /* private mode */ }
+    _liveRenderWhoPrompt();
+  };
 }
 
 // The sample-utterance key is not pinned down by the protocol; accept the

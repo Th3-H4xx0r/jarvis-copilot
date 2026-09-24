@@ -2376,6 +2376,42 @@ final class LiveStore {
         catch { report("rename that voice", error) }
     }
 
+    // MARK: - Who said this?
+
+    /// Speech a voice needs before "Who said this?" asks about it, and how long
+    /// ago it may last have been heard — an old stranger is not worth a prompt.
+    static let nameAfterSpeechMs = 120_000
+    static let askWithinSeconds: TimeInterval = 7 * 86_400
+    private static let dismissedVoicesKey = "jc.live.dismissed_voice_prompts"
+    /// Stored (not read through `preferences` on every access) so a dismissal
+    /// redraws the screen.
+    private var dismissedVoicesCache: Set<String>?
+
+    /// The voice to ask about: unnamed, not "Me", two minutes of speech, heard
+    /// this week, and not waved off.
+    var voiceToName: LiveSpeaker? {
+        let dismissed = dismissedVoices
+        let now = Date().timeIntervalSince1970
+        return speakers.first { voice in
+            guard voice.kind != "me", voice.name.isEmpty, voice.speechMs >= Self.nameAfterSpeechMs,
+                  !dismissed.contains(voice.id) else { return false }
+            if let heard = Double(voice.lastHeardAt), now - heard > Self.askWithinSeconds { return false }
+            return true
+        }
+    }
+
+    func dismissVoicePrompt(_ voice: LiveSpeaker) {
+        var ids = dismissedVoices
+        ids.insert(voice.id)
+        dismissedVoicesCache = ids
+        preferences.set(ids.sorted().suffix(200).joined(separator: ","), forKey: Self.dismissedVoicesKey)
+    }
+
+    private var dismissedVoices: Set<String> {
+        dismissedVoicesCache ?? Set((preferences.string(Self.dismissedVoicesKey) ?? "")
+            .split(separator: ",").map(String.init))
+    }
+
     func rename(speaker: LiveSpeaker, to name: String) async {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
