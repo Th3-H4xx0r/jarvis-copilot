@@ -1779,6 +1779,78 @@ def _synth_piper_to_base64(text: str, tts_section: dict, suffix: str = ".mp3") -
         _cleanup_tempfile_siblings(out_path)
 
 
+# A reply in a script the configured voice can't speak goes to an Edge voice that
+# can (male, to match JARVIS): the Fish Audio voice is an English clone and read a
+# Telugu reply as noise. Latin-script languages stay on it — its model is multilingual.
+_SCRIPT_VOICES = (
+    ((0x0C00, 0x0C7F), "te-IN-MohanNeural"),     # Telugu
+    ((0x0900, 0x097F), "hi-IN-MadhurNeural"),    # Devanagari
+    ((0x0B80, 0x0BFF), "ta-IN-ValluvarNeural"),  # Tamil
+    ((0x0C80, 0x0CFF), "kn-IN-GaganNeural"),     # Kannada
+    ((0x0D00, 0x0D7F), "ml-IN-MidhunNeural"),    # Malayalam
+    ((0x0980, 0x09FF), "bn-IN-BashkarNeural"),   # Bengali
+    ((0x0A80, 0x0AFF), "gu-IN-NiranjanNeural"),  # Gujarati
+    ((0x0600, 0x06FF), "ar-SA-HamedNeural"),     # Arabic
+    ((0x0590, 0x05FF), "he-IL-AvriNeural"),      # Hebrew
+    ((0x0370, 0x03FF), "el-GR-NestorasNeural"),  # Greek
+    ((0x0400, 0x04FF), "ru-RU-DmitryNeural"),    # Cyrillic
+    ((0x0E00, 0x0E7F), "th-TH-NiwatNeural"),     # Thai
+    ((0x3040, 0x30FF), "ja-JP-KeitaNeural"),     # Kana
+    ((0xAC00, 0xD7AF), "ko-KR-InJoonNeural"),    # Hangul
+    ((0x4E00, 0x9FFF), "zh-CN-YunxiNeural"),     # CJK ideographs
+)
+_SCRIPT_VOICE_SHARE = 0.3
+
+
+def _script_voice(text: str) -> str:
+    """The Edge voice for the script most of `text` is written in, or "" (the configured voice)."""
+    counts: dict = {}
+    letters = 0
+    for ch in text or "":
+        if not ch.isalpha():
+            continue
+        letters += 1
+        code = ord(ch)
+        for (lo, hi), name in _SCRIPT_VOICES:
+            if lo <= code <= hi:
+                counts[name] = counts.get(name, 0) + 1
+                break
+    if not counts or not letters:
+        return ""
+    # Japanese writes with kanji too: any kana makes CJK text Japanese.
+    if counts.get("ja-JP-KeitaNeural") and counts.get("zh-CN-YunxiNeural"):
+        counts["ja-JP-KeitaNeural"] += counts.pop("zh-CN-YunxiNeural")
+    name, count = max(counts.items(), key=lambda kv: kv[1])
+    return name if count >= _SCRIPT_VOICE_SHARE * letters else ""
+
+
+def _synth_edge_voice(text: str, voice_name: str) -> bytes:
+    """MP3 bytes of `text` in the Edge voice `voice_name`, or b"" on any failure."""
+    import asyncio
+    import concurrent.futures
+    _ensure_hermes_on_path()
+    out_path = _make_tempfile_path("webui-tts-", ".mp3")
+    try:
+        from tools.tts_tool import _generate_edge_tts
+
+        def run():
+            asyncio.run(_generate_edge_tts(text, out_path, {"edge": {"voice": voice_name}}))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            run()
+        else:  # called from inside an event loop: give asyncio.run a thread of its own
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(run).result(timeout=30)
+        path = Path(out_path)
+        return path.read_bytes() if path.exists() else b""
+    except Exception:
+        print(f"[webui] {voice_name} TTS failed: " + traceback.format_exc(), flush=True)
+        return b""
+    finally:
+        _cleanup_tempfile_siblings(out_path)
+
+
 def _tts_to_base64(text: str) -> str:
     if not text:
         return ""
@@ -1786,6 +1858,12 @@ def _tts_to_base64(text: str) -> str:
     text = _speakable(text)
     if not text:
         return ""
+    script_voice = _script_voice(text)
+    if script_voice:
+        audio = _synth_edge_voice(text, script_voice)
+        if audio:
+            return base64.b64encode(audio).decode("ascii")
+        # That voice failed: the configured one still speaks, rather than silence.
     cfg = _read_hermes_config()
     provider, tts_section = _resolve_effective_tts_provider(cfg)
     # Fish Audio is a cloud REST API, not a JarvisCopilot built-in. Special-case
@@ -2128,6 +2206,28 @@ def _flush_escalations(state: dict, conn, sock) -> None:
             print("[webui] escalation TTS failed: " + traceback.format_exc(), flush=True)
 
 
+def _refresh_pod_choice(state: dict, conn, sock) -> None:
+    """Each Pod turn follows the chat and model chosen on the phone now: the Pod sends
+    begin_turn once per socket and keeps that socket open for hours."""
+    if state.get("client") != "jarvis_pod":
+        return
+    from api import pod_voice
+    pod = pod_voice.choice_for(state, "jarvis_pod")
+    sid = pod.get("session_id") or state.get("voice_default_session") or state.get("session_id") or ""
+    if sid and sid != state.get("session_id"):
+        state["session_id"] = sid
+        _attach_escalation_sink(state, conn, sock)
+    # The Pod never picks a model itself, so no choice means the voice default.
+    if pod.get("model"):
+        state["model"] = pod["model"]
+    else:
+        state.pop("model", None)
+    if pod.get("provider"):
+        state["model_provider"] = pod["provider"]
+    else:
+        state.pop("model_provider", None)
+
+
 def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
     t = (msg.get("type") or "").lower()
     if t == "begin_turn":
@@ -2140,17 +2240,21 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         sr = int(msg.get("sample_rate") or 0)
         if sr > 0:
             state["sample_rate"] = sr
-        sid = (msg.get("session_id") or "").strip()
+        # The Jarvis Pod's own chat and model, chosen on the phone's Pod page.
+        from api import pod_voice
+        pod = pod_voice.choice_for(state, (msg.get("client") or state.get("client") or "").strip().lower())
+        state["voice_default_session"] = (msg.get("session_id") or "").strip()
+        sid = pod.get("session_id") or (msg.get("session_id") or "").strip()
         if sid:
             state["session_id"] = sid
             _attach_escalation_sink(state, conn, sock)  # plan 2.5
         # Per-turn model override (on-device escalation may pick a specific
         # server model/provider for this turn). Only set when non-empty so an
         # absent field never clobbers the session default.
-        model = (msg.get("model") or "").strip()
+        model = (msg.get("model") or "").strip() or pod.get("model", "")
         if model:
             state["model"] = model
-        provider = (msg.get("model_provider") or "").strip()
+        provider = (msg.get("model_provider") or "").strip() or pod.get("provider", "")
         if provider:
             state["model_provider"] = provider
         # Pre-supplied transcript: the on-device path already knows what the
@@ -2197,6 +2301,7 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
             prev.join(timeout=_TURN_JOIN_TIMEOUT_SECONDS)
             if prev.is_alive():
                 print("[webui] voice: previous turn did not stop in time; starting next anyway", flush=True)
+        _refresh_pod_choice(state, conn, sock)
         # Re-arm: a barge-in sets state["interrupt"]=True with no following
         # begin_turn (begin_turn is sent once per session), so without this the
         # flag stays set and every later turn — including a clarify answer —
@@ -2369,7 +2474,7 @@ def _synth_audio_uncached(text: str):
         return None
     cfg = _read_hermes_config()
     provider, tts_section = _resolve_effective_tts_provider(cfg)
-    if provider == "piper":
+    if provider == "piper" and not _script_voice(text_clean):
         pcm = _synth_piper_pcm24k(text_clean, tts_section)
         if pcm is not None:
             return ("pcm", pcm)

@@ -48,6 +48,13 @@ struct JarvisPodCard: View {
 struct JarvisPodView: View {
     let podID: String
     @State private var store = JarvisPodStore.shared
+    @State private var voiceChoice: PodVoiceChoice
+
+    init(podID: String) {
+        self.podID = podID
+        _voiceChoice = State(initialValue: PodVoiceChoice(podID: podID))
+    }
+
     @State private var brightness: Double = 0
     @State private var volume: Double = 0
     @State private var confirmReboot = false
@@ -93,8 +100,6 @@ struct JarvisPodView: View {
                            isOn: Binding(get: { settings?.noiseCancel ?? true },
                                          set: { on in Task { await store.update(podID, ["noise_cancel": on]) } }))
                     divider
-                    speechModel
-                    divider
                     toggle("24-hour time", "For the clock home screen", "clock",
                            isOn: Binding(get: { settings?.clock24h ?? JarvisPodLook.clock24h },
                                          set: { on in Task { await store.update(podID, ["clock_24h": on]) } }))
@@ -102,6 +107,7 @@ struct JarvisPodView: View {
                 deviceSection
               }
               .disabled(!online)
+                talkingSection     // kept on the server: usable while the pod is offline
                 recordingsSection  // stored on the server: usable while the pod is offline
             }
             .padding(.horizontal, 16)
@@ -137,6 +143,7 @@ struct JarvisPodView: View {
         }
         .task { await reload() }
         .task { await speech.load() }
+        .task { await voiceChoice.load() }
         .onDisappear { player.stop() }
         .wearableRename(isPresented: $renaming, current: pod?.name ?? "Jarvis Pod") { name in
             guard !name.isEmpty else { return }
@@ -479,6 +486,37 @@ struct JarvisPodView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
+    }
+
+    /// The chat and model the Pod talks to, and the engine that hears it — the
+    /// Pod's own voice settings, like the phone's.
+    private var talkingSection: some View {
+        group("Talking to Jarvis") {
+            NavigationLink { PodChatPicker(choice: voiceChoice) } label: {
+                navRow("bubble.left.and.bubble.right", "Chat", voiceChoice.chatTitle)
+            }
+            .buttonStyle(.plain)
+            divider
+            NavigationLink { PodModelPicker(choice: voiceChoice) } label: {
+                navRow("cpu", "Model", voiceChoice.modelTitle)
+            }
+            .buttonStyle(.plain)
+            divider
+            speechModel
+        }
+    }
+
+    private func navRow(_ symbol: String, _ label: String, _ value: String) -> some View {
+        HStack(spacing: 12) {
+            iconTile(symbol)
+            Text(label).font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+            Spacer()
+            Text(value).font(.subheadline).foregroundStyle(JcTheme.muted).lineLimit(1)
+            JcIcon("chevron.right").font(.caption.weight(.semibold)).foregroundStyle(JcTheme.muted)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 
     /// Which engine hears what you say to the Pod: Soniox, or the server's own

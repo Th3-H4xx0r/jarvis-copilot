@@ -187,6 +187,30 @@ struct JarvisPodRecording: Identifiable, Equatable, Sendable {
     }
 }
 
+/// The chat and model a pod talks to, kept on the server (so it can be set while the
+/// pod is offline). Empty fields are the voice defaults: the Voice chat, and "Auto".
+struct JarvisPodVoice: Equatable, Sendable {
+    var sessionID = ""
+    var model = ""
+    var provider = ""
+
+    init(sessionID: String = "", model: String = "", provider: String = "") {
+        self.sessionID = sessionID
+        self.model = model
+        self.provider = provider
+    }
+
+    init(json: [String: Any]) {
+        sessionID = json["session_id"] as? String ?? ""
+        model = json["model"] as? String ?? ""
+        provider = json["provider"] as? String ?? ""
+    }
+
+    func body(podID: String) -> [String: Any] {
+        ["device_id": podID, "session_id": sessionID, "model": model, "provider": provider]
+    }
+}
+
 struct JarvisPodAPI: Sendable {
     func pods() async throws -> [JarvisPodDevice] {
         let list = try await JarvisAPI.shared.get("/api/devices").array(key: "devices")
@@ -236,6 +260,15 @@ struct JarvisPodAPI: Sendable {
     /// The pod's name lives on its server device record.
     func rename(_ id: String, to name: String) async throws {
         _ = try await JarvisAPI.shared.post("/api/devices/\(id)/rename", json: ["name": name])
+    }
+
+    func voice(_ id: String) async throws -> JarvisPodVoice {
+        JarvisPodVoice(json: try await JarvisAPI.shared.get("/api/devices/pod/voice", query: ["device_id": id]).object())
+    }
+
+    @discardableResult
+    func setVoice(_ id: String, _ voice: JarvisPodVoice) async throws -> JarvisPodVoice {
+        JarvisPodVoice(json: try await JarvisAPI.shared.post("/api/devices/pod/voice", json: voice.body(podID: id)).object())
     }
 
     func deleteRecording(_ id: String, _ recordingID: String) async throws {

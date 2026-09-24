@@ -338,6 +338,7 @@
 		724F514EF8EAE0DB7A86D266 /* VoiceAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F31B15B05E8F7F84FF4017 /* VoiceAPITests.swift */; };
 		726662C98BEA06A358281F47 /* LiveSpool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8177A1231175A9E0F4499261 /* LiveSpool.swift */; };
 		72C3013B89513D36D72D80C5 /* IslandOfflineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5512C8ECFDB41A863B1AED9C /* IslandOfflineTests.swift */; };
+		7300E8A6FB9CFC2F11C51015 /* PodVoiceChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7541361D0B163C7747D739AC /* PodVoiceChoice.swift */; };
 		738AC31FF6CD8AEC62639E77 /* MoreToneColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD972BD94BF423F742A06C7 /* MoreToneColorTests.swift */; };
 		73C8A57690DD0E0BB38340EA /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C72BB81CD5599B46B3DA6E /* SettingsStore.swift */; };
 		74A39A4C24A4A53D671A9E46 /* HealthMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 438CBFA66B125FE31EA00B31 /* HealthMetric.swift */; };
@@ -1088,6 +1089,7 @@
 		737A19BDFB5239958D40F58A /* ChatEntryPointsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatEntryPointsTests.swift; sourceTree = "<group>"; };
 		737ECD2335407D3C6AA3B54A /* JarvisLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisLiveActivity.swift; path = JarvisWidget/JarvisLiveActivity.swift; sourceTree = "<group>"; };
 		737FAF43B19D4790957A9044 /* LiveSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSettings.swift; sourceTree = "<group>"; };
+		7541361D0B163C7747D739AC /* PodVoiceChoice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodVoiceChoice.swift; sourceTree = "<group>"; };
 		761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPageSmokeTests.swift; sourceTree = "<group>"; };
 		7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkillsTests.swift; sourceTree = "<group>"; };
 		76A4E3847E7B8475E457549C /* IOSSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOSSkills.swift; sourceTree = "<group>"; };
@@ -2826,6 +2828,7 @@
 				C637D6A4655C2ECE2036918B /* JarvisPodAPI.swift */,
 				FEB8B049A1D4CC82D1EABBF8 /* JarvisPodStore.swift */,
 				CA9D00957599C8C01C1BE514 /* JarvisPodView.swift */,
+				7541361D0B163C7747D739AC /* PodVoiceChoice.swift */,
 			);
 			path = Pod;
 			sourceTree = "<group>";
@@ -3763,6 +3766,7 @@
 				90F0215A63C17CB02942CFE7 /* SpeechEngineAPI.swift in Sources */,
 				3C708A6B385E2F0B343A9B72 /* SpeechEngineStore.swift in Sources */,
 				C79C7D1B082B3B84896901E0 /* LiveVoiceHistory.swift in Sources */,
+				7300E8A6FB9CFC2F11C51015 /* PodVoiceChoice.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

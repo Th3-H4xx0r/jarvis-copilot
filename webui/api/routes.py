@@ -3599,6 +3599,11 @@ def handle_get(handler, parsed) -> bool:
         from api.voice_recordings import handle_get as _recordings_get
         return _recordings_get(handler, parsed)
 
+    if parsed.path == "/api/devices/pod/voice":
+        # The chat and model this pod talks to (the phone's Pod page).
+        from api.pod_voice import handle_get as _pod_voice_get
+        return _pod_voice_get(handler, parsed)
+
     if parsed.path == "/api/devices/pod/image":
         # Web pictures re-encoded for the Jarvis Pod's screen (baseline JPEG, square).
         from api.pod_image import handle_pod_image
@@ -6323,6 +6328,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/devices/pod/recordings/delete":
         from api.voice_recordings import handle_delete as _recordings_delete
         return _recordings_delete(handler, body)
+
+    if parsed.path == "/api/devices/pod/voice":
+        from api.pod_voice import handle_post as _pod_voice_post
+        return _pod_voice_post(handler, body)
 
     if parsed.path == "/api/devices/skills/invoke":
         from api.device_bridge import invoke_skill

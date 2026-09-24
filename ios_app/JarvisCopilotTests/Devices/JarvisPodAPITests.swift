@@ -14,6 +14,15 @@ final class JarvisPodAPITests: XCTestCase {
         XCTAssertEqual(code.podName, "Jarvis Pod 64D5")
     }
 
+    /// The chat and model the Pod talks to; empty fields are the voice defaults.
+    func testVoiceChoiceParsesAndSendsItsFields() {
+        let voice = JarvisPodVoice(json: ["session_id": "chat-1", "model": "gpt-5", "provider": "openai", "x": 1])
+        XCTAssertEqual(voice, JarvisPodVoice(sessionID: "chat-1", model: "gpt-5", provider: "openai"))
+        XCTAssertEqual(voice.body(podID: "pod1") as NSDictionary,
+                       ["device_id": "pod1", "session_id": "chat-1", "model": "gpt-5", "provider": "openai"] as NSDictionary)
+        XCTAssertEqual(JarvisPodVoice(json: [:]), JarvisPodVoice())
+    }
+
     func testRecordingParsesServerEntry() throws {
         let rec = try XCTUnwrap(JarvisPodRecording(json: [
             "id": "1757900000123", "ts": 1_757_900_000.123, "duration_ms": 2400, "transcript": " turn on the lights ",
