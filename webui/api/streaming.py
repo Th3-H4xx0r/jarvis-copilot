@@ -4065,6 +4065,13 @@ def _run_agent_streaming(
             if _voice_swap:
                 agent.reasoning_config = _voice_prev_reasoning
             if _voice_directive:
+                # The Pod's "[end]" (stop listening after this reply) is a signal to
+                # the voice server, not words: keep it out of the saved chat.
+                try:
+                    from api.voice import strip_end_tags
+                    strip_end_tags((result or {}).get("messages"))
+                except Exception:
+                    logger.debug("voice: could not strip [end] tags", exc_info=True)
                 # Put the lean manifest back so later CHAT turns on this
                 # warm agent don't keep paying for every tool schema.
                 try:

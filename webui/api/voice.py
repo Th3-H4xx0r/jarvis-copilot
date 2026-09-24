@@ -778,17 +778,85 @@ _HEARD_TEXT_MAX_CHARS = 1200
 
 # Voice clients that aren't the phone or Mac say what they are on begin_turn, so
 # "show me X" lands on the device the user is talking through.
+#
+# The Pod keeps listening after each reply. Whether it should is the model's call,
+# made in the reply itself: "[end]" means stop once the words finish. Measured on the
+# Pod's real path (gemma4:31b, the day's full Voice chat), the old "call
+# device_pod_stop_listening" rule was ignored for every variant of "I'm done", and a
+# tool call costs a second model call (~1.2 s before the first words) where the tag
+# costs nothing — the server strips it and calls pod_stop_listening itself.
 _CLIENT_DIRECTIVES = {
     "jarvis_pod": (
-        "\n\n[The user is speaking through their Jarvis Pod, a small device with a "
-        "round 240 px screen. To show them something, call device_pod_show (a picture goes "
-        "on its screen as an image block — never answer with only a link); to make "
-        "or change their home page, call device_pod_home_save. When their words only mean "
-        "they are finished — \"stop\", \"nothing\", \"that's all for now\", \"never mind\", \"I'm good\" — "
-        "call device_pod_stop_listening and answer with at most two words; never call it for a "
-        "command that merely contains those words, like \"stop the music\".]"
+        "\n\n[The user is speaking through their Jarvis Pod, a small device with a round 240 px "
+        "screen. To show them something, call device_pod_show (a picture goes on its screen as an "
+        "image block — never answer with only a link); to make or change their home page, call "
+        "device_pod_home_save.\n\n"
+        "After you answer, the Pod keeps listening for a follow-up — unless your reply ends with the "
+        "tag [end], which makes it stop listening once your words finish (the tag is never spoken). "
+        "Decide on EVERY reply:\n"
+        "• End with [end] when the user is finished talking to you, in any words: \"that's all for "
+        "now\", \"nothing\", \"no, nothing\", \"sorry, nothing\", \"I'm good\", \"I'm all set\", \"never "
+        "mind\", \"no thanks\", \"we're done\", \"that should be it\", \"thanks, that's it\", \"that'll "
+        "be all\", \"cool, thanks\", \"talk to you later\", \"goodnight\". Reply in three words or "
+        "fewer: \"Very good, sir. [end]\"\n"
+        "• Also end with [end] when your reply needs no follow-up from them: a question fully "
+        "answered (\"It's twelve past midnight, sir. [end]\"), a request carried out (\"Sent, sir. "
+        "[end]\"), a joke told, a goodbye.\n"
+        "• No [end] when you ask them something or offer choices, when they only greet you or say "
+        "your name (\"hello\", \"hey Jarvis\", \"are you there?\" — they are about to ask), when they "
+        "are mid-task or thinking aloud, or when their words are a command that happens to contain "
+        "these words (\"stop the music\", \"cancel my meeting\", \"nothing is working\").\n"
+        "Never answer a finished user with \"I'm here\", \"standing by\" or \"I shall remain on "
+        "standby\" — end with [end] instead.]"
     ),
 }
+
+_END_TAG_RE = re.compile(r"\s*\[\s*end\s*\]\s*\.?", re.IGNORECASE)
+
+
+def _split_end_tag(text: str):
+    """(text without the "[end]" stop-listening tag, whether it had one)."""
+    stripped, n = _END_TAG_RE.subn("", text or "")
+    return stripped.strip(), n > 0
+
+
+def strip_end_tags(messages) -> None:
+    """Keep the tag — a signal to the voice server, not words — out of the saved chat."""
+    for m in messages or []:
+        if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), str):
+            if _END_TAG_RE.search(m["content"]):
+                m["content"] = _split_end_tag(m["content"])[0]
+
+
+def _invoke_pod_stop(device_id: str) -> None:
+    try:
+        from api import device_bridge
+        result = device_bridge.invoke_skill(device_id, "pod_stop_listening", {}, timeout=5.0)
+        if not result.get("ok"):
+            print(f"[webui] voice: pod_stop_listening failed: {result.get('error')}", flush=True)
+    except Exception:
+        print("[webui] voice: pod_stop_listening failed: " + traceback.format_exc(), flush=True)
+
+
+def _maybe_stop_pod_listening(state: dict, wait: bool = False) -> None:
+    """The model ended its reply with [end]: the Pod stops listening once it has spoken
+    (its pod_stop_listening waits for the reply to finish). Not when the reply asks
+    something — a question needs an answer, whatever the tag says."""
+    ended = state.pop("end_tag", False)
+    last = str(state.pop("reply_last_text", "") or "").rstrip().rstrip("\"\u201d\u2019'")
+    if not ended or state.get("client") != "jarvis_pod" or state.get("interrupt"):
+        return
+    if last.endswith("?"):
+        print("[webui] voice: [end] on a question; the pod keeps listening", flush=True)
+        return
+    device_id = str((state.get("origin") or {}).get("device_id") or "")
+    if not device_id:
+        return
+    print("[webui] voice: reply is complete; the pod stops listening", flush=True)
+    worker = threading.Thread(target=_invoke_pod_stop, args=(device_id,), daemon=True)
+    worker.start()
+    if wait:
+        worker.join(timeout=6)
 
 
 def _voice_turn_directive(heard_before_interrupt, client: str = ""):
@@ -2899,6 +2967,8 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     """
     import collections as _collections
     from concurrent.futures import ThreadPoolExecutor
+    state.pop("end_tag", None)
+    state.pop("reply_last_text", None)
     executor = ThreadPoolExecutor(max_workers=2)
     buf = _collections.deque()
     gen_exhausted = False
@@ -2961,6 +3031,15 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                 print(f"[webui] voice: seg kind={k} {str(seg)[:160]}", flush=True)
             if k == "text":
                 t = _take_pod_media(state, (seg.get("text") or "").strip())
+                t, ended = _split_end_tag(t)
+                if ended:
+                    state["end_tag"] = True
+                    # A bare "[end]" is a whole reply: no ack after it.
+                    with seg_lock:
+                        ack_state["first_text_sent"] = True
+                    ack_timer.cancel()
+                if t:
+                    state["reply_last_text"] = t
                 if t and not ack_state["first_text_sent"]:
                     # The model acked anyway ("Right away, sir.") on top of the
                     # server's ack — drop that bare sentence.
@@ -3253,6 +3332,8 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             origin=state.get("origin"),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
+        if not state.get("clarify_pending"):
+            _maybe_stop_pod_listening(state)
         if handled:
             return  # fully handled (clarify pending / no_reply) — end_turn sent
     else:
@@ -3305,6 +3386,8 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
     _mark_span(timing, "prep_ms", _elapsed_ms(timing))
     handled = _stream_segments(conn, sock, state, _run_agent_continuation_after_clarify(sid, transcript), timing=timing)
     _finish_turn_timing(conn, sock, timing)
+    if not state.get("clarify_pending"):
+        _maybe_stop_pod_listening(state)
     if handled:
         return  # nested clarify / no_reply — end_turn already sent
     _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
