@@ -105,6 +105,25 @@ def live_engine():
     return engine if engine is not None and getattr(engine, "streams", False) else None
 
 
+def any_live_engine():
+    """A streaming engine that can run now, whatever Live's Transcription says.
+
+    For a device that cannot transcribe on its own — a browser (Brave has no
+    speech API) or the Mac capturing — "On the phone" would mean audio stored
+    and no words at all, so it gets the server's engine whenever one is set up.
+    """
+    try:
+        from jarvis_speech import registry
+        for info in registry.engines():
+            if info.get("streams") and info.get("available"):
+                engine = registry.get(info["name"])
+                if engine is not None:
+                    return engine
+    except Exception:
+        logger.debug("live: speech engine lookup failed", exc_info=True)
+    return None
+
+
 def _translate_to() -> str:
     """`live.primary_language` as a bare language code ("en-US" → "en"), or "" for none.
 

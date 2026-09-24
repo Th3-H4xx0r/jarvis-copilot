@@ -215,6 +215,7 @@ async function loadLive(force) {
   if (!_liveLabelStore && _lLabels()) _liveLabelStore = _lLabels().createLabelStore();
   _liveRenderTabs();
   _liveRenderHeaderActions();
+  _liveLoadMics();
   await _liveLoadSessions(force);
   await _liveLoadSpeakers();          // names must exist before the first paint
   _liveLoadStorage();                 // status line wants the total; don't block on it
@@ -645,7 +646,7 @@ function _liveRenderStatus() {
   const total = _liveStorage && _liveStorage.total_bytes != null
     ? _liveFmtBytes(_liveStorage.total_bytes)
     : (runtime.total_bytes != null ? _liveFmtBytes(runtime.total_bytes) : '—');
-  const warn = runtime.warning || runtime.warnings || runtime.message || '';
+  const warn = runtime.warning || runtime.warnings || runtime.message || _liveCapNote || '';
   const warnText = Array.isArray(warn) ? warn.join(' · ') : warn;
   el.innerHTML = `
     <span class="live-status-item live-status-state${paused ? ' paused' : (recording ? ' rec' : '')}">
@@ -1708,6 +1709,7 @@ function _liveRenderHeaderActions() {
   const el = _lEl('liveHeaderActions');
   if (!el) return;
   el.innerHTML = `
+    <div class="live-capture" id="liveCapture"></div>
     <button class="panel-head-btn has-tooltip has-tooltip--bottom" data-live-header="refresh"
             data-tooltip="Refresh" aria-label="Refresh">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>
@@ -1722,6 +1724,126 @@ function _liveRenderHeaderActions() {
       else loadLive(true);
     };
   });
+  _liveRenderCapture();
+}
+
+// ── recording from this browser (live_capture.js) ──────────────────────────
+//
+// The phone's Record, Pause and Stop, over the same socket. The browser cannot
+// transcribe, so the server's speech engine hears it; the words arrive through
+// the same stream every viewer reads, because the page opens the session it is
+// recording. Leaving the Live page does not stop it — the rail's Live button
+// keeps a red dot while it records.
+
+let _liveCap = null;
+let _liveCapState = 'idle';
+let _liveCapNote = '';
+let _liveCapStarted = 0;
+let _liveCapTimer = null;
+let _liveMics = [];
+const _LIVE_MIC_KEY = 'jc.live.webMic';
+
+function _liveCapture() {
+  if (_liveCap || !window.JcLiveCapture) return _liveCap;
+  _liveCap = window.JcLiveCapture.createCapture({
+    state: s => {
+      _liveCapState = s;
+      if (s === 'recording' && !_liveCapStarted) _liveCapStarted = Date.now();
+      if (s === 'idle') {
+        _liveCapStarted = 0;
+        _liveLoadSessions();
+      }
+      document.querySelectorAll('[data-panel="live"]').forEach(b =>
+        b.classList.toggle('live-capturing', s !== 'idle'));
+      _liveRenderCapture();
+      _liveRenderStatus();
+    },
+    level: v => {
+      const bar = _lEl('liveCapLevel');
+      if (bar) bar.style.width = `${Math.round(Math.min(1, v * 4) * 100)}%`;
+    },
+    ready: async r => {
+      await _liveLoadSessions();
+      if (r && r.live_session_id) await _liveOpenSession(r.live_session_id, {});
+      _liveLoadMics();          // labels exist once the mic is allowed
+    },
+    note: text => { _liveCapNote = text || ''; _liveRenderStatus(); },
+    error: text => {
+      _liveCapNote = text || '';
+      _lToast(text, 6000, 'error');
+      _liveRenderStatus();
+    },
+  });
+  return _liveCap;
+}
+
+async function _liveLoadMics() {
+  if (!window.JcLiveCapture) return;
+  try { _liveMics = await window.JcLiveCapture.listMics(); } catch (e) { _liveMics = []; }
+  if (_liveCapState === 'idle') _liveRenderCapture();
+}
+
+function _liveCapElapsed() {
+  return _liveCapStarted ? _liveFmtDuration(Date.now() - _liveCapStarted) : '0:00';
+}
+
+function _liveRenderCapture() {
+  const el = _lEl('liveCapture');
+  if (!el) return;
+  if (!window.JcLiveCapture || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    el.innerHTML = '';
+    return;
+  }
+  const s = _liveCapState;
+  if (_liveCapTimer && (s === 'idle' || s === 'starting')) {
+    clearInterval(_liveCapTimer);
+    _liveCapTimer = null;
+  }
+  if (s === 'idle' || s === 'starting') {
+    let saved = '';
+    try { saved = localStorage.getItem(_LIVE_MIC_KEY) || ''; } catch (e) { saved = ''; }
+    const busy = s === 'starting' ? ' disabled' : '';
+    el.innerHTML = `
+      <select class="live-mic-select" id="liveMicSelect" aria-label="Microphone"${busy}>
+        <option value="">Default microphone</option>
+        ${_liveMics.map(m => `<option value="${_lEsc(m.deviceId)}"${m.deviceId === saved ? ' selected' : ''}>${_lEsc(m.label)}</option>`).join('')}
+      </select>
+      <button type="button" class="live-btn live-rec-btn" data-live-capture="record"${busy}>
+        <span class="live-rec-dot" aria-hidden="true"></span>${s === 'starting' ? 'Starting…' : 'Record'}
+      </button>`;
+  } else {
+    const paused = s === 'paused';
+    const stopping = s === 'stopping' ? ' disabled' : '';
+    el.innerHTML = `
+      <span class="live-cap-meter" aria-hidden="true"><span id="liveCapLevel"></span></span>
+      <span class="live-cap-time" id="liveCapTime">${_lEsc(_liveCapElapsed())}</span>
+      <button type="button" class="live-btn" data-live-capture="${paused ? 'resume' : 'pause'}"${stopping}>${paused ? 'Resume' : 'Pause'}</button>
+      <button type="button" class="live-btn live-btn--danger" data-live-capture="stop"${stopping}>${s === 'stopping' ? 'Stopping…' : 'Stop'}</button>`;
+    if (!_liveCapTimer) {
+      _liveCapTimer = setInterval(() => {
+        const time = _lEl('liveCapTime');
+        if (time) time.textContent = _liveCapElapsed();
+      }, 1000);
+    }
+  }
+  el.querySelectorAll('[data-live-capture]').forEach(btn => {
+    btn.onclick = () => _liveCaptureAction(btn.dataset.liveCapture);
+  });
+}
+
+function _liveCaptureAction(action) {
+  const cap = _liveCapture();
+  if (!cap) return;
+  if (action === 'record') {
+    const select = _lEl('liveMicSelect');
+    const deviceId = select ? select.value : '';
+    try { localStorage.setItem(_LIVE_MIC_KEY, deviceId); } catch (e) { /* not remembered */ }
+    const label = select && select.selectedIndex > 0 ? select.options[select.selectedIndex].text : '';
+    _liveCapNote = '';
+    cap.start({ deviceId, sourceLabel: label });
+  } else if (action === 'pause') cap.pause();
+  else if (action === 'resume') cap.resume();
+  else if (action === 'stop') cap.stop();
 }
 
 function _liveSetTab(tab) {

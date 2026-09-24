@@ -416,3 +416,22 @@ def test_a_line_is_retried_when_the_store_is_busy(engine, monkeypatch):
     _audio(conn)
     engine.streams_opened[0].sink.on_segment(Segment("worth keeping", 0, 900, "en", "", "1", key=1))
     assert [r["text"] for r in _rows(conn.live_session_id)] == ["worth keeping"]
+
+
+def test_a_device_that_cannot_transcribe_gets_an_engine_under_the_phone_setting(monkeypatch):
+    # A browser (Brave has no speech API) or the Mac capturing: with Live's
+    # Transcription on "the phone" it would store audio and show no words.
+    fake = FakeLiveEngine()
+    monkeypatch.setattr(live_speech, "live_engine", lambda: None)
+    monkeypatch.setattr(live_speech, "any_live_engine", lambda: fake)
+    _conn, client = _connect(caps=_pcm_caps(stt="none", embed="none"), device_kind="web")
+    ready = client.first("ready")
+    assert ready["lane"] == live_ws.LANE_SERVER and ready["engine"] == "Fake"
+
+
+def test_a_phone_that_transcribes_keeps_its_lane_under_the_phone_setting(monkeypatch):
+    monkeypatch.setattr(live_speech, "live_engine", lambda: None)
+    monkeypatch.setattr(live_speech, "any_live_engine", lambda: FakeLiveEngine())
+    _conn, client = _connect()
+    ready = client.first("ready")
+    assert ready["lane"] == live_ws.LANE_EDGE and "engine" not in ready

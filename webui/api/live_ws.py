@@ -2342,7 +2342,13 @@ class LiveConnection:
         """Put this device on a server engine's lane when one is configured."""
         from api import live_speech
         # None while a failed engine is backing off, or when none is configured.
-        engine = None if live_speech.engine_blocked() else live_speech.live_engine()
+        # A device that cannot transcribe takes any engine that can run: on
+        # "On the phone" it would otherwise store audio and show no words.
+        engine = None
+        if not live_speech.engine_blocked():
+            engine = live_speech.live_engine()
+            if engine is None and self._caps_stt != "on_device":
+                engine = live_speech.any_live_engine()
         if engine is None:
             if self.engine_lane is not None:
                 self.engine_lane.close()
