@@ -2871,7 +2871,7 @@ def test_the_rescue_leaves_a_phone_translated_line_to_the_phone(monkeypatch):
 def _capture_identification(monkeypatch):
     queued = []
     monkeypatch.setattr(live_ws, "_identify_async",
-                        lambda row, voiceprint=None: queued.append(voiceprint))
+                        lambda row, voiceprint=None, **kw: queued.append(voiceprint))
     return queued
 
 

@@ -1271,8 +1271,17 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
                 else _rescue_language_async(row, device_translates=device_translates))
     _notify_segment_appended(live_session_id, int(row["seq"]),
                              translate=not rescuing and not device_translates)
-    _identify_async(row, voiceprint)
+    _identify_async(row, voiceprint,
+                    grouped=bool(transcribed_by and local_label) and _engine_splits_speakers())
     return row
+
+
+def _engine_splits_speakers() -> bool:
+    """`live.speaker_split: engine` — the engine's labels decide who is who."""
+    try:
+        return live_config.load().get("speaker_split") == "engine"
+    except Exception:
+        return False
 
 
 def publish_translation(live_session_id: str, seq: int, translation: str,
@@ -1643,13 +1652,27 @@ def device_voiceprint(raw: Any) -> Optional[List[float]]:
 
 
 def _identify_async(row: Dict[str, Any],
-                    voiceprint: Optional[List[float]] = None) -> None:
+                    voiceprint: Optional[List[float]] = None,
+                    grouped: bool = False) -> None:
     """Queue identification for a freshly appended segment.
+
+    `grouped`: a speech engine labelled this line's speaker and the engine's
+    labels split the speakers (`_run_group_identification`).
 
     Wrapped whole: this is called from the thread that just made the transcript
     durable, and design §8 is unambiguous that nothing optional may stop it.
     """
     try:
+        if grouped:
+            from api import live_voiceprint
+            if not live_voiceprint.can_try():
+                _report_identification("skipped: no usable embedder")
+                return
+            _ident_submit(_run_group_identification, str(row.get("live_session_id") or ""),
+                          int(row.get("seq") or 0), int(row.get("ts_start_ms") or 0),
+                          int(row.get("ts_end_ms") or 0), str(row.get("device_id") or ""),
+                          dict(row))
+            return
         if row.get("speaker_id"):
             # Already attributed — an edge device whose voiceprints the
             # interlock trusts, or a re-ingested segment. Identifying it again
@@ -1711,6 +1734,119 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
     # recorder's. At most once per process.
     live_voiceprint.enrol_me_once()
     _decide_identity(live_session_id, seq, row, vec, source="server")
+
+
+# ── one speaker per engine label (`live.speaker_split: engine`) ─────────────
+#
+# A speech engine that labels speakers already knows which lines inside its
+# stream are one person — Soniox split every trial clip right, where one line's
+# voiceprint is wrong about one time in eight (bench 2026-09-24). So a label is
+# a group: its lines share one speaker, named from the voiceprint of all its
+# audio pooled (each line weighted by its length), a new voice is minted once
+# and only from 3 s of audio or more, and a line teaches the voice its group was
+# given rather than whatever it would have matched alone. Labels are unique per
+# engine stream (`<engine>:<lane>-<stream>:<label>`, api/live_speech.py), so a
+# group never spans two streams.
+
+_GROUP_MIN_EMBED_MS = 1000   # shorter lines join their group but add no voiceprint
+_MAX_GROUPS = 256
+_MAX_GROUP_SEQS = 500
+_groups: "OrderedDict[Tuple[str, str], Dict[str, Any]]" = OrderedDict()
+_groups_lock = threading.Lock()
+
+
+def _group_embed(live_session_id: str, ts_start_ms: int, ts_end_ms: int,
+                 device_id: str) -> Optional[List[float]]:
+    """One line's voiceprint from its stored audio, or None."""
+    from api import live_voiceprint
+    audio = pcm_for_range(live_session_id, ts_start_ms, ts_end_ms, device_id)
+    if audio is None:
+        return None
+    vec = live_voiceprint.embed(audio[0], audio[1])
+    if vec is not None:
+        live_voiceprint.enrol_me_once()
+    return vec
+
+
+def _group_for(key: Tuple[str, str]) -> Dict[str, Any]:
+    """Caller holds `_groups_lock`."""
+    group = _groups.get(key)
+    if group is None:
+        group = {"sum": None, "ms": 0, "minted": False, "seqs": [],
+                 "speaker_id": "", "label_state": "", "decision": None}
+        _groups[key] = group
+        while len(_groups) > _MAX_GROUPS:
+            _groups.popitem(last=False)
+    else:
+        _groups.move_to_end(key)
+    return group
+
+
+def _row_at(live_session_id: str, seq: int) -> Optional[Dict[str, Any]]:
+    rows = live_store.segments_after(live_session_id, after_seq=seq - 1, limit=1)
+    return rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
+
+
+def _run_group_identification(live_session_id: str, seq: int, ts_start_ms: int,
+                              ts_end_ms: int, device_id: str,
+                              row: Dict[str, Any]) -> None:
+    """Name this line's engine label from all the audio heard under it."""
+    from api import live_voiceprint
+
+    span = max(0, int(ts_end_ms) - int(ts_start_ms))
+    vec = (_group_embed(live_session_id, ts_start_ms, ts_end_ms, device_id)
+           if span >= _GROUP_MIN_EMBED_MS else None)
+    key = (live_session_id, str(row.get("local_label") or ""))
+    # One group job at a time: two lines of one label deciding at once could
+    # each mint a voice, or apply their answers out of order.
+    with _groups_lock:
+        group = _group_for(key)
+        group["seqs"].append(int(seq))
+        del group["seqs"][:-_MAX_GROUP_SEQS]
+        decision = None
+        if vec is not None:
+            weighted = [x * span for x in vec]
+            group["sum"] = (weighted if group["sum"] is None
+                            else [a + b for a, b in zip(group["sum"], weighted)])
+            group["ms"] += span
+            norm = math.sqrt(sum(x * x for x in group["sum"])) or 1.0
+            pooled = [x / norm for x in group["sum"]]
+            decision = live_voiceprint.identify(pooled, live_session_id=live_session_id,
+                                                seq=seq, learn=False)
+            if (decision is None and not group["minted"] and not group["speaker_id"]
+                    and group["ms"] >= _LEARN_MIN_MS):
+                decision = live_voiceprint.identify(pooled, live_session_id=live_session_id,
+                                                    seq=seq, learn=True)
+                group["minted"] = bool(decision and decision.get("new_speaker"))
+        if decision and decision.get("speaker_id"):
+            speaker = str(decision["speaker_id"])
+            state = str(decision.get("label_state") or live_store.LABEL_PROVISIONAL)
+            confirmed = state == live_store.LABEL_CONFIRMED
+            if (confirmed and vec is not None and span >= _LEARN_MIN_MS
+                    and not decision.get("new_speaker")):
+                try:
+                    live_store.add_embedding(speaker, vec, live_voiceprint.model_id(),
+                                             f"{live_session_id}#{int(seq)}")
+                except Exception:
+                    logger.debug("live: could not keep the line's voiceprint", exc_info=True)
+            changed = (speaker, state) != (group["speaker_id"], group["label_state"])
+            group["speaker_id"], group["label_state"] = speaker, state
+            group["decision"] = dict(decision, promoted=[], merged_from=None)
+            targets = list(group["seqs"]) if changed else [int(seq)]
+        elif group["decision"]:
+            decision, targets = group["decision"], [int(seq)]
+        else:
+            _report_identification("skipped: not enough of this voice yet",
+                                   f"{group['ms']} ms heard under {key[1]}")
+            return
+        for target in targets:
+            target_row = row if target == int(seq) else _row_at(live_session_id, target)
+            if target_row is not None:
+                _apply_identification(live_session_id, target, target_row,
+                                      decision if target == int(seq) else group["decision"])
+    _report_identification(
+        "succeeded", f"voice {group['speaker_id'][:8]}, {group['label_state']}, "
+                     f"{group['ms']} ms pooled under {key[1]}, {len(targets)} line(s)")
 
 
 def _decide_identity(live_session_id: str, seq: int, row: Dict[str, Any],

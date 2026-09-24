@@ -1539,10 +1539,12 @@ async function _liveOpenSettings() {
           <div class="live-modal-hint">What Live thinks with: the monitor, the fact-check and the wrap-up. A per-task pin in <code>auxiliary:</code> still wins.</div>
         </div>
         <div class="live-modal-row live-modal-row--wide">
-          <label for="liveCfgEmbed">Embedding model id</label>
-          <input type="text" id="liveCfgEmbed" data-cfg="embed_model" autocomplete="off" spellcheck="false"
-                 placeholder="ecapa-v1" value="${_lEsc(cfg.embed_model || '')}">
-          <div class="live-modal-hint">A device whose id does not match this loses its on-device lane instead of corrupting voice identity.</div>
+          <label for="liveCfgSplit">Voice identity</label>
+          <select id="liveCfgSplit" data-cfg="speaker_split">
+            <option value="voiceprint"${cfg.speaker_split === 'engine' ? '' : ' selected'}>Voiceprints (WeSpeaker ResNet34)</option>
+            <option value="engine"${cfg.speaker_split === 'engine' ? ' selected' : ''}>Soniox splits, voiceprints name</option>
+          </select>
+          <div class="live-modal-hint">Who decides which lines are one person. With Soniox, its speaker labels split the conversation and voiceprints only name each speaker, from all of their audio together, so names still carry across conversations. Applies while Transcription is Soniox. Voiceprint model: <code>${_lEsc(cfg.embed_model || '')}</code>.</div>
         </div>
       </div>
       <div class="live-modal-error" id="liveSettingsError" aria-live="polite"></div>

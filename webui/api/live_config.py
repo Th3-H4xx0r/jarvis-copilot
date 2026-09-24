@@ -62,6 +62,12 @@ DEFAULTS: Dict[str, Any] = {
     # migration problem: no such rows exist in practice, and if they did they
     # would be ECAPA-shaped vectors this model cannot be compared against.
     "embed_model": "wespeaker-resnet34-lm-v1",
+    # Who decides which lines are one person when a server speech engine that
+    # labels speakers (Soniox) transcribes Live. "voiceprint": each line's own
+    # voiceprint, as on the phone. "engine": the engine's labels split the
+    # speakers and voiceprints only NAME each label, from all its audio pooled
+    # (api/live_ws.py `_run_group_identification`).
+    "speaker_split": "voiceprint",
     # Roll a live session over once its transcript reaches this share of the
     # model's context window. Recording used to open a new session (and a new
     # chat) on every tap of Record.
@@ -86,13 +92,14 @@ _INT_KEYS = ("window_seconds", "min_window_words",
              "fact_check_tokens", "fact_check_timeout_seconds")
 _FLOAT_KEYS = ("session_rollover_fraction",)
 _STR_KEYS = ("reply_mode", "primary_language", "embed_model", "model",
-             "rescue_model")
+             "rescue_model", "speaker_split")
 # Keys whose empty value MEANS something, so "" must round-trip instead of
 # being rejected or replaced by the default. Clearing the model row is how the
 # user says "follow the app", and there has to be a way back from a pick.
 _OPTIONAL_STR_KEYS = ("model",)
 
 REPLY_MODES = ("text", "spoken")
+SPEAKER_SPLITS = ("voiceprint", "engine")
 
 # A window shorter than this would put the monitor in a spin loop; longer than a
 # day is a typo, not an intention. Bounds are rejected rather than clamped so the
@@ -185,6 +192,8 @@ def _coerce(values: Dict[str, Any]) -> Dict[str, Any]:
             out[key] = DEFAULTS[key]
     if out["reply_mode"] not in REPLY_MODES:
         out["reply_mode"] = DEFAULTS["reply_mode"]
+    if out["speaker_split"] not in SPEAKER_SPLITS:
+        out["speaker_split"] = DEFAULTS["speaker_split"]
     low, high = _WINDOW_SECONDS_RANGE
     if not (low <= out["window_seconds"] <= high):
         out["window_seconds"] = DEFAULTS["window_seconds"]
@@ -254,6 +263,9 @@ def _validate(patch: Dict[str, Any]) -> Dict[str, Any]:
             if key == "reply_mode" and value not in REPLY_MODES:
                 raise ValueError(
                     f"reply_mode must be one of {', '.join(REPLY_MODES)}")
+            if key == "speaker_split" and value not in SPEAKER_SPLITS:
+                raise ValueError(
+                    f"speaker_split must be one of {', '.join(SPEAKER_SPLITS)}")
             clean[key] = value
     return clean
 
