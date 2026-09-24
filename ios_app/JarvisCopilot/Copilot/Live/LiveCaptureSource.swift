@@ -1,6 +1,4 @@
-#if os(iOS)
 import AVFoundation
-#endif
 import Foundation
 
 /// Whether a wearable can act as a microphone.
@@ -88,9 +86,15 @@ struct LiveCaptureSource: Identifiable, Equatable, Sendable {
 
     static let automaticID = "automatic"
 
+    #if os(iOS)
+    private static let automaticDetail = "Whichever mic iOS picks"
+    #else
+    private static let automaticDetail = "The Mac's input in Sound settings"
+    #endif
+
     static var automatic: LiveCaptureSource {
         LiveCaptureSource(id: automaticID, kind: .automatic,
-                          label: "Automatic", detail: "Whichever mic iOS picks",
+                          label: "Automatic", detail: automaticDetail,
                           symbol: "waveform", available: true, canStream: true)
     }
 }
@@ -128,6 +132,12 @@ enum LiveCaptureSources {
     /// `hub` / `registry` are optionals rather than defaulted `.shared`: a default
     /// argument cannot touch a `@MainActor` singleton (the same limitation
     /// `AudioSessionArbiter` and `DefaultAudioSessionControlling` work around).
+    #if JC_MAC_VOICE
+    /// The Mac panel has no wearables layer: the default input is the source.
+    static func all(store: KeyValueStore = UserDefaults.standard) -> [LiveCaptureSource] {
+        [.automatic] + routes()
+    }
+    #else
     static func wearables(hub: WearablesHub? = nil,
                           registry: DeviceRegistry? = nil,
                           store: KeyValueStore = UserDefaults.standard) -> [LiveCaptureSource] {
@@ -155,6 +165,7 @@ enum LiveCaptureSources {
                     store: KeyValueStore = UserDefaults.standard) -> [LiveCaptureSource] {
         [.automatic] + routes() + wearables(hub: hub, registry: registry, store: store)
     }
+    #endif
 
     /// Resolve a persisted id against what is actually here now.
     ///
@@ -215,7 +226,7 @@ enum LiveCaptureSources {
         guard let first = inputs.first else { return "No input" }
         return first.portName
         #else
-        return "Default input"
+        return AVCaptureDevice.default(for: .audio)?.localizedName ?? "Default input"
         #endif
     }
 

@@ -59,7 +59,7 @@ final class LiveStore {
     /// real framework the moment a foreign row arrived.
     static func systemTranslationSessions() -> DirectTranslationSessions? {
         #if canImport(Translation)
-        if #available(iOS 26.0, *) { return InstalledTranslationSessions() }
+        if #available(iOS 26.0, macOS 26.0, *) { return InstalledTranslationSessions() }
         #endif
         return nil
     }
@@ -412,10 +412,16 @@ final class LiveStore {
     /// start, so `hello` would never match a resume and every relaunch would open a
     /// second recording of the same conversation.
     private var deviceID: String {
+        #if !JC_MAC_VOICE
         if let id = preferences.string(PushHandler.deviceIDKey), !id.isEmpty { return id }
+        #endif
         let key = "jc.live.local_device_id"
         if let id = preferences.string(key), !id.isEmpty { return id }
+        #if os(iOS)
         let minted = "ios-" + String(UUID().uuidString.prefix(8)).lowercased()
+        #else
+        let minted = "mac-" + String(UUID().uuidString.prefix(8)).lowercased()
+        #endif
         preferences.set(minted, forKey: key)
         return minted
     }
@@ -2573,5 +2579,26 @@ final class LiveStore {
         guard !wasCancelled(failure) else { return }
         error = "Couldn't \(String(describing: what)): " + apiErrorLine(failure)
         JcLog.dropped(JcLog.voice, what, failure)
+    }
+}
+
+/// `LiveStore.statusText` is one honest sentence, sometimes with a qualifier
+/// after an em dash ("Not recording — 2 KB still to upload"). The card wants
+/// those as two things: a state to put beside the light, and a qualifier to put
+/// in the footer.
+///
+/// Split rather than re-derived in the view on purpose. Every branch of
+/// `statusText` exists because it is a state where the honest answer is not
+/// "Recording"; rebuilding that logic here would quietly drop the ones the view
+/// forgot about.
+enum LiveRecorderStatus {
+    static let separator = " — "
+
+    static func split(_ text: String) -> (headline: String, detail: String?) {
+        guard let range = text.range(of: separator) else { return (text, nil) }
+        let headline = String(text[text.startIndex..<range.lowerBound])
+        let tail = String(text[range.upperBound...])
+        guard let first = tail.first else { return (headline, nil) }
+        return (headline, first.uppercased() + tail.dropFirst())
     }
 }

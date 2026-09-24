@@ -352,27 +352,6 @@ struct LiveRoomTape: View {
 
 // MARK: - Splitting the store's sentence
 
-/// `LiveStore.statusText` is one honest sentence, sometimes with a qualifier
-/// after an em dash ("Not recording — 2 KB still to upload"). The card wants
-/// those as two things: a state to put beside the light, and a qualifier to put
-/// in the footer.
-///
-/// Split rather than re-derived in the view on purpose. Every branch of
-/// `statusText` exists because it is a state where the honest answer is not
-/// "Recording"; rebuilding that logic here would quietly drop the ones the view
-/// forgot about.
-enum LiveRecorderStatus {
-    static let separator = " — "
-
-    static func split(_ text: String) -> (headline: String, detail: String?) {
-        guard let range = text.range(of: separator) else { return (text, nil) }
-        let headline = String(text[text.startIndex..<range.lowerBound])
-        let tail = String(text[range.upperBound...])
-        guard let first = tail.first else { return (headline, nil) }
-        return (headline, first.uppercased() + tail.dropFirst())
-    }
-}
-
 extension LiveFormat {
     /// A duration as VoiceOver should say it, since "12:04" is read as a time of
     /// day.

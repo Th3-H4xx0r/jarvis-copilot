@@ -86,7 +86,7 @@ enum LiveClientMessage: Equatable, Sendable {
         switch self {
         case .hello(let deviceID, let caps, let resume):
             var out: [String: Any] = ["t": "hello", "device_id": deviceID,
-                                      "device_kind": "ios", "caps": caps.payload]
+                                      "device_kind": LiveHello.deviceKind, "caps": caps.payload]
             if let resume { out["resume"] = resume.payload }
             return out
         case .segment(let startMs, let endMs, let text, let lang, let label, let voiceprint,
@@ -734,4 +734,12 @@ enum LiveFormat {
         let rounded = value >= 100 ? String(format: "%.0f", value) : String(format: "%.1f", value)
         return rounded + " " + units[unit]
     }
+}
+
+enum LiveHello {
+    #if os(iOS)
+    static let deviceKind = "ios"
+    #else
+    static let deviceKind = "mac"
+    #endif
 }

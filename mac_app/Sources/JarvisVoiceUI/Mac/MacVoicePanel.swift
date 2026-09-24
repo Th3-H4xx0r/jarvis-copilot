@@ -28,6 +28,13 @@ struct MacVoicePanel: View {
     /// shrink again every time you spoke. Once a session has shown text it keeps
     /// the conversation layout until the session ends.
     @State private var stickyConversation = false
+    /// Voice or Live — remembered, so the panel reopens on the one last used.
+    @AppStorage("jc.mac.panelMode") private var panelModeRaw = MacPanelMode.voice.rawValue
+
+    private var panelMode: Binding<MacPanelMode> {
+        Binding(get: { MacPanelMode(rawValue: panelModeRaw) ?? .voice },
+                set: { panelModeRaw = $0.rawValue })
+    }
 
     /// Whether to offer "open in a window". True in the menubar popover, false
     /// in the window itself, which is already the thing the button asks for.
@@ -66,6 +73,14 @@ struct MacVoicePanel: View {
     static let minHeight: CGFloat = 380
 
     var body: some View {
+        if panelMode.wrappedValue == .live {
+            MacLivePanel(mode: panelMode, showsOpenInWindow: showsOpenInWindow)
+        } else {
+            voiceBody
+        }
+    }
+
+    private var voiceBody: some View {
         // ONE stack in a fixed order for both layouts. Which layout is showing
         // is expressed only as sizes — how tall the conversation may grow, how
         // much the two spacers may take, how big the orb is — never by swapping
@@ -116,7 +131,7 @@ struct MacVoicePanel: View {
         .padding(.horizontal, 16)
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
                minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
-        .background(backdrop)
+        .background(MacPanelBackdrop())
         .overlay {
             if let kind = openPicker {
                 MacPickerSheet(title: kind.title,
@@ -174,6 +189,7 @@ struct MacVoicePanel: View {
     /// without either side having to hand the other a function.
     private var topBar: some View {
         HStack(spacing: 6) {
+            MacPanelModeSwitch(mode: panelMode)
             // Disabled mid-turn, like the phone's: switching either one under a
             // live turn changes which chat it lands in, or which model finishes
             // answering it.
@@ -206,25 +222,6 @@ openPicker = .session
             }
         }
         .padding(.top, 4)
-    }
-
-    /// The phone's aurora backdrop lives in its design system (`UI/Glass.swift`),
-    /// which is built from navigation-bar modifiers that do not exist here. This
-    /// is the same two-stop ground with one glow, which is all a 400 pt panel
-    /// shows of it anyway.
-    private var backdrop: some View {
-        LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
-                       startPoint: .top, endPoint: .bottom)
-            .overlay(alignment: .top) {
-                Circle()
-                    .fill(RadialGradient(
-                        colors: [JcAccent.deep.opacity(0.10), JcAccent.deep.opacity(0)],
-                        center: .center, startRadius: 0, endRadius: 170))
-                    .frame(width: 340, height: 340)
-                    .offset(y: -60)
-            }
-            .allowsHitTesting(false)
-            .ignoresSafeArea()
     }
 
     /// The state, as a small caption directly above the orb — never a pill

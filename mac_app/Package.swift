@@ -36,6 +36,22 @@ let package = Package(
                 // On-device routing — a phone feature that drags in the whole
                 // local-model stack.
                 "Voice/VoiceLocalLane.swift",
+                // Live's phone-only layers: the Live Activity (ActivityKit; the
+                // Mac beacon is MacLiveCaptureBeacon.swift) and the full-screen
+                // phone page (the Mac composes MacLivePanel.swift instead).
+                "Live/LiveCaptureBeacon.swift",
+                "Live/LiveView.swift",
+                // The phone's Live sheets and screens, built from its glass design
+                // system: settings, sessions, speakers, storage, models, the meter.
+                "Live/LiveModelsViews.swift",
+                "Live/LiveSessionsSheet.swift",
+                "Live/LiveSettingsSheet.swift",
+                "Live/LiveSpeakersScreen.swift",
+                "Live/LiveStorageScreen.swift",
+                "Live/LiveRoomMeter.swift",
+                // The phone's on-device voiceprint model: without it the Mac sends
+                // no voiceprints and the server identifies speakers from the audio.
+                "Live/WeSpeakerResNet34.mlpackage",
             ],
             // The orb's shader. SwiftPM compiles it into a `default.metallib`
             // inside this target's bundle — NOT the host process's main bundle,

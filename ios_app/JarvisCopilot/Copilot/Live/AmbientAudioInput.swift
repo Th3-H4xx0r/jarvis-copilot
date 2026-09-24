@@ -295,12 +295,12 @@ final class AmbientAudioSession {
     /// (`center` needs no such escape: it is a `let` of a `Sendable` type.)
     nonisolated(unsafe) private var observer: NSObjectProtocol?
     private let center: NotificationCenter
+    #if os(iOS)
     private let arbiter: AudioSessionArbiter
 
     init(center: NotificationCenter = .default, arbiter: AudioSessionArbiter? = nil) {
         self.center = center
         self.arbiter = arbiter ?? .shared
-        #if os(iOS)
         // A call or Siri taking the session is the pause/auto-resume path in
         // design §8, and it is the ONLY way an ambient capture legitimately stops
         // without the user asking.
@@ -314,13 +314,19 @@ final class AmbientAudioSession {
                 self.onInterruption?(type == .began ? .began : .ended)
             }
         }
-        #endif
     }
+    #else
+    /// macOS has no process-wide audio session to claim: the engine opens the mic.
+    init(center: NotificationCenter = .default) {
+        self.center = center
+    }
+    #endif
 
     deinit {
         if let observer { center.removeObserver(observer) }
     }
 
+    #if os(iOS)
     func hold() throws { try arbiter.hold(.ambient) }
     /// `reassert` after an interruption: iOS has deactivated us under the belief
     /// that we are still active.
@@ -329,4 +335,9 @@ final class AmbientAudioSession {
     /// session, and pulling it out from under that costs the app its background
     /// allowance.
     func release() throws { try arbiter.release(.ambient) }
+    #else
+    func hold() throws {}
+    func reassert() throws {}
+    func release() throws {}
+    #endif
 }
