@@ -79,6 +79,18 @@ def test_live_config_carries_settings_and_translation(monkeypatch):
     assert msg["enable_speaker_diarization"] is True and msg["enable_language_identification"] is True
 
 
+def test_voice_leans_english_when_no_languages_are_set(monkeypatch):
+    # With nothing to lean on, a short unclear Pod turn came back as Slovak
+    # ("Na konkrétny moment.") or Indonesian. A hint is soft: other languages
+    # still come through.
+    son = dict(soniox.config.DEFAULTS["soniox"], language_hints=[])
+    monkeypatch.setattr(soniox.config, "load", lambda: {"surfaces": {}, "soniox": son})
+    for purpose, hints in (("voice", ["en"]), ("live", None)):
+        t = FakeTransport([])
+        _engine(monkeypatch, t).open_stream(Rec(), rate=16000, purpose=purpose).finish(timeout=2)
+        assert json.loads(t.sent[0]).get("language_hints") == hints
+
+
 def test_connect_failure_reports_error_and_finish_is_empty(monkeypatch):
     rec = Rec()
     eng = _engine(monkeypatch, None)

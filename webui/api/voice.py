@@ -1344,11 +1344,11 @@ _ENGINE_FINISH_TIMEOUT_S = 6.0
 _ENGINE_CLIP_CHUNK_S = 0.1
 
 
-def _voice_engine():
+def _voice_engine(surface: str = "voice"):
     try:
         _ensure_hermes_on_path()
         import jarvis_speech
-        engine = jarvis_speech.engine_for("voice")
+        engine = jarvis_speech.engine_for(surface)
         return engine if engine is not None and getattr(engine, "streams", False) else None
     except Exception:
         logger.debug("voice: speech engine lookup failed", exc_info=True)
@@ -1403,7 +1403,7 @@ def _feed_turn_stream(state: dict, payload: bytes, conn=None, sock=None) -> None
     if stream is None:
         if state.get("stt_stream_off") or state.get("pretranscript"):
             return
-        engine = _voice_engine()
+        engine = _voice_engine("pod") if state.get("client") == "jarvis_pod" else _voice_engine()
         sink = _TurnSink(send=lambda frame: _ws_send_text(conn, sock, json.dumps(frame)))
         try:
             stream = engine.open_stream(sink, rate=int(state.get("sample_rate") or 16000),
@@ -2682,6 +2682,7 @@ def _stream_segment(conn, sock, state, seg: dict) -> bool:
     if not text:
         return True
     _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": text}))
+    _note_reply(state, text)
     if state["interrupt"]:
         return False
     return _send_audio(conn, sock, state, _synth_audio(text))
@@ -2895,6 +2896,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                 _mark_span(timing, "ttft_ms", _elapsed_ms(timing))
                 ttft_marked = True
             _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": item["text"]}))
+            _note_reply(state, item["text"])
             if state["interrupt"]:
                 break
             try:
@@ -3011,6 +3013,47 @@ _STT_PEAK_TARGET = 0.7 * 32767
 _STT_MAX_GAIN = 8.0  # +18 dB
 
 
+_ECHO_MIN_WORDS = 3
+_REPLY_WORDS_KEPT = 400
+
+
+def _reply_words(text: str) -> list:
+    return [w for w in (re.sub(r"[^\w']+", "", word).lower() for word in (text or "").split()) if w]
+
+
+def _note_reply(state: dict, text: str) -> None:
+    """The words Jarvis is saying this turn, for `_strip_reply_echo` next turn."""
+    words = state.setdefault("reply_words", [])
+    words.extend(_reply_words(text))
+    del words[:-_REPLY_WORDS_KEPT]
+
+
+def _strip_reply_echo(transcript: str, reply_words: list) -> str:
+    """The Pod's mic can catch the end of Jarvis's own reply as the next turn
+    opens ("Very good, sir. I shall remain— Nothing."). Leading words that run
+    inside the last reply are that echo, not you; a few words in common are not."""
+    words = (transcript or "").split()
+    spoken = [(i, n[0]) for i, n in ((i, _reply_words(w)) for i, w in enumerate(words)) if n]
+    reply = list(reply_words or [])
+    for k in range(len(spoken), _ECHO_MIN_WORDS - 1, -1):
+        prefix = [n for _i, n in spoken[:k]]
+        if any(reply[j:j + k] == prefix for j in range(len(reply) - k + 1)):
+            return " ".join(words[spoken[k - 1][0] + 1:]).strip()
+    return transcript
+
+
+def _pod_heard(state: dict, transcript: str) -> str:
+    """The Pod turn's words without the reply its mic caught; a new reply starts."""
+    if state.get("client") == "jarvis_pod" and transcript:
+        heard = _strip_reply_echo(transcript, state.get("reply_words"))
+        if heard != transcript:
+            print(f"[webui] voice: pod heard its own reply; kept {len(heard)}/{len(transcript)} chars",
+                  flush=True)
+        transcript = heard
+    state["reply_words"] = []
+    return transcript
+
+
 def _normalize_for_stt(pcm: bytes) -> bytes:
     import array
     samples = array.array("h", pcm[: len(pcm) - len(pcm) % 2])
@@ -3082,6 +3125,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             else:
                 _mark_span(timing, "stt_speculative", 1.0)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
+        transcript = _pod_heard(state, transcript)
         _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
@@ -3143,6 +3187,7 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         if transcript is None:
             transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
+        transcript = _pod_heard(state, transcript)
         _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))

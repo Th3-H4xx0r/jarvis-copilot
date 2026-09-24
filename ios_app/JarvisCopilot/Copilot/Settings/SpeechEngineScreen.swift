@@ -14,8 +14,9 @@ struct SpeechEngineScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 surface("voice", title: "Voice",
-                        note: "Phone and Mac voice when Transcription is Server, the web Voice tab, "
-                            + "and the Jarvis Pod.")
+                        note: "Phone and Mac voice when Transcription is Soniox, and the web Voice tab.")
+                surface("pod", title: "Jarvis Pod",
+                        note: "What you say to the Jarvis Pod.")
                 surface("live", title: "Live",
                         note: "Who hears Live recordings: this phone itself, or a server engine that "
                             + "streams every language at once, with translation.")

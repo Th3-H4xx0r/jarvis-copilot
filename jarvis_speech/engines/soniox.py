@@ -316,8 +316,11 @@ class SonioxStream:
         if self._audio_format != "auto":
             message["sample_rate"] = self._rate
             message["num_channels"] = 1
-        if son["language_hints"]:
-            message["language_hints"] = list(son["language_hints"])
+        # A Voice turn with nothing to lean on drifted into other languages on
+        # short, unclear audio; English is only a hint, other languages still pass.
+        hints = list(son["language_hints"]) or (["en"] if self._purpose == "voice" else [])
+        if hints:
+            message["language_hints"] = hints
         if son["custom_words"]:
             message["context"] = {"terms": list(son["custom_words"])}
         if ends:

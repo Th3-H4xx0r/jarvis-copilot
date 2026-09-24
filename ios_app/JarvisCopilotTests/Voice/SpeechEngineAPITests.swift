@@ -51,6 +51,17 @@ final class SpeechEngineAPITests: XCTestCase {
         XCTAssertFalse(s.keySet)
     }
 
+    /// The Pod has its own engine: choosing it must not move uploads or voice.
+    func testThePodHasItsOwnEngine() {
+        var s = SpeechSettings.from(["config": ["surfaces": ["voice": "local", "pod": "soniox", "upload": "local"]]])
+        XCTAssertEqual(s.pod, "soniox")
+        XCTAssertEqual(s.surface("pod"), "soniox")
+        s.setSurface("pod", "local")
+        XCTAssertEqual([s.pod, s.voice, s.upload], ["local", "local", "local"])
+        s.setSurface("pod", "soniox")
+        XCTAssertEqual([s.pod, s.upload], ["soniox", "local"])
+    }
+
     func testNamesForThePickers() {
         let s = SpeechSettings.from(server)
         XCTAssertEqual(s.label(for: "edge"), "On this phone (Apple)")

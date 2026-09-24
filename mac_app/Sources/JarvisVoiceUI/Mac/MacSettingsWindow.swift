@@ -336,7 +336,8 @@ private struct MacSpeechSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                engineRow("Voice (browser, Pod)", surface: "voice", value: speech.settings.voice, device: false)
+                engineRow("Voice (browser)", surface: "voice", value: speech.settings.voice, device: false)
+                engineRow("Jarvis Pod", surface: "pod", value: speech.settings.pod, device: false)
                 engineRow("Live", surface: "live", value: speech.settings.live, device: true)
                 engineRow("Uploads & voice notes", surface: "upload", value: speech.settings.upload, device: false)
             } header: {

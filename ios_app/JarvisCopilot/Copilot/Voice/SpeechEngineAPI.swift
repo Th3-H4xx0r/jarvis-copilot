@@ -42,6 +42,8 @@ struct SpeechSettings: Equatable, Sendable {
     static let edge = "edge"
 
     var voice = "local"
+    /// The Jarvis Pod's turns (its own choice; the server defaults it to Soniox).
+    var pod = "soniox"
     var live = SpeechSettings.edge
     var upload = "local"
     var soniox = SpeechSoniox()
@@ -79,6 +81,7 @@ struct SpeechSettings: Equatable, Sendable {
     mutating func apply(config c: [String: Any]) {
         let surfaces = c.dict("surfaces") ?? [:]
         if let v = surfaces.string("voice"), !v.isEmpty { voice = v }
+        if let v = surfaces.string("pod"), !v.isEmpty { pod = v }
         if let v = surfaces.string("live"), !v.isEmpty { live = v }
         if let v = surfaces.string("upload"), !v.isEmpty { upload = v }
         let s = c.dict("soniox") ?? [:]
@@ -108,6 +111,7 @@ struct SpeechSettings: Equatable, Sendable {
     func surface(_ name: String) -> String {
         switch name {
         case "voice": return voice
+        case "pod": return pod
         case "live": return live
         default: return upload
         }
@@ -116,6 +120,7 @@ struct SpeechSettings: Equatable, Sendable {
     mutating func setSurface(_ name: String, _ engine: String) {
         switch name {
         case "voice": voice = engine
+        case "pod": pod = engine
         case "live": live = engine
         default: upload = engine
         }

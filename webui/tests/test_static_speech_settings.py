@@ -46,3 +46,10 @@ def test_test_button_tries_the_typed_key():
     row = js[js.index("function _speechKeyRow"):js.index("function _speechListField")]
     call = row[row.index("'/api/speech/test'"):]
     assert "api_key" in call[:200]
+
+
+def test_the_pod_has_its_own_engine_row():
+    js = _read("panels.js")
+    rows = js.split("const _SPEECH_SURFACES = [")[1].split("];")[0]
+    assert "['pod', 'Jarvis Pod'" in rows
+    assert "Jarvis Pod" not in rows.split("['voice'")[1].split("\n")[0]

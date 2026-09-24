@@ -102,7 +102,7 @@ extension SpeechEngineStore {
 
     /// "Soniox" in a voice picker: this device sends its audio and the server
     /// hears it — so the server's voice engine is pointed at Soniox too, for
-    /// every device that sends audio (a browser, the Pod) as well.
+    /// a browser as well. The Pod has its own choice.
     func useSonioxForVoice() async {
         if !loaded { await load() }
         if settings.voice != "soniox" { await setSurface("voice", to: "soniox") }

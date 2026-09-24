@@ -19,7 +19,7 @@ def _write(path, data):
 def test_defaults_when_section_missing(cfg_file):
     _write(cfg_file, {"model": {"default": "x"}})
     got = config.load()
-    assert got["surfaces"] == {"voice": "soniox", "live": "edge", "upload": "local"}
+    assert got["surfaces"] == {"voice": "soniox", "pod": "soniox", "live": "edge", "upload": "local"}
     assert got["soniox"]["model"] == "stt-rt-v5"
 
 
@@ -77,4 +77,12 @@ def test_merge_keeps_sibling_keys():
 
 
 def test_unknown_keys_listed():
-    assert config.unknown_keys({"surfaces": {"pod": "x"}, "bogus": 1}) == ["bogus", "surfaces.pod"]
+    assert config.unknown_keys({"surfaces": {"toaster": "x"}, "bogus": 1}) == ["bogus", "surfaces.toaster"]
+
+
+def test_the_pod_has_its_own_engine(cfg_file):
+    # The Pod's far-field mic is where the local model is weakest, so choosing
+    # the local model for the browser must not take the Pod with it.
+    _write(cfg_file, {"speech": {"surfaces": {"voice": "local"}}})
+    assert config.load()["surfaces"]["pod"] == "soniox"
+    assert config.validate({"surfaces": {"pod": "local"}}) == {"surfaces": {"pod": "local"}}

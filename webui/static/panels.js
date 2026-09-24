@@ -6151,7 +6151,8 @@ const _SPEECH_FIELD = 'background:rgba(0,0,0,.25);border:1px solid var(--border,
 const _SPEECH_LABEL = 'font-size:11px;color:var(--fg-dim,#9aa3b2)';
 const _SPEECH_BTN = 'font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,.15));background:transparent;color:var(--fg-dim,#9aa3b2);cursor:pointer';
 const _SPEECH_SURFACES = [
-  ['voice', 'Voice', 'Phone and Mac voice when Transcription is set to Server, the web Voice tab, and the Jarvis Pod.'],
+  ['voice', 'Voice', 'Phone and Mac voice when Transcription is set to Soniox, and the web Voice tab.'],
+  ['pod', 'Jarvis Pod', 'What you say to the Jarvis Pod.'],
   ['live', 'Live', 'Who hears Live recordings: the phone itself, or a server engine that streams.'],
   ['upload', 'Uploads', 'The chat mic on the web and voice notes from Telegram and Discord.'],
 ];

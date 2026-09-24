@@ -326,3 +326,23 @@ def test_soniox_hearing_the_end_tells_the_device_once():
     sink.on_segment(Segment("turn off the lights", 0, 900))
     sink.on_segment(Segment("please", 1000, 1300))
     assert frames == [{"type": "end_of_speech"}]
+
+
+
+def test_a_pod_turn_uses_the_pods_engine(monkeypatch, sent):
+    engines = {"voice": FakeEngine(), "pod": FakeEngine()}
+    monkeypatch.setattr(voice, "_voice_engine", lambda surface="voice": engines[surface])
+    pod, browser = _state(client="jarvis_pod"), _state()
+    for state in (pod, browser):
+        with state["lock"]:
+            voice._feed_turn_stream(state, b"a" * 320, None, None)
+    assert len(engines["pod"].opened) == 1 and len(engines["voice"].opened) == 1
+
+
+def test_the_pods_mic_catching_the_reply_is_not_your_turn():
+    reply = voice._reply_words("Very good, sir. I shall remain on standby.")
+    assert voice._strip_reply_echo("Very good, sir. I shall remain— Nothing.", reply) == "Nothing."
+    assert voice._strip_reply_echo("I shall remain on standby", reply) == ""
+    # Two words in common is just English, not an echo.
+    assert voice._strip_reply_echo("Very good, turn off the lights.", reply) == "Very good, turn off the lights."
+    assert voice._strip_reply_echo("Turn off the lights.", []) == "Turn off the lights."

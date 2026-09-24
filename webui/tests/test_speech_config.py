@@ -71,7 +71,7 @@ def test_get_returns_defaults_engines_languages_and_key_status(env):
     handler = _get()
     assert handler.status == 200
     got = handler.payload()
-    assert got["config"]["surfaces"] == {"voice": "soniox", "live": "edge", "upload": "local"}
+    assert got["config"]["surfaces"] == {"voice": "soniox", "pod": "soniox", "live": "edge", "upload": "local"}
     assert got["config"]["soniox"]["custom_words"] == ["Jarvis"]
     assert {"local", "soniox"} <= {e["name"] for e in got["engines"]}
     assert any(row["code"] == "en" for row in got["languages"])
@@ -84,7 +84,7 @@ def test_put_merges_nested_and_reports_ignored(env):
     assert handler.status == 200
     got = handler.payload()
     assert got["ignored_keys"] == ["bogus"]
-    assert got["config"]["surfaces"] == {"voice": "soniox", "live": "edge", "upload": "soniox"}
+    assert got["config"]["surfaces"] == {"voice": "soniox", "pod": "soniox", "live": "edge", "upload": "soniox"}
     stored = yaml.safe_load(env["cfg"].read_text())
     assert stored["speech"]["surfaces"] == {"upload": "soniox"}
     assert stored["speech"]["soniox"]["custom_words"] == ["Jarvis"]

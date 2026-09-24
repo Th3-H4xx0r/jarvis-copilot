@@ -17,9 +17,12 @@ DEFAULTS: Dict[str, Any] = {
     # are today's flow; anything else is a registered engine. An engine that
     # cannot run (no key) falls back to "local" (`engine_for` → None).
     "surfaces": {
-        # Voice audio that reaches the server: a browser, the Jarvis Pod, and a
-        # phone or Mac set to Soniox or unable to transcribe on the device.
+        # Voice audio that reaches the server: a browser, and a phone or Mac set
+        # to Soniox or unable to transcribe on the device.
         "voice": "soniox",
+        # The Jarvis Pod's turns. Its own choice: its far-field mic is where the
+        # local model is weakest.
+        "pod": "soniox",
         "live": "edge",     # edge = the phone transcribes itself
         "upload": "local",  # /api/transcribe, Telegram/Discord voice notes
     },
