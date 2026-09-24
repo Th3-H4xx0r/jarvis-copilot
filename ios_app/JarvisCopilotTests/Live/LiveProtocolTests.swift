@@ -142,6 +142,36 @@ final class LiveProtocolTests: XCTestCase {
         XCTAssertEqual(ready.serverEmbedModel, "ecapa-v1")
     }
 
+    /// On a server speech engine's lane `ready` names who is hearing the device.
+    func testReadyNamesTheServerEngine() {
+        guard case .ready(let ready) = LiveServerFrame.decode(object: [
+            "t": "ready", "live_session_id": "L1", "lane": "server", "engine": "Soniox"])
+        else { return XCTFail("expected ready") }
+        XCTAssertEqual(ready.engine, "Soniox")
+        guard case .ready(let plain) = LiveServerFrame.decode(object: [
+            "t": "ready", "live_session_id": "L1", "lane": "edge"])
+        else { return XCTFail("expected ready") }
+        XCTAssertEqual(plain.engine, "")
+    }
+
+    /// The words a server engine is still hearing.
+    func testPartialWordsAreDecoded() {
+        let frame = LiveServerFrame.decode(object: [
+            "t": "partial", "device_id": "ios-1", "text": "hola que", "start_ms": 900,
+            "speaker": "1", "lang": "es"])
+        XCTAssertEqual(frame, .partial(LivePartial(deviceID: "ios-1", text: "hola que", startMs: 900,
+                                                   speaker: "1", lang: "es")))
+    }
+
+    /// A warning code comes with a sentence to show; the code alone is not English.
+    func testAStateWarningCarriesItsMessage() {
+        guard case .state(let state) = LiveServerFrame.decode(object: [
+            "t": "state", "warning": "speech_engine", "message": "Soniox stopped transcribing (no key)."])
+        else { return XCTFail("expected state") }
+        XCTAssertEqual(state.warning, "speech_engine")
+        XCTAssertEqual(state.message, "Soniox stopped transcribing (no key).")
+    }
+
     /// An unknown lane must read as `server`: a device that wrongly thinks it is on
     /// the edge lane stops sending the audio the server would need itself.
     func testAnUnknownLaneFallsBackToTheServerLane() {

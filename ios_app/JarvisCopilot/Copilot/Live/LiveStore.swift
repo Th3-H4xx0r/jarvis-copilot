@@ -273,6 +273,12 @@ final class LiveStore {
     /// against `sttNotice`: deriving control flow from a user-facing string means any
     /// future notice silently switches the transcriber off.
     private var sttEnabled = false
+    /// Whether it CAN run (the model is installed and nothing gave up on it) —
+    /// what `hello` declares. See `declaredSTT`.
+    private var sttCapable = false
+    /// The server speech engine hearing this device, from `ready.engine`; empty on
+    /// the edge lane and on a server lane with no engine.
+    private(set) var serverEngine = ""
     private var audioSeq = 0
     private var reconnectAttempt = 0
     private var reconnectTimer: VoiceTimerToken?
@@ -829,15 +835,24 @@ final class LiveStore {
         case .ready:
             sttNotice = ""
             sttEnabled = true
+            sttCapable = true
         default:
             sttNotice = readiness.message.isEmpty
                 ? "Transcribing on the server."
                 : readiness.message + " Transcribing on the server instead."
             sttEnabled = false
+            sttCapable = false
         }
     }
 
-    private var declaredSTT: String { sttEnabled ? "on_device" : "none" }
+    /// What `hello` promises: whether this phone CAN transcribe, not whether it is
+    /// doing so right now. A server speech engine takes the job without taking the
+    /// ability, and declaring "none" after one would keep the edge lane from ever
+    /// coming back — neither when the engine fails nor when Live goes back to the phone.
+    var declaredSTT: String { sttCapable ? "on_device" : "none" }
+
+    /// Whether Apple's recogniser is writing this session's lines right now.
+    var transcribingOnDevice: Bool { sttEnabled }
 
     // MARK: - Socket
 
@@ -1498,6 +1513,7 @@ final class LiveStore {
     private func fallBackToServerTranscription(because reason: String) {
         guard sttEnabled else { return }
         sttEnabled = false
+        sttCapable = false
         sttNotice = reason + " Jarvis is transcribing on the server instead."
         JcLog.voice.notice("live: handing transcription back to the server")
         speech?.cancel()
@@ -1879,6 +1895,8 @@ final class LiveStore {
             speakReply(text)
         case .state(let state):
             apply(state)
+        case .partial(let partial):
+            applyServerPartial(partial)
         case .error(let message):
             error = message
         case .unknown(let kind):
@@ -1925,11 +1943,22 @@ final class LiveStore {
             settings.lastChatSessionID = ready.chatSessionID
         }
         lane = ready.lane
-        // If the server would not grant the edge lane, say so rather than leaving
-        // the status line claiming on-device transcription.
-        if ready.lane == .server, sttEnabled {
+        serverEngine = ready.lane == .server ? ready.engine : ""
+        if !serverEngine.isEmpty {
+            // A server speech engine hears this session. Apple's recogniser stops,
+            // but the ability stays declared, so a later edge `ready` (the engine
+            // failed, or Live went back to the phone) can hand the job back.
+            if sttEnabled { stopOnDeviceTranscription() }
+            sttNotice = "\(serverEngine) is transcribing this session."
+        } else if ready.lane == .server, sttEnabled {
+            // If the server would not grant the edge lane, say so rather than leaving
+            // the status line claiming on-device transcription.
             sttEnabled = false
+            sttCapable = false
             sttNotice = "Jarvis is transcribing on the server for this session."
+        } else if ready.lane == .edge, sttCapable, !sttEnabled {
+            sttEnabled = true
+            sttNotice = ""
         }
         spool.adopt(sessionID: ready.liveSessionID)
         refreshSpoolCounters()
@@ -1960,8 +1989,33 @@ final class LiveStore {
         // Only those words — `partialText` is the NEXT line, still being spoken,
         // and blanking it here is what an echo landing mid-sentence used to do.
         clearCommitting()
+        if !serverEngine.isEmpty {
+            // On an engine's lane the words in progress are the server's, and this
+            // row is the line they were growing into.
+            partialText = ""
+            partialStartMs = 0
+        }
         transcript.upsert(segment)
         settings.rememberCursor(sessionID: liveSessionID, seq: segment.seq)
+    }
+
+    /// Words a server speech engine is still hearing. Only this device's, and only
+    /// on an engine's lane — on the edge lane `partialText` is Apple's own guess.
+    private func applyServerPartial(_ partial: LivePartial) {
+        guard !serverEngine.isEmpty, partial.deviceID == deviceID else { return }
+        let text = partial.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        partialText = text
+        partialStartMs = partial.startMs
+    }
+
+    /// Hand the job to a server engine: no recogniser session, no guess left behind.
+    private func stopOnDeviceTranscription() {
+        sttEnabled = false
+        speech?.cancel()
+        speech = nil
+        pendingSpeechFrames.removeAll()
+        clearPartial()
     }
 
     private func upsert(_ insight: LiveInsight) {
@@ -1980,7 +2034,10 @@ final class LiveStore {
         // Present-and-empty means "withdraw the warning"; absent means "unchanged".
         // Collapsing the two left an amber banner up for the rest of a session after
         // the server had cleared it.
-        if let warning = state.warning { serverWarning = warning }
+        if let warning = state.warning {
+            // The sentence when there is one; a bare code is not something to show.
+            serverWarning = warning.isEmpty ? warning : (state.message ?? warning)
+        }
         // The server believing us paused while we believe we are recording is the
         // cheapest cross-check available on "is the audio actually arriving", so it
         // reaches the status line rather than only the log.

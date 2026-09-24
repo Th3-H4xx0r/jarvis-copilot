@@ -159,6 +159,9 @@ struct VoiceModelPickerSheet: View {
             transcriptionStatus
                 .padding(.top, 8)
                 .padding(.leading, 4)
+            ServerSpeechEngineNote()
+                .padding(.top, 6)
+                .padding(.leading, 4)
         }
     }
 
@@ -216,5 +219,24 @@ struct VoiceDiagnosticsSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+}
+
+/// Which engine "Server" transcription uses. Only said when it is not the
+/// current flow — the cards already describe that one.
+private struct ServerSpeechEngineNote: View {
+    @State private var speech = SpeechEngineStore.shared
+
+    var body: some View {
+        Group {
+            if speech.loaded, speech.settings.voice != "local" {
+                Text("Server transcription uses \(speech.settings.label(for: speech.settings.voice)). "
+                   + "Change it in Settings → Speech engine.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .task { await speech.load() }
     }
 }

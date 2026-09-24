@@ -186,6 +186,19 @@ struct LiveReady: Equatable, Sendable {
     var serverSTT = false
     var serverEmbed = false
     var serverEmbedModel = ""
+    /// The server speech engine hearing this device (Soniox, …). Empty unless the
+    /// lane is the server's AND an engine there actually transcribes.
+    var engine = ""
+}
+
+/// Words a server speech engine is still hearing — replaced as they grow, and by
+/// the finished `seg` when the line ends.
+struct LivePartial: Equatable, Sendable {
+    var deviceID = ""
+    var text = ""
+    var startMs = 0
+    var speaker = ""
+    var lang = ""
 }
 
 /// How sure the server is about who spoke. `provisional` rows may be relabelled
@@ -488,6 +501,9 @@ struct LiveStateFrame: Equatable, Sendable {
     var storageBytes: Int?
     /// A backpressure or capacity warning to show verbatim.
     var warning: String?
+    /// The sentence that goes with a warning code (`speech_engine`, …), when the
+    /// server sends one; shown instead of the code.
+    var message: String? = nil
 }
 
 /// One decoded frame off the socket. `unknown` is kept rather than dropped: a
@@ -508,6 +524,7 @@ enum LiveServerFrame: Equatable, Sendable {
     case factCheck(LiveFactCheckResult)
     case speak(text: String)
     case state(LiveStateFrame)
+    case partial(LivePartial)
     case error(String)
     case unknown(String)
 
@@ -546,7 +563,15 @@ enum LiveServerFrame: Equatable, Sendable {
                 lane: LiveLane.parse(d.string("lane")),
                 serverSTT: caps.bool("stt") ?? false,
                 serverEmbed: caps.bool("embed") ?? false,
-                serverEmbedModel: caps.string("embed_model") ?? ""))
+                serverEmbedModel: caps.string("embed_model") ?? "",
+                engine: d.string("engine") ?? ""))
+        case "partial":
+            return .partial(LivePartial(
+                deviceID: d.string("device_id") ?? "",
+                text: d.string("text") ?? "",
+                startMs: d.int("start_ms") ?? 0,
+                speaker: d.string("speaker") ?? "",
+                lang: d.string("lang") ?? ""))
         case "seg", "segment":
             return .segment(segment(from: d))
         case "speaker":
@@ -598,7 +623,8 @@ enum LiveServerFrame: Equatable, Sendable {
                 // NOT `nonEmpty`: present-and-empty is how the server WITHDRAWS a
                 // warning, and absent is "unchanged". Collapsing the two left an amber
                 // banner up for the rest of a session after its cause had gone.
-                warning: d.string("warning")))
+                warning: d.string("warning"),
+                message: d.string("message")))
         case "error":
             return .error(d.string("error") ?? d.string("message") ?? "Live Jarvis reported an error")
         case let other:

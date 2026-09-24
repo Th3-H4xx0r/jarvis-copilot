@@ -238,6 +238,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    SpeechEngineScreen()
+                } label: {
+                    GlassRow(symbol: "waveform", title: "Speech engine",
+                             subtitle: "Who turns speech into text: Soniox or the current flow")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     WebViewPage(title: "Server settings", path: "/?panel=settings")
                 } label: {
                     GlassRow(symbol: "slider.horizontal.3", title: "Server settings")

@@ -143,6 +143,73 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertFalse(rig.store.sttNotice.isEmpty)
     }
 
+    // MARK: - A server speech engine's lane
+
+    private func engineReady(lane: String = "server", engine: String? = "Soniox") -> String {
+        var frame: [String: Any] = ["t": "ready", "live_session_id": "L1", "chat_session_id": "C1",
+                                    "seq": 0, "lane": lane, "relane": true]
+        if let engine { frame["engine"] = engine }
+        return json(frame)
+    }
+
+    /// The phone stops its own transcription but keeps saying it CAN: otherwise
+    /// every later hello declares "none" and the edge lane never comes back.
+    func testAServerEngineLaneSaysWhoIsListeningAndKeepsTheCapability() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: engineReady())
+
+        XCTAssertEqual(rig.store.lane, .server)
+        XCTAssertTrue(rig.store.sttNotice.contains("Soniox"), rig.store.sttNotice)
+        XCTAssertFalse(rig.store.transcribingOnDevice)
+        XCTAssertEqual(rig.store.declaredSTT, "on_device")
+    }
+
+    /// The engine failed (or Live went back to the phone): the server hands the
+    /// edge lane back and Apple's transcriber takes over again.
+    func testAnEdgeReadyAfterAnEngineLaneHandsTranscriptionBack() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: engineReady())
+        rig.store.receive(text: engineReady(lane: "edge", engine: nil))
+
+        XCTAssertEqual(rig.store.lane, .edge)
+        XCTAssertTrue(rig.store.transcribingOnDevice)
+        XCTAssertTrue(rig.store.sttNotice.isEmpty, rig.store.sttNotice)
+    }
+
+    /// A plain server lane (no engine) keeps its old meaning: the edge was refused.
+    func testAServerLaneWithoutAnEngineStillGivesTheEdgeUp() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: readyFrame(lane: "server"))
+
+        XCTAssertEqual(rig.store.declaredSTT, "none")
+    }
+
+    func testTheEnginesWordsInProgressShowForThisDeviceOnly() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: engineReady())
+        let me = lastFrame(rig, t: "hello")?["device_id"] as? String ?? ""
+
+        rig.store.receive(text: json(["t": "partial", "device_id": me, "text": "hola que", "start_ms": 1200]))
+        XCTAssertEqual(rig.store.partialText, "hola que")
+        rig.store.receive(text: json(["t": "partial", "device_id": "someone-else", "text": "other words"]))
+        XCTAssertEqual(rig.store.partialText, "hola que")
+        rig.store.receive(text: json(["t": "seg", "seq": 1, "text": "hola que tal", "ts_start_ms": 1200,
+                                      "ts_end_ms": 2400, "device_id": me]))
+        XCTAssertEqual(rig.store.partialText, "", "the finished line replaces the words in progress")
+    }
+
+    func testAnEngineWarningIsShownInWords() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: json(["t": "state", "warning": "speech_engine",
+                                      "message": "Soniox stopped transcribing (no key)."]))
+        XCTAssertEqual(rig.store.warningText, "Soniox stopped transcribing (no key).")
+    }
+
     func testReadyAdoptsTheSessionIdsAndTheCursor() async {
         let rig = makeRig()
         await rig.store.start()

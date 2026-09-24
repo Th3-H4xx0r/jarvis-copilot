@@ -23,6 +23,8 @@ struct LiveSettingsSheet: View {
     /// server's effective model id into a name a person recognises.
     @State private var models = VoiceModelStore.shared
     @State private var pickingModel = false
+    /// Who hears Live recordings lives with the other speech settings on the server.
+    @State private var speech = SpeechEngineStore.shared
 
     private static let windowChoices = [30, 60, 120, 300, 600]
 
@@ -31,6 +33,7 @@ struct LiveSettingsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     device
+                    transcription
                     language
                     LiveHearingSection()
                     LiveSpeakersSection()
@@ -172,6 +175,46 @@ struct LiveSettingsSheet: View {
             store.settings.translateOnPhone = false
         }
         push()
+    }
+
+    // MARK: - Who transcribes
+
+    /// This phone (Apple) or a server engine such as Soniox — `speech.surfaces.live`.
+    private var transcription: some View {
+        let s = speech.settings
+        let options = [SpeechSettings.edge] + s.streamingEngines.map(\.name)
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Transcription")
+            GlassGroup {
+                ForEach(Array(options.enumerated()), id: \.element) { index, name in
+                    let info = s.engine(name)
+                    let usable = name == SpeechSettings.edge || (info?.available ?? false)
+                    LiveRadioRow(title: s.label(for: name),
+                                 subtitle: name == SpeechSettings.edge
+                                    ? "Apple, on this iPhone: private, one language at a time."
+                                    : (usable ? "On the server: every language in one stream, with "
+                                              + "translation and who said what."
+                                              : info?.reason),
+                                 selected: s.live == name,
+                                 last: index == options.count - 1,
+                                 action: { Task { await speech.setSurface("live", to: name) } })
+                        .disabled(!usable && s.live != name)
+                        .opacity(usable || s.live == name ? 1 : 0.5)
+                }
+            }
+            NavigationLink {
+                SpeechEngineScreen()
+            } label: {
+                Text("Speech engine settings")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.accent)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 8)
+            }
+            .buttonStyle(.plain)
+            LiveSettingsNote("A recording already running switches when its connection next renews.")
+        }
+        .task { await speech.load() }
     }
 
     private var translation: some View {
