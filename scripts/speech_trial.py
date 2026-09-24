@@ -76,7 +76,9 @@ def _soniox(pcm: bytes, rate: int, from_ms: int, translate_to: str) -> tuple:
         stream.feed(pcm[offset:offset + step], ts_ms=from_ms + i * _CHUNK_MS)
     seconds = len(pcm) / (2.0 * rate)
     segments = stream.finish(timeout=seconds + 20)
-    return segments, stream.error, time.monotonic() - started, sink.partials
+    error = stream.error or ("cut off: Soniox closed before it finished, so later words are missing"
+                             if stream.cut_off else "")
+    return segments, error, time.monotonic() - started, sink.partials
 
 
 def trial(session: str, from_ms: int, to_ms: int, translate_to: str) -> None:

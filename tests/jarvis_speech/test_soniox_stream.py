@@ -278,3 +278,40 @@ def test_check_can_try_a_key_that_is_not_saved(monkeypatch):
     eng._connect = lambda: t
     assert eng.check(key="typed-key-5678") == (True, "Soniox answered")
     assert json.loads(t.sent[0])["api_key"] == "typed-key-5678"
+
+
+def test_connect_turns_off_the_library_ping(monkeypatch):
+    # Soniox reads audio at about real time, so a ping sent behind a backlog waits
+    # behind it: 120 s fed at once had the library close a healthy stream at ~40 s
+    # (1011 keepalive ping timeout) and the rest of the words were lost.
+    import websockets.sync.client as client
+    seen = {}
+    monkeypatch.setattr(client, "connect", lambda url, **kw: seen.update(kw) or object())
+    soniox.SonioxEngine()._connect()
+    assert seen["ping_interval"] is None
+
+
+class NeverAnswers(FakeTransport):
+    """The socket stays open but Soniox never says anything back."""
+
+    def send(self, data):
+        self.sent.append(data)
+
+
+def test_audio_nobody_answers_fails_the_stream(monkeypatch):
+    monkeypatch.setattr(soniox, "_STALL_S", 0.5)
+    rec = Rec()
+    s = _engine(monkeypatch, NeverAnswers([])).open_stream(rec, rate=16000, purpose="live")
+    s.feed(b"\x00\x01" * 1600)
+    deadline = time.monotonic() + 5
+    while not s.done and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert s.error == "Soniox stopped answering"
+
+
+def test_a_quiet_stream_with_no_audio_is_not_a_stall(monkeypatch):
+    monkeypatch.setattr(soniox, "_STALL_S", 0.3)
+    s = _engine(monkeypatch, NeverAnswers([])).open_stream(Rec(), rate=16000, purpose="live")
+    time.sleep(1.0)
+    assert not s.done and s.error == ""
+    s.close()

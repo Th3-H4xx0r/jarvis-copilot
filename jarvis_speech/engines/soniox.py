@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 _URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 _CONNECT_TIMEOUT_S = 5
 _KEEPALIVE_S = 10          # Soniox closes a stream that hears nothing for 20 s
+# Audio sent and not a word back for this long: the connection is dead. Soniox
+# answers about every second while it works, silence included (measured 2026-09-24:
+# at most 1.1 s apart through a 60 s backlog), so a backlog never trips this.
+_STALL_S = 30
 _FILE_CHUNK = 32 * 1024
 _SURFACE_OF = {"voice": "voice", "live": "live", "file": "upload"}
 # Containers Soniox recognises with audio_format "auto"; anything else is decoded first.
@@ -139,6 +143,8 @@ class SonioxStream:
         self._key = ""
         self._opened_at: Optional[float] = None
         self._last_feed = time.monotonic()
+        # When audio first went out after Soniox last said anything (None: all answered).
+        self._unanswered_since: Optional[float] = None
         self.error = ""
         # The socket closed before Soniox said `finished`: the words so far are
         # kept, but they may not be all of them. Batch callers treat that as a
@@ -240,6 +246,8 @@ class SonioxStream:
             if silence_ms:
                 self._ws.send(b"\x00\x00" * (silence_ms * self._rate // 1000))
         self._ws.send(pcm)
+        if self._unanswered_since is None:
+            self._unanswered_since = time.monotonic()
 
     def _read_loop(self) -> None:
         try:
@@ -247,6 +255,10 @@ class SonioxStream:
                 try:
                     raw = self._ws.recv(timeout=1.0)
                 except TimeoutError:
+                    since = self._unanswered_since
+                    if since is not None and time.monotonic() - since > _STALL_S:
+                        self._fail("Soniox stopped answering")
+                        break
                     continue
                 except EOFError:
                     if not self._done.is_set() and not self._finish.is_set():
@@ -255,6 +267,7 @@ class SonioxStream:
                         self._assembler.flush()
                         self.cut_off = True
                     break
+                self._unanswered_since = None
                 response = json.loads(raw)
                 if response.get("error_code") or response.get("error_type"):
                     self._assembler.consume(response)
@@ -336,8 +349,11 @@ class SonioxEngine:
 
     def _connect(self):
         from websockets.sync.client import connect
+        # No library ping: Soniox reads audio at about real time, so a ping sent
+        # behind a backlog (a file, a clip, a Live catch-up) waits behind it and the
+        # library closed healthy streams mid-way. `_STALL_S` watches the link instead.
         return _WebSocket(connect(_URL, open_timeout=_CONNECT_TIMEOUT_S, close_timeout=2,
-                                  max_size=2 ** 22))
+                                  max_size=2 ** 22, ping_interval=None))
 
     def open_stream(self, sink, *, rate: int, translate_to: str = "", purpose: str = "live",
                     idle_close_s: float = 0) -> SonioxStream:
