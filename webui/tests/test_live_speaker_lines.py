@@ -82,3 +82,25 @@ def test_the_voice_is_required_and_a_page_is_bounded(isolated_state):
     assert len(got["lines"]) == 5
     status, _ = _lines(sam, before="garbage")
     assert status == 400
+
+
+def test_a_line_carries_its_voice_s_name(isolated_state):
+    # Without it the phone labels a line by the voice id's digits: his own voice
+    # showed as "Me" on some lines and "Speaker 8162" (Me's id) on others.
+    from api import live_ws
+    me = live_store.create_speaker(kind="me", name="Me")["id"]
+    sid = _session(1000.0, "t")
+    _say(sid, me, 0, "hello")
+    row = live_store.segments_after(sid, 0)[0]
+    assert live_ws.segment_frame(row)["speaker_name"] == "Me"
+
+
+def test_a_voice_s_samples_are_its_latest_lines(isolated_state):
+    # Ordered by the time within a session, an old long session's lines came
+    # before today's.
+    sam = live_store.create_speaker(kind="other")["id"]
+    old = _session(1000.0, "old")
+    new = _session(9000.0, "new")
+    _say(old, sam, 600000, "old but late in its session")
+    _say(new, sam, 1000, "today")
+    assert live_store.speaker_samples(sam, limit=1)[0]["text"] == "today"

@@ -1220,11 +1220,39 @@ SEGMENT_FRAME_FIELDS = (
 )
 
 
+_NAME_TTL_S = 30.0
+_speaker_names: Dict[str, Tuple[float, str]] = {}
+
+
+def _speaker_name(speaker_id: str) -> str:
+    """A voice's name for a frame (cached briefly; renames and merges clear it)."""
+    now = time.monotonic()
+    hit = _speaker_names.get(speaker_id)
+    if hit and now - hit[0] < _NAME_TTL_S:
+        return hit[1]
+    try:
+        speaker = live_store.get_speaker(speaker_id) or {}
+    except Exception:
+        speaker = {}
+    name = str(speaker.get("name") or "") or ("Me" if speaker.get("kind") == "me" else "")
+    _speaker_names[speaker_id] = (now, name)
+    return name
+
+
 def segment_frame(row: Dict[str, Any]) -> Dict[str, Any]:
-    """One segment in the single shape every transport presents it in."""
+    """One segment in the single shape every transport presents it in.
+
+    It carries its voice's name: without one a client labels the line by the
+    voice id's digits, so his own voice read "Me" on some lines and "Speaker
+    8162" (Me's own id) on others.
+    """
     frame = dict(row or {})
     for field in SEGMENT_FRAME_FIELDS:
         frame.setdefault(field, None)
+    if frame.get("speaker_id") and not frame.get("speaker_name"):
+        name = _speaker_name(str(frame["speaker_id"]))
+        if name:
+            frame["speaker_name"] = name
     return frame
 
 
@@ -3182,6 +3210,7 @@ def handle_live_post(handler, parsed, body) -> bool:
             bad(handler, "speaker_id required")
             return True
         live_store.rename_speaker(speaker_id, name)
+        _speaker_names.clear()
         _publish_speaker_op({"op": "rename", "speaker_id": speaker_id,
                              "name": name or None})
         j(handler, {"ok": True, "speaker": live_store.get_speaker(speaker_id)})
@@ -3193,6 +3222,7 @@ def handle_live_post(handler, parsed, body) -> bool:
             bad(handler, "from_id and into_id required")
             return True
         moved = live_store.merge_speakers(from_id, into_id)
+        _speaker_names.clear()
         # Clients apply a merge in place, relabelling earlier segments, which is
         # why the frame carries both ids rather than a reload instruction.
         # Every spelling, because the two shipped clients read different keys:

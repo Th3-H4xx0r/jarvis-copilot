@@ -523,8 +523,10 @@ def speaker_samples(speaker_id: str, limit: int = 5) -> list:
     """A few things this voice said, for the naming UI."""
     with connect() as conn:
         cur = conn.execute(
-            "SELECT live_session_id, seq, ts_start_ms, text FROM live_segment"
-            " WHERE speaker_id=? ORDER BY ts_start_ms DESC LIMIT ?",
+            "SELECT g.live_session_id, g.seq, g.ts_start_ms, g.text FROM live_segment g"
+            " JOIN live_session s ON s.id = g.live_session_id"
+            " WHERE g.speaker_id=?"
+            " ORDER BY s.started_at * 1000 + g.ts_start_ms DESC LIMIT ?",
             (speaker_id, int(limit)))
         return [dict(r) for r in cur.fetchall()]
 
