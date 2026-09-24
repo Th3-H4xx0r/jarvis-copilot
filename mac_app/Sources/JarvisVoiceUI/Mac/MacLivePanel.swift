@@ -45,21 +45,7 @@ struct MacLivePanel: View {
         HStack(spacing: 6) {
             MacPanelModeSwitch(mode: $mode)
             Spacer(minLength: 2)
-            if showsOpenInWindow {
-                Button {
-                    NotificationCenter.default.post(
-                        name: Notification.Name(JarvisVoicePanel.openWindowNotificationName), object: nil)
-                } label: {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(JcTheme.accent)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Open in a window")
-                .accessibilityLabel("Open in a window")
-            }
+            if showsOpenInWindow { MacOpenInWindowButton() }
         }
         .padding(.top, 4)
     }
@@ -292,6 +278,9 @@ struct MacPanelModeSwitch: View {
         }
         .padding(2)
         .background(Capsule().fill(JcTheme.muted.opacity(0.14)))
+        // Never squeezed: a row short of width takes it from the text, and the
+        // switch showed as an empty capsule.
+        .fixedSize()
     }
 
     private func segment(_ title: String, _ value: MacPanelMode) -> some View {
@@ -307,6 +296,27 @@ struct MacPanelModeSwitch: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(title) mode")
         .accessibilityAddTraits(mode == value ? .isSelected : [])
+    }
+}
+
+/// The pop-out: a corner icon that asks the tray (by notification, which crosses
+/// the Python bridge without either side handing the other a function) to open
+/// the panel in a window.
+struct MacOpenInWindowButton: View {
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(
+                name: Notification.Name(JarvisVoicePanel.openWindowNotificationName), object: nil)
+        } label: {
+            Image(systemName: "macwindow")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(JcTheme.accent)
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open in a window")
+        .accessibilityLabel("Open in a window")
     }
 }
 

@@ -188,37 +188,29 @@ struct MacVoicePanel: View {
     /// it is the Python tray, and a notification name crosses that bridge
     /// without either side having to hand the other a function.
     private var topBar: some View {
-        HStack(spacing: 6) {
-            MacPanelModeSwitch(mode: panelMode)
-            // Disabled mid-turn, like the phone's: switching either one under a
-            // live turn changes which chat it lands in, or which model finishes
-            // answering it.
-            MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
-                          enabled: !store.isActive,
-                          accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
-openPicker = .session
+        VStack(alignment: .leading, spacing: 6) {
+            // Its own row: beside the two chips and the pop-out there is no width
+            // left, and the switch was squeezed to an empty capsule.
+            HStack(spacing: 6) {
+                MacPanelModeSwitch(mode: panelMode)
+                Spacer(minLength: 2)
+                if showsOpenInWindow { MacOpenInWindowButton() }
             }
-            MacPickerChip(symbol: "sparkles", text: modelPicker.chipLabel,
-                          enabled: !store.isActive,
-                          accessibilityLabel: "Voice model: \(modelPicker.chipLabel)") {
-                openPicker = .model
-            }
-            Spacer(minLength: 2)
-            if showsOpenInWindow {
-                Button {
-                    NotificationCenter.default.post(
-                        name: Notification.Name(JarvisVoicePanel.openWindowNotificationName),
-                        object: nil)
-                } label: {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(JcTheme.accent)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                // Disabled mid-turn, like the phone's: switching either one under a
+                // live turn changes which chat it lands in, or which model finishes
+                // answering it.
+                MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
+                              enabled: !store.isActive,
+                              accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
+                    openPicker = .session
                 }
-                .buttonStyle(.plain)
-                .help("Open in a window")
-                .accessibilityLabel("Open in a window")
+                MacPickerChip(symbol: "sparkles", text: modelPicker.chipLabel,
+                              enabled: !store.isActive,
+                              accessibilityLabel: "Voice model: \(modelPicker.chipLabel)") {
+                    openPicker = .model
+                }
+                Spacer(minLength: 0)
             }
         }
         .padding(.top, 4)
