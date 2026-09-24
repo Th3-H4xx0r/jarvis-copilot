@@ -1356,10 +1356,27 @@ def _voice_engine():
 
 
 class _TurnSink:
-    """A voice turn needs only its final words; `finish()` returns them."""
+    """A voice turn's words: finals come back from `finish()`; the words so far
+    go to the device as they are heard, so Soniox shows live text in Voice the
+    way it does in Live (the device already draws a `transcript` frame)."""
 
-    def on_partial(self, *args):
-        pass
+    _PARTIAL_EVERY_S = 0.15
+
+    def __init__(self, send=None):
+        self._send = send
+        self._last = 0.0
+
+    def on_partial(self, text, *args):
+        if self._send is None or not text:
+            return
+        now = time.monotonic()
+        if now - self._last < self._PARTIAL_EVERY_S:
+            return
+        self._last = now
+        try:
+            self._send({"type": "transcript", "text": text, "is_final": False})
+        except Exception:
+            logger.debug("voice: could not send words in progress", exc_info=True)
 
     def on_segment(self, segment):
         pass
@@ -1371,15 +1388,16 @@ class _TurnSink:
         logger.info("voice: speech engine error: %s", message)
 
 
-def _feed_turn_stream(state: dict, payload: bytes) -> None:
+def _feed_turn_stream(state: dict, payload: bytes, conn=None, sock=None) -> None:
     """Caller holds state["lock"]. Opens the turn's stream on its first audio."""
     stream = state.get("stt_stream")
     if stream is None:
         if state.get("stt_stream_off") or state.get("pretranscript"):
             return
         engine = _voice_engine()
+        sink = _TurnSink(send=lambda frame: _ws_send_text(conn, sock, json.dumps(frame)))
         try:
-            stream = engine.open_stream(_TurnSink(), rate=int(state.get("sample_rate") or 16000),
+            stream = engine.open_stream(sink, rate=int(state.get("sample_rate") or 16000),
                                         purpose="voice") if engine is not None else None
         except Exception:
             # This runs inside the socket's receive loop: an engine that throws
@@ -1971,7 +1989,7 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
                     with state["lock"]:
                         if len(state["pcm_buf"]) + len(payload) <= _WS_BUFFER_LIMIT_BYTES:
                             state["pcm_buf"].extend(payload)
-                            _feed_turn_stream(state, payload)
+                            _feed_turn_stream(state, payload, conn, sock)
                 elif isinstance(event, TextMessage):
                     try:
                         msg = json.loads(event.data or "{}")

@@ -17,7 +17,6 @@ struct MacVoicePanel: View {
     /// and the 60 fps loop stops — the conversation underneath keeps running.
     @State private var onScreen = false
     @State private var sessionPicker = MacSessionPicker()
-    @State private var modelPicker = MacModelPicker()
     /// Which picker is open. Drawn inside the panel — see `MacVoicePickers`.
     @State private var openPicker: MacPickerKind?
     /// Holds the conversation layout between turns of a live session.
@@ -135,18 +134,17 @@ struct MacVoicePanel: View {
         .overlay {
             if let kind = openPicker {
                 MacPickerSheet(title: kind.title,
-                               rows: kind == .session
-                                   ? sessionPicker.rows { store.sessionTargetChanged() }
-                                   : modelPicker.rows(store: store)) {
+                               rows: sessionPicker.rows { store.sessionTargetChanged() }) {
                     openPicker = nil
                 }
             }
         }
         .task {
-            // Loaded up front so a chip opens onto its list rather than onto
-            // "Loading…" — both are one small request.
+            // Loaded up front so the chip opens onto its list rather than onto
+            // "Loading…". The model the voice uses is still read here — the
+            // choice itself is made in Jarvis Settings.
             await sessionPicker.load()
-            await modelPicker.load()
+            await VoiceModelStore.shared.load()
         }
         .onAppear {
             onScreen = true
@@ -206,11 +204,8 @@ struct MacVoicePanel: View {
                               accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
                     openPicker = .session
                 }
-                MacPickerChip(symbol: "sparkles", text: modelPicker.chipLabel,
-                              enabled: !store.isActive,
-                              accessibilityLabel: "Voice model: \(modelPicker.chipLabel)") {
-                    openPicker = .model
-                }
+                // The model, turn mode and transcription live in Jarvis Settings
+                // (the gear) — one place, not two. The panel keeps the chat.
                 Spacer(minLength: 0)
             }
         }

@@ -75,7 +75,25 @@ final class Endpointer {
     /// while still catching a genuine "…and —" lift.
     static let risingTailRatio = 1.15
 
+    /// A pause also counts as silence when it is this far below how loud the
+    /// turn was — capped, so a loud talker's soft ending is not cut. A noisy
+    /// room (a Mac's fans, its voice processing's gain) sits above
+    /// `silenceThreshold` the whole time, and without this no pause was ever
+    /// silent: the turn ran to `maxUtteranceMs`.
+    static let relativeSilenceRatio = 0.15
+    static let relativeSilenceCap = 0.06
+
     // MARK: - State
+
+    /// The turn's loudest smoothed level, and the smoothing it is taken from
+    /// (a click is not a voice).
+    private(set) var utterancePeak = 0.0
+    private var smoothed = 0.0
+
+    /// Below this is silence: the fixed floor, or far below this turn's peak.
+    var silenceLevel: Double {
+        max(Self.silenceThreshold, min(utterancePeak * Self.relativeSilenceRatio, Self.relativeSilenceCap))
+    }
 
     /// True while a turn is open (speech has started and hasn't been endpointed).
     private(set) var speaking = false
@@ -123,13 +141,17 @@ final class Endpointer {
                 silenceMs = 0
                 _risingTail = false
                 tail = [Frame(ms: dtMs, amp: amp)]
+                smoothed = amp
+                utterancePeak = amp
             }
             return .none
         }
 
         speechMs += dtMs
+        smoothed = smoothed * 0.7 + amp * 0.3
+        utterancePeak = max(utterancePeak, smoothed)
 
-        if amp < Self.silenceThreshold {
+        if amp < silenceLevel {
             // Latch the rising-tail verdict at the moment silence starts: the
             // tail shape can't change once the speaker has stopped, and
             // re-deciding every frame would let the window flip mid-wait.
@@ -160,6 +182,8 @@ final class Endpointer {
     /// Return to the pre-speech state (new turn, barge-in, teardown).
     func reset() {
         speaking = false
+        utterancePeak = 0
+        smoothed = 0
         speechMs = 0
         silenceMs = 0
         _risingTail = false

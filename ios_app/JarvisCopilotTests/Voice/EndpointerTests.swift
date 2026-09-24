@@ -26,6 +26,16 @@ final class EndpointerTests: XCTestCase {
         XCTAssertEqual(feed(ep, 0.002, 1200), .endOfTurn)
     }
 
+    /// A noisy room — a Mac's fans, its voice processing's gain — sits above
+    /// `silenceThreshold` the whole time, so no pause was ever silent and the
+    /// turn ran to the 30 s cap. A pause far below how loud the turn was ends it.
+    func testANoisyRoomStillEndsTheTurn() {
+        let ep = Endpointer()
+        _ = feed(ep, 0.02, 500)          // the room, loud enough to count as speech
+        _ = feed(ep, 0.3, 1500)          // the person
+        XCTAssertEqual(feed(ep, 0.02, 1500), .endOfTurn)
+    }
+
     func testQuietRoomNoiseDoesNotCreateATurn() {
         let ep = Endpointer()
         XCTAssertEqual(feed(ep, 0.003, 5000), .none)
@@ -46,9 +56,11 @@ final class EndpointerTests: XCTestCase {
 
     func testEnergyBetweenTheTwoThresholdsKeepsTheTurnOpen() {
         let ep = Endpointer()
-        _ = feed(ep, 0.30, 1000)
-        // Between silence(0.04) and speech(0.08): still "voiced" — the silence
-        // timer must not run.
+        // A QUIET speaker: after loud speech the same level is the room going
+        // quiet, and ends the turn (testANoisyRoomStillEndsTheTurn).
+        _ = feed(ep, 0.025, 1000)
+        // Between silence and speech: still "voiced" — the silence timer must
+        // not run.
         let mid = (Endpointer.speechThreshold + Endpointer.silenceThreshold) / 2
         XCTAssertEqual(feed(ep, mid, 3000), .none)
         XCTAssertEqual(ep.silenceMs, 0)

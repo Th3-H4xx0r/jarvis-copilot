@@ -295,3 +295,25 @@ def test_an_engine_that_throws_on_open_does_not_close_the_socket(monkeypatch):
     with state["lock"]:
         voice._feed_turn_stream(state, b"a" * 320)
     assert state.get("stt_stream_off") and "stt_stream" not in state
+
+
+
+def test_soniox_words_reach_the_device_while_you_speak(monkeypatch, sent):
+    # Live words for Voice on Soniox, as Live already shows them.
+    class Speaking(FakeStream):
+        def __init__(self, sink):
+            super().__init__()
+            self.sink = sink
+
+        def feed(self, pcm, ts_ms=None):
+            self.sink.on_partial("turn off the", 0, "", "en")
+            return True
+
+    class Engine(FakeEngine):
+        def open_stream(self, sink, **kw):
+            return Speaking(sink)
+    monkeypatch.setattr(voice, "_voice_engine", lambda: Engine())
+    state = _state()
+    with state["lock"]:
+        voice._feed_turn_stream(state, b"a" * 320, None, None)
+    assert {"type": "transcript", "text": "turn off the", "is_final": False} in sent
