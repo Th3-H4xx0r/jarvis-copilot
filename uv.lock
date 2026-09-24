@@ -1975,6 +1975,9 @@ slack = [
 sms = [
     { name = "aiohttp" },
 ]
+soniox = [
+    { name = "websockets" },
+]
 termux = [
     { name = "agent-client-protocol" },
     { name = "honcho-ai" },
@@ -2131,9 +2134,10 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = "==0.41.0" },
     { name = "vercel", marker = "extra == 'vercel'", specifier = "==0.5.7" },
     { name = "webrtc-noise-gain", marker = "extra == 'pod-noise'", specifier = ">=1.2,<2" },
+    { name = "websockets", marker = "extra == 'soniox'", specifier = ">=15.0.1,<17" },
     { name = "youtube-transcript-api", marker = "extra == 'youtube'", specifier = "==1.2.4" },
 ]
-provides-extras = ["anthropic", "exa", "firecrawl", "parallel-web", "fal", "edge-tts", "pod-noise", "modal", "daytona", "vercel", "hindsight", "dev", "messaging", "cron", "slack", "matrix", "cli", "tts-premium", "voice", "live-voiceprint", "pty", "honcho", "holographic", "mcp", "homeassistant", "sms", "computer-use", "acp", "bedrock", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
+provides-extras = ["anthropic", "exa", "firecrawl", "parallel-web", "fal", "edge-tts", "pod-noise", "modal", "daytona", "vercel", "hindsight", "dev", "messaging", "cron", "slack", "matrix", "cli", "tts-premium", "voice", "live-voiceprint", "soniox", "pty", "honcho", "holographic", "mcp", "homeassistant", "sms", "computer-use", "acp", "bedrock", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
 
 [[package]]
 name = "jinja2"

@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
+from jarvis_speech.config import DEFAULTS as _SPEECH_DEFAULTS
+
 logger = logging.getLogger(__name__)
 
 # Track which (config_path, mtime_ns, size) tuples we've already warned about
@@ -1357,6 +1359,10 @@ DEFAULT_CONFIG = {
         },
     },
 
+    # Which engine turns speech into text per surface (voice/live/upload) and the
+    # Soniox options. "local"/"edge" are the flow above; see jarvis_speech/.
+    "speech": copy.deepcopy(_SPEECH_DEFAULTS),
+
     "voice": {
         "record_key": "ctrl+b",
         "max_recording_seconds": 120,
@@ -2567,6 +2573,13 @@ OPTIONAL_ENV_VARS = {
         "prompt": "FAL API key",
         "url": "https://fal.ai/",
         "tools": ["image_generate", "video_generate"],
+        "password": True,
+        "category": "tool",
+    },
+    "SONIOX_API_KEY": {
+        "description": "Soniox speech-to-text (Live, Voice and uploads when set to Soniox)",
+        "prompt": "Soniox API key",
+        "url": "https://console.soniox.com",
         "password": True,
         "category": "tool",
     },

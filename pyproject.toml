@@ -133,6 +133,10 @@ voice = [
 # (onnxruntime arrives transitively via faster-whisper), so declaring this extra
 # does not move the lock; verified locally against 1.26.0.
 live-voiceprint = ["onnxruntime>=1.24.4,<2", "numpy==2.4.3"]
+# Soniox speech-to-text (jarvis_speech/engines/soniox.py) speaks its WebSocket
+# API through websockets' sync client. Already in the lock transitively (uvicorn
+# and others); the floor is what uv.lock resolves, the ceiling the next major.
+soniox = ["websockets>=15.0.1,<17"]
 pty = [
   "ptyprocess==0.7.0; sys_platform != 'win32'",
   "pywinpty==2.0.15; sys_platform == 'win32'",
@@ -267,7 +271,7 @@ plugins = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "jarviscopilot_cli", "jarviscopilot_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*", "jarvis_registry", "jarvis_registry.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "jarviscopilot_cli", "jarviscopilot_cli.*", "gateway", "gateway.*", "tui_gateway", "tui_gateway.*", "cron", "acp_adapter", "plugins", "plugins.*", "providers", "providers.*", "jarvis_registry", "jarvis_registry.*", "jarvis_speech", "jarvis_speech.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
