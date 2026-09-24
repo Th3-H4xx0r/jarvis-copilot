@@ -2527,6 +2527,7 @@ main.main > #mainDevices,
 main.main > #mainSelfimprovement,
 main.main > #mainCodememory,
 main.main > #mainCoding,
+main.main > #mainLive,
 main.main > #mainLogs{display:none;}
 main.main:not(.showing-settings):not(.showing-skills):not(.showing-memory):not(.showing-tasks):not(.showing-kanban):not(.showing-workspaces):not(.showing-profiles):not(.showing-insights):not(.showing-devices):not(.showing-logs):not(.showing-selfimprovement):not(.showing-codememory):not(.showing-coding):not(.showing-live) > #mainChat{display:flex;}
 main.main.showing-settings > #mainSettings{display:flex;overflow-y:auto;}
