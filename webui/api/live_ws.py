@@ -164,6 +164,9 @@ def _insight_frame(note: Dict[str, Any]) -> Dict[str, Any]:
 
 LANE_EDGE = "edge"
 LANE_SERVER = "server"
+# After a server speech engine fails on a connection, how long before a
+# re-hello may try it again (the phone reconnects about once a minute).
+_ENGINE_RETRY_SECONDS = 30.0
 
 # ``[4B big-endian seq][8B big-endian ts_ms][payload]``. A fixed header keeps
 # audio timing correct across reordering and gaps without a second channel.
@@ -1229,7 +1232,8 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
                        device_id: str = "",
                        audio_ref: str = "",
                        voiceprint: Optional[List[float]] = None,
-                       device_translates: bool = False) -> Dict[str, Any]:
+                       device_translates: bool = False,
+                       transcribed_by: str = "") -> Dict[str, Any]:
     """Append one utterance, fan it out, then poke the watchers.
 
     `voiceprint` is the capturing device's own embedding of the utterance,
@@ -1241,6 +1245,10 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
     server then leaves it alone: translating it here too bills a model call
     for an answer the phone already put on screen. A pair the phone cannot do
     still reaches the server, through `/api/live/translate`.
+
+    `transcribed_by` names the server speech engine that heard this line
+    (api/live_speech.py). That engine already decided the language from the
+    audio itself, so the Whisper second opinion would only redo its work.
 
     Order matters: the row is durable before anyone is told about it, and the
     watchers run last so a slow or broken one delays nothing a viewer sees.
@@ -1256,11 +1264,31 @@ def append_and_publish(live_session_id: str, *, ts_start_ms: int,
     # it. Otherwise an utterance gets translated on a label that is about to
     # change, which is how English spoken into a phone set to another locale
     # ended up with an English "translation" under it.
-    rescuing = _rescue_language_async(row, device_translates=device_translates)
+    rescuing = (False if transcribed_by
+                else _rescue_language_async(row, device_translates=device_translates))
     _notify_segment_appended(live_session_id, int(row["seq"]),
                              translate=not rescuing and not device_translates)
     _identify_async(row, voiceprint)
     return row
+
+
+def publish_translation(live_session_id: str, seq: int, translation: str,
+                        target: str = "") -> None:
+    """Store a translation someone other than the server's translator made, and show it."""
+    live_store.set_translation(live_session_id, seq, translation)
+    _publish_translation_frame(live_session_id, seq, translation, target)
+
+
+def _publish_translation_frame(live_session_id: str, seq: int, translation: str,
+                               target: str = "") -> None:
+    # Every viewer sees it through the same frame the server's own translator publishes.
+    rows = live_store.segments_after(live_session_id, after_seq=seq - 1, limit=1)
+    row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
+    publish(live_session_id, "insight", {"kind": "translation", "live_session_id": live_session_id,
+                                         "seq": seq, "text": translation,
+                                         "translation": translation,
+                                         "source_lang": str((row or {}).get("lang") or ""),
+                                         "target": str(target or "")})
 
 
 # ── the language actually spoken (see api/live_language.py) ────────────────
@@ -1935,6 +1963,13 @@ class LiveConnection:
         self._replay_buffer: Optional[List[Dict[str, Any]]] = None
         self._replay_lock = threading.Lock()
         self._last_audio_seq = -1
+        # A server speech engine hearing this device's audio (api/live_speech.py),
+        # or None on the edge lane. `_caps_stt` is what the device said it can do
+        # itself, which decides whether an engine failure can hand it the edge back.
+        self.engine_lane = None
+        self.engine_label = ""
+        self._caps_stt = ""
+        self._engine_retry_at = 0.0
 
     # ── outbound ──
 
@@ -1979,7 +2014,7 @@ class LiveConnection:
             return
         if event == "speak" and not self.can_speak:
             return
-        if event not in ("seg", "speaker", "insight", "speak", "state"):
+        if event not in ("seg", "speaker", "insight", "speak", "state", "partial"):
             return
         if event == "insight":
             # A watcher emits ONE intent; the form is this device's own (§13.2).
@@ -2080,6 +2115,9 @@ class LiveConnection:
                     {"live_session_id": self.live_session_id,
                      "device_id": self.device_id, "source_label": label})
         elif kind == "end":
+            if self.engine_lane is not None:
+                # The last line the engine is still hearing belongs to this session.
+                self.engine_lane.finish()
             row = end_live_session(self.live_session_id)
             self.send({"t": "state", "live_session_id": self.live_session_id,
                        "state": row.get("state") or "ended",
@@ -2109,6 +2147,9 @@ class LiveConnection:
 
     def close(self) -> None:
         self.closed = True
+        lane, self.engine_lane = self.engine_lane, None
+        if lane is not None:
+            lane.close()
 
     # ── handshake ──
 
@@ -2126,18 +2167,63 @@ class LiveConnection:
             self.codec = codec
         self.lane = assign_lane(caps)
         self.embeds = embeddings_trusted(caps)
+        self._caps_stt = str(caps.get("stt") or "").strip()
+        self._choose_engine()
         logger.info("live: %s re-declared caps, lane now %s",
                     self.live_session_id, self.lane)
-        self.send({
+        self._send_ready(relane=True)
+
+    def _send_ready(self, seq: Optional[int] = None, **extra: Any) -> None:
+        if seq is None:
+            seq = int((live_store.get_session(self.live_session_id)
+                       or {}).get("last_seq") or 0)
+        frame: Dict[str, Any] = {
             "t": "ready",
             "live_session_id": self.live_session_id,
             "chat_session_id": self.chat_session_id,
-            "seq": int((live_store.get_session(self.live_session_id)
-                        or {}).get("last_seq") or 0),
+            "seq": seq,
             "lane": self.lane,
             "server_caps": server_caps(),
-            "relane": True,
-        })
+        }
+        if self.engine_label:
+            # Who is hearing this device when the lane is the server's.
+            frame["engine"] = self.engine_label
+        frame.update(extra)
+        self.send(frame)
+
+    # ── a server speech engine (api/live_speech.py) ──
+
+    def _choose_engine(self) -> None:
+        """Put this device on a server engine's lane when one is configured."""
+        from api import live_speech
+        engine = None
+        if time.monotonic() >= self._engine_retry_at:
+            engine = live_speech.live_engine()
+        if engine is None:
+            if self.engine_lane is not None:
+                self.engine_lane.close()
+            self.engine_lane, self.engine_label = None, ""
+            return
+        self.lane = LANE_SERVER
+        self.engine_label = str(getattr(engine, "label", "") or engine.name)
+        if self.engine_lane is None:
+            self.engine_lane = live_speech.EngineLane(self, engine)
+
+    def fallback_to_edge(self, reason: str) -> None:
+        """The engine failed (no key, out of credit, outage): say so, hand the edge back."""
+        lane, self.engine_lane = self.engine_lane, None
+        if lane is None:
+            return  # several streams can report one failure
+        lane.close()
+        self._engine_retry_at = time.monotonic() + _ENGINE_RETRY_SECONDS
+        label, self.engine_label = self.engine_label or "The speech engine", ""
+        logger.warning("live: %s stopped on %s (%s)", label, self.live_session_id[:8] or "?", reason)
+        self.send({"t": "state", "warning": "speech_engine",
+                   "live_session_id": self.live_session_id,
+                   "message": f"{label} stopped transcribing ({reason})."})
+        if self._caps_stt == "on_device":
+            self.lane = LANE_EDGE
+            self._send_ready(relane=True)
 
     def _on_hello(self, msg: Dict[str, Any]) -> None:
         if self.ready:
@@ -2174,6 +2260,8 @@ class LiveConnection:
         self.out = live_deliver.device_out(caps)
         self.lane = assign_lane(caps)
         self.embeds = embeddings_trusted(caps)
+        self._caps_stt = str(caps.get("stt") or "").strip()
+        self._choose_engine()
 
         resume = msg.get("resume") if isinstance(msg.get("resume"), dict) else {}
         want_sid = str(resume.get("live_session_id") or "").strip()
@@ -2229,14 +2317,7 @@ class LiveConnection:
             live_store.set_source_label(self.live_session_id,
                                         self._pending_source[:120])
             self._pending_source = ""
-        self.send({
-            "t": "ready",
-            "live_session_id": self.live_session_id,
-            "chat_session_id": self.chat_session_id,
-            "seq": last_seq,
-            "lane": self.lane,
-            "server_caps": server_caps(),
-        })
+        self._send_ready(last_seq)
         # Hold live frames while the backlog goes out, so subscribing first
         # (which is what stops an utterance falling into the gap) cannot deliver
         # a new seq ahead of the older ones it follows.
@@ -2377,6 +2458,7 @@ class LiveConnection:
         if not isinstance(chunks, list):
             chunks = [{"data": msg.get("data"), "ts_ms": msg.get("ts_ms")}]
         dropped = 0
+        spooled = []
         for chunk in chunks:
             if not isinstance(chunk, dict):
                 continue
@@ -2384,14 +2466,24 @@ class LiveConnection:
             if payload is None:
                 self.error("bad_audio", "chunk data must be base64")
                 continue
-            result = self._write_audio(payload, _as_int(chunk.get("ts_ms"), 0),
-                                       codec=codec, rate=rate, warn=False)
+            ts_ms = _as_int(chunk.get("ts_ms"), 0)
+            result = self._write_audio(payload, ts_ms, codec=codec, rate=rate,
+                                       warn=False, live=False)
             dropped += int((result or {}).get("dropped_bytes") or 0)
+            if payload and not (result or {}).get("refused"):
+                spooled.append((payload, to_offset_ms(self.live_session_id, ts_ms or None)))
         if dropped:
             self._warn_dropped(dropped)
+        if spooled and self.engine_lane is not None:
+            # Held while offline, so older than what the live stream is hearing:
+            # heard on its own stream, at its own times.
+            from api import live_speech
+            live_speech.transcribe_spool(self.live_session_id, self.device_id, spooled,
+                                         codec, rate)
 
     def _write_audio(self, payload: bytes, ts_ms: int, codec: str = "",
-                     rate: int = 0, warn: bool = True) -> Dict[str, Any]:
+                     rate: int = 0, warn: bool = True,
+                     live: bool = True) -> Dict[str, Any]:
         try:
             result = ingest_audio_chunk(
                 self.live_session_id, payload, ts_ms=ts_ms,
@@ -2412,6 +2504,10 @@ class LiveConnection:
             return result
         if warn and result.get("dropped_bytes"):
             self._warn_dropped(int(result["dropped_bytes"]))
+        lane = self.engine_lane
+        if live and lane is not None:
+            lane.feed(payload, to_offset_ms(self.live_session_id, ts_ms or None),
+                      codec or self.codec, rate or self.rate)
         return result
 
     def _warn_dropped(self, dropped: int) -> None:
@@ -2886,15 +2982,8 @@ def _live_store_translation(handler, body) -> bool:
                        sid[:8] or "?", seq, exc_info=True)
         bad(handler, "could not store that translation", 500)
         return True
-    # Every other viewer of this conversation sees it too, through the same
-    # frame the server's own translator publishes.
-    rows = live_store.segments_after(sid, after_seq=seq - 1, limit=1)
-    row = rows[0] if rows and int(rows[0].get("seq") or 0) == seq else None
-    publish(sid, "insight", {"kind": "translation", "live_session_id": sid,
-                             "seq": seq, "text": translation,
-                             "translation": translation,
-                             "source_lang": str((row or {}).get("lang") or ""),
-                             "target": str((body or {}).get("target") or "")})
+    # Every other viewer of this conversation sees it too.
+    _publish_translation_frame(sid, seq, translation, str((body or {}).get("target") or ""))
     j(handler, {"ok": True, "seq": seq})
     return True
 
@@ -3000,6 +3089,18 @@ def _live_audio_batch(handler, body) -> bool:
         accepted += 1
         written += len(payload)
         dropped += int(result.get("dropped_bytes") or 0)
+    if accepted and not refused:
+        # On a server speech engine's lane, audio spooled while offline still
+        # has to be heard (api/live_speech.py); a no-op on the edge lane.
+        try:
+            from api import live_speech
+            live_speech.transcribe_spool(
+                sid, device_id,
+                [(payload, to_offset_ms(sid, _as_int(ts_ms, 0) or None))
+                 for payload, ts_ms in payloads[:accepted]], codec, rate)
+        except Exception:
+            logger.warning("live: spooled audio was stored but could not be transcribed",
+                           exc_info=True)
     out: Dict[str, Any] = {"ok": not refused, "chunks": accepted,
                            "written": accepted, "bytes": written}
     if dropped:
