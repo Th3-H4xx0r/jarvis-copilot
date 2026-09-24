@@ -253,3 +253,45 @@ def test_upload_endpoint_routes_through_adapter(monkeypatch):
     handle_transcribe(handler)
     assert handler.status == 200
     assert json.loads(handler.wfile.getvalue()) == {"ok": True, "transcript": "cloud words"}
+
+
+class HalfStream(FakeStream):
+    """Some words came back, but the stream did not end cleanly."""
+
+    def __init__(self, error="", cut_off=False):
+        super().__init__([Segment("remind me to call Mom", 0, 900)], error)
+        self.cut_off = cut_off
+
+    def finish(self, timeout=5.0):
+        return list(self.segments)
+
+
+def test_words_that_came_with_an_error_are_not_trusted(monkeypatch, sent):
+    calls = []
+    monkeypatch.setattr(voice, "_pcm_to_transcript",
+                        lambda pcm, sr, *, realtime=False: calls.append(1) or "the whole sentence")
+    state = _state(stt_stream=HalfStream(error="timed out waiting for Soniox"))
+    state["pcm_buf"] += b"\x01\x00" * 8000
+    voice._bridge_pipeline(state, None, None)
+    assert calls == [1]
+
+
+def test_a_cut_off_stream_falls_back_to_the_whole_turn(monkeypatch, sent):
+    calls = []
+    monkeypatch.setattr(voice, "_pcm_to_transcript",
+                        lambda pcm, sr, *, realtime=False: calls.append(1) or "the whole sentence")
+    state = _state(stt_stream=HalfStream(cut_off=True))
+    state["pcm_buf"] += b"\x01\x00" * 8000
+    voice._bridge_pipeline(state, None, None)
+    assert calls == [1]
+
+
+def test_an_engine_that_throws_on_open_does_not_close_the_socket(monkeypatch):
+    class Throws(FakeEngine):
+        def open_stream(self, sink, **kw):
+            raise RuntimeError("boom")
+    monkeypatch.setattr(voice, "_voice_engine", lambda: Throws())
+    state = _state()
+    with state["lock"]:
+        voice._feed_turn_stream(state, b"a" * 320)
+    assert state.get("stt_stream_off") and "stt_stream" not in state

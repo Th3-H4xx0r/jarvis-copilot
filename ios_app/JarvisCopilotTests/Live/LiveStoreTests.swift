@@ -203,6 +203,28 @@ final class LiveStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.partialText, "", "the finished line replaces the words in progress")
     }
 
+    /// Critical: with a server engine hearing the phone, Apple's recogniser must
+    /// not open for each line too — two transcripts fighting over one line.
+    func testApplesRecogniserStaysOffWhileAServerEngineHearsThePhone() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: engineReady())
+        let before = rig.recognizer.startCount
+        rig.input.emitFrames(amplitude: 0.05, ms: 800)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(rig.recognizer.startCount, before)
+    }
+
+    func testTheEnginesLateWordsAreIgnoredOnceRecordingStops() async {
+        let rig = makeRig(readiness: .ready)
+        await rig.store.start()
+        rig.store.receive(text: engineReady())
+        let me = lastFrame(rig, t: "hello")?["device_id"] as? String ?? ""
+        await rig.store.stop()
+        rig.store.receive(text: json(["t": "partial", "device_id": me, "text": "late words"]))
+        XCTAssertEqual(rig.store.partialText, "")
+    }
+
     func testAnEngineWarningIsShownInWords() async {
         let rig = makeRig(readiness: .ready)
         await rig.store.start()

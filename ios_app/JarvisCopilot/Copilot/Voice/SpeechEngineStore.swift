@@ -37,15 +37,15 @@ final class SpeechEngineStore {
 
     func setSurface(_ name: String, to engine: String) async {
         guard settings.surface(name) != engine else { return }
-        var next = settings
-        next.setSurface(name, engine)
-        await commit(next, patch: ["surfaces": [name: engine]])
+        let old = settings.surface(name)
+        settings.setSurface(name, engine)
+        await commit(patch: ["surfaces": [name: engine]]) { $0.setSurface(name, old) }
     }
 
     func setSoniox<Value>(_ field: WritableKeyPath<SpeechSoniox, Value>, _ value: Value, key: String) async {
-        var next = settings
-        next.soniox[keyPath: field] = value
-        await commit(next, patch: ["soniox": [key: value]])
+        let old = settings.soniox[keyPath: field]
+        settings.soniox[keyPath: field] = value
+        await commit(patch: ["soniox": [key: value]]) { $0.soniox[keyPath: field] = old }
     }
 
     /// Save a new key ("" removes it). The key is not kept here once it is sent.
@@ -81,15 +81,16 @@ final class SpeechEngineStore {
         }
     }
 
-    private func commit(_ next: SpeechSettings, patch: [String: Any]) async {
-        let before = settings
-        settings = next
+    /// Save one change already on screen. A refusal puts back ONLY that field:
+    /// restoring a whole snapshot would also undo — or resurrect — another
+    /// save that overlapped this one.
+    private func commit(patch: [String: Any], revert: (inout SpeechSettings) -> Void) async {
         do {
             let config = try await api.save(patch)
             settings.apply(config: config)
             error = ""
         } catch {
-            settings = before
+            revert(&settings)
             self.error = apiErrorLine(error)
         }
     }

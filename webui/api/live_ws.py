@@ -164,9 +164,9 @@ def _insight_frame(note: Dict[str, Any]) -> Dict[str, Any]:
 
 LANE_EDGE = "edge"
 LANE_SERVER = "server"
-# After a server speech engine fails on a connection, how long before a
-# re-hello may try it again (the phone reconnects about once a minute).
-_ENGINE_RETRY_SECONDS = 30.0
+# How often a device that cannot transcribe looks for its engine again after
+# losing it (the backoff itself lives in api/live_speech.py).
+_ENGINE_RECHECK_SECONDS = 5.0
 # Shorter lines are identified but never learned from (a voice needs more than
 # a word or two to be sure of).
 _LEARN_MIN_MS = 3000
@@ -1722,7 +1722,7 @@ def _decide_identity(live_session_id: str, seq: int, row: Dict[str, Any],
     # matched to a known voice, but it teaches none and mints none.
     span = int(row.get("ts_end_ms") or 0) - int(row.get("ts_start_ms") or 0)
     decision = live_voiceprint.identify(vec, live_session_id=live_session_id,
-                                        seq=seq, learn=span >= _LEARN_MIN_MS)
+                                        seq=seq, learn=span <= 0 or span >= _LEARN_MIN_MS)
     if not decision:
         _report_identification("skipped: the embedding produced no decision")
         return
@@ -1975,7 +1975,8 @@ class LiveConnection:
         self.engine_lane = None
         self.engine_label = ""
         self._caps_stt = ""
-        self._engine_retry_at = 0.0
+        # When a device that cannot transcribe lost its engine, when to look again.
+        self._engine_recheck_at = 0.0
 
     # ── outbound ──
 
@@ -2121,9 +2122,11 @@ class LiveConnection:
                     {"live_session_id": self.live_session_id,
                      "device_id": self.device_id, "source_label": label})
         elif kind == "end":
-            if self.engine_lane is not None:
+            lane, self.engine_lane = self.engine_lane, None
+            if lane is not None:
                 # The last line the engine is still hearing belongs to this session.
-                self.engine_lane.finish()
+                # Detached first: a slow last reply is not the engine failing.
+                lane.finish()
             row = end_live_session(self.live_session_id)
             self.send({"t": "state", "live_session_id": self.live_session_id,
                        "state": row.get("state") or "ended",
@@ -2149,7 +2152,7 @@ class LiveConnection:
             logger.debug("live audio frame out of order on %s: %s after %s",
                          self.live_session_id, seq, self._last_audio_seq)
         self._last_audio_seq = max(self._last_audio_seq, seq)
-        self._write_audio(payload, ts_ms)
+        self._write_audio(payload, ts_ms, seq=seq)
 
     def close(self) -> None:
         self.closed = True
@@ -2202,9 +2205,8 @@ class LiveConnection:
     def _choose_engine(self) -> None:
         """Put this device on a server engine's lane when one is configured."""
         from api import live_speech
-        engine = None
-        if time.monotonic() >= self._engine_retry_at:
-            engine = live_speech.live_engine()
+        # None while a failed engine is backing off, or when none is configured.
+        engine = None if live_speech.engine_blocked() else live_speech.live_engine()
         if engine is None:
             if self.engine_lane is not None:
                 self.engine_lane.close()
@@ -2221,7 +2223,6 @@ class LiveConnection:
         if lane is None:
             return  # several streams can report one failure
         lane.close()
-        self._engine_retry_at = time.monotonic() + _ENGINE_RETRY_SECONDS
         label, self.engine_label = self.engine_label or "The speech engine", ""
         logger.warning("live: %s stopped on %s (%s)", label, self.live_session_id[:8] or "?", reason)
         self.send({"t": "state", "warning": "speech_engine",
@@ -2358,6 +2359,10 @@ class LiveConnection:
     # ── ingestion ──
 
     def _on_seg(self, msg: Dict[str, Any]) -> None:
+        if self.engine_lane is not None:
+            # A server engine is this device's transcriber; the device's own lines
+            # (sent before `ready` said so, or spooled) would be the same speech twice.
+            return
         track = str(msg.get("track") or msg.get("local_label") or "default")
         partial = bool(msg.get("partial"))
         text = str(msg.get("text") or "")
@@ -2427,6 +2432,8 @@ class LiveConnection:
             self._store_unavailable("utterance", exc=True)
 
     def _on_text_batch(self, msg: Dict[str, Any]) -> None:
+        if self.engine_lane is not None:
+            return  # as in _on_seg: the engine writes this device's lines
         segments = msg.get("segments")
         if not isinstance(segments, list):
             self.error("bad_frame", "text frame needs a segments array")
@@ -2489,7 +2496,7 @@ class LiveConnection:
 
     def _write_audio(self, payload: bytes, ts_ms: int, codec: str = "",
                      rate: int = 0, warn: bool = True,
-                     live: bool = True) -> Dict[str, Any]:
+                     live: bool = True, seq: Optional[int] = None) -> Dict[str, Any]:
         try:
             result = ingest_audio_chunk(
                 self.live_session_id, payload, ts_ms=ts_ms,
@@ -2511,10 +2518,27 @@ class LiveConnection:
         if warn and result.get("dropped_bytes"):
             self._warn_dropped(int(result["dropped_bytes"]))
         lane = self.engine_lane
+        if live and lane is None:
+            lane = self._engine_again()
         if live and lane is not None:
             lane.feed(payload, to_offset_ms(self.live_session_id, ts_ms or None),
-                      codec or self.codec, rate or self.rate)
+                      codec or self.codec, rate or self.rate, seq=seq)
         return result
+
+    def _engine_again(self):
+        """A device that cannot transcribe lost its engine: take it back once the
+        backoff has passed. A device that can was handed the edge lane instead, and
+        gets the engine back on its next hello."""
+        if self.lane != LANE_SERVER or self._caps_stt == "on_device":
+            return None
+        now = time.monotonic()
+        if now < self._engine_recheck_at:
+            return None
+        self._engine_recheck_at = now + _ENGINE_RECHECK_SECONDS
+        self._choose_engine()
+        if self.engine_lane is not None:
+            self._send_ready(relane=True)
+        return self.engine_lane
 
     def _warn_dropped(self, dropped: int) -> None:
         self.send({"t": "state", "warning": "audio_buffer_overflow",

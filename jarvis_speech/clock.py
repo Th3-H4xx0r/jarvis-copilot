@@ -13,16 +13,19 @@ from typing import List, Optional, Tuple
 
 GAP_MS = 300
 SILENCE_MS = 600
+# Device stamps are whole ms while chunk lengths are exact (62.5 ms for 1000
+# samples at 16 kHz); within this much a chunk is taken as following straight on.
+_CONTIGUOUS_MS = 1.0
 
 
 class ClockMap:
     def __init__(self) -> None:
         self._starts: List[int] = []
-        self._pieces: List[Tuple[int, int, int]] = []  # (stream_start, session_start, length)
-        self._stream_end = 0
-        self._session_end: Optional[int] = None
+        self._pieces: List[Tuple[float, float, float]] = []  # (stream_start, session_start, length)
+        self._stream_end = 0.0
+        self._session_end: Optional[float] = None
 
-    def place(self, n_ms: int, session_ms: Optional[int]) -> int:
+    def place(self, n_ms: float, session_ms: Optional[float]) -> int:
         """Record `n_ms` of audio said at `session_ms`; returns ms of silence to feed first."""
         if session_ms is None:
             session_ms = self._session_end if self._session_end is not None else 0
@@ -30,8 +33,10 @@ class ClockMap:
         if self._session_end is not None:
             gap = session_ms - self._session_end
             if gap >= GAP_MS:
-                silence = min(SILENCE_MS, gap)
+                silence = int(min(SILENCE_MS, gap))
                 self._add(silence, self._session_end)
+            elif abs(gap) < _CONTIGUOUS_MS:
+                session_ms = self._session_end
             elif gap < 0:
                 # Older audio arriving late cannot be put back in the past of a
                 # live stream; keep the stream's own timeline instead.
@@ -45,9 +50,9 @@ class ClockMap:
             return int(stream_ms)
         index = max(0, bisect_right(self._starts, stream_ms) - 1)
         stream_start, session_start, _ = self._pieces[index]
-        return int(session_start + (stream_ms - stream_start))
+        return int(round(session_start + (stream_ms - stream_start)))
 
-    def _add(self, length: int, session_start: int) -> None:
+    def _add(self, length: float, session_start: float) -> None:
         if length <= 0:
             return
         if self._pieces:

@@ -24,7 +24,11 @@ class TokenAssembler:
         self._open: List[dict] = []        # final spoken tokens of the line being built
         self._key = 0                      # that line's key
         self._next_key = 1
-        self._last_original_key = 0        # the line a translation token belongs to
+        # Lines that got spoken words since the last translation token. Soniox
+        # translates a chunk after speaking it, so the chunk's translation belongs
+        # to the FIRST of them — a speaker split inside the chunk must not move it.
+        self._awaiting: List[int] = []
+        self._translation_key = 0
         self._translations: Dict[int, List[str]] = {}
         self._closed: set = set()
         self._last_partial = ""
@@ -40,10 +44,16 @@ class TokenAssembler:
             text = token.get("text") or ""
             status = token.get("translation_status") or "none"
             if status == "translation":
-                if token.get("is_final") and self._last_original_key:
-                    self._translations.setdefault(self._last_original_key, []).append(text)
-                    if self._last_original_key in self._closed:
-                        late.add(self._last_original_key)
+                if not token.get("is_final"):
+                    continue
+                if self._awaiting:
+                    self._translation_key = self._awaiting[0]
+                    self._awaiting = []
+                key = self._translation_key
+                if key:
+                    self._translations.setdefault(key, []).append(text)
+                    if key in self._closed:
+                        late.add(key)
                 continue
             if text in _MARKERS:
                 self._close()
@@ -57,8 +67,8 @@ class TokenAssembler:
                 self._key = self._next_key
                 self._next_key += 1
             self._open.append(token)
-            if status == "original":
-                self._last_original_key = self._key
+            if status == "original" and self._key not in self._awaiting:
+                self._awaiting.append(self._key)
         for key in sorted(late):
             self._sink.on_translation(key, self._translation(key))
         self._partial(self._open + pending)

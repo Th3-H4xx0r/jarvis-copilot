@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 _URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 _CONNECT_TIMEOUT_S = 5
 _KEEPALIVE_S = 10          # Soniox closes a stream that hears nothing for 20 s
-_QUEUE_MAX = 1500          # ~30 s of 20 ms frames
 _FILE_CHUNK = 32 * 1024
 _SURFACE_OF = {"voice": "voice", "live": "live", "file": "upload"}
 # Containers Soniox recognises with audio_format "auto"; anything else is decoded first.
@@ -127,7 +126,10 @@ class SonioxStream:
         self._timed = audio_format == "pcm_s16le"
         self._clock = ClockMap()
         self._assembler = TokenAssembler(self._collect, to_session=self._clock.to_session)
-        self._queue: "queue.Queue" = queue.Queue(maxsize=_QUEUE_MAX)
+        # Unbounded on purpose: a file, a clip or an offline spool is fed faster than
+        # real time and is already in memory; dropping any of it would return a
+        # transcript with a hole in it and call it a success.
+        self._queue: "queue.Queue" = queue.Queue()
         self._lock = threading.Lock()
         self._ending = False
         self._finish = threading.Event()
@@ -137,7 +139,10 @@ class SonioxStream:
         self._opened_at: Optional[float] = None
         self._last_feed = time.monotonic()
         self.error = ""
-        self.dropped = 0
+        # The socket closed before Soniox said `finished`: the words so far are
+        # kept, but they may not be all of them. Batch callers treat that as a
+        # failure (a clip or a file has a complete answer to wait for).
+        self.cut_off = False
         threading.Thread(target=self._write_loop, name=f"soniox-{purpose}-send", daemon=True).start()
 
     # ── the caller's side ──
@@ -152,10 +157,7 @@ class SonioxStream:
             if self._ending or self._done.is_set():
                 return False
             self._last_feed = time.monotonic()
-            try:
-                self._queue.put_nowait((bytes(pcm16), ts_ms))
-            except queue.Full:
-                self.dropped += 1
+            self._queue.put_nowait((bytes(pcm16), ts_ms))
         return True
 
     def finish(self, timeout: float = 5.0) -> List[Segment]:
@@ -182,6 +184,8 @@ class SonioxStream:
                 raise RuntimeError("no SONIOX_API_KEY")
             self._ws = self._connect()
             if self._done.is_set():
+                # Closed while the socket was opening: nobody will close it later.
+                self._shutdown()
                 return
             message = self._config_message()
             message["api_key"] = self._key
@@ -203,6 +207,9 @@ class SonioxStream:
                 now = time.monotonic()
                 idle = self._idle_close_s and now - self._last_feed >= self._idle_close_s
                 if self._finish.is_set() or idle:
+                    # An idle close is a finish too: a close without `finished`
+                    # after it is the end of the stream, not a failure.
+                    self._finish.set()
                     with self._lock:
                         self._ending = True
                     while True:  # anything queued before the stream started ending
@@ -224,7 +231,7 @@ class SonioxStream:
 
     def _send_audio(self, pcm: bytes, ts_ms: Optional[int]) -> None:
         if self._timed:
-            n_ms = int(round(len(pcm) / 2 * 1000 / self._rate))
+            n_ms = len(pcm) / 2 * 1000 / self._rate  # exact: rounding drifts over hours
             silence_ms = self._clock.place(n_ms, ts_ms)
             if silence_ms:
                 self._ws.send(b"\x00\x00" * (silence_ms * self._rate // 1000))
@@ -242,6 +249,7 @@ class SonioxStream:
                         self._fail("Soniox closed the stream")
                     else:
                         self._assembler.flush()
+                        self.cut_off = True
                     break
                 response = json.loads(raw)
                 if response.get("error_code") or response.get("error_type"):
@@ -351,8 +359,9 @@ class SonioxEngine:
         for offset in range(0, len(data), _FILE_CHUNK):
             stream.feed(data[offset:offset + _FILE_CHUNK])
         segments = stream.finish(timeout=max(15.0, seconds + 10.0))
-        if stream.error:
-            return {"success": False, "transcript": "", "error": stream.error}
+        if stream.error or stream.cut_off:
+            return {"success": False, "transcript": "",
+                    "error": stream.error or "Soniox stopped before it finished"}
         languages = [s.language for s in segments if s.language]
         return {"success": True, "transcript": " ".join(s.text for s in segments).strip(),
                 "provider": "soniox",

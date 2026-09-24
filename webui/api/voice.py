@@ -1378,8 +1378,14 @@ def _feed_turn_stream(state: dict, payload: bytes) -> None:
         if state.get("stt_stream_off") or state.get("pretranscript"):
             return
         engine = _voice_engine()
-        stream = engine.open_stream(_TurnSink(), rate=int(state.get("sample_rate") or 16000),
-                                    purpose="voice") if engine is not None else None
+        try:
+            stream = engine.open_stream(_TurnSink(), rate=int(state.get("sample_rate") or 16000),
+                                        purpose="voice") if engine is not None else None
+        except Exception:
+            # This runs inside the socket's receive loop: an engine that throws
+            # must cost this turn its engine, never the socket.
+            logger.warning("voice: speech engine could not open a stream", exc_info=True)
+            stream = None
         if stream is None:
             state["stt_stream_off"] = True  # decided for this turn; not re-asked every frame
             return
@@ -1411,10 +1417,16 @@ def _engine_turn_transcript(stream, pcm_len: int):
     except Exception:
         logger.warning("voice: speech engine finish failed", exc_info=True)
         return None
-    return _engine_words(segments, getattr(stream, "error", ""), pcm_len)
+    return _engine_words(segments, getattr(stream, "error", ""), pcm_len,
+                         cut_off=getattr(stream, "cut_off", False))
 
 
-def _engine_words(segments, error: str, pcm_len: int):
+def _engine_words(segments, error: str, pcm_len: int, cut_off: bool = False):
+    if error or cut_off:
+        # Some words may have come back, but not a clean end: the turn's own
+        # buffered audio through the local path is the whole sentence.
+        logger.info("voice: speech engine result not used (%s)", error or "cut off")
+        return None
     text = " ".join(s.text for s in segments if getattr(s, "text", "")).strip()
     if not text:
         # An error, or half a second of audio with nothing back, is not trusted as silence.
@@ -1451,7 +1463,8 @@ def _engine_transcribe_pcm(pcm_bytes: bytes, sample_rate: int):
     except Exception:
         logger.warning("voice: speech engine finish failed", exc_info=True)
         return None
-    return _engine_words(segments, getattr(stream, "error", ""), len(pcm_bytes))
+    return _engine_words(segments, getattr(stream, "error", ""), len(pcm_bytes),
+                         cut_off=getattr(stream, "cut_off", False))
 
 
 # The fast model's guess is taken only this confident or better; below it the accurate

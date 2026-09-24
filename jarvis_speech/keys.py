@@ -23,9 +23,12 @@ def env_path() -> Path:
         return Path(home) / ".env" if home else Path.home() / ".jarviscopilot" / ".env"
 
 
-def _from_file(name: str) -> str:
+def _from_file(name: str):
+    """The value in the profile's .env, "" when it has none — or None when there is no file."""
     try:
         lines = env_path().read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return None
     except (OSError, UnicodeDecodeError):
         return ""
     for raw in lines:
@@ -41,7 +44,13 @@ def _from_file(name: str) -> str:
 
 
 def soniox_key() -> str:
-    return _from_file(ENV_KEY) or os.environ.get(ENV_KEY, "").strip()
+    # When the profile has a .env, it decides: a key removed from it must stop
+    # being used by the gateway too, which copied the old file into its
+    # environment at startup. Without a file, the process environment is it.
+    from_file = _from_file(ENV_KEY)
+    if from_file is not None:
+        return from_file
+    return os.environ.get(ENV_KEY, "").strip()
 
 
 def key_status() -> dict:

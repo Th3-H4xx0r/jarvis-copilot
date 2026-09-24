@@ -100,3 +100,14 @@ def test_error_response_reaches_sink():
     a = TokenAssembler(r)
     a.consume({"tokens": [], "error_code": 401, "error_type": "unauthenticated", "error_message": "bad key"})
     assert r.errors and "unauthenticated" in r.errors[0]
+
+
+def test_a_translation_after_a_speaker_split_goes_to_the_first_line():
+    r = Rec()
+    a = TokenAssembler(r)
+    a.consume({"tokens": [tok("Hola", 0, 300, spk="1", lang="es", status="original"),
+                          tok(" amigo", 300, 700, spk="2", lang="es", status="original"),
+                          tok("<end>")]})
+    a.consume({"tokens": [tok("Hello friend", lang="en", status="translation")]})
+    assert [s.text for s in r.segs] == ["Hola", "amigo"]
+    assert r.trans == [(r.segs[0].key, "Hello friend")]

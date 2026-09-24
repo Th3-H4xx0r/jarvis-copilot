@@ -279,6 +279,8 @@ final class LiveStore {
     /// The server speech engine hearing this device, from `ready.engine`; empty on
     /// the edge lane and on a server lane with no engine.
     private(set) var serverEngine = ""
+    /// The edge lane came back; the line being spoken right then has no session.
+    private var rearmedMidUtterance = false
     private var audioSeq = 0
     private var reconnectAttempt = 0
     private var reconnectTimer: VoiceTimerToken?
@@ -1256,7 +1258,10 @@ final class LiveStore {
 
     /// Open a transcription session for the utterance that just began.
     private func openSpeechSession() {
-        guard declaredSTT == "on_device", speech == nil else { return }
+        // `sttEnabled`, not the declared ability: on a server engine's lane the
+        // phone CAN transcribe but must not — the engine is writing the lines.
+        guard sttEnabled, speech == nil else { return }
+        rearmedMidUtterance = false
         let epoch = generation
         let locales = sttLocales
         Task { [weak self] in
@@ -1584,6 +1589,12 @@ final class LiveStore {
         // to be handed back.
         guard sttEnabled else { return }
         guard let finished else {
+            if rearmedMidUtterance {
+                // Handed back while this line was already being spoken: nothing
+                // opened a session for it, which is not a failure to start.
+                rearmedMidUtterance = false
+                return
+            }
             fallBackToServerTranscription(because: "On-device transcription didn't start in time.")
             return
         }
@@ -1958,6 +1969,7 @@ final class LiveStore {
             sttNotice = "Jarvis is transcribing on the server for this session."
         } else if ready.lane == .edge, sttCapable, !sttEnabled {
             sttEnabled = true
+            rearmedMidUtterance = true
             sttNotice = ""
         }
         spool.adopt(sessionID: ready.liveSessionID)
@@ -2002,7 +2014,7 @@ final class LiveStore {
     /// Words a server speech engine is still hearing. Only this device's, and only
     /// on an engine's lane — on the edge lane `partialText` is Apple's own guess.
     private func applyServerPartial(_ partial: LivePartial) {
-        guard !serverEngine.isEmpty, partial.deviceID == deviceID else { return }
+        guard capturing, !interrupted, !serverEngine.isEmpty, partial.deviceID == deviceID else { return }
         let text = partial.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         partialText = text

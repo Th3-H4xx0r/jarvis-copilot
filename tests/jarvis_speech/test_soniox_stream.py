@@ -190,3 +190,70 @@ def test_file_error_is_unsuccessful(monkeypatch, tmp_path):
 def test_languages_table_has_codes_and_names():
     codes = {row["code"] for row in soniox.LANGUAGES}
     assert {"en", "es", "zh", "te"} <= codes and all(row["name"] for row in soniox.LANGUAGES)
+
+
+# ── bug sweep ──────────────────────────────────────────────────────────────
+
+
+def test_audio_fed_faster_than_real_time_is_never_dropped(monkeypatch):
+    t = FakeTransport([])
+    gate = threading.Event()
+    eng = _engine(monkeypatch, t)
+    eng._connect = lambda: (gate.wait(2), t)[1]
+    s = eng.open_stream(Rec(), rate=16000, purpose="file")
+    for _ in range(2000):
+        s.feed(b"\x00\x00" * 320)
+    gate.set()
+    s.finish(timeout=5)
+    assert _audio_bytes(t) == 2000 * 640 and not s.error
+
+
+def test_close_during_connect_closes_the_socket(monkeypatch):
+    t = FakeTransport([])
+    gate = threading.Event()
+    eng = _engine(monkeypatch, t)
+    eng._connect = lambda: (gate.wait(2), t)[1]
+    s = eng.open_stream(Rec(), rate=16000, purpose="voice")
+    s.close()
+    gate.set()
+    deadline = time.time() + 3
+    while not t.closed and time.time() < deadline:
+        time.sleep(0.02)
+    assert t.closed
+
+
+def test_an_idle_close_answered_without_finished_is_not_a_failure(monkeypatch):
+    t = ClosesWithoutFinished([{"tokens": [tok("bye now", 0, 400)]}])
+    rec = Rec()
+    s = _engine(monkeypatch, t).open_stream(rec, rate=16000, purpose="live", idle_close_s=0.2)
+    s.feed(b"\x00\x01" * 1600, ts_ms=0)
+    deadline = time.time() + 3
+    while not s.done and time.time() < deadline:
+        time.sleep(0.02)
+    assert s.done and s.error == "" and rec.errors == []
+    assert [x.text for x in rec.segs] == ["bye now"]
+
+
+def test_odd_sized_chunks_do_not_drift(monkeypatch):
+    t = FakeTransport([{"tokens": [tok("end", 3_599_000, 3_600_000), tok("<end>")]}])
+    rec = Rec()
+    s = _engine(monkeypatch, t).open_stream(rec, rate=16000, purpose="live")
+    for k in range(57_600):             # one hour of 1000-sample (62.5 ms) chunks, device-stamped
+        s.feed(b"\x00\x00" * 1000, ts_ms=int(k * 62.5))
+    s.finish(timeout=30)
+    assert abs(rec.segs[0].end_ms - 3_600_000) <= 1
+
+
+def test_a_close_before_finished_marks_the_result_cut_off(monkeypatch):
+    t = ClosesWithoutFinished([{"tokens": [tok("half a", 0, 400)]}])
+    s = _engine(monkeypatch, t).open_stream(Rec(), rate=16000, purpose="voice")
+    s.feed(b"\x00\x01" * 1600)
+    assert [x.text for x in s.finish(timeout=2)] == ["half a"]
+    assert s.cut_off and s.error == ""
+
+
+def test_a_cut_off_file_is_not_a_success(monkeypatch, tmp_path):
+    t = ClosesWithoutFinished([{"tokens": [tok("half a", 0, 400)]}])
+    path = tmp_path / "note.ogg"
+    path.write_bytes(b"OggS" + b"\x00" * 5000)
+    assert _engine(monkeypatch, t).transcribe_file(str(path))["success"] is False

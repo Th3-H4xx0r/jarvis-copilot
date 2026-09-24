@@ -71,9 +71,9 @@ def _pcm_caps(**over):
     return _edge_caps(codec="pcm16", rate=16000, **over)
 
 
-def _audio(conn, ts_ms=1500, n=320):
+def _audio(conn, ts_ms=1500, n=320, seq=1):
     pcm = b"\x01\x00" * n
-    conn.on_binary(live_ws.encode_audio_frame(1, ts_ms, pcm))
+    conn.on_binary(live_ws.encode_audio_frame(seq, ts_ms, pcm))
     return pcm
 
 
@@ -210,7 +210,7 @@ def test_live_reconnect_finishes_old_stream_once(monkeypatch):
     conn1.close()
     assert _wait(lambda: fake.streams_opened[0].finished == 1)
     conn2, _ = _connect(caps=_pcm_caps(), resume={"live_session_id": sid, "after_seq": 0})
-    _audio(conn2, ts_ms=4000)
+    _audio(conn2, ts_ms=4000, seq=2)   # the phone's count carries on across a reconnect
     assert len(fake.streams_opened) == 2 and fake.streams_opened[1].fed
     assert [r["text"] for r in _rows(sid)] == ["last words"]
     assert fake.streams_opened[0].finished == 1
@@ -293,3 +293,126 @@ def test_edge_lane_is_untouched_without_an_engine(monkeypatch):
     assert client.first("ready")["lane"] == live_ws.LANE_EDGE
     _audio(conn)
     assert conn.engine_lane is None
+
+
+# ── bug sweep ──────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def fresh_engine_memory():
+    live_speech.reset_for_tests()
+    yield
+    live_speech.reset_for_tests()
+
+
+def _frame(conn, seq, ts_ms, n=320):
+    conn.on_binary(live_ws.encode_audio_frame(seq, ts_ms, b"\x01\x00" * n))
+
+
+def test_frames_replayed_after_a_reconnect_are_not_heard_twice(engine):
+    conn1, _ = _connect(caps=_pcm_caps())
+    sid = conn1.live_session_id
+    for seq in range(1, 6):
+        _frame(conn1, seq, seq * 20)
+    conn1.close()
+    conn2, _ = _connect(caps=_pcm_caps(), resume={"live_session_id": sid, "after_seq": 0})
+    for seq in range(3, 8):              # the phone re-sends its in-flight window
+        _frame(conn2, seq, seq * 20)
+    assert len(engine.streams_opened[1].fed) == 2
+
+
+def test_an_app_restart_that_counts_from_one_again_is_still_heard(engine):
+    conn1, _ = _connect(caps=_pcm_caps())
+    sid = conn1.live_session_id
+    for seq in range(1, 2001):
+        _frame(conn1, seq, seq * 20, n=16)
+    conn1.close()
+    conn2, _ = _connect(caps=_pcm_caps(), resume={"live_session_id": sid, "after_seq": 0})
+    _frame(conn2, 1, 50_000)
+    assert len(engine.streams_opened[1].fed) == 1
+
+
+def test_a_failing_engine_is_not_retried_on_every_reconnect(engine):
+    conn1, client1 = _connect(caps=_pcm_caps())
+    sid = conn1.live_session_id
+    _audio(conn1)
+    engine.streams_opened[0].sink.on_error("unauthenticated: bad key")
+    conn1.close()
+    _conn2, client2 = _connect(caps=_pcm_caps(), resume={"live_session_id": sid, "after_seq": 0})
+    assert client2.first("ready")["lane"] == live_ws.LANE_EDGE
+
+
+def test_the_engine_comes_back_for_a_device_that_cannot_transcribe(engine, monkeypatch):
+    conn, client = _connect(caps=_pcm_caps(stt="none"))
+    _audio(conn)
+    engine.streams_opened[0].sink.on_error("service_unavailable: try later")
+    monkeypatch.setattr(live_speech, "_now", lambda: 10 ** 9)   # the backoff has passed
+    _audio(conn, ts_ms=9000, seq=2)
+    assert len(engine.streams_opened) == 2
+    assert client.of("ready")[-1].get("engine") == "Fake"
+
+
+def test_a_slow_finish_at_end_is_not_reported_as_a_failure(engine, monkeypatch):
+    conn, client = _connect(caps=_pcm_caps())
+    _audio(conn)
+    stream = engine.streams_opened[0]
+    stream.finish = lambda timeout=5.0: stream.sink.on_error("timed out waiting for Soniox") or []
+    conn.on_text(json.dumps({"t": "end"}))
+    assert not [f for f in client.of("ready") if f.get("relane")]
+    assert live_store.get_session(conn.live_session_id)["state"] != "recording"
+
+
+def test_the_translation_target_is_a_language_soniox_knows(engine):
+    from api import live_config
+    live_config.save({"translate": True, "primary_language": "en-US"})
+    conn, _ = _connect(caps=_pcm_caps())
+    _audio(conn)
+    assert engine.options[0]["translate_to"] == "en"
+
+
+def test_device_lines_are_ignored_while_an_engine_hears_the_device(engine):
+    conn, _ = _connect(caps=_pcm_caps())
+    conn.on_text(json.dumps({"t": "seg", "local_label": "A", "text": "Apple heard this too",
+                             "ts_start_ms": 0, "ts_end_ms": 900, "final": True}))
+    assert _rows(conn.live_session_id) == []
+
+
+def test_a_line_with_no_recorded_length_can_still_teach(monkeypatch):
+    from api import live_voiceprint
+    seen = []
+    monkeypatch.setattr(live_voiceprint, "identify", lambda vec, **kw: seen.append(kw["learn"]))
+    live_ws._decide_identity("s", 1, {"ts_start_ms": 500, "ts_end_ms": 500}, [0.0] * 256, source="device")
+    assert seen == [True]
+
+
+def test_a_codec_nobody_can_decode_hands_the_phone_back(engine):
+    conn, client = _connect(caps=_edge_caps(codec="flac", rate=16000))
+    _audio(conn)
+    assert [f for f in client.of("state") if f.get("warning") == "speech_engine"]
+    assert client.of("ready")[-1]["lane"] == live_ws.LANE_EDGE
+
+
+def test_a_stream_that_cannot_open_hands_the_phone_back(engine, monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("no socket")
+    monkeypatch.setattr(engine, "open_stream", boom)
+    conn, client = _connect(caps=_pcm_caps())
+    _audio(conn)
+    assert client.of("ready")[-1]["lane"] == live_ws.LANE_EDGE
+
+
+def test_a_line_is_retried_when_the_store_is_busy(engine, monkeypatch):
+    real = live_ws.append_and_publish
+    attempts = []
+
+    def flaky(*a, **kw):
+        attempts.append(1)
+        if len(attempts) == 1:
+            import sqlite3
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **kw)
+    monkeypatch.setattr(live_ws, "append_and_publish", flaky)
+    conn, _ = _connect(caps=_pcm_caps())
+    _audio(conn)
+    engine.streams_opened[0].sink.on_segment(Segment("worth keeping", 0, 900, "en", "", "1", key=1))
+    assert [r["text"] for r in _rows(conn.live_session_id)] == ["worth keeping"]

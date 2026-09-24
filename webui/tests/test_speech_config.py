@@ -142,3 +142,11 @@ def test_test_endpoint_reports_engine_check(env, monkeypatch):
 def test_unknown_paths_are_not_handled(env):
     assert speech_config.handle_speech_get(_Handler(), urlparse("/api/speech/nope")) is False
     assert speech_config.handle_speech_post(_Handler(), urlparse("/api/speech/nope"), {}) is False
+
+
+def test_an_unreadable_config_is_never_overwritten(env):
+    env["cfg"].write_text("model: {default: m\nspeech: [broken")
+    before = env["cfg"].read_text()
+    handler = _put({"surfaces": {"upload": "soniox"}})
+    assert handler.status >= 400
+    assert env["cfg"].read_text() == before

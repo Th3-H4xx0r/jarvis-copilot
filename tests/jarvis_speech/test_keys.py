@@ -49,3 +49,13 @@ def test_usage_sums_by_day_and_prices(tmp_path, monkeypatch):
 def test_usage_with_no_file_is_zero(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     assert usage.summary() == {"today_s": 0, "month_s": 0, "est_usd": 0.0}
+
+
+def test_a_key_removed_from_the_file_is_gone_even_if_the_process_still_has_it(tmp_path, monkeypatch):
+    """The gateway copied .env into its environment at startup; the file decides."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".env").write_text("OTHER=1\n")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("SONIOX_API_KEY", "copied-at-startup-1234")
+    assert keys.soniox_key() == ""
