@@ -8,7 +8,11 @@ from tests.jarvis_speech.test_assemble import Rec, tok
 
 
 class FakeTransport:
-    """Scripted Soniox: answers the end-of-audio frame with `script`, then `finished`."""
+    """Scripted Soniox: answers the end-of-audio frame with `script`, then `finished`.
+
+    Like the real server (seen live 2026-09-24), only an empty TEXT frame ends the
+    audio; an empty binary frame is zero bytes of audio and Soniox keeps waiting.
+    """
 
     def __init__(self, script):
         self.sent, self.script, self._q, self.closed = [], list(script), [], False
@@ -16,7 +20,7 @@ class FakeTransport:
 
     def send(self, data):
         self.sent.append(data)
-        if data in (b"", ""):
+        if data == "":
             with self._cv:
                 self._q += [json.dumps(r) for r in self.script] + [json.dumps({"tokens": [], "finished": True})]
                 self._cv.notify_all()
@@ -143,7 +147,7 @@ class ClosesWithoutFinished(FakeTransport):
 
     def send(self, data):
         self.sent.append(data)
-        if data in (b"", ""):
+        if data == "":
             with self._cv:
                 self._q += [json.dumps(r) for r in self.script]
                 self._cv.notify_all()
@@ -257,3 +261,20 @@ def test_a_cut_off_file_is_not_a_success(monkeypatch, tmp_path):
     path = tmp_path / "note.ogg"
     path.write_bytes(b"OggS" + b"\x00" * 5000)
     assert _engine(monkeypatch, t).transcribe_file(str(path))["success"] is False
+
+
+def test_end_of_audio_is_an_empty_text_frame(monkeypatch):
+    t = FakeTransport([])
+    s = _engine(monkeypatch, t).open_stream(Rec(), rate=16000, purpose="voice")
+    s.feed(b"\x00\x01" * 160)
+    s.finish(timeout=2)
+    assert s.error == "" and isinstance(t.sent[-1], str) and t.sent[-1] == ""
+
+
+def test_check_can_try_a_key_that_is_not_saved(monkeypatch):
+    t = FakeTransport([])
+    monkeypatch.setattr(soniox.keys, "soniox_key", lambda: "")
+    eng = soniox.SonioxEngine()
+    eng._connect = lambda: t
+    assert eng.check(key="typed-key-5678") == (True, "Soniox answered")
+    assert json.loads(t.sent[0])["api_key"] == "typed-key-5678"

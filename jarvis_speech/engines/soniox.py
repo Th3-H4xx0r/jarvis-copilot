@@ -115,8 +115,9 @@ class _Collect:
 
 class SonioxStream:
     def __init__(self, connect, sink, *, rate: int, translate_to: str, purpose: str,
-                 idle_close_s: float, audio_format: str = "pcm_s16le") -> None:
+                 idle_close_s: float, audio_format: str = "pcm_s16le", key: str = "") -> None:
         self._connect = connect
+        self._given_key = key  # a key being tried before it is saved (the Test button)
         self._collect = _Collect(sink)
         self._rate = max(1, int(rate or 16000))
         self._translate_to = translate_to or ""
@@ -179,7 +180,7 @@ class SonioxStream:
 
     def _write_loop(self) -> None:
         try:
-            self._key = keys.soniox_key()
+            self._key = self._given_key or keys.soniox_key()
             if not self._key:
                 raise RuntimeError("no SONIOX_API_KEY")
             self._ws = self._connect()
@@ -218,7 +219,10 @@ class SonioxStream:
                         except queue.Empty:
                             break
                         self._send_audio(pcm, ts_ms)
-                    self._ws.send(b"")
+                    # An empty TEXT frame ends the audio. An empty binary frame is
+                    # zero bytes of audio: Soniox keeps waiting, and every stream
+                    # ended in "timed out waiting for Soniox".
+                    self._ws.send("")
                     return
                 if now - last_sent >= _KEEPALIVE_S:
                     self._ws.send(json.dumps({"type": "keepalive"}))
@@ -368,12 +372,16 @@ class SonioxEngine:
                 "language": max(set(languages), key=languages.count) if languages else "",
                 "translation": ""}
 
-    def check(self):
-        """One tiny session: does the saved key work? (What the settings Test button runs.)"""
+    def check(self, key: str = ""):
+        """One tiny session: does the key work? (What the settings Test button runs.)
+
+        `key` tries a key that is not saved yet; without it, the saved key.
+        """
         ok, reason = self.available()
-        if not ok:
+        if not ok and not (key and reason == "no SONIOX_API_KEY"):
             return False, reason
-        stream = self.open_stream(_Quiet(), rate=16000, purpose="voice")
+        stream = SonioxStream(lambda: self._connect(), _Quiet(), rate=16000, translate_to="",
+                              purpose="voice", idle_close_s=0, key=key)
         stream.feed(b"\x00\x00" * 3200)
         stream.finish(timeout=8.0)
         if stream.error:

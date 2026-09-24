@@ -6325,11 +6325,14 @@ function _speechKeyRow(key){
   remove.addEventListener('click', () => send(''));
   remove.disabled = !key.set;
   test.addEventListener('click', async () => {
+    // A key in the box is tried as it is — no need to save it first.
+    const typed = input.value.trim();
     result.textContent = 'Testing…';
     result.style.color = 'var(--fg-dim,#9aa3b2)';
     try {
-      const res = await api('/api/speech/test', { method: 'POST', body: '{}' });
-      result.textContent = (res.ok ? 'Works — ' : 'Failed — ') + res.message;
+      const res = await api('/api/speech/test', { method: 'POST', body: JSON.stringify(typed ? { api_key: typed } : {}) });
+      result.textContent = (res.ok ? 'Works — ' : 'Failed — ') + res.message
+        + (res.ok && typed ? '. Press Save to keep this key.' : '');
       result.style.color = res.ok ? '#9be09b' : '#ff8080';
     } catch (e) {
       result.textContent = 'Failed — ' + (e && e.message || e);

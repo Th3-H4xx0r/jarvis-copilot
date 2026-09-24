@@ -139,6 +139,25 @@ def test_test_endpoint_reports_engine_check(env, monkeypatch):
     assert handler.payload() == {"ok": False, "message": "unauthenticated: bad key"}
 
 
+def test_test_endpoint_tries_a_typed_key_without_saving_it(env, monkeypatch):
+    from jarvis_speech.engines import soniox
+    seen = {}
+
+    def check(self, key=None):
+        seen["key"] = key
+        return True, "Soniox answered"
+    monkeypatch.setattr(soniox.SonioxEngine, "check", check)
+    handler = _post("/api/speech/test", {"api_key": "  typed-key-5678 \n"})
+    assert handler.payload() == {"ok": True, "message": "Soniox answered"}
+    assert seen["key"] == "typed-key-5678"
+    assert not (env["home"] / ".env").exists()
+
+
+def test_test_endpoint_refuses_a_typed_key_that_is_not_a_key(env):
+    handler = _post("/api/speech/test", {"api_key": "short"})
+    assert handler.payload() == {"ok": False, "message": "that does not look like a Soniox key"}
+
+
 def test_unknown_paths_are_not_handled(env):
     assert speech_config.handle_speech_get(_Handler(), urlparse("/api/speech/nope")) is False
     assert speech_config.handle_speech_post(_Handler(), urlparse("/api/speech/nope"), {}) is False

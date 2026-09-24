@@ -39,3 +39,10 @@ def test_live_view_asks_who_said_this():
     js = _read("live.js")
     assert "Who said this?" in js and "function _liveVoiceToName" in js
     assert 'id="liveWhoPrompt"' in js
+
+
+def test_test_button_tries_the_typed_key():
+    js = _read("panels.js")
+    row = js[js.index("function _speechKeyRow"):js.index("function _speechListField")]
+    call = row[row.index("'/api/speech/test'"):]
+    assert "api_key" in call[:200]

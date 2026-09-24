@@ -3,7 +3,8 @@
 GET  /api/speech/config      settings, engines, languages, key status, usage
 PUT  /api/speech/config      a validated patch (POST too); unknown keys are listed back
 POST /api/speech/soniox-key  {api_key}: saved into the profile .env ("" removes); never echoed
-POST /api/speech/test        one tiny Soniox session with the saved key
+POST /api/speech/test        {api_key?}: one tiny Soniox session with the typed key
+                             (never saved), else with the saved one
 
 Writes follow `live_config.save`: the whole config file under `_cfg_lock`, then
 `reload_config()` so the cached loader sees it. The `speech:` section is merged
@@ -35,7 +36,7 @@ def handle_speech_post(handler, parsed, body) -> bool:
     if parsed.path == "/api/speech/soniox-key":
         return _save_key(handler, body)
     if parsed.path == "/api/speech/test":
-        return _test(handler)
+        return _test(handler, body)
     return False
 
 
@@ -103,14 +104,20 @@ def _write(handler, body: Dict[str, Any]) -> bool:
     return True
 
 
+def _key_problem(value: str) -> str:
+    if "\n" in value or "\r" in value:
+        return "the key must be a single line"
+    if value and len(value) < _MIN_KEY_LENGTH:
+        return "that does not look like a Soniox key"
+    return ""
+
+
 def _save_key(handler, body: Dict[str, Any]) -> bool:
     from jarvis_speech import keys
     value = str(body.get("api_key") or "").strip()
-    if "\n" in value or "\r" in value:
-        bad(handler, "the key must be a single line")
-        return True
-    if value and len(value) < _MIN_KEY_LENGTH:
-        bad(handler, "that does not look like a Soniox key")
+    problem = _key_problem(value)
+    if problem:
+        bad(handler, problem)
         return True
     try:
         from api.providers import _write_env_file
@@ -124,11 +131,19 @@ def _save_key(handler, body: Dict[str, Any]) -> bool:
     return True
 
 
-def _test(handler) -> bool:
+def _test(handler, body: Dict[str, Any]) -> bool:
     from jarvis_speech import registry
+    typed = str(body.get("api_key") or "").strip()
+    problem = _key_problem(typed)
+    if problem:
+        j(handler, {"ok": False, "message": problem})
+        return True
     engine = registry.get("soniox")
     try:
-        ok, message = engine.check() if engine is not None else (False, "the Soniox engine is missing")
+        if engine is None:
+            ok, message = False, "the Soniox engine is missing"
+        else:
+            ok, message = engine.check(key=typed) if typed else engine.check()
     except Exception as exc:
         ok, message = False, f"check failed ({type(exc).__name__})"
     j(handler, {"ok": bool(ok), "message": str(message)})
