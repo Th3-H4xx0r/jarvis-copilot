@@ -708,6 +708,7 @@ function _liveStartSSE() {
   es.addEventListener('speaker', ev => _liveOnSpeakerEvent(ev, sid, es));
   es.addEventListener('insight', ev => _liveOnInsightEvent(ev, sid, es));
   es.addEventListener('state', ev => _liveOnStateEvent(ev, sid, es));
+  es.addEventListener('partial', ev => _liveOnPartialEvent(ev, sid, es));
   // The server sends this when a subscriber fell behind and events were
   // dropped for it. Anything could be missing, so refetch rather than carry on
   // looking healthy (same call the chat mirror makes).
@@ -787,8 +788,41 @@ function _liveOnSegEvent(ev, sid, es) {
     // transcript feels live, and let the final frame overwrite it in place.
     const merged = _liveMergeSeg(raw);
     if (merged) _liveAppendSegNode(merged);
+    // The finished line replaces that device's words in progress.
+    if (!raw.partial) _liveShowPartial(String(raw.device_id || ''), '');
   }
   _liveRenderStatus();
+}
+
+// Words a server speech engine is still hearing (the `partial` event), one line
+// per device, kept last in the timeline and removed when its line lands.
+const _livePartialNodes = new Map();
+
+function _liveOnPartialEvent(ev, sid, es) {
+  if (_liveSSE !== es || _liveSessionId !== sid) return;
+  const d = _liveParse(ev);
+  if (d) _liveShowPartial(String(d.device_id || ''), String(d.text || ''));
+}
+
+function _liveShowPartial(device, text) {
+  let node = _livePartialNodes.get(device);
+  if (!text) {
+    if (node) node.remove();
+    _livePartialNodes.delete(device);
+    return;
+  }
+  const tl = _lEl('liveTimeline');
+  if (!tl || _liveTab !== 'transcript') return;
+  if (tl.querySelector('.main-view-empty')) tl.innerHTML = '';
+  const stick = _liveNearBottom();
+  if (!node) {
+    node = document.createElement('div');
+    node.className = 'live-partial';
+    _livePartialNodes.set(device, node);
+  }
+  node.textContent = text;
+  tl.appendChild(node);
+  if (stick) _liveScrollToEnd();
 }
 
 function _liveOnSpeakerEvent(ev, sid, es) {
@@ -1440,6 +1474,13 @@ async function _liveOpenSettings() {
           <div class="live-modal-hint">Recording rolls into a new session — and a new chat — once the transcript reaches this much of the model's context.</div>
         </div>
         <div class="live-modal-row live-modal-row--wide">
+          <label for="liveCfgTranscription">Transcription</label>
+          <select id="liveCfgTranscription">
+            <option value="">Loading…</option>
+          </select>
+          <div class="live-modal-hint">Who hears the recording: the phone itself, or a server engine such as Soniox (any language in one stream, with translation and speaker labels). Its options are under Settings → Conversation → Speech.</div>
+        </div>
+        <div class="live-modal-row live-modal-row--wide">
           <label for="liveCfgModel">Model</label>
           <select id="liveCfgModel" data-cfg="model">
             <option value="">Follow the app's model</option>
@@ -1466,6 +1507,33 @@ async function _liveOpenSettings() {
   _liveSettingsKeyHandler = ev => { if (ev.key === 'Escape') _liveCloseSettings(); };
   document.addEventListener('keydown', _liveSettingsKeyHandler, true);
   _liveFillModelOptions(wrap, cfg.model || '');
+  _liveFillTranscriptionOptions(wrap);
+}
+
+// The engine list lives with the other speech settings (/api/speech/config);
+// it fills after the modal is on screen, like the model row.
+async function _liveFillTranscriptionOptions(scope) {
+  const sel = scope && scope.querySelector('#liveCfgTranscription');
+  if (!sel) return;
+  const res = await _liveReq('/api/speech/config');
+  if (!res.ok || !res.data || typeof res.data !== 'object') {
+    sel.innerHTML = '<option value="">Not available on this server</option>';
+    sel.disabled = true;
+    return;
+  }
+  const current = ((res.data.config || {}).surfaces || {}).live || 'edge';
+  const options = [{ name: 'edge', label: 'On the phone (Apple)', available: true }]
+    .concat((res.data.engines || []).filter(e => e && e.streams));
+  sel.innerHTML = '';
+  for (const eng of options) {
+    const opt = document.createElement('option');
+    opt.value = eng.name;
+    opt.textContent = eng.label + (eng.available ? '' : ' — ' + (eng.reason || 'not set up'));
+    if (eng.name === current) opt.selected = true;
+    else if (!eng.available) opt.disabled = true;
+    sel.appendChild(opt);
+  }
+  sel.dataset.initial = current;
 }
 
 // The model row is populated after the modal is on screen: the list is a
@@ -1533,6 +1601,18 @@ async function _liveSaveSettings() {
   if (payload.window_seconds != null && payload.window_seconds < 10) {
     if (errEl) errEl.textContent = 'Window must be at least 10 seconds.';
     return;
+  }
+  const lane = _lEl('liveCfgTranscription');
+  if (lane && lane.value && lane.dataset.initial && lane.value !== lane.dataset.initial) {
+    const sres = await _liveReq('/api/speech/config', {
+      method: 'PUT', body: JSON.stringify({ surfaces: { live: lane.value } }) });
+    if (!sres.ok) {
+      const msg = 'Transcription not saved: ' + (sres.error || sres.status);
+      if (errEl) errEl.textContent = msg;
+      else _lToast(msg, null, 'error');
+      return;
+    }
+    lane.dataset.initial = lane.value;
   }
   const res = await _liveReq('/api/live/config', { method: 'PUT', body: JSON.stringify(payload) });
   if (!res.ok) {

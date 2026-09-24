@@ -6141,9 +6141,270 @@ function _updateBadge(badge, engine) {
   }
 }
 
+// ── Speech (STT) — /api/speech/* ────────────────────────────────────────────
+// Which engine turns speech into text for Voice, Live and uploads, and every
+// Soniox option. The Soniox key is write-only: the page only ever learns
+// "saved ••••1a2b", never the key.
+
+let _speechState = null;
+const _SPEECH_FIELD = 'background:rgba(0,0,0,.25);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:6px;color:var(--fg,#e8eef6);padding:6px 8px;font-size:12px;font-family:inherit';
+const _SPEECH_LABEL = 'font-size:11px;color:var(--fg-dim,#9aa3b2)';
+const _SPEECH_BTN = 'font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,.15));background:transparent;color:var(--fg-dim,#9aa3b2);cursor:pointer';
+const _SPEECH_SURFACES = [
+  ['voice', 'Voice', 'Phone and Mac voice when Transcription is set to Server, the web Voice tab, and the Jarvis Pod.'],
+  ['live', 'Live', 'Who hears Live recordings: the phone itself, or a server engine that streams.'],
+  ['upload', 'Uploads', 'The chat mic on the web and voice notes from Telegram and Discord.'],
+];
+const _SPEECH_ADVANCED = [
+  ['endpoint_latency_level', 'How fast a line closes (0–3)', 0, 3, 1, 'Higher closes lines sooner, for a little accuracy.'],
+  ['endpoint_sensitivity', 'Line-end sensitivity (−1 to 1)', -1, 1, 0.1, 'Higher ends a line at shorter pauses.'],
+  ['max_endpoint_delay_ms', 'Longest wait for a line end (ms)', 500, 3000, 100, 'A line always closes this long after speech stops.'],
+  ['live_quiet_close_s', 'Close a Live stream after quiet (s)', 10, 3600, 5, 'Soniox bills while a stream is open; it reopens on the next word.'],
+];
+
+async function loadSpeechSettings(){
+  const body = $('speechSettingsBody');
+  if (!body) return;
+  try {
+    _speechState = await api('/api/speech/config');
+  } catch (e) {
+    body.innerHTML = '';
+    _speechStatus('Could not load speech settings: ' + (e && e.message || e), '#ff8080', true);
+    return;
+  }
+  body.innerHTML = '';
+  body.appendChild(_speechSurfaceRows());
+  body.appendChild(_speechSonioxCard());
+}
+
+function _speechStatus(text, color, sticky){
+  const el = $('speechSettingsStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--fg-dim,#9aa3b2)';
+  if (el._fadeT) clearTimeout(el._fadeT);
+  if (!sticky) el._fadeT = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function _speechSave(patch){
+  try {
+    const res = await api('/api/speech/config', { method: 'PUT', body: JSON.stringify(patch) });
+    if (res && res.config) _speechState.config = res.config;
+    _speechStatus('Saved.', '#9be09b');
+    return true;
+  } catch (e) {
+    _speechStatus('Not saved: ' + (e && e.message || e), '#ff8080', true);
+    return false;
+  }
+}
+
+function _speechEl(tag, css, text){
+  const el = document.createElement(tag);
+  if (css) el.style.cssText = css;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function _speechSurfaceRows(){
+  const wrap = _speechEl('div', 'display:flex;flex-direction:column;gap:8px');
+  const engines = _speechState.engines || [];
+  const current = (_speechState.config || {}).surfaces || {};
+  for (const [key, title, help] of _SPEECH_SURFACES) {
+    const row = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+    const sel = _speechEl('select', _SPEECH_FIELD);
+    sel.dataset.speechSurface = key;
+    const options = key === 'live'
+      ? [{ name: 'edge', label: 'On the phone (Apple)', available: true }].concat(engines.filter(e => e.streams))
+      : engines;
+    for (const eng of options) {
+      const opt = _speechEl('option', '', eng.label + (eng.available ? '' : ` — ${eng.reason || 'not set up'}`));
+      opt.value = eng.name;
+      if (eng.name === current[key]) opt.selected = true;
+      else if (!eng.available) opt.disabled = true;
+      sel.appendChild(opt);
+    }
+    let before = sel.value;
+    sel.addEventListener('change', async () => {
+      if (await _speechSave({ surfaces: { [key]: sel.value } })) before = sel.value;
+      else sel.value = before;
+    });
+    row.append(_speechEl('label', _SPEECH_LABEL, title), sel, _speechEl('div', _SPEECH_LABEL + ';opacity:0.8', help));
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function _speechSonioxCard(){
+  const son = (_speechState.config || {}).soniox || {};
+  const card = _speechEl('div', 'border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px');
+  const head = _speechEl('div', 'display:flex;align-items:center;gap:8px');
+  const badge = _speechEl('span', 'font-size:10px;padding:2px 6px;border-radius:4px;letter-spacing:0.05em;text-transform:uppercase');
+  const key = _speechState.soniox_key || {};
+  if (key.set) {
+    badge.textContent = 'Key ' + (key.hint || 'saved');
+    badge.style.background = 'rgba(140,200,140,.18)';
+    badge.style.color = '#9be09b';
+  } else {
+    badge.textContent = 'No key';
+    badge.style.background = 'rgba(255,180,80,.12)';
+    badge.style.color = '#ffc88a';
+  }
+  head.append(_speechEl('div', 'font-size:13px;font-weight:500;color:var(--fg,#e8eef6)', 'Soniox'), badge);
+  card.appendChild(head);
+  card.appendChild(_speechKeyRow(key));
+  card.appendChild(_speechListField('Languages', 'Hints make recognition better. Empty hears any language.',
+                                    son.language_hints || [], 'language_hints', _speechState.languages || []));
+  card.appendChild(_speechListField('Custom words', 'Names and terms Soniox should spell right, e.g. Jarvis.',
+                                    son.custom_words || [], 'custom_words', null));
+  for (const [field, title, help] of [
+    ['speaker_labels', 'Speaker labels', 'Tell voices apart in Live — who said what.'],
+    ['language_id', 'Language detection', 'Tag each line with the language it was spoken in.'],
+  ]) {
+    const lab = _speechEl('label', 'display:flex;gap:8px;align-items:flex-start;cursor:pointer');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!son[field];
+    cb.addEventListener('change', async () => {
+      if (!(await _speechSave({ soniox: { [field]: cb.checked } }))) cb.checked = !cb.checked;
+    });
+    const text = _speechEl('span');
+    text.append(_speechEl('span', 'font-size:12px;color:var(--fg,#e8eef6)', title),
+                _speechEl('span', _SPEECH_LABEL + ';display:block', help));
+    lab.append(cb, text);
+    card.appendChild(lab);
+  }
+  const adv = document.createElement('details');
+  adv.appendChild(_speechEl('summary', _SPEECH_LABEL + ';cursor:pointer', 'Advanced'));
+  for (const [field, title, min, max, step, help] of _SPEECH_ADVANCED) {
+    const row = _speechEl('div', 'display:flex;flex-direction:column;gap:3px;margin-top:6px');
+    const input = _speechEl('input', _SPEECH_FIELD);
+    Object.assign(input, { type: 'number', min, max, step, value: son[field] });
+    input.addEventListener('change', async () => {
+      const v = Number(input.value);
+      if (!Number.isFinite(v) || v < min || v > max) {
+        _speechStatus(`${title}: ${min} to ${max}`, '#ff8080', true);
+        input.value = son[field];
+        return;
+      }
+      if (await _speechSave({ soniox: { [field]: v } })) son[field] = v;
+      else input.value = son[field];
+    });
+    row.append(_speechEl('label', _SPEECH_LABEL, title), input, _speechEl('div', _SPEECH_LABEL + ';opacity:0.8', help));
+    adv.appendChild(row);
+  }
+  card.appendChild(adv);
+  const u = _speechState.usage || {};
+  card.appendChild(_speechEl('div', _SPEECH_LABEL + ';opacity:0.8',
+    `This month ${_speechDuration(u.month_s)} · about $${Number(u.est_usd || 0).toFixed(2)} · today ${_speechDuration(u.today_s)}`));
+  return card;
+}
+
+function _speechKeyRow(key){
+  const wrap = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const row = _speechEl('div', 'display:flex;gap:6px;align-items:center;flex-wrap:wrap');
+  const input = _speechEl('input', _SPEECH_FIELD + ';flex:1;min-width:180px');
+  input.type = 'password';
+  input.autocomplete = 'off';
+  input.placeholder = key.set ? 'Saved — paste a new key to replace it' : 'Paste your Soniox API key';
+  const result = _speechEl('div', 'font-size:10px;min-height:12px;color:var(--fg-dim,#9aa3b2)');
+  const button = (label) => { const b = _speechEl('button', _SPEECH_BTN, label); b.type = 'button'; return b; };
+  const save = button('Save'), remove = button('Remove'), test = button('Test');
+  const send = async (value) => {
+    try {
+      await api('/api/speech/soniox-key', { method: 'POST', body: JSON.stringify({ api_key: value }) });
+      input.value = '';
+      _speechStatus(value ? 'Key saved.' : 'Key removed.', '#9be09b');
+      loadSpeechSettings();  // which engines are available changes with the key
+    } catch (e) {
+      result.textContent = 'Not saved: ' + (e && e.message || e);
+      result.style.color = '#ff8080';
+    }
+  };
+  save.addEventListener('click', () => { if (input.value.trim()) send(input.value.trim()); });
+  input.addEventListener('keydown', ev => { if (ev.key === 'Enter' && input.value.trim()) send(input.value.trim()); });
+  remove.addEventListener('click', () => send(''));
+  remove.disabled = !key.set;
+  test.addEventListener('click', async () => {
+    result.textContent = 'Testing…';
+    result.style.color = 'var(--fg-dim,#9aa3b2)';
+    try {
+      const res = await api('/api/speech/test', { method: 'POST', body: '{}' });
+      result.textContent = (res.ok ? 'Works — ' : 'Failed — ') + res.message;
+      result.style.color = res.ok ? '#9be09b' : '#ff8080';
+    } catch (e) {
+      result.textContent = 'Failed — ' + (e && e.message || e);
+      result.style.color = '#ff8080';
+    }
+  });
+  row.append(input, save, remove, test);
+  wrap.append(row, result);
+  return wrap;
+}
+
+function _speechListField(title, help, values, field, choices){
+  const row = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const chips = _speechEl('div', 'display:flex;flex-wrap:wrap;gap:4px');
+  const items = values.slice();
+  const nameOf = code => {
+    const hit = choices && choices.find(c => c.code === code);
+    return hit ? hit.name : code;
+  };
+  const paint = () => {
+    chips.innerHTML = '';
+    for (const item of items) {
+      const chip = _speechEl('button', 'font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border,rgba(255,255,255,.15));background:rgba(255,255,255,.04);color:var(--fg,#e8eef6);cursor:pointer', nameOf(item) + ' ×');
+      chip.type = 'button';
+      chip.title = 'Remove';
+      chip.addEventListener('click', () => commit(items.filter(v => v !== item)));
+      chips.appendChild(chip);
+    }
+    if (!items.length) chips.appendChild(_speechEl('span', _SPEECH_LABEL + ';opacity:0.7', choices ? 'Any language' : 'None'));
+  };
+  const commit = async (next) => {
+    if (!(await _speechSave({ soniox: { [field]: next } }))) return false;
+    items.splice(0, items.length, ...next);
+    paint();
+    return true;
+  };
+  paint();
+  const input = _speechEl('input', _SPEECH_FIELD);
+  input.autocomplete = 'off';
+  input.placeholder = choices ? 'Add a language…' : 'Add a word and press Enter';
+  if (choices) {
+    input.setAttribute('list', 'speechLanguageList');
+    if (!document.getElementById('speechLanguageList')) {
+      const list = document.createElement('datalist');
+      list.id = 'speechLanguageList';
+      for (const c of choices) { const o = document.createElement('option'); o.value = c.name; list.appendChild(o); }
+      document.body.appendChild(list);
+    }
+  }
+  const add = async () => {
+    const raw = input.value.trim();
+    if (!raw) return;
+    let value = raw;
+    if (choices) {
+      const hit = choices.find(c => c.name.toLowerCase() === raw.toLowerCase() || c.code === raw.toLowerCase());
+      if (!hit) { _speechStatus('Soniox does not list ' + raw, '#ff8080', true); return; }
+      value = hit.code;
+    }
+    if (!items.includes(value) && await commit(items.concat([value]))) input.value = '';
+  };
+  if (choices) input.addEventListener('change', add);
+  input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); add(); } });
+  row.append(_speechEl('label', _SPEECH_LABEL, title), chips, input, _speechEl('div', _SPEECH_LABEL + ';opacity:0.8', help));
+  return row;
+}
+
+function _speechDuration(seconds){
+  const s = Number(seconds || 0);
+  return s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' h';
+}
+
 async function loadSettingsPanel(){
   loadPersonalityPicker();
   loadVoiceProvidersSettings();
+  loadSpeechSettings();
   try{
     const settings=await api('/api/settings');
     // Populate the version badges from the server — keeps them in sync with git

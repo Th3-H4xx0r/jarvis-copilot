@@ -30,6 +30,13 @@ def test_builtin_engines_listed():
     assert "local" in names and "soniox" in names
 
 
+def test_current_flow_is_listed_first(monkeypatch):
+    """Pickers list engines in this order; the current flow leads whatever loaded first."""
+    monkeypatch.setattr(registry, "_factories", {"soniox": _Fake, "local": _Fake, "fake": _Fake})
+    monkeypatch.setattr(registry, "_instances", {})
+    assert registry.names() == ["local", "soniox", "fake"]
+
+
 def test_engines_report_availability_with_a_reason():
     registry.register_engine("fake", lambda: _Fake(ok=False))
     row = next(e for e in registry.engines() if e["name"] == "fake")

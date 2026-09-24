@@ -1034,6 +1034,12 @@
               <div id="voiceProvidersList" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
               <div id="voiceProvidersStatus" style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8;min-height:14px"></div>
             </div>
+            <div class="settings-field" id="speechSettings" style="margin-top:24px;display:flex;flex-direction:column;gap:8px;width:100%">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-dim,#9aa3b2)">Speech (STT)</div>
+              <div style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8">Which engine turns speech into text. The current flow is what Jarvis did before. Soniox is a cloud engine: 60+ languages in one stream, live translation and speaker labels, about $0.12 per hour while a stream is open. Audio goes to Soniox only for what you set to it.</div>
+              <div id="speechSettingsBody" style="display:flex;flex-direction:column;gap:10px;margin-top:6px"></div>
+              <div id="speechSettingsStatus" style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8;min-height:14px"></div>
+            </div>
             <input type="file" id="importFileInput" accept=".json" style="display:none">
           </div>
           <div class="settings-pane" id="settingsPaneAppearance">

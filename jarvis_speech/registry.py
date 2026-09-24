@@ -34,9 +34,10 @@ def _ensure_builtin() -> None:
 
 
 def names() -> List[str]:
+    """Registered engines, the current flow first (pickers list them in this order)."""
     _ensure_builtin()
     with _lock:
-        return list(_factories)
+        return sorted(_factories, key=lambda name: name != "local")
 
 
 def get(name: str) -> Optional[object]:
