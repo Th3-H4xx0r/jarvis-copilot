@@ -95,3 +95,16 @@ final class SpeechEngineStore {
         }
     }
 }
+
+extension SpeechEngineStore {
+    /// Whether the server can hear with Soniox right now (it has a key).
+    var sonioxReady: Bool { settings.engines.contains { $0.name == "soniox" && $0.available } }
+
+    /// "Soniox" in a voice picker: this device sends its audio and the server
+    /// hears it — so the server's voice engine is pointed at Soniox too, for
+    /// every device that sends audio (a browser, the Pod) as well.
+    func useSonioxForVoice() async {
+        if !loaded { await load() }
+        if settings.voice != "soniox" { await setSurface("voice", to: "soniox") }
+    }
+}

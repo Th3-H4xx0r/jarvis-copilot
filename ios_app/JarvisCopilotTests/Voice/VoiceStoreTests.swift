@@ -392,15 +392,21 @@ final class VoiceStoreTests: XCTestCase {
                        "the words stay on screen while the final transcript is awaited")
     }
 
-    func testOnDeviceThatCannotRunRefusesToStartAndSaysWhy() async {
+    func testOnDeviceThatCannotRunUsesSonioxAndSaysWhy() async throws {
+        // This device cannot transcribe (permission, language): the turn goes to
+        // the server's engine instead of not starting, and the panel says why.
         let rig = makeRig(transcription: .onDevice)
         rig.recognizer.readiness = .denied
-        await rig.store.primaryAction()
-        await settleVoiceTasks()
+        await startListening(rig)
+        await speakThenPause(rig)
 
-        XCTAssertEqual(rig.store.state, .idle)
-        XCTAssertTrue(rig.connector.connectedURLs.isEmpty, "no session opens")
-        XCTAssertEqual(rig.store.error, SpeechReadiness.denied.message)
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertFalse(socket.sentData.isEmpty, "the audio goes to the server")
+        XCTAssertEqual(rig.recognizer.startCount, 0)
+        XCTAssertEqual(rig.store.transcriptionInUse, .server)
+        XCTAssertEqual(rig.store.onDeviceFallback, SpeechReadiness.denied.message)
+        XCTAssertNil(rig.store.error)
+        XCTAssertEqual(rig.store.transcription, .onDevice, "the choice itself is kept")
     }
 
     func testChoosingOnDevicePreparesAndReportsReady() async {

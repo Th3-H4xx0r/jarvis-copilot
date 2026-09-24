@@ -19,8 +19,18 @@ def _write(path, data):
 def test_defaults_when_section_missing(cfg_file):
     _write(cfg_file, {"model": {"default": "x"}})
     got = config.load()
-    assert got["surfaces"] == {"voice": "local", "live": "edge", "upload": "local"}
+    assert got["surfaces"] == {"voice": "soniox", "live": "edge", "upload": "local"}
     assert got["soniox"]["model"] == "stt-rt-v5"
+
+
+def test_voice_on_the_default_without_a_key_falls_back_to_the_local_model(cfg_file, monkeypatch):
+    # A browser or the Pod gets Soniox by default; with no key the voice turn
+    # still has today's path rather than failing.
+    import jarvis_speech
+    from jarvis_speech import keys
+    monkeypatch.setattr(keys, "soniox_key", lambda: "")
+    _write(cfg_file, {"model": {"default": "x"}})
+    assert jarvis_speech.engine_for("voice") is None
 
 
 def test_config_coerces_bad_values(cfg_file):
@@ -28,7 +38,7 @@ def test_config_coerces_bad_values(cfg_file):
                                  "soniox": {"endpoint_latency_level": "9", "speaker_labels": "yes",
                                             "max_endpoint_delay_ms": "abc", "language_hints": "en"}}})
     got = config.load()
-    assert got["surfaces"]["voice"] == "local"           # not a string → default
+    assert got["surfaces"]["voice"] == "soniox"          # not a string → default
     assert got["surfaces"]["live"] == "nonsense-engine"  # names survive load; engine_for rejects them
     assert got["soniox"]["endpoint_latency_level"] == 2  # out of range → default
     assert got["soniox"]["speaker_labels"] is True

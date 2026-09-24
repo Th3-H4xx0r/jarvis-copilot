@@ -242,8 +242,9 @@ extension VoiceOptionCards where Value == VoiceTranscription {
         #endif
         return [Option(value: .onDevice, symbol: symbol,
                        title: VoiceTranscription.onDevice.label, detail: device),
-                Option(value: .server, symbol: "server.rack",
-                       title: VoiceTranscription.server.label, detail: "Your server's speech model transcribes.")]
+                Option(value: .server, symbol: "waveform",
+                       title: VoiceTranscription.server.label,
+                       detail: "Soniox on your server: any language, heard as you speak.")]
     }
 }
 

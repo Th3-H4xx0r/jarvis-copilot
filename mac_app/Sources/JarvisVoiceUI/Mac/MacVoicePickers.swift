@@ -187,23 +187,22 @@ final class MacModelPicker {
                 PickerChoice(symbol: "laptopcomputer", title: VoiceTranscription.onDevice.label,
                              selected: store.transcription == .onDevice, enabled: enabled,
                              action: { Task { await store.setTranscription(.onDevice) } }),
-                PickerChoice(symbol: "server.rack", title: VoiceTranscription.server.label,
+                PickerChoice(symbol: "waveform", title: VoiceTranscription.server.label,
                              selected: store.transcription == .server, enabled: enabled,
-                             action: { Task { await store.setTranscription(.server) } }),
+                             action: {
+                                 Task {
+                                     await store.setTranscription(.server)
+                                     await SpeechEngineStore.shared.useSonioxForVoice()
+                                 }
+                             }),
             ]),
         ]
-        // Which engine "Server" means — the same server setting the phone's Speech
-        // engine page and the web edit. Only offered while Server is the choice.
+        // Only when Soniox is not what will actually hear the turn.
         let speech = SpeechEngineStore.shared
-        if store.transcription == .server, speech.loaded, speech.settings.engines.count > 1 {
-            let current = speech.settings.voice
-            out.append(.choice("Server engine", speech.settings.engines.map { engine in
-                PickerChoice(symbol: engine.name == "local" ? "server.rack" : "waveform",
-                             title: engine.name == "local" ? "Current" : engine.label,
-                             selected: current == engine.name,
-                             enabled: engine.available || current == engine.name,
-                             action: { Task { await speech.setSurface("voice", to: engine.name) } })
-            }))
+        if let fallback = store.onDeviceFallback {
+            out.append(.header("On-device is not available here (\(fallback)), so Soniox is used."))
+        } else if store.transcription == .server, speech.loaded, !speech.sonioxReady {
+            out.append(.header("Soniox has no key on the server yet, so the server's own model transcribes."))
         }
         switch store.transcriptionStatus {
         case .preparing(let fraction):

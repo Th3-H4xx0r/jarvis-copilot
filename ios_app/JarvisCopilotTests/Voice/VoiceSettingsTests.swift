@@ -12,10 +12,18 @@ final class VoiceSettingsTests: XCTestCase {
         XCTAssertEqual(settings.mode, .realtime)
     }
 
-    func testTranscriptionDefaultsToServer() {
-        // Server is what every existing install already does, so updating
-        // changes nothing until the user flips it.
-        XCTAssertEqual(VoiceSettings(store: MemoryKeyValueStore()).transcription, .server)
+    func testTranscriptionDefaultsToOnDevice() {
+        // A phone or Mac transcribes itself by default; Soniox is the choice,
+        // and what a turn uses when this device cannot.
+        XCTAssertEqual(VoiceSettings(store: MemoryKeyValueStore()).transcription, .onDevice)
+    }
+
+    func testTheOldServerDefaultDoesNotStick() {
+        // "server" was the default under the old key, stored or not; the new
+        // default must reach those installs too.
+        let store = MemoryKeyValueStore()
+        store.set("server", forKey: "jc_voice_transcription")
+        XCTAssertEqual(VoiceSettings(store: store).transcription, .onDevice)
     }
 
     func testTranscriptionSurvivesARelaunch() {

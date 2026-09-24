@@ -204,6 +204,11 @@ final class VoiceStore {
     var mode: VoiceMode { machine.mode }
     /// How speech becomes text — see `VoiceTranscription`.
     var transcription: VoiceTranscription { settings.transcription }
+    /// Why on-device transcription could not run for this turn, when it could
+    /// not — the turn then goes to the server's engine instead. Nil otherwise.
+    private(set) var onDeviceFallback: String?
+    /// How this turn is actually heard: the choice, unless the device could not.
+    var transcriptionInUse: VoiceTranscription { onDeviceFallback == nil ? settings.transcription : .server }
     /// Where on-device transcription stands, for the settings UIs: progress
     /// while the language model downloads, and why it cannot run if it can't.
     var transcriptionStatus: VoiceTranscriptionStatus = .idle
@@ -560,6 +565,7 @@ final class VoiceStore {
     func setTranscription(_ value: VoiceTranscription) async {
         guard !isActive else { return }
         settings.transcription = value
+        onDeviceFallback = nil
         transcriptionStatus = .idle
         if value == .onDevice { await prepareTranscription() }
     }
@@ -577,15 +583,17 @@ final class VoiceStore {
         return readiness
     }
 
-    /// Whether the chosen transcription can run. Server always can. On-device
-    /// that cannot never falls back to the server: the turn does not start, and
-    /// the panel says why.
+    /// How the turn about to start is heard. On-device that cannot run here
+    /// (permission, language, no model) hands the turn to the server's engine —
+    /// Soniox — and says why, rather than not starting: a device that cannot
+    /// transcribe itself is exactly the one Soniox is for.
     func ensureTranscription() async -> Bool {
+        onDeviceFallback = nil
         guard settings.transcription == .onDevice else { return true }
         let readiness = await prepareTranscription()
-        guard readiness == .ready else {
-            error = readiness.message
-            return false
+        if readiness != .ready {
+            onDeviceFallback = readiness.message
+            note("on-device transcription unavailable (\(readiness.message)) — using the server's engine")
         }
         return true
     }
@@ -958,7 +966,7 @@ final class VoiceStore {
             guard machine.state == .listening else { return }
             amplitude = muted ? 0 : amp
             guard !muted else { return }
-            if settings.transcription == .onDevice {
+            if transcriptionInUse == .onDevice {
                 // Transcribed as you hold; the recording itself is not kept,
                 // because nothing is going to upload it.
                 speech?.feed(chunk)
@@ -1014,7 +1022,7 @@ final class VoiceStore {
         }
 
         guard machine.state == .listening else { return }
-        if settings.transcription == .onDevice {
+        if transcriptionInUse == .onDevice {
             // On-device transcription: the audio never leaves this device. The
             // recognizer gets the frame below; the socket gets nothing.
             noteMicFrame(bytes: chunk.count, peak: amp, local: true)

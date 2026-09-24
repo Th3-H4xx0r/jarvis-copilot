@@ -154,12 +154,16 @@ struct VoiceModelPickerSheet: View {
                 .padding(.top, 16)
             VoiceOptionCards(options: VoiceOptionCards.transcriptions, selection: store.transcription,
                              enabled: !store.isActive) { value in
-                Task { await store.setTranscription(value) }
+                Task {
+                    await store.setTranscription(value)
+                    if value == .server { await SpeechEngineStore.shared.useSonioxForVoice() }
+                }
             }
             transcriptionStatus
                 .padding(.top, 8)
                 .padding(.leading, 4)
-            ServerSpeechEngineNote()
+            ServerSpeechEngineNote(transcription: store.transcription,
+                                   fallback: store.onDeviceFallback)
                 .padding(.top, 6)
                 .padding(.leading, 4)
         }
@@ -225,18 +229,27 @@ struct VoiceDiagnosticsSheet: View {
 /// Which engine "Server" transcription uses. Only said when it is not the
 /// current flow — the cards already describe that one.
 private struct ServerSpeechEngineNote: View {
+    let transcription: VoiceTranscription
+    let fallback: String?
     @State private var speech = SpeechEngineStore.shared
 
     var body: some View {
         Group {
-            if speech.loaded, speech.settings.voice != "local" {
-                Text("Server transcription uses \(speech.settings.label(for: speech.settings.voice)). "
-                   + "Change it in Settings → Speech engine.")
+            if let note {
+                Text(note)
                     .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .task { await speech.load() }
+    }
+
+    /// Only when Soniox is not what will actually hear the turn.
+    private var note: String? {
+        if let fallback { return "On-device is not available here (\(fallback)), so Soniox is used." }
+        guard transcription == .server, speech.loaded, !speech.sonioxReady else { return nil }
+        return "Soniox has no key on the server yet, so the server's own model transcribes. "
+            + "Add one in Settings → Speech engine."
     }
 }

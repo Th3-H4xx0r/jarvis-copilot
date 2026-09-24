@@ -14,9 +14,12 @@ from typing import Any, Dict
 
 DEFAULTS: Dict[str, Any] = {
     # Which engine turns speech into text for each surface. "local" / "edge"
-    # are today's flow; anything else is a registered engine.
+    # are today's flow; anything else is a registered engine. An engine that
+    # cannot run (no key) falls back to "local" (`engine_for` → None).
     "surfaces": {
-        "voice": "local",   # phone/Mac/web Voice and the Jarvis Pod
+        # Voice audio that reaches the server: a browser, the Jarvis Pod, and a
+        # phone or Mac set to Soniox or unable to transcribe on the device.
+        "voice": "soniox",
         "live": "edge",     # edge = the phone transcribes itself
         "upload": "local",  # /api/transcribe, Telegram/Discord voice notes
     },

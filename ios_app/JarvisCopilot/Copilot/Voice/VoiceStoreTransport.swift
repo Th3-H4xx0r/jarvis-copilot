@@ -160,7 +160,7 @@ extension VoiceStore {
             sendEndTurn(text: retry)
             return
         }
-        if settings.transcription == .onDevice {
+        if transcriptionInUse == .onDevice {
             // No session means the engine never started for this utterance —
             // a miss, never a server turn: there is no audio on the server.
             guard let running = speech else { localNoSpeech(); return }
@@ -376,7 +376,7 @@ extension VoiceStore {
 
     func postQualityTurn() async {
         amplitude = 0
-        if settings.transcription == .onDevice {
+        if transcriptionInUse == .onDevice {
             await postOnDeviceQualityTurn()
             return
         }
@@ -593,7 +593,7 @@ extension VoiceStore {
         // The recognizer runs ONLY for on-device transcription, in both turn
         // modes. In server mode it never starts: the audio goes to the server,
         // and a transcript made here must not ride along on the turn.
-        guard speech == nil, settings.transcription == .onDevice else { return }
+        guard speech == nil, transcriptionInUse == .onDevice else { return }
         guard let session = await recognizer.startSession(sampleRate: Self.micRate,
                                                           prompt: true) else { return }
         guard machine.state.isActive else {
