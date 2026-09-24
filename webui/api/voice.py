@@ -1544,9 +1544,9 @@ def _engine_words(segments, error: str, pcm_len: int, cut_off: bool = False):
         return None
     text = " ".join(s.text for s in segments if getattr(s, "text", "")).strip()
     if not text:
-        # An error, or half a second of audio with nothing back, is not trusted as silence.
-        if error or pcm_len >= 16000:
-            return None
+        # A clean finish with no words is silence (errors returned above). Retrying
+        # locally cost the Pod's follow-up window 2.8-5.7 s on a quiet room and
+        # invented words ("Thank you.") that Jarvis then answered.
         return ""
     try:
         from agent.voice_hallucination import is_hallucinated_output

@@ -161,12 +161,25 @@ def test_voice_turn_falls_back_when_stream_errors(monkeypatch, sent):
         {"type": "transcript", "text": "local words", "is_final": True}]
 
 
-def test_nothing_back_for_a_long_turn_is_not_trusted(monkeypatch, sent):
+def test_a_clean_empty_result_is_silence_not_a_local_retry(monkeypatch, sent):
+    # The Pod's follow-up window often hears only a room: the local fallback then
+    # took 2.8-5.7 s and invented "Thank you." (which Jarvis answered).
+    calls = []
+    monkeypatch.setattr(voice, "_pcm_to_transcript",
+                        lambda pcm, sr, *, realtime=False: calls.append(1) or "Thank you.")
+    state = _state(stt_stream=FakeStream([]))
+    state["pcm_buf"] += b"\x01\x00" * 16000 * 6  # six seconds of room
+    voice._bridge_pipeline(state, None, None)
+    assert calls == []
+    assert {"type": "end_turn", "reason": "no_speech"} in sent
+
+
+def test_an_engine_that_failed_still_falls_back_to_local(monkeypatch, sent):
     calls = []
     monkeypatch.setattr(voice, "_pcm_to_transcript",
                         lambda pcm, sr, *, realtime=False: calls.append(1) or "local words")
-    state = _state(stt_stream=FakeStream([]))
-    state["pcm_buf"] += b"\x01\x00" * 16000  # one second
+    state = _state(stt_stream=FakeStream([], error="timed out waiting for Soniox"))
+    state["pcm_buf"] += b"\x01\x00" * 16000
     voice._bridge_pipeline(state, None, None)
     assert calls == [1]
 
