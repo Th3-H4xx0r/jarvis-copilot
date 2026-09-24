@@ -352,6 +352,17 @@ struct LiveAPI: Sendable {
 
     // MARK: Speakers
 
+    /// Everything a voice has said, newest first; `before` is the previous
+    /// page's `next`.
+    func speakerLines(speakerID: String, before: String?, limit: Int) async throws -> LiveSpeakerLinesPage {
+        var query = ["speaker_id": speakerID, "limit": String(limit)]
+        if let before { query["before"] = before }
+        let obj = try await api.get("/api/live/speaker_lines", query: query).object()
+        return LiveSpeakerLinesPage(lines: obj.list("lines").map(LiveSpeakerLine.from),
+                                    next: obj.string("next").flatMap { $0.isEmpty ? nil : $0 },
+                                    total: obj.int("total") ?? 0)
+    }
+
     func speakers() async throws -> [LiveSpeaker] {
         let obj = try await api.get("/api/live/speakers").object()
         return obj.list("speakers").map(LiveSpeaker.from)

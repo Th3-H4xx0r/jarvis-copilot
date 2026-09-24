@@ -443,6 +443,11 @@ final class LiveStore {
         catch { report("load Live settings", error) }
     }
 
+    /// A voice's whole history, for the Voices screens.
+    func voiceHistory(speakerID: String) -> LiveVoiceHistory {
+        LiveVoiceHistory(speakerID: speakerID, api: api)
+    }
+
     func loadSpeakers() async {
         // Coalesced: a merge storm used to spawn one GET per `speaker` frame, each
         // able to overwrite the error slot.

@@ -256,6 +256,25 @@ struct LiveSpeakersScreen: View {
                         }
                     }
                 }
+
+                // Not in merge mode: there the whole card is the control.
+                if !merging, speaker.segmentCount > 0 {
+                    NavigationLink {
+                        LiveVoiceHistoryScreen(name: speaker.displayName,
+                                               history: store.voiceHistory(speakerID: speaker.id))
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Everything they said")
+                                .font(JcText.small.weight(.semibold))
+                                .foregroundStyle(JcTheme.accent)
+                            Spacer(minLength: 4)
+                            JcIcon("chevron.right", size: 12)
+                                .foregroundStyle(JcTheme.accent)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .overlay {
@@ -281,5 +300,85 @@ struct LiveSpeakersScreen: View {
             parts.append("≈" + LiveFormat.bytes(speaker.audioBytes))
         }
         return parts.isEmpty ? "Heard once" : parts.joined(separator: " · ")
+    }
+}
+
+
+/// Everything one voice has said, newest first, grouped by conversation — the
+/// next page loads as the last line comes on screen.
+struct LiveVoiceHistoryScreen: View {
+    let name: String
+    @State var history: LiveVoiceHistory
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                Text(history.total == 1 ? "1 line" : "\(history.total) lines")
+                    .font(JcText.small)
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.bottom, 6)
+                ForEach(Array(history.lines.enumerated()), id: \.element.id) { index, line in
+                    if index == 0 || history.lines[index - 1].sessionID != line.sessionID {
+                        Text(line.sessionTitle.isEmpty ? "Live session" : line.sessionTitle)
+                            .font(.system(size: 11, weight: .semibold))
+                            .textCase(.uppercase)
+                            .foregroundStyle(JcTheme.muted)
+                            .padding(.top, 18)
+                            .padding(.bottom, 6)
+                    }
+                    row(line)
+                        .onAppear {
+                            if index == history.lines.count - 1 { Task { await history.loadMore() } }
+                        }
+                }
+                footer
+                    .padding(.vertical, 18)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+        }
+        .jcScreen(name)
+        .task { if history.lines.isEmpty { await history.loadMore() } }
+    }
+
+    private func row(_ line: LiveSpeakerLine) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(line.at.formatted(date: .abbreviated, time: .shortened))
+                .font(.system(size: 11).monospacedDigit())
+                .foregroundStyle(JcTheme.muted)
+            Text(line.text)
+                .font(.system(size: 15))
+                .foregroundStyle(JcTheme.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            if let translation = line.translation {
+                Text(translation)
+                    .font(.system(size: 14).italic())
+                    .foregroundStyle(JcTheme.text.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 9)
+        .overlay(alignment: .bottom) { Rectangle().fill(JcTheme.muted.opacity(0.15)).frame(height: 0.5) }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if !history.error.isEmpty {
+            VStack(spacing: 8) {
+                Text(history.error).font(JcText.small).foregroundStyle(JcTheme.muted)
+                Button("Retry") { Task { await history.loadMore() } }
+                    .buttonStyle(.jcGlass(compact: true))
+            }
+            .frame(maxWidth: .infinity)
+        } else if history.done {
+            Text(history.lines.isEmpty ? "Nothing heard from this voice yet." : "That is everything this voice has said.")
+                .font(JcText.small)
+                .foregroundStyle(JcTheme.muted)
+                .frame(maxWidth: .infinity)
+        } else {
+            ProgressView().frame(maxWidth: .infinity)
+        }
     }
 }

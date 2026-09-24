@@ -563,6 +563,7 @@
 		C697ABCEBFCDF0436AF54A0F /* VoiceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F89193A08A684698BC94D5 /* VoiceControls.swift */; };
 		C6A02A63D446C814B4EE9C31 /* RingSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */; };
 		C76E80B9F4DBC45C33F0D8F0 /* IslandDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */; };
+		C79C7D1B082B3B84896901E0 /* LiveVoiceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE69F2B05A9CDCD6C2E768EF /* LiveVoiceHistory.swift */; };
 		C7B75F5A6DA5EA4F6BBC6C49 /* WearableModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */; };
 		C82DAF95C46F65426458ADFE /* DevicesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E927550CC7A702DA1D9CD19 /* DevicesAPI.swift */; };
 		C837A1F5C0B5A9AB7EA63D14 /* KanbanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49850074146780F31D7A5DE /* KanbanTests.swift */; };
@@ -606,6 +607,7 @@
 		D4C889F76CD6BB6EDBE9920B /* PhoneDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6829487143171EDC108FDBF7 /* PhoneDevice.swift */; };
 		D52F80A6F9D671C237D51A8F /* BoardChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */; };
 		D53A227828D37F294A91FABD /* ChatEntryPoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C0CF71FB06F08123F843FA /* ChatEntryPoints.swift */; };
+		D5B462F2644616D035D3CA04 /* LiveVoiceHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */; };
 		D5E8230A516D10E3DAA2345A /* ShortcutRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD789B1A172654A7E485137 /* ShortcutRunnerTests.swift */; };
 		D6ACB53B3C1E970A1D745825 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3930D1FDDC8450259305F67 /* TestSupport.swift */; };
 		D76C1BF618CBBE541A40D03A /* WearableArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7864490CBD79D96EC84DEE07 /* WearableArt.swift */; };
@@ -941,6 +943,7 @@
 		35FB23B2C0FCE8661BB5C251 /* HealthClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthClient.swift; sourceTree = "<group>"; };
 		36299D2CA83B8F9B8E9D033D /* ChatStreamReducer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducer.swift; sourceTree = "<group>"; };
 		36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModels.swift; sourceTree = "<group>"; };
+		37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceHistoryTests.swift; sourceTree = "<group>"; };
 		3797784518854B8FB0ABD75F /* RingMeasureController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureController.swift; sourceTree = "<group>"; };
 		3961785AB7CB407D48F4BCEA /* CodingSessionPanels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionPanels.swift; sourceTree = "<group>"; };
 		3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanStore.swift; sourceTree = "<group>"; };
@@ -1402,6 +1405,7 @@
 		DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientOpusEncoderTests.swift; sourceTree = "<group>"; };
 		DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
 		DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAPITests.swift; sourceTree = "<group>"; };
+		DE69F2B05A9CDCD6C2E768EF /* LiveVoiceHistory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceHistory.swift; sourceTree = "<group>"; };
 		DF1FC5DD16021AA9D36986EF /* TrainingSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingSync.swift; sourceTree = "<group>"; };
 		DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAI.swift; sourceTree = "<group>"; };
 		DF45795CD64AE7780F56157F /* LocalActionSafety.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalActionSafety.swift; sourceTree = "<group>"; };
@@ -2035,6 +2039,7 @@
 				DAE16112C9EEFEDE8EDE2BA7 /* LiveTurns.swift */,
 				8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */,
 				B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */,
+				DE69F2B05A9CDCD6C2E768EF /* LiveVoiceHistory.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -2809,6 +2814,7 @@
 				F6942C704808E0CC4A39087C /* LiveStorageTests.swift */,
 				DB5A91DA5C61B6D8B1CAAA17 /* LiveTranslatorTests.swift */,
 				AA2D52A1931775989DBDE265 /* LiveVoiceprintTests.swift */,
+				37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */,
 			);
 			name = Live;
 			path = Live;
@@ -3264,6 +3270,7 @@
 				8F9A361B1AD16E619B2D3C69 /* LiveTranslatorTests.swift in Sources */,
 				55D205C5360F47739C653FA0 /* LiveVoiceprintTests.swift in Sources */,
 				54BF25C1EC6D98854A28D6A6 /* SpeechEngineAPITests.swift in Sources */,
+				D5B462F2644616D035D3CA04 /* LiveVoiceHistoryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3755,6 +3762,7 @@
 				F83DC56215F246EC96D8AE4D /* SpeechEngineScreen.swift in Sources */,
 				90F0215A63C17CB02942CFE7 /* SpeechEngineAPI.swift in Sources */,
 				3C708A6B385E2F0B343A9B72 /* SpeechEngineStore.swift in Sources */,
+				C79C7D1B082B3B84896901E0 /* LiveVoiceHistory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
