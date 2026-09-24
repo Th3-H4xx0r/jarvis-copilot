@@ -140,7 +140,10 @@ final class MacModelPicker {
 
     var chipLabel: String { models.chipLabel }
 
-    func load() async { await models.load() }
+    func load() async {
+        await models.load()
+        await SpeechEngineStore.shared.load()
+    }
 
     /// How the conversation works, then the model. The conversation settings
     /// come first — they change every turn, and used to sit under the whole
@@ -189,6 +192,19 @@ final class MacModelPicker {
                              action: { Task { await store.setTranscription(.server) } }),
             ]),
         ]
+        // Which engine "Server" means — the same server setting the phone's Speech
+        // engine page and the web edit. Only offered while Server is the choice.
+        let speech = SpeechEngineStore.shared
+        if store.transcription == .server, speech.loaded, speech.settings.engines.count > 1 {
+            let current = speech.settings.voice
+            out.append(.choice("Server engine", speech.settings.engines.map { engine in
+                PickerChoice(symbol: engine.name == "local" ? "server.rack" : "waveform",
+                             title: engine.name == "local" ? "Current" : engine.label,
+                             selected: current == engine.name,
+                             enabled: engine.available || current == engine.name,
+                             action: { Task { await speech.setSurface("voice", to: engine.name) } })
+            }))
+        }
         switch store.transcriptionStatus {
         case .preparing(let fraction):
             out.append(.header(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }

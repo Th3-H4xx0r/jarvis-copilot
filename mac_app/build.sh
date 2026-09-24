@@ -31,10 +31,15 @@ BUNDLE_NAME="JarvisVoiceUI_JarvisVoiceUI.bundle"
 # component even though `xcrun metal` below works fine.
 SLICES=()
 NATIVE_BIN=""
+# Each slice is copied aside as soon as it is built: newer SwiftPM gives every
+# arch the same --show-bin-path, so the next build would overwrite it and lipo
+# would be handed one architecture twice.
+SLICE_DIR="$(mktemp -d -t jarvisvoiceui-slices)"
 for arch in arm64 x86_64; do
     if swift build -c "$CONFIG" --arch "$arch"; then
         bin="$(swift build -c "$CONFIG" --arch "$arch" --show-bin-path)"
-        SLICES+=("$bin/$LIB")
+        cp "$bin/$LIB" "$SLICE_DIR/$arch-$LIB"
+        SLICES+=("$SLICE_DIR/$arch-$LIB")
         [ "$arch" = "$(uname -m)" ] && NATIVE_BIN="$bin"
     else
         echo "build.sh: the $arch build failed - the dylib will not load on $arch Macs" >&2
@@ -60,7 +65,7 @@ cp -R "$BUNDLE_SRC" "$ASSETS/$BUNDLE_NAME"
 # AIR bytecode, so one copy serves every architecture.
 METAL="Sources/JarvisVoiceUI/Voice/Views/OrbShader.metal"
 AIR="$(mktemp -t OrbShader).air"
-trap 'rm -f "$AIR"' EXIT
+trap 'rm -f "$AIR"; rm -rf "$SLICE_DIR"' EXIT
 xcrun -sdk macosx metal -c "$METAL" -o "$AIR"
 xcrun -sdk macosx metallib "$AIR" -o "$ASSETS/$BUNDLE_NAME/default.metallib"
 # The copied source is dead weight once the library is built beside it.
