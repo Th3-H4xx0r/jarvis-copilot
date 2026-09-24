@@ -422,48 +422,76 @@ private struct MacSpeechSettingsPane: View {
 
 // MARK: - Voices
 
-/// Every voice Live knows, and — opened — everything it has said, a page at a time.
+/// Every voice Live knows; one opened is a sheet of everything it has said,
+/// a page at a time, with Done (or Esc) to come back to the list.
 private struct MacVoicesPane: View {
     @State private var store = MainActor.assumeIsolated { LiveStore.shared }
+    @State private var open: LiveSpeaker?
 
     var body: some View {
-        NavigationStack {
-            List {
-                if store.speakers.isEmpty {
-                    Text("No voices yet. Record a conversation and the voices in it appear here.")
-                        .foregroundStyle(JcTheme.muted)
-                }
-                ForEach(store.speakers) { speaker in
-                    NavigationLink {
-                        MacVoiceHistoryView(name: speaker.displayName,
-                                            history: store.voiceHistory(speakerID: speaker.id))
-                    } label: {
+        List {
+            if store.speakers.isEmpty {
+                Text("No voices yet. Record a conversation and the voices in it appear here.")
+                    .foregroundStyle(JcTheme.muted)
+            }
+            ForEach(store.speakers) { speaker in
+                Button { open = speaker } label: {
+                    HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(speaker.displayName).font(.system(size: 13, weight: .semibold))
                             Text("\(speaker.segmentCount) lines · \(max(1, speaker.speechMs / 60000)) min of speech")
                                 .font(.system(size: 11))
                                 .foregroundStyle(JcTheme.muted)
                             if let sample = speaker.samples.first {
-                                Text("“\(sample)”").font(.system(size: 12)).foregroundStyle(JcTheme.text.opacity(0.7))
+                                Text("“\(sample)”").font(.system(size: 12))
+                                    .foregroundStyle(JcTheme.text.opacity(0.7))
                                     .lineLimit(1)
                             }
                         }
-                        .padding(.vertical, 3)
+                        Spacer()
+                        Text("Everything they said").font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(JcTheme.accent)
+                        Image(systemName: "chevron.right").font(.system(size: 11))
+                            .foregroundStyle(JcTheme.muted)
                     }
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .task { await store.loadSpeakers() }
+        }
+        .task { await store.loadSpeakers() }
+        .sheet(item: $open) { speaker in
+            MacVoiceHistoryView(name: speaker.displayName,
+                                history: store.voiceHistory(speakerID: speaker.id))
+                .frame(minWidth: 640, idealWidth: 720, minHeight: 520, idealHeight: 620)
         }
     }
 }
 
-private struct MacVoiceHistoryView: View {
+/// One voice's whole history: newest first, grouped by conversation, the next
+/// page loading as the last line comes into view.
+struct MacVoiceHistoryView: View {
     let name: String
     @State var history: LiveVoiceHistory
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        List {
-            Section {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name).font(.system(size: 15, weight: .semibold))
+                    Text("\(history.total) lines, newest first")
+                        .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            Divider()
+            List {
                 ForEach(Array(history.lines.enumerated()), id: \.element.id) { index, line in
                     if index == 0 || history.lines[index - 1].sessionID != line.sessionID {
                         Text(line.sessionTitle.isEmpty ? "Live session" : line.sessionTitle)
@@ -487,20 +515,17 @@ private struct MacVoiceHistoryView: View {
                         if index == history.lines.count - 1 { Task { await history.loadMore() } }
                     }
                 }
-            } header: {
-                Text("\(history.total) lines, newest first")
-            }
-            if !history.error.isEmpty {
-                Button("Retry — \(history.error)") { Task { await history.loadMore() } }
-            } else if history.done {
-                Text(history.lines.isEmpty ? "Nothing heard from this voice yet."
-                                           : "That is everything this voice has said.")
-                    .foregroundStyle(JcTheme.muted)
-            } else {
-                ProgressView().frame(maxWidth: .infinity)
+                if !history.error.isEmpty {
+                    Button("Retry — \(history.error)") { Task { await history.loadMore() } }
+                } else if history.done {
+                    Text(history.lines.isEmpty ? "Nothing heard from this voice yet."
+                                               : "That is everything this voice has said.")
+                        .foregroundStyle(JcTheme.muted)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
             }
         }
-        .navigationTitle(name)
         .task { if history.lines.isEmpty { await history.loadMore() } }
     }
 }
