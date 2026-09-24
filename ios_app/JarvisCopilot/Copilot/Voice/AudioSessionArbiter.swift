@@ -39,6 +39,8 @@ enum AudioSessionClient: CaseIterable, Sendable {
     /// Live Jarvis's ambient conversation capture. A SEPARATE claim from `.voice`
     /// on purpose — see `ambientPlan` for why it must not inherit the voice plan.
     case ambient
+    /// Playing a recording back (a Jarvis Pod clip).
+    case playback
 }
 
 #if os(iOS)
@@ -200,6 +202,15 @@ final class AudioSessionArbiter {
         active: true,
         sampleRate: liveSampleRate, ioBufferDuration: 0.1)
 
+    /// Playing a recording back. `.playback` like the keepalive, so a clip under
+    /// the keepalive changes no category at all — the Pod clip player used to set
+    /// its own, and iOS refused it with '!pri' (561017449) while another claim
+    /// held the session — but at the full rate: the keepalive's 8 kHz would play
+    /// the clip telephone-thin. Under any recording plan the clip rides along.
+    static let playbackPlan = AudioSessionPlan(
+        category: .playback, mode: .default, options: [.mixWithOthers], active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
+
     /// Nobody wants the session. The category is irrelevant while inactive; only
     /// `active` is acted on.
     static let idlePlan = AudioSessionPlan(
@@ -230,6 +241,7 @@ final class AudioSessionArbiter {
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientPlan }
+        if holders.contains(.playback) { return playbackPlan }
         if holders.contains(.keepalive) { return keepalivePlan }
         return idlePlan
     }

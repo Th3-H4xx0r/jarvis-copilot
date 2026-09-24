@@ -145,11 +145,43 @@ final class AudioSessionArbiterTests: XCTestCase {
             ([.recording, .voice, .ambient], AudioSessionArbiter.voicePlan),
             ([.keepalive, .recording, .voice, .ambient], AudioSessionArbiter.voicePlan),
         ]
-        XCTAssertEqual(expected.count, 1 << AudioSessionClient.allCases.count,
+        // Playing a clip back rides on any claim that can already play; alone
+        // (or over the keepalive) it gets its own full-rate playback.
+        let withPlayback = expected.map { holders, plan -> (Set<AudioSessionClient>, AudioSessionPlan) in
+            let rides = !holders.isDisjoint(with: [.voice, .recording, .ambient])
+            return (holders.union([.playback]), rides ? plan : AudioSessionArbiter.playbackPlan)
+        }
+        XCTAssertEqual(expected.count + withPlayback.count, 1 << AudioSessionClient.allCases.count,
                        "a client was added without a row here")
-        for (holders, plan) in expected {
+        for (holders, plan) in expected + withPlayback {
             XCTAssertEqual(AudioSessionArbiter.plan(for: holders), plan, "\(holders)")
         }
+    }
+
+    /// A Pod clip played while the keepalive runs changes no category: the old
+    /// player set its own, and iOS refused it ('!pri', 561017449). It gets the
+    /// full rate for the clip and hands the keepalive its cheap one back.
+    func testPlayingAClipUnderTheKeepaliveChangesNoCategory() throws {
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.keepalive)
+        let before = applier.calls
+        try arbiter.hold(.playback)
+        XCTAssertEqual(applier.calls, before, "no category change, no re-activation")
+        XCTAssertEqual(applier.preferredSampleRate, 48_000)
+        try arbiter.release(.playback)
+        XCTAssertEqual(applier.preferredSampleRate, AudioSessionArbiter.keepaliveSampleRate)
+        XCTAssertTrue(applier.isActive)
+    }
+
+    /// Playing a clip during a Live recording leaves the recording's session alone.
+    func testPlayingAClipDuringLiveKeepsTheCapture() throws {
+        let (arbiter, applier) = makeArbiter()
+        try arbiter.hold(.ambient)
+        let before = applier.calls
+        try arbiter.hold(.playback)
+        try arbiter.release(.playback)
+        XCTAssertEqual(applier.calls, before)
+        XCTAssertEqual(applier.category, .playAndRecord)
     }
 
     /// Applied against a live session: a clip taken while the keepalive is armed

@@ -58,6 +58,7 @@ struct JarvisPodView: View {
     @State private var player = PodRecordingPlayer()
     @State private var renaming = false
     @State private var recordingsShown = 30
+    @State private var speech = SpeechEngineStore.shared
 
     private var pod: JarvisPodDevice? { store.pods.first { $0.id == podID } }
     private var status: JarvisPodStatus? { store.statuses[podID] }
@@ -91,6 +92,8 @@ struct JarvisPodView: View {
                     toggle("Noise cancelling", "Filters out hum on the pod and cleans recordings", "waveform.badge.minus",
                            isOn: Binding(get: { settings?.noiseCancel ?? true },
                                          set: { on in Task { await store.update(podID, ["noise_cancel": on]) } }))
+                    divider
+                    speechModel
                     divider
                     toggle("24-hour time", "For the clock home screen", "clock",
                            isOn: Binding(get: { settings?.clock24h ?? JarvisPodLook.clock24h },
@@ -133,6 +136,7 @@ struct JarvisPodView: View {
             }
         }
         .task { await reload() }
+        .task { await speech.load() }
         .onDisappear { player.stop() }
         .wearableRename(isPresented: $renaming, current: pod?.name ?? "Jarvis Pod") { name in
             guard !name.isEmpty else { return }
@@ -477,6 +481,42 @@ struct JarvisPodView: View {
         .padding(.vertical, 14)
     }
 
+    /// Which engine hears what you say to the Pod: Soniox, or the server's own
+    /// model. A server setting, so it is the same for every Pod.
+    private var speechModel: some View {
+        let s = speech.settings
+        let options = s.engines.filter { $0.available || $0.name == s.pod }
+        return HStack(spacing: 12) {
+            iconTile("text.bubble")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Speech model").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                Text(speech.error.isEmpty ? "What turns your voice into text" : speech.error)
+                    .font(.caption)
+                    .foregroundStyle(speech.error.isEmpty ? JcTheme.muted : JcTheme.danger)
+            }
+            Spacer()
+            Menu {
+                ForEach(options) { engine in
+                    Button {
+                        Task { await speech.setSurface("pod", to: engine.name) }
+                    } label: {
+                        if engine.name == s.pod { Label(engine.label, jcIcon: "checkmark") } else { Text(engine.label) }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(speech.loaded ? s.label(for: s.pod) : "…").lineLimit(1)
+                    JcIcon("chevron.up.chevron.down").font(.caption2)
+                }
+                .font(.subheadline)
+                .foregroundStyle(JcTheme.accent)
+            }
+            .disabled(!speech.loaded || options.isEmpty)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
     private func toggle(_ title: String, _ subtitle: String, _ symbol: String, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
             iconTile(symbol)
@@ -501,6 +541,11 @@ struct JarvisPodView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
+}
+
+private enum PodPlaybackError: LocalizedError {
+    case refused
+    var errorDescription: String? { "the phone's audio would not start" }
 }
 
 /// Plays one pod recording at a time (downloaded on first play).
@@ -530,15 +575,17 @@ final class PodRecordingPlayer: NSObject, AVAudioPlayerDelegate {
                 }
                 guard token == self.request, let data else { return }  // stopped or replaced meanwhile
                 loadingID = nil
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                try AVAudioSession.sharedInstance().setActive(true)
+                // Through the arbiter: setting the category here was refused
+                // ('!pri') whenever the keepalive, Voice or Live held the session.
+                try AudioSessionArbiter.shared.hold(.playback)
                 let player = try AVAudioPlayer(data: data)
                 player.delegate = self
-                player.play()
+                guard player.play() else { throw PodPlaybackError.refused }
                 audio = player
                 playingID = rec.id
             } catch {
                 loadingID = nil
+                try? AudioSessionArbiter.shared.release(.playback)
                 self.error = "Couldn't play that recording: \(error.localizedDescription)"
             }
         }
@@ -546,6 +593,7 @@ final class PodRecordingPlayer: NSObject, AVAudioPlayerDelegate {
 
     func stop() {
         request += 1
+        if audio != nil { try? AudioSessionArbiter.shared.release(.playback) }
         audio?.stop()
         audio = nil
         playingID = nil
