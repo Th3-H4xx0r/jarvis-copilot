@@ -87,6 +87,9 @@ struct EndTimings {
     int64_t vad_silence_ms;
     int64_t energy_ms;
     int64_t energy_only_ms;
+    // The server's speech engine heard the sentence end (end_of_speech): this much
+    // quiet is enough — a complete request is answered without the full pause.
+    int64_t server_end_quiet_ms;
 };
 EndTimings EndTimingsFor(int end_pause_ms);
 

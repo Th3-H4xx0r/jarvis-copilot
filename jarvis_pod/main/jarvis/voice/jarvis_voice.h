@@ -79,7 +79,8 @@ private:
     void NotePause();
     bool pause_hint_sent_ = false;
     bool vad_speaking_ = false;    // the AFE VAD's latest state
-    bool stop_after_reply_ = false;  // pod_stop_listening arrived while Jarvis was talking
+    bool stop_after_reply_ = false;
+    bool server_eos_ = false;  // the server's speech engine heard this turn's sentence end  // pod_stop_listening arrived while Jarvis was talking
     int64_t last_keepalive_ms_ = 0;
     int64_t next_connect_ms_ = 0;
     int connect_failures_ = 0;

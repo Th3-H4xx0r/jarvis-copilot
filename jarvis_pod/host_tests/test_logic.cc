@@ -136,6 +136,10 @@ int main() {
         CHECK(slow.vad_silence_ms == 2000 && slow.energy_ms == 2050 && slow.energy_only_ms == 2900);
         CHECK(ClampEndPauseMs(0) == kEndPauseMinMs && ClampEndPauseMs(99999) == kEndPauseMaxMs);
         CHECK(ClampEndPauseMs(1000) == 1000 && kEndPauseDefaultMs >= 900);
+        // Soniox heard the sentence end: a short quiet is enough — never longer than the setting.
+        CHECK(EndTimingsFor(1000).server_end_quiet_ms == 300);
+        CHECK(EndTimingsFor(400).server_end_quiet_ms == 300);
+        CHECK(EndTimingsFor(2000).server_end_quiet_ms < EndTimingsFor(2000).vad_silence_ms);
     }
 
     if (failures) {

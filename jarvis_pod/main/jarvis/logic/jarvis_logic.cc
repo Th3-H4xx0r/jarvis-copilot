@@ -533,7 +533,7 @@ int ClampEndPauseMs(int ms) { return std::max(kEndPauseMinMs, std::min(kEndPause
 
 EndTimings EndTimingsFor(int end_pause_ms) {
     const int64_t pause = ClampEndPauseMs(end_pause_ms);
-    return EndTimings{pause, pause + 50, std::max<int64_t>(1500, pause + 900)};
+    return EndTimings{pause, pause + 50, std::max<int64_t>(1500, pause + 900), std::min<int64_t>(300, pause)};
 }
 
 }  // namespace jarvis::logic

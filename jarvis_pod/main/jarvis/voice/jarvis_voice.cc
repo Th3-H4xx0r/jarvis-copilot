@@ -158,6 +158,7 @@ void Voice::Trigger(const std::string& text, bool by_touch) {
         return;
     }
     hide_overlay_at_ms_ = 0;
+    stop_after_reply_ = false;  // a stop meant for a conversation that was tapped off
     Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);  // wakes the dimmed screen too
     audio_->EnableWakeWordDetection(false);
     Ui::Get().SetVoiceActive(true);
@@ -346,6 +347,9 @@ void Voice::HandleJson(const std::string& text) {
             last_heard_ms_ = NowMs();
             Ui::Get().SetCaption(s);
         }
+    } else if (t == "end_of_speech") {
+        // Soniox heard the sentence end; Tick ends the turn after a short quiet.
+        if (phase_ == Phase::Listening) server_eos_ = true;
     } else if (t == "assistant_text") {
         spoken_.push_back(s);
         Ui::Get().SetCaption(s);
@@ -409,6 +413,7 @@ void Voice::KeepWarm(int64_t now) {
 void Voice::ResetEndpointing() {
     // "Pause before Jarvis answers" (the phone's Pod page), read fresh for every turn.
     end_ = logic::EndTimingsFor(store::LoadUi().end_pause_ms);
+    server_eos_ = false;
     pause_hint_sent_ = false;
     vad_speaking_ = false;
     loud_ticks_ = 0;
@@ -443,6 +448,7 @@ void Voice::TrackMicLevel(int64_t now) {
             quiet_since_ms_ = 0;
             pause_hint_sent_ = false;
             energy_speech_ = true;
+            server_eos_ = false;  // still talking: that end was a pause
         }
         return;
     }
@@ -471,7 +477,11 @@ void Voice::Tick() {
     if (phase_ == Phase::Listening) {
         TrackMicLevel(now);
         if (phase_ != Phase::Listening) return;
-        if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= end_.vad_silence_ms) {
+        if (server_eos_ && (speech_seen_ || energy_speech_) && quiet_since_ms_ &&
+            now - quiet_since_ms_ >= end_.server_end_quiet_ms) {
+            ESP_LOGI(TAG, "turn: the server heard the sentence end");
+            EndTurn();
+        } else if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= end_.vad_silence_ms) {
             EndTurn();
         } else if (!speech_seen_ && now - last_heard_ms_ >= kListenCapMs) {
             ESP_LOGI(TAG, "turn: nothing said for 2 minutes, going idle");
