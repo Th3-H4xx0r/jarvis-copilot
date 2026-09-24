@@ -621,7 +621,7 @@ def _pending_take(live_session_id: str, speaker_id: str) -> List[Tuple[str, int]
 
 
 def identify(vec: List[float], *, live_session_id: str = "",
-             seq: int = 0) -> Optional[Dict[str, Any]]:
+             seq: int = 0, learn: bool = True) -> Optional[Dict[str, Any]]:
     """Decide whose voice this is, writing the store rows that say so.
 
     The two thresholds of §5.2, and the third case is the interesting one:
@@ -636,6 +636,10 @@ def identify(vec: List[float], *, live_session_id: str = "",
       estimate than either alone, and if the mean clears ``SIM_CONFIRM`` the
       whole held group is promoted at once. That is what "decide when more
       audio arrives" means here.
+
+    ``learn=False`` is for a line too short to carry a voice (< 3 s): it may be
+    told who it is, but it stores no exemplar, holds nothing for promotion and
+    mints no voice — a new voice waits for a line long enough to be sure of.
 
     Returns the frame body the caller publishes, or None if it could do
     nothing. Never raises — the caller is a background worker and an
@@ -653,12 +657,20 @@ def identify(vec: List[float], *, live_session_id: str = "",
         best_id, score = best_match(vec, cents)
 
         if best_id and score >= SIM_CONFIRM:
+            if not learn:
+                return _decision(best_id, score, confirmed=True, new=False,
+                                 promoted=[], merged_from=None)
             live_store.add_embedding(best_id, vec, model,
                                      _segment_ref(live_session_id, seq))
             promoted = _pending_take(live_session_id, best_id)
             return _decision(best_id, score, confirmed=True, new=False,
                              promoted=promoted,
                              merged_from=_maybe_merge(best_id, vec, cents))
+
+        if not learn:
+            return (_decision(best_id, score, confirmed=False, new=False,
+                              promoted=[], merged_from=None)
+                    if best_id and score > SIM_NEW_SPEAKER else None)
 
         if best_id and score > SIM_NEW_SPEAKER:
             group = _pending_push(live_session_id, best_id, vec, seq)

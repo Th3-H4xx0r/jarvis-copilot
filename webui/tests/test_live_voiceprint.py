@@ -598,7 +598,7 @@ def test_a_segment_with_audio_gets_a_speaker_and_the_clients_are_told(monkeypatc
 
     viewer = live_ws.subscribe(sid)
     try:
-        live_ws.append_and_publish(sid, ts_start_ms=0, ts_end_ms=2000,
+        live_ws.append_and_publish(sid, ts_start_ms=0, ts_end_ms=3000,
                                    text="hello there", device_id="pod-1")
         assert live_ws.drain_identification(5.0)
         frames = []
@@ -656,7 +656,7 @@ def test_an_edge_lane_segment_with_opus_audio_gets_identified(monkeypatch):
         conn.on_binary(live_ws.encode_audio_frame(1, 0, packet))
     # Then the finished utterance the phone transcribed itself.
     conn.on_text(json.dumps({"t": "seg", "partial": False, "text": "hello there",
-                             "ts_start_ms": 500, "ts_end_ms": 3000,
+                             "ts_start_ms": 500, "ts_end_ms": 3500,
                              "local_label": "me"}))
     assert live_ws.drain_identification(10.0)
 
@@ -823,3 +823,31 @@ def test_me_is_enrolled_from_stored_voice_turns(monkeypatch, tmp_path):
     assert len(rows) == 2
 
 
+
+
+# ── short lines never teach (the ERes2Net doc's rule) ─────────────────────
+
+
+def test_a_short_line_matches_but_teaches_nothing():
+    """Under three seconds is too little voice to learn from: it may be told
+    who it is, but it must not become one of that voice's exemplars."""
+    known = _known_voice()
+    decision = live_voiceprint.identify(_basis(0), live_session_id="s", seq=1, learn=False)
+    assert decision["speaker_id"] == known
+    assert decision["label_state"] == live_store.LABEL_CONFIRMED
+    rows = live_store.embeddings_for_model(live_voiceprint.model_id())
+    assert len([r for r in rows if r["speaker_id"] == known]) == 1
+
+
+def test_a_short_unknown_voice_mints_nothing():
+    _known_voice()
+    assert live_voiceprint.identify(_basis(7), live_session_id="s", seq=1, learn=False) is None
+    assert len(live_store.list_speakers()) == 1
+
+
+def test_the_caller_only_learns_from_lines_of_three_seconds_or_more(monkeypatch):
+    seen = []
+    monkeypatch.setattr(live_voiceprint, "identify", lambda vec, **kw: seen.append(kw["learn"]))
+    live_ws._decide_identity("s", 1, {"ts_start_ms": 0, "ts_end_ms": 2000}, _basis(0), source="server")
+    live_ws._decide_identity("s", 2, {"ts_start_ms": 0, "ts_end_ms": 3000}, _basis(0), source="server")
+    assert seen == [False, True]

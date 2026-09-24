@@ -167,6 +167,9 @@ LANE_SERVER = "server"
 # After a server speech engine fails on a connection, how long before a
 # re-hello may try it again (the phone reconnects about once a minute).
 _ENGINE_RETRY_SECONDS = 30.0
+# Shorter lines are identified but never learned from (a voice needs more than
+# a word or two to be sure of).
+_LEARN_MIN_MS = 3000
 
 # ``[4B big-endian seq][8B big-endian ts_ms][payload]``. A fixed header keeps
 # audio timing correct across reordering and gaps without a second channel.
@@ -1715,8 +1718,11 @@ def _decide_identity(live_session_id: str, seq: int, row: Dict[str, Any],
     """Match one voiceprint against the stored voices and apply the answer."""
     from api import live_voiceprint
 
+    # A line under three seconds is too little voice to learn from: it can be
+    # matched to a known voice, but it teaches none and mints none.
+    span = int(row.get("ts_end_ms") or 0) - int(row.get("ts_start_ms") or 0)
     decision = live_voiceprint.identify(vec, live_session_id=live_session_id,
-                                        seq=seq)
+                                        seq=seq, learn=span >= _LEARN_MIN_MS)
     if not decision:
         _report_identification("skipped: the embedding produced no decision")
         return
