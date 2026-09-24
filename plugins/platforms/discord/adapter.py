@@ -2172,8 +2172,8 @@ class DiscordAdapter(BasePlatformAdapter):
         try:
             await asyncio.to_thread(VoiceReceiver.pcm_to_wav, pcm_data, wav_path)
 
-            from tools.transcription_tools import transcribe_audio
-            result = await asyncio.to_thread(transcribe_audio, wav_path)
+            from jarvis_speech import transcribe_file
+            result = await asyncio.to_thread(transcribe_file, wav_path, surface="voice")
 
             if not result.get("success"):
                 return

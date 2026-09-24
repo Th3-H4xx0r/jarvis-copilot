@@ -288,10 +288,10 @@ def handle_transcribe(handler):
             temp_path = tmp.name
             tmp.write(file_bytes)
         try:
-            from tools.transcription_tools import transcribe_audio
+            import jarvis_speech
+            result = jarvis_speech.transcribe_file(temp_path, surface='upload')
         except ImportError:
             return j(handler, {'error': 'Speech-to-text is unavailable on this server'}, status=503)
-        result = transcribe_audio(temp_path)
         if not result.get('success'):
             msg = str(result.get('error') or 'Transcription failed')
             status = 503 if 'unavailable' in msg.lower() or 'not configured' in msg.lower() else 400

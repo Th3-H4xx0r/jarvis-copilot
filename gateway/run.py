@@ -13846,13 +13846,13 @@ class GatewayRunner:
                 return f"{disabled_note}\n\n{user_text}"
             return disabled_note
 
-        from tools.transcription_tools import transcribe_audio
+        from jarvis_speech import transcribe_file
 
         enriched_parts = []
         for path in audio_paths:
             try:
                 logger.debug("Transcribing user voice: %s", path)
-                result = await asyncio.to_thread(transcribe_audio, path)
+                result = await asyncio.to_thread(transcribe_file, path, surface="upload")
                 if result["success"]:
                     transcript = result["transcript"]
                     enriched_parts.append(

@@ -176,8 +176,10 @@ def _voice_status(handler) -> bool:
         except Exception:
             provider = ""
     import shutil as _shutil
+    engine = _voice_engine()
     j(handler, {
         "stt_ok": bool(stt),
+        "stt_engine": engine.name if engine is not None else "local",
         "tts_ok": bool(tts_fn),
         "realtime_ok": bool(stt and tts_fn),
         "tts_provider": provider,
@@ -623,7 +625,9 @@ def _voice_quality_turn(handler, body) -> bool:
             return j(handler, {"error": "invalid base64 audio"}, status=400)
         if len(pcm_bytes) < 1000:
             return j(handler, {"error": "audio too short"}, status=400)
-        transcript = _pcm_to_transcript(pcm_bytes, sr)
+        transcript = _engine_transcribe_pcm(pcm_bytes, sr)
+        if transcript is None:
+            transcript = _pcm_to_transcript(pcm_bytes, sr)
 
     # Headers go out BEFORE we touch the agent so the browser sees the
     # streaming response start instantly (and reveals the transcript line
@@ -1329,6 +1333,127 @@ def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int, *, realtime: bool = F
             pass
 
 
+# ── the configured speech engine (jarvis_speech) ───────────────────────────
+#
+# Default is today's path: `engine_for("voice")` is None and nothing below runs.
+# With a streaming engine (Soniox) a turn's audio streams as it arrives, so the
+# words are ready at end_turn; any failure answers that same turn from its own
+# buffered audio on the local path, so a turn never goes silent.
+
+_ENGINE_FINISH_TIMEOUT_S = 6.0
+_ENGINE_CLIP_CHUNK_S = 0.1
+
+
+def _voice_engine():
+    try:
+        _ensure_hermes_on_path()
+        import jarvis_speech
+        engine = jarvis_speech.engine_for("voice")
+        return engine if engine is not None and getattr(engine, "streams", False) else None
+    except Exception:
+        logger.debug("voice: speech engine lookup failed", exc_info=True)
+        return None
+
+
+class _TurnSink:
+    """A voice turn needs only its final words; `finish()` returns them."""
+
+    def on_partial(self, *args):
+        pass
+
+    def on_segment(self, segment):
+        pass
+
+    def on_translation(self, *args):
+        pass
+
+    def on_error(self, message):
+        logger.info("voice: speech engine error: %s", message)
+
+
+def _feed_turn_stream(state: dict, payload: bytes) -> None:
+    """Caller holds state["lock"]. Opens the turn's stream on its first audio."""
+    stream = state.get("stt_stream")
+    if stream is None:
+        if state.get("stt_stream_off") or state.get("pretranscript"):
+            return
+        engine = _voice_engine()
+        stream = engine.open_stream(_TurnSink(), rate=int(state.get("sample_rate") or 16000),
+                                    purpose="voice") if engine is not None else None
+        if stream is None:
+            state["stt_stream_off"] = True  # decided for this turn; not re-asked every frame
+            return
+        state["stt_stream"] = stream
+    stream.feed(payload)
+
+
+def _take_turn_stream(state: dict):
+    """Caller holds state["lock"]. The turn's stream (or None), reset for the next turn."""
+    state.pop("stt_stream_off", None)
+    return state.pop("stt_stream", None)
+
+
+def _close_turn_stream(stream) -> None:
+    if stream is None:
+        return
+    try:
+        stream.close()
+    except Exception:
+        logger.debug("voice: closing the speech stream failed", exc_info=True)
+
+
+def _engine_turn_transcript(stream, pcm_len: int):
+    """The engine's words for the turn, or None → today's path (local)."""
+    if stream is None:
+        return None
+    try:
+        segments = stream.finish(timeout=_ENGINE_FINISH_TIMEOUT_S)
+    except Exception:
+        logger.warning("voice: speech engine finish failed", exc_info=True)
+        return None
+    return _engine_words(segments, getattr(stream, "error", ""), pcm_len)
+
+
+def _engine_words(segments, error: str, pcm_len: int):
+    text = " ".join(s.text for s in segments if getattr(s, "text", "")).strip()
+    if not text:
+        # An error, or half a second of audio with nothing back, is not trusted as silence.
+        if error or pcm_len >= 16000:
+            return None
+        return ""
+    try:
+        from agent.voice_hallucination import is_hallucinated_output
+        if is_hallucinated_output(text, mode="conversation"):
+            return ""
+    except Exception:
+        pass
+    return text
+
+
+def _engine_transcribe_pcm(pcm_bytes: bytes, sample_rate: int):
+    """A whole clip (push-to-talk) through the engine, or None → local."""
+    engine = _voice_engine()
+    if engine is None:
+        return None
+    try:
+        stream = engine.open_stream(_TurnSink(), rate=int(sample_rate or 16000), purpose="voice")
+    except Exception:
+        logger.warning("voice: speech engine could not open", exc_info=True)
+        return None
+    if stream is None:
+        return None
+    step = max(2, int(sample_rate * _ENGINE_CLIP_CHUNK_S) * 2)
+    for offset in range(0, len(pcm_bytes), step):
+        stream.feed(pcm_bytes[offset:offset + step])
+    seconds = len(pcm_bytes) / float(2 * max(1, sample_rate))
+    try:
+        segments = stream.finish(timeout=min(30.0, seconds + 6.0))
+    except Exception:
+        logger.warning("voice: speech engine finish failed", exc_info=True)
+        return None
+    return _engine_words(segments, getattr(stream, "error", ""), len(pcm_bytes))
+
+
 # The fast model's guess is taken only this confident or better; below it the accurate
 # model runs on the whole turn. Measured on the pod's own clips: its mistakes ("Further?"
 # heard as "Turn it in") sit under -0.5, its correct short commands above -0.45.
@@ -1833,6 +1958,7 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
                     with state["lock"]:
                         if len(state["pcm_buf"]) + len(payload) <= _WS_BUFFER_LIMIT_BYTES:
                             state["pcm_buf"].extend(payload)
+                            _feed_turn_stream(state, payload)
                 elif isinstance(event, TextMessage):
                     try:
                         msg = json.loads(event.data or "{}")
@@ -1858,6 +1984,9 @@ def _run_voice_ws(conn, sock, origin=None) -> None:
         state["interrupt"] = True
         _cancel_active_voice_stream(state)
         _detach_escalation_sink(state)
+        with state["lock"]:
+            abandoned = _take_turn_stream(state)
+        _close_turn_stream(abandoned)
         try:
             sock.close()
         except Exception:
@@ -1965,6 +2094,8 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         with state["lock"]:
             state["pcm_buf"].clear()
             state["interrupt"] = False
+            abandoned = _take_turn_stream(state)
+        _close_turn_stream(abandoned)
         state["clarify_pending"] = False  # fresh session — drop any stale clarify
         sr = int(msg.get("sample_rate") or 0)
         if sr > 0:
@@ -2790,6 +2921,8 @@ def _start_speculative_stt(state: dict) -> None:
     the latest pause — speech after the pause sends a new hint, so a stale result
     can't drop the user's last words.
     """
+    if state.get("stt_stream") is not None:
+        return  # the engine is already hearing this turn; a second pass would bill twice
     with state["lock"]:
         pcm = bytes(state["pcm_buf"])
         sr = state["sample_rate"]
@@ -2883,24 +3016,31 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         sr = state["sample_rate"]
         sid = (state.get("session_id") or "").strip()
         state["pcm_buf"].clear()
+        stream = _take_turn_stream(state)
     # On-device escalation: if the client already supplied the transcript with
     # the turn, skip STT entirely. Consume it (pop) so it can't leak into the
     # next turn.
     pretranscript = (state.pop("pretranscript", None) or "").strip()
     if pretranscript:
+        _close_turn_stream(stream)
         transcript = pretranscript
         _mark_span(timing, "stt_ms", 0.0)  # on-device STT — server did none
     else:
         if len(pcm) < 1000:
+            _close_turn_stream(stream)
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
             return
         _t0 = time.monotonic()
-        transcript = _take_speculative_transcript(state, len(pcm))
-        if transcript is None:
-            stt_pcm = _normalize_for_stt(pcm) if state.get("client") == "jarvis_pod" else pcm
-            transcript = _pcm_to_transcript(stt_pcm, sr, realtime=True)
+        transcript = _engine_turn_transcript(stream, len(pcm))
+        if transcript is not None:
+            _mark_span(timing, "stt_engine", 1.0)
         else:
-            _mark_span(timing, "stt_speculative", 1.0)
+            transcript = _take_speculative_transcript(state, len(pcm))
+            if transcript is None:
+                stt_pcm = _normalize_for_stt(pcm) if state.get("client") == "jarvis_pod" else pcm
+                transcript = _pcm_to_transcript(stt_pcm, sr, realtime=True)
+            else:
+                _mark_span(timing, "stt_speculative", 1.0)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
         _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
@@ -2944,19 +3084,24 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         sr = state["sample_rate"]
         sid = (state.get("session_id") or "").strip()
         state["pcm_buf"].clear()
+        stream = _take_turn_stream(state)
     # On-device clarify answers arrive as text (the client STT'd it). Consume the
     # pretranscript (pop) so it's used here and can't leak into the next turn.
     pretranscript = (state.pop("pretranscript", None) or "").strip()
     if pretranscript:
+        _close_turn_stream(stream)
         transcript = pretranscript
         _mark_span(timing, "stt_ms", 0.0)
     elif len(pcm) < 1000:
+        _close_turn_stream(stream)
         # Nothing heard — keep clarify pending so the user can just try again.
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
         return
     else:
         _t0 = time.monotonic()
-        transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+        transcript = _engine_turn_transcript(stream, len(pcm))
+        if transcript is None:
+            transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
         _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
