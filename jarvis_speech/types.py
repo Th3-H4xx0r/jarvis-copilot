@@ -16,6 +16,8 @@ class Segment:
     speaker: str = ""
     # Ties a translation that arrives after the line closed back to this line.
     key: int = 0
+    # Words the engine scored low — on the Pod's far-field audio, the wrong ones.
+    unsure: Tuple[str, ...] = ()
 
 
 class Sink(Protocol):

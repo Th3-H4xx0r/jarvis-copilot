@@ -1147,7 +1147,7 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
                              lane: str = "", heard_before_interrupt=None, client: str = "",
-                             origin=None):
+                             origin=None, unsure=()):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1286,7 +1286,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # The voice rules ride in the SYSTEM prompt for this one call (consumed
         # by the streaming thread) — not prefixed to the user message, which is
         # what the Chats tab shows verbatim.
-        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt, client)
+        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt, client) + _unsure_note(unsure)
         # Which paired device is speaking (api/turn_origin.py): in the system text,
         # and the default target for device tools this turn.
         from api import turn_origin
@@ -1473,9 +1473,11 @@ def _feed_turn_stream(state: dict, payload: bytes, conn=None, sock=None) -> None
             return
         engine = _voice_engine("pod") if state.get("client") == "jarvis_pod" else _voice_engine()
         sink = _TurnSink(send=lambda frame: _ws_send_text(conn, sock, json.dumps(frame)))
+        # What Jarvis just said: often what the user is answering.
+        extra = {"context_text": state["reply_text"]} if state.get("reply_text") else {}
         try:
             stream = engine.open_stream(sink, rate=int(state.get("sample_rate") or 16000),
-                                        purpose="voice") if engine is not None else None
+                                        purpose="voice", **extra) if engine is not None else None
         except Exception:
             # This runs inside the socket's receive loop: an engine that throws
             # must cost this turn its engine, never the socket.
@@ -1503,8 +1505,9 @@ def _close_turn_stream(stream) -> None:
         logger.debug("voice: closing the speech stream failed", exc_info=True)
 
 
-def _engine_turn_transcript(stream, pcm_len: int):
-    """The engine's words for the turn, or None → today's path (local)."""
+def _engine_turn_transcript(stream, pcm_len: int, state: Optional[dict] = None):
+    """The engine's words for the turn, or None → today's path (local). Words it
+    heard unsurely go in ``state["unsure_words"]`` for the model's directive."""
     if stream is None:
         return None
     try:
@@ -1512,8 +1515,25 @@ def _engine_turn_transcript(stream, pcm_len: int):
     except Exception:
         logger.warning("voice: speech engine finish failed", exc_info=True)
         return None
-    return _engine_words(segments, getattr(stream, "error", ""), pcm_len,
-                         cut_off=getattr(stream, "cut_off", False))
+    words = _engine_words(segments, getattr(stream, "error", ""), pcm_len,
+                          cut_off=getattr(stream, "cut_off", False))
+    if state is not None and words:
+        unsure = tuple(w for s in segments for w in (getattr(s, "unsure", ()) or ()))
+        if unsure:
+            state["unsure_words"] = unsure
+    return words
+
+
+def _unsure_note(words) -> str:
+    """Directive text naming the words speech recognition was unsure of ("" for none)."""
+    words = [w for w in (words or ()) if w][:8]
+    if not words:
+        return ""
+    listed = ", ".join(f'"{w}"' for w in words)
+    return ("\n\n[Speech recognition was unsure of these words: " + listed + ". The user may be "
+            "across the room. If the request doesn't make sense with them, go by what they most "
+            "likely said given the conversation; if you really can't tell, ask them briefly to repeat "
+            "— never act on a guess that sends, deletes or buys something.]")
 
 
 def _engine_words(segments, error: str, pcm_len: int, cut_off: bool = False):
@@ -3199,6 +3219,7 @@ _STT_MAX_GAIN = 8.0  # +18 dB
 
 _ECHO_MIN_WORDS = 3
 _REPLY_WORDS_KEPT = 400
+_REPLY_TEXT_KEPT = 600
 
 
 def _reply_words(text: str) -> list:
@@ -3206,10 +3227,12 @@ def _reply_words(text: str) -> list:
 
 
 def _note_reply(state: dict, text: str) -> None:
-    """The words Jarvis is saying this turn, for `_strip_reply_echo` next turn."""
+    """What Jarvis is saying this turn: for `_strip_reply_echo`, and as the next
+    turn's speech-recognition context."""
     words = state.setdefault("reply_words", [])
     words.extend(_reply_words(text))
     del words[:-_REPLY_WORDS_KEPT]
+    state["reply_text"] = (str(state.get("reply_text") or "") + " " + (text or "")).strip()[-_REPLY_TEXT_KEPT:]
 
 
 def _strip_reply_echo(transcript: str, reply_words: list) -> str:
@@ -3235,6 +3258,7 @@ def _pod_heard(state: dict, transcript: str) -> str:
                   flush=True)
         transcript = heard
     state["reply_words"] = []
+    state["reply_text"] = ""
     return transcript
 
 
@@ -3298,7 +3322,8 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
             return
         _t0 = time.monotonic()
-        transcript = _engine_turn_transcript(stream, len(pcm))
+        state.pop("unsure_words", None)
+        transcript = _engine_turn_transcript(stream, len(pcm), state)
         if transcript is not None:
             _mark_span(timing, "stt_engine", 1.0)
         else:
@@ -3330,6 +3355,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             heard_before_interrupt=_take_heard_before_interrupt(state),
             client=state.get("client", ""),
             origin=state.get("origin"),
+            unsure=state.pop("unsure_words", ()),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if not state.get("clarify_pending"):
@@ -3369,7 +3395,8 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         return
     else:
         _t0 = time.monotonic()
-        transcript = _engine_turn_transcript(stream, len(pcm))
+        state.pop("unsure_words", None)
+        transcript = _engine_turn_transcript(stream, len(pcm), state)
         if transcript is None:
             transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)

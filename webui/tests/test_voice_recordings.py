@@ -90,3 +90,32 @@ def test_denoise_is_a_noop_without_the_package(monkeypatch):
 
     monkeypatch.setattr(denoise, "available", lambda: False)
     assert denoise.clean("pod1", PCM) is None
+
+
+def test_what_stt_heard_is_kept_beside_the_cleaned_copy(monkeypatch, tmp_path):
+    # The saved clip is noise-suppressed for playback; analysing recognition needs
+    # the audio the speech engine actually got.
+    _dir(monkeypatch, tmp_path)
+    r = rec.save("pod1", b"\x02\x00" * 16000, 16000, "hi", now=1_757_900_000.0, cleaned=True, raw=PCM)
+    assert r["raw"] is True
+    with wave.open(str(rec.raw_path("pod1", r["id"])), "rb") as w:
+        assert w.readframes(1) == b"\x01\x00"
+    assert set(r["levels"]) == {"speech_db", "floor_db", "snr_db"}
+
+
+def test_raw_copies_expire_after_a_week_and_go_with_their_recording(monkeypatch, tmp_path):
+    _dir(monkeypatch, tmp_path)
+    old = rec.save("pod1", PCM, 16000, "old", now=1_757_900_000.0, cleaned=True, raw=PCM)
+    new = rec.save("pod1", PCM, 16000, "new", now=1_757_900_000.0 + 8 * 24 * 3600, cleaned=True, raw=PCM)
+    assert rec.raw_path("pod1", old["id"]) is None and rec.audio_path("pod1", old["id"]) is not None
+    assert rec.raw_path("pod1", new["id"]) is not None
+    rec.delete("pod1", new["id"])
+    assert rec.raw_path("pod1", new["id"]) is None
+
+
+def test_levels_tell_a_quiet_room_from_speech():
+    import array, math
+    quiet = array.array("h", [0] * 8000).tobytes()
+    loud = array.array("h", [int(8000 * math.sin(i / 3)) for i in range(8000)]).tobytes()
+    lv = rec.audio_levels(quiet + loud, 16000)
+    assert lv["speech_db"] > -20 and lv["snr_db"] > 30

@@ -15,6 +15,9 @@ from jarvis_speech.types import Segment
 
 _MARKERS = ("<end>", "<fin>")
 _KEEP_TRANSLATIONS = 32
+# Below this, a word was probably misheard: on the Pod's far-field clips every
+# wrong word scored under it ("an email with a phone(0.64)" for "a poem").
+UNSURE_CONFIDENCE = 0.7
 
 
 class TokenAssembler:
@@ -110,7 +113,8 @@ class TokenAssembler:
         end = int(self._to_session(max(ends))) if ends else start
         self._sink.on_segment(Segment(
             text=text, start_ms=start, end_ms=max(end, start), language=_language(tokens),
-            translation=self._translation(key), speaker=str(tokens[0].get("speaker") or ""), key=key))
+            translation=self._translation(key), speaker=str(tokens[0].get("speaker") or ""), key=key,
+            unsure=_unsure_words(tokens)))
 
 
 def _language(tokens: List[dict]) -> str:
@@ -122,3 +126,24 @@ def _language(tokens: List[dict]) -> str:
             span = (token.get("end_ms") or 0) - (token.get("start_ms") or 0)
             spoken[language] += max(1, span)
     return spoken.most_common(1)[0][0] if spoken else ""
+
+
+def _unsure_words(tokens: List[dict]) -> tuple:
+    """Words (sub-word tokens joined; a leading space starts a word) whose lowest
+    token confidence is under UNSURE_CONFIDENCE."""
+    words: List[list] = []
+    for token in tokens:
+        text = token.get("text") or ""
+        confidence = token.get("confidence")
+        if not words or text.startswith(" "):
+            words.append([text.strip(), confidence])
+        else:
+            words[-1][0] += text
+            if confidence is not None:
+                words[-1][1] = confidence if words[-1][1] is None else min(words[-1][1], confidence)
+    out = []
+    for word, confidence in words:
+        bare = word.strip(".,!?;:\"'\u2014\u2013-\u00bf\u00a1")
+        if bare and confidence is not None and confidence < UNSURE_CONFIDENCE:
+            out.append(bare)
+    return tuple(out)

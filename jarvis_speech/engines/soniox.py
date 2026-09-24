@@ -117,10 +117,20 @@ class _Collect:
         self._call("on_error", message)
 
 
+_CONTEXT_TEXT_MAX = 600
+_VOICE_CONTEXT = (
+    {"key": "domain", "value": "Someone talking to their AI voice assistant, Jarvis, often from across a room"},
+    {"key": "topics", "value": "emails, messages, reminders, timers, alarms, weather, the time, music, "
+                               "lights, questions, jokes, poems, stories"},
+)
+
+
 class SonioxStream:
     def __init__(self, connect, sink, *, rate: int, translate_to: str, purpose: str,
-                 idle_close_s: float, audio_format: str = "pcm_s16le", key: str = "") -> None:
+                 idle_close_s: float, audio_format: str = "pcm_s16le", key: str = "",
+                 context_text: str = "") -> None:
         self._connect = connect
+        self._context_text = (context_text or "").strip()[-_CONTEXT_TEXT_MAX:]
         self._given_key = key  # a key being tried before it is saved (the Test button)
         self._collect = _Collect(sink)
         self._rate = max(1, int(rate or 16000))
@@ -323,6 +333,16 @@ class SonioxStream:
             message["language_hints"] = hints
         if son["custom_words"]:
             message["context"] = {"terms": list(son["custom_words"])}
+        if self._purpose == "voice":
+            # What it is listening to, and what Jarvis just said (often what the user
+            # is answering). On the Pod's far-field clips a neutral context like this
+            # turned "Your permission means you know, who they call" into "Jarvis, can
+            # you send me an email for the call?".
+            context = {"general": list(_VOICE_CONTEXT),
+                       "terms": ["Jarvis"] + [w for w in son["custom_words"] if w != "Jarvis"]}
+            if self._context_text:
+                context["text"] = self._context_text
+            message["context"] = context
         if ends:
             message["endpoint_latency_adjustment_level"] = son["endpoint_latency_level"]
             message["endpoint_sensitivity"] = son["endpoint_sensitivity"]
@@ -363,9 +383,9 @@ class SonioxEngine:
                                   max_size=2 ** 22, ping_interval=None))
 
     def open_stream(self, sink, *, rate: int, translate_to: str = "", purpose: str = "live",
-                    idle_close_s: float = 0) -> SonioxStream:
+                    idle_close_s: float = 0, context_text: str = "") -> SonioxStream:
         return SonioxStream(lambda: self._connect(), sink, rate=rate, translate_to=translate_to,
-                            purpose=purpose, idle_close_s=idle_close_s)
+                            purpose=purpose, idle_close_s=idle_close_s, context_text=context_text)
 
     def transcribe_file(self, path: str) -> dict:
         suffix = Path(path).suffix.lower()

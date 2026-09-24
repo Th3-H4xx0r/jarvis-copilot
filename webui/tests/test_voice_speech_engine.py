@@ -43,11 +43,12 @@ class FakeEngine:
     name, label, streams = "fake", "Fake", True
 
     def __init__(self, make=FakeStream):
-        self.opened, self._make = [], make
+        self.opened, self._make, self.kwargs = [], make, []
 
-    def open_stream(self, sink, *, rate, translate_to="", purpose="live", idle_close_s=0):
+    def open_stream(self, sink, *, rate, translate_to="", purpose="live", idle_close_s=0, **kw):
         stream = self._make()
         self.opened.append((rate, purpose, stream))
+        self.kwargs.append(kw)
         return stream
 
 
@@ -346,3 +347,22 @@ def test_the_pods_mic_catching_the_reply_is_not_your_turn():
     # Two words in common is just English, not an echo.
     assert voice._strip_reply_echo("Very good, turn off the lights.", reply) == "Very good, turn off the lights."
     assert voice._strip_reply_echo("Turn off the lights.", []) == "Turn off the lights."
+
+
+def test_words_heard_unsurely_reach_the_model():
+    note = voice._unsure_note(("a", "phone"))
+    assert '"a", "phone"' in note and "ask" in note
+    assert voice._unsure_note(()) == ""
+    state = {}
+    stream = FakeStream(segments=[Segment("Send me an email with a phone?", 0, 900, unsure=("a", "phone"))])
+    assert voice._engine_turn_transcript(stream, 32000, state) == "Send me an email with a phone?"
+    assert state["unsure_words"] == ("a", "phone")
+
+
+def test_the_last_reply_is_the_next_turns_recognition_context(monkeypatch, sent):
+    engine = FakeEngine()
+    monkeypatch.setattr(voice, "_voice_engine", lambda surface="voice": engine)
+    state = _state(reply_text="What should the poem be about, sir?")
+    with state["lock"]:
+        voice._feed_turn_stream(state, b"a" * 320, None, None)
+    assert engine.kwargs[-1]["context_text"] == "What should the poem be about, sir?"

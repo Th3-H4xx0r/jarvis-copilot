@@ -111,3 +111,23 @@ def test_a_translation_after_a_speaker_split_goes_to_the_first_line():
     a.consume({"tokens": [tok("Hello friend", lang="en", status="translation")]})
     assert [s.text for s in r.segs] == ["Hola", "amigo"]
     assert r.trans == [(r.segs[0].key, "Hello friend")]
+
+
+def test_words_the_engine_was_unsure_of_travel_with_the_line():
+    # On the Pod's far-field clips, the words Soniox scored low were the wrong ones
+    # ("an email with a phone(0.64)" for "a poem").
+    r = Rec()
+    a = TokenAssembler(r)
+    toks = [dict(tok(t, i * 100, i * 100 + 90), confidence=c) for i, (t, c) in enumerate(
+        [("Send", 0.98), (" me", 0.97), (" an", 0.95), (" e", 0.93), ("mail", 0.9), (" with", 0.8),
+         (" a", 0.66), (" pho", 0.5), ("ne?", 0.64)])]
+    a.consume({"tokens": toks + [tok("<end>")]})
+    assert r.segs[0].text == "Send me an email with a phone?"
+    assert r.segs[0].unsure == ("a", "phone")
+
+
+def test_a_line_without_confidences_is_sure():
+    r = Rec()
+    a = TokenAssembler(r)
+    a.consume({"tokens": [tok("Hello", 0, 100), tok("<end>")]})
+    assert r.segs[0].unsure == ()

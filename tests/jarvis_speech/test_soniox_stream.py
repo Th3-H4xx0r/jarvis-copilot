@@ -91,6 +91,23 @@ def test_voice_leans_english_when_no_languages_are_set(monkeypatch):
         assert json.loads(t.sent[0]).get("language_hints") == hints
 
 
+def test_a_voice_turn_tells_soniox_what_it_is_listening_to(monkeypatch):
+    # A neutral context turned "Your permission means you know, who they call" into
+    # "Jarvis, can you send me an email for the call?" on the Pod's own clips.
+    son = dict(soniox.config.DEFAULTS["soniox"], custom_words=["Pranav"])
+    monkeypatch.setattr(soniox.config, "load", lambda: {"surfaces": {}, "soniox": son})
+    t = FakeTransport([])
+    _engine(monkeypatch, t).open_stream(Rec(), rate=16000, purpose="voice",
+                                        context_text="What should the poem be about, sir?").finish(timeout=2)
+    ctx = json.loads(t.sent[0])["context"]
+    assert ctx["text"] == "What should the poem be about, sir?"
+    assert "Jarvis" in ctx["terms"] and "Pranav" in ctx["terms"]
+    assert any("Jarvis" in g["value"] for g in ctx["general"])
+    t = FakeTransport([])
+    _engine(monkeypatch, t).open_stream(Rec(), rate=16000, purpose="live").finish(timeout=2)
+    assert json.loads(t.sent[0])["context"] == {"terms": ["Pranav"]}
+
+
 def test_connect_failure_reports_error_and_finish_is_empty(monkeypatch):
     rec = Rec()
     eng = _engine(monkeypatch, None)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 import time
 import urllib.parse
@@ -24,6 +25,9 @@ from api.config import STATE_DIR
 
 RECORDINGS_DIR = STATE_DIR / "voice_recordings"
 MAX_AGE_SECONDS = 30 * 24 * 3600
+# What the speech engine heard, beside the (noise-suppressed) copy the phone plays:
+# recognition can only be judged on this. Kept a week.
+RAW_MAX_AGE_SECONDS = 7 * 24 * 3600
 MAX_PER_DEVICE = 2000
 _MIN_PCM_BYTES = 1000
 
@@ -53,9 +57,39 @@ def _write_index(d: Path, recs: list[dict]) -> None:
     tmp.replace(d / "index.json")
 
 
+def audio_levels(pcm: bytes, sample_rate: int) -> dict:
+    """Speech level, noise floor and their gap (dBFS, 20 ms frames): how far and how
+    noisy a turn was, for judging recognition against distance."""
+    import array
+    import math
+    samples = array.array("h", pcm[: len(pcm) - len(pcm) % 2])
+    if sys.byteorder != "little":
+        samples.byteswap()
+    frame = max(1, sample_rate // 50)
+    dbs = []
+    for i in range(0, len(samples) - frame + 1, frame):
+        chunk = samples[i:i + frame]
+        rms = math.sqrt(sum(v * v for v in chunk) / frame) / 32768.0
+        dbs.append(20 * math.log10(rms + 1e-9))
+    if not dbs:
+        return {"speech_db": -120.0, "floor_db": -120.0, "snr_db": 0.0}
+    dbs.sort()
+    floor, speech = dbs[int(len(dbs) * 0.1)], dbs[min(len(dbs) - 1, int(len(dbs) * 0.95))]
+    return {"speech_db": round(speech, 1), "floor_db": round(floor, 1), "snr_db": round(speech - floor, 1)}
+
+
+def _write_wav(path: Path, pcm: bytes, sample_rate: int) -> None:
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm)
+
+
 def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Optional[float] = None,
-         cleaned: bool = False) -> Optional[dict]:
-    """Store one turn; returns its index entry, or None when there's nothing to keep."""
+         cleaned: bool = False, raw: Optional[bytes] = None) -> Optional[dict]:
+    """Store one turn; returns its index entry, or None when there's nothing to keep.
+    ``raw`` is the audio the speech engine got, kept a week beside ``pcm``."""
     d = _device_dir(device_id)
     if d is None or len(pcm) < _MIN_PCM_BYTES or sample_rate <= 0:
         return None
@@ -67,11 +101,7 @@ def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Opt
         rec_id = str(int(now * 1000))
         while any(r.get("id") == rec_id for r in recs):
             rec_id = str(int(rec_id) + 1)
-        with wave.open(str(d / f"{rec_id}.wav"), "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(sample_rate)
-            w.writeframes(pcm)
+        _write_wav(d / f"{rec_id}.wav", pcm, sample_rate)
         entry = {
             "id": rec_id,
             "ts": round(now, 3),
@@ -79,12 +109,23 @@ def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Opt
             "transcript": (transcript or "").strip()[:2000],
             "cleaned": cleaned,
         }
+        if raw is not None and cleaned and len(raw) >= _MIN_PCM_BYTES:
+            raw = raw[: len(raw) - (len(raw) % 2)]
+            _write_wav(d / f"{rec_id}.raw.wav", raw, sample_rate)
+            entry["raw"] = True
+        # Uncleaned, the recording itself is what the engine heard.
+        entry["levels"] = audio_levels(raw if entry.get("raw") else pcm, sample_rate)
         recs.insert(0, entry)
         keep = [r for r in recs if now - float(r.get("ts") or 0) <= MAX_AGE_SECONDS][:MAX_PER_DEVICE]
         kept_ids = {r.get("id") for r in keep}
         for r in recs:
             if r.get("id") not in kept_ids and _REC_ID.match(str(r.get("id") or "")):
                 (d / f"{r['id']}.wav").unlink(missing_ok=True)
+                (d / f"{r['id']}.raw.wav").unlink(missing_ok=True)
+        for r in keep:
+            if r.get("raw") and now - float(r.get("ts") or 0) > RAW_MAX_AGE_SECONDS:
+                (d / f"{r['id']}.raw.wav").unlink(missing_ok=True)
+                r["raw"] = False
         _write_index(d, keep)
     return entry
 
@@ -99,7 +140,7 @@ def save_async(device_id: str, pcm: bytes, sample_rate: int, transcript: str,
             out = voice_denoise.clean(device_id, pcm, sample_rate)
             if out:
                 audio, cleaned = out, True
-        save(device_id, audio, sample_rate, transcript, cleaned=cleaned)
+        save(device_id, audio, sample_rate, transcript, cleaned=cleaned, raw=pcm)
 
     threading.Thread(target=_run, name="voice-recording", daemon=True).start()
 
@@ -130,8 +171,18 @@ def delete(device_id: str, rec_id: str) -> bool:
         if len(left) == len(recs):
             return False
         (d / f"{rec_id}.wav").unlink(missing_ok=True)
+        (d / f"{rec_id}.raw.wav").unlink(missing_ok=True)
         _write_index(d, left)
     return True
+
+
+def raw_path(device_id: str, rec_id: str) -> Optional[Path]:
+    """What the speech engine heard for this turn, while it is still kept."""
+    d = _device_dir(device_id)
+    if d is None or not _REC_ID.match(rec_id or ""):
+        return None
+    p = d / f"{rec_id}.raw.wav"
+    return p if p.exists() else None
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
