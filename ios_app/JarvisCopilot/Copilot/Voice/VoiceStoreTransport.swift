@@ -264,6 +264,14 @@ extension VoiceStore {
             userTranscript = text
             pushLiveActivity() // show your line on the island while listening
 
+        case .endOfSpeech:
+            // Soniox heard the utterance end — sooner than the level-based
+            // silence wait. On-device transcription keeps deciding its own turn.
+            if machine.state == .listening, transcriptionInUse == .server {
+                note("server heard the end of speech")
+                raise(.endOfSpeech)
+            }
+
         case .assistantText(let text):
             reply.append(text)
             toolStatus = nil

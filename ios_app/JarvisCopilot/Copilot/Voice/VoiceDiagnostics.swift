@@ -69,6 +69,8 @@ enum VoiceDiagnostics {
             return "ws← audio_end"
         case .endTurn(let reason):
             return "ws← end_turn reason=\(reason.isEmpty ? "-" : reason)"
+        case .endOfSpeech:
+            return "ws← end_of_speech"
         case .latency(let turnID, let spans):
             return "ws← latency turn=\(turnID) spans=\(spans.count)"
         case .escalationResult(let text):

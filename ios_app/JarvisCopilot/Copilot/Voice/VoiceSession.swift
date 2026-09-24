@@ -18,6 +18,8 @@ enum VoiceServerFrame: Equatable, Sendable {
     /// The server reports EVERY turn outcome here, including failures, via
     /// `reason` (see `VoiceTurnMachine.failureReasons`).
     case endTurn(reason: String)
+    /// The server's engine heard the end of the utterance (Soniox endpoint).
+    case endOfSpeech
     /// The server's end-of-turn timing summary (plan 0.2), span name → ms.
     case latency(turnID: String, spans: [String: Double])
     /// The slow lane finished after we already answered a turn locally.
@@ -58,6 +60,8 @@ enum VoiceServerFrame: Equatable, Sendable {
             return .audioEnd
         case "end_turn":
             return .endTurn(reason: msg.string("reason") ?? "")
+        case "end_of_speech":
+            return .endOfSpeech
         case "latency":
             // Current servers send `{"turn_id":…, "spans":{name: ms, …}}`
             // (voice.py `_finish_turn_timing`); older ones sent a single flat

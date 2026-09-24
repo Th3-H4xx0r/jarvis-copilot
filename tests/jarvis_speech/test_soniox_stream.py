@@ -60,7 +60,8 @@ def test_voice_stream_returns_final_text(monkeypatch):
     config_msg = json.loads(t.sent[0])
     assert config_msg["audio_format"] == "pcm_s16le" and config_msg["sample_rate"] == 16000
     assert config_msg["num_channels"] == 1 and config_msg["model"] == "stt-rt-v5"
-    assert config_msg["enable_endpoint_detection"] is False and "translation" not in config_msg
+    # On for Voice too: Soniox hearing the end of an utterance ends the turn.
+    assert config_msg["enable_endpoint_detection"] is True and "translation" not in config_msg
     assert config_msg["api_key"] == "k-test-1234"
     assert _audio_bytes(t) == 3200
 

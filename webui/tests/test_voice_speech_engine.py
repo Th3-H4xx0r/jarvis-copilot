@@ -317,3 +317,12 @@ def test_soniox_words_reach_the_device_while_you_speak(monkeypatch, sent):
     with state["lock"]:
         voice._feed_turn_stream(state, b"a" * 320, None, None)
     assert {"type": "transcript", "text": "turn off the", "is_final": False} in sent
+
+
+
+def test_soniox_hearing_the_end_tells_the_device_once():
+    frames = []
+    sink = voice._TurnSink(send=frames.append)
+    sink.on_segment(Segment("turn off the lights", 0, 900))
+    sink.on_segment(Segment("please", 1000, 1300))
+    assert frames == [{"type": "end_of_speech"}]

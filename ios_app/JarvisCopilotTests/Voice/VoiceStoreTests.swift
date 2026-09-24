@@ -350,6 +350,32 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertNil(socket.lastMessage(ofType: "end_turn")?["text"])
     }
 
+    /// Soniox hears the end of an utterance from the speech itself; the turn
+    /// ends then, not after the level-based silence window.
+    func testSonioxHearingTheEndEndsTheTurnAtOnce() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        rig.input.emitFrames(amplitude: 0.5, ms: 600)   // still talking, as far as levels go
+        await settleVoiceTasks()
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertFalse(socket.sentTypes.contains("end_turn"))
+        socket.receive(json: ["type": "end_of_speech"])
+        await settleVoiceTasks()
+        XCTAssertTrue(socket.sentTypes.contains("end_turn"))
+    }
+
+    /// On-device transcription decides its own turn; the server's word is ignored.
+    func testOnDeviceIgnoresTheServersEndOfSpeech() async throws {
+        let rig = makeRig(transcription: .onDevice)
+        await startListening(rig)
+        rig.input.emitFrames(amplitude: 0.5, ms: 600)
+        await settleVoiceTasks()
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "end_of_speech"])
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
     func testOnDeviceThatHeardNoWordsSendsNothingAndKeepsListening() async throws {
         let rig = makeRig(transcription: .onDevice)
         rig.recognizer.nextTranscript = ""

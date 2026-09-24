@@ -1365,6 +1365,7 @@ class _TurnSink:
     def __init__(self, send=None):
         self._send = send
         self._last = 0.0
+        self._ended = False
 
     def on_partial(self, text, *args):
         if self._send is None or not text:
@@ -1379,7 +1380,15 @@ class _TurnSink:
             logger.debug("voice: could not send words in progress", exc_info=True)
 
     def on_segment(self, segment):
-        pass
+        # Soniox closed a line: it heard the end of the utterance. Tell the
+        # device once, so a turn ends without waiting out its silence window.
+        if self._send is None or self._ended:
+            return
+        self._ended = True
+        try:
+            self._send({"type": "end_of_speech"})
+        except Exception:
+            logger.debug("voice: could not send end of speech", exc_info=True)
 
     def on_translation(self, *args):
         pass

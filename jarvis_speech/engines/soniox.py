@@ -305,10 +305,13 @@ class SonioxStream:
     def _config_message(self) -> dict:
         son = config.load()["soniox"]
         live = self._purpose == "live"
+        # Voice too: Soniox hearing the end of an utterance ends the turn sooner
+        # than the device's level-based silence wait.
+        ends = live or self._purpose == "voice"
         message = {"model": son["model"], "audio_format": self._audio_format,
                    "enable_language_identification": bool(son["language_id"]),
                    "enable_speaker_diarization": bool(son["speaker_labels"]) if live else False,
-                   "enable_endpoint_detection": live,
+                   "enable_endpoint_detection": ends,
                    "client_reference_id": f"jarvis-{self._purpose}"}
         if self._audio_format != "auto":
             message["sample_rate"] = self._rate
@@ -317,10 +320,11 @@ class SonioxStream:
             message["language_hints"] = list(son["language_hints"])
         if son["custom_words"]:
             message["context"] = {"terms": list(son["custom_words"])}
-        if live:
+        if ends:
             message["endpoint_latency_adjustment_level"] = son["endpoint_latency_level"]
             message["endpoint_sensitivity"] = son["endpoint_sensitivity"]
             message["max_endpoint_delay_ms"] = son["max_endpoint_delay_ms"]
+        if live:
             if self._translate_to:
                 message["translation"] = {"type": "one_way", "target_language": self._translate_to}
         return message
