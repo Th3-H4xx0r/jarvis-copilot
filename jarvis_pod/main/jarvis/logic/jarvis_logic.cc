@@ -253,7 +253,12 @@ bool IsStopPhrase(const std::string& transcript) {
             w.clear();
         }
     }
-    static const char* kFillers[] = {"hey", "ok", "okay", "oh", "uh", "um", "hmm", "please", "jarvis", "so", "well", "yeah"};
+    // Edge words that never change the meaning. The second group is only stripped for a
+    // second attempt, so "no thanks" still matches as itself.
+    static const char* kFillers[] = {"hey", "ok", "okay", "oh", "uh", "um", "hmm", "please", "jarvis",
+                                     "so", "well", "yeah"};
+    static const char* kCourtesies[] = {"sir", "thanks", "thank", "you", "now", "then", "for", "just",
+                                        "actually", "right"};
     auto filler = [](const std::string& s) {
         for (const char* f : kFillers) {
             if (s == f) return true;
@@ -262,6 +267,8 @@ bool IsStopPhrase(const std::string& transcript) {
     };
     while (!words.empty() && filler(words.front())) words.erase(words.begin());
     while (!words.empty() && filler(words.back())) words.pop_back();
+    // Trailing courtesies and time words ("for now", "then", "thanks") are already out as
+    // fillers; what remains is the phrase itself.
     // "stop stop", "never mind never mind": one copy.
     for (size_t n = 1; n <= words.size() / 2; ++n) {
         if (words.size() % n) continue;
@@ -272,15 +279,31 @@ bool IsStopPhrase(const std::string& transcript) {
             break;
         }
     }
-    std::string t;
-    for (auto& word : words) t += (t.empty() ? "" : " ") + word;
+    auto joined = [](const std::vector<std::string>& ws) {
+        std::string out;
+        for (auto& w : ws) out += (out.empty() ? "" : " ") + w;
+        return out;
+    };
+    std::vector<std::string> tight = words;
+    auto courtesy = [](const std::string& s) {
+        for (const char* f : kCourtesies) {
+            if (s == f) return true;
+        }
+        return false;
+    };
+    while (!tight.empty() && courtesy(tight.back())) tight.pop_back();
+    while (!tight.empty() && courtesy(tight.front())) tight.erase(tight.begin());
+    const std::string t = joined(words);
+    const std::string t2 = joined(tight);
     static const char* kStops[] = {
         "stop", "stop listening", "stop it", "nothing", "nothing else", "no nothing", "never mind", "nevermind",
-        "cancel", "thats all", "thats it", "thats enough", "no thats all", "no thats it", "goodbye", "good bye",
-        "bye", "no thanks", "no thank you", "im done", "im good", "all done", "done", "forget it", "be quiet",
-        "quiet", "shut up", "go to sleep", "nah", "nope"};
+        "cancel", "cancel that", "thats all", "thats it", "thats enough", "thatll be all", "that will be all",
+        "that would be all", "no thats all", "no thats it", "goodbye", "good bye", "bye", "no thanks",
+        "no thank you", "im done", "im good", "im all set", "all set", "all good", "we are done", "were done",
+        "all done", "done", "forget it", "be quiet", "quiet", "shut up", "go to sleep", "sleep", "dismiss",
+        "exit", "nah", "nope"};  // not bare "no" — that answers a question
     for (const char* s : kStops) {
-        if (t == s) return true;
+        if (t == s || t2 == s) return true;
     }
     return false;
 }
@@ -504,6 +527,13 @@ std::vector<std::string> ValidatePage(const cJSON* page) {
         check.Node(root, "root", 1);
     }
     return check.errors;
+}
+
+int ClampEndPauseMs(int ms) { return std::max(kEndPauseMinMs, std::min(kEndPauseMaxMs, ms)); }
+
+EndTimings EndTimingsFor(int end_pause_ms) {
+    const int64_t pause = ClampEndPauseMs(end_pause_ms);
+    return EndTimings{pause, pause + 50, std::max<int64_t>(1500, pause + 900)};
 }
 
 }  // namespace jarvis::logic

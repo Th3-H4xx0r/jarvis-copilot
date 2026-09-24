@@ -12,8 +12,19 @@
 
 #include "audio_service.h"
 #include "wake_words/custom_wake_word.h"
+#if CONFIG_USE_MICRO_WAKE_WORD
+#include "wake_words/micro_wake_word.h"
+#endif
 
 #define TAG "AfeAudioEngine"
+
+#ifndef JARVIS_WAKE_TEST
+#define JARVIS_WAKE_TEST 0
+#endif
+// The shipped detection threshold (see the JARVIS notes below).
+// Measured with the Mac speaker a metre away: 0.55 caught about one "Hey Jarvis" in
+// eight. The model is TTS-trained and weak, so it needs a low bar.
+static constexpr float kWakeThreshold = 0.45f;
 
 #if CONFIG_USE_AUDIO_PROCESSOR
 static constexpr bool kUseAfeForVoiceProcessing = true;
@@ -25,6 +36,7 @@ AfeAudioEngine::AfeAudioEngine() { event_group_ = xEventGroupCreate(); }
 
 AfeAudioEngine::~AfeAudioEngine() {
     custom_wake_word_.reset();
+    micro_wake_word_.reset();
     if (afe_data_ != nullptr) {
         afe_iface_->destroy(afe_data_);
     }
@@ -97,6 +109,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
             wake_detector_ = WakeDetector::kNone;
             return false;
         }
+    } else if (StartMicroWakeWord()) {
+        wake_detector_ = WakeDetector::kMicroWakeWord;
     } else if (wakenet_model_name != nullptr) {
         wake_detector_ = WakeDetector::kWakeNet;
         for (int i = 0; i < models_->num; ++i) {
@@ -209,7 +223,24 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
         // JARVIS: the Jarvis model ships at ~0.63; lower so speaking volume across a room fires.
-        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.55f);
+        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, kWakeThreshold);
+#if JARVIS_WAKE_TEST
+        // Sweep the threshold so one flash measures every setting: say the wake word
+        // repeatedly and match the detections against the "waketest" lines.
+        xTaskCreate([](void* arg) {
+            auto* self = static_cast<AfeAudioEngine*>(arg);
+            const float steps[] = {0.70f, 0.60f, 0.55f, 0.50f, 0.45f, 0.40f, 0.35f, 0.30f};
+            while (true) {
+                for (float thr : steps) {
+                    if (self->afe_iface_ && self->afe_data_ && self->afe_iface_->set_wakenet_threshold) {
+                        self->afe_iface_->set_wakenet_threshold(self->afe_data_, 1, thr);
+                    }
+                    ESP_LOGW(TAG, "waketest: threshold %.2f", thr);
+                    vTaskDelay(pdMS_TO_TICKS(16000));
+                }
+            }
+        }, "waketest", 3072, this, 1, nullptr);
+#endif
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);
@@ -250,9 +281,10 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         return false;
     }
 
-    const char* detector = wake_detector_ == WakeDetector::kWakeNet
-                               ? "WakeNet"
-                               : (wake_detector_ == WakeDetector::kMultiNet ? "MultiNet" : "none");
+    const char* detector = wake_detector_ == WakeDetector::kWakeNet          ? "WakeNet"
+                           : wake_detector_ == WakeDetector::kMultiNet       ? "MultiNet"
+                           : wake_detector_ == WakeDetector::kMicroWakeWord ? "microWakeWord"
+                                                                             : "none";
     ESP_LOGI(TAG, "Initialized FD AFE, detector: %s, NS: off, feed: %d, fetch: %d", detector,
              afe_iface_->get_feed_chunksize(afe_data_), afe_iface_->get_fetch_chunksize(afe_data_));
     ESP_LOGI(TAG, "After AFE create: free=%u min=%u largest=%u",
@@ -294,6 +326,8 @@ void AfeAudioEngine::EnableWakeWordDetection(bool enable) {
         if (wake_detector_ == WakeDetector::kMultiNet) {
             custom_wake_word_->Start();
         }
+        // A new session: whatever the model heard before it was paused is not this one.
+        micro_reset_pending_ = true;
         xEventGroupSetBits(event_group_, kWakeWordEnabled);
     } else {
         xEventGroupClearBits(event_group_, kWakeWordEnabled);
@@ -459,6 +493,22 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
         custom_wake_word_->FeedMono(result->data, result->data_size / sizeof(int16_t));
         return;
     }
+#if CONFIG_USE_MICRO_WAKE_WORD
+    if (wake_detector_ == WakeDetector::kMicroWakeWord) {
+        const size_t samples = result->data_size / sizeof(int16_t);
+#if CONFIG_SEND_WAKE_WORD_DATA
+        wake_word_audio_cache_.Store(result->data, samples);
+#endif
+        if (micro_reset_pending_.exchange(false)) {
+            micro_wake_word_->Reset();
+        }
+        if (micro_wake_word_->Feed(result->data, samples)) {
+            last_detected_wake_word_ = micro_wake_word_->wake_word();
+            WakeWordHeard();
+        }
+        return;
+    }
+#endif
 
 #if CONFIG_SEND_WAKE_WORD_DATA
     wake_word_audio_cache_.Store(result->data, result->data_size / sizeof(int16_t));
@@ -474,6 +524,10 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     }
 
     last_detected_wake_word_ = wake_words_[model_index];
+    WakeWordHeard();
+}
+
+void AfeAudioEngine::WakeWordHeard() {
     xEventGroupClearBits(event_group_, kWakeWordEnabled);
     // UpdateActiveState marks the AFE controls dirty; the next loop iteration
     // of ProcessingTask disables WakeNet via ApplyAfeControls.
@@ -481,6 +535,27 @@ void AfeAudioEngine::HandleWakeWordResult(const afe_fetch_result_t* result) {
     if (wake_word_detected_callback_) {
         wake_word_detected_callback_(last_detected_wake_word_);
     }
+}
+
+// JARVIS: microWakeWord first; false (not built in, or it could not start) leaves WakeNet.
+bool AfeAudioEngine::StartMicroWakeWord() {
+#if CONFIG_USE_MICRO_WAKE_WORD
+    micro_wake_word_ = std::make_unique<MicroWakeWord>();
+    if (!micro_wake_word_->Initialize()) {
+        ESP_LOGW(TAG, "microWakeWord could not start; using WakeNet");
+        micro_wake_word_.reset();
+        return false;
+    }
+    wake_words_.push_back(micro_wake_word_->wake_word());
+#if CONFIG_SEND_WAKE_WORD_DATA
+    if (!wake_word_audio_cache_.Initialize(16000 * 2)) {
+        ESP_LOGW(TAG, "Wake-word audio upload disabled: PSRAM cache allocation failed");
+    }
+#endif
+    return true;
+#else
+    return false;
+#endif
 }
 
 void AfeAudioEngine::HandleVoiceResult(const afe_fetch_result_t* result) {
@@ -542,7 +617,7 @@ void AfeAudioEngine::EncodeWakeWordData() {
         custom_wake_word_->EncodeWakeWordData();
         return;
     }
-    if (wake_detector_ != WakeDetector::kWakeNet) {
+    if (wake_detector_ != WakeDetector::kWakeNet && wake_detector_ != WakeDetector::kMicroWakeWord) {
         return;
     }
 
@@ -632,7 +707,7 @@ bool AfeAudioEngine::GetWakeWordOpus(std::vector<uint8_t>& opus) {
     if (wake_detector_ == WakeDetector::kMultiNet) {
         return custom_wake_word_->GetWakeWordOpus(opus);
     }
-    if (wake_detector_ != WakeDetector::kWakeNet) {
+    if (wake_detector_ != WakeDetector::kWakeNet && wake_detector_ != WakeDetector::kMicroWakeWord) {
         return false;
     }
     std::unique_lock<std::mutex> lock(wake_word_mutex_);

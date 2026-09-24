@@ -19,6 +19,7 @@
 #include "wake_words/wake_word_audio_cache.h"
 
 class CustomWakeWord;
+class MicroWakeWord;
 
 class AfeAudioEngine : public AudioEngine {
 public:
@@ -51,12 +52,14 @@ private:
         kNone,
         kWakeNet,
         kMultiNet,
+        kMicroWakeWord,  // JARVIS: "Hey Jarvis" on microWakeWord (see micro_wake_word.h)
     };
 
     static constexpr EventBits_t kWakeWordEnabled = 1 << 0;
     static constexpr EventBits_t kVoiceProcessingEnabled = 1 << 1;
     static constexpr EventBits_t kAfeActive = 1 << 2;
-    static constexpr size_t kProcessingTaskStackSize = 4096;
+    // JARVIS: 8 KB (in PSRAM) because microWakeWord's inference runs on this task.
+    static constexpr size_t kProcessingTaskStackSize = 8192;
 
     AudioCodec* codec_ = nullptr;
     srmodel_list_t* models_ = nullptr;
@@ -82,6 +85,9 @@ private:
     WakeDetector wake_detector_ = WakeDetector::kNone;
 
     std::unique_ptr<CustomWakeWord> custom_wake_word_;
+    std::unique_ptr<MicroWakeWord> micro_wake_word_;
+    // Set when detection is (re)enabled; ProcessingTask, which feeds the model, resets it.
+    std::atomic<bool> micro_reset_pending_{false};
     std::vector<std::string> wake_words_;
     std::string last_detected_wake_word_;
     std::vector<int16_t> input_buffer_;
@@ -107,6 +113,8 @@ private:
     void ApplyPendingReset();
     void OutputRawAudio(const std::vector<int16_t>& data);
     void HandleWakeWordResult(const afe_fetch_result_t* result);
+    bool StartMicroWakeWord();
+    void WakeWordHeard();
     void HandleVoiceResult(const afe_fetch_result_t* result);
 };
 

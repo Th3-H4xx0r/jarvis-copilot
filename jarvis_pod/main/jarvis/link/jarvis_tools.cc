@@ -58,6 +58,7 @@ static void AddSettings(cJSON* out) {
     cJSON_AddNumberToObject(out, "volume", codec ? codec->output_volume() : 0);
     cJSON_AddBoolToObject(out, "wake_word", ui.wake_word);
     cJSON_AddBoolToObject(out, "noise_cancel", ui.noise_cancel);
+    cJSON_AddNumberToObject(out, "end_pause_ms", ui.end_pause_ms);
     cJSON* theme = cJSON_AddObjectToObject(out, "theme");
     cJSON_AddStringToObject(theme, "accent", HexColor(ui.theme.accent).c_str());
     cJSON_AddStringToObject(theme, "success", HexColor(ui.theme.success).c_str());
@@ -178,8 +179,9 @@ void RegisterPodTools() {
 
     t.Add("pod_settings_set",
           "Change Jarvis Pod settings. Pass only what changes. home: orb, clock or a saved home id. "
-          "brightness/volume: 0-100. theme colours are #RRGGBB.",
-          R"({"type":"object","properties":{"home":{"type":"string"},"brightness":{"type":"integer"},"volume":{"type":"integer"},"wake_word":{"type":"boolean"},"noise_cancel":{"type":"boolean"},"theme":{"type":"object"},"timezone":{"type":"string"},"tz_posix":{"type":"string"},"clock_24h":{"type":"boolean"}}})",
+          "brightness/volume: 0-100. theme colours are #RRGGBB. end_pause_ms: how long a pause "
+          "ends the user's turn (400-3000).",
+          R"({"type":"object","properties":{"home":{"type":"string"},"brightness":{"type":"integer"},"volume":{"type":"integer"},"wake_word":{"type":"boolean"},"noise_cancel":{"type":"boolean"},"end_pause_ms":{"type":"integer"},"theme":{"type":"object"},"timezone":{"type":"string"},"tz_posix":{"type":"string"},"clock_24h":{"type":"boolean"}}})",
           [](const cJSON* args, cJSON* out) -> std::string {
               auto ui = store::LoadUi();
               auto& board = Board::GetInstance();
@@ -198,6 +200,7 @@ void RegisterPodTools() {
               }
               if ((v = cJSON_GetObjectItemCaseSensitive(args, "wake_word"))) ui.wake_word = cJSON_IsTrue(v);
               if ((v = cJSON_GetObjectItemCaseSensitive(args, "noise_cancel"))) ui.noise_cancel = cJSON_IsTrue(v);
+              if ((v = cJSON_GetObjectItemCaseSensitive(args, "end_pause_ms"))) ui.end_pause_ms = logic::ClampEndPauseMs(v->valueint);
               if ((v = cJSON_GetObjectItemCaseSensitive(args, "theme"))) {
                   auto color = [&](const char* key, uint32_t& dst) -> std::string {
                       const cJSON* c = cJSON_GetObjectItemCaseSensitive(v, key);

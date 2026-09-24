@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "jarvis/logic/jarvis_logic.h"
+
 class AudioService;
 class WebSocket;
 
@@ -65,6 +67,7 @@ private:
     int64_t loud_since_ms_ = 0;
     int loud_ticks_ = 0;           // consecutive loud 100 ms readings
     int64_t guard_ms_ = 0;         // sound ignored this long after a touch starts a turn
+    logic::EndTimings end_ = logic::EndTimingsFor(logic::kEndPauseDefaultMs);  // this turn's end rules
     int64_t quiet_since_ms_ = 0;
     bool energy_speech_ = false;
     void ResetEndpointing();

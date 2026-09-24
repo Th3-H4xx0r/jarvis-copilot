@@ -23,26 +23,20 @@
 namespace jarvis {
 
 namespace {
-constexpr int64_t kEndSilenceMs = 550;
 // A tap's click isn't a request: the first moments after a tap are ignored, and a sound
 // must be loud for two 100 ms readings in a row to count as speech — enough for a
 // one-word answer ("yes", "stop"); a cough that slips through comes back no_speech.
 constexpr int64_t kTouchGuardMs = 200;  // only after a tap or button press (its click)
-// Energy endpointing: speech is this far above the noise floor; the turn ends after
-// this long back near it.
+// Energy endpointing: speech is this far above the noise floor. How long back near it
+// ends the turn is the "Pause before Jarvis answers" setting (logic::EndTimingsFor).
 constexpr float kLoudAboveFloorDb = 8.0f;
 constexpr float kLoudMinDb = -60.0f;
-constexpr int64_t kEnergyEndMs = 600;
-// Quiet this long ends the turn even while the VAD still says speech (room noise can
-// hold it there); shorter quiet only counts once the VAD agrees. A quiet talker sits a
-// dB above the floor, so energy alone cut sentences in half at 550 ms.
-constexpr int64_t kEnergyOnlyEndMs = 1500;
 // The pause hint (server starts transcribing) goes out once both agree for this long.
 constexpr int64_t kPauseHintMs = 150;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
-constexpr int64_t kMaxTurnMs = 15000;
+constexpr int64_t kMaxTurnMs = 30000;  // like the phone: long requests aren't cut at 15 s
 constexpr int64_t kKeepaliveMs = 25000;   // under Cloudflare's 100 s idle-WebSocket cut
 constexpr int64_t kReconnectMinMs = 3000;
 constexpr int64_t kReconnectMaxMs = 60000;
@@ -413,6 +407,8 @@ void Voice::KeepWarm(int64_t now) {
 }
 
 void Voice::ResetEndpointing() {
+    // "Pause before Jarvis answers" (the phone's Pod page), read fresh for every turn.
+    end_ = logic::EndTimingsFor(store::LoadUi().end_pause_ms);
     pause_hint_sent_ = false;
     vad_speaking_ = false;
     loud_ticks_ = 0;
@@ -434,8 +430,9 @@ void Voice::TrackMicLevel(int64_t now) {
     bool loud = db > floor_db_ + kLoudAboveFloorDb && db > kLoudMinDb;
     static int ticks = 0;
     if (++ticks % 10 == 0) ESP_LOGI(TAG, "mic: %.0f dBFS, floor %.0f dBFS%s", db, floor_db_, loud ? " (speech)" : "");
-    // The ring follows the voice from a couple of dB over the floor, not just "loud".
-    int level = std::max(0, std::min(100, static_cast<int>((db - floor_db_ - 2.0f) * 7.0f)));
+    // The ring follows the voice from a few dB over the floor — enough to react to speech
+    // without twitching at every breath.
+    int level = std::max(0, std::min(100, static_cast<int>((db - floor_db_ - 5.0f) * 4.0f)));
     Ui::Get().SetVoiceLevel(level);
     if (now - turn_start_ms_ < guard_ms_) return;
     if (loud) {
@@ -454,7 +451,7 @@ void Voice::TrackMicLevel(int64_t now) {
     if (!quiet_since_ms_) quiet_since_ms_ = now;
     int64_t quiet = now - quiet_since_ms_;
     if (energy_speech_ && !vad_speaking_ && quiet >= kPauseHintMs) NotePause();
-    if (energy_speech_ && ((!vad_speaking_ && quiet >= kEnergyEndMs) || quiet >= kEnergyOnlyEndMs)) {
+    if (energy_speech_ && ((!vad_speaking_ && quiet >= end_.energy_ms) || quiet >= end_.energy_only_ms)) {
         ESP_LOGI(TAG, "turn: speech ended (level %.0f dB, floor %.0f dB)", db, floor_db_);
         EndTurn();
     }
@@ -474,7 +471,7 @@ void Voice::Tick() {
     if (phase_ == Phase::Listening) {
         TrackMicLevel(now);
         if (phase_ != Phase::Listening) return;
-        if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
+        if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= end_.vad_silence_ms) {
             EndTurn();
         } else if (!speech_seen_ && now - last_heard_ms_ >= kListenCapMs) {
             ESP_LOGI(TAG, "turn: nothing said for 2 minutes, going idle");

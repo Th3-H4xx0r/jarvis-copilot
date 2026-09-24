@@ -36,6 +36,7 @@ struct UiSettings {
     std::string tz_posix;  // for the clock
     bool clock_24h = false;
     bool noise_cancel = true;  // rumble filter on the mic + cleaned recordings on the server
+    int end_pause_ms = 1000;   // quiet this long ends a turn (logic::kEndPauseDefaultMs)
 };
 
 UiSettings LoadUi();

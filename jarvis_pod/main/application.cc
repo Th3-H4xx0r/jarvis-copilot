@@ -22,6 +22,10 @@
 
 #define TAG "Application"
 
+#ifndef JARVIS_WAKE_TEST
+#define JARVIS_WAKE_TEST 0   // 1: the wake word only logs, so a sweep can measure it
+#endif
+
 using jarvis::Ui;
 
 bool Application::SetDeviceState(DeviceState state) {
@@ -81,7 +85,12 @@ void Application::Initialize() {
     callbacks.on_send_queue_available = [this]() {
         if (voice_.NeedsMicWakeup()) Schedule([this]() { voice_.SendMic(); });
     };
-    callbacks.on_wake_word_detected = [this](const std::string&) { Schedule([this]() { voice_.Trigger(); }); };
+    callbacks.on_wake_word_detected = [this](const std::string& word) {
+        ESP_LOGI(TAG, "wake: detected \"%s\"", word.c_str());
+#if !JARVIS_WAKE_TEST
+        Schedule([this]() { voice_.Trigger(); });
+#endif
+    };
     callbacks.on_vad_change = [this](bool speaking) { Schedule([this, speaking]() { voice_.OnVad(speaking); }); };
     callbacks.on_playback_drained = [this]() { Schedule([this]() { voice_.OnPlaybackDrained(); }); };
     audio_service_.SetCallbacks(callbacks);

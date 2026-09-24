@@ -73,4 +73,21 @@ bool IsBuiltinHome(const std::string& id);
 bool IsStopPhrase(const std::string& transcript);
 bool ValidPageId(const std::string& id);
 
+// How long a pause ends a turn — "Pause before Jarvis answers" on the phone's Pod page.
+// 550 ms was the old fixed timing, and cut sentences in half at a breath.
+constexpr int kEndPauseDefaultMs = 1000;
+constexpr int kEndPauseMinMs = 400;
+constexpr int kEndPauseMaxMs = 3000;
+int ClampEndPauseMs(int ms);
+
+// The three ways a turn ends, all following the one setting: the VAD has heard silence
+// this long; the level is back at the floor this long while the VAD agrees; or the
+// level alone says quiet this long (room noise can hold the VAD at "speech").
+struct EndTimings {
+    int64_t vad_silence_ms;
+    int64_t energy_ms;
+    int64_t energy_only_ms;
+};
+EndTimings EndTimingsFor(int end_pause_ms);
+
 }  // namespace jarvis::logic

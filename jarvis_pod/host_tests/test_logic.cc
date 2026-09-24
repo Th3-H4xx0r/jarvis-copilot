@@ -117,13 +117,25 @@ int main() {
     CHECK(Contains(Validate("{\"root\":{\"type\":\"clock\",\"format\":\"%H:%M:%S %A %B %d %Y and some more text\"}}"), "32 chars"));
 
     for (const char* s : {"Stop.", "stop stop", "Never mind, Jarvis.", "Okay, that's all.", "No thanks!",
-                          "That\u2019s it", "NEVERMIND", "nothing", "Hey Jarvis, stop listening", "Nope."}) {
+                          "That\u2019s it", "NEVERMIND", "nothing", "Hey Jarvis, stop listening", "Nope.",
+                          "That's all for now.", "That'll be all, sir.", "I'm good, thanks.", "We're done.",
+                          "Nothing else for now", "Okay, stop listening please.", "All good!"}) {
         if (!IsStopPhrase(s)) fprintf(stderr, "not a stop phrase: %s\n", s);
         CHECK(IsStopPhrase(s));
     }
     for (const char* s : {"stop the music", "cancel my meeting", "nothing is working", "", "Jarvis",
                           "what time is it", "done with the report?"}) {
         CHECK(!IsStopPhrase(s));
+    }
+
+    // How long a pause ends a turn (Wearables → Pod). 550 ms is the old fixed timing.
+    {
+        EndTimings old = EndTimingsFor(550);
+        CHECK(old.vad_silence_ms == 550 && old.energy_ms == 600 && old.energy_only_ms == 1500);
+        EndTimings slow = EndTimingsFor(2000);
+        CHECK(slow.vad_silence_ms == 2000 && slow.energy_ms == 2050 && slow.energy_only_ms == 2900);
+        CHECK(ClampEndPauseMs(0) == kEndPauseMinMs && ClampEndPauseMs(99999) == kEndPauseMaxMs);
+        CHECK(ClampEndPauseMs(1000) == 1000 && kEndPauseDefaultMs >= 900);
     }
 
     if (failures) {

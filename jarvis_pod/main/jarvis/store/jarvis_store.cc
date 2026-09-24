@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "settings.h"
+#include "jarvis/logic/jarvis_logic.h"
 
 #define TAG "JarvisStore"
 
@@ -50,6 +51,7 @@ UiSettings LoadUi() {
     ui.tz_posix = s.GetString("tz_posix");
     ui.clock_24h = s.GetBool("clock_24h", false);
     ui.noise_cancel = s.GetBool("noise_cancel", true);
+    ui.end_pause_ms = logic::ClampEndPauseMs(s.GetInt("end_pause_ms", logic::kEndPauseDefaultMs));
     return ui;
 }
 
@@ -59,6 +61,7 @@ void SaveUi(const UiSettings& ui) {
     s.SetString("home", ui.home);
     s.SetBool("wake_word", ui.wake_word);
     s.SetBool("noise_cancel", ui.noise_cancel);
+    s.SetInt("end_pause_ms", logic::ClampEndPauseMs(ui.end_pause_ms));
     s.SetInt("accent", static_cast<int32_t>(ui.theme.accent));
     s.SetInt("success", static_cast<int32_t>(ui.theme.success));
     s.SetInt("warning", static_cast<int32_t>(ui.theme.warning));
