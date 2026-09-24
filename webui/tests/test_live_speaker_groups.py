@@ -140,3 +140,39 @@ def test_live_settings_offer_the_speaker_split_dropdown():
     before = js.split('data-cfg="speaker_split"')[0]
     assert 'data-cfg="speaker_split"' in js and before.rstrip().endswith('<select id="liveCfgSplit"')
     assert 'data-cfg="embed_model"' not in js
+
+
+def test_two_speakers_in_one_stream_are_never_the_same_voice(group):
+    # Soniox said they are different people; both matching "Me" must not make
+    # them one — the first keeps Me, the second gets a voice of its own.
+    me = live_store.create_speaker(kind="me", name="Me")
+    group["mp"].setattr(live_voiceprint, "identify",
+                        lambda vec, **kw: {"speaker_id": me["id"], "label_state": "confirmed", "score": 0.7})
+    one = group["line"](0, 4000, label="soniox:ab-1:1", vec=_vec(0))
+    two = group["line"](4000, 8000, label="soniox:ab-1:2", vec=_vec(1))
+    assert _speaker(group["sid"], one) == me["id"]
+    assert _speaker(group["sid"], two) not in ("", me["id"])
+
+
+def test_the_closer_speaker_keeps_the_voice(group):
+    me = live_store.create_speaker(kind="me", name="Me")
+    scores = iter([0.45, 0.85])
+    group["mp"].setattr(live_voiceprint, "identify",
+                        lambda vec, **kw: {"speaker_id": me["id"], "label_state": "confirmed",
+                                           "score": next(scores, 0.85)})
+    other = group["line"](0, 4000, label="soniox:ab-1:1", vec=_vec(0))
+    mine = group["line"](4000, 8000, label="soniox:ab-1:2", vec=_vec(1))
+    assert _speaker(group["sid"], mine) == me["id"]
+    assert _speaker(group["sid"], other) not in ("", me["id"])
+
+
+def test_a_weak_match_does_not_teach_the_voice(group):
+    # A confirmed but middling match teaching the voice is how one voice came to
+    # hold everyone: 108 exemplars in "Me", other people among them.
+    me = live_store.create_speaker(kind="me", name="Me")
+    group["mp"].setattr(live_voiceprint, "identify",
+                        lambda vec, **kw: {"speaker_id": me["id"], "label_state": "confirmed", "score": 0.52})
+    taught = []
+    group["mp"].setattr(live_store, "add_embedding", lambda spk, *a, **k: taught.append(spk))
+    group["line"](0, 4000, vec=_vec(0))
+    assert taught == []

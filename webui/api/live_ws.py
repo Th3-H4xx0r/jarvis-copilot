@@ -1749,6 +1749,10 @@ def _run_identification(live_session_id: str, seq: int, ts_start_ms: int,
 # group never spans two streams.
 
 _GROUP_MIN_EMBED_MS = 1000   # shorter lines join their group but add no voiceprint
+# A line teaches its group's voice only on a strong match. A middling one
+# teaching it is how one voice came to hold everyone: "Me" had 108 exemplars,
+# other people among them, and matched every new voice after that.
+_GROUP_TEACH_MIN_SCORE = 0.62
 _MAX_GROUPS = 256
 _MAX_GROUP_SEQS = 500
 _groups: "OrderedDict[Tuple[str, str], Dict[str, Any]]" = OrderedDict()
@@ -1780,6 +1784,44 @@ def _group_for(key: Tuple[str, str]) -> Dict[str, Any]:
     else:
         _groups.move_to_end(key)
     return group
+
+
+def _pooled(group: Dict[str, Any]) -> Optional[List[float]]:
+    if group.get("sum") is None:
+        return None
+    norm = math.sqrt(sum(x * x for x in group["sum"])) or 1.0
+    return [x / norm for x in group["sum"]]
+
+
+def _stream_rival(key: Tuple[str, str], speaker_id: str) -> Optional[Tuple[Tuple[str, str], Dict[str, Any]]]:
+    """Another label of the same engine stream already named `speaker_id`.
+
+    Caller holds `_groups_lock`. The engine split those two within one stream,
+    so they are two people, and one voice cannot be both.
+    """
+    stream = key[1].rsplit(":", 1)[0]
+    for other_key, other in _groups.items():
+        if (other_key != key and other_key[0] == key[0]
+                and other_key[1].rsplit(":", 1)[0] == stream
+                and other.get("speaker_id") == speaker_id):
+            return other_key, other
+    return None
+
+
+def _mint_group_voice(live_session_id: str, seq: int, group: Dict[str, Any]) -> Dict[str, Any]:
+    """A voice of its own for a label that may not share the one it matched."""
+    from api import live_voiceprint
+    made = live_store.create_speaker(kind="other")
+    pooled = _pooled(group)
+    if pooled is not None:
+        try:
+            live_store.add_embedding(made["id"], pooled, live_voiceprint.model_id(),
+                                     f"{live_session_id}#{int(seq)}")
+        except Exception:
+            logger.debug("live: could not keep the new voice's voiceprint", exc_info=True)
+    group["minted"] = True
+    return {"speaker_id": made["id"], "label_state": live_store.LABEL_CONFIRMED, "score": 0.0,
+            "new_speaker": True, "promoted": [], "merged_from": None}
 
 
 def _row_at(live_session_id: str, seq: int) -> Optional[Dict[str, Any]]:
@@ -1820,10 +1862,29 @@ def _run_group_identification(live_session_id: str, seq: int, ts_start_ms: int,
                 group["minted"] = bool(decision and decision.get("new_speaker"))
         if decision and decision.get("speaker_id"):
             speaker = str(decision["speaker_id"])
+            score = float(decision.get("score") or 0.0)
+            rival = _stream_rival(key, speaker) if not decision.get("new_speaker") else None
+            if rival is not None:
+                rival_key, rival_group = rival
+                if score > float(rival_group.get("score") or 0.0):
+                    # This label is the closer one: the other gives the voice up
+                    # and becomes a voice of its own, all its lines with it.
+                    moved = _mint_group_voice(live_session_id, seq, rival_group)
+                    rival_group["speaker_id"] = str(moved["speaker_id"])
+                    rival_group["label_state"] = live_store.LABEL_CONFIRMED
+                    rival_group["decision"], rival_group["score"] = moved, 0.0
+                    for other_seq in list(rival_group["seqs"]):
+                        other_row = _row_at(live_session_id, other_seq)
+                        if other_row is not None:
+                            _apply_identification(live_session_id, other_seq, other_row, moved)
+                else:
+                    decision = _mint_group_voice(live_session_id, seq, group)
+                    speaker, score = str(decision["speaker_id"]), 0.0
             state = str(decision.get("label_state") or live_store.LABEL_PROVISIONAL)
             confirmed = state == live_store.LABEL_CONFIRMED
+            group["score"] = score
             if (confirmed and vec is not None and span >= _LEARN_MIN_MS
-                    and not decision.get("new_speaker")):
+                    and score >= _GROUP_TEACH_MIN_SCORE and not decision.get("new_speaker")):
                 try:
                     live_store.add_embedding(speaker, vec, live_voiceprint.model_id(),
                                              f"{live_session_id}#{int(seq)}")
