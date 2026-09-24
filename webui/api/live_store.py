@@ -529,6 +529,43 @@ def speaker_samples(speaker_id: str, limit: int = 5) -> list:
         return [dict(r) for r in cur.fetchall()]
 
 
+SPEAKER_LINES_MAX = 200
+
+
+def speaker_lines(speaker_id: str, *, before: Optional[tuple] = None,
+                  limit: int = 50) -> tuple:
+    """Everything a voice has said, newest first, one page at a time.
+
+    `before` is the previous page's last line — (epoch ms, session, seq) — and
+    rows strictly before it come next, so pages never overlap or skip even when
+    two sessions have a line at the same millisecond. Returns (lines, the cursor
+    for the next page or None, how many lines this voice has in all).
+    """
+    limit = max(1, min(int(limit), SPEAKER_LINES_MAX))
+    at = "CAST(ROUND(s.started_at * 1000) AS INTEGER) + g.ts_start_ms"
+    where, args = "g.speaker_id=?", [speaker_id]
+    if before is not None:
+        where += f" AND ({at}, g.live_session_id, g.seq) < (?, ?, ?)"
+        args += [int(before[0]), str(before[1]), int(before[2])]
+    with connect() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM live_segment WHERE speaker_id=?",
+                             (speaker_id,)).fetchone()[0]
+        rows = conn.execute(
+            "SELECT g.live_session_id, g.seq, g.ts_start_ms, g.ts_end_ms, g.text, g.lang,"
+            f" g.translation, s.title AS session_title, {at} AS at_ms"
+            " FROM live_segment g JOIN live_session s ON s.id = g.live_session_id"
+            f" WHERE {where} ORDER BY at_ms DESC, g.live_session_id DESC, g.seq DESC LIMIT ?",
+            (*args, limit + 1)).fetchall()
+    lines = [dict(r) for r in rows[:limit]]
+    after = None
+    if len(rows) > limit:
+        last = lines[-1]
+        after = (int(last["at_ms"]), str(last["live_session_id"]), int(last["seq"]))
+    for line in lines:
+        line["at"] = line.pop("at_ms") / 1000.0
+    return lines, after, int(total or 0)
+
+
 def merge_speakers(from_id: str, into_id: str) -> int:
     """Two clusters turned out to be one person. Returns segments relabelled.
 

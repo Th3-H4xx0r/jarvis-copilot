@@ -2977,6 +2977,41 @@ def _run_live_ws(conn, sock) -> None:
 # ── REST + SSE ─────────────────────────────────────────────────────────────
 
 
+def _encode_line_cursor(key: Tuple[int, str, int]) -> str:
+    return f"{key[0]}_{key[2]}_{key[1]}"
+
+
+def _decode_line_cursor(raw: str) -> Optional[Tuple[int, str, int]]:
+    parts = raw.split("_", 2)
+    if len(parts) != 3 or not parts[2]:
+        return None
+    try:
+        return int(parts[0]), parts[2], int(parts[1])
+    except ValueError:
+        return None
+
+
+def _live_speaker_lines(handler, parsed) -> bool:
+    """`/api/live/speaker_lines?speaker_id=&before=&limit=` — a voice's whole history."""
+    qs = parse_qs(parsed.query)
+    speaker_id = (qs.get("speaker_id", [""])[0] or "").strip()
+    if not speaker_id:
+        bad(handler, "speaker_id required")
+        return True
+    before = None
+    raw = (qs.get("before", [""])[0] or "").strip()
+    if raw:
+        before = _decode_line_cursor(raw)
+        if before is None:
+            bad(handler, "before is not a cursor this endpoint gave out")
+            return True
+    limit = _as_int(qs.get("limit", ["50"])[0], 50)
+    lines, after, total = live_store.speaker_lines(speaker_id, before=before, limit=limit)
+    j(handler, {"speaker_id": speaker_id, "total": total, "lines": lines,
+                "next": _encode_line_cursor(after) if after else None})
+    return True
+
+
 def handle_live_get(handler, parsed) -> bool:
     path = parsed.path
     if path == "/api/live/events":
@@ -2992,6 +3027,8 @@ def handle_live_get(handler, parsed) -> bool:
             speaker["samples"] = live_store.speaker_samples(speaker["id"])
         j(handler, {"speakers": speakers})
         return True
+    if path == "/api/live/speaker_lines":
+        return _live_speaker_lines(handler, parsed)
     if path == "/api/live/digests":
         # The rolling-window summaries (§6) had no route at all, so nothing
         # could show a session's rollups. Separate from the transcript because

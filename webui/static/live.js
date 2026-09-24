@@ -1126,6 +1126,7 @@ function _liveSpeakerDisplay(spk) {
 function _liveRenderSpeakers() {
   const body = _lEl('liveBody');
   if (!body) return;
+  if (_liveVoice) { _liveRenderVoice(body); return; }
   if (!_liveSpeakers.length) {
     body.innerHTML = `<div class="main-view-empty">
       <div class="main-view-empty-title">No voices yet</div>
@@ -1164,12 +1165,101 @@ function _liveRenderSpeakers() {
         </div>`).join('')}</div>`
       : _liveNote('No sample utterances returned for this voice.')}
       <div class="live-card-actions">
+        <button class="live-btn live-btn--primary" data-voice-open="${_lEsc(spk.id)}">Everything they said${spk.segment_count ? ' (' + _lEsc(spk.segment_count) + ')' : ''}</button>
         <button class="live-btn live-btn--danger" data-forget="${_lEsc(spk.id)}">Forget this voice…</button>
         <button class="live-btn live-btn--danger" data-purge-audio="${_lEsc(spk.id)}">Delete every recording this voice is in…</button>
       </div>
     </section>`;
   }).join('')}</div>`;
   _liveBindSpeakerCards(body);
+}
+
+// ── one voice's whole history (/api/live/speaker_lines) ──────────────────────
+//
+// Newest first, a page of 50 at a time; the next page loads when the last line
+// scrolls into view, so a voice heard for hours never lands on the page at once.
+
+let _liveVoice = null;           // {id, lines, next, total, loading, done, error}
+let _liveVoiceObserver = null;
+const _LIVE_VOICE_PAGE = 50;
+
+function _liveOpenVoice(id) {
+  _liveVoice = { id, lines: [], next: null, total: 0, loading: false, done: false, error: '' };
+  _liveRenderBody();
+  _liveVoiceMore();
+}
+
+function _liveCloseVoice() {
+  _liveVoice = null;
+  if (_liveVoiceObserver) { _liveVoiceObserver.disconnect(); _liveVoiceObserver = null; }
+  _liveRenderBody();
+}
+
+async function _liveVoiceMore() {
+  const view = _liveVoice;
+  if (!view || view.loading || view.done) return;
+  view.loading = true;
+  const qs = `speaker_id=${encodeURIComponent(view.id)}&limit=${_LIVE_VOICE_PAGE}`
+    + (view.next ? `&before=${encodeURIComponent(view.next)}` : '');
+  const res = await _liveReq(`/api/live/speaker_lines?${qs}`);
+  if (_liveVoice !== view) return;          // closed or switched while loading
+  view.loading = false;
+  if (!res.ok) {
+    view.error = 'Could not load what this voice said.';
+  } else {
+    view.lines = view.lines.concat(res.data.lines || []);
+    view.next = res.data.next || null;
+    view.total = res.data.total || view.lines.length;
+    view.done = !view.next;
+    view.error = '';
+  }
+  const body = _lEl('liveBody');
+  if (body && _liveTab === 'speakers') _liveRenderVoice(body);
+}
+
+function _liveVoiceWhen(line) {
+  const at = Number(line.at || 0);
+  if (!at) return '';
+  const d = new Date(at * 1000);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function _liveRenderVoice(body) {
+  const view = _liveVoice;
+  const spk = _liveSpeakers.find(s => s.id === view.id) || { id: view.id };
+  let lastSession = '';
+  const rows = view.lines.map(line => {
+    const head = line.live_session_id !== lastSession
+      ? `<div class="live-voice-session">${_lEsc(line.session_title || 'Live session')}</div>` : '';
+    lastSession = line.live_session_id;
+    return `${head}<div class="live-voice-line">
+      <span class="live-voice-when">${_lEsc(_liveVoiceWhen(line))}</span>
+      <div class="live-voice-text">${_lEsc(line.text || '')}${line.lang ? ` <span class="live-voice-lang">${_lEsc(line.lang)}</span>` : ''}
+        ${line.translation ? `<div class="live-voice-translation">${_lEsc(line.translation)}</div>` : ''}</div>
+    </div>`;
+  }).join('');
+  const foot = view.error ? _liveNote(view.error)
+    : (view.done ? _liveNote(view.lines.length ? 'That is everything this voice has said.' : 'Nothing heard from this voice yet.')
+      : '<div class="live-voice-more" id="liveVoiceMore">Loading…</div>');
+  body.innerHTML = `<div class="live-voice">
+    <div class="live-voice-head">
+      <button class="live-btn" data-voice-back>← Voices</button>
+      <div class="live-voice-title">${_lEsc(_liveSpeakerDisplay(spk))}</div>
+      <div class="live-voice-count">${_lEsc(view.total || view.lines.length)} line${Number(view.total) === 1 ? '' : 's'}</div>
+    </div>
+    <div class="live-voice-lines">${rows}</div>
+    ${foot}
+  </div>`;
+  const back = body.querySelector('[data-voice-back]');
+  if (back) back.onclick = _liveCloseVoice;
+  if (_liveVoiceObserver) _liveVoiceObserver.disconnect();
+  const more = _lEl('liveVoiceMore');
+  if (more && typeof IntersectionObserver !== 'undefined') {
+    _liveVoiceObserver = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) _liveVoiceMore();
+    }, { root: body, rootMargin: '400px' });
+    _liveVoiceObserver.observe(more);
+  }
 }
 
 function _liveBindSpeakerCards(scope) {
@@ -1211,6 +1301,9 @@ function _liveBindSpeakerCards(scope) {
   });
   scope.querySelectorAll('[data-forget]').forEach(btn => {
     btn.onclick = () => _liveDelete('speaker_forget', btn.dataset.forget);
+  });
+  scope.querySelectorAll('[data-voice-open]').forEach(btn => {
+    btn.onclick = () => _liveOpenVoice(btn.dataset.voiceOpen);
   });
   scope.querySelectorAll('[data-purge-audio]').forEach(btn => {
     btn.onclick = () => _liveDelete('speaker_audio', btn.dataset.purgeAudio);
@@ -1848,6 +1941,10 @@ function _liveCaptureAction(action) {
 
 function _liveSetTab(tab) {
   _liveTab = tab || 'transcript';
+  if (_liveTab !== 'speakers' && _liveVoice) {
+    _liveVoice = null;
+    if (_liveVoiceObserver) { _liveVoiceObserver.disconnect(); _liveVoiceObserver = null; }
+  }
   _liveRenderTabs();
   _liveRenderBody();
   // Refresh the data the tab is about, so a panel is never stale on open.

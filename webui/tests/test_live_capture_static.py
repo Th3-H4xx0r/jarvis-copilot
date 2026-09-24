@@ -35,3 +35,10 @@ def test_the_recording_session_opens_in_the_view():
 
 def test_recording_shows_on_the_rail_from_any_page():
     assert "live-capturing" in _read("live.js") and "live-capturing" in _read("live.css")
+
+
+def test_a_voice_opens_onto_everything_it_said_a_page_at_a_time():
+    js = _read("live.js")
+    assert 'data-voice-open=' in js
+    assert "api/live/speaker_lines" in js and "IntersectionObserver" in js
+    assert "before=" in js
