@@ -67,7 +67,8 @@ struct LiveResume: Equatable, Sendable {
 
 /// One message this client puts on the socket.
 enum LiveClientMessage: Equatable, Sendable {
-    case hello(deviceID: String, caps: LiveCaps, resume: LiveResume?)
+    /// `startup`: how long each part of starting took (ms), for the server log.
+    case hello(deviceID: String, caps: LiveCaps, resume: LiveResume?, startup: [String: Int] = [:])
     /// A finished utterance. `partial: false` — this client does not stream
     /// interim text, because a partial that arrives after its own final would
     /// overwrite the committed row.
@@ -84,10 +85,11 @@ enum LiveClientMessage: Equatable, Sendable {
 
     var payload: [String: Any] {
         switch self {
-        case .hello(let deviceID, let caps, let resume):
+        case .hello(let deviceID, let caps, let resume, let startup):
             var out: [String: Any] = ["t": "hello", "device_id": deviceID,
                                       "device_kind": LiveHello.deviceKind, "caps": caps.payload]
             if let resume { out["resume"] = resume.payload }
+            if !startup.isEmpty { out["startup_ms"] = startup }
             return out
         case .segment(let startMs, let endMs, let text, let lang, let label, let voiceprint,
                       let translatesHere):

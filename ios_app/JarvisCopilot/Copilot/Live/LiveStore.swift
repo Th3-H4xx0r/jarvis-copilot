@@ -537,26 +537,31 @@ final class LiveStore {
         generation += 1
         let epoch = generation
         error = ""
+        // How long each part of starting took, sent in `hello` so the server log
+        // says where a slow Record went instead of anyone guessing.
+        let began = Date()
+        var startup: [String: Int] = [:]
+        func mark(_ step: String, since: Date) { startup[step] = Int(Date().timeIntervalSince(since) * 1000) }
 
         guard await input.requestPermission() else {
             error = "Microphone access is off — turn it on in Settings."
             return
         }
         guard epoch == generation else { return }
+        mark("permission", since: began)
 
         // The claim first: `availableInputs` is empty until the category permits
         // recording, so the source list and the preferred input can only be set
         // after this.
+        let claiming = Date()
         do { try session.hold() } catch {
             report("claim audio for Live", error)
             return
         }
         refreshSources()
         if activeSource.canStream { _ = LiveCaptureSources.apply(activeSource) }
+        mark("claim", since: claiming)
 
-        await prepareTranscription()
-        // Before `hello`, which declares whether this phone makes voiceprints.
-        await loadVoiceprints()
         // NOT awaited: the first load compiles a 470 MB model for this phone and
         // takes seconds, and the microphone must not wait on it. Lines committed
         // before it is ready keep Apple's words.
@@ -573,6 +578,7 @@ final class LiveStore {
         // encoded as, and `hello` — sent a few lines later — has to declare the same
         // thing. Building the encoder after either would send audio under a codec
         // decided afterwards.
+        let opening = Date()
         prepareEncoder()
         do {
             try await input.start(sampleRate: Self.micRate)
@@ -588,6 +594,8 @@ final class LiveStore {
         }
         capturing = true
         captureStartedAt = Date()
+        mark("mic", since: opening)
+        mark("to_recording", since: began)
         // The indicator and the Live Activity come up with the microphone, not
         // after the socket: the phone is already listening to the room, and the
         // one thing that must never lag is the notice that says so.
@@ -598,11 +606,27 @@ final class LiveStore {
             translator.target = config.primaryLanguage
             translator.warmUp(sources: sttLocales.map(\.identifier))
         }
+        // Only now the recogniser and the voiceprint model, together: `hello`
+        // declares what this phone can do, so it waits for both — the microphone
+        // does not. Awaited before it, the first Record after a launch read "Not
+        // recording" for ~20 s. What is heard meanwhile is spooled, as it is
+        // before any socket.
+        let loadingModels = Date()
+        async let recogniserReady: Void = prepareTranscription()
+        async let voiceprintsReady: Void = loadVoiceprints()
+        _ = await (recogniserReady, voiceprintsReady)
+        mark("models", since: loadingModels)
+        guard epoch == generation else { return }
+        startupTimings = startup
+
         await openOrResumeSession(epoch: epoch)
         guard epoch == generation else { return }
         armMicWatchdog(epoch: epoch)
         await openSocket(epoch: epoch)
     }
+
+    /// The last start's step timings, for `hello`.
+    private var startupTimings: [String: Int] = [:]
 
     /// Claim a live session over REST before the socket opens.
     ///
@@ -912,7 +936,7 @@ final class LiveStore {
         // asks to continue the last session — it has no way to know the budget
         // — and the server answers with the id it actually bound.
         resumeRequestedID = remembered
-        send(.hello(deviceID: deviceID, caps: caps, resume: resume))
+        send(.hello(deviceID: deviceID, caps: caps, resume: resume, startup: startupTimings))
     }
 
     private func closeSocket() {

@@ -2400,6 +2400,13 @@ class LiveConnection:
         caps = msg.get("caps") if isinstance(msg.get("caps"), dict) else {}
         self.device_id = str(msg.get("device_id") or "").strip()
         self.device_kind = str(msg.get("device_kind") or "").strip()
+        startup = msg.get("startup_ms")
+        if isinstance(startup, dict) and startup:
+            # The device's own account of a slow Record (LiveStore.start).
+            logger.info("live: %s (%s) started capture: %s", self.device_id or "?",
+                        self.device_kind or "?",
+                        ", ".join(f"{k} {int(v)} ms" for k, v in sorted(startup.items())
+                                  if isinstance(v, (int, float))))
         self.codec = str(caps.get("codec") or "").strip()
         try:
             self.rate = int(caps.get("rate") or 16000)

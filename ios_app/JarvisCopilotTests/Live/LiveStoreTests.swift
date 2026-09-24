@@ -43,7 +43,8 @@ final class LiveStoreTests: XCTestCase {
                          voiceprints: VoiceprintEmbedding? = nil,
                          onDevice: OnDeviceTranscribing? = nil,
                          speakers: LiveSpeakerTracking? = nil,
-                         voices: [[String: Any]] = []) -> Rig {
+                         voices: [[String: Any]] = [],
+                         voiceprintGate: DispatchSemaphore? = nil) -> Rig {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("live-store-\(UUID().uuidString)", isDirectory: true)
         directories.append(directory)
@@ -80,7 +81,9 @@ final class LiveStoreTests: XCTestCase {
                               spool: spool,
                               settings: settings,
                               preferences: MemoryKeyValueStore(keyValues),
-                              voiceprints: voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } },
+                              voiceprints: voiceprintGate.map { gate -> (@Sendable () -> VoiceprintEmbedding?) in
+                                  { gate.wait(); return nil }
+                              } ?? voiceprints.map { made -> (@Sendable () -> VoiceprintEmbedding?) in { made } },
                               onDevice: onDevice.map { made -> (@MainActor () async -> OnDeviceTranscribing?) in { made } },
                               speakers: speakers.map { made -> (@MainActor () -> LiveSpeakerTracking?) in { made } })
         return Rig(store: store, transport: transport, input: input, recognizer: recognizer,
@@ -677,6 +680,32 @@ final class LiveStoreTests: XCTestCase {
         for _ in 0..<200 where segs(rig).isEmpty {
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
+    }
+
+    /// The first Record after a launch prepares the recogniser and loads the
+    /// voiceprint model; neither may hold the microphone — the screen read "Not
+    /// recording" for ~20 s while they did. `hello` still waits for both: it
+    /// declares what this phone can do.
+    func testTheMicrophoneOpensBeforeTheModelsAreReady() async {
+        let gate = DispatchSemaphore(value: 0)
+        let rig = makeRig(voiceprintGate: gate)
+        let starting = Task { await rig.store.start() }
+        for _ in 0..<200 where !rig.store.capturing { try? await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(rig.store.capturing, "recording while the model still loads")
+        XCTAssertNil(lastFrame(rig, t: "hello"), "hello waits for what it declares")
+        gate.signal()
+        await starting.value
+        XCTAssertNotNil(lastFrame(rig, t: "hello"))
+    }
+
+    /// How long each part of starting took, in the hello the server logs — so a
+    /// slow Record can be read off the server instead of guessed at.
+    func testHelloReportsHowLongStartingTook() async {
+        let rig = makeRig()
+        await rig.store.start()
+        let startup = lastFrame(rig, t: "hello")?["startup_ms"] as? [String: Any]
+        XCTAssertNotNil(startup?["mic"])
+        XCTAssertNotNil(startup?["models"])
     }
 
     /// The server only trusts a voiceprint from a device that says which model

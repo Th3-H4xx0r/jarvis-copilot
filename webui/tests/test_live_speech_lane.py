@@ -435,3 +435,12 @@ def test_a_phone_that_transcribes_keeps_its_lane_under_the_phone_setting(monkeyp
     _conn, client = _connect()
     ready = client.first("ready")
     assert ready["lane"] == live_ws.LANE_EDGE and "engine" not in ready
+
+
+def test_a_phone_s_startup_timings_are_logged(isolated_state, caplog):
+    # Where a slow Record went, readable from the server log.
+    import logging
+    with caplog.at_level(logging.INFO, logger="api.live_ws"):
+        _connect(startup_ms={"permission": 3, "claim": 820, "mic": 410, "models": 9100})
+    line = next((r.getMessage() for r in caplog.records if "started capture" in r.getMessage()), "")
+    assert "claim 820 ms" in line and "models 9100 ms" in line
