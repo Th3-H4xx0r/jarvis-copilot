@@ -2468,17 +2468,29 @@ def _pick_ack_phrase(state: dict) -> str:
     return _ACK_PHRASES[idx % len(_ACK_PHRASES)]
 
 
-# How much longer than _ACK_DELAY_MS the bridge will wait for a generated ack
-# (text + TTS) before falling back to a canned phrase.
+# How much longer than _ACK_DELAY_MS the bridge will wait for the generated
+# ack's decision (text + TTS, or SKIP).
 _ACK_GENERATE_WAIT_MS = 700
+# A turn with no decision by then gets no ack — unless it is still silent at
+# this point, which makes it a long one: then the generated ack if it has come
+# in since, or a canned phrase. Before, the canned phrase played at ~1.3 s no
+# matter what, and a quick device action got "On it, sir." and then its answer.
+_ACK_FALLBACK_MS = 3000
+# The model decides. An ack is only for work that keeps the user waiting; for a
+# quick action it only repeats the answer that follows a second later ("Starting
+# the sterilization process for your bottle, sir." then "I have started the
+# sterilisation cycle for your water bottle.").
 _ACK_SYSTEM_PROMPT = (
-    "You are JARVIS, a calm British assistant. The user just spoke. If it is a "
-    "task that takes work (looking something up, controlling a device, sending "
-    "or writing something, a multi-step job), write ONE short spoken "
-    "acknowledgement (at most nine words) that you are starting on it, naming "
-    "what it is about — plain speech, no markdown, no questions, no 'Certainly', "
-    "address the user as sir. If it is a greeting, small talk, a thank-you, or a "
-    "simple question you would just answer, output exactly: SKIP"
+    "You are JARVIS, a calm British assistant. The user just spoke. Decide "
+    "whether answering will keep them waiting more than a few seconds: "
+    "researching or searching the web, several steps or tools in a row, "
+    "drafting or sending a long message, running code or a long job. Only then "
+    "write ONE short spoken acknowledgement (at most nine words) that you are "
+    "starting on it, naming what it is about — plain speech, no markdown, no "
+    "questions, no 'Certainly', address the user as sir. Anything quick — a "
+    "single device action (lights, a timer, music, the water bottle, a "
+    "setting), a quick fact, a greeting, small talk, a thank-you, a question "
+    "you would just answer — output exactly: SKIP. When unsure, SKIP."
 )
 
 
@@ -3011,31 +3023,55 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     # phrases are only the last resort when the fast lane is slow or absent.
     ack_job = _start_ack_generation(str(state.get("last_user_text") or ""))
 
+    def _ack_still_wanted():
+        return not (ack_state["first_text_sent"] or ack_state["ack_sent"]
+                    or state.get("interrupt") or state.get("closed"))
+
+    def _send_ack(phrase, audio):
+        ack_state["ack_sent"] = True
+        _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": phrase, "ack": True}))
+        try:
+            _send_audio(conn, sock, state, audio if audio is not None else _synth_audio(phrase))
+        except Exception:
+            print("[webui] ack send failed: " + traceback.format_exc(), flush=True)
+
     def _fire_ack():
         # Wait for the generated ack OUTSIDE the segment lock, so an arriving
         # reply (which takes the lock to mark itself) is never held up by it.
         with seg_lock:
-            if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
+            if not _ack_still_wanted():
                 return
         generated = _await_ack_generation(ack_job, _ACK_GENERATE_WAIT_MS / 1000.0)
         with seg_lock:
             # The model's first sentence may have landed while we waited; and a
-            # conversational turn (the generator said SKIP) gets no ack at all.
-            if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
+            # quick or conversational turn (the generator said SKIP) gets no ack.
+            if not _ack_still_wanted() or ack_job.get("skip"):
                 return
-            if ack_job.get("skip"):
+            if generated:
+                _send_ack(*generated)
                 return
-            ack_state["ack_sent"] = True
-            phrase, audio = generated if generated else (_pick_ack_phrase(state), None)
-            _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": phrase, "ack": True}))
-            try:
-                _send_audio(conn, sock, state, audio if audio is not None else _synth_audio(phrase))
-            except Exception:
-                print("[webui] ack send failed: " + traceback.format_exc(), flush=True)
+        # Undecided (the fast lane is slow or down): nothing now. See
+        # _ACK_FALLBACK_MS.
+        wait_s = max(0.0, (_ACK_FALLBACK_MS - _ACK_DELAY_MS - _ACK_GENERATE_WAIT_MS) / 1000.0)
+        fallback = threading.Timer(wait_s, _fire_fallback_ack)
+        fallback.daemon = True
+        ack_timers.append(fallback)
+        fallback.start()
+
+    def _fire_fallback_ack():
+        with seg_lock:
+            if not _ack_still_wanted() or ack_job.get("skip"):
+                return
+            _send_ack(*(ack_job.get("result") or (_pick_ack_phrase(state), None)))
 
     ack_timer = threading.Timer(_ACK_DELAY_MS / 1000.0, _fire_ack)
     ack_timer.daemon = True
+    ack_timers = [ack_timer]
     ack_timer.start()
+
+    def _cancel_acks():
+        for timer in list(ack_timers):
+            timer.cancel()
 
     def _refill():
         nonlocal gen_exhausted, any_emitted
@@ -3057,7 +3093,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                     # A bare "[end]" is a whole reply: no ack after it.
                     with seg_lock:
                         ack_state["first_text_sent"] = True
-                    ack_timer.cancel()
+                    _cancel_acks()
                 if t:
                     state["reply_last_text"] = t
                 if t and not ack_state["first_text_sent"]:
@@ -3069,7 +3105,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                     # moment it is sent — otherwise ack and reply both get spoken.
                     with seg_lock:
                         ack_state["first_text_sent"] = True
-                    ack_timer.cancel()
+                    _cancel_acks()
                     buf.append({"kind": "text", "text": t, "future": executor.submit(_synth_audio, t)})
             elif k == "tool":
                 name = seg.get("name", "")
@@ -3110,7 +3146,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
             with seg_lock:
                 if item["kind"] == "text" and not ack_state["first_text_sent"]:
                     ack_state["first_text_sent"] = True
-                    ack_timer.cancel()
+                    _cancel_acks()
                 sent = _send_audio(conn, sock, state, audio)
             if sent and audio is not None and timing is not None and not first_audio_marked:
                 _mark_span(timing, "first_audio_ms", _elapsed_ms(timing))
@@ -3145,7 +3181,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
         if not state["interrupt"]:
             _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, something went wrong on my end. Please try again."})
     finally:
-        ack_timer.cancel()
+        _cancel_acks()
         for _it in buf:
             f = _it.get("future")
             if f is not None:
