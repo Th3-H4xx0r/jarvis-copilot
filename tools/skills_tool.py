@@ -444,6 +444,41 @@ def _parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     return parse_frontmatter(content)
 
 
+def _frontmatter_name(skill_md: Path) -> Optional[str]:
+    """The ``name:`` in a SKILL.md's frontmatter, reading only the header block."""
+    try:
+        with skill_md.open(encoding="utf-8") as fh:
+            first = fh.readline()
+            if first.strip() != "---":
+                return None
+            header = [first]
+            for _ in range(400):
+                line = fh.readline()
+                if not line:
+                    return None
+                header.append(line)
+                if line.strip() == "---":
+                    break
+            else:
+                return None
+    except (OSError, UnicodeDecodeError):
+        return None
+    frontmatter, _ = _parse_frontmatter("".join(header) + "\n")
+    value = frontmatter.get("name")
+    return str(value).strip() if value else None
+
+
+def _inside_skill_dir(path: Path, root: Path) -> bool:
+    """True when *path* sits inside a skill directory (an ancestor below
+    *root* holds a SKILL.md), i.e. it is that skill's reference/template file."""
+    for parent in path.parents:
+        if parent == root or root not in parent.parents:
+            return False
+        if (parent / "SKILL.md").exists():
+            return True
+    return False
+
+
 def _get_category_from_path(skill_path: Path) -> Optional[str]:
     """
     Extract category from skill path based on directory structure.
@@ -959,7 +994,7 @@ def skill_view(
 
         # Collision detection: collect ALL candidates across every dir using
         # every lookup strategy (direct path, recursive by parent dir name,
-        # legacy flat <name>.md). If more than one matches, refuse and tell
+        # frontmatter name, legacy flat <name>.md). If more than one matches, refuse and tell
         # the caller — silent shadowing of a local skill by a same-named
         # external skill is a real bug class (`/skills` shows one, agent
         # loaded the other) so we surface it loudly instead of guessing.
@@ -999,13 +1034,24 @@ def skill_view(
 
             # Strategy 2: recursive by directory name (catches nested skills
             # like "foundations/runtime/explore-codebase" called by bare name).
+            # Strategy 4 (same walk): by frontmatter ``name:``. That is the name
+            # the system-prompt skills index and skills_list advertise, and it
+            # can differ from the directory (jarviscopilot/jarvis-pod is
+            # "jarviscopilot-jarvis-pod"), so a skill was listed under a name
+            # skill_view could not load. It feeds the same collision check.
+            match_frontmatter = "/" not in name
             for found_skill_md in iter_skill_index_files(search_dir, "SKILL.md"):
                 if found_skill_md.parent.name == name:
                     _record(found_skill_md.parent, found_skill_md)
+                elif match_frontmatter and _frontmatter_name(found_skill_md) == name:
+                    _record(found_skill_md.parent, found_skill_md)
 
-            # Strategy 3: legacy flat <name>.md files anywhere under the dir.
+            # Strategy 3: legacy flat <name>.md files anywhere under the dir --
+            # but not a skill's own supporting files. references/styles/notion.md
+            # inside another skill is not a skill, and counting it made the real
+            # `notion`, `spotify`, `pixel-art` … skills "ambiguous" and unloadable.
             for found_md in search_dir.rglob(f"{name}.md"):
-                if found_md.name != "SKILL.md":
+                if found_md.name != "SKILL.md" and not _inside_skill_dir(found_md, search_dir):
                     _record(None, found_md)
 
         if len(candidates) > 1:

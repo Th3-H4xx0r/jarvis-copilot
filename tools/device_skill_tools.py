@@ -319,6 +319,54 @@ def _trim_result(result: dict, skill_name: str) -> dict:
     return _trim_value(result)
 
 
+# ── Jarvis Pod pages ─────────────────────────────────────────────────────────
+# The pod validates a page itself, and its tool descriptions only say "read the
+# jarvis-pod skill". A model that skips the skill guesses the JSON (observed:
+# "components", "widget", "container", "page", "box" -- seven failed saves in a
+# row), so the `page` parameter carries the shape in one line, and a validation
+# error comes back with a fuller reference (paid only when a call fails).
+_POD_PAGE_SKILLS = frozenset({"pod_show", "pod_home_save"})
+
+_POD_PAGE_SHAPE = (
+    '{"root": node, "id"?, "title"?, "data"?}. node = {"type", props, "style"?}. '
+    'vstack|hstack|zstack need "children": [node]. Leaves (required prop): '
+    "text value, stat value, titleSubtitle title, badge text, progress value, "
+    "gauge value, chart points, timer to, symbol name, image source; "
+    "clock, spacer, divider, dot. A value can be {\"$\": key} read from data."
+)
+
+_POD_PAGE_REFERENCE = (
+    _POD_PAGE_SHAPE
+    + " Optional props: stat label, titleSubtitle subtitle, gauge min/max,"
+    " chart kind line|bar, clock format (strftime), progress value is 0-1,"
+    " image source is an https JPEG/PNG. style: size 12-64,"
+    " color accent|success|warning|danger|text|muted|bg|#RRGGBB,"
+    " weight regular|bold, align left|center|right, gap."
+    ' There are no "components", "widget", "container" or "layout" keys.'
+    ' Example: {"root": {"type": "vstack", "children": [{"type": "clock"},'
+    ' {"type": "text", "value": "5h 42%", "style": {"size": 20}}]}}.'
+    " Full guide: the jarvis-pod skill."
+)
+
+
+def _with_page_shape(skill_name: str, properties: dict) -> dict:
+    """Describe the pod's `page` parameter unless the device already does."""
+    page = properties.get("page")
+    if skill_name not in _POD_PAGE_SKILLS or not isinstance(page, dict) or page.get("description"):
+        return properties
+    return {**properties, "page": {**page, "description": _POD_PAGE_SHAPE}}
+
+
+def _with_page_reference(skill_name: str, result: dict) -> dict:
+    """Attach the page reference to a pod page-validation error."""
+    if skill_name not in _POD_PAGE_SKILLS or result.get("ok") is not False:
+        return result
+    error = str(result.get("error") or "")
+    if error.startswith("page is invalid") or error.startswith("page: must be"):
+        return {**result, "page_format": _POD_PAGE_REFERENCE}
+    return result
+
+
 # ── invocation (in-process vs HTTP fallback — plan 3.2) ─────────────────────
 
 def _invoke(device_id: str, skill_name: str, args: dict) -> dict:
@@ -401,7 +449,7 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             # Returned as a dict, not JSON: the agent loop unwraps this into a
             # tool result carrying the image itself.
             return result
-        result = _trim_result(result, skill_name)
+        result = _with_page_reference(skill_name, _trim_result(result, skill_name))
         return json.dumps(result, ensure_ascii=False)
 
     return _handler
@@ -411,7 +459,7 @@ def _build_schema(skill_name: str, candidates: list[dict]) -> tuple[dict, str]:
     base_schema = candidates[0].get("input_schema")
     if not isinstance(base_schema, dict):
         base_schema = {}
-    properties = dict(base_schema.get("properties") or {})
+    properties = _with_page_shape(skill_name, dict(base_schema.get("properties") or {}))
     required = list(base_schema.get("required") or [])
     schema_type = base_schema.get("type") or "object"
 

@@ -693,7 +693,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             from tools.lazy_tools import handle_tool_call
             _bridged_name = (function_args or {}).get("name") or "tool_call"
             _bridged_args = (function_args or {}).get("arguments") or {}
-            function_result = handle_tool_call(agent, function_args, task_id)
+            function_result = handle_tool_call(agent, function_args, effective_task_id)
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl(_bridged_name, _bridged_args, tool_duration, result=function_result)}")

@@ -52,8 +52,9 @@ button (top-right) from the pod itself — don't draw your own.
 Every node is `{"type", …props, "style": {…}, "children": […], "onTap": {…}}`.
 `id` is optional (a-z 0-9 _ -, max 20; saving with an existing id replaces that home).
 
-**Containers:** `vstack`, `hstack` (flex; `style.gap`, `style.align` left|center|right),
-`zstack` (children overlap, centred; `style.width/height`), `spacer`.
+**Containers** (need `children`, an array of nodes): `vstack`, `hstack` (flex; `style.gap`,
+`style.align` left|center|right), `zstack` (children overlap, centred; `style.width/height`).
+There is no `container`, `page`, `box` or `widget` type, and no `components` key.
 
 **Leaves:**
 
@@ -71,6 +72,7 @@ Every node is `{"type", …props, "style": {…}, "children": […], "onTap": {�
 | `timer` | `to` (unix seconds), `format` clock (HH:MM:SS) \| relative ("3d 4h"); ticks on the pod |
 | `clock` | `format` (strftime, e.g. `"%H:%M"`); omit for the user's 12/24 h preference |
 | `divider`, `dot` | style `color` (`dot` also `size`) |
+| `spacer` | none (empty space inside a stack) |
 
 **Values** can be literals or bindings `{"$": "key"}` read from the page's `data`. Built-in
 keys update themselves every second: `time`, `date`, `weekday`, `battery`, `wifi`.

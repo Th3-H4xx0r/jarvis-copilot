@@ -992,6 +992,9 @@ def handle_websocket(handler, parsed) -> bool:
         name=device.get("name", "") or "device",
     )
     _register(conn)
+    # One line each way, so "was the device actually offline?" is answerable
+    # from agent.log after the fact (a pending call only says "disconnected").
+    logger.info("device bridge: %s (%s) connected", conn.name, conn.device_id[:8])
     try:
         _ws_send_text(conn, json.dumps({
             "type": "hello",
@@ -1011,6 +1014,8 @@ def handle_websocket(handler, parsed) -> bool:
         _unregister(conn.device_id, conn)
         _safe_close(conn)
         _notify_registry_change()  # plan 3.1 — device gone, drop its native tools
+        logger.info("device bridge: %s (%s) disconnected after %.0fs",
+                    conn.name, conn.device_id[:8], time.time() - conn.connected_at)
     return True
 
 

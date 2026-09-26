@@ -158,3 +158,74 @@ class TestTheManifestTeachesTheContract:
     def test_the_deferred_tools_are_still_listed(self, monkeypatch):
         monkeypatch.setattr(lt, "bridge_enabled", lambda: True)
         assert "send_email" in build_manifest_text(self.DEFERRED)
+
+
+class TestThroughTheAgentLoop:
+    """The executor path, not just handle_tool_call.
+
+    Regression: the sequential executor passed an undefined ``task_id`` to
+    handle_tool_call, so every bridged call made on its own raised
+    ``NameError: name 'task_id' is not defined``. The outer loop turned that
+    into "Error during OpenAI-compatible API call #N: name 'task_id' is not
+    defined" as the tool result, and every deferred tool (all the Jarvis Pod
+    tools, for one) looked broken to the model.
+    """
+
+    def _agent(self, known):
+        from unittest.mock import MagicMock, patch
+
+        from run_agent import AIAgent
+
+        defs = [{"type": "function", "function": {
+            "name": n, "description": n,
+            "parameters": {"type": "object", "properties": {}}}}
+            for n in ("tool_call", "terminal")]
+        with patch("run_agent.get_tool_definitions", return_value=defs), \
+             patch("run_agent.check_toolset_requirements", return_value={}), \
+             patch("jarviscopilot_cli.config.load_config", return_value={}), \
+             patch("run_agent.OpenAI"):
+            agent = AIAgent(
+                api_key="test-key-1234567890",
+                base_url="https://openrouter.ai/api/v1",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+            )
+        agent.client = MagicMock()
+        agent.tool_delay = 0
+        agent._lazy_all_tool_names = set(known) | {"tool_call", "terminal"}
+        return agent
+
+    def test_sequential_bridged_call_runs_with_the_turn_task_id(self):
+        seen = {}
+        name = "_bridgetest_seq_tool"
+
+        def _handler(args, **kw):
+            seen["task_id"] = kw.get("task_id")
+            seen["args"] = args
+            return json.dumps({"ok": True})
+
+        registry.register(
+            name=name, toolset="bridgetest",
+            schema={"name": name, "description": "Throwaway.",
+                    "parameters": {"type": "object",
+                                   "properties": {"echo": {"type": "string"}}}},
+            handler=_handler,
+        )
+        try:
+            agent = self._agent({name})
+            call = types.SimpleNamespace(
+                id="c-bridge", type="function",
+                function=types.SimpleNamespace(
+                    name="tool_call",
+                    arguments=json.dumps({"name": name, "arguments": {"echo": "hi"}})),
+            )
+            messages = []
+            agent._execute_tool_calls_sequential(
+                types.SimpleNamespace(content="", tool_calls=[call]), messages, "task-xyz")
+        finally:
+            registry.deregister(name)
+
+        assert seen == {"task_id": "task-xyz", "args": {"echo": "hi"}}
+        assert messages[-1]["tool_call_id"] == "c-bridge"
+        assert json.loads(messages[-1]["content"]) == {"ok": True}

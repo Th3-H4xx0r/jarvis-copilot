@@ -1267,3 +1267,105 @@ class TestSkillViewCollisionDetection:
         result = json.loads(raw)
         assert result["success"] is True
         assert "LOCAL BODY" in result["content"]
+
+
+class TestSkillViewByFrontmatterName:
+    """The skills index in the system prompt and skills_list advertise a
+    skill by its frontmatter ``name:``, which can differ from its directory
+    (skills/jarviscopilot/jarvis-pod is ``jarviscopilot-jarvis-pod``). The
+    model asks for the advertised name, so skill_view must load it."""
+
+    def _write(self, skills_dir, rel_dir, fm_name, body):
+        skill_dir = skills_dir / rel_dir
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {fm_name}\ndescription: A skill.\n---\n\n# Skill\n\n{body}\n"
+        )
+        return skill_dir
+
+    def _patch(self, local_dir):
+        return (
+            patch("tools.skills_tool.SKILLS_DIR", local_dir),
+            patch("agent.skill_utils.get_external_skills_dirs", return_value=[]),
+        )
+
+    def test_frontmatter_name_loads_a_skill_whose_dir_differs(self, tmp_path):
+        self._write(tmp_path, "jarviscopilot/jarvis-pod", "jarviscopilot-jarvis-pod", "POD BODY")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2:
+            by_name = json.loads(skill_view("jarviscopilot-jarvis-pod"))
+            by_dir = json.loads(skill_view("jarvis-pod"))
+
+        assert by_name["success"] is True, by_name
+        assert "POD BODY" in by_name["content"]
+        assert by_dir["success"] is True
+        assert by_dir["content"] == by_name["content"]
+
+    def test_quoted_frontmatter_name(self, tmp_path):
+        self._write(tmp_path, "cat/dir-name", '"quoted-name"', "QUOTED BODY")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2:
+            result = json.loads(skill_view("quoted-name"))
+
+        assert result["success"] is True, result
+        assert "QUOTED BODY" in result["content"]
+
+    def test_every_listed_name_loads(self, tmp_path):
+        """Invariant: whatever skills_list advertises, skill_view resolves."""
+        self._write(tmp_path, "jarviscopilot/devices", "jarviscopilot-devices", "A")
+        self._write(tmp_path, "jarviscopilot/jarvis-pod", "jarviscopilot-jarvis-pod", "B")
+        self._write(tmp_path, "creative/creative-ideation", "ideation", "C")
+        self._write(tmp_path, "plain", "plain", "D")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2:
+            listed = [s["name"] for s in _find_all_skills()]
+            results = {n: json.loads(skill_view(n)) for n in listed}
+
+        assert len(listed) == 4
+        for n, result in results.items():
+            assert result["success"] is True, (n, result)
+
+    def test_frontmatter_name_joins_collision_detection(self, tmp_path):
+        """A frontmatter name that is also another skill's directory name is
+        ambiguous, not silently resolved to whichever strategy ran first."""
+        self._write(tmp_path, "jarviscopilot/devices", "jarviscopilot-devices", "NEW")
+        self._write(tmp_path, "jarviscopilot/jarviscopilot-devices", "jarviscopilot-devices", "STALE")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2:
+            ambiguous = json.loads(skill_view("jarviscopilot-devices"))
+            by_path = json.loads(skill_view("jarviscopilot/devices"))
+
+        assert ambiguous["success"] is False
+        assert "Ambiguous" in ambiguous["error"]
+        assert len(ambiguous["matches"]) == 2
+        assert by_path["success"] is True
+        assert "NEW" in by_path["content"]
+
+    def test_path_lookups_do_not_scan_frontmatter(self, tmp_path):
+        """A categorized path is an exact location; a frontmatter name equal
+        to that string (impossible in practice, but) must not widen it."""
+        self._write(tmp_path, "cat/real", "real", "REAL")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2, patch("tools.skills_tool._frontmatter_name") as fm:
+            result = json.loads(skill_view("cat/real"))
+
+        assert result["success"] is True
+        fm.assert_not_called()
+
+    def test_another_skills_reference_file_is_not_a_candidate(self, tmp_path):
+        """A skill's supporting file named like another skill (a style guide
+        called notion.md) is not a legacy flat skill, so it must not make the
+        real `notion` skill ambiguous."""
+        self._write(tmp_path, "productivity/notion", "notion", "REAL NOTION")
+        illustrator = self._write(tmp_path, "creative/illustrator", "illustrator", "ILL")
+        (illustrator / "references" / "styles").mkdir(parents=True)
+        (illustrator / "references" / "styles" / "notion.md").write_text("# Notion style\n")
+        (tmp_path / "flat-legacy.md").write_text("---\nname: flat-legacy\n---\n\nFLAT\n")
+        p1, p2 = self._patch(tmp_path)
+        with p1, p2:
+            real = json.loads(skill_view("notion"))
+            flat = json.loads(skill_view("flat-legacy"))
+
+        assert real["success"] is True, real
+        assert "REAL NOTION" in real["content"]
+        assert flat["success"] is True, flat

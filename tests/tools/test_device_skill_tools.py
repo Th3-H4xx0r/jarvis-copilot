@@ -295,3 +295,98 @@ def test_disconnected_device_still_produces_tools(monkeypatch):
     names = {t["name"] for t in device_skill_tools.get_device_tools()}
     assert "device_bottle_get_status" in names
     assert "device_wearables_connect" in names
+
+
+# ── Jarvis Pod pages: describe the shape, explain a rejected page ────────────
+# The pod's own descriptions say only "read the jarvis-pod skill". A model that
+# never loaded it guessed the page JSON seven times in a row ("components",
+# "widget", "container", …). These pin the contract that the tool itself now
+# carries enough to build a valid page.
+
+_POD_SKILLS = [
+    {"device_id": "pod1", "device_name": "Jarvis Pod", "name": name,
+     "description": "Show or save a page. Read the jarvis-pod skill for the page format.",
+     "input_schema": {"type": "object", "required": ["page"],
+                      "properties": {"page": {"type": "object"}}}}
+    for name in ("pod_show", "pod_home_save")
+] + [
+    {"device_id": "pod1", "device_name": "Jarvis Pod", "name": "pod_status",
+     "description": "Pod status.", "input_schema": {"type": "object", "properties": {}}},
+]
+
+
+def _pod_tools(monkeypatch, error=None):
+    _reset(monkeypatch, _POD_SKILLS)
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    reply = {"ok": False, "error": error} if error else {"ok": True, "result": {"ok": True}}
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda *a, **k: reply)
+    return {t["name"]: t for t in device_skill_tools.get_device_tools()}
+
+
+def test_pod_page_parameter_describes_the_page_shape(monkeypatch):
+    tools = _pod_tools(monkeypatch)
+    for name in ("device_pod_show", "device_pod_home_save"):
+        page = tools[name]["schema"]["parameters"]["properties"]["page"]
+        assert page["type"] == "object"
+        desc = page["description"]
+        # the shape a first-time caller needs: root + containers + a leaf's value
+        for needle in ('"root"', "vstack", '"children"', "text value"):
+            assert needle in desc, (name, needle)
+        assert len(desc) < 500  # sent on every turn while the pod is connected
+
+
+def test_a_device_supplied_page_description_is_kept(monkeypatch):
+    skills = [dict(s) for s in _POD_SKILLS]
+    skills[0] = {**skills[0], "input_schema": {"type": "object", "properties": {
+        "page": {"type": "object", "description": "FIRMWARE WORDS"}}}}
+    _reset(monkeypatch, skills)
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    page = tools["device_pod_show"]["schema"]["parameters"]["properties"]["page"]
+    assert page["description"] == "FIRMWARE WORDS"
+
+
+def test_other_skills_are_not_touched(monkeypatch):
+    tools = _pod_tools(monkeypatch)
+    assert tools["device_pod_status"]["schema"]["parameters"]["properties"] == {}
+
+
+def test_rejected_page_comes_back_with_the_format(monkeypatch):
+    tools = _pod_tools(monkeypatch, error='page is invalid:\n- root.children[0].type: unknown type "widget"')
+    out = json.loads(tools["device_pod_home_save"]["handler"](args={"page": {}}))
+    assert out["ok"] is False
+    assert "unknown type" in out["error"]  # the pod's own message is kept
+    assert "vstack" in out["page_format"] and "Example" in out["page_format"]
+
+
+def test_missing_page_comes_back_with_the_format(monkeypatch):
+    tools = _pod_tools(monkeypatch, error="page: must be an object")
+    out = json.loads(tools["device_pod_show"]["handler"](args={}))
+    assert "page_format" in out
+
+
+def test_other_pod_errors_do_not_carry_the_format(monkeypatch):
+    tools = _pod_tools(monkeypatch, error="device disconnected")
+    out = json.loads(tools["device_pod_show"]["handler"](args={"page": {}}))
+    assert out == {"ok": False, "error": "device disconnected"}
+
+
+def test_a_vanished_device_tool_says_the_device_is_offline(monkeypatch):
+    """An advertised device tool whose device dropped off the bridge must not
+    look like a tool the model invented."""
+    _reset(monkeypatch, [])
+    out = json.loads(registry.dispatch("device_pod_status", {}))
+    assert out["error"] == "Unknown tool: device_pod_status"
+    assert "offline" in out["hint"]
+
+
+def test_an_invented_device_tool_lists_the_real_ones(monkeypatch):
+    _pod_tools(monkeypatch)
+    out = json.loads(registry.dispatch("device_pod_screen", {}))
+    assert out["error"] == "Unknown tool: device_pod_screen"
+    assert "device_pod_status" in out["available_now"]
+    assert all(n.startswith("device_pod_") for n in out["available_now"])
+
+
+def test_non_device_unknown_tool_error_is_unchanged():
+    assert json.loads(registry.dispatch("no_such_tool_xyz", {})) == {
+        "error": "Unknown tool: no_such_tool_xyz"}

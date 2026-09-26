@@ -396,7 +396,7 @@ class ToolRegistry:
         """
         entry = self.get_entry(name)
         if not entry:
-            return json.dumps({"error": f"Unknown tool: {name}"})
+            return json.dumps(self._unknown_tool_error(name))
         try:
             if entry.is_async:
                 from model_tools import _run_async
@@ -418,6 +418,30 @@ class ToolRegistry:
     # ------------------------------------------------------------------
     # Query helpers  (replace redundant dicts in model_tools.py)
     # ------------------------------------------------------------------
+
+    def _unknown_tool_error(self, name: str) -> dict:
+        """The error for a name with no registered tool.
+
+        ``device_<skill>`` tools exist only while their device is on the
+        bridge, so one the model was shown can vanish mid-turn when the
+        device drops off. Say that, and name the same device family's tools
+        that are live now, instead of a bare "unknown".
+        """
+        err: dict = {"error": f"Unknown tool: {name}"}
+        parts = name.split("_")
+        if parts[0] != "device" or len(parts) < 3:
+            return err
+        family = f"device_{parts[1]}_"
+        live = [n for n in self.get_tool_names_for_toolset("devices") if n.startswith(family)]
+        if live:
+            err["available_now"] = live[:30]
+            err["hint"] = "No such device tool. available_now lists what that device offers."
+        else:
+            err["hint"] = (
+                f"No {family}* tools are connected right now: the device that offers "
+                "them is offline or reconnecting. Retry shortly or tell the user."
+            )
+        return err
 
     def get_max_result_size(self, name: str, default: int | float | None = None) -> int | float:
         """Return per-tool max result size, or *default* (or global default)."""
