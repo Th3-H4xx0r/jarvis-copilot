@@ -19,6 +19,9 @@ enum WearableKeepAlive {
     static let scale = "scale"
     static let esp32 = "esp32"
     static let ring = "ring"
+    /// The roster kind for the INMO GO3. There is no link of ours to keep alive —
+    /// iOS holds its Bluetooth audio — so it never has a toggle.
+    static let glasses = "glasses"
 
     private static func key(_ device: String) -> String { "jc.keepAlive.\(device)" }
 

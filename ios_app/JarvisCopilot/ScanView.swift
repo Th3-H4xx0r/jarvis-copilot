@@ -29,6 +29,7 @@ struct ScanView: View {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
+                    glassesCard(entries)
                     emptyState
                 } else {
                     grid(entries, absent: absent)
@@ -121,6 +122,7 @@ struct ScanView: View {
                 .buttonStyle(.plain)
                 .zoomSource(id: ring.id, in: cardNamespace)
             }
+            glassesCard(entries)
             ForEach(absent) { entry in
                 AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
                     connecting = entry.deviceID
@@ -145,6 +147,20 @@ struct ScanView: View {
     /// status now, and only a device with no card at all gets a row here.
     private func absentDevices(from entries: [WearableEntry]) -> [WearableEntry] {
         entries.filter { !$0.connected && !$0.seenInLastScan && !$0.listed }
+    }
+
+    /// The INMO GO3 has no scan of ours to turn it up — iOS holds it as a headset — so its
+    /// card is always here, lit while the glasses are on the audio route.
+    private func glassesCard(_ entries: [WearableEntry]) -> some View {
+        NavigationLink {
+            InmoGo3View()
+                .zoomTransition(id: WearableKeepAlive.glasses, in: cardNamespace)
+        } label: {
+            GlassesCard(route: GlassesAudioLink.shared.state,
+                        lastSeen: lastSeen(WearableKeepAlive.glasses, in: entries))
+        }
+        .buttonStyle(.plain)
+        .zoomSource(id: WearableKeepAlive.glasses, in: cardNamespace)
     }
 
     /// When this kind of device was last in range, for a card whose link is down.

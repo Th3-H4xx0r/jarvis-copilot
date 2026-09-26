@@ -4,8 +4,8 @@ import UIKit
 /// Still pictures of the wearables, for places too small or too numerous for
 /// the live 3D views: the Chat dashboard stacks several in a card.
 ///
-/// The bottle and the scale are rendered once from their real SceneKit models
-/// — the same geometry, lights and materials as the Devices tab — and cached.
+/// The bottle, the scale and the glasses are rendered once from their real SceneKit
+/// models — the same geometry, lights and materials as the Devices tab — and cached.
 /// The ring and the ESP32 boards have no model, so they get a symbol.
 @MainActor
 enum WearableArt {
@@ -22,6 +22,9 @@ enum WearableArt {
         case WearableKeepAlive.scale:
             let live = ScaleModel.Live(presentation: .card)
             rendered = snapshot(live.scene, from: live.camera)
+        case WearableKeepAlive.glasses:
+            let live = InmoGo3Model.Live(spin: false)
+            rendered = snapshot(live.scene, from: live.camera)
         default:
             rendered = nil
         }
@@ -35,6 +38,7 @@ enum WearableArt {
         case WearableKeepAlive.scale:  return "scalemass"
         case WearableKeepAlive.ring:   return "circle.circle"
         case WearableKeepAlive.esp32:  return "cpu"
+        case WearableKeepAlive.glasses: return "eyeglasses"
         default:                       return "dot.radiowaves.left.and.right"
         }
     }

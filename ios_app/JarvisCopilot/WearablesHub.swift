@@ -291,6 +291,20 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
                                      listed: live != nil))
         }
+        // The glasses are a Bluetooth headset iOS holds, not a link of ours: they're known
+        // once the audio route has shown them, and always have their own card (`listed`).
+        if let id = WearableIdentity.remembered(WearableKeepAlive.glasses) {
+            let route = GlassesAudioLink.shared.state
+            out.append(WearableEntry(kind: WearableKeepAlive.glasses,
+                                     deviceID: id,
+                                     model: InmoGo3.model,
+                                     name: InmoGo3.name,
+                                     connected: route.connected,
+                                     rssi: nil,
+                                     lastRSSI: nil,
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.glasses),
+                                     listed: true))
+        }
         // The Jarvis Pod talks to the server, not the phone: its card comes from JarvisPodStore.
         out.append(contentsOf: JarvisPodStore.shared.rosterEntries)
         return out
@@ -307,6 +321,7 @@ final class WearablesHub: ObservableObject {
              rssi: esp32.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.ring, connected: ring.state == .ready,
              rssi: ring.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.glasses, connected: GlassesAudioLink.shared.state.connected, rssi: nil)
     }
 
     /// A device is seen when a scan turns it up OR while we hold a link to it.
@@ -330,6 +345,8 @@ final class WearablesHub: ObservableObject {
     /// plus the always-present `wearables_*` hub. Runs before any Bluetooth work so the
     /// catalogue the server receives on `hello` is already complete.
     func restoreSharedDevices() {
+        // Here rather than on foreground only: a background launch reads the roster too.
+        GlassesAudioLink.shared.start()
         WearableIdentity.seedFromSharedRecords(BridgeClient.sharedRecords)
         bottle.publishRemembered()
         scale.publishRemembered()
@@ -409,6 +426,10 @@ final class WearablesHub: ObservableObject {
             }) else { return false }
             if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
             return await waitUntil(timeout: timeout) { self.ring.state == .ready }
+        case WearableKeepAlive.glasses:
+            // iOS holds the glasses' Bluetooth audio; there is no link of ours to open.
+            GlassesAudioLink.shared.refresh()
+            return GlassesAudioLink.shared.state.connected
         default:
             return false
         }
