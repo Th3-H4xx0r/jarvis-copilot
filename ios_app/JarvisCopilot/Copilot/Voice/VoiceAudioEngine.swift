@@ -107,6 +107,12 @@ final class VoiceAudioEngine {
         if !player.isPlaying { player.play() }
     }
 
+    /// The player's volume. The mixer after it is what voice processing takes
+    /// as its reference, so the canceller follows a turned-down reply.
+    var replyVolume: Float = 1 {
+        didSet { player?.volume = replyVolume }
+    }
+
     /// Drop what is queued and keep playing whatever comes next (barge-in).
     func flushStream() {
         player?.stop()
@@ -150,6 +156,7 @@ final class VoiceAudioEngine {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let player = AVAudioPlayerNode()
+        player.volume = replyVolume
         engine.attach(player)
         // The playback path exists before processing is switched on, so the
         // output side it enables has the reply as its reference from the start.

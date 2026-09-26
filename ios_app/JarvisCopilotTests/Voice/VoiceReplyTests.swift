@@ -244,4 +244,32 @@ final class VoiceReplyStreamingTests: XCTestCase {
         XCTAssertGreaterThan(words.count, 4)
         XCTAssertTrue(reply.heardText.hasPrefix("Clear skies this afternoon. Highs"))
     }
+
+    // MARK: - Telling the user's words from the reply's echo
+
+    func testWordsTheReplyIsSayingAreItsOwnEcho() {
+        var reply = VoiceReply()
+        reply.append("Clear skies over Houston today, with a high of 92.")
+        reply.clipStarted(tag: 0, durationMs: 3000)
+        reply.clipPosition(tag: 0, positionMs: 1500)
+        XCTAssertEqual(reply.userWords(in: "Skies over Houston. A high of 92"), [])
+        XCTAssertEqual(reply.userWords(in: "skies over — wait, stop!"), ["wait", "stop"])
+    }
+
+    func testFillersAndSingleLettersAreNotWords() {
+        let reply = VoiceReply()
+        XCTAssertEqual(reply.userWords(in: "Uh. Hmm, mm-hmm. A"), [])
+        XCTAssertEqual(reply.userWords(in: "Uh, Jarvis"), ["jarvis"])
+    }
+
+    /// Only the stretch around what is being said counts as echo: in a long
+    /// reply a word from minutes earlier is the user's again.
+    func testOnlyTheReplyNearThePlayheadCountsAsEcho() {
+        var reply = VoiceReply()
+        reply.append("Tomorrow " + Array(repeating: "and so on", count: 30).joined(separator: " ") + ".")
+        reply.clipStarted(tag: 0, durationMs: 30_000)
+        reply.clipPosition(tag: 0, positionMs: 29_000)
+        XCTAssertEqual(reply.userWords(in: "and so on"), [])
+        XCTAssertEqual(reply.userWords(in: "what about tomorrow"), ["what", "about", "tomorrow"])
+    }
 }

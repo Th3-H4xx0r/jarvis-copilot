@@ -141,6 +141,43 @@ struct VoiceReply: Equatable {
     /// Reply finished — light up any words the position stream didn't reach.
     mutating func finalizeSpoken() { spokenWords = totalWords }
 
+    // MARK: - Echo or the user
+
+    /// How far either side of the playhead the reply can still be echoing: back
+    /// over the last sentences (the highlight trails the speaker a little), and
+    /// ahead over what has been rendered but not highlighted yet.
+    static let echoWordsBack = 40
+    static let echoWordsAhead = 20
+    /// What a recogniser writes for a cough, a breath or a throat-clear.
+    static let fillerWords: Set<String> = ["uh", "um", "uhm", "umm", "hmm", "hm", "mm", "mhm",
+                                           "ah", "oh", "eh", "er", "erm", "ha", "huh", "ugh"]
+
+    /// The words in `heard` that are not the reply's own.
+    ///
+    /// Under a noise, the recogniser hears the reply's echo as well as the room,
+    /// and writes it down — mostly the reply's own words near the playhead. What
+    /// is left is someone else talking. Fillers and single letters do not count:
+    /// a cough comes out as "Uh", and a stray letter is too little to go on.
+    func userWords(in heard: String) -> [String] {
+        let all = segments.flatMap(\.words)
+        let from = max(0, spokenWords - Self.echoWordsBack)
+        let to = min(all.count, spokenWords + Self.echoWordsAhead)
+        let echo = Set(from < to ? all[from..<to].flatMap(Self.plainWords) : [])
+        return Self.plainWords(heard).filter {
+            $0.count > 1 && !Self.fillerWords.contains($0) && !echo.contains($0)
+        }
+    }
+
+    /// Lower-cased words with punctuation dropped ("Houston," → "houston",
+    /// "mm-hmm" → "mm", "hmm", "don't" → "dont").
+    static func plainWords(_ text: String) -> [String] {
+        text.lowercased()
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "\u{2019}", with: "")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+    }
+
     private mutating func recomputeSpoken() {
         var n = 0
         for i in segments.indices {

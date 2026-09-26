@@ -38,6 +38,8 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
 
     private var clip: AVAudioPlayer?
     private var positionTimer: Timer?
+    /// See `AudioOutput.setVolume`. New streams and clips start at it.
+    private var volume: Float = 1
     private var meterTimer: Timer?
 
     // MARK: - Stream path
@@ -70,6 +72,7 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
             isStreamAvailable = false
             return false
         }
+        node.volume = volume
         engine.attach(node)
         // The mixer resamples 24 kHz mono to whatever the output runs at.
         engine.connect(node, to: engine.mainMixerNode, format: format)
@@ -168,6 +171,17 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         #endif
     }
 
+    func setVolume(_ volume: Float) {
+        let volume = min(max(volume, 0), 1)
+        self.volume = volume
+        #if os(iOS)
+        VoiceAudioEngine.shared.replyVolume = volume
+        #else
+        node?.volume = volume
+        #endif
+        clip?.volume = volume
+    }
+
     func stopStream() async {
         streamGeneration += 1
         #if os(iOS)
@@ -195,6 +209,7 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
                                            fileTypeHint: Self.typeHint(fileExtension))
             player.delegate = self
             player.isMeteringEnabled = true
+            player.volume = volume
             player.prepareToPlay()
             guard player.play() else { return false }
             clip = player

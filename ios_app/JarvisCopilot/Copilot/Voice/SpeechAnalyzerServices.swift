@@ -82,6 +82,18 @@ final class AnalyzerSpeechEngine {
         return outcome
     }
 
+    /// Ready the device language only if its model is ALREADY on the device —
+    /// never a download. For a caller that did not ask for on-device speech
+    /// (the barge-in words check under a Soniox conversation): it may use a
+    /// model that is there, but must not fetch one.
+    func prepareIfInstalled() async -> Bool {
+        if isPrepared { return true }
+        guard let match = await SpeechTranscriber.supportedLocale(equivalentTo: .current) else { return false }
+        let probe = SpeechTranscriber(locale: match, preset: .progressiveTranscription)
+        guard await AssetInventory.status(forModules: [probe]) == .installed else { return false }
+        return await prepare(onProgress: { _ in }) == .ready
+    }
+
     /// Prepare every language the user says might be spoken.
     ///
     /// Ready when AT LEAST ONE of them is. Refusing the whole session because the

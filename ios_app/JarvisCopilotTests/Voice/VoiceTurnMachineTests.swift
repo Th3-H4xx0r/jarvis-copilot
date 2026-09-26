@@ -50,9 +50,11 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertEqual(m.apply(.resumeGraceElapsed), [], "nothing was scheduled")
         XCTAssertEqual(m.state, .thinking)
 
-        // The server's end-of-turn is what schedules the resume.
+        // The server's end-of-turn with nothing left to play: listen now —
+        // the store checks nothing is still on its way to the speaker.
         let ended2 = m.apply(.turnEnded(reason: "done", producedReply: true))
-        XCTAssertTrue(ended2.contains(.scheduleResume))
+        XCTAssertTrue(ended2.contains(.resumeWhenQuiet))
+        XCTAssertFalse(ended2.contains(.scheduleResume))
 
         let resumed = m.apply(.resumeGraceElapsed)
         XCTAssertEqual(m.state, .listening)
@@ -293,7 +295,7 @@ final class VoiceTurnMachineTests: XCTestCase {
         let effects = m.apply(.turnEnded(reason: "no_reply", producedReply: false))
         XCTAssertEqual(m.state, .thinking, "we stay in the conversation, not error")
         XCTAssertTrue(effects.contains(.showError("I didn't catch a reply — please try again.")))
-        XCTAssertTrue(effects.contains(.scheduleResume))
+        XCTAssertTrue(effects.contains(.resumeWhenQuiet))
 
         var other = listening()
         _ = other.apply(.endOfSpeech)
@@ -308,7 +310,7 @@ final class VoiceTurnMachineTests: XCTestCase {
             let effects = m.apply(.turnEnded(reason: reason, producedReply: false))
             XCTAssertFalse(effects.contains(where: { if case .showError = $0 { return true }; return false }),
                            "reason \"\(reason)\" is benign")
-            XCTAssertTrue(effects.contains(.scheduleResume))
+            XCTAssertTrue(effects.contains(.resumeWhenQuiet))
         }
     }
 
@@ -417,8 +419,40 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertFalse(ended.contains(.scheduleResume), "tail of the reply is still playing")
         XCTAssertEqual(m.state, .speaking)
         let drained = m.apply(.playbackDrained)
-        XCTAssertEqual(drained, [.scheduleResume])
-        _ = m.apply(.resumeGraceElapsed)
+        XCTAssertEqual(m.state, .listening, "the turn is over and the reply has played: listen now")
+        XCTAssertEqual(drained, [.cancelResume, .finalizeSpoken, .resetEndpointer, .restartRecognizer])
+    }
+
+    /// The pause after a reply used to be a fixed 1.6 s "grace" in case more
+    /// was coming — but once the server has ended the turn nothing is, and it
+    /// read as Jarvis still speaking for a second or two.
+    func testAReplyThatHasEndedAndPlayedListensAtOnce() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
+        _ = m.apply(.playbackDrained)
         XCTAssertEqual(m.state, .listening)
+    }
+
+    /// Replies with no server turn behind them (the on-device lane) keep the
+    /// grace: nothing says they are finished.
+    func testADrainWithNoServerTurnStillWaitsOutTheGrace() {
+        var m = listening()
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        XCTAssertEqual(m.apply(.playbackDrained), [.scheduleResume])
+        XCTAssertEqual(m.state, .thinking)
+    }
+
+    /// The next turn starts fresh: its own drain waits for its own end.
+    func testANewTurnForgetsThatTheLastOneEnded() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
+        _ = m.apply(.resumeGraceElapsed)
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        XCTAssertEqual(m.apply(.playbackDrained), [.cancelResume, .armThinkingWatchdog])
+        XCTAssertEqual(m.state, .thinking)
     }
 }

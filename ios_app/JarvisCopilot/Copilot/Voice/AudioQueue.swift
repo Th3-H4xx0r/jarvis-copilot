@@ -177,6 +177,9 @@ final class AudioQueue {
     // MARK: - Public state
 
     var isBusy: Bool { playing || !queue.isEmpty || nativeActive }
+    /// Not busy, and nothing handed over that is still on its way to the
+    /// player either.
+    var isQuiet: Bool { !isBusy && !nativePending }
 
     // MARK: - Enqueue
 
@@ -229,10 +232,16 @@ final class AudioQueue {
         }
     }
 
+    /// Turn the reply down or back up without touching what is queued — see
+    /// `AudioOutput.setVolume`.
+    func setVolume(_ volume: Float) { output.setVolume(volume) }
+
     /// Drop anything queued and stop playback immediately (barge-in / new turn).
     /// Does NOT fire `onIdle`.
     func stop() async {
         epoch += 1
+        // Whatever was turned down is gone; the next reply plays at full volume.
+        output.setVolume(1)
         // The per-frame chain is only ever as long as the audio still to play;
         // dropping it here stops a barge-in paying for the whole interrupted
         // sentence, and stops the last task being retained until the next one.

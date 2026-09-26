@@ -31,6 +31,11 @@ final class VoiceBackendFixTests: XCTestCase {
         let audioSession = MockAudioSessionControlling()
         let connector = MockVoiceSocketConnector()
         let clock = TestVoiceClock()
+        // These are the server-transcription paths (audio over the socket).
+        // On-device became the default in 959964ee53 and these started
+        // exercising the wrong one.
+        let prefs = MemoryKeyValueStore()
+        prefs.set(VoiceTranscription.server.rawValue, forKey: VoiceSettings.transcriptionKey)
         let store = VoiceStore(api: api,
                                input: input,
                                output: MockAudioOutput(),
@@ -39,7 +44,7 @@ final class VoiceBackendFixTests: XCTestCase {
                                audioSession: audioSession,
                                connector: connector,
                                clock: clock,
-                               keyValueStore: MemoryKeyValueStore(),
+                               keyValueStore: prefs,
                                launch: nil,
                                local: nil)
         store.machine.mode = mode

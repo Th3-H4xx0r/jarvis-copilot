@@ -157,6 +157,10 @@ final class MockAudioOutput: AudioOutput {
     func flushStream() async { flushCount += 1 }
     func stopStream() async { stopStreamCount += 1 }
 
+    /// The reply's volume as last set, 1 = full.
+    private(set) var volume: Float = 1
+    func setVolume(_ volume: Float) { self.volume = volume }
+
     func play(_ bytes: Data, fileExtension: String) async -> Bool {
         guard playSucceeds else { return false }
         played.append((bytes, fileExtension))

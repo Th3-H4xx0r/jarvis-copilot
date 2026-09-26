@@ -608,11 +608,19 @@ extension VoiceStore {
             session.cancel()
             return
         }
-        speech = session
         // The partial belongs to THIS utterance. Left over from the last one, it
         // would be put back on screen as if just said — after a barge-in with no
         // new words, say.
-        livePartial = ""
+        adoptSpeechSession(session, heard: "")
+    }
+
+    /// Make `session` the utterance's recognizer. `heard` is what it has
+    /// already written — the barge-in words check hands over a session that
+    /// heard the user's first words before the turn existed.
+    func adoptSpeechSession(_ session: SpeechSession, heard: String) {
+        speech = session
+        livePartial = heard
+        if !heard.isEmpty { userTranscript = heard }
         session.onPartial = { [weak self, weak session] text in
             guard let self, let session, self.speech === session,
                   self.state == .listening, !self.muted else { return }

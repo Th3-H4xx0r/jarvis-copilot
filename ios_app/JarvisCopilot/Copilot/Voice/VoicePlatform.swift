@@ -113,6 +113,10 @@ protocol AudioOutput: AnyObject {
     /// Drop queued audio, keep the stream open (barge-in).
     func flushStream() async
     func stopStream() async
+    /// The reply's volume, 0…1, for the stream and clips alike — turned down
+    /// while a sound over the reply is checked for words. Kept across streams
+    /// and clips until set again.
+    func setVolume(_ volume: Float)
 
     /// Fired when the clip started by `play` finishes on its own.
     var onClipComplete: (() -> Void)? { get set }

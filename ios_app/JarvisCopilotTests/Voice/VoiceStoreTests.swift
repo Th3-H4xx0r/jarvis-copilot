@@ -512,13 +512,31 @@ final class VoiceStoreTests: XCTestCase {
 
         rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
         await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .thinking, "wait a beat for a trailing segment")
-
-        rig.clock.advance(ms: VoiceStore.resumeGraceMs + 10)
-        await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertEqual(rig.store.state, .listening,
+                       "the turn is over and the reply has played: no second or two of 'speaking'")
         XCTAssertEqual(rig.store.spokenWords, rig.store.replySegments.reduce(0) { $0 + $1.words.count },
                        "the highlight is finalized when the reply ends")
+    }
+
+    /// A short reply's audio and its end_turn arrive together: the turn must
+    /// not flip to listening before that audio has even started.
+    func testAnEndTurnRightBehindItsAudioWaitsForThatAudio() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "assistant_text", "text": "Twelve, sir."])
+        socket.receive(json: ["type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000])
+        socket.receive(binary: replyPcm(ms: 300))
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        XCTAssertEqual(rig.store.state, .speaking)
+
+        rig.clock.advance(ms: 300 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
     }
 
     func testTranscriptAndToolFramesDriveTheOnScreenLines() async throws {
@@ -575,6 +593,15 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .speaking)
     }
 
+    /// The words check opened by a sound over the reply hears `text`.
+    private func sayWords(_ rig: Rig, _ text: String = "wait, stop") async throws {
+        await settleVoiceTasks()
+        let check = try XCTUnwrap(rig.recognizer.latest, "a sound over the reply opens a words check")
+        check.emitPartial(text)
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+    }
+
     func testTalkingOverTheReplyInterruptsIt() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)
@@ -582,15 +609,122 @@ final class VoiceStoreTests: XCTestCase {
         rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs - 20)
         await settleVoiceTasks()
         XCTAssertEqual(rig.store.state, .speaking, "not yet — a moment of sound is not a sentence")
+        XCTAssertEqual(rig.output.volume, 1)
 
         rig.input.emitFrames(amplitude: 0.06, ms: 20)
         await settleVoiceTasks()
-        await rig.store.audio.settle()
+        XCTAssertEqual(rig.store.state, .speaking, "sound alone only turns the reply down")
+        XCTAssertEqual(rig.output.volume, VoiceStore.bargeInDuckVolume)
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
         let socket = try XCTUnwrap(rig.socket)
         XCTAssertTrue(socket.sentTypes.contains("interrupt"))
         XCTAssertGreaterThan(rig.output.flushCount, 0, "queued reply audio is dropped")
         XCTAssertGreaterThan(rig.synthesizer.stopCount, 0)
+        XCTAssertEqual(rig.output.volume, 1, "the next reply plays at full volume")
+    }
+
+    /// A bang on the table, a cough: loud, but no words. The reply dips while
+    /// the phone listens for words, then carries on.
+    func testANoiseOverTheReplyOnlyTurnsItDownForAMoment() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+
+        rig.input.emitFrames(amplitude: 0.3, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.output.volume, VoiceStore.bargeInDuckVolume)
+        let check = try XCTUnwrap(rig.recognizer.latest)
+        XCTAssertGreaterThan(check.fedBytes, 0, "the check hears the sound, from just before it")
+
+        rig.input.emitFrames(amplitude: 0.003, ms: VoiceStore.bargeInCheckMinMs, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertEqual(rig.output.volume, 1, "no words: back to full volume")
+        XCTAssertEqual(check.cancelCount, 1)
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+    }
+
+    /// Apple's recogniser writes a cough as a filler.
+    func testACoughHeardAsAFillerDoesNotInterrupt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.2, ms: 400, frameMs: 100)
+        try await sayWords(rig, "Uh. Hmm")
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+    }
+
+    /// Under a noise the recogniser also hears the reply's own echo. Those are
+    /// Jarvis's words, not the user's.
+    func testTheRepliesOwnWordsHeardUnderANoiseDoNotInterrupt() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "Clear skies over Houston today, with a high of 92.", audioMs: 5000)
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
+
+        rig.input.emitFrames(amplitude: 0.2, ms: 400, frameMs: 100)
+        try await sayWords(rig, "skies over Houston, a high of 92")
+        XCTAssertEqual(rig.store.state, .speaking)
+
+        try await sayWords(rig, "skies over Houston. Wait, what about tomorrow?")
+        XCTAssertEqual(rig.store.state, .listening, "words of the user's own interrupt")
+    }
+
+    /// Noise that goes on (someone typing) must not hold the reply down.
+    func testANoiseThatGoesOnDoesNotKeepTheReplyDown() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.06, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.output.volume, VoiceStore.bargeInDuckVolume)
+
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInCheckMaxMs + 1000, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.output.volume, 1)
+        XCTAssertEqual(rig.recognizer.sessions.count, 1, "no new check until the noise stops")
+        XCTAssertEqual(rig.store.state, .speaking)
+
+        rig.input.emitFrames(amplitude: 0.003, ms: 600, frameMs: 100)
+        rig.input.emitFrames(amplitude: 0.06, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.recognizer.sessions.count, 2, "a new sound after quiet is checked again")
+    }
+
+    /// No on-device recogniser to ask: sound alone interrupts, as before.
+    func testWithoutARecognizerSoundAloneStillInterrupts() async throws {
+        let rig = makeRig()
+        rig.recognizer.isAvailable = false
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertTrue(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+    }
+
+    /// On-device transcription: the check has already heard the first words, so
+    /// it becomes the new turn's recogniser instead of starting from nothing.
+    func testOnDeviceTheCheckThatHeardTheWordsTranscribesTheNewTurn() async throws {
+        let rig = makeRig(transcription: .onDevice)
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.06, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        let check = try XCTUnwrap(rig.recognizer.latest)
+        let fedBefore = check.fedBytes
+
+        try await sayWords(rig, "wait, stop")
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertEqual(check.cancelCount, 0, "kept, not thrown away")
+        XCTAssertEqual(check.fedBytes, fedBefore, "the held audio is not fed to it twice")
+        XCTAssertEqual(rig.store.userTranscript, "wait, stop")
+
+        check.emitPartial("wait, stop, what about tomorrow")
+        XCTAssertEqual(rig.store.userTranscript, "wait, stop, what about tomorrow")
+        rig.input.emitFrames(amplitude: 0.06, ms: 200, frameMs: 100)
+        XCTAssertGreaterThan(check.fedBytes, fedBefore, "and it hears the rest of the turn")
     }
 
     // Measured on the phone: echo under the reply peaks 0.005–0.009 per 100 ms
@@ -604,7 +738,9 @@ final class VoiceStoreTests: XCTestCase {
 
         rig.input.emitFrames(amplitude: 0.016, ms: 400, frameMs: 100)    // "wait, stop"
         await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .listening, "a normal voice is enough")
+        XCTAssertEqual(rig.output.volume, VoiceStore.bargeInDuckVolume, "a normal voice is enough")
+        try await sayWords(rig)
+        XCTAssertEqual(rig.store.state, .listening)
     }
 
     /// Cutting in early, when the echo window is only a few frames long: your
@@ -619,7 +755,7 @@ final class VoiceStoreTests: XCTestCase {
         rig.input.emitFrames(amplitude: 0.006, ms: 200, frameMs: 100)
 
         rig.input.emitFrames(amplitude: 0.018, ms: 500, frameMs: 100)
-        await settleVoiceTasks()
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
     }
 
@@ -687,7 +823,7 @@ final class VoiceStoreTests: XCTestCase {
             for amp in loudEcho { rig.input.emitFrames(amplitude: amp, ms: 100, frameMs: 100) }
         }
         rig.input.emitFrames(amplitude: 0.08, ms: 400, frameMs: 100)
-        await settleVoiceTasks()
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
     }
 
@@ -699,7 +835,7 @@ final class VoiceStoreTests: XCTestCase {
         // bar up past the voice that followed it.
         rig.input.emitFrames(amplitude: 0.010, ms: 1000, frameMs: 100)
         rig.input.emitFrames(amplitude: 0.022, ms: 400, frameMs: 100)
-        await settleVoiceTasks()
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
     }
 
@@ -758,9 +894,10 @@ final class VoiceStoreTests: XCTestCase {
         rig.input.emitFrames(amplitude: 0.028, ms: 600)
         await settleVoiceTasks()
         XCTAssertEqual(rig.store.state, .speaking, "0.028 is not clearly above a 0.02 echo")
+        XCTAssertEqual(rig.output.volume, 1, "and does not even open a check")
 
         rig.input.emitFrames(amplitude: 0.12, ms: VoiceStore.bargeInSustainMs)
-        await settleVoiceTasks()
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
     }
 
@@ -772,6 +909,8 @@ final class VoiceStoreTests: XCTestCase {
 
         rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
         await settleVoiceTasks()
+        XCTAssertEqual(socket.sentData.count, dataBefore, "nothing is sent while it checks")
+        try await sayWords(rig)
 
         XCTAssertEqual(rig.store.state, .listening)
         XCTAssertGreaterThan(socket.sentData.count, dataBefore,
@@ -788,7 +927,7 @@ final class VoiceStoreTests: XCTestCase {
         let socket = try XCTUnwrap(rig.socket)
 
         rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
-        await settleVoiceTasks()
+        try await sayWords(rig)
         XCTAssertEqual(rig.store.state, .listening)
         let fed = rig.output.fed.count
         let text = rig.store.reply.text
@@ -944,11 +1083,7 @@ final class VoiceStoreTests: XCTestCase {
 
         XCTAssertEqual(rig.store.error, "I didn't catch a reply — please try again.")
         XCTAssertNil(rig.store.sessionID, "re-resolve the voice session on the next connect")
-        XCTAssertEqual(rig.store.state, .thinking, "we stay in the conversation")
-
-        rig.clock.advance(ms: VoiceStore.resumeGraceMs + 10)
-        await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertEqual(rig.store.state, .listening, "we stay in the conversation, listening")
     }
 
     func testASuccessfulTurnEndKeepsTheCachedSessionAndResumes() async throws {

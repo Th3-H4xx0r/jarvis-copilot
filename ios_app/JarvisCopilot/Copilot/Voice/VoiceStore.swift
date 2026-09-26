@@ -153,6 +153,31 @@ final class VoiceStore {
     /// Nothing counts this soon after playback starts: the echo canceller has
     /// not caught up with the new audio yet, and that is when it leaks most.
     static let bargeInSettleMs = 500
+    /// Sound over the reply only interrupts once it turns out to be WORDS.
+    ///
+    /// Loudness alone could not tell a bang on the table, a cough or typing from
+    /// someone talking — all of them cleared the bar and cut the reply off. So
+    /// a sound that clears it turns the reply down to this and opens a words
+    /// check: the on-device recogniser listens, from just before the sound,
+    /// and only words that are not the reply's own interrupt. No words, and the
+    /// volume comes back.
+    ///
+    /// Turning it down is what makes the words trustworthy. Replayed on a Mac
+    /// over test clips: at full volume the recogniser wrote the reply's echo
+    /// down as words, and a noise over it came out as words the reply never
+    /// said ("see", "tell", "monkey"); at 0.2, 13 of 13 noises — bangs, knocks,
+    /// coughs, typing, clinks — gave no words, while every spoken clip was
+    /// heard 0.6 s into the check (1.5 s whispered). Apple's sound classifier
+    /// could not do this: the echo alone already scored as speech.
+    static let bargeInDuckVolume: Float = 0.2
+    /// The check listens at least this much mic audio before giving up — the
+    /// recogniser reports in steps of about 0.9 s — and then gives up once the
+    /// mic has been under the bar for `bargeInCheckQuietMs`.
+    static let bargeInCheckMinMs = 1200
+    static let bargeInCheckQuietMs = 500
+    /// A sound that goes on this long with no words (typing, a TV) is let go,
+    /// and nothing is checked again until the mic has been quiet.
+    static let bargeInCheckMaxMs = 4000
     /// A backgrounded realtime session sitting in `listening` with nobody talking
     /// is the worst-case battery drain (mic + audio session + WS all live). End it
     /// after this long — but only when genuinely idle.
@@ -288,6 +313,25 @@ final class VoiceStore {
     var bargeHeld: [Data] = []
     /// Barge-in listens again from here — see `bargeInSettleMs`.
     var bargeSettleUntil: Date?
+    /// A sound over the reply being checked for words — see `bargeInDuckVolume`.
+    struct BargeCheck {
+        let id: Int
+        /// Nil until the recogniser has opened; the held audio is fed then.
+        var session: SpeechSession?
+        /// The recogniser's latest text, for the new turn if it interrupts.
+        var heard = ""
+        /// Mic audio since the check began, and the current run under the bar.
+        var heardMs = 0
+        var quietMs = 0
+    }
+    var bargeCheck: BargeCheck?
+    private var bargeCheckCount = 0
+    /// A check ran out on a sound that went on; none starts again until the mic
+    /// has been under the bar for `bargeInCheckQuietMs`.
+    var bargeCheckCooldownQuietMs: Int?
+    /// Frames the check already heard, going round again as the new turn's
+    /// first words: the recogniser that heard them must not hear them twice.
+    var replayingBargeAudio = false
     /// Loudest mic frame and frame count in the current diagnostics window,
     /// logged about once a second while the reply plays: what the mic hears
     /// under the assistant's own voice is what every barge-in threshold hangs on.
@@ -757,6 +801,11 @@ final class VoiceStore {
             abortSpeechSession()
         case .scheduleResume:
             scheduleResume()
+        case .resumeWhenQuiet:
+            // Audio handed over a moment ago may not have started yet (a short
+            // reply's audio and its end_turn arrive together); its drain
+            // resumes instead of the turn flipping to listening and back.
+            if audio.isQuiet { raise(.resumeGraceElapsed) }
         case .cancelResume:
             resumeTimer?.cancel()
             resumeTimer = nil
@@ -786,6 +835,7 @@ final class VoiceStore {
         case .markSpeechEnd:
             markSpeechEnd()
         case .teardown:
+            cancelBargeCheck()
             lastLocalTranscript = nil
             pendingRetryText = nil
             Task { await teardown() }
@@ -989,8 +1039,11 @@ final class VoiceStore {
             return
         }
 
-        // Barge-in: a loud frame during playback interrupts the assistant. Only
-        // while foregrounded — backgrounded, the loud reply can leak past echo
+        // A check left over from a reply that has since ended.
+        if bargeCheck != nil, !machine.bargeInAllowed { cancelBargeCheck() }
+
+        // Barge-in: talking over the reply interrupts it. Only while
+        // foregrounded — backgrounded, the loud reply can leak past echo
         // cancellation and falsely trip the threshold.
         if machine.bargeInAllowed {
             bargeWindowPeak = max(bargeWindowPeak, amp)
@@ -1009,14 +1062,19 @@ final class VoiceStore {
                 return
             }
             holdBargeAudio(chunk)
-            if foreground, detectBargeIn(amp, frameMs: frameMs) {
-                let said = bargeHeld
-                note("barge-in: \(bargeVoicedMs)ms of speech over the reply")
-                raise(.bargeIn)
-                // Now listening: what was heard while deciding goes through the
-                // ordinary path, so the new turn starts with the user's first
-                // words rather than a third of a second into them.
-                said.forEach(handleMicFrame)
+            guard foreground else {
+                cancelBargeCheck()
+                return
+            }
+            let sounded = detectBargeIn(amp, frameMs: frameMs)
+            let voiced = bargeFrames.last?.voiced ?? false
+            if bargeCheck != nil {
+                continueBargeCheck(chunk, voiced: voiced, frameMs: frameMs)
+            } else if let quiet = bargeCheckCooldownQuietMs {
+                let now = voiced ? 0 : quiet + frameMs
+                bargeCheckCooldownQuietMs = now >= Self.bargeInCheckQuietMs ? nil : now
+            } else if sounded {
+                startBargeCheck()
             }
             return // don't stream our own playback back to STT
         }
@@ -1048,7 +1106,7 @@ final class VoiceStore {
         }
         // Feed the SAME frames to the recognizer, so its transcript is final the
         // moment the user stops (plan 4.1) instead of starting then.
-        speech?.feed(chunk)
+        if !replayingBargeAudio { speech?.feed(chunk) }
 
         // Adaptive endpointing (plan 1.1). Frame duration comes from the audio
         // itself, not a wall clock, so scheduler jitter can't skew the budget.
@@ -1072,15 +1130,122 @@ final class VoiceStore {
         // the bar past the voice trying to clear it. Once it has aged out
         // without triggering, it was the reply — kept out for good instead, a
         // reply that grew louder never raised the bar and interrupted itself.
-        if !voiced { noteEchoFrame(amp, frameMs: frameMs) }
+        //
+        // Nothing is learned while a sound is being checked or waited out: the
+        // reply is turned down then, or the sound is not the reply at all, and
+        // either would move the bar away from the reply's own echo.
+        let learning = bargeCheck == nil && bargeCheckCooldownQuietMs == nil
+        if !voiced, learning { noteEchoFrame(amp, frameMs: frameMs) }
         bargeFrames.append((frameMs, voiced, amp))
         var total = bargeFrames.reduce(0) { $0 + $1.ms }
         while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
             let aged = bargeFrames.removeFirst()
             total -= aged.ms
-            if aged.voiced { noteEchoFrame(aged.amp, frameMs: aged.ms) }
+            if aged.voiced, learning { noteEchoFrame(aged.amp, frameMs: aged.ms) }
         }
         return bargeVoicedMs >= Self.bargeInSustainMs
+    }
+
+    // MARK: - Words check
+
+    /// A sound cleared the bar: turn the reply down and ask the on-device
+    /// recogniser whether it is words. See `bargeInDuckVolume`.
+    private func startBargeCheck() {
+        bargeCheckCount += 1
+        let id = bargeCheckCount
+        bargeCheck = BargeCheck(id: id)
+        audio.setVolume(Self.bargeInDuckVolume)
+        note("sound over the reply (\(bargeVoicedMs)ms): turned down, listening for words")
+        Task { [weak self] in
+            guard let self else { return }
+            // `prompt: false`: never a permission sheet or a model download
+            // mid-reply. It is a local check; nothing it hears leaves the device.
+            let session = await self.recognizer.startSession(sampleRate: Self.micRate, prompt: false)
+            self.bargeCheckOpened(session, id: id)
+        }
+    }
+
+    private func bargeCheckOpened(_ session: SpeechSession?, id: Int) {
+        guard var check = bargeCheck, check.id == id, machine.bargeInAllowed else {
+            session?.cancel()
+            return
+        }
+        guard let session else {
+            // No recogniser to ask on this device: the sound decides, as it
+            // always did.
+            note("no on-device recogniser for the words check; interrupting on the sound")
+            confirmBargeIn()
+            return
+        }
+        // Everything held so far — from just before the sound — then live frames.
+        bargeHeld.forEach(session.feed)
+        check.session = session
+        bargeCheck = check
+        session.onPartial = { [weak self, weak session] text in
+            guard let self, let session, self.bargeCheck?.session === session else { return }
+            self.bargeCheck?.heard = text
+            let words = self.reply.userWords(in: text)
+            guard !words.isEmpty else { return }
+            // The count only — what was said is never logged.
+            self.note("barge-in: \(words.count) word(s) that aren't the reply's")
+            self.confirmBargeIn()
+        }
+    }
+
+    private func continueBargeCheck(_ chunk: Data, voiced: Bool, frameMs: Int) {
+        guard var check = bargeCheck else { return }
+        // Before the recogniser opens, the frame waits in `bargeHeld`.
+        check.session?.feed(chunk)
+        check.heardMs += frameMs
+        check.quietMs = voiced ? 0 : check.quietMs + frameMs
+        bargeCheck = check
+        if check.heardMs >= Self.bargeInCheckMaxMs {
+            endBargeCheck("no words in \(check.heardMs)ms of sound; letting it go")
+            bargeCheckCooldownQuietMs = 0
+        } else if check.heardMs >= Self.bargeInCheckMinMs, check.quietMs >= Self.bargeInCheckQuietMs {
+            endBargeCheck("no words; carrying on")
+        }
+    }
+
+    /// Words: interrupt. What the check held goes round again as the start of
+    /// the new turn — to the socket, or, on-device, the recogniser that already
+    /// heard it simply carries on as the turn's own.
+    private func confirmBargeIn() {
+        guard let check = bargeCheck else { return }
+        guard machine.bargeInAllowed else {
+            cancelBargeCheck()
+            return
+        }
+        let said = bargeHeld
+        bargeCheck = nil
+        bargeCheckCooldownQuietMs = nil
+        raise(.bargeIn)   // stops the reply, which also restores its volume
+        if let session = check.session, transcriptionInUse == .onDevice, machine.state == .listening {
+            adoptSpeechSession(session, heard: check.heard)
+            replayingBargeAudio = true
+            said.forEach(handleMicFrame)
+            replayingBargeAudio = false
+        } else {
+            check.session?.cancel()
+            // Now listening: what was heard while deciding goes through the
+            // ordinary path, so the new turn starts with the user's first
+            // words rather than a second into them.
+            said.forEach(handleMicFrame)
+        }
+    }
+
+    private func endBargeCheck(_ reason: String) {
+        guard bargeCheck != nil else { return }
+        note("barge-in check: \(reason)")
+        cancelBargeCheck()
+    }
+
+    /// Drop any check and bring the reply back to full volume.
+    func cancelBargeCheck() {
+        guard let check = bargeCheck else { return }
+        bargeCheck = nil
+        check.session?.cancel()
+        audio.setVolume(1)
     }
 
     private func noteEchoFrame(_ amp: Double, frameMs: Int) {
@@ -1093,7 +1258,10 @@ final class VoiceStore {
 
     private func holdBargeAudio(_ chunk: Data) {
         bargeHeld.append(chunk)
-        let limit = (Self.bargeInWindowMs + 200) * Self.micRate * 2 / 1000
+        // While a check runs, everything since just before the sound: if it
+        // turns out to be words, all of it is the start of what was said.
+        let heldMs = Self.bargeInWindowMs + 200 + (bargeCheck == nil ? 0 : Self.bargeInCheckMaxMs)
+        let limit = heldMs * Self.micRate * 2 / 1000
         var total = bargeHeld.reduce(0) { $0 + $1.count }
         while total > limit, bargeHeld.count > 1 {
             total -= bargeHeld.removeFirst().count
@@ -1101,6 +1269,8 @@ final class VoiceStore {
     }
 
     private func resetBargeIn() {
+        cancelBargeCheck()
+        bargeCheckCooldownQuietMs = nil
         bargeFrames.removeAll()
         bargeEchoFrames.removeAll()
         bargeHeld.removeAll()

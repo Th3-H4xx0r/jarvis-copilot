@@ -47,6 +47,9 @@ enum VoiceTurnEffect: Equatable, Sendable {
     case restartRecognizer
     case abortRecognizer
     case scheduleResume
+    /// The server ended the turn: listen again now, unless audio is still on
+    /// its way to the speaker — then its drain does it.
+    case resumeWhenQuiet
     case cancelResume
     case armThinkingWatchdog
     case cancelThinkingWatchdog
@@ -92,6 +95,11 @@ struct VoiceTurnMachine: Equatable {
     /// Everything the server sends is dropped until that turn's own `end_turn`,
     /// which it always sends before starting the next turn.
     private(set) var discardingInterruptedTurn = false
+    /// The server has ended the current turn (`end_turn`): nothing more is
+    /// coming for it, so once its audio has played there is nothing to wait
+    /// for. The fixed resume grace before listening read as Jarvis still
+    /// speaking for a second or two after it had stopped.
+    private(set) var serverTurnDone = false
 
     init(mode: VoiceMode = .realtime) { self.mode = mode }
 
@@ -109,6 +117,7 @@ struct VoiceTurnMachine: Equatable {
             guard !state.isActive else { return [] }
             serverProducedOutput = false
             discardingInterruptedTurn = false
+            serverTurnDone = false
             if mode == .realtime {
                 state = .connecting
                 // The mic and the recognizer start WITH the transport, not after
@@ -133,6 +142,7 @@ struct VoiceTurnMachine: Equatable {
         case .endOfSpeech:
             guard state == .listening else { return [] }
             serverProducedOutput = false
+            serverTurnDone = false
             if mode == .realtime {
                 // A new user turn begins → clear the previous reply + highlight
                 // so the incoming one starts fresh (within one realtime session
@@ -172,6 +182,11 @@ struct VoiceTurnMachine: Equatable {
                 // The server is still on this turn (an ack or a sentence played
                 // before a long tool run): stay in thinking; `turnEnded` resumes.
                 if serverTurnOpen { return [.cancelResume, .armThinkingWatchdog] }
+                // The turn is over and its reply has played: listen now.
+                if serverTurnDone, state == .thinking {
+                    state = .listening
+                    return [.cancelResume, .finalizeSpoken, .resetEndpointer, .restartRecognizer]
+                }
                 return [.scheduleResume]
             }
             if mode == .quality, state == .speaking {
@@ -215,6 +230,7 @@ struct VoiceTurnMachine: Equatable {
                 return []
             }
             serverTurnOpen = false
+            serverTurnDone = true
             var effects: [VoiceTurnEffect] = [.cancelThinkingWatchdog]
             guard state.isActive else { return effects }
             if Self.failureReasons.contains(reason) && !producedReply {
@@ -226,9 +242,10 @@ struct VoiceTurnMachine: Equatable {
                     ? "I didn't catch a reply — please try again."
                     : "Something went wrong — please try again."))
             }
-            // Still speaking the tail of the reply: `playbackDrained` will
-            // schedule the resume once the audio is out.
-            if state != .speaking { effects.append(.scheduleResume) }
+            // Still speaking the tail of the reply: `playbackDrained` resumes
+            // once the audio is out. Otherwise nothing more is coming.
+            if state == .thinking { effects.append(.resumeWhenQuiet) }
+            else if state != .speaking { effects.append(.scheduleResume) }
             return effects
 
         case .failed(let message):

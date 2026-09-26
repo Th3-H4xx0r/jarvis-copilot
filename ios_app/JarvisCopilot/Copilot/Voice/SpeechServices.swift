@@ -55,8 +55,12 @@ final class DefaultSpeechRecognizing: SpeechRecognizing {
         if #available(iOS 26.0, macOS 26.0, *), let engine = modernEngine as? AnalyzerSpeechEngine {
             if !engine.isPrepared {
                 // Only a caller that means it pays for a model download here;
-                // the settings flow normally prepared it already.
-                guard prompt, await engine.prepare(onProgress: { _ in }) == .ready else { return nil }
+                // the settings flow normally prepared it already. Anyone else
+                // may still use a model that is already installed.
+                let ready = prompt
+                    ? await engine.prepare(onProgress: { _ in }) == .ready
+                    : await engine.prepareIfInstalled()
+                guard ready else { return nil }
             }
             return engine.makeSession(sampleRate: sampleRate)
         }
