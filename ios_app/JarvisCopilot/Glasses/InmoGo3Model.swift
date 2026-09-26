@@ -1,40 +1,44 @@
 import SceneKit
 import UIKit
 
-/// A procedural INMO GO3, after the product photographs and the diagram in its manual: one
-/// molded wayfarer front in matte charcoal — a deep brow, a solid face round each lens with a
-/// thin bright bevel on its edges, and a round lens element in each flared top corner, the camera
-/// on the right — and satin black arms of flattened rounded section that run straight back past
-/// a thin red band and a small label, then bend down hard into the ear end (the magnetic
-/// battery), capped in grey. The clear lenses carry a faint waveguide window where the green
-/// micro-LED display lights up.
+/// A procedural INMO GO3, after the product photographs and the diagram in its manual: a classic
+/// rectangular wayfarer front in matte gunmetal — an even rim round each wide lens, a slightly
+/// deeper brow that dips at a chunky bridge, a gentle wrap, and a round pod on each outer top
+/// corner (the camera on the right, a sensor on the left) — and satin black arms of flattened
+/// oval section that run straight back past a thin red band and a small label, then bend down
+/// into a long drop (the magnetic battery) with a light grey tip. The lenses are clear glass;
+/// the green micro-LED display in them is invisible until it lights.
 ///
-/// Scene units are decimetres, so the numbers read as the real sizes: a 140 mm front, 50 × 38 mm
-/// lenses, 150 mm arms. The front faces +Z, the arms run back along -Z, and "right" is the
+/// Scene units are decimetres, so the numbers read as the real sizes: a 139 mm front, 52 × 36 mm
+/// lenses, 155 mm arms. The front faces +Z, the arms run back along -Z, and "right" is the
 /// wearer's — the -X side.
 enum InmoGo3Model {
     /// Leans the top toward the camera so the lenses and the near arm both read.
     static let defaultTilt: Float = 0.34
 
-    private static let lensSize = CGSize(width: 0.50, height: 0.38)
+    private static let lensSize = CGSize(width: 0.52, height: 0.34)
     /// Lens centres sit this far either side of the bridge — a 20 mm bridge.
-    private static let lensX: CGFloat = 0.35
-    /// The frame's face round the sides and bottom of each lens: 4.5 mm.
-    private static let rim: CGFloat = 0.045
-    /// How much deeper the brow is than the rest of the rim: 8.5 mm over the lens in all.
-    private static let brow: CGFloat = 0.04
+    private static let lensX: CGFloat = 0.36
+    /// The frame round the sides and bottom of each lens (4.4 mm), and how much deeper the brow is.
+    private static let rim: CGFloat = 0.044
+    private static let brow: CGFloat = 0.02
     private static let frameDepth: CGFloat = 0.055
-    private static let frameTop = lensSize.height / 2 + rim + brow
-    private static let halfWidth: CGFloat = 0.70
+    /// The frame's top at its outer ends, where the lens's top edge has risen a touch.
+    private static let frameTop = lensSize.height / 2 + 0.008 + rim + brow
+    /// Each half of the front turns back this far from the bridge.
+    private static let wrap: CGFloat = 0.06
+    /// The round pods on the outer top corners, about the lens centre: flush with the top,
+    /// standing a little proud of the side.
+    private static let podRadius: CGFloat = 0.043
+    private static let podCentre = CGPoint(x: lensSize.width / 2 + rim - 0.012, y: frameTop - podRadius)
+    private static let halfWidth = lensX + podCentre.x + podRadius
     /// Half the arm's height at the hinge; it is this many times taller than wide throughout.
     private static let armHalf: CGFloat = 0.05
     private static let armAspect: CGFloat = 1.4
-    private static let hingeHeight = frameTop - 0.06
-    /// Height of the round lens elements in the top corners.
-    private static let cornerHeight = Float(frameTop - 0.05)
-    /// The display window in each lens, and where its centre sits above the lens centre.
-    private static let displaySize = CGSize(width: 0.25, height: 0.15)
-    private static let displayLift: CGFloat = 0.02
+    private static let hingeHeight = frameTop - armHalf - 0.004
+    /// The display, across the upper part of each lens.
+    private static let displaySize = CGSize(width: 0.38, height: 0.165)
+    private static let displayLift: CGFloat = 0.055
 
     // MARK: Outlines
 
@@ -51,20 +55,21 @@ enum InmoGo3Model {
         return path
     }
 
-    /// The right-hand lens (temple side at +x) about its own centre, grown by `g` all round and
-    /// the top by `raise` more: a wayfarer — a straight top along the brow, the outer side sloping
-    /// in going down, well-rounded lower corners, and the nose side curving away round the pads.
+    /// The +X lens (temple side at +x) about its own centre, grown by `g` all round and the top by
+    /// `raise` more: a wide rounded rectangle — a near-straight top rising a touch toward the
+    /// temple, a near-upright outer side, a gently curved bottom, the outer lower corner roundest.
     private static func lensOutline(grow g: CGFloat, raise: CGFloat = 0) -> CGPath {
         let w = lensSize.width / 2 + g, h = lensSize.height / 2 + g
         return roundedPolygon([
-            (CGPoint(x: -w, y: h + raise), 0.045 + g),
-            (CGPoint(x: w, y: h + raise), 0.05 + g),
-            (CGPoint(x: w - 0.07, y: -h), 0.15 + g),
-            (CGPoint(x: -w + 0.05, y: -h), 0.17 + g),
+            (CGPoint(x: -w, y: h - 0.005 + raise), 0.05 + g),
+            (CGPoint(x: w, y: h + 0.008 + raise), 0.065 + g),
+            (CGPoint(x: w - 0.02, y: -h), 0.14 + g),
+            (CGPoint(x: 0, y: -h - 0.02), 0.9 + g),
+            (CGPoint(x: -w + 0.03, y: -h + 0.01), 0.12 + g),
         ])
     }
 
-    /// Moves a right-hand outline to one side of the bridge, mirroring it for the left.
+    /// Moves a +X outline to one side of the bridge, mirroring it for the other.
     private static func placed(_ path: CGPath, side: CGFloat) -> CGPath {
         let placement = CGAffineTransform(translationX: side * lensX, y: 0).scaledBy(x: side, y: 1)
         let out = CGMutablePath()
@@ -72,32 +77,32 @@ enum InmoGo3Model {
         return out
     }
 
-    /// The whole front as one molded outline — each lens wrapped in a solid rim under a straight,
-    /// deeper brow, the bridge, and the end pieces flowing out of the brow at the top corners —
-    /// with the two lens openings cut out of it.
+    /// The whole front as one molded outline: an even rim round each lens under a slightly
+    /// deeper brow, a chunky bridge whose top sags a little below the brows and whose underside
+    /// is the nose arch, and the corner pods — with the two lens openings cut out of it.
     private static var frontOutline: CGPath {
-        // The bridge block, wide enough to bury the rims' rounded inner corners so the brow runs
-        // straight across, with the nose arch cut up into its underside.
-        var solid = CGPath(roundedRect: CGRect(x: -0.16, y: 0.12, width: 0.32, height: frameTop - 0.12),
-                           cornerWidth: 0.03, cornerHeight: 0.03, transform: nil)
-        let arch = CGPath(ellipseIn: CGRect(x: -0.075, y: -0.07, width: 0.15, height: 0.24), transform: nil)
-        // The end piece: flush with the brow, out past the rim round the top corner, then
-        // tapering back into it a third of the way down the lens.
-        let endPiece = roundedPolygon([
-            (CGPoint(x: 0, y: frameTop), 0), (CGPoint(x: halfWidth - lensX, y: frameTop), 0.03),
-            (CGPoint(x: halfWidth - lensX - 0.015, y: 0.14), 0.06), (CGPoint(x: 0.25, y: 0), 0.02),
-        ])
+        let bridge = CGMutablePath()
+        bridge.move(to: CGPoint(x: -0.12, y: frameTop - 0.018))
+        bridge.addQuadCurve(to: CGPoint(x: 0.12, y: frameTop - 0.018), control: CGPoint(x: 0, y: frameTop - 0.075))
+        bridge.addLine(to: CGPoint(x: 0.12, y: 0))
+        bridge.addLine(to: CGPoint(x: 0.075, y: 0))
+        bridge.addQuadCurve(to: CGPoint(x: -0.075, y: 0), control: CGPoint(x: 0, y: 0.2))
+        bridge.addLine(to: CGPoint(x: -0.12, y: 0))
+        bridge.closeSubpath()
+        let pod = CGPath(ellipseIn: CGRect(x: podCentre.x - podRadius, y: podCentre.y - podRadius,
+                                           width: 2 * podRadius, height: 2 * podRadius), transform: nil)
+        var solid: CGPath = bridge
         for side: CGFloat in [-1, 1] {
             solid = solid.union(placed(lensOutline(grow: rim, raise: brow), side: side))
-            solid = solid.union(placed(endPiece, side: side))
+            solid = solid.union(placed(pod, side: side))
         }
         for side: CGFloat in [-1, 1] {
             solid = solid.subtracting(placed(lensOutline(grow: 0), side: side))
         }
-        return solid.subtracting(arch)
+        return solid
     }
 
-    /// An outline extruded along Z with a flat bevel — the front's polished edge.
+    /// An outline extruded along Z with a small bevel on its edges.
     private static func extrude(_ path: CGPath, depth: CGFloat, chamfer: CGFloat) -> SCNShape {
         let bezier = UIBezierPath(cgPath: path)
         bezier.usesEvenOddFillRule = true
@@ -107,6 +112,20 @@ enum InmoGo3Model {
         shape.chamferRadius = chamfer
         return shape
     }
+
+    /// Bends the front into its wrap as it is drawn — SCNShape only builds its mesh then, so there
+    /// are no vertices to move up front: each side turns back about the bridge's front edge,
+    /// eased in across the bridge so the frame curves there instead of creasing. Everything else
+    /// on a side rides in a node turned the same way (see `makeNode`).
+    private static let wrapModifier = """
+        float x = _geometry.position.x;
+        float a = \(wrap) * smoothstep(0.0, 0.1, abs(x)) * sign(x);
+        float c = cos(a), s = sin(a), z = _geometry.position.z - \(frameDepth / 2);
+        _geometry.position.x = x * c + z * s;
+        _geometry.position.z = \(frameDepth / 2) - x * s + z * c;
+        float3 n = _geometry.normal;
+        _geometry.normal = float3(n.x * c + n.z * s, n.y, -n.x * s + n.z * c);
+        """
 
     // MARK: Arms
 
@@ -122,16 +141,15 @@ enum InmoGo3Model {
     }
 
     /// The arm's centre line in its own plane — x back from the hinge, y up — every 1 mm: dead
-    /// straight and tapering a little from the hinge, a short hard bend over the ear, then the
-    /// ear end hanging down at 60°, swelling a touch where the battery sits. `half` is half its
-    /// height.
+    /// straight and tapering a little from the hinge, a short bend over the ear, then a long drop
+    /// at about 57°, swelling a touch where the battery sits. `half` is half its height.
     private static let stations: [Station] = {
         var out: [Station] = []
         var point = CGPoint(x: -0.03, y: hingeHeight)
         var s: CGFloat = -0.03
-        while s <= 1.5 {
-            let angle = -1.05 * smooth((s - 0.96) / 0.16)
-            let half = armHalf - 0.006 * smooth(s / 0.96) + 0.003 * smooth((s - 0.96) / 0.2)
+        while s <= 1.55 {
+            let angle = -1.0 * smooth((s - 0.9) / 0.16)
+            let half = armHalf - 0.006 * smooth(s / 0.9) + 0.003 * smooth((s - 0.9) / 0.2)
             out.append(Station(point: point, angle: angle, half: half))
             point.x += cos(angle) * 0.01
             point.y += sin(angle) * 0.01
@@ -192,31 +210,54 @@ enum InmoGo3Model {
     /// The display's green: the GO3's single-colour micro-LED.
     private static let displayGreen = UIColor(red: 0.24, green: 1, blue: 0.48, alpha: 1)
 
-    /// What the display shows, drawn to be read from in front of the glasses: a faint wash over
-    /// the whole window, "JARVIS", a rule, and a status line, each with a soft glow. Clear
-    /// everywhere else, and added rather than alpha-blended: an opaque black printed a dark box
-    /// on a lit background, and the premultiplied glow dimmed the lens it sat on.
+    /// What the display shows, drawn to be read from in front of the glasses: a few lines of small
+    /// green text under a rule, each with a soft glow, on nothing — it is added to the lens.
     private static let hud: UIImage = {
-        let size = CGSize(width: 640, height: 400)
+        let size = CGSize(width: 1024, height: 444)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             let g = context.cgContext
-            displayGreen.withAlphaComponent(0.06).setFill()
-            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 6, dy: 6), cornerRadius: 36).fill()
-            g.setShadow(offset: .zero, blur: 16, color: displayGreen.cgColor)
-            let title = NSAttributedString(string: "JARVIS", attributes: [
-                .font: UIFont.systemFont(ofSize: 150, weight: .heavy),
-                .foregroundColor: displayGreen, .kern: 10,
-            ])
-            let bounds = title.size()
-            title.draw(at: CGPoint(x: (size.width - bounds.width) / 2, y: 44))
-            displayGreen.setFill()
-            g.fill(CGRect(x: 64, y: 244, width: size.width - 128, height: 8))
-            g.fillEllipse(in: CGRect(x: 74, y: 292, width: 48, height: 48))
-            for bar in 0..<3 {
-                g.fill(CGRect(x: 160 + CGFloat(bar) * 128, y: 304, width: 104, height: 24))
+            g.setShadow(offset: .zero, blur: 10, color: displayGreen.cgColor)
+            func line(_ text: String, at y: CGFloat, size: CGFloat, weight: UIFont.Weight = .semibold) {
+                NSAttributedString(string: text, attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: size, weight: weight), .foregroundColor: displayGreen,
+                ]).draw(at: CGPoint(x: 36, y: y))
             }
+            line("JARVIS  ·  10:41", at: 12, size: 70, weight: .bold)
+            displayGreen.setFill()
+            g.fill(CGRect(x: 36, y: 112, width: 952, height: 5))
+            line("Stand-up with Maya in 12 min", at: 138, size: 54)
+            line("Reply: \"On my way\"  >", at: 220, size: 54)
+            line("72°F  ·  14 min walk", at: 302, size: 54)
+            g.fill(CGRect(x: 36, y: 400, width: 560, height: 12))
+        }
+    }()
+
+    /// The clear lens, cut to its outline: a faint blue over the glass and soft studio
+    /// reflections — a sheen down from the top and a diagonal streak — so it reads as glass on
+    /// the app's near-black background and still lets the nose pads show through.
+    private static let glass: UIImage = {
+        let size = CGSize(width: 560, height: 420)  // 0.56 × 0.42 about the lens centre, 1 px per 0.1 mm
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let g = context.cgContext
+            g.translateBy(x: size.width / 2, y: size.height / 2)
+            g.scaleBy(x: 1000, y: -1000)
+            g.addPath(lensOutline(grow: 0.006))
+            g.clip()
+            UIColor(red: 0.6, green: 0.78, blue: 1, alpha: 0.035).setFill()
+            g.fill(CGRect(x: -0.3, y: -0.25, width: 0.6, height: 0.5))
+            func sheen(from: CGPoint, to: CGPoint, _ stops: [(CGFloat, CGFloat)]) {
+                let colors = stops.map { UIColor(red: 0.9, green: 0.95, blue: 1, alpha: $0.1).cgColor } as CFArray
+                guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors,
+                                                locations: stops.map(\.0)) else { return }
+                g.drawLinearGradient(gradient, start: from, end: to, options: [])
+            }
+            sheen(from: CGPoint(x: 0, y: 0.19), to: CGPoint(x: 0, y: 0.02), [(0, 0.05), (1, 0)])
+            sheen(from: CGPoint(x: -0.2, y: 0.2), to: CGPoint(x: 0.2, y: -0.2),
+                  [(0.3, 0), (0.4, 0.09), (0.48, 0), (0.54, 0), (0.58, 0.05), (0.62, 0)])
         }
     }()
 
@@ -234,29 +275,24 @@ enum InmoGo3Model {
         return m
     }
 
-    /// Bead-blasted charcoal for the front — a shade lighter than the arms — and the polished
-    /// bevel that catches the light round its edges.
-    private static func frontFinish() -> SCNMaterial { pbr(UIColor(white: 0.2, alpha: 1), roughness: 0.62, metalness: 0.35) }
-    private static func bevelFinish() -> SCNMaterial { pbr(UIColor(white: 0.62, alpha: 1), roughness: 0.22, metalness: 0.85) }
+    /// Matte gunmetal for the front — a shade lighter than the arms — with only a soft lift on
+    /// its bevelled edges.
+    private static func frontFinish() -> SCNMaterial {
+        pbr(UIColor(red: 0.2, green: 0.205, blue: 0.22, alpha: 1), roughness: 0.58, metalness: 0.45)
+    }
+    private static func edgeFinish() -> SCNMaterial {
+        pbr(UIColor(red: 0.3, green: 0.305, blue: 0.32, alpha: 1), roughness: 0.4, metalness: 0.55)
+    }
     /// Satin black for the arms.
     private static func armFinish() -> SCNMaterial { pbr(UIColor(white: 0.05, alpha: 1), roughness: 0.38, clearCoat: 0.2) }
     private static func silver() -> SCNMaterial { pbr(UIColor(white: 0.78, alpha: 1), roughness: 0.2, metalness: 1) }
 
-    private static func glassMaterial() -> SCNMaterial {
-        let m = pbr(UIColor(red: 0.62, green: 0.70, blue: 0.76, alpha: 0.06), roughness: 0.03)
-        m.transparencyMode = .dualLayer
-        m.blendMode = .alpha
-        m.writesToDepthBuffer = false
-        return m
-    }
-
     /// Unlit, so it reads the same whichever way the glasses face.
-    private static func overlayMaterial(_ contents: Any, blend: SCNBlendMode, transparency: CGFloat = 1) -> SCNMaterial {
+    private static func overlayMaterial(_ image: UIImage, blend: SCNBlendMode) -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .constant
-        m.diffuse.contents = contents
+        m.diffuse.contents = image
         m.diffuse.mipFilter = .linear
-        m.transparency = transparency
         m.blendMode = blend
         m.writesToDepthBuffer = false
         m.isDoubleSided = true
@@ -284,90 +320,95 @@ enum InmoGo3Model {
         return node
     }
 
-    /// A round lens element set in a top corner: a silver ring round dark glass, with a glint.
-    private static func cornerLens(at x: Float) -> SCNNode {
-        let element = SCNNode()
-        let front = Float(frameDepth / 2)
-        let facing = SCNVector3(Float.pi / 2, 0, 0)  // Y-axis primitives turned to face +Z
-        let parts: [(CGFloat, CGFloat, SCNMaterial)] = [
-            (0.034, 0.008, silver()),
-            (0.024, 0.01, pbr(UIColor(red: 0.01, green: 0.012, blue: 0.02, alpha: 1), roughness: 0.05, clearCoat: 1)),
-            (0.009, 0.011, pbr(UIColor(red: 0.10, green: 0.14, blue: 0.30, alpha: 1), roughness: 0.1, metalness: 0.6)),
-        ]
-        for (radius, height, material) in parts {
-            element.addChildNode(node(SCNCylinder(radius: radius, height: height), material,
-                                      at: SCNVector3(x, cornerHeight, front + Float(height) / 2 - 0.003), euler: facing))
+    /// A corner pod: a round boss standing a millimetre proud of the front, holding the camera —
+    /// dark glass in a silver ring, with a glint — or the sensor, a dark disc in a dark ring.
+    private static func pod(at x: Float, camera: Bool) -> SCNNode {
+        let pod = SCNNode()
+        let front = frontFinish(), face = Float(frameDepth / 2) + 0.01
+        let circle = CGPath(ellipseIn: CGRect(x: -podRadius, y: -podRadius, width: 2 * podRadius, height: 2 * podRadius),
+                            transform: nil)
+        pod.addChildNode(node(extrude(circle, depth: 0.02, chamfer: 0.004), front, front, front, edgeFinish(), front,
+                              at: SCNVector3(x, Float(podCentre.y), face - 0.01)))
+        let glass = pbr(UIColor(red: 0.01, green: 0.012, blue: 0.02, alpha: 1), roughness: 0.05, clearCoat: 1)
+        let parts: [(CGFloat, SCNMaterial)] = camera
+            ? [(0.03, silver()), (0.021, glass),
+               (0.008, pbr(UIColor(red: 0.1, green: 0.14, blue: 0.3, alpha: 1), roughness: 0.1, metalness: 0.6))]
+            : [(0.027, pbr(UIColor(white: 0.1, alpha: 1), roughness: 0.3, metalness: 0.5)), (0.019, glass)]
+        for (index, (radius, material)) in parts.enumerated() {
+            pod.addChildNode(node(SCNCylinder(radius: radius, height: 0.004), material,
+                                  at: SCNVector3(x, Float(podCentre.y), face + 0.001 * Float(index)),
+                                  euler: SCNVector3(Float.pi / 2, 0, 0)))  // Y-axis primitives turned to face +Z
         }
-        return element
+        return pod
     }
 
     static func makeNode() -> Parts {
         let root = SCNNode()
-        let back = -Float(frameDepth / 2)
-        let front = frontFinish()
+        let front = Float(frameDepth / 2), back = -front
+        let face = frontFinish(), edge = edgeFinish()
 
-        let bevel = bevelFinish()
-        root.addChildNode(node(extrude(frontOutline, depth: frameDepth, chamfer: 0.006),
-                               front, front, front, bevel, bevel, at: SCNVector3Zero))
+        let frame = extrude(frontOutline, depth: frameDepth, chamfer: 0.005)
+        frame.shaderModifiers = [.geometry: wrapModifier]
+        root.addChildNode(node(frame, face, face, face, edge, edge, at: SCNVector3Zero))
 
         var displays: [SCNNode] = []
         for side: Float in [-1, 1] {
+            // Everything on this side turns back with its half of the front.
+            let half = SCNNode()
+            half.position.z = front
+            half.eulerAngles.y = side * Float(wrap)
+            let body = SCNNode()
+            body.position.z = -front
+            half.addChildNode(body)
+            root.addChildNode(half)
+
             let x = side * Float(lensX)
-            // The lens runs into a groove in the rim, so it is cut a little larger than the opening.
-            let lens = node(extrude(placed(lensOutline(grow: 0.012), side: CGFloat(side)), depth: 0.016, chamfer: 0),
-                            glassMaterial(), at: SCNVector3Zero)
+            let lens = node(SCNPlane(width: 0.56, height: 0.42), overlayMaterial(glass, blend: .alpha), at: SCNVector3(x, 0, 0))
+            lens.scale.x = side  // the outline is drawn for the +X lens
             lens.renderingOrder = 10
-            root.addChildNode(lens)
-            // The waveguide's display window: barely there until it lights.
-            let pane = SCNPlane(width: displaySize.width, height: displaySize.height)
-            pane.cornerRadius = 0.018
-            let window = node(pane, overlayMaterial(UIColor.white, blend: .alpha, transparency: 0.02),
-                              at: SCNVector3(x, Float(displayLift), 0.0085))
-            window.renderingOrder = 11
-            root.addChildNode(window)
+            body.addChildNode(lens)
             let display = node(SCNPlane(width: displaySize.width, height: displaySize.height),
-                               overlayMaterial(hud, blend: .add),
-                               at: SCNVector3(x, Float(displayLift), 0.009))
+                               overlayMaterial(hud, blend: .add), at: SCNVector3(x, Float(displayLift), 0.001))
             display.renderingOrder = 12
             display.opacity = 0
-            root.addChildNode(display)
+            body.addChildNode(display)
             displays.append(display)
 
-            root.addChildNode(cornerLens(at: side * Float(halfWidth - 0.052)))
+            body.addChildNode(pod(at: side * Float(lensX + podCentre.x), camera: side < 0))
 
-            // The arm, hinged behind the end piece, and the grey cap on the end of its battery.
+            // The arm, hinged behind the pod, and the grey cap on the end of its battery.
             let armX = side * Float(halfWidth - armHalf / armAspect)
-            let cap = station(at: 1.44), tip = stations.count - 1
-            root.addChildNode(node(tube(0...cap, roundTip: false), armFinish(), at: SCNVector3(armX, 0, back)))
-            root.addChildNode(node(tube(cap...tip, roundTip: true), pbr(UIColor(white: 0.55, alpha: 1), roughness: 0.45),
+            let cap = station(at: 1.49), tip = stations.count - 1
+            body.addChildNode(node(tube(0...cap, roundTip: false), armFinish(), at: SCNVector3(armX, 0, back)))
+            body.addChildNode(node(tube(cap...tip, roundTip: true), pbr(UIColor(white: 0.62, alpha: 1), roughness: 0.45),
                                    at: SCNVector3(armX, 0, back)))
 
             // The red band round the arm just behind the hinge, and the label plate after it.
-            root.addChildNode(node(tube(station(at: 0.06)...station(at: 0.08), roundTip: false, grow: 0.003),
+            body.addChildNode(node(tube(station(at: 0.06)...station(at: 0.08), roundTip: false, grow: 0.003),
                                    pbr(UIColor(red: 0.88, green: 0.10, blue: 0.08, alpha: 1), roughness: 0.3, clearCoat: 0.6),
                                    at: SCNVector3(armX, 0, back)))
             let labelSide = Float(stations[station(at: 0.13)].half / armAspect) + 0.001
-            root.addChildNode(node(SCNBox(width: 0.004, height: 0.016, length: 0.07, chamferRadius: 0.002), silver(),
+            body.addChildNode(node(SCNBox(width: 0.004, height: 0.016, length: 0.07, chamferRadius: 0.002), silver(),
                                    at: SCNVector3(armX + side * labelSide, Float(hingeHeight), back - 0.13)))
+
+            // The Power and GO keys: two slots in the outside of the right arm, near the front.
+            for u: CGFloat in [0.26, 0.34] where side < 0 {
+                let outside = Float(stations[station(at: u)].half / armAspect)
+                body.addChildNode(node(SCNBox(width: 0.006, height: 0.012, length: 0.05, chamferRadius: 0.003),
+                                       pbr(UIColor(white: 0.01, alpha: 1), roughness: 0.9),
+                                       at: SCNVector3(armX - outside + 0.002, Float(hingeHeight), back - Float(u))))
+            }
 
             // A dark nose pad on a short wire arm behind each rim.
             let wireFrom = SCNVector3(side * 0.08, 0.06, back), padAt = SCNVector3(side * 0.095, -0.02, back - 0.06)
             let wire = node(SCNCylinder(radius: 0.005, height: 0.1), silver(),
                             at: SCNVector3((wireFrom.x + padAt.x) / 2, (wireFrom.y + padAt.y) / 2, (wireFrom.z + padAt.z) / 2))
             wire.simdLook(at: SIMD3(padAt), up: SIMD3(0, 0, 1), localFront: SIMD3(0, 1, 0))
-            root.addChildNode(wire)
+            body.addChildNode(wire)
             let pad = node(SCNSphere(radius: 0.034), pbr(UIColor(white: 0.07, alpha: 1), roughness: 0.5),
                            at: padAt, euler: SCNVector3(0.2, -side * 0.6, 0))
             pad.scale = SCNVector3(0.9, 1.35, 0.35)
-            root.addChildNode(pad)
-        }
-
-        // The Power and GO keys: two slots in the outside of the right arm, near the front.
-        for u: CGFloat in [0.26, 0.34] {
-            let outside = Float(halfWidth - armHalf / armAspect + stations[station(at: u)].half / armAspect)
-            root.addChildNode(node(SCNBox(width: 0.006, height: 0.012, length: 0.05, chamferRadius: 0.003),
-                                   pbr(UIColor(white: 0.01, alpha: 1), roughness: 0.9),
-                                   at: SCNVector3(-outside + 0.002, Float(hingeHeight), back - Float(u))))
+            body.addChildNode(pad)
         }
 
         // Turn about the middle of the whole pair, not the front.
@@ -414,8 +455,8 @@ enum InmoGo3Model {
             }
 
             // The ring's rig, except the third light: there it shines up into the band, here it
-            // comes down from behind so the black rims and arms get a lit top edge rather than
-            // bright undersides.
+            // comes down from behind so the frame and arms get a lit top edge rather than bright
+            // undersides.
             let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
                 (.directional, 700, .white, SCNVector3(-0.6, 0.5, 0)),
                 (.directional, 450, UIColor(red: 0.7, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.2, -2.3, 0)),
