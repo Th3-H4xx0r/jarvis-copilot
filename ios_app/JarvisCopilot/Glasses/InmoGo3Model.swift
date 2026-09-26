@@ -16,26 +16,29 @@ enum InmoGo3Model {
     /// Leans the top toward the camera so the lenses and the near arm both read.
     static let defaultTilt: Float = 0.34
 
+    // Measured off INMO's straight-on product photo (a 755 px front, lenses 274 × 177 px) and
+    // scaled to its 52 mm lens: the rims are thin, the frame only 40 mm tall.
     private static let lensSize = CGSize(width: 0.52, height: 0.34)
-    /// Lens centres sit this far either side of the bridge — a 20 mm bridge.
-    private static let lensX: CGFloat = 0.36
-    /// The frame round the sides and bottom of each lens (4.4 mm), and how much deeper the brow is.
-    private static let rim: CGFloat = 0.044
-    private static let brow: CGFloat = 0.02
-    private static let frameDepth: CGFloat = 0.055
-    /// The frame's top at its outer ends, where the lens's top edge has risen a touch.
-    private static let frameTop = lensSize.height / 2 + 0.008 + rim + brow
+    /// Lens centres sit this far either side of the middle — a 17 mm bridge at the top.
+    private static let lensX: CGFloat = 0.345
+    /// The frame round each lens (3.8 mm; the bottom is three-quarters of that). No deeper brow.
+    private static let rim: CGFloat = 0.038
+    private static let brow: CGFloat = 0
+    private static let frameDepth: CGFloat = 0.045
+    /// The frame's top at its outer ends.
+    private static let frameTop = lensSize.height / 2 + rim + brow
     /// Each half of the front turns back this far from the bridge.
     private static let wrap: CGFloat = 0.06
-    /// The round pods on the outer top corners, about the lens centre: flush with the top,
-    /// standing a little proud of the side.
-    private static let podRadius: CGFloat = 0.043
-    private static let podCentre = CGPoint(x: lensSize.width / 2 + rim - 0.012, y: frameTop - podRadius)
+    /// The round pods on the outer top corners, about the lens centre: just under the top line,
+    /// standing about 6 mm proud of the side.
+    private static let podRadius: CGFloat = 0.057
+    private static let podCentre = CGPoint(x: 0.305, y: frameTop - podRadius - 0.008)
     private static let halfWidth = lensX + podCentre.x + podRadius
-    /// Half the arm's height at the hinge; it is this many times taller than wide throughout.
-    private static let armHalf: CGFloat = 0.05
-    private static let armAspect: CGFloat = 1.4
-    private static let hingeHeight = frameTop - armHalf - 0.004
+    /// Half the arm's height at the hinge (8 mm tall); it is this many times taller than wide.
+    private static let armHalf: CGFloat = 0.04
+    private static let armAspect: CGFloat = 1.5
+    /// The arms leave the frame level with the pods.
+    private static let hingeHeight = podCentre.y
     /// The display, across the upper part of each lens.
     private static let displaySize = CGSize(width: 0.38, height: 0.165)
     private static let displayLift: CGFloat = 0.055
@@ -55,17 +58,19 @@ enum InmoGo3Model {
         return path
     }
 
-    /// The +X lens (temple side at +x) about its own centre, grown by `g` all round and the top by
-    /// `raise` more: a wide rounded rectangle — a near-straight top rising a touch toward the
-    /// temple, a near-upright outer side, a gently curved bottom, the outer lower corner roundest.
+    /// The +X lens (temple side at +x) about its own centre, grown by `g` (three-quarters of it at
+    /// the bottom, where the photo's rim is thinner) and the top by `raise` more: the wayfarer —
+    /// a near-straight top rising a touch toward the temple, both sides sloping in toward the
+    /// bottom (the temple side ~12°, the nose side ~15°), a gently curved bottom.
     private static func lensOutline(grow g: CGFloat, raise: CGFloat = 0) -> CGPath {
-        let w = lensSize.width / 2 + g, h = lensSize.height / 2 + g
+        let w = lensSize.width / 2 + g, top = lensSize.height / 2 + g + raise
+        let bottom = -lensSize.height / 2 - 0.75 * g
         return roundedPolygon([
-            (CGPoint(x: -w, y: h - 0.005 + raise), 0.05 + g),
-            (CGPoint(x: w, y: h + 0.008 + raise), 0.065 + g),
-            (CGPoint(x: w - 0.02, y: -h), 0.14 + g),
-            (CGPoint(x: 0, y: -h - 0.02), 0.9 + g),
-            (CGPoint(x: -w + 0.03, y: -h + 0.01), 0.12 + g),
+            (CGPoint(x: -w, y: top - 0.009), 0.045 + g),
+            (CGPoint(x: w, y: top), 0.04 + g),
+            (CGPoint(x: w - 0.07, y: bottom + 0.005), 0.12 + g),
+            (CGPoint(x: 0.01, y: bottom - 0.007), 0.9 + g),
+            (CGPoint(x: -w + 0.1, y: bottom + 0.005), 0.1 + g),
         ])
     }
 
@@ -82,12 +87,14 @@ enum InmoGo3Model {
     /// is the nose arch, and the corner pods — with the two lens openings cut out of it.
     private static var frontOutline: CGPath {
         let bridge = CGMutablePath()
-        bridge.move(to: CGPoint(x: -0.12, y: frameTop - 0.018))
-        bridge.addQuadCurve(to: CGPoint(x: 0.12, y: frameTop - 0.018), control: CGPoint(x: 0, y: frameTop - 0.075))
-        bridge.addLine(to: CGPoint(x: 0.12, y: 0))
-        bridge.addLine(to: CGPoint(x: 0.075, y: 0))
-        bridge.addQuadCurve(to: CGPoint(x: -0.075, y: 0), control: CGPoint(x: 0, y: 0.2))
-        bridge.addLine(to: CGPoint(x: -0.12, y: 0))
+        // The top sags ~2 mm at the middle; the nose arch is 13 mm wide and peaks ~5 mm above
+        // the lens centres.
+        bridge.move(to: CGPoint(x: -0.12, y: frameTop - 0.012))
+        bridge.addQuadCurve(to: CGPoint(x: 0.12, y: frameTop - 0.012), control: CGPoint(x: 0, y: frameTop - 0.03))
+        bridge.addLine(to: CGPoint(x: 0.12, y: -0.02))
+        bridge.addLine(to: CGPoint(x: 0.065, y: -0.02))
+        bridge.addQuadCurve(to: CGPoint(x: -0.065, y: -0.02), control: CGPoint(x: 0, y: 0.115))
+        bridge.addLine(to: CGPoint(x: -0.12, y: -0.02))
         bridge.closeSubpath()
         let pod = CGPath(ellipseIn: CGRect(x: podCentre.x - podRadius, y: podCentre.y - podRadius,
                                            width: 2 * podRadius, height: 2 * podRadius), transform: nil)
@@ -278,10 +285,10 @@ enum InmoGo3Model {
     /// Matte gunmetal for the front — a shade lighter than the arms — with only a soft lift on
     /// its bevelled edges.
     private static func frontFinish() -> SCNMaterial {
-        pbr(UIColor(red: 0.2, green: 0.205, blue: 0.22, alpha: 1), roughness: 0.58, metalness: 0.45)
+        pbr(UIColor(red: 0.27, green: 0.275, blue: 0.29, alpha: 1), roughness: 0.58, metalness: 0.45)
     }
     private static func edgeFinish() -> SCNMaterial {
-        pbr(UIColor(red: 0.3, green: 0.305, blue: 0.32, alpha: 1), roughness: 0.4, metalness: 0.55)
+        pbr(UIColor(red: 0.36, green: 0.365, blue: 0.38, alpha: 1), roughness: 0.4, metalness: 0.55)
     }
     /// Satin black for the arms.
     private static func armFinish() -> SCNMaterial { pbr(UIColor(white: 0.05, alpha: 1), roughness: 0.38, clearCoat: 0.2) }
@@ -400,7 +407,8 @@ enum InmoGo3Model {
             }
 
             // A dark nose pad on a short wire arm behind each rim.
-            let wireFrom = SCNVector3(side * 0.08, 0.06, back), padAt = SCNVector3(side * 0.095, -0.02, back - 0.06)
+            // Just inside each lens's nose edge, where the photo shows them through the glass.
+            let wireFrom = SCNVector3(side * 0.09, 0.03, back), padAt = SCNVector3(side * 0.118, -0.045, back - 0.06)
             let wire = node(SCNCylinder(radius: 0.005, height: 0.1), silver(),
                             at: SCNVector3((wireFrom.x + padAt.x) / 2, (wireFrom.y + padAt.y) / 2, (wireFrom.z + padAt.z) / 2))
             wire.simdLook(at: SIMD3(padAt), up: SIMD3(0, 0, 1), localFront: SIMD3(0, 1, 0))
