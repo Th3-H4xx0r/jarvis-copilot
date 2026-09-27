@@ -318,10 +318,11 @@ async function codingCodeMasterSettings() {
   _codingSelectedId = null;
   document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
   detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Loading settings…</div></div>';
-  let settings;
+  let settings, availableChannels;
   try {
     const res = await api('/api/coding/settings');
     settings = (res && res.settings) || {};
+    availableChannels = (res && res.available_channels) || [];
   } catch (e) {
     detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Couldn\'t load settings.</div></div>';
     return;
@@ -332,7 +333,8 @@ async function codingCodeMasterSettings() {
     ['needs_input', 'Needs input'],
     ['error', 'Error'],
   ];
-  const channels = [['telegram', 'Telegram'], ['mobile', 'Mobile push'], ['toast', 'WebUI toast'], ['photon', 'iMessage'], ['glasses', 'Glasses']];
+  const serverChannels = availableChannels.map(c => [c.key, c.label]);
+  const channels = serverChannels.length ? serverChannels : [['telegram', 'Telegram'], ['mobile', 'Mobile push'], ['toast', 'WebUI toast'], ['photon', 'iMessage']];
   const ev = (settings.events) || {};
   const cell = (ekey, ch) => {
     const on = !!((ev[ekey] || {})[ch]);

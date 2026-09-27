@@ -102,7 +102,7 @@ struct CodeMasterSettingsPage: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .padding(.bottom, 4)
-                ForEach(CodeMasterSettingsStore.channels, id: \.key) { channel in
+                ForEach(store.channels, id: \.key) { channel in
                     Toggle(isOn: Binding(
                         get: { store.value(event: event.key, channel: channel.key) },
                         set: { store.set(event: event.key, channel: channel.key, $0) })) {

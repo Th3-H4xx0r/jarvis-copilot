@@ -73,12 +73,14 @@ struct CodingSessionsAPI {
 
     // MARK: - Global Code Master settings
 
-    /// `GET /api/coding/settings` → the global settings map
-    /// `{events:{finished/needs_input/error:{telegram,mobile,toast,photon}},
-    /// usage_display, remote_approvals}`. Returns `[:]` when the body is
-    /// malformed so callers can merge over sensible defaults.
-    func codeMasterSettings() async throws -> [String: Any] {
-        CodingJSON.dict(try await api.get("/api/coding/settings").object()["settings"]) ?? [:]
+    /// `GET /api/coding/settings` → `{settings: {…}, available_channels: [{key, label, icon, default_on}]}`.
+    /// Returns `(settings: [:], channels: [])` when the body is malformed so
+    /// callers can merge over sensible defaults.
+    func codeMasterSettings() async throws -> (settings: [String: Any], channels: [[String: Any]]) {
+        let body = try await api.get("/api/coding/settings").object()
+        let settings = CodingJSON.dict(body["settings"]) ?? [:]
+        let channels = (body["available_channels"] as? [[String: Any]]) ?? []
+        return (settings, channels)
     }
 
     /// `POST /api/coding/settings` with the full payload → `{ok, settings}`.

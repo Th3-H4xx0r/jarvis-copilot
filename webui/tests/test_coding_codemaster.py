@@ -80,15 +80,15 @@ def test_settings_post_merges_persists_and_ignores_junk():
 
 def _spy_channels(monkeypatch):
     cr._last_alert.clear()  # isolate the per-(session,event) phone-ping debounce
-    calls = {"tg": 0, "mob": 0, "toast": 0, "glasses": 0}
+    calls = {"tg": 0, "mob": 0, "toast": 0, "device": 0}
     monkeypatch.setattr(cr, "_send_coding_telegram",
                         lambda text: (calls.__setitem__("tg", calls["tg"] + 1) or True))
     monkeypatch.setattr(cr, "_push_device_alert",
                         lambda t, b: (calls.__setitem__("mob", calls["mob"] + 1) or 1))
     monkeypatch.setattr(cr, "_notify_webui_event",
                         lambda **kw: calls.__setitem__("toast", calls["toast"] + 1))
-    monkeypatch.setattr(cr, "_send_coding_glasses",
-                        lambda t, b: (calls.__setitem__("glasses", calls["glasses"] + 1) or True))
+    monkeypatch.setattr(cr, "_send_coding_device_notify",
+                        lambda ch, t, b: (calls.__setitem__("device", calls["device"] + 1) or True))
     return calls
 
 
@@ -101,7 +101,7 @@ def test_dispatch_sends_all_enabled_channels(monkeypatch):
     calls = _spy_channels(monkeypatch)
     sent = cr._dispatch_coding_notifications(m.store, event="notification",
                                             row=None, cwd="/x/proj")
-    assert calls == {"tg": 1, "mob": 1, "toast": 1}
+    assert calls == {"tg": 1, "mob": 1, "toast": 1, "device": 0}
     assert sent.get("telegram") is True
     assert sent.get("mobile") is True and sent.get("toast") is True
 
@@ -113,7 +113,7 @@ def test_dispatch_respects_channel_matrix(monkeypatch):
     calls = _spy_channels(monkeypatch)
     cr._dispatch_coding_notifications(m.store, event="stop", row=None, cwd="/x/proj")
     # telegram + mobile on -> sent; toast off -> not.
-    assert calls == {"tg": 1, "mob": 1, "toast": 0}
+    assert calls == {"tg": 1, "mob": 1, "toast": 0, "device": 0}
 
 
 def test_dispatch_telegram_unchecked_is_not_sent(monkeypatch):
@@ -126,7 +126,7 @@ def test_dispatch_telegram_unchecked_is_not_sent(monkeypatch):
     calls = _spy_channels(monkeypatch)
     sent = cr._dispatch_coding_notifications(m.store, event="stop",
                                              row=None, cwd="/x/proj")
-    assert calls == {"tg": 0, "mob": 1, "toast": 1}
+    assert calls == {"tg": 0, "mob": 1, "toast": 1, "device": 0}
     assert "telegram" not in sent  # disabled channel: absent, never sent
 
 

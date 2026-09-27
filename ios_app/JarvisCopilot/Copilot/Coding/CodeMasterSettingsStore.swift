@@ -23,22 +23,26 @@ final class CodeMasterSettingsStore {
         ("error", "Error"),
     ]
 
-    /// (key, label, SF Symbol) — the symbols mirror the Flutter icons.
-    static let channels: [(key: String, label: String, symbol: String)] = [
+    /// Fallback when the server doesn't send `available_channels`.
+    static let defaultChannels: [(key: String, label: String, symbol: String)] = [
         ("telegram", "Telegram", "paperplane.fill"),
         ("mobile", "Mobile push", "iphone"),
         ("toast", "WebUI toast", "bell.badge"),
         ("photon", "iMessage", "message"),
-        ("glasses", "Glasses", "eyeglasses"),
     ]
 
-    /// Backend per-channel defaults for an event (overlaid by whatever GET returns).
+    /// Dynamic channel list populated from the server's `available_channels`
+    /// response. Includes static channels plus any device-registered ones
+    /// (glasses, ring, etc.). Falls back to `defaultChannels` until loaded.
+    var channels: [(key: String, label: String, symbol: String)] = defaultChannels
+
+    /// Backend per-channel defaults (static keys only — dynamic ones use server
+    /// `default_on`).
     static let channelDefaults: [String: Bool] = [
         "telegram": false,
         "mobile": true,
         "toast": true,
         "photon": false,
-        "glasses": false,
     ]
 
     private let api: CodingSessionsAPI
@@ -65,7 +69,7 @@ final class CodeMasterSettingsStore {
         var out: [String: [String: Bool]] = [:]
         for e in events {
             var row: [String: Bool] = [:]
-            for c in channels { row[c.key] = channelDefaults[c.key] ?? false }
+            for c in defaultChannels { row[c.key] = channelDefaults[c.key] ?? false }
             out[e.key] = row
         }
         return out
@@ -83,7 +87,15 @@ final class CodeMasterSettingsStore {
         loading = true
         error = nil
         do {
-            let settings = try await api.codeMasterSettings()
+            let (settings, rawChannels) = try await api.codeMasterSettings()
+            if !rawChannels.isEmpty {
+                channels = rawChannels.compactMap { ch in
+                    guard let key = ch["key"] as? String, !key.isEmpty else { return nil }
+                    let label = (ch["label"] as? String) ?? key
+                    let icon = (ch["icon"] as? String) ?? ""
+                    return (key: key, label: label, symbol: icon)
+                }
+            }
             apply(settings, fillDefaults: true)
         } catch {
             self.error = apiErrorMessage(error)
@@ -97,7 +109,7 @@ final class CodeMasterSettingsStore {
         var matrix: [String: Any] = [:]
         for e in Self.events {
             var row: [String: Any] = [:]
-            for c in Self.channels { row[c.key] = events[e.key]?[c.key] ?? false }
+            for c in channels { row[c.key] = events[e.key]?[c.key] ?? false }
             matrix[e.key] = row
         }
         return ["events": matrix, "usage_display": usageDisplay, "remote_approvals": remoteApprovals]
@@ -127,7 +139,7 @@ final class CodeMasterSettingsStore {
         let ev = CodingJSON.dict(settings["events"]) ?? [:]
         for e in Self.events {
             let row = CodingJSON.dict(ev[e.key]) ?? [:]
-            for c in Self.channels {
+            for c in channels {
                 // Only a REAL bool counts — the matrix must not be flipped by a
                 // stray string or number.
                 if Self.isBool(row[c.key]) {

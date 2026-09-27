@@ -401,6 +401,8 @@ _DEVICE_MUTABLE_FIELDS = frozenset({
     # Last catalogue the device registered over the bridge, so a push-reachable
     # client stays usable while its WebSocket is down.
     "skills",
+    # Notification channels this device can display (glasses, ring, etc.).
+    "notification_channels",
 })
 
 

@@ -52,16 +52,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didReceiveRemoteNotification info: [AnyHashable: Any],
                      fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void) {
         Task { @MainActor in
-            // Mirror any alert content this push carries onto the GO3 lens (no-op
-            // unless glasses notifications are on and connected). Silent pushes carry
-            // no alert, so this only fires for pushes that also show a banner.
-            // A `glasses_notify` push is a dedicated glasses channel — forward its
-            // title/body directly regardless of the generic notification toggle.
-            if (info["type"] as? String) == "glasses_notify" {
+            // Route device-channel notifications (glasses, ring, etc.) to the
+            // wearable that owns the channel. Falls back to the generic APS alert
+            // path for non-device pushes.
+            if (info["type"] as? String) == "device_notify",
+               let channel = info["channel"] as? String {
+                let title = info["notify_title"] as? String ?? ""
+                let body = info["notify_body"] as? String ?? ""
+                if !title.isEmpty || !body.isEmpty {
+                    DeviceRegistry.shared.forwardNotification(channel: channel, title: title, body: body)
+                }
+            } else if (info["type"] as? String) == "glasses_notify" {
+                // Legacy: support old server payloads until fully deployed.
                 let title = info["glasses_title"] as? String ?? ""
                 let body = info["glasses_body"] as? String ?? ""
                 if !title.isEmpty || !body.isEmpty {
-                    InmoSession.shared.forwardNotification(title: title, body: body)
+                    DeviceRegistry.shared.forwardNotification(channel: "glasses", title: title, body: body)
                 }
             } else if let aps = info["aps"] as? [String: Any] {
                 if let alert = aps["alert"] as? [String: Any] {

@@ -396,31 +396,48 @@ def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
 # and stored in the coding DB (coding_settings["notifications"]).
 _EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input",
                      "error": "error"}
-_NOTIFY_CHANNELS = ("telegram", "mobile", "toast", "photon", "glasses")
+_STATIC_NOTIFY_CHANNELS = [
+    {"key": "telegram", "label": "Telegram", "icon": "paperplane.fill", "default_on": True},
+    {"key": "mobile",   "label": "Mobile push", "icon": "iphone", "default_on": True},
+    {"key": "toast",    "label": "WebUI toast", "icon": "bell.badge", "default_on": True},
+    {"key": "photon",   "label": "iMessage", "icon": "message", "default_on": False},
+]
+
+def _available_notify_channels() -> list[dict]:
+    """Static channels + any device-registered notification channels."""
+    out = list(_STATIC_NOTIFY_CHANNELS)
+    seen = {c["key"] for c in out}
+    try:
+        from api.device_bridge import all_device_notification_channels
+        for ch in all_device_notification_channels():
+            if ch["key"] not in seen:
+                seen.add(ch["key"])
+                out.append(ch)
+    except Exception:
+        pass
+    return out
+
 _DEFAULT_NOTIFY_SETTINGS = {
-    # `photon` (iMessage via the Photon plugin) is opt-in / off by default — it
-    # only does anything once the Photon platform + sidecar are configured.
-    # `glasses` sends a notification card to connected smart glasses (INMO GO3)
-    # via the mobile device bridge — opt-in / off by default.
     "events": {
-        "finished":    {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
-        "needs_input": {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
-        "error":       {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
+        "finished":    {"telegram": True, "mobile": True, "toast": True, "photon": False},
+        "needs_input": {"telegram": True, "mobile": True, "toast": True, "photon": False},
+        "error":       {"telegram": True, "mobile": True, "toast": True, "photon": False},
     },
     "usage_display": True,
-    # Remote permission approval: when on, a session's PreToolUse hook relays
-    # tool-permission prompts to the phone (approve/deny/reply). OFF by default
-    # so it never hangs an at-the-terminal session (the hook defers to the local
-    # prompt the instant the server reports it's disabled).
     "remote_approvals": False,
 }
 
 
 def _merge_notify_settings(stored) -> dict:
     """Overlay stored settings on the defaults so new events/channels added in a
-    later release still have a value. Unknown keys in ``stored`` are ignored."""
+    later release still have a value. Dynamic device channels get their own
+    default_on from the registration. Unknown keys in ``stored`` are ignored."""
+    all_channels = _available_notify_channels()
+    all_keys = {c["key"] for c in all_channels}
+    default_row = {c["key"]: c.get("default_on", False) for c in all_channels}
     out = {
-        "events": {k: dict(v) for k, v in _DEFAULT_NOTIFY_SETTINGS["events"].items()},
+        "events": {k: {**default_row, **{ck: cv for ck, cv in v.items() if ck in all_keys}}
+                   for k, v in _DEFAULT_NOTIFY_SETTINGS["events"].items()},
         "usage_display": _DEFAULT_NOTIFY_SETTINGS["usage_display"],
         "remote_approvals": _DEFAULT_NOTIFY_SETTINGS["remote_approvals"],
     }
@@ -430,7 +447,7 @@ def _merge_notify_settings(stored) -> dict:
     if isinstance(ev, dict):
         for ekey, chans in ev.items():
             if ekey in out["events"] and isinstance(chans, dict):
-                for ch in _NOTIFY_CHANNELS:
+                for ch in all_keys:
                     if ch in chans:
                         out["events"][ekey][ch] = bool(chans[ch])
     if "usage_display" in stored:
@@ -520,11 +537,11 @@ def _send_coding_photon(text: str) -> bool:
         return False
 
 
-def _send_coding_glasses(title: str, body: str) -> bool:
-    """Send a notification card to connected smart glasses via the mobile device
-    bridge. The phone receives a push with ``type: glasses_notify`` and forwards
-    the title+body to the glasses over BLE. No-ops to False when no mobile
-    device is registered or unreachable. Never raises."""
+def _send_coding_device_notify(channel_key: str, title: str, body: str) -> bool:
+    """Send a notification card to a device channel (glasses, ring, etc.) via the
+    mobile device bridge. The phone receives a push with ``type: device_notify``
+    and routes by ``channel`` to the right wearable. No-ops to False when no
+    mobile device is registered or unreachable. Never raises."""
     sent = 0
     try:
         from api.pairing import list_devices
@@ -544,8 +561,8 @@ def _send_coding_glasses(title: str, body: str) -> bool:
             if not (d.get("kind") or "").strip().lower().startswith("mobile"):
                 continue
             res = push_mod.send(kind, token,
-                                {"type": "glasses_notify",
-                                 "glasses_title": title, "glasses_body": body},
+                                {"type": "device_notify", "channel": channel_key,
+                                 "notify_title": title, "notify_body": body},
                                 alert={"title": title, "body": body})
             if res.get("ok"):
                 sent += 1
@@ -578,8 +595,8 @@ def _alert_debounce_ok(sid: str, event: str) -> bool:
 
 def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> dict:
     """Fan a coding lifecycle event out to the channels enabled in the Code Master
-    matrix: Telegram, mobile push banner, WebUI toast, iMessage (Photon), and
-    smart glasses (INMO GO3 via the mobile device bridge). This
+    matrix. Static channels (telegram, mobile, toast, photon) plus any dynamic
+    device channels (glasses, ring, etc.) registered over the device bridge. This
     is the SINGLE source of truth for coding notifications — every channel is gated
     here by the per-event matrix, for BOTH the server host and the Mac (the Mac's
     old client-side notify.sh path, which fired Telegram regardless of the matrix,
@@ -644,11 +661,15 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             sent["photon"] = _send_coding_photon(f"{title} — {label}" if label else title)
         except Exception:
             sent["photon"] = False
-    if chans.get("glasses"):
-        try:
-            sent["glasses"] = _send_coding_glasses(title, label or "")
-        except Exception:
-            sent["glasses"] = False
+    static_keys = {c["key"] for c in _STATIC_NOTIFY_CHANNELS}
+    for ch_key in chans:
+        if ch_key in static_keys or ch_key in sent:
+            continue
+        if chans.get(ch_key):
+            try:
+                sent[ch_key] = _send_coding_device_notify(ch_key, title, label or "")
+            except Exception:
+                sent[ch_key] = False
     return sent
 
 
@@ -1015,7 +1036,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     # validates against the known events/channels and persists.
     if p == "/settings":
         if method == "GET":
-            return _run(lambda: _ok({"settings": _coding_settings(manager.store)}))
+            return _run(lambda: _ok({"settings": _coding_settings(manager.store),
+                                     "available_channels": _available_notify_channels()}))
         if method == "POST":
             def _save_settings():
                 merged = _merge_notify_settings(body if isinstance(body, dict) else {})

@@ -22,6 +22,19 @@ struct DeviceCapability {
     }
 }
 
+/// A wearable that can display notification cards declares one of these so the
+/// Code Master settings page shows a per-event toggle for it automatically.
+struct NotificationChannelInfo: Equatable, Sendable {
+    let key: String
+    let label: String
+    let symbol: String
+    let defaultOn: Bool
+
+    var wireForm: [String: Any] {
+        ["key": key, "label": label, "icon": symbol, "default_on": defaultOn]
+    }
+}
+
 enum DeviceError: LocalizedError {
     case notConnected
     case unknownCommand(String)
@@ -54,9 +67,18 @@ protocol WearableDevice: AnyObject {
     var isConnected: Bool { get }
     /// Self-describing command catalogue. This is what the AI reads.
     var capabilities: [DeviceCapability] { get }
+    /// If this device can display notification cards, return its channel info.
+    var notificationChannel: NotificationChannelInfo? { get }
+    /// Forward a notification card to this device (title + body text).
+    func forwardNotification(title: String, body: String)
     /// Current state as JSON-encodable values.
     func snapshot() -> [String: Any]
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any]
+}
+
+extension WearableDevice {
+    var notificationChannel: NotificationChannelInfo? { nil }
+    func forwardNotification(title: String, body: String) {}
 }
 
 /// Everything the app can currently drive. The bridge asks this for skills and state;
@@ -83,43 +105,59 @@ final class DeviceRegistry: ObservableObject {
         devices.first { $0.deviceID == id }
     }
 
-    /// Every capability across every device, namespaced so two bottles don't collide.
-    /// The bridge caps skills at 128, which we're nowhere near.
+    /// One tool per command, with explicit target choices. Ring forms consume
+    /// the same per-device capability schemas used to build this AI catalogue.
     func allSkills() -> [[String: Any]] {
-        var out: [[String: Any]] = []
+        var offerings: [String: [(String, DeviceCapability)]] = [:]
         for device in devices {
-            for capability in device.capabilities {
-                var wire = capability.wireForm
-                // Devices are addressed by argument rather than by skill name so the
-                // catalogue stays stable when a bottle reconnects with a new UUID.
-                var schema = capability.inputSchema
-                var props = schema["properties"] as? [String: [String: Any]] ?? [:]
-                props["device_id"] = [
-                    "type": "string",
-                    "description": "Which device to act on. Omit when only one is connected.",
-                ]
-                schema["properties"] = props
-                wire["input_schema"] = schema
-                out.append(wire)
-            }
+            for capability in device.capabilities { offerings[capability.name, default: []].append((device.deviceID, capability)) }
         }
-        return out
+        return offerings.keys.sorted().compactMap { name in
+            guard let entries = offerings[name], let first = entries.first else { return nil }
+            let ids = entries.map { $0.0 }.sorted()
+            func targeted(_ schema: [String: Any], ids: [String], required: Bool) -> [String: Any] {
+                var result = schema
+                var props = result["properties"] as? [String: [String: Any]] ?? [:]
+                props["device_id"] = ["type": "string", "enum": ids,
+                    "description": "Target wearable. Required when multiple devices offer this action."]
+                result["properties"] = props
+                if required { result["required"] = Array(Set((result["required"] as? [String] ?? []) + ["device_id"])).sorted() }
+                return result
+            }
+            let sameSchema = entries.allSatisfy { NSDictionary(dictionary: $0.1.inputSchema).isEqual(to: first.1.inputSchema) }
+            let schema: [String: Any] = sameSchema
+                ? targeted(first.1.inputSchema, ids: ids, required: ids.count > 1)
+                : ["type": "object", "oneOf": entries.map { targeted($0.1.inputSchema, ids: [$0.0], required: true) }]
+            return ["name": name, "description": first.1.description, "input_schema": schema]
+        }
+    }
+
+    func notificationChannels() -> [NotificationChannelInfo] {
+        var seen: Set<String> = []
+        return devices.compactMap { $0.notificationChannel }.filter { seen.insert($0.key).inserted }
+    }
+
+    /// Route a notification to whichever device owns ``channelKey``.
+    func forwardNotification(channel channelKey: String, title: String, body: String) {
+        guard let device = devices.first(where: { $0.notificationChannel?.key == channelKey }) else { return }
+        device.forwardNotification(title: title, body: body)
     }
 
     /// Routes a bridge invoke to the right device.
     func invoke(skill: String, args: [String: Any]) async throws -> [String: Any] {
+        if args["device_id"] != nil, !(args["device_id"] is String) { throw DeviceError.badArgument("device_id must be a string") }
         let requested = args["device_id"] as? String
-        // `device_id` picks BETWEEN devices offering the same skill; it does not
-        // override which skill was asked for. Honour it only when that device
-        // actually has the skill, otherwise a `wearables_connect` naming a bottle
-        // would route into the bottle — which has no such command — instead of the
-        // hub that does.
         let offersSkill = { (d: any WearableDevice) in d.capabilities.contains { $0.name == skill } }
         let target: (any WearableDevice)?
-        if let requested, !requested.isEmpty, let d = device(id: requested), offersSkill(d) {
-            target = d
+        if let requested {
+            guard !requested.isEmpty, let device = device(id: requested), offersSkill(device) else {
+                throw DeviceError.badArgument("Requested device does not offer \(skill)")
+            }
+            target = device
         } else {
-            target = devices.first(where: offersSkill)
+            let candidates = devices.filter(offersSkill)
+            guard candidates.count <= 1 else { throw DeviceError.badArgument("device_id is required when multiple devices offer this command") }
+            target = candidates.first
         }
         guard let target else { throw DeviceError.unknownCommand(skill) }
         return try await target.invoke(skill, args: args)

@@ -94,14 +94,18 @@ final class CodingSessionsAPITests: XCTestCase {
     func testCodeMasterSettingsRoundTrip() async throws {
         let (api, t) = makeAPI()
         t.enqueue(json: ["settings": ["usage_display": false,
-                                      "events": ["finished": ["mobile": true]]]])
+                                      "events": ["finished": ["mobile": true]]],
+                         "available_channels": [["key": "glasses", "label": "Glasses",
+                                                 "icon": "eyeglasses", "default_on": false]]])
         let loaded = try await api.codeMasterSettings()
         assertRequest(t, "GET", "/api/coding/settings")
-        XCTAssertEqual(loaded["usage_display"] as? Bool, false)
+        XCTAssertEqual(loaded.settings["usage_display"] as? Bool, false)
+        XCTAssertEqual(loaded.channels.count, 1)
+        XCTAssertEqual(loaded.channels.first?["key"] as? String, "glasses")
 
         // A malformed body must not throw — callers merge over defaults.
         t.enqueue(json: ["ok": true])
-        let awaited3 = try await api.codeMasterSettings().isEmpty
+        let awaited3 = try await api.codeMasterSettings().settings.isEmpty
         XCTAssertTrue(awaited3)
 
         t.enqueue(json: ["ok": true, "settings": ["remote_approvals": true]])

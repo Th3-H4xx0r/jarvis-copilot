@@ -12,14 +12,14 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
     func testTheDefaultMatrixMatchesTheBackend() {
         let (store, _) = makeStore()
         XCTAssertEqual(CodeMasterSettingsStore.events.map(\.key), ["finished", "needs_input", "error"])
-        XCTAssertEqual(CodeMasterSettingsStore.channels.map(\.key),
-                       ["telegram", "mobile", "toast", "photon", "glasses"])
+        // Default channels are the static 4 (no device channels until loaded).
+        XCTAssertEqual(store.channels.map(\.key),
+                       ["telegram", "mobile", "toast", "photon"])
         for event in CodeMasterSettingsStore.events.map(\.key) {
             XCTAssertFalse(store.value(event: event, channel: "telegram"))
             XCTAssertTrue(store.value(event: event, channel: "mobile"))
             XCTAssertTrue(store.value(event: event, channel: "toast"))
             XCTAssertFalse(store.value(event: event, channel: "photon"))
-            XCTAssertFalse(store.value(event: event, channel: "glasses"))
         }
         XCTAssertTrue(store.usageDisplay)
         XCTAssertFalse(store.remoteApprovals)
@@ -32,10 +32,10 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         let matrix = CodeMasterSettingsStore.defaultMatrix()
         XCTAssertEqual(Set(matrix.keys), ["finished", "needs_input", "error"])
         for (event, row) in matrix {
-            XCTAssertEqual(Set(row.keys), ["telegram", "mobile", "toast", "photon", "glasses"],
+            XCTAssertEqual(Set(row.keys), ["telegram", "mobile", "toast", "photon"],
                            "\(event) is missing a channel")
             XCTAssertEqual(row, ["telegram": false, "mobile": true,
-                                 "toast": true, "photon": false, "glasses": false])
+                                 "toast": true, "photon": false])
         }
         // Every cell matches the backend's own per-channel default…
         for (_, row) in matrix {

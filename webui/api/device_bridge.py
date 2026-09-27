@@ -51,6 +51,7 @@ class _DeviceConn:
         self.sock = sock
         self.conn = conn
         self.skills: list[dict] = []
+        self.notification_channels: list[dict] = []
         self.send_lock = threading.Lock()
         # call_id -> {"event": Event, "result": ..., "error": ...}
         self.pending: dict[str, dict] = {}
@@ -208,10 +209,14 @@ def _remembered_skills(device_id: str) -> list[dict]:
     return []
 
 
-def _remember_skills(device_id: str, skills: list[dict]) -> None:
+def _remember_skills(device_id: str, skills: list[dict],
+                     notification_channels: list[dict] | None = None) -> None:
     try:
         from api.pairing import update_device_fields
-        update_device_fields(device_id, skills=[dict(s) for s in skills])
+        fields: dict = {"skills": [dict(s) for s in skills]}
+        if notification_channels is not None:
+            fields["notification_channels"] = [dict(c) for c in notification_channels]
+        update_device_fields(device_id, **fields)
     except Exception as exc:
         logger.debug("could not persist skills for %s: %s", device_id, exc)
 
@@ -252,6 +257,36 @@ def all_device_skills() -> list[dict]:
                 out.append({"device_id": did, "device_name": d.get("name", "device"), **s})
     except Exception as exc:
         logger.debug("could not list push-reachable skills: %s", exc)
+    return out
+
+
+def all_device_notification_channels() -> list[dict]:
+    """Merged notification channels from all reachable devices.
+
+    Deduplicates by ``key`` — live connections win over stored records.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+
+    with _REG_LOCK:
+        for c in _REG.values():
+            if c.closed:
+                continue
+            for ch in c.notification_channels:
+                if ch["key"] not in seen:
+                    seen.add(ch["key"])
+                    out.append(dict(ch))
+
+    try:
+        from api.pairing import list_devices
+        for d in list_devices():
+            for ch in (d.get("notification_channels") or []):
+                key = ch.get("key")
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append(dict(ch))
+    except Exception:
+        pass
     return out
 
 
@@ -1215,14 +1250,36 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         # large manifests chunk the registration across multiple frames
         # so each WS message stays well under the recv buffer. Without
         # the flag we treat the frame as authoritative and replace.
+        # Parse notification channels (devices that can display notification cards).
+        raw_channels = msg.get("notification_channels") or []
+        clean_channels: list[dict] = []
+        if isinstance(raw_channels, list):
+            for ch in raw_channels:
+                if not isinstance(ch, dict):
+                    continue
+                key = (ch.get("key") or "").strip()
+                if not key:
+                    continue
+                clean_channels.append({
+                    "key": key[:32],
+                    "label": (ch.get("label") or key)[:64],
+                    "icon": (ch.get("icon") or "")[:64],
+                    "default_on": bool(ch.get("default_on")),
+                })
         if msg.get("append"):
             merged: dict[str, dict] = {s["name"]: s for s in conn.skills}
             for s in clean:
                 merged[s["name"]] = s
             conn.skills = list(merged.values())[:128]
+            if clean_channels:
+                existing = {c["key"]: c for c in conn.notification_channels}
+                for c in clean_channels:
+                    existing[c["key"]] = c
+                conn.notification_channels = list(existing.values())[:16]
         else:
             conn.skills = clean[:128]  # cap so a misbehaving device can't bloat the registry
-        _remember_skills(conn.device_id, conn.skills)
+            conn.notification_channels = clean_channels[:16]
+        _remember_skills(conn.device_id, conn.skills, conn.notification_channels or None)
         try:
             _ws_send_text(conn, json.dumps({
                 "type": "registered",
