@@ -140,7 +140,7 @@ def _notify_server_transition(store, row, prev, state) -> None:
       • ``* -> waiting`` = Claude NEEDS INPUT (a prompt appeared)  -> ``notification``
       • ``working -> idle`` = the turn FINISHED                    -> ``stop``
     Other transitions (e.g. ``-> working``, first-seen ``-> idle``) don't ping.
-    Delegates ALL channels (Telegram + mobile push + WebUI toast + iMessage) to the
+    Delegates ALL channels (Telegram + mobile push + WebUI toast + iMessage + glasses) to the
     shared dispatch, which gates each on the Code Master matrix. Never raises."""
     if state == "waiting" and prev != "waiting":
         event = "notification"

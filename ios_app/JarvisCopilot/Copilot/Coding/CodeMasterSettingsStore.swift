@@ -29,6 +29,7 @@ final class CodeMasterSettingsStore {
         ("mobile", "Mobile push", "iphone"),
         ("toast", "WebUI toast", "bell.badge"),
         ("photon", "iMessage", "message"),
+        ("glasses", "Glasses", "eyeglasses"),
     ]
 
     /// Backend per-channel defaults for an event (overlaid by whatever GET returns).
@@ -37,6 +38,7 @@ final class CodeMasterSettingsStore {
         "mobile": true,
         "toast": true,
         "photon": false,
+        "glasses": false,
     ]
 
     private let api: CodingSessionsAPI

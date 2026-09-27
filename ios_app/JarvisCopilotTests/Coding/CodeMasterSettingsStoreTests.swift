@@ -13,12 +13,13 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         let (store, _) = makeStore()
         XCTAssertEqual(CodeMasterSettingsStore.events.map(\.key), ["finished", "needs_input", "error"])
         XCTAssertEqual(CodeMasterSettingsStore.channels.map(\.key),
-                       ["telegram", "mobile", "toast", "photon"])
+                       ["telegram", "mobile", "toast", "photon", "glasses"])
         for event in CodeMasterSettingsStore.events.map(\.key) {
             XCTAssertFalse(store.value(event: event, channel: "telegram"))
             XCTAssertTrue(store.value(event: event, channel: "mobile"))
             XCTAssertTrue(store.value(event: event, channel: "toast"))
             XCTAssertFalse(store.value(event: event, channel: "photon"))
+            XCTAssertFalse(store.value(event: event, channel: "glasses"))
         }
         XCTAssertTrue(store.usageDisplay)
         XCTAssertFalse(store.remoteApprovals)
@@ -31,10 +32,10 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         let matrix = CodeMasterSettingsStore.defaultMatrix()
         XCTAssertEqual(Set(matrix.keys), ["finished", "needs_input", "error"])
         for (event, row) in matrix {
-            XCTAssertEqual(Set(row.keys), ["telegram", "mobile", "toast", "photon"],
+            XCTAssertEqual(Set(row.keys), ["telegram", "mobile", "toast", "photon", "glasses"],
                            "\(event) is missing a channel")
             XCTAssertEqual(row, ["telegram": false, "mobile": true,
-                                 "toast": true, "photon": false])
+                                 "toast": true, "photon": false, "glasses": false])
         }
         // Every cell matches the backend's own per-channel default…
         for (_, row) in matrix {
@@ -111,7 +112,7 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         XCTAssertEqual(events.count, 3)
         for event in CodeMasterSettingsStore.events.map(\.key) {
             let row = events[event] as? [String: Any] ?? [:]
-            XCTAssertEqual(row.count, 4, "every channel is written, default or not")
+            XCTAssertEqual(row.count, 5, "every channel is written, default or not")
         }
         XCTAssertEqual((events["error"] as? [String: Any])?["photon"] as? Bool, true)
         XCTAssertEqual((events["finished"] as? [String: Any])?["mobile"] as? Bool, true)

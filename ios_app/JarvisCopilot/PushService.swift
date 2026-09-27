@@ -52,6 +52,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didReceiveRemoteNotification info: [AnyHashable: Any],
                      fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void) {
         Task { @MainActor in
+            // Mirror any alert content this push carries onto the GO3 lens (no-op
+            // unless glasses notifications are on and connected). Silent pushes carry
+            // no alert, so this only fires for pushes that also show a banner.
+            // A `glasses_notify` push is a dedicated glasses channel — forward its
+            // title/body directly regardless of the generic notification toggle.
+            if (info["type"] as? String) == "glasses_notify" {
+                let title = info["glasses_title"] as? String ?? ""
+                let body = info["glasses_body"] as? String ?? ""
+                if !title.isEmpty || !body.isEmpty {
+                    InmoSession.shared.forwardNotification(title: title, body: body)
+                }
+            } else if let aps = info["aps"] as? [String: Any] {
+                if let alert = aps["alert"] as? [String: Any] {
+                    InmoSession.shared.forwardNotification(title: alert["title"] as? String ?? "",
+                                                           body: alert["body"] as? String ?? "")
+                } else if let alert = aps["alert"] as? String {
+                    InmoSession.shared.forwardNotification(title: "", body: alert)
+                }
+            }
             let before = BridgeClient.shared.lastActivity
             await BridgeClient.shared.drainQueue(foreground: false)
             completion(BridgeClient.shared.lastActivity != before ? .newData : .noData)

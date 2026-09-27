@@ -332,7 +332,7 @@ async function codingCodeMasterSettings() {
     ['needs_input', 'Needs input'],
     ['error', 'Error'],
   ];
-  const channels = [['telegram', 'Telegram'], ['mobile', 'Mobile push'], ['toast', 'WebUI toast'], ['photon', 'iMessage']];
+  const channels = [['telegram', 'Telegram'], ['mobile', 'Mobile push'], ['toast', 'WebUI toast'], ['photon', 'iMessage'], ['glasses', 'Glasses']];
   const ev = (settings.events) || {};
   const cell = (ekey, ch) => {
     const on = !!((ev[ekey] || {})[ch]);

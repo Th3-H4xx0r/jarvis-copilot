@@ -24,9 +24,11 @@ class _FakeStore:
 
 def test_photon_in_channels_and_defaults_off():
     assert "photon" in cr._NOTIFY_CHANNELS
+    assert "glasses" in cr._NOTIFY_CHANNELS
     merged = cr._merge_notify_settings(None)
     for ekey in ("finished", "needs_input", "error"):
         assert merged["events"][ekey]["photon"] is False
+        assert merged["events"][ekey]["glasses"] is False
 
 
 def test_merge_honors_stored_photon_true():
@@ -44,6 +46,7 @@ def test_dispatch_fires_photon_when_enabled(monkeypatch):
     monkeypatch.setattr(cr, "_push_device_alert", lambda *a, **k: 0)
     monkeypatch.setattr(cr, "_notify_webui_event", lambda **k: None)
     monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: False)
+    monkeypatch.setattr(cr, "_send_coding_glasses", lambda t, b: False)
 
     store = _FakeStore({"events": {"needs_input": {
         "telegram": False, "mobile": False, "toast": False, "photon": True}}})
@@ -58,6 +61,7 @@ def test_dispatch_skips_photon_when_disabled(monkeypatch):
     monkeypatch.setattr(cr, "_push_device_alert", lambda *a, **k: 0)
     monkeypatch.setattr(cr, "_notify_webui_event", lambda **k: None)
     monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: False)
+    monkeypatch.setattr(cr, "_send_coding_glasses", lambda t, b: False)
 
     store = _FakeStore({"events": {"needs_input": {"photon": False}}})
     sent = cr._dispatch_coding_notifications(store, event="notification", row=None, cwd="/x/proj")

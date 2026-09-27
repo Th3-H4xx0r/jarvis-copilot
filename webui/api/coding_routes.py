@@ -396,14 +396,16 @@ def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
 # and stored in the coding DB (coding_settings["notifications"]).
 _EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input",
                      "error": "error"}
-_NOTIFY_CHANNELS = ("telegram", "mobile", "toast", "photon")
+_NOTIFY_CHANNELS = ("telegram", "mobile", "toast", "photon", "glasses")
 _DEFAULT_NOTIFY_SETTINGS = {
     # `photon` (iMessage via the Photon plugin) is opt-in / off by default — it
     # only does anything once the Photon platform + sidecar are configured.
+    # `glasses` sends a notification card to connected smart glasses (INMO GO3)
+    # via the mobile device bridge — opt-in / off by default.
     "events": {
-        "finished":    {"telegram": True, "mobile": True, "toast": True, "photon": False},
-        "needs_input": {"telegram": True, "mobile": True, "toast": True, "photon": False},
-        "error":       {"telegram": True, "mobile": True, "toast": True, "photon": False},
+        "finished":    {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
+        "needs_input": {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
+        "error":       {"telegram": True, "mobile": True, "toast": True, "photon": False, "glasses": False},
     },
     "usage_display": True,
     # Remote permission approval: when on, a session's PreToolUse hook relays
@@ -518,6 +520,40 @@ def _send_coding_photon(text: str) -> bool:
         return False
 
 
+def _send_coding_glasses(title: str, body: str) -> bool:
+    """Send a notification card to connected smart glasses via the mobile device
+    bridge. The phone receives a push with ``type: glasses_notify`` and forwards
+    the title+body to the glasses over BLE. No-ops to False when no mobile
+    device is registered or unreachable. Never raises."""
+    sent = 0
+    try:
+        from api.pairing import list_devices
+        from api import push as push_mod
+    except Exception:
+        return False
+    try:
+        devices = list_devices()
+    except Exception:
+        return False
+    for d in devices:
+        try:
+            token = (d.get("push_token") or "").strip()
+            kind = (d.get("push_kind") or "").strip().lower()
+            if not token or kind != "apns":
+                continue
+            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
+                continue
+            res = push_mod.send(kind, token,
+                                {"type": "glasses_notify",
+                                 "glasses_title": title, "glasses_body": body},
+                                alert={"title": title, "body": body})
+            if res.get("ok"):
+                sent += 1
+        except Exception:
+            continue
+    return sent > 0
+
+
 def _alert_debounce_ok(sid: str, event: str) -> bool:
     """Whether a phone-style ping (mobile push / Telegram) for ``(sid, event)`` is
     allowed right now — and record it if so. Debounces a session that rapidly
@@ -542,7 +578,8 @@ def _alert_debounce_ok(sid: str, event: str) -> bool:
 
 def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> dict:
     """Fan a coding lifecycle event out to the channels enabled in the Code Master
-    matrix: Telegram, mobile push banner, WebUI toast, and iMessage (Photon). This
+    matrix: Telegram, mobile push banner, WebUI toast, iMessage (Photon), and
+    smart glasses (INMO GO3 via the mobile device bridge). This
     is the SINGLE source of truth for coding notifications — every channel is gated
     here by the per-event matrix, for BOTH the server host and the Mac (the Mac's
     old client-side notify.sh path, which fired Telegram regardless of the matrix,
@@ -607,6 +644,11 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             sent["photon"] = _send_coding_photon(f"{title} — {label}" if label else title)
         except Exception:
             sent["photon"] = False
+    if chans.get("glasses"):
+        try:
+            sent["glasses"] = _send_coding_glasses(title, label or "")
+        except Exception:
+            sent["glasses"] = False
     return sent
 
 

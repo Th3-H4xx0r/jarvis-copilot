@@ -80,13 +80,15 @@ def test_settings_post_merges_persists_and_ignores_junk():
 
 def _spy_channels(monkeypatch):
     cr._last_alert.clear()  # isolate the per-(session,event) phone-ping debounce
-    calls = {"tg": 0, "mob": 0, "toast": 0}
+    calls = {"tg": 0, "mob": 0, "toast": 0, "glasses": 0}
     monkeypatch.setattr(cr, "_send_coding_telegram",
                         lambda text: (calls.__setitem__("tg", calls["tg"] + 1) or True))
     monkeypatch.setattr(cr, "_push_device_alert",
                         lambda t, b: (calls.__setitem__("mob", calls["mob"] + 1) or 1))
     monkeypatch.setattr(cr, "_notify_webui_event",
                         lambda **kw: calls.__setitem__("toast", calls["toast"] + 1))
+    monkeypatch.setattr(cr, "_send_coding_glasses",
+                        lambda t, b: (calls.__setitem__("glasses", calls["glasses"] + 1) or True))
     return calls
 
 
