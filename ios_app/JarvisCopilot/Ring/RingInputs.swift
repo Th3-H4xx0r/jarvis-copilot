@@ -232,6 +232,7 @@ enum RingAction: Codable, Equatable {
     case prompt(String)
     /// One named action — a phone skill or a ring skill — run the way Jarvis runs it.
     case skill(id: String, arguments: [String: String])
+    case wearable(deviceID: String, skill: String, arguments: [String: String])
 
     var isSet: Bool {
         if case .none = self { return false }
@@ -245,6 +246,9 @@ enum RingAction: Codable, Equatable {
             return "Nothing"
         case .prompt(let text):
             return "Ask Jarvis: \(text)"
+        case .wearable(let deviceID, let skill, let arguments):
+            let values = arguments.keys.sorted().map { "\($0): \(arguments[$0]!)" }.joined(separator: ", ")
+            return "\(skill.replacingOccurrences(of: "_", with: " ")) · \(deviceID.suffix(6))" + (values.isEmpty ? "" : " — \(values)")
         case .skill(let id, let arguments):
             guard let option = RingActionCatalogue.option(id) else { return id }
             guard let parameter = option.parameter, let value = arguments[parameter.key], !value.isEmpty else {
@@ -453,6 +457,16 @@ enum RingActionRunner {
             return "nothing set"
         case .prompt(let text):
             return await ask(text)
+        case .wearable(let deviceID, let skill, let values):
+            guard let device = DeviceRegistry.shared.device(id: deviceID),
+                  let capability = device.capabilities.first(where: { $0.name == skill }) else {
+                return "Wearable action unavailable. Enable Share with Jarvis on the target device."
+            }
+            do {
+                var args = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
+                args["device_id"] = deviceID
+                return summary(skill, try await DeviceRegistry.shared.invoke(skill: skill, args: args))
+            } catch { return "\(skill) failed: \(error.localizedDescription)" }
         case .skill(let id, let arguments):
             guard let option = RingActionCatalogue.option(id) else { return "unknown action \(id)" }
             return await invoke(option.skill, merged(option, arguments))

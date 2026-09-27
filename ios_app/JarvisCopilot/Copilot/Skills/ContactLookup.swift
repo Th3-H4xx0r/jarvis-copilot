@@ -67,6 +67,15 @@ enum ContactLookup {
         return nil
     }
 
+    /// Name of the contact whose number matches `number` on its last 10 digits (so
+    /// "(555) 010-0000" and "+15550100000" agree), or nil. Needs at least 7 digits.
+    static func nameForNumber(_ contacts: [ContactRecord], number: String) -> String? {
+        func tail(_ s: String) -> String { String(s.filter { $0.isASCII && $0.isNumber }.suffix(10)) }
+        let want = tail(number)
+        guard want.count >= 7 else { return nil }
+        return contacts.first { $0.phones.contains { tail($0) == want } }?.name
+    }
+
     /// Look up `to` in the device contacts and return a dialable handle. A value
     /// that already looks like a phone number is cleaned and returned as-is (no
     /// lookup). On no permission / no match / any error, the original text is

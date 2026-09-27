@@ -229,6 +229,7 @@ struct RingInputsSection: View {
 
 /// Picks what one input does: a prompt Jarvis runs, or one of the phone's own actions.
 struct RingActionPicker: View {
+    @ObservedObject private var devices = DeviceRegistry.shared
     @ObservedObject var store: RingInputStore
     let input: RingInput
 
@@ -263,6 +264,26 @@ struct RingActionPicker: View {
                     }
                 }
 
+                CardGroup("Wearable actions", footer: "Enable Share with Jarvis on a wearable to see its actions here. Saved actions always target the device you choose.") {
+                    if devices.devices.isEmpty {
+                        Row { Text("No shared wearables yet").foregroundStyle(.secondary) }
+                    }
+                    ForEach(devices.devices, id: \.deviceID) { device in
+                        ForEach(device.capabilities, id: \.name) { capability in
+                            NavigationLink {
+                                RingWearableActionEditor(store: store, input: input, deviceID: device.deviceID,
+                                    model: type(of: device).model, capability: capability)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    Text("\(type(of: device).model) · \(device.deviceID.suffix(6))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }.padding(16)
+                            }
+                            RowDivider()
+                        }
+                    }
+                }
                 CardGroup("Off") {
                     Row {
                         Button("Do nothing", role: .destructive) { save(.none) }
@@ -323,7 +344,7 @@ struct RingActionPicker: View {
         case .skill(let id, let arguments):
             selected = id
             value = RingActionCatalogue.option(id)?.parameter.flatMap { arguments[$0.key] } ?? ""
-        case .none:
+        case .none, .wearable:
             break
         }
     }
@@ -331,5 +352,57 @@ struct RingActionPicker: View {
     private func save(_ action: RingAction) {
         store.set(action, for: input)
         dismiss()
+    }
+}
+
+
+/// Uses the exact parameter schema advertised to chat; saves stable target identity.
+struct RingWearableActionEditor: View {
+    @ObservedObject var store: RingInputStore
+    let input: RingInput
+    let deviceID: String
+    let model: String
+    let capability: DeviceCapability
+    @Environment(\.dismiss) private var dismiss
+    @State private var values: [String: String] = [:]
+    @State private var error: String?
+
+    var body: some View {
+        Form {
+            Section(model) {
+                Text(capability.description)
+                Text("Device \(deviceID)").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Action values") {
+                ForEach(SkillArgsForm.fields(from: capability.inputSchema)) { field in
+                    SkillArgFieldView(field: field, text: Binding(
+                        get: { values[field.key] ?? "" },
+                        set: { values[field.key] = $0; error = nil }))
+                }
+            }
+            if let error { Section { Text(error).foregroundStyle(.red) } }
+            Section {
+                Button("Save for \(input.label.lowercased())") {
+                    do {
+                        _ = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
+                        store.set(.wearable(deviceID: deviceID, skill: capability.name, arguments: values), for: input)
+                        dismiss()
+                    } catch { self.error = error.localizedDescription }
+                }
+            }
+        }
+        .navigationTitle(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if case .wearable(let target, let skill, let stored) = store.action(for: input),
+               target == deviceID, skill == capability.name { values = stored }
+            else {
+                let props = capability.inputSchema["properties"] as? [String: [String: Any]] ?? [:]
+                for field in SkillArgsForm.fields(from: capability.inputSchema) {
+                    if let value = props[field.key]?["default"] { values[field.key] = SkillArgs.text(value) }
+                    else if field.kind == .boolean && field.required { values[field.key] = "false" }
+                }
+            }
+        }
     }
 }

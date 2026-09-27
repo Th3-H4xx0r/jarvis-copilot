@@ -29,6 +29,7 @@ final class VoiceAudioEngine {
     static let shared = VoiceAudioEngine()
 
     private var engine: AVAudioEngine?
+    private var microphoneNode: AVAudioInputNode?
     private var player: AVAudioPlayerNode?
     private var playerFormat: AVAudioFormat?
     private var configurationObserver: NSObjectProtocol?
@@ -57,7 +58,9 @@ final class VoiceAudioEngine {
 
     /// The format the mic tap delivers: mono, voice-processed, at the I/O rate.
     func micFormat() throws -> AVAudioFormat {
-        let format = try graph().inputNode.outputFormat(forBus: 0)
+        _ = try graph()
+        guard let microphoneNode else { throw VoiceAudioError.micUnavailable("audio session does not permit microphone capture") }
+        let format = microphoneNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw VoiceAudioError.micUnavailable("no input route")
         }
@@ -67,7 +70,7 @@ final class VoiceAudioEngine {
     func startMic(bufferSize: AVAudioFrameCount,
                   tap: @escaping AVAudioNodeTapBlock) throws {
         let engine = try graph()
-        let input = engine.inputNode
+        guard let input = microphoneNode else { throw VoiceAudioError.micUnavailable("audio session does not permit microphone capture") }
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: bufferSize, format: input.outputFormat(forBus: 0), block: tap)
         micInUse = true
@@ -75,7 +78,7 @@ final class VoiceAudioEngine {
     }
 
     func stopMic() {
-        engine?.inputNode.removeTap(onBus: 0)
+        microphoneNode?.removeTap(onBus: 0)
         micInUse = false
         releaseIfIdle()
     }
@@ -154,7 +157,17 @@ final class VoiceAudioEngine {
     private func graph() throws -> AVAudioEngine {
         if let engine { return engine }
         let engine = AVAudioEngine()
-        let input = engine.inputNode
+        // Wearable PCM arrives over Bluetooth; its audio session is playback
+        // only. Creating an input node and enabling VoiceProcessingIO here can
+        // raise an Objective-C exception (not catchable with Swift do/catch).
+        // Only microphone-capable sessions may build that half of the graph.
+        #if os(iOS)
+        let category = AVAudioSession.sharedInstance().category
+        let permitsMicrophone = category == .playAndRecord || category == .record
+        #else
+        let permitsMicrophone = true
+        #endif
+        let input = permitsMicrophone ? engine.inputNode : nil
         let player = AVAudioPlayerNode()
         player.volume = replyVolume
         engine.attach(player)
@@ -164,7 +177,7 @@ final class VoiceAudioEngine {
         engine.connect(player, to: engine.mainMixerNode, format: format)
 
         var processed = false
-        if !voiceProcessingUnavailable {
+        if let input, !voiceProcessingUnavailable {
             do {
                 try input.setVoiceProcessingEnabled(true)
                 processed = true
@@ -172,7 +185,7 @@ final class VoiceAudioEngine {
                 JcLog.dropped(JcLog.voice, "enable voice processing", error)
             }
         }
-        let ioFormat = processed ? input.outputFormat(forBus: 0) : engine.outputNode.inputFormat(forBus: 0)
+        let ioFormat = processed ? input!.outputFormat(forBus: 0) : engine.outputNode.inputFormat(forBus: 0)
         if ioFormat.sampleRate > 0, ioFormat.channelCount > 0 {
             engine.connect(engine.mainMixerNode, to: engine.outputNode, format: ioFormat)
         }
@@ -189,6 +202,7 @@ final class VoiceAudioEngine {
             MainActor.assumeIsolated { self?.configurationChanged() }
         }
         self.engine = engine
+        self.microphoneNode = input
         self.player = player
         playerFormat = format
         voiceProcessing = processed
@@ -235,12 +249,13 @@ final class VoiceAudioEngine {
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         configurationObserver = nil
         if let engine {
-            engine.inputNode.removeTap(onBus: 0)
+            microphoneNode?.removeTap(onBus: 0)
             engine.mainMixerNode.removeTap(onBus: 0)
             player?.stop()
             engine.stop()
         }
         engine = nil
+        microphoneNode = nil
         player = nil
         playerFormat = nil
         voiceProcessing = false

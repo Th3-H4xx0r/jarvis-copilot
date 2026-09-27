@@ -166,6 +166,12 @@ extension VoiceStore {
         diagnostics.append(stamped)
         diagnostics = VoiceDiagnostics.trimmed(diagnostics)
         VoiceDiagnostics.mirror(stamped)
+        #if DEBUG
+        if (InmoSession.shared.isReady || InmoAIChannel.shared.enabled),
+           !line.hasPrefix("ws← audio "), !line.hasPrefix("mic under reply:") {
+            InmoRuntimeDiagnostics.note("voice: " + line)
+        }
+        #endif
     }
 
     /// Coalesce the outbound PCM stream into one line per `micLogBatch` frames.

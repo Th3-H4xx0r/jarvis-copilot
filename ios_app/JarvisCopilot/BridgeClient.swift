@@ -445,7 +445,10 @@ final class BridgeClient: NSObject, ObservableObject {
 
     func sendRegistration() {
         let skills = DeviceRegistry.shared.allSkills()
-        send(["type": "register", "skills": skills])
+        let channels = DeviceRegistry.shared.notificationChannels().map { $0.wireForm }
+        var msg: [String: Any] = ["type": "register", "skills": skills]
+        if !channels.isEmpty { msg["notification_channels"] = channels }
+        send(msg)
     }
 
     private func runInvoke(_ msg: [String: Any]) async {

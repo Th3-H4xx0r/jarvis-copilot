@@ -24,6 +24,47 @@ final class AudioSessionArbiterTests: XCTestCase {
         return (AudioSessionArbiter(session: applier), applier)
     }
 
+    func testExternalGlassesInputDoesNotSeizeBluetoothHeadsetMicrophone() async throws {
+        let (arbiter, applier) = makeArbiter()
+        let controller = DefaultAudioSessionControlling(arbiter: arbiter)
+        let (api, _) = JarvisAPI.mocked()
+        let store = VoiceStore(api: api, input: MockAudioInput(), output: MockAudioOutput(),
+                              audioSession: controller, keyValueStore: MemoryKeyValueStore())
+        await store.useExternalInput(InmoAudioInput())
+        try store.acquireAudioSession()
+        XCTAssertEqual(applier.category, .playback)
+        XCTAssertEqual(applier.mode, .default)
+        XCTAssertFalse(applier.categoryOptions.contains(.allowBluetooth))
+        // Interruption recovery must retain the external input policy.
+        try controller.setActive(true)
+        XCTAssertEqual(applier.category, .playback)
+        await store.useExternalInput(nil)
+        try store.acquireAudioSession()
+        XCTAssertEqual(applier.category, .playAndRecord)
+        try controller.setActive(false)
+    }
+
+    func testReplyPlaybackUnderExternalInputDoesNotEnableVoiceProcessing() throws {
+        let arbiter = AudioSessionArbiter()
+        try arbiter.hold(.externalVoice)
+        let engine = VoiceAudioEngine()
+        defer {
+            engine.stopStream()
+            try? arbiter.release(.externalVoice)
+        }
+        try engine.startStream(sampleRate: 24000, onLevel: { _ in })
+        XCTAssertTrue(engine.isRunning)
+        XCTAssertFalse(engine.voiceProcessing, "A playback-only session must not open a microphone for echo cancellation")
+        XCTAssertNotNil(engine.streamFormat)
+        // Exercise actual buffer scheduling and teardown, not just policy flags.
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: try XCTUnwrap(engine.streamFormat), frameCapacity: 240))
+        buffer.frameLength = 240
+        buffer.floatChannelData?[0].initialize(repeating: 0, count: 240)
+        engine.schedule(buffer)
+        engine.stopStream()
+        XCTAssertFalse(engine.isRunning)
+    }
+
     // MARK: - The truth table (none / keepalive / voice / both)
 
     func testNobodyHoldingMeansTheSessionIsNotActive() {
@@ -151,9 +192,12 @@ final class AudioSessionArbiterTests: XCTestCase {
             let rides = !holders.isDisjoint(with: [.voice, .recording, .ambient])
             return (holders.union([.playback]), rides ? plan : AudioSessionArbiter.playbackPlan)
         }
-        XCTAssertEqual(expected.count + withPlayback.count, 1 << AudioSessionClient.allCases.count,
+        let withExternal = (expected + withPlayback).map { holders, _ in
+            (holders.union([AudioSessionClient.externalVoice]), AudioSessionArbiter.playbackPlan)
+        }
+        XCTAssertEqual(expected.count + withPlayback.count + withExternal.count, 1 << AudioSessionClient.allCases.count,
                        "a client was added without a row here")
-        for (holders, plan) in expected + withPlayback {
+        for (holders, plan) in expected + withPlayback + withExternal {
             XCTAssertEqual(AudioSessionArbiter.plan(for: holders), plan, "\(holders)")
         }
     }

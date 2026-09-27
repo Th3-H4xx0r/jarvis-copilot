@@ -59,6 +59,49 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
     }
 
+    func testExternalInputHandoffStopsPhoneAndDoesNotRestartIt() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        let external = InmoAudioInput()
+        await rig.store.useExternalInput(external)
+        XCTAssertFalse(rig.input.isRunning)
+        XCTAssertTrue(rig.store.input === external)
+        await rig.store.beginExternalTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        XCTAssertTrue(external.isRunning)
+        XCTAssertFalse(rig.input.isRunning)
+        await rig.store.stopAll()
+        XCTAssertFalse(external.isRunning)
+    }
+
+    func testExternalStartCancelledDuringASRPreparationDoesNotOpenInput() async {
+        let rig = makeRig(transcription: .onDevice)
+        let external = InmoAudioInput()
+        await rig.store.useExternalInput(external)
+        var current = true
+        rig.recognizer.onPrepare = {
+            // Model preparation is an async boundary: a glasses close or local
+            // disable invalidates the initiating generation while it is waiting.
+            await Task.yield()
+            current = false
+        }
+        await rig.store.beginExternalTurn(isCurrent: { current })
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle)
+        XCTAssertFalse(external.isRunning)
+        XCTAssertFalse(rig.input.isRunning)
+        XCTAssertEqual(rig.recognizer.prepareCount, 1)
+    }
+
+    func testStaleSourceRestoreCannotReplaceCurrentExternalInput() async {
+        let rig = makeRig()
+        let external = InmoAudioInput()
+        await rig.store.useExternalInput(external)
+        await rig.store.useExternalInput(nil, isCurrent: { false })
+        XCTAssertTrue(rig.store.input === external)
+    }
+
     /// Speak, then go quiet long enough for the endpointer to close the turn.
     private func speakThenPause(_ rig: Rig, ms: Int = 1500) async {
         rig.input.emitFrames(amplitude: 0.5, ms: ms)
@@ -953,6 +996,39 @@ final class VoiceStoreTests: XCTestCase {
         try await replyWithAudio(rig, text: "Here is the answer.")
         XCTAssertEqual(rig.store.state, .speaking)
         XCTAssertGreaterThan(rig.output.fed.count, fed)
+    }
+
+    func testExternalGlassesConversationStaysListeningWhileBackgrounded() async {
+        let rig = makeRig()
+        await rig.store.useExternalInput(rig.input)
+        await startListening(rig)
+        rig.store.pauseForBackground()
+        rig.clock.advance(ms: VoiceStore.bgIdleTimeoutMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertTrue(rig.store.usesExternalInput)
+    }
+
+    func testExternalGlassesInputCanBargeInWhileBackgrounded() async throws {
+        let rig = makeRig()
+        await rig.store.useExternalInput(rig.input)
+        try await speakingAndSettled(rig)
+        rig.store.pauseForBackground()
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
+        try await sayWords(rig, "wait, different question")
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertTrue(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+        XCTAssertGreaterThan(rig.output.flushCount, 0)
+    }
+
+    func testLateInterruptedReplyDoesNotCompleteANewGlassesResponse() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        let baseline = rig.store.responseCompletionGeneration
+        rig.store.interrupt()
+        try XCTUnwrap(rig.socket).receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.responseCompletionGeneration, baseline)
     }
 
     func testBargeInIsIgnoredWhileBackgrounded() async throws {

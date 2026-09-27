@@ -8,6 +8,30 @@ import XCTest
 @MainActor
 final class SkillsUITests: XCTestCase {
 
+    func testIntegerChoicesKeepTheirWireTypeAndNumericTextStaysText() {
+        let schema = DeviceCapability.schema([
+            "seconds": ["type": "integer", "enum": [15, 30]],
+            "text": ["type": "string"]])
+        let args = SkillArgsForm.arguments(["seconds": "15", "text": "007"], fields: SkillArgsForm.fields(from: schema))
+        XCTAssertEqual(args["seconds"] as? Int, 15)
+        XCTAssertEqual(args["text"] as? String, "007")
+    }
+
+    func testWearableFormRejectsInvalidChoicesRangesAndMissingValues() throws {
+        let schema = DeviceCapability.schema([
+            "seconds": ["type": "integer", "enum": [15, 30]],
+            "percent": ["type": "integer", "minimum": 0, "maximum": 100],
+            "text": ["type": "string"]], required: ["seconds"])
+        XCTAssertThrowsError(try SkillArgsForm.validatedArguments([:], schema: schema))
+        XCTAssertThrowsError(try SkillArgsForm.validatedArguments(["seconds": "16"], schema: schema))
+        XCTAssertThrowsError(try SkillArgsForm.validatedArguments(["seconds": "15", "percent": "101"], schema: schema))
+        let args = try SkillArgsForm.validatedArguments(["seconds": "30", "text": " 007 "], schema: schema)
+        XCTAssertEqual(args["seconds"] as? Int, 30)
+        XCTAssertEqual(args["text"] as? String, " 007 ")
+        let action = RingAction.wearable(deviceID: "go3", skill: "glasses_show_answer", arguments: ["text": "007"])
+        XCTAssertEqual(try JSONDecoder().decode(RingAction.self, from: JSONEncoder().encode(action)), action)
+    }
+
     private func item(_ name: String, _ detail: String = "", enabled: Bool = true) -> SkillListItem {
         SkillListItem(name: name, detail: detail, enabled: enabled)
     }

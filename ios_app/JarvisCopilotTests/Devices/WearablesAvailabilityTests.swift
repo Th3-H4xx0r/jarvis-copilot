@@ -127,9 +127,9 @@ final class WearablesAvailabilityTests: XCTestCase {
 
     // MARK: Routing
 
-    func testASkillGoesToTheDeviceThatImplementsItNotTheOneNamedByDeviceID() async throws {
-        // `wearables_connect` names the bottle it wants to connect. Routing on
-        // `device_id` alone sent it INTO the bottle, which has no such command.
+    func testHubConnectUsesWearableIDWithoutOverridingSkillRouting() async throws {
+        // Hub connection names its target with wearable_id; device_id is reserved
+        // for explicit routing to the device implementing the requested skill.
         // Names nothing real: `DeviceRegistry` is a singleton the host app has already
         // populated, and reusing "wearables" / "wearables_connect" would collide with
         // the live hub instead of testing the routing rule.
@@ -140,7 +140,7 @@ final class WearablesAvailabilityTests: XCTestCase {
         defer { registry.remove(deviceID: hub.deviceID); registry.remove(deviceID: bottle.deviceID) }
 
         let result = try await registry.invoke(skill: "testhub_connect",
-                                               args: ["device_id": "test-bottle"])
+                                               args: ["wearable_id": "test-bottle"])
         XCTAssertEqual(result["ran_on"] as? String, "test-hub")
     }
 
@@ -154,6 +154,25 @@ final class WearablesAvailabilityTests: XCTestCase {
         let result = try await registry.invoke(skill: "testbottle_status",
                                                args: ["device_id": "bottle-b"])
         XCTAssertEqual(result["ran_on"] as? String, "bottle-b")
+    }
+
+    func testWearableChoicesAreDeduplicatedAndRingTargetsSavedDevice() async throws {
+        let a = FakeDevice(id: "enum-a", commands: ["test_enum_action"])
+        let b = FakeDevice(id: "enum-b", commands: ["test_enum_action"])
+        let registry = DeviceRegistry.shared
+        registry.register(a); registry.register(b)
+        defer { registry.remove(deviceID: a.deviceID); registry.remove(deviceID: b.deviceID) }
+        let skills = registry.allSkills().filter { $0["name"] as? String == "test_enum_action" }
+        XCTAssertEqual(skills.count, 1)
+        let schema = try XCTUnwrap(skills.first?["input_schema"] as? [String: Any])
+        let props = try XCTUnwrap(schema["properties"] as? [String: [String: Any]])
+        XCTAssertEqual(props["device_id"]?["enum"] as? [String], ["enum-a", "enum-b"])
+        XCTAssertTrue((schema["required"] as? [String] ?? []).contains("device_id"))
+        let result = await RingActionRunner.run(.wearable(deviceID: "enum-b", skill: "test_enum_action", arguments: [:]))
+        XCTAssertTrue(result.contains("enum-b"))
+        registry.remove(deviceID: "enum-b")
+        let missing = await RingActionRunner.run(.wearable(deviceID: "enum-b", skill: "test_enum_action", arguments: [:]))
+        XCTAssertTrue(missing.contains("unavailable"))
     }
 
     func testADisconnectedDeviceStillAdvertisesItsSkills() {

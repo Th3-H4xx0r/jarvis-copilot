@@ -25,4 +25,12 @@ final class GlassesScreenRenderTests: XCTestCase {
         try RenderHarness.write(NavigationStack { InmoGo3View() }, size: CGSize(width: 402, height: 1900),
                                 name: "glasses-page")
     }
+    func testOfficialTraceScreens() throws {
+        try RenderHarness.write(NavigationStack { InmoTraceView() }, size: CGSize(width: 402, height: 874), name: "inmo-traces-empty")
+        try RenderHarness.write(NavigationStack { InmoTraceGuideView() }, size: CGSize(width: 402, height: 1200), name: "inmo-traces-guide")
+        let summary = InmoTraceSummary(format: "PCAP", packetCount: 1, previews: [InmoTracePreview(id: 1, byteCount: 3, hex: "aa 55 01")], notice: "Container records, not decoded INMO commands.")
+        let attachment = InmoTraceAttachment(id: UUID(), originalName: "brightness.pcap", storedName: "fixture.pcap", source: .network, importedAt: Date(), byteCount: 43, sha256: String(repeating: "a", count: 64), summary: summary)
+        try RenderHarness.write(NavigationStack { InmoTraceDetailView(attachment: attachment) }, size: CGSize(width: 402, height: 1000), name: "inmo-traces-detail")
+    }
+
 }

@@ -93,7 +93,8 @@ extension VoiceStore {
     /// the matching `setActive(false)` in `stop()` only DROPS the claim — it
     /// deactivates nothing while the keepalive still needs the session.
     func acquireAudioSession() throws {
-        try audioSession.configureForConversation()
+        if usesExternalInput { try audioSession.configureForExternalInput() }
+        else { try audioSession.configureForConversation() }
         try audioSession.setActive(true)
     }
 

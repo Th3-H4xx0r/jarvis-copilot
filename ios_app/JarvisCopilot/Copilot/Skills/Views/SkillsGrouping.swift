@@ -81,15 +81,17 @@ struct SkillArgField: Identifiable, Equatable, Sendable {
     /// Non-empty only for `.choice`.
     var options: [String]
 
+    var valueType: String = "string"
     var id: String { key }
 
     init(key: String, kind: Kind, detail: String = "", required: Bool = false,
-         options: [String] = []) {
+         options: [String] = [], valueType: String = "string") {
         self.key = key
         self.kind = kind
         self.detail = detail
         self.required = required
         self.options = options
+        self.valueType = valueType
     }
 }
 
@@ -112,7 +114,8 @@ enum SkillArgsForm {
                                  kind: kind(of: spec),
                                  detail: SkillArgs.text(spec["description"]),
                                  required: required.contains(key),
-                                 options: (spec["enum"] as? [Any])?.map { SkillArgs.text($0) } ?? [])
+                                 options: (spec["enum"] as? [Any])?.map { SkillArgs.text($0) } ?? [],
+                                 valueType: spec["type"] as? String ?? "string")
         }
         return fields.sorted {
             $0.required == $1.required ? $0.key < $1.key : ($0.required && !$1.required)
@@ -144,11 +147,54 @@ enum SkillArgsForm {
                 if let n = Int(raw) { out[field.key] = n }
             case .number:
                 if let n = Double(raw) { out[field.key] = n }
-            case .text, .choice:
+            case .choice:
+                switch field.valueType {
+                case "integer": out[field.key] = Int(raw)
+                case "number": out[field.key] = Double(raw)
+                case "boolean": out[field.key] = raw == "true"
+                default: out[field.key] = raw
+                }
+            case .text:
                 out[field.key] = raw
             }
         }
         return out
+    }
+
+    /// Strict scalar form conversion used by persisted wearable automations.
+    static func validatedArguments(_ values: [String: String], schema: [String: Any]) throws -> [String: Any] {
+        let fields = fields(from: schema)
+        let props = schema["properties"] as? [String: [String: Any]] ?? [:]
+        var result = arguments(values, fields: fields)
+        for field in fields {
+            let raw = values[field.key] ?? ""
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                if field.required { throw DeviceError.badArgument("\(field.key) is required") }
+                continue
+            }
+            guard result[field.key] != nil else { throw DeviceError.badArgument("Invalid \(field.key)") }
+            if !field.options.isEmpty && !field.options.contains(trimmed) {
+                throw DeviceError.badArgument("Choose a listed value for \(field.key)")
+            }
+            if field.kind == .boolean && !["true", "false"].contains(trimmed) {
+                throw DeviceError.badArgument("\(field.key) must be true or false")
+            }
+            let spec = props[field.key] ?? [:]
+            if ["integer", "number"].contains(field.valueType), let number = result[field.key] as? NSNumber {
+                let n = number.doubleValue
+                guard n.isFinite else { throw DeviceError.badArgument("\(field.key) must be finite") }
+                if let min = spec["minimum"] as? NSNumber, n < min.doubleValue { throw DeviceError.badArgument("\(field.key) must be at least \(min)") }
+                if let max = spec["maximum"] as? NSNumber, n > max.doubleValue { throw DeviceError.badArgument("\(field.key) must be at most \(max)") }
+            }
+            if field.kind == .text {
+                guard field.valueType == "string" else { throw DeviceError.badArgument("\(field.key) needs a structured input; use the skill directly") }
+                if let max = spec["maxLength"] as? Int, raw.unicodeScalars.count > max { throw DeviceError.badArgument("\(field.key) is too long") }
+                if let min = spec["minLength"] as? Int, raw.unicodeScalars.count < min { throw DeviceError.badArgument("\(field.key) is too short") }
+                result[field.key] = raw
+            }
+        }
+        return result
     }
 
     /// Pretty-printed JSON for the result panel; falls back to a description when

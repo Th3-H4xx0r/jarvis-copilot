@@ -28,6 +28,7 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
     nonisolated(unsafe) private var observer: NSObjectProtocol?
     nonisolated(unsafe) private let center: NotificationCenter
     private let arbiter: AudioSessionArbiter
+    private var voiceClient: AudioSessionClient = .voice
 
     /// `arbiter:` is an optional rather than a defaulted `.shared`: a default
     /// argument cannot touch a `@MainActor` singleton.
@@ -70,7 +71,8 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
     /// The arbiter re-checks the live session on every claim for exactly that
     /// reason.
     func configureForConversation() throws {
-        try arbiter.hold(.voice)
+        voiceClient = .voice
+        try arbiter.hold(voiceClient)
     }
 
     /// `true` claims the session for voice (re-asserting the activation even if
@@ -79,11 +81,16 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
     /// than deactivating: while the background keepalive still holds the session
     /// the process must keep it, or the app loses its background allowance the
     /// moment a turn ends.
+    func configureForExternalInput() throws {
+        voiceClient = .externalVoice
+        try arbiter.hold(voiceClient)
+    }
+
     func setActive(_ active: Bool) throws {
         if active {
-            try arbiter.hold(.voice, reassert: true)
+            try arbiter.hold(voiceClient, reassert: true)
         } else {
-            try arbiter.release(.voice)
+            try arbiter.release(voiceClient)
         }
     }
 }

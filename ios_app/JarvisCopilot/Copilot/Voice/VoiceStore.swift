@@ -205,7 +205,7 @@ final class VoiceStore {
     // this store and Swift's `private` is file-scoped.
     let voice: VoiceAPI
     let settings: VoiceSettings
-    let input: AudioInput
+    var input: AudioInput
     let recognizer: SpeechRecognizing
     let synthesizer: VoiceSynthesizing
     let audioSession: AudioSessionControlling
@@ -294,6 +294,12 @@ final class VoiceStore {
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
     /// interrupts, stops, or starts a new turn.
     var turnEpoch = 0
+    /// Text response completion, independent of queued speech playback.
+    var responseCompletionGeneration = 0
+    private(set) var interruptionGeneration = 0
+    private(set) var questionGeneration = 0
+    var responsePending: Bool { machine.serverTurnOpen }
+    private var teardownTask: Task<Void, Never>?
     var foreground = true
     /// The last `bargeInWindowMs` of mic frames under the reply: duration and
     /// whether each counted as voiced.
@@ -659,9 +665,41 @@ final class VoiceStore {
     }
 
     /// Stop everything and return to idle (the Stop button / a mode switch).
-    func stopAll() async {
+    func stopAll(isCurrent: () -> Bool = { true }) async {
+        guard isCurrent() else { return }
         raise(.stopRequested)
+        await teardownTask?.value
+        guard isCurrent() else { return }
         await audio.stop()
+    }
+
+    /// Explicit source handoff: never substitute the phone microphone for a wearable.
+    private(set) var usesExternalInput = false
+
+    func useExternalInput(_ source: AudioInput?, isCurrent: () -> Bool = { true }) async {
+        guard isCurrent() else { return }
+        await stopAll(isCurrent: isCurrent)
+        guard isCurrent() else { return }
+        input.onFrame = nil
+        input = source ?? DefaultAudioInput()
+        usesExternalInput = source != nil
+        if source == nil { machine.mode = settings.mode }
+        input.onFrame = { [weak self] chunk in self?.handleMicFrame(chunk) }
+    }
+
+    func beginExternalTurn(isCurrent: () -> Bool = { true }) async {
+        guard isCurrent() else { return }
+        await stopAll(isCurrent: isCurrent)
+        guard isCurrent() else { return }
+        machine.mode = .realtime // selected model, session, ASR and TTS remain unchanged
+        startup = VoiceStartupTimer(tap: clock.now)
+        guard await ensureMic(), isCurrent() else { return }
+        guard await ensureTranscription(), isCurrent() else { return }
+        muted = false
+        livePartial = ""
+        preConnectAudio.removeAll()
+        startup.checks = clock.now
+        raise(.startRequested)
     }
 
     func toggleMute() { muted.toggle() }
@@ -737,6 +775,15 @@ final class VoiceStore {
 
     /// Raise one event and carry out whatever the machine asks for.
     func raise(_ event: VoiceTurnEvent) {
+        if case .endOfSpeech = event, machine.state == .listening { questionGeneration += 1 }
+        if case .turnEnded = event, !machine.discardingInterruptedTurn { responseCompletionGeneration += 1 }
+        switch event {
+        case .bargeIn where machine.bargeInAllowed:
+            interruptionGeneration += 1
+        case .interruptRequested where machine.state == .speaking || machine.state == .thinking:
+            interruptionGeneration += 1
+        default: break
+        }
         let before = machine.state
         let effects = machine.apply(event)
         // Log the transition BEFORE the effects run: `.failed` performs
@@ -838,7 +885,7 @@ final class VoiceStore {
             cancelBargeCheck()
             lastLocalTranscript = nil
             pendingRetryText = nil
-            Task { await teardown() }
+            teardownTask = Task { await teardown() }
         case .showError(let message):
             error = message
             note("error: \(message)")
@@ -1062,7 +1109,9 @@ final class VoiceStore {
                 return
             }
             holdBargeAudio(chunk)
-            guard foreground else {
+            // Wearable PCM stays available under screen lock and does not
+            // depend on the phone's background microphone/echo processing.
+            guard foreground || usesExternalInput else {
                 cancelBargeCheck()
                 return
             }
@@ -1312,6 +1361,9 @@ final class VoiceStore {
 
     private func armBgIdleTimeout() {
         bgIdleTimer?.cancel()
+        // GO3 owns the microphone lifecycle. Keep follow-up listening alive
+        // until its close event or an explicit user stop, including screen lock.
+        guard !usesExternalInput else { bgIdleTimer = nil; return }
         bgIdleTimer = clock.schedule(after: Self.bgIdleTimeoutMs) { [weak self] in
             guard let self else { return }
             self.bgIdleTimer = nil

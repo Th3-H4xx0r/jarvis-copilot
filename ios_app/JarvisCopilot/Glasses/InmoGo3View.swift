@@ -69,6 +69,7 @@ struct InmoGo3View: View {
     @State private var speech = SpeechEngineStore.shared
     @State private var renaming = false
     @State private var confirmForget = false
+    @State private var notificationsOn = InmoSession.notificationsEnabled
     /// Optional so previews and tests without the shell still build the screen.
     @Environment(AppRouter.self) private var router: AppRouter?
 
@@ -82,14 +83,17 @@ struct InmoGo3View: View {
             VStack(alignment: .leading, spacing: 26) {
                 hero
                 talkButton
+                InmoControlsView()
                 if stepsDone < 3 { setupSection }
                 // Only while the glasses are unknown: once known, a headset on the route
                 // (AirPods, say) is not an invitation to re-pick them.
                 if !known, let headset = route.otherHeadset { claimSection(headset) }
                 soundSection
                 talkingSection
+                notificationsSection
+                navigationSection
                 deviceSection
-                laterSection
+                traceSection
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 28)
@@ -154,18 +158,18 @@ struct InmoGo3View: View {
         return "Not on audio"
     }
 
-    /// Starts Voice, the same way Control Center does. With the glasses on the route the
-    /// whole conversation runs through their mics and speakers.
+    /// Opens the native GO3 AI screen and its proprietary microphone session.
     private var talkButton: some View {
         VStack(spacing: 8) {
             Button {
-                router?.requestVoiceLaunch()
+                Task {
+                    await InmoAIChannel.shared.startFromPhone()
+                }
             } label: {
                 Label("Talk to Jarvis", jcIcon: "mic.fill")
             }
             .buttonStyle(.jcGlass(full: true))
-            Text(route.connected ? "Through the glasses' mics and speakers"
-                                 : "Uses the iPhone until the glasses are connected")
+            Text(InmoAIChannel.shared.enabled ? InmoAIChannel.shared.status : "Opens Jarvis on the glasses")
                 .font(.caption)
                 .foregroundStyle(JcTheme.muted)
         }
@@ -199,7 +203,7 @@ struct InmoGo3View: View {
                     divider
                     step(3, "Talk through them", "Start Voice with the glasses on; their mics carry the turn",
                          done: link.usedMic) {
-                        Button("Talk") { router?.requestVoiceLaunch() }
+                        Button("Talk") { Task { await InmoAIChannel.shared.startFromPhone() } }
                             .buttonStyle(.jcGlass(compact: true))
                             .disabled(!route.connected)
                     }
@@ -344,6 +348,27 @@ struct InmoGo3View: View {
         .padding(.vertical, 12)
     }
 
+    // MARK: Notifications
+
+    /// Mirror the iPhone's own notifications onto the lens over iOS ANCS. Turning
+    /// this on connects with the ANCS requirement so iOS asks, once, to allow the
+    /// glasses to receive notifications, then tells the firmware to display them.
+    private var notificationsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            group("Notifications") {
+                toggle("Accept notifications",
+                       "Show your iPhone's notifications on the lens. iOS will ask once to allow it.",
+                       "bell.badge",
+                       isOn: Binding(get: { notificationsOn },
+                                     set: { on in notificationsOn = on; InmoSession.shared.setNotificationsEnabled(on) }))
+            }
+            Button { InmoSession.shared.sendTestNotification() } label: {
+                Label("Send test notification", jcIcon: "bell.badge.fill")
+            }
+            .buttonStyle(.jcGlass(full: true))
+        }
+    }
+
     // MARK: Device
 
     /// What iOS reports about the glasses' audio link — read live, only while connected.
@@ -361,6 +386,51 @@ struct InmoGo3View: View {
             info("timer", "Audio delay", details.outputLatencyMs.map { "\($0) ms" } ?? "—")
             divider
             info("number", "Address", link.rememberedKey ?? "—")
+        }
+    }
+
+    // MARK: Official-app trace research
+
+    /// The places the glasses' Navigation app lists, and live turn-by-turn status.
+    private var navigationSection: some View {
+        group("Navigation") {
+            NavigationLink {
+                GlassesPlacesView()
+            } label: {
+                HStack(spacing: 12) {
+                    iconTile("location.north.line.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Places & directions").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                        Text("Home, Work and saved places for walking or cycling on the lens")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            }
+        }
+    }
+
+    private var traceSection: some View {
+        group("Research") {
+            NavigationLink {
+                InmoTraceView()
+            } label: {
+                HStack(spacing: 12) {
+                    iconTile("waveform.path.ecg")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("INMO app traces").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                        Text("Record on your Mac · import, inspect and export")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            }
         }
     }
 

@@ -34,6 +34,8 @@ import Foundation
 enum AudioSessionClient: CaseIterable, Sendable {
     case keepalive
     case voice
+    /// Raw wearable PCM already supplies input; never open the headset microphone.
+    case externalVoice
     /// The `record_audio` skill's clip capture.
     case recording
     /// Live Jarvis's ambient conversation capture. A SEPARATE claim from `.voice`
@@ -238,6 +240,7 @@ final class AudioSessionArbiter {
     ///  * **keepalive** — the cheapest claim, and the only one that is content
     ///    with `.playback`.
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
+        if holders.contains(.externalVoice) { return playbackPlan }
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientPlan }

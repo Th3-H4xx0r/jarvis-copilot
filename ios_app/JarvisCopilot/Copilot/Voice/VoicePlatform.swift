@@ -297,6 +297,7 @@ protocol AudioSessionControlling: AnyObject {
     /// `.playAndRecord` + `.videoChat`: speakerphone route AND echo cancellation,
     /// which is how calling apps get full volume with a live mic.
     func configureForConversation() throws
+    func configureForExternalInput() throws
     func setActive(_ active: Bool) throws
     var onInterruption: ((AudioInterruption) -> Void)? { get set }
 }

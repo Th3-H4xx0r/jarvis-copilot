@@ -12,6 +12,7 @@ import SwiftUI
 struct SkillsPage: View {
     @State private var model: SkillsPageModel
     @State private var testing: SkillListItem?
+    @ObservedObject private var devices = DeviceRegistry.shared
 
     /// See `SettingsPage.init` — a view's `init` isn't main-actor-isolated, so
     /// the model can't be a default argument.
@@ -30,6 +31,7 @@ struct SkillsPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 SkillsRunnerCard(paused: model.paused) { model.setPaused($0) }
                 catalogue
+                wearableCatalogue
                 SkillsInvokeLog(rows: model.log) { model.reloadLog() }
             }
             .padding(.horizontal, 16)
@@ -47,6 +49,29 @@ struct SkillsPage: View {
         .onAppear { model.reload() }
         .sheet(item: $testing) { item in
             SkillTestSheet(model: model, skill: item)
+        }
+    }
+
+    private var wearableCatalogue: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader("Shared wearable skills") {
+                Text("Device registry").font(JcText.small).foregroundStyle(JcTheme.muted)
+            }
+            ForEach(devices.devices.filter { $0.deviceID != "wearables" && $0.capabilities.contains { $0.name.hasPrefix("glasses_") } }, id: \.deviceID) { device in
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NavigationLink("GO3 Controls and Availability") { InmoCapabilitiesView(device: InmoGo3Device.shared) }
+                        Text(device.isConnected ? "Control channel ready" : "Control channel offline; status remains available").font(.caption).foregroundStyle(.secondary)
+                        ForEach(device.capabilities.filter { model.query.isEmpty || $0.name.localizedCaseInsensitiveContains(model.query) || $0.description.localizedCaseInsensitiveContains(model.query) }, id: \.name) { capability in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(capability.name).font(.system(.caption, design: .monospaced))
+                                Text(capability.description).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("Sharing is controlled on the device page.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 

@@ -247,9 +247,11 @@ final class MockSpeechRecognizing: SpeechRecognizing {
     /// What `prepare` answers — `.ready` unless a test says otherwise.
     var readiness: SpeechReadiness = .ready
     private(set) var prepareCount = 0
+    var onPrepare: (() async -> Void)?
 
     func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
         prepareCount += 1
+        await onPrepare?()
         onProgress(1)
         return readiness
     }
@@ -309,6 +311,8 @@ final class MockAudioSessionControlling: AudioSessionControlling {
         if let configureError { throw configureError }
         configureCount += 1
     }
+
+    func configureForExternalInput() throws { try configureForConversation() }
 
     func setActive(_ active: Bool) throws {
         activeCalls.append(active)

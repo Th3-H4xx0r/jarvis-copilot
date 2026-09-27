@@ -235,6 +235,10 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // A rest ending with the app open is a tap and a chime from the
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
+        // Mirror the notification onto the GO3 lens (no-op unless the user turned
+        // glasses notifications on and the glasses are connected).
+        let content = notification.request.content
+        await InmoSession.shared.forwardNotification(title: content.title, body: content.body)
         return [.banner, .sound, .list]
     }
 

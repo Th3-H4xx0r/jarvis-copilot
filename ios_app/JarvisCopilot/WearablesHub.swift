@@ -167,6 +167,7 @@ final class WearablesHub: ObservableObject {
     let scale = ScaleManager()
     let esp32 = Esp32Manager()
     let ring = RingManager()
+    let glasses = InmoGo3Device.shared
 
     private var reconnectTask: Task<Void, Never>?
 
@@ -177,6 +178,7 @@ final class WearablesHub: ObservableObject {
         restoreSharedDevices()
         bottle.enterForeground()
         ring.enterForeground()
+        if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.ensureConnected() } }
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
     }
@@ -291,17 +293,17 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
                                      listed: live != nil))
         }
-        // The glasses are a Bluetooth headset iOS holds, not a link of ours: they're known
-        // once the audio route has shown them, and always have their own card (`listed`).
-        if let id = WearableIdentity.remembered(WearableKeepAlive.glasses) {
-            let route = GlassesAudioLink.shared.state
+        // Control identity stays stable independently of the remembered audio port.
+        // The glasses always have their own card (`listed`).
+        if WearableIdentity.remembered(WearableKeepAlive.glasses) != nil || WearableIdentity.remembered("inmoGo3Control") != nil {
+            let id = glasses.deviceID
             out.append(WearableEntry(kind: WearableKeepAlive.glasses,
                                      deviceID: id,
                                      model: InmoGo3.model,
                                      name: InmoGo3.name,
-                                     connected: route.connected,
-                                     rssi: nil,
-                                     lastRSSI: nil,
+                                     connected: glasses.isConnected,
+                                     rssi: glasses.session.rssi,
+                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.glasses),
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.glasses),
                                      listed: true))
         }
@@ -321,7 +323,7 @@ final class WearablesHub: ObservableObject {
              rssi: esp32.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.ring, connected: ring.state == .ready,
              rssi: ring.discovered.first(where: { $0.rssi != 0 })?.rssi)
-        note(WearableKeepAlive.glasses, connected: GlassesAudioLink.shared.state.connected, rssi: nil)
+        note(WearableKeepAlive.glasses, connected: glasses.isConnected, rssi: nil)
     }
 
     /// A device is seen when a scan turns it up OR while we hold a link to it.
@@ -352,6 +354,14 @@ final class WearablesHub: ObservableObject {
         scale.publishRemembered()
         esp32.publishRemembered()
         ring.publishRemembered()
+        InmoTeleprompter.shared.install(on: glasses)
+        InmoAIChannel.shared.install(on: glasses)
+        InmoAdvancedControls.install(on: glasses)
+        GlassesNavigator.shared.install(on: glasses)
+        #if DEBUG
+        Task { await InmoDeviceTrial.runIfRequested() }
+        #endif
+        glasses.refreshMembership()
         DeviceRegistry.shared.register(WearablesDevice())
         BridgeClient.shared.sendRegistration()
         registerHealthIntegrations()
@@ -427,9 +437,7 @@ final class WearablesHub: ObservableObject {
             if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
             return await waitUntil(timeout: timeout) { self.ring.state == .ready }
         case WearableKeepAlive.glasses:
-            // iOS holds the glasses' Bluetooth audio; there is no link of ours to open.
-            GlassesAudioLink.shared.refresh()
-            return GlassesAudioLink.shared.state.connected
+            do { try await glasses.session.ensureConnected(); return glasses.isConnected } catch { return false }
         default:
             return false
         }
