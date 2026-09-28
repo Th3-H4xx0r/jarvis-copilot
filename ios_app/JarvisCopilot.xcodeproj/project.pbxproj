@@ -19,6 +19,7 @@
 		02924514331E5FC5C4CA6004 /* ChatJSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3E7176C46606A0A20279B7 /* ChatJSONValue.swift */; };
 		02C5D18FF2FF0B865D1D158E /* CronsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B04B8197409587853F6EC6A /* CronsModels.swift */; };
 		033131937592F1BADB96AEA7 /* ChatPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9AE49D111FC69C08C9C180F /* ChatPage.swift */; };
+		034082D75854BCAF4477C39E /* LiveCaptionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC76EA030922E52DEA5E27BE /* LiveCaptionsSettingsView.swift */; };
 		039B4399E28DC2D93B42E77B /* RingHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6794BFF29A8955885D2DFF9 /* RingHistoryStore.swift */; };
 		03E25F2A2C76440424E55F2E /* IslandDesignsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A43AF4B8CFB7F55DC620A6 /* IslandDesignsStore.swift */; };
 		03F3E45BF303E8D56DC714ED /* JcTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E9AD94F1C0459F59355A1C /* JcTheme.swift */; };
@@ -1481,6 +1482,7 @@
 		CB853687443BF6D01424F199 /* ExerciseDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
 		CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceState.swift; sourceTree = "<group>"; };
 		CC2B17CF791F5B815FD41CA3 /* SkillsUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillsUITests.swift; sourceTree = "<group>"; };
+		CC76EA030922E52DEA5E27BE /* LiveCaptionsSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptionsSettingsView.swift; sourceTree = "<group>"; };
 		CCAAEDE67B6C83A137FDF70D /* IntegrationPieces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationPieces.swift; sourceTree = "<group>"; };
 		CCB41EB73741A77002320B13 /* BottleProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleProtocol.swift; sourceTree = "<group>"; };
 		CD6D0D1B2B575C6C877BB4A0 /* InmoAudioTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAudioTests.swift; sourceTree = "<group>"; };
@@ -2507,6 +2509,7 @@
 				4CBE5FF80FEC995287D213E7 /* LiveCaptionComposer.swift */,
 				50F9594BFFBCE73E692561D9 /* LiveLensBridge.swift */,
 				987397858F0F9074BC45EC65 /* LiveStore+Captions.swift */,
+				CC76EA030922E52DEA5E27BE /* LiveCaptionsSettingsView.swift */,
 			);
 			name = LiveLens;
 			path = LiveLens;
@@ -4135,6 +4138,7 @@
 				00D739E1842FF0BFF6246491 /* LiveCaptionComposer.swift in Sources */,
 				59F66083B56BC68E01C254E1 /* LiveLensBridge.swift in Sources */,
 				6B5D38D98D53732C85B22CB8 /* LiveStore+Captions.swift in Sources */,
+				034082D75854BCAF4477C39E /* LiveCaptionsSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

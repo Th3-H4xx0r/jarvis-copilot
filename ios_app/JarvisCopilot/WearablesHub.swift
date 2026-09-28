@@ -359,6 +359,7 @@ final class WearablesHub: ObservableObject {
         GlassesNoteRecorder.shared.install()
         GlassesTranslator.shared.install()
         GlassesFaceLink.shared.install()
+        LiveLensBridge.shared.install()
         InmoAdvancedControls.install(on: glasses)
         GlassesNavigator.shared.install(on: glasses)
         #if DEBUG

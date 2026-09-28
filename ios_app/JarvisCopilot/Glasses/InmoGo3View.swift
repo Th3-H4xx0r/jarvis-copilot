@@ -428,6 +428,23 @@ struct InmoGo3View: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 14)
             }
+            divider
+            NavigationLink {
+                LiveCaptionsSettingsView()
+            } label: {
+                HStack(spacing: 12) {
+                    iconTile("captions.bubble")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Live captions").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                        Text(LiveCaptionsSettingsView.describe(LiveLensBridge.shared.status))
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            }
         }
     }
 

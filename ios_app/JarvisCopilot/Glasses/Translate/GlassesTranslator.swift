@@ -210,7 +210,9 @@ final class GlassesTranslator {
             switch parsed {
             case .opened(let opened):
                 // The glasses echo our own open; only an idle phone answers theirs.
-                if phase == .idle, startsFromGlasses { Task { await start(mode: opened, fromGlasses: true) } }
+                if phase == .idle, startsFromGlasses, !LiveLensBridge.shared.ownsLens(module: opened.module) {
+                    Task { await start(mode: opened, fromGlasses: true) }
+                }
                 // The official app sends the languages once the lens app is open:
                 // repeat them on the echo in case ours arrived before it was ready.
                 else if phase == .running, opened == mode {

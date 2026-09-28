@@ -99,6 +99,15 @@ struct LiveSettingsSheet: View {
                         .labelsHidden()
                         .tint(JcTheme.accent)
                 }
+                GlassRow(symbol: "eyeglasses",
+                         title: "Show on glasses",
+                         subtitle: "The GO3 lens shows who's talking while Live records.",
+                         subtitleLineLimit: 2) {
+                    Toggle("", isOn: Binding(get: { LiveLensBridge.shared.enabled },
+                                             set: { LiveLensBridge.shared.enabled = $0 }))
+                        .labelsHidden()
+                        .tint(JcTheme.accent)
+                }
                 NavigationLink {
                     LiveCaptureSourceScreen(store: store)
                 } label: {
