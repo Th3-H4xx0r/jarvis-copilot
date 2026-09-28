@@ -113,7 +113,16 @@ struct LiveSettingsSheet: View {
                 } label: {
                     GlassRow(symbol: "waveform",
                              title: "Microphone",
-                             subtitle: store.activeSource.label,
+                             subtitle: store.activeSource.label)
+                }
+                .buttonStyle(.plain)
+                // Storage lives here now, not as its own button on the Live screen.
+                NavigationLink {
+                    LiveStorageScreen(store: store)
+                } label: {
+                    GlassRow(symbol: "internaldrive",
+                             title: "Storage",
+                             subtitle: store.storageText,
                              last: true)
                 }
                 .buttonStyle(.plain)

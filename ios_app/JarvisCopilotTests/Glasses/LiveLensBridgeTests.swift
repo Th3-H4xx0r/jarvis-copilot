@@ -149,6 +149,29 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertFalse(b.ownsLens(module: 0))
     }
 
+    /// Answers and fact-checks framed as text on the lens, in readable chunks.
+    func testABlockIsFramedAndChunked() {
+        let short = LiveLensBridge.frame(title: "Jarvis", body: "Yes, that's a fair price.")
+        XCTAssertEqual(short.count, 1)
+        XCTAssertTrue(short[0].hasPrefix("━━━ 【Jarvis】 ━━━\n"))
+        XCTAssertTrue(short[0].hasSuffix("\n" + LiveLensBridge.blockBar))
+        let long = LiveLensBridge.frame(title: "Fact-check", body: Array(repeating: "word", count: 80).joined(separator: " "))
+        XCTAssertGreaterThan(long.count, 1)
+        XCTAssertTrue(long[0].hasPrefix("━━━ 【Fact-check】 ━━━\n"))
+        XCTAssertTrue(long.last!.hasSuffix(LiveLensBridge.blockBar))
+        XCTAssertTrue(long.allSatisfy { $0.count <= LiveLensBridge.blockChunk + 60 })
+    }
+
+    func testLiveCaptionsWaitWhileABlockIsShowing() async {
+        let b = bridge()
+        b.enabled = true
+        b.showBlock(title: "Jarvis", body: "short answer")
+        for _ in 0..<10 where !surface.calls.contains(where: { $0.contains("【Jarvis】") }) { await Task.yield() }
+        source.snapshot = .init(partial: "", segments: [seg(1, "Maya", "during")])
+        b.refresh()
+        XCTAssertFalse(surface.calls.contains("final Maya — during"))
+    }
+
     /// Review C2: the test action's own open/close echoes are not the user.
     func testTheTestCaptionEchoesAreIgnored() {
         let b = bridge()

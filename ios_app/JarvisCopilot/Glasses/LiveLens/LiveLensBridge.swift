@@ -67,6 +67,8 @@ final class LiveLensBridge {
     /// A lens app opened on the glasses (not ours) that has the lens until it closes.
     private var otherApp: Int?
     private var heldPartial: LensCaption?
+    /// An answer or fact-check is on the lens: live captions wait until it's read.
+    private var blockActive = false
     private var lastPartialAt = Date.distantPast
     private var observer: UUID?
     private var connection: AnyCancellable?
@@ -156,7 +158,7 @@ final class LiveLensBridge {
                 heldPartial = nil
                 lastPartialAt = .distantPast
                 if let first = composer.begin(source.captionSnapshot()) { send(first) }
-            } else {
+            } else if !blockActive {
                 for caption in composer.update(source.captionSnapshot()) { send(caption) }
                 flushHeld()
             }
@@ -198,6 +200,53 @@ final class LiveLensBridge {
             self.tick = nil
             if self.open { self.flushHeld() }
         }
+    }
+
+    // MARK: Blocks (answers, fact-checks)
+
+    static let blockBar = String(repeating: "━", count: 22)
+    /// Characters of body per lens chunk: about four lens lines.
+    static let blockChunk = 150
+
+    /// Shows Jarvis's answer or a fact-check inside the captions, framed as a
+    /// text block so it reads apart from what people said. Long ones go up in
+    /// chunks a few seconds apart; live captions wait until it's been read.
+    /// Without captions on the lens it falls back to a lens card.
+    func showBlock(title: String, body: String) {
+        guard open, let surface else {
+            InmoSession.shared.forwardNotification(title: title, body: String(body.prefix(400)))
+            return
+        }
+        let chunks = Self.frame(title: title, body: body)
+        blockActive = true
+        Task { [weak self] in
+            for (index, chunk) in chunks.enumerated() {
+                guard let self, self.open else { break }
+                surface.show(LensCaption(text: chunk, translation: "", final: true))
+                if index < chunks.count - 1 { try? await Task.sleep(for: .seconds(3.5)) }
+            }
+            try? await Task.sleep(for: .seconds(4))
+            guard let self else { return }
+            self.blockActive = false
+            self.refresh()
+        }
+    }
+
+    static func frame(title: String, body: String) -> [String] {
+        let header = "━━━ 【\(title)】 ━━━"
+        var chunks: [String] = []
+        var current = ""
+        for word in body.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+            if !current.isEmpty, current.count + word.count + 1 > blockChunk {
+                chunks.append(current)
+                current = ""
+            }
+            current += (current.isEmpty ? "" : " ") + word
+        }
+        if !current.isEmpty || chunks.isEmpty { chunks.append(current) }
+        chunks[0] = header + "\n" + chunks[0]
+        chunks[chunks.count - 1] += "\n" + blockBar
+        return chunks
     }
 
     // MARK: Glasses

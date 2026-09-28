@@ -14,6 +14,7 @@ struct VoicePage: View {
     /// The LIVE conversation picker, which is a different thing from the voice
     /// session picker above it.
     @State private var showLiveSessions = false
+    @State private var showLiveSettings = false
     private let sessionSelection = VoiceSessionSelection.shared
     @State private var showMicDialog = false
     @State private var showDiagnostics = false
@@ -65,6 +66,9 @@ struct VoicePage: View {
             // The leading chip names the mode, so a centred title repeated it.
             .jcScreen(liveMode ? "" : "Voice")
             .toolbar { toolbar }
+        }
+        .sheet(isPresented: $showLiveSettings) {
+            LiveSettingsSheet(store: LiveStore.shared)
         }
         // The Siri / Control-Center latch. On appear for a cold launch (the request
         // lands before any view exists) and on every generation change for a warm
@@ -396,6 +400,14 @@ struct VoicePage: View {
             .accessibilityLabel("Mode: \(liveMode ? "Live" : "Voice")")
         }
         if liveMode {
+            // Live settings (storage inside), left of the conversations button.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showLiveSettings = true } label: {
+                    JcIcon("gear", size: 15, weight: .medium)
+                        .foregroundStyle(JcTheme.accent)
+                }
+                .accessibilityLabel("Live settings")
+            }
             // ONE control per side. The Live conversation picker — not the
             // voice session picker, which governs voice turns and would be
             // offering to change something a recording does not use. The model

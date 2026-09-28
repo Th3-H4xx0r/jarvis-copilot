@@ -42,11 +42,11 @@ final class LiveAsk {
                 }
                 self?.update(exchange.id, reply: turn.message, pending: false)
                 self?.anchor(exchange.id, at: store.transcript.segments.last?.seq)
-                // The answer on the glasses too, as a lens card.
+                // The answer on the glasses too, inside the captions as a framed block.
                 let answer = turn.message.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !answer.isEmpty {
-                    InmoSession.shared.forwardNotification(title: "Jarvis · \(text.prefix(40))",
-                                                           body: String(answer.prefix(400)))
+                    LiveLensBridge.shared.showBlock(title: "Jarvis",
+                                                    body: "Q: \(text)\nA: \(answer.prefix(450))")
                 }
             } catch {
                 self?.update(exchange.id, reply: nil, pending: false,

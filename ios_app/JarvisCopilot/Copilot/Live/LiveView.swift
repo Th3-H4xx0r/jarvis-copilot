@@ -542,9 +542,8 @@ struct LiveView: View {
                         }
                         #if !JC_MAC_VOICE
                         if !result.failed, !result.text.isEmpty {
-                            let verdict = result.verdict.isEmpty ? "" : result.verdict.capitalized + " — "
-                            InmoSession.shared.forwardNotification(title: "Fact-check",
-                                                                   body: String((verdict + result.text).prefix(400)))
+                            let title = result.verdict.isEmpty ? "Fact-check" : "Fact-check · \(result.verdict.uppercased())"
+                            LiveLensBridge.shared.showBlock(title: title, body: String(result.text.prefix(450)))
                         }
                         #endif
                     }
@@ -716,8 +715,6 @@ struct LiveView: View {
 
             factCheckTile
             secondary("person.2", "Voices") { showSpeakers = true }
-            secondary("internaldrive", "Storage") { showStorage = true }
-            secondary("gear", "Settings") { showSettings = true }
         }
     }
 
