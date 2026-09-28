@@ -5447,6 +5447,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/session/handoff-summary":
         return _handle_handoff_summary(handler, body)
 
+    if parsed.path == "/api/translate/text":
+        from api.translate_ws import handle_text
+        return handle_text(handler, body)
+
     if parsed.path == "/api/session/retry":
         try:
             require(body, "session_id")

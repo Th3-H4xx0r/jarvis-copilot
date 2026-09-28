@@ -334,6 +334,13 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                # Glasses live translation through Soniox (/api/translate/ws).
+                try:
+                    from api.translate_ws import handle_websocket as _translate_ws
+                    if _translate_ws(self, parsed):
+                        return
+                except Exception:
+                    pass
                 from api.voice import handle_websocket
                 if handle_websocket(self, parsed):
                     return

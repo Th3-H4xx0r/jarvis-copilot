@@ -356,6 +356,8 @@ final class WearablesHub: ObservableObject {
         ring.publishRemembered()
         InmoTeleprompter.shared.install(on: glasses)
         InmoAIChannel.shared.install(on: glasses)
+        GlassesNoteRecorder.shared.install()
+        GlassesTranslator.shared.install()
         InmoAdvancedControls.install(on: glasses)
         GlassesNavigator.shared.install(on: glasses)
         #if DEBUG

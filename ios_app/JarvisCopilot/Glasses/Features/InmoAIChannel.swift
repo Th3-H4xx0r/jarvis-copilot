@@ -155,11 +155,12 @@ final class InmoAIChannel {
         }
     }
 
-    static func audioPayload(_ audio: [InmoWireField]) throws -> (Data, [Int]) {
+    /// `audioType` 2 is the AI assistant's stream; 3 is AI notes (same framing).
+    nonisolated static func audioPayload(_ audio: [InmoWireField], audioType: UInt64 = 2) throws -> (Data, [Int]) {
                 let header = try audio.firstField(1)?.nested() ?? []
                 guard header.firstField(1)?.varint == 16000,
                       header.firstField(2)?.varint == 1,
-                      header.firstField(4)?.varint == 2,
+                      header.firstField(4)?.varint == audioType,
                       let data = audio.firstField(4)?.bytes,
                       audio.firstField(3)?.varint == UInt64(data.count) else {
                     throw InmoAudioError.unsupportedFormat
@@ -233,8 +234,15 @@ final class InmoAIChannel {
         do {
             try await InmoSession.shared.send(InmoCommand.settings(type: 21, field: 2, value: 1))
             guard enabled, !active, generation == epoch else { return }
-            try await InmoSession.shared.send(InmoCommand.closeModule(4))
-            InmoRuntimeDiagnostics.note("AI voice wake enabled; orphaned module closed")
+            // Close an orphaned AI screen only when the glasses said it is the one
+            // open: on a fresh connect nothing is known, and a blind close shut
+            // down whatever else was running on the lens (an INMO note, 2026-09-27).
+            if InmoSession.shared.status.module == 4 {
+                try await InmoSession.shared.send(InmoCommand.closeModule(4))
+                InmoRuntimeDiagnostics.note("AI voice wake enabled; orphaned module closed")
+            } else {
+                InmoRuntimeDiagnostics.note("AI voice wake enabled")
+            }
         } catch {
             status = "Could not enable glasses voice wake: \(error.localizedDescription)"
         }

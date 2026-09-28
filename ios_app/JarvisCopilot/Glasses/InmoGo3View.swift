@@ -91,6 +91,7 @@ struct InmoGo3View: View {
                 soundSection
                 talkingSection
                 notificationsSection
+                notesSection
                 navigationSection
                 deviceSection
                 traceSection
@@ -392,6 +393,44 @@ struct InmoGo3View: View {
     // MARK: Official-app trace research
 
     /// The places the glasses' Navigation app lists, and live turn-by-turn status.
+    private var notesSection: some View {
+        group("Notes & translation") {
+            NavigationLink {
+                GlassesNotesView()
+            } label: {
+                HStack(spacing: 12) {
+                    iconTile("mic.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("AI Notes").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                        Text("Record with the glasses mic · live transcript on the lens · photos · Jarvis summary")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            }
+            divider
+            NavigationLink {
+                GlassesTranslateView()
+            } label: {
+                HStack(spacing: 12) {
+                    iconTile("globe")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Live translation").font(.body.weight(.medium)).foregroundStyle(JcTheme.text)
+                        Text("Hear someone in another language · translation on the lens")
+                            .font(.caption).foregroundStyle(JcTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+            }
+        }
+    }
+
     private var navigationSection: some View {
         group("Navigation") {
             NavigationLink {

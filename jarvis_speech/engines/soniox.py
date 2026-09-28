@@ -36,7 +36,7 @@ _KEEPALIVE_S = 10          # Soniox closes a stream that hears nothing for 20 s
 # at most 1.1 s apart through a 60 s backlog), so a backlog never trips this.
 _STALL_S = 30
 _FILE_CHUNK = 32 * 1024
-_SURFACE_OF = {"voice": "voice", "live": "live", "file": "upload"}
+_SURFACE_OF = {"voice": "voice", "live": "live", "file": "upload", "translate": "translate"}
 # Containers Soniox recognises with audio_format "auto"; anything else is decoded first.
 _AUTO_SUFFIXES = {".aac", ".aiff", ".aif", ".amr", ".asf", ".flac", ".mp3", ".ogg", ".oga",
                   ".opus", ".wav", ".webm"}
@@ -128,8 +128,11 @@ _VOICE_CONTEXT = (
 class SonioxStream:
     def __init__(self, connect, sink, *, rate: int, translate_to: str, purpose: str,
                  idle_close_s: float, audio_format: str = "pcm_s16le", key: str = "",
-                 context_text: str = "") -> None:
+                 context_text: str = "", language_hints: Optional[List[str]] = None) -> None:
         self._connect = connect
+        # A caller that knows what will be spoken (glasses translation: the two
+        # languages picked) overrides the configured hints.
+        self._language_hints = [h for h in (language_hints or []) if h]
         self._context_text = (context_text or "").strip()[-_CONTEXT_TEXT_MAX:]
         self._given_key = key  # a key being tried before it is saved (the Test button)
         self._collect = _Collect(sink)
@@ -315,9 +318,11 @@ class SonioxStream:
     def _config_message(self) -> dict:
         son = config.load()["soniox"]
         live = self._purpose == "live"
+        # Glasses translation: lines close at pauses so each gets its translation.
+        translate = self._purpose == "translate"
         # Voice too: Soniox hearing the end of an utterance ends the turn sooner
         # than the device's level-based silence wait.
-        ends = live or self._purpose == "voice"
+        ends = live or translate or self._purpose == "voice"
         message = {"model": son["model"], "audio_format": self._audio_format,
                    "enable_language_identification": bool(son["language_id"]),
                    "enable_speaker_diarization": bool(son["speaker_labels"]) if live else False,
@@ -328,7 +333,7 @@ class SonioxStream:
             message["num_channels"] = 1
         # A Voice turn with nothing to lean on drifted into other languages on
         # short, unclear audio; English is only a hint, other languages still pass.
-        hints = list(son["language_hints"]) or (["en"] if self._purpose == "voice" else [])
+        hints = self._language_hints or list(son["language_hints"]) or (["en"] if self._purpose == "voice" else [])
         if hints:
             message["language_hints"] = hints
         if son["custom_words"]:
@@ -347,9 +352,8 @@ class SonioxStream:
             message["endpoint_latency_adjustment_level"] = son["endpoint_latency_level"]
             message["endpoint_sensitivity"] = son["endpoint_sensitivity"]
             message["max_endpoint_delay_ms"] = son["max_endpoint_delay_ms"]
-        if live:
-            if self._translate_to:
-                message["translation"] = {"type": "one_way", "target_language": self._translate_to}
+        if (live or translate) and self._translate_to:
+            message["translation"] = {"type": "one_way", "target_language": self._translate_to}
         return message
 
 
@@ -383,9 +387,11 @@ class SonioxEngine:
                                   max_size=2 ** 22, ping_interval=None))
 
     def open_stream(self, sink, *, rate: int, translate_to: str = "", purpose: str = "live",
-                    idle_close_s: float = 0, context_text: str = "") -> SonioxStream:
+                    idle_close_s: float = 0, context_text: str = "",
+                    language_hints: Optional[List[str]] = None) -> SonioxStream:
         return SonioxStream(lambda: self._connect(), sink, rate=rate, translate_to=translate_to,
-                            purpose=purpose, idle_close_s=idle_close_s, context_text=context_text)
+                            purpose=purpose, idle_close_s=idle_close_s, context_text=context_text,
+                            language_hints=language_hints)
 
     def transcribe_file(self, path: str) -> dict:
         suffix = Path(path).suffix.lower()

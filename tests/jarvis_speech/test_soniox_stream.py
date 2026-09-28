@@ -345,3 +345,17 @@ def test_a_quiet_stream_with_no_audio_is_not_a_stall(monkeypatch):
     time.sleep(1.0)
     assert not s.done and s.error == ""
     s.close()
+
+
+def test_glasses_translation_config_uses_the_two_picked_languages(monkeypatch):
+    son = dict(soniox.config.DEFAULTS["soniox"], language_hints=["en", "zh"])
+    monkeypatch.setattr(soniox.config, "load", lambda: {"surfaces": {}, "soniox": son})
+    t = FakeTransport([])
+    _engine(monkeypatch, t).open_stream(Rec(), rate=16000, translate_to="en", purpose="translate",
+                                        language_hints=["es", "en"]).finish(timeout=2)
+    msg = json.loads(t.sent[0])
+    assert msg["translation"] == {"type": "one_way", "target_language": "en"}
+    # The caller's languages win over the configured ones.
+    assert msg["language_hints"] == ["es", "en"]
+    assert msg["enable_endpoint_detection"] is True and msg["enable_speaker_diarization"] is False
+    assert msg["client_reference_id"] == "jarvis-translate"
