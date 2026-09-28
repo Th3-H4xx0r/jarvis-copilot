@@ -239,11 +239,26 @@ final class AudioSessionArbiter {
     ///    the user is having right now outranks the room they are in.
     ///  * **keepalive** — the cheapest claim, and the only one that is content
     ///    with `.playback`.
+    /// True while smart glasses are around (set by the glasses code on iOS). Their
+    /// Bluetooth call profile puts them on a phone-call screen — covering Live
+    /// captions — and their call mic only hears the wearer, so Live's plan leaves
+    /// `.allowBluetooth` out and records from the phone.
+    static var ambientAvoidsCallMic: @MainActor () -> Bool = { false }
+
+    /// `ambientPlan` without the hands-free profile: output still reaches a
+    /// Bluetooth speaker over A2DP.
+    static let ambientPlanWithoutCallMic = AudioSessionPlan(
+        category: .playAndRecord,
+        mode: .default,
+        options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP],
+        active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: 0.1)
+
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
         if holders.contains(.externalVoice) { return playbackPlan }
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
-        if holders.contains(.ambient) { return ambientPlan }
+        if holders.contains(.ambient) { return ambientAvoidsCallMic() ? ambientPlanWithoutCallMic : ambientPlan }
         if holders.contains(.playback) { return playbackPlan }
         if holders.contains(.keepalive) { return keepalivePlan }
         return idlePlan

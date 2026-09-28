@@ -360,6 +360,10 @@ final class WearablesHub: ObservableObject {
         GlassesTranslator.shared.install()
         GlassesFaceLink.shared.install()
         LiveLensBridge.shared.install()
+        // Live never records through the glasses as a phone call.
+        AudioSessionArbiter.ambientAvoidsCallMic = {
+            InmoSession.shared.state == .ready || GlassesAudioLink.shared.state.connected
+        }
         InmoAdvancedControls.install(on: glasses)
         GlassesNavigator.shared.install(on: glasses)
         #if DEBUG

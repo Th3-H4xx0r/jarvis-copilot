@@ -11,7 +11,7 @@ final class LiveCaptionComposerTests: XCTestCase {
         var c = LiveCaptionComposer()
         _ = c.begin(.init(partial: "", segments: []))
         XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Maya", "Are we on for six?")])),
-                       [LensCaption(text: "Maya: Are we on for six?", translation: "", final: true)])
+                       [LensCaption(text: "Maya — Are we on for six?", translation: "", final: true)])
     }
 
     func testPartialWordsGoUpUnnamedThenTheFinalReplacesThem() {
@@ -21,7 +21,7 @@ final class LiveCaptionComposerTests: XCTestCase {
                        [LensCaption(text: "are we on", translation: "", final: false)])
         XCTAssertEqual(c.update(.init(partial: "are we on", segments: [])), [])
         XCTAssertEqual(c.update(.init(partial: "are we on", segments: [seg(1, "Maya", "Are we on?")])),
-                       [LensCaption(text: "Maya: Are we on?", translation: "", final: true)])
+                       [LensCaption(text: "Maya — Are we on?", translation: "", final: true)])
     }
 
     func testTheCommittedEchoOfTheLastLineIsNotRepeated() {
@@ -36,17 +36,17 @@ final class LiveCaptionComposerTests: XCTestCase {
         _ = c.begin(.init(partial: "", segments: []))
         _ = c.update(.init(partial: "", segments: [seg(1, "Luis", "¿Nos vemos a las seis?")]))
         let s = LiveCaptionSnapshot(partial: "", segments: [seg(1, "Luis", "¿Nos vemos a las seis?", "Are we meeting at six?")])
-        XCTAssertEqual(c.update(s), [LensCaption(text: "Luis: ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true)])
+        XCTAssertEqual(c.update(s), [LensCaption(text: "Luis — ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true)])
         XCTAssertEqual(c.update(s), [])
     }
 
     func testBeginShowsOnlyTheLatestLineAndNothingOlderIsReplayed() {
         var c = LiveCaptionComposer()
         let history = LiveCaptionSnapshot(partial: "", segments: [seg(7, "Maya", "one"), seg(8, "Pranav", "two")])
-        XCTAssertEqual(c.begin(history), LensCaption(text: "Pranav: two", translation: "", final: true))
+        XCTAssertEqual(c.begin(history), LensCaption(text: "Pranav — two", translation: "", final: true))
         XCTAssertEqual(c.update(history), [])
         XCTAssertEqual(c.update(.init(partial: "", segments: history.segments + [seg(9, "Maya", "three")])),
-                       [LensCaption(text: "Maya: three", translation: "", final: true)])
+                       [LensCaption(text: "Maya — three", translation: "", final: true)])
     }
 
     func testBeginPrefersTheWordsBeingSpoken() {
@@ -60,7 +60,7 @@ final class LiveCaptionComposerTests: XCTestCase {
         _ = c.begin(.init(partial: "", segments: []))
         _ = c.update(.init(partial: "", segments: [seg(1, "Speaker 2", "see you at sex")]))
         XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Maya", "see you at six")])),
-                       [LensCaption(text: "Maya: see you at six", translation: "", final: true)])
+                       [LensCaption(text: "Maya — see you at six", translation: "", final: true)])
     }
 
     func testLongCaptionsKeepTheMostRecentWords() {
@@ -78,9 +78,9 @@ final class LiveCaptionComposerTests: XCTestCase {
         var c = LiveCaptionComposer()
         _ = c.begin(.init(partial: "", segments: [seg(40, "Maya", "old")], session: "a"))
         XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "new day")], session: "b")),
-                       [LensCaption(text: "Luis: new day", translation: "", final: true)])
+                       [LensCaption(text: "Luis — new day", translation: "", final: true)])
         XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "new day"), seg(2, "Maya", "hi")], session: "b")),
-                       [LensCaption(text: "Maya: hi", translation: "", final: true)])
+                       [LensCaption(text: "Maya — hi", translation: "", final: true)])
     }
 
     /// Review C1: the transcript was cleared under us (same session id).
@@ -88,7 +88,7 @@ final class LiveCaptionComposerTests: XCTestCase {
         var c = LiveCaptionComposer()
         _ = c.begin(.init(partial: "", segments: [seg(40, "Maya", "old")]))
         XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "again")])),
-                       [LensCaption(text: "Luis: again", translation: "", final: true)])
+                       [LensCaption(text: "Luis — again", translation: "", final: true)])
     }
 
     /// Review I7: a long line keeps its speaker's name.
@@ -97,7 +97,7 @@ final class LiveCaptionComposerTests: XCTestCase {
         _ = c.begin(.init(partial: "", segments: []))
         let words = (1...60).map { "word\($0)" }.joined(separator: " ")
         let out = c.update(.init(partial: "", segments: [seg(1, "Maya", words)]))
-        XCTAssertTrue(out.first?.text.hasPrefix("Maya: …") ?? false)
+        XCTAssertTrue(out.first?.text.hasPrefix("Maya — …") ?? false)
         XCTAssertLessThanOrEqual(out.first?.text.count ?? 999, LiveCaptionComposer.maxChars)
     }
 

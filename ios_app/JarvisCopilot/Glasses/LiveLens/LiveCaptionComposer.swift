@@ -95,7 +95,8 @@ struct LiveCaptionComposer {
 
     /// The name stays whole; only the words are trimmed to fit.
     static func caption(_ segment: LiveCaptionSegment) -> LensCaption {
-        let name = segment.name + ": "
+        // " — " reads as a break on the lens; ": " ran into the words.
+        let name = segment.name + " — "
         return LensCaption(text: name + fit(segment.text, max: maxChars - name.count),
                            translation: fit(segment.translation), final: true)
     }

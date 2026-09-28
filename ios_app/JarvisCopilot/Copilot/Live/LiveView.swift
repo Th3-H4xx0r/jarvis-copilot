@@ -28,6 +28,10 @@ struct LiveView: View {
     @State private var pinnedToBottom = true
     /// The user tapped the slim recorder bar open.
     @State private var meterExpanded = false
+    /// A fact-check verdict that just landed stays at the bottom this long, so it
+    /// can be read, before settling against the line it judged.
+    @State private var factCheckLingering = false
+    static let factCheckLingerSeconds = 15.0
 
     /// A view's `init` is not main-actor isolated, so the store cannot be a default
     /// argument — the same reason `VoicePage.init` takes an optional.
@@ -58,9 +62,13 @@ struct LiveView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            roomMeter
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
+            // While recording, a tiny timer at the top right (tap for the full
+            // card); the full card whenever there is something to say.
+            if !showsMiniRecorder {
+                roomMeter
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
 
             if let halt = store.halt {
                 haltBanner(halt)
@@ -79,6 +87,11 @@ struct LiveView: View {
             }
 
             transcript
+                .overlay(alignment: .topTrailing) {
+                    if showsMiniRecorder {
+                        miniRecorder.padding(.trailing, 16).padding(.top, 2)
+                    }
+                }
 
             controls
                 .padding(.horizontal, 20)
@@ -205,6 +218,40 @@ struct LiveView: View {
             }
     }
 
+    private var showsMiniRecorder: Bool {
+        (captureState == .recording || captureState == .paused) && !meterExpanded
+    }
+
+    /// The recorder as a pill: a dot and the time. Tap for the full card.
+    private var miniRecorder: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { meterExpanded = true }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(captureState == .paused ? JcTheme.amber : Color.red).frame(width: 7, height: 7)
+                Text(Self.clock(elapsed ?? 0))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(JcTheme.text)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(captureState == .paused ? "Recording paused" : "Recording")
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            guard store.capturing else { return }
+            tick = Date()
+        }
+    }
+
+    private static func clock(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+                         : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     private var elapsed: TimeInterval? {
         guard let startedAt = store.captureStartedAt, store.capturing else { return nil }
         return max(0, tick.timeIntervalSince(startedAt))
@@ -307,7 +354,8 @@ struct LiveView: View {
     /// scrolled out of a truncated transcript, or a session resumed past it —
     /// would make the card disappear entirely, so it falls back to the end.
     private var anchoredFactCheck: LiveFactCheckResult? {
-        guard let result = store.factCheck, !result.pending, let seq = result.anchorSeq,
+        guard !factCheckLingering,
+              let result = store.factCheck, !result.pending, let seq = result.anchorSeq,
               store.rows.contains(where: {
                   if case .segment(let segment) = $0 { return segment.seq == seq }
                   return false
@@ -397,6 +445,9 @@ struct LiveView: View {
                                 ForEach(turn.notes, id: \.localID) { note in
                                     LiveInsightCard(insight: note)
                                 }
+                                #if !JC_MAC_VOICE
+                                ForEach(LiveAsk.shared.anchored(in: turn)) { LiveAskBubble(exchange: $0) }
+                                #endif
                             case .note(let note):
                                 LiveInsightCard(insight: note)
                             }
@@ -425,6 +476,11 @@ struct LiveView: View {
                             LiveWrapUpCard(wrap: wrap)
                                 .padding(.top, 4)
                         }
+                        #if !JC_MAC_VOICE
+                        // A question still being answered stays at the bottom, below
+                        // the words still arriving; once answered it pins to its line.
+                        ForEach(LiveAsk.shared.trailing(among: items)) { LiveAskBubble(exchange: $0) }
+                        #endif
                         // An anchor to scroll to, so following the newest row does
                         // not depend on the last row's identity (which changes when
                         // a provisional row is replaced).
@@ -460,13 +516,38 @@ struct LiveView: View {
                     guard pinnedToBottom else { return }
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
+                #if !JC_MAC_VOICE
+                // A question just asked, and its answer as it streams, stay in view.
+                .onChange(of: LiveAsk.shared.exchanges) { old, new in
+                    if new.count > old.count { pinnedToBottom = true }
+                    guard pinnedToBottom else { return }
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
+                #endif
                 // A fact-check is asked for with a tap, so its card is brought
                 // into view wherever it lands — the "Checking" card at the end,
                 // then the verdict at the end or under the line it judged. It
                 // appears without a new row, so following rows never showed it:
                 // it arrived below the fold.
                 .onChange(of: factCheckSignature) { _, _ in
-                    guard store.factCheck != nil else { return }
+                    guard let result = store.factCheck else { return }
+                    if !result.pending {
+                        // Readable first, then in place: the verdict waits at the bottom.
+                        factCheckLingering = true
+                        let landed = factCheckSignature
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.factCheckLingerSeconds) {
+                            if factCheckSignature == landed {
+                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) { factCheckLingering = false }
+                            }
+                        }
+                        #if !JC_MAC_VOICE
+                        if !result.failed, !result.text.isEmpty {
+                            let verdict = result.verdict.isEmpty ? "" : result.verdict.capitalized + " — "
+                            InmoSession.shared.forwardNotification(title: "Fact-check",
+                                                                   body: String((verdict + result.text).prefix(400)))
+                        }
+                        #endif
+                    }
                     pinnedToBottom = trailingFactCheck != nil
                     DispatchQueue.main.async {
                         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {

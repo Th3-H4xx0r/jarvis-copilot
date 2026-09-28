@@ -17,6 +17,9 @@ final class LiveAsk {
         var reply: ChatMessage?
         var pending = true
         var error: String?
+        /// The transcript line the answer landed after: from then on the bubble
+        /// stays there and newer lines flow in below it. Nil while answering.
+        var anchorSeq: Int?
     }
 
     private(set) var exchanges: [Exchange] = []
@@ -38,6 +41,13 @@ final class LiveAsk {
                     self?.update(exchange.id, reply: state.message, pending: true)
                 }
                 self?.update(exchange.id, reply: turn.message, pending: false)
+                self?.anchor(exchange.id, at: store.transcript.segments.last?.seq)
+                // The answer on the glasses too, as a lens card.
+                let answer = turn.message.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !answer.isEmpty {
+                    InmoSession.shared.forwardNotification(title: "Jarvis · \(text.prefix(40))",
+                                                           body: String(answer.prefix(400)))
+                }
             } catch {
                 self?.update(exchange.id, reply: nil, pending: false,
                              error: "Couldn't ask Jarvis: \(error.localizedDescription)")
@@ -46,6 +56,27 @@ final class LiveAsk {
     }
 
     func clear() { exchanges.removeAll() }
+
+    private func anchor(_ id: UUID, at seq: Int?) {
+        guard let i = exchanges.firstIndex(where: { $0.id == id }) else { return }
+        exchanges[i].anchorSeq = seq
+    }
+
+    /// Bubbles pinned after a line inside this turn.
+    func anchored(in turn: LiveTurn) -> [Exchange] {
+        exchanges.filter { exchange in exchange.anchorSeq.map { turn.contains(seq: $0) } ?? false }
+    }
+
+    /// Bubbles still answering, or whose line is not on screen: at the end.
+    func trailing(among items: [LiveTimelineItem]) -> [Exchange] {
+        exchanges.filter { exchange in
+            guard let seq = exchange.anchorSeq else { return true }
+            return !items.contains { item in
+                if case .turn(let turn) = item { return turn.contains(seq: seq) }
+                return false
+            }
+        }
+    }
 
     private func update(_ id: UUID, reply: ChatMessage?, pending: Bool, error: String? = nil) {
         guard let i = exchanges.firstIndex(where: { $0.id == id }) else { return }
@@ -87,19 +118,6 @@ struct LiveAskPanel: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            if !ask.exchanges.isEmpty {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(ask.exchanges.suffix(8)) { exchange in bubbles(exchange).id(exchange.id) }
-                        }
-                    }
-                    .frame(maxHeight: 340)
-                    .onChange(of: ask.exchanges) { _, list in
-                        if let last = list.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                    }
-                }
-            }
             if open {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Ask Jarvis about this conversation…", text: $draft, axis: .vertical)
@@ -146,10 +164,15 @@ struct LiveAskPanel: View {
         draft = ""
         ask.ask(text, store: store)
     }
+}
 
-    /// One card: what you asked on top, a divider, and Jarvis's reply below —
-    /// drawn by the chat screen's own assistant card (streaming text, tool calls).
-    @ViewBuilder private func bubbles(_ exchange: LiveAsk.Exchange) -> some View {
+/// One question on the Live transcript: what you asked on top, a divider, and
+/// Jarvis's reply below — drawn by the chat screen's own assistant card
+/// (streaming text, tool calls).
+struct LiveAskBubble: View {
+    let exchange: LiveAsk.Exchange
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 8) {
                 JcIcon("person.fill", size: 13).foregroundStyle(JcTheme.accent).padding(.top, 2)

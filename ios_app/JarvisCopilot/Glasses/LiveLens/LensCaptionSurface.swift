@@ -48,9 +48,11 @@ final class SubtitlesSurface: LensCaptionSurface {
         queue.post(InmoCommand.openModule(module))
         queue.post(GlassesSubtitlesWire.start())
     }
-    /// The translation rides on a second line of the same caption.
+    /// The Subtitles app runs every caption into one paragraph, so each one
+    /// starts on its own line. The translation rides on a second line.
     func show(_ caption: LensCaption) {
-        let text = caption.translation.isEmpty ? caption.text : caption.text + "\n" + caption.translation
+        let body = caption.translation.isEmpty ? caption.text : caption.text + "\n" + caption.translation
+        let text = "\n" + body
         queue.post(GlassesSubtitlesWire.line(text, final: caption.final))
     }
     func close() {

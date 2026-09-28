@@ -251,9 +251,9 @@ final class LiveLensBridge {
 
     /// Three test lines on the current lens style, to see how they look.
     func sendTestCaptions() async {
-        let lines = [LensCaption(text: "Speaker 2: testing one two", translation: "", final: false),
-                     LensCaption(text: "Maya: are we still on for six?", translation: "", final: true),
-                     LensCaption(text: "Luis: ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true)]
+        let lines = [LensCaption(text: "Speaker 2 — testing one two", translation: "", final: false),
+                     LensCaption(text: "Maya — are we still on for six?", translation: "", final: true),
+                     LensCaption(text: "Luis — ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true)]
         // Captions already showing: the test lines go through them; nothing opens or closes.
         if open, let surface {
             for line in lines { surface.show(line); try? await Task.sleep(for: .seconds(2)) }

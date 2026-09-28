@@ -52,7 +52,7 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertEqual(b.status, .showing)
         source.snapshot = .init(partial: "", segments: [seg(1, "Maya", "hi")])
         b.refresh()
-        XCTAssertEqual(surface.calls, ["open", "final Maya: hi"])
+        XCTAssertEqual(surface.calls, ["open", "final Maya — hi"])
         source.isCapturing = false
         b.refresh()
         XCTAssertEqual(surface.calls.last, "close")
@@ -96,11 +96,11 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertEqual(b.status, .pausedForLens)
         source.snapshot = .init(partial: "", segments: [seg(1, "Maya", "one"), seg(2, "Maya", "two")])
         b.refresh()
-        XCTAssertFalse(surface.calls.contains("final Maya: two"))
+        XCTAssertFalse(surface.calls.contains("final Maya — two"))
         XCTAssertFalse(surface.calls.contains("close"))  // never closes the other app
         b.handleLens(module: 5, opened: false)
         XCTAssertEqual(b.status, .showing)
-        XCTAssertEqual(Array(surface.calls.suffix(2)), ["open", "final Maya: two"])
+        XCTAssertEqual(Array(surface.calls.suffix(2)), ["open", "final Maya — two"])
     }
 
     func testANoteOrTranslationSessionAlsoTakesTheLens() {
