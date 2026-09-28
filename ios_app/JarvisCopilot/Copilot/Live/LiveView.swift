@@ -154,6 +154,12 @@ struct LiveView: View {
                     .padding(.bottom, 8)
             }
         }
+        #if !JC_MAC_VOICE
+        // Ask Jarvis about the conversation: phone only for now.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            LiveAskPanel(store: store)
+        }
+        #endif
     }
 
     // MARK: - Status

@@ -112,7 +112,13 @@ enum LiveCaptureSources {
     static func routes() -> [LiveCaptureSource] {
         #if os(iOS)
         let inputs = AVAudioSession.sharedInstance().availableInputs ?? []
-        return inputs.map { port in
+        #if JC_MAC_VOICE
+        let usable = inputs
+        #else
+        // The glasses' call mic is never offered: see `apply(.automatic)`.
+        let usable = inputs.filter { !($0.portType == .bluetoothHFP && isGlasses($0)) }
+        #endif
+        return usable.map { port in
             LiveCaptureSource(id: "route:" + port.uid,
                               kind: .route,
                               label: port.portName,
@@ -184,6 +190,15 @@ enum LiveCaptureSources {
         return match
     }
 
+    #if !JC_MAC_VOICE
+    /// The INMO GO3, by name or by the pair the glasses card remembers.
+    static func isGlasses(_ port: AVAudioSessionPortDescription) -> Bool {
+        if GlassesAudioPort.looksLikeGo3(port.portName) { return true }
+        guard let key = GlassesAudioLink.shared.state.glasses?.deviceKey else { return false }
+        return String(port.uid.prefix(17)).uppercased() == key || port.uid == key
+    }
+    #endif
+
     /// Ask iOS to use this source. Returns false when the route could not be set,
     /// which the caller reports rather than swallowing — silently recording from
     /// the wrong mic is the failure mode this whole picker exists to remove.
@@ -193,6 +208,20 @@ enum LiveCaptureSources {
         let session = AVAudioSession.sharedInstance()
         switch source.kind {
         case .automatic:
+            #if !JC_MAC_VOICE
+            // The GO3 as a Bluetooth call headset puts the glasses on a phone-call
+            // screen (hiding Live captions) and its call mic only hears the wearer.
+            // While the glasses are around, Live records from the phone's own mic.
+            let inputs = session.availableInputs ?? []
+            if inputs.contains(where: { $0.portType == .bluetoothHFP && isGlasses($0) }),
+               let builtIn = inputs.first(where: { $0.portType == .builtInMic }) {
+                do { try session.setPreferredInput(builtIn); return true }
+                catch {
+                    JcLog.dropped(JcLog.voice, "prefer the phone mic over the glasses", error)
+                    return false
+                }
+            }
+            #endif
             do { try session.setPreferredInput(nil); return true }
             catch {
                 JcLog.dropped(JcLog.voice, "clear preferred input", error)

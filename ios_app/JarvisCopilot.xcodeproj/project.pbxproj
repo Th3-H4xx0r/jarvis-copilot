@@ -748,6 +748,7 @@
 		F0957230CA29EC2F8040C55D /* GlassesNotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E666532096401202B0233F7 /* GlassesNotesView.swift */; };
 		F09FF4DE6306C272913E80DA /* PhotonModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BBE88D362C7D076BCDCBE9 /* PhotonModels.swift */; };
 		F0CCEB43E75B246A26F236E8 /* DevicesTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */; };
+		F0D8752F63D255ED3C40AEB0 /* LiveAsk.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA3CE819470F07AFC7C6A21 /* LiveAsk.swift */; };
 		F148D36E52EB42687CC86F01 /* DeviceIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620783A3C8AF6257135DFB6D /* DeviceIcon.swift */; };
 		F163128F7FDFFA940A6B9582 /* RouteFollowerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8762B90BF3DAFD1DB92442 /* RouteFollowerTests.swift */; };
 		F16B92057EF368FBB8CBA6CA /* CodingApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225BC7B720833E133240924 /* CodingApprovalCard.swift */; };
@@ -1565,6 +1566,7 @@
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
 		EB058DEAF58CF0670B328304 /* MarkdownText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
+		EBA3CE819470F07AFC7C6A21 /* LiveAsk.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveAsk.swift; sourceTree = "<group>"; };
 		EBFD7DFA6DB3D4B1B5317BC9 /* ChatDashboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatDashboard.swift; sourceTree = "<group>"; };
 		ED69956E5A404410D189DB90 /* PairPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairPage.swift; sourceTree = "<group>"; };
 		ED899060A8E9519B6538191B /* PhotoLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
@@ -1779,6 +1781,7 @@
 				DD7C0E11A2C0CEC54959FA90 /* Shared */,
 				E60850773F9A5197F734CA87 /* Services */,
 				4E2ECCC7018A89FBA011E5FC /* Live */,
+				6AF338E0E32ABBDE1A54A71E /* LiveAsk */,
 			);
 			path = Copilot;
 			sourceTree = "<group>";
@@ -2453,6 +2456,15 @@
 			);
 			name = Notes;
 			path = Notes;
+			sourceTree = "<group>";
+		};
+		6AF338E0E32ABBDE1A54A71E /* LiveAsk */ = {
+			isa = PBXGroup;
+			children = (
+				EBA3CE819470F07AFC7C6A21 /* LiveAsk.swift */,
+			);
+			name = LiveAsk;
+			path = LiveAsk;
 			sourceTree = "<group>";
 		};
 		6C9AC46597275C69DBC22E96 /* More */ = {
@@ -4139,6 +4151,7 @@
 				59F66083B56BC68E01C254E1 /* LiveLensBridge.swift in Sources */,
 				6B5D38D98D53732C85B22CB8 /* LiveStore+Captions.swift in Sources */,
 				034082D75854BCAF4477C39E /* LiveCaptionsSettingsView.swift in Sources */,
+				F0D8752F63D255ED3C40AEB0 /* LiveAsk.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
