@@ -519,6 +519,7 @@
 		A6A2A3064EED1DDDCE8A1C88 /* GlassesNotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198B5126C253D56E569AAF1B /* GlassesNotesStore.swift */; };
 		A71AFD3027FBBDDDE3CE7051 /* WebViewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDC505734B2535E26D0C3A3 /* WebViewPage.swift */; };
 		A8DFCA4B156C4BE31C084C4A /* ProfilesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */; };
+		A8FDBC65E9655EB0A2F57B8E /* GlassesFaceLinkWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */; };
 		A91652A3935C3744817BD31C /* ChatAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D898180CF51F33C9BF268753 /* ChatAPI.swift */; };
 		AA7D46165035CF25746F6A19 /* RingTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA5AC544486624CE6A85698 /* RingTransportTests.swift */; };
 		AA97EC0CCD97D67E64FEF7C2 /* RingWorkoutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F6B43B3A58A8CCC4A489D3 /* RingWorkoutController.swift */; };
@@ -588,6 +589,7 @@
 		BE6FDB0ABB7CA323632F1D39 /* JarvisAlarmActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */; };
 		BEA4B729A18BDE7679650B5A /* VoiceModelFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C16F21F5307DC5E447CED41 /* VoiceModelFields.swift */; };
 		BEF0404F0984E6D47DE96269 /* WeightCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F26EE8116FF48964B72C773 /* WeightCard.swift */; };
+		C046DD131B2EF2B08CEB71D5 /* GlassesFaceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5077A22448DC7C07ECCD8851 /* GlassesFaceLink.swift */; };
 		C06EC74F01654D2BD03BDE98 /* LiveActivityCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A2E59166941A5C6D9A70EE /* LiveActivityCoordinator.swift */; };
 		C080117EF1E81DF9EB96DD6F /* AppSchemeTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2A727BF7FBA5F3BE1F89C0 /* AppSchemeTable.swift */; };
 		C16311BF9CC5ADA6369800D8 /* InvokeRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F79D941BA4BB5632F6491E9 /* InvokeRunnerTests.swift */; };
@@ -609,6 +611,7 @@
 		C6A02A63D446C814B4EE9C31 /* RingSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */; };
 		C76E80B9F4DBC45C33F0D8F0 /* IslandDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */; };
 		C79C7D1B082B3B84896901E0 /* LiveVoiceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE69F2B05A9CDCD6C2E768EF /* LiveVoiceHistory.swift */; };
+		C7AADA8AF3D7D88D669318DD /* GlassesFaceLinkWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */; };
 		C7B75F5A6DA5EA4F6BBC6C49 /* WearableModelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECD515CE3F23B0DC16FF9E1 /* WearableModelView.swift */; };
 		C82DAF95C46F65426458ADFE /* DevicesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E927550CC7A702DA1D9CD19 /* DevicesAPI.swift */; };
 		C837A1F5C0B5A9AB7EA63D14 /* KanbanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49850074146780F31D7A5DE /* KanbanTests.swift */; };
@@ -1080,6 +1083,7 @@
 		5012A8FA2E076631A6DEEAB7 /* KanbanPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPage.swift; sourceTree = "<group>"; };
 		50286C204C30CC4F88E81AE1 /* TodosStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TodosStore.swift; sourceTree = "<group>"; };
 		5072183EC782BEB4F738CF5E /* JcLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcLog.swift; sourceTree = "<group>"; };
+		5077A22448DC7C07ECCD8851 /* GlassesFaceLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLink.swift; sourceTree = "<group>"; };
 		50A72558C231EA0844646A94 /* CodingSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionStore.swift; sourceTree = "<group>"; };
 		511AEFA506655EE9813D0062 /* ProfilesUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesUITests.swift; sourceTree = "<group>"; };
 		51A2E59166941A5C6D9A70EE /* LiveActivityCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityCoordinator.swift; sourceTree = "<group>"; };
@@ -1183,6 +1187,7 @@
 		77BBE88D362C7D076BCDCBE9 /* PhotonModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotonModels.swift; sourceTree = "<group>"; };
 		7864490CBD79D96EC84DEE07 /* WearableArt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableArt.swift; sourceTree = "<group>"; };
 		78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushHandlerTests.swift; sourceTree = "<group>"; };
+		7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLinkWireTests.swift; sourceTree = "<group>"; };
 		79F1DBB8FD844D28B35DC2EA /* WearableIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableIdentity.swift; sourceTree = "<group>"; };
 		79F4CC1F87D060BCF1EF9F8D /* CodingProjectModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingProjectModels.swift; sourceTree = "<group>"; };
 		7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatConversationView.swift; sourceTree = "<group>"; };
@@ -1407,6 +1412,7 @@
 		BD30CD7269938E614C2E31E0 /* PhoneSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkills.swift; sourceTree = "<group>"; };
 		BD4A2C551311912B4A444807 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BD85C337C09C2129C82247FA /* PairPayloadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairPayloadTests.swift; sourceTree = "<group>"; };
+		BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLinkWire.swift; sourceTree = "<group>"; };
 		BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HealthWidget.swift; path = JarvisWidget/HealthWidget.swift; sourceTree = "<group>"; };
 		BEA8341C7336CAEB461139EA /* MoreGapTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreGapTests.swift; sourceTree = "<group>"; };
 		BEAE6A435982222E11D399BF /* RingProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProtocolTests.swift; sourceTree = "<group>"; };
@@ -2059,6 +2065,7 @@
 				205DB312124EAB247D5B76F0 /* Navigation */,
 				66C66188FD896FBBF7B70A6B /* Notes */,
 				5D52F2FE594A9DDED23BA2F0 /* Translate */,
+				B97CE4FED7031332E041B76A /* FaceLink */,
 			);
 			name = Glasses;
 			path = Glasses;
@@ -2707,6 +2714,16 @@
 			path = Voice;
 			sourceTree = "<group>";
 		};
+		B97CE4FED7031332E041B76A /* FaceLink */ = {
+			isa = PBXGroup;
+			children = (
+				5077A22448DC7C07ECCD8851 /* GlassesFaceLink.swift */,
+				BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */,
+			);
+			name = FaceLink;
+			path = FaceLink;
+			sourceTree = "<group>";
+		};
 		B9F10CB718C5FDF664BBF049 /* JarvisCopilotTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -2952,6 +2969,7 @@
 				AACD1635DE11C50EF98505B2 /* InmoNavigationTests.swift */,
 				D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */,
 				EE015A444EA73A915FDAB241 /* GlassesTranslateWireTests.swift */,
+				7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */,
 			);
 			name = Glasses;
 			path = Glasses;
@@ -3541,6 +3559,7 @@
 				D6D0F3C3E6579EAA9659F185 /* InmoNavigationTests.swift in Sources */,
 				1072D13A323CAA4496AE03D0 /* GlassesNoteWireTests.swift in Sources */,
 				1FCB731E8A1E7B20F0FD5D82 /* GlassesTranslateWireTests.swift in Sources */,
+				A8FDBC65E9655EB0A2F57B8E /* GlassesFaceLinkWireTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4073,6 +4092,8 @@
 				0BAFBB16259218486EC5DE53 /* GlassesTranslateView.swift in Sources */,
 				B1A48C98CB91A20B50E943A9 /* GlassesTranslateWire.swift in Sources */,
 				3D2EBA99AFE9401D0E412E84 /* GlassesTranslator.swift in Sources */,
+				C046DD131B2EF2B08CEB71D5 /* GlassesFaceLink.swift in Sources */,
+				C7AADA8AF3D7D88D669318DD /* GlassesFaceLinkWire.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
