@@ -83,6 +83,8 @@ final class GlassesTranslator {
     private var heldPartial: String?
     private var lastPartialSent = Date.distantPast
     private var sonioxLines: [Int: Int] = [:]
+    private var audioMessages = 0
+    private var idleFinalize: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard, store: GlassesNotesStore = .shared) {
         self.defaults = defaults
@@ -124,7 +126,7 @@ final class GlassesTranslator {
             engineInUse = engine
             self.mode = mode
             lines = []; hearing = ""; paused = false; nextID = 1; lens = GlassesNoteLens()
-            pendingTranslations = 0; heldPartial = nil; sonioxLines = [:]
+            pendingTranslations = 0; heldPartial = nil; sonioxLines = [:]; audioMessages = 0
             startedAt = Date()
             if !fromGlasses { post(InmoCommand.openModule(mode.module)) }
             post(GlassesTranslateWire.setting(mode: mode, source: Self.base(source), target: Self.base(target),
@@ -142,10 +144,11 @@ final class GlassesTranslator {
     func stop() async {
         guard phase == .running else { return }
         phase = .stopping
+        idleFinalize?.cancel(); idleFinalize = nil
         // Words still in the recogniser become the last line.
         if let speech {
             let final = await voiceStopWithDeadline(speech, after: 3000, clock: SystemVoiceClock())
-            for line in lens.finish(final) where line.final { finalize(line.text) }
+            for line in lens.finish(final) where line.final && Self.isSpeech(line.text) { finalize(line.text) }
             self.speech = nil
         }
         if let socket {
@@ -167,6 +170,7 @@ final class GlassesTranslator {
     }
 
     private func teardown() {
+        idleFinalize?.cancel(); idleFinalize = nil
         speech?.cancel(); speech = nil
         socket?.close(); socket = nil
         decoder = nil
@@ -196,12 +200,24 @@ final class GlassesTranslator {
                 Task { await stop() }
             }
         case .message(let type, let fields, _):
-            guard [0, 8, 15].contains(type),
-                  let parsed = try? GlassesTranslateWire.parse(type: type, fields: fields) else { return }
+            guard [0, 8, 15].contains(type) else { return }
+            let parsed: GlassesTranslateWire.Event?
+            do { parsed = try GlassesTranslateWire.parse(type: type, fields: fields) } catch {
+                if phase == .running { InmoRuntimeDiagnostics.note("translate message unreadable type=\(type): \(error)") }
+                return
+            }
+            guard let parsed else { return }
             switch parsed {
             case .opened(let opened):
                 // The glasses echo our own open; only an idle phone answers theirs.
                 if phase == .idle, startsFromGlasses { Task { await start(mode: opened, fromGlasses: true) } }
+                // The official app sends the languages once the lens app is open:
+                // repeat them on the echo in case ours arrived before it was ready.
+                else if phase == .running, opened == mode {
+                    InmoRuntimeDiagnostics.note("translate lens app open; settings resent")
+                    post(GlassesTranslateWire.setting(mode: mode, source: Self.base(source), target: Self.base(target),
+                                                      onlyTranslation: onlyTranslation))
+                }
             case .closed(let closed):
                 if phase == .running, closed == mode { Task { await stop() } }
             case .paused: paused = true
@@ -210,6 +226,10 @@ final class GlassesTranslator {
                 guard phase == .running, !paused, let decoder else { return }
                 var pcm = Data()
                 for packet in packets { if let decoded = try? decoder.decode(packet) { pcm += decoded } }
+                audioMessages += 1
+                if audioMessages == 1 || audioMessages % 300 == 0 {
+                    InmoRuntimeDiagnostics.note("translate audio msgs=\(audioMessages) packets=\(packets.count) pcm=\(pcm.count)B")
+                }
                 guard !pcm.isEmpty else { return }
                 if let speech { speech.feed(pcm) } else if let socket { socket.send(data: pcm) }
             }
@@ -220,9 +240,32 @@ final class GlassesTranslator {
 
     private func heard(_ text: String) {
         guard phase == .running, !paused else { return }
-        for line in lens.update(text) {
+        if hearing.isEmpty, lines.isEmpty { InmoRuntimeDiagnostics.note("translate first words heard chars=\(text.count)") }
+        take(lens.update(text))
+        // A sentence used to end only when the NEXT words began, so the last thing
+        // someone said waited (untranslated) until they spoke again or you pressed
+        // Stop. A short pause now ends the line, the way Soniox's endpointing does.
+        idleFinalize?.cancel()
+        idleFinalize = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.pauseEndsLineMs))
+            guard let self, !Task.isCancelled, self.phase == .running else { return }
+            self.take(self.lens.finish(text))
+        }
+    }
+
+    /// How long a pause ends the line being heard.
+    static let pauseEndsLineMs = 900
+
+    private func take(_ updates: [GlassesNoteLens.Line]) {
+        for line in updates where Self.isSpeech(line.text) {
             if line.final { hearing = ""; finalize(line.text) } else { hearing = line.text; showPartial(line.text) }
         }
+    }
+
+    /// The recogniser often revises a line it already gave (adds "?" or "."), which
+    /// after a pause-ended line shows up as a new line of punctuation alone.
+    static func isSpeech(_ text: String) -> Bool {
+        text.rangeOfCharacter(from: .alphanumerics) != nil
     }
 
     private func finalize(_ original: String) {

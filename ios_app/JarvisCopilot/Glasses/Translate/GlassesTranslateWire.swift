@@ -12,8 +12,12 @@ enum GlassesTranslateWire {
             switch module { case 0: self = .simultaneous; case 1: self = .dialogue; case 14: self = .call; default: return nil }
         }
     }
-    /// AUDIO header type of the translation microphone stream (AUDIO_CHATTRANSLATE_MASTER).
-    static let audioType: UInt64 = 9
+    /// AUDIO header types: live/simultaneous (AUDIO_LIVETRANSLATE_MASTER) sends each
+    /// frame as one raw 20 ms Opus packet; dialogue (AUDIO_CHATTRANSLATE_MASTER)
+    /// sends the two-stream wrapper (wearer first). From the official Android
+    /// app's audioByteProcess — see docs/glasses/go3-translation.md.
+    static let liveAudioType: UInt64 = 8
+    static let dialogueAudioType: UInt64 = 9
 
     private static func master(_ payload: Data) -> Data { InmoCommand.envelope(type: 8, field: 11, payload: payload) }
 
@@ -62,8 +66,9 @@ enum GlassesTranslateWire {
         case 0:
             guard let audio = try fields.firstField(3)?.nested(),
                   let header = try audio.firstField(1)?.nested(),
-                  header.firstField(4)?.varint == audioType else { return nil }
-            let (data, lengths) = try InmoAIChannel.audioPayload(audio, audioType: audioType)
+                  let type = header.firstField(4)?.varint,
+                  type == liveAudioType || type == dialogueAudioType else { return nil }
+            let (data, lengths) = try InmoAIChannel.audioPayload(audio, audioType: type, paired: type == dialogueAudioType)
             var packets: [Data] = []
             var offset = 0
             for length in lengths where length > 0 {

@@ -17,7 +17,7 @@ does the same without INMO's cloud.
 |---|---|---|
 | Open the lens app | Phone or glasses | `SWITCHAPP` open: 0 = Simultaneous, 1 = Dialogue, 14 = Call |
 | Languages on the lens | Phone | `TRANSLATION_MASTER { SETTING { mode, source, target, captions, online } }` |
-| Microphone | Glasses | Opus over Bluetooth, `AUDIO_TYPE 9` (`AUDIO_CHATTRANSLATE_MASTER`) |
+| Microphone | Glasses | Opus over Bluetooth: live/simultaneous `AUDIO_TYPE 8` (`AUDIO_LIVETRANSLATE_MASTER`), dialogue `AUDIO_TYPE 9` (`AUDIO_CHATTRANSLATE_MASTER`) |
 | Hearing + translating | Phone (INMO: its cloud; Jarvis: see below) | — |
 | Each line on the lens | Phone | `TEXT_CONTENT { original, translation, role, finished }` |
 | End | Glasses or phone | phone sends `TRANSLATION_SAVE { success }`, then closes the app |
@@ -47,6 +47,24 @@ official app sends no `VERSION` on these.
 - **Audio:** same framing as AI notes: two interleaved 10 ms Opus streams per
   frame, CELT wideband 16 kHz. Stream A is the louder one in dialogue (RMS 435
   against 134). Jarvis uses stream A, as for notes.
+
+## Audio: live mode is different
+
+This comes from the official Android app's `BleProtocolManager.audioByteProcess` and
+`TranslateAsrDenoiseProcessor`. The first Jarvis build missed it, and every live
+session heard nothing:
+
+- **Splitting:** both types cut `OPUS_DATA` into frames using `FRAME_LENGTH`.
+- **Live / simultaneous (type 8):** each frame is **one raw 20 ms Opus packet**
+  (320 samples at 16 kHz). There is no stream wrapper.
+- **Dialogue (type 9):** each frame is the two-stream wrapper (BE32 length + 4
+  bytes + a 10 ms packet, twice).
+  - The first stream is the wearer (`Role.GLASS`).
+  - The second is uploaded as the other side (`Role.PHONE`).
+- **Starting from the phone:** the app opens the lens app first. It sends
+  `SETTING` only once the glasses confirm that the app is open. By default the
+  settings are captions = `ONLY_TRANSLATION`, online = true, translate-self-sound =
+  `NOT`.
 
 ## Schema
 

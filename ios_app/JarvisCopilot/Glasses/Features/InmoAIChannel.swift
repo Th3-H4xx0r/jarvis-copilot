@@ -156,7 +156,10 @@ final class InmoAIChannel {
     }
 
     /// `audioType` 2 is the AI assistant's stream; 3 is AI notes (same framing).
-    nonisolated static func audioPayload(_ audio: [InmoWireField], audioType: UInt64 = 2) throws -> (Data, [Int]) {
+    /// `paired` false: each frame is already one raw Opus packet (live
+    /// translation, type 8) — split by the frame lengths, no stream wrapper.
+    nonisolated static func audioPayload(_ audio: [InmoWireField], audioType: UInt64 = 2,
+                                         paired: Bool = true) throws -> (Data, [Int]) {
                 let header = try audio.firstField(1)?.nested() ?? []
                 guard header.firstField(1)?.varint == 16000,
                       header.firstField(2)?.varint == 1,
@@ -187,6 +190,7 @@ final class InmoAIChannel {
                 }
                 guard !lengths.isEmpty, lengths.allSatisfy({ $0 >= 0 && $0 <= 2566 }),
                       lengths.reduce(0, +) == data.count else { throw InmoAudioError.invalidPacket }
+        if !paired { return (data, lengths.filter { $0 > 0 }) }
         // Each protobuf frame is a pair of independently encoded streams:
         // BE32 length, 4 opaque bytes, Opus; then the same for stream two.
         // Android AI forwards only stream one. Feeding the wrapper to an Opus

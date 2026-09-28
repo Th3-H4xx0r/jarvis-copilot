@@ -59,6 +59,37 @@ final class GlassesTranslateWireTests: XCTestCase {
         XCTAssertNil(try GlassesNoteWire.parse(type: 0, fields: fields))
     }
 
+    /// Live (simultaneous) audio is type 8 and each frame is ONE raw 20 ms Opus
+    /// packet — no two-stream wrapper (official Android app, audioByteProcess).
+    func testLiveTranslationAudioIsRawPacketsPerFrame() throws {
+        let first = Data([0xb8, 0x01, 0x02, 0x03]), second = Data([0xb8, 0x09])
+        let payload = first + second
+        let header = InmoWireCodec.uint(1, 16000) + InmoWireCodec.uint(2, 1) + InmoWireCodec.uint(4, 8)
+        let lengths = InmoWireCodec.varint(UInt64(first.count)) + InmoWireCodec.varint(UInt64(second.count))
+        let audio = InmoWireCodec.bytes(1, header) + InmoWireCodec.uint(3, UInt64(payload.count))
+            + InmoWireCodec.bytes(4, payload) + InmoWireCodec.bytes(5, lengths)
+        let fields = try InmoWireCodec.decode(InmoWireCodec.uint(1, 1) + InmoWireCodec.bytes(3, audio))
+        XCTAssertEqual(try GlassesTranslateWire.parse(type: 0, fields: fields), .audio([first, second]))
+    }
+
+    /// After a pause ends a line, the recogniser's late "?" must not become a line.
+    func testPunctuationAloneIsNotSpeech() {
+        XCTAssertFalse(GlassesTranslator.isSpeech("?"))
+        XCTAssertFalse(GlassesTranslator.isSpeech(" ¿. "))
+        XCTAssertTrue(GlassesTranslator.isSpeech("Hola"))
+        XCTAssertTrue(GlassesTranslator.isSpeech("¿Qué?"))
+    }
+
+    /// The pause-ended line is everything not yet final, and a later revision that
+    /// only adds punctuation leaves nothing new to show.
+    func testAPauseEndsTheLineAndALateRevisionAddsNothing() {
+        var lens = GlassesNoteLens()
+        _ = lens.update("Hola cómo te llamas")
+        XCTAssertEqual(lens.finish("Hola cómo te llamas"), [.init(text: "Hola cómo te llamas", final: true)])
+        let late = lens.update("Hola cómo te llamas?")
+        XCTAssertTrue(late.allSatisfy { !GlassesTranslator.isSpeech($0.text) })
+    }
+
     func testLanguageCodesGoOnTheWireWithoutTheirScript() {
         XCTAssertEqual(GlassesTranslator.base("zh-Hans"), "zh")
         XCTAssertEqual(GlassesTranslator.base("es"), "es")
