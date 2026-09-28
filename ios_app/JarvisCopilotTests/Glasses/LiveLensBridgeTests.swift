@@ -9,6 +9,8 @@ final class LiveLensBridgeTests: XCTestCase {
         var startCalls = 0
         func captionSnapshot() -> LiveCaptionSnapshot { snapshot }
         var startSucceeds = true
+        var factChecks = 0
+        func runFactCheck() async -> (title: String, text: String)? { factChecks += 1; return ("Fact-check · TRUE", "Checked.") }
         func startCapture() async -> Bool { startCalls += 1; isCapturing = startSucceeds; return startSucceeds }
     }
     final class FakeSurface: LensCaptionSurface {
@@ -160,6 +162,48 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertTrue(long[0].hasPrefix("━━━ 【Fact-check】 ━━━\n"))
         XCTAssertTrue(long.last!.hasSuffix(LiveLensBridge.blockBar))
         XCTAssertTrue(long.allSatisfy { $0.count <= LiveLensBridge.blockChunk + 60 })
+    }
+
+    /// Two questions in a row: each gets its own framed block, one after the other.
+    func testEachBlockKeepsItsOwnHeaderAndTheyDoNotInterleave() async {
+        let b = bridge()
+        b.enabled = true
+        b.chunkGap = .zero; b.blockGap = .zero
+        b.showBlock(title: "Jarvis", parts: ["Q: one", "A: first"])
+        b.showBlock(title: "Jarvis", parts: ["Q: two", "A: second"])
+        for _ in 0..<100 where surface.calls.filter({ $0.contains("【Jarvis】") }).count < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let blocks = surface.calls.filter { $0.contains("【Jarvis】") }
+        XCTAssertEqual(blocks.count, 2)
+        XCTAssertTrue(blocks[0].contains("Q: one") && blocks[0].contains("A: first"))
+        XCTAssertTrue(blocks[1].contains("Q: two") && blocks[1].contains("A: second"))
+    }
+
+    /// A gesture learned in the app runs a fact-check when the glasses send it again.
+    func testALearnedGlassesGestureRunsAFactCheck() async {
+        let b = bridge()
+        b.enabled = true
+        let gesture = Data([0x10, 0x07, 0x42, 0x02, 0x08, 0x01])
+        b.learnGesture()
+        b.handleGlasses(type: 7, fields: [], raw: gesture)
+        XCTAssertFalse(b.learningGesture)
+        XCTAssertNotNil(b.factCheckGesture)
+        b.handleGlasses(type: 7, fields: [], raw: gesture)
+        for _ in 0..<100 where source.factChecks == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(source.factChecks, 1)
+        // Noise the glasses send on their own is never learned.
+        b.learnGesture()
+        b.handleGlasses(type: 20, fields: [], raw: Data([0x10, 0x14]))
+        XCTAssertTrue(b.learningGesture)
+    }
+
+    /// The question and the answer are set apart by a divider line.
+    func testQuestionAndAnswerHaveADividerBetweenThem() {
+        let chunks = LiveLensBridge.frame(title: "Jarvis", parts: ["Q: Is this a fair price?", "A: It's a bit high."])
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(chunks[0], "━━━ 【Jarvis】 ━━━\nQ: Is this a fair price?\n"
+                       + LiveLensBridge.blockDivider + "\nA: It's a bit high.\n" + LiveLensBridge.blockBar)
     }
 
     func testLiveCaptionsWaitWhileABlockIsShowing() async {

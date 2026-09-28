@@ -69,6 +69,21 @@ final class LiveLensBridge {
     private var heldPartial: LensCaption?
     /// An answer or fact-check is on the lens: live captions wait until it's read.
     private var blockActive = false
+    /// Blocks show one after another, each whole, never interleaved.
+    @ObservationIgnored private var blockChain: Task<Void, Never>?
+    @ObservationIgnored private var pendingBlocks = 0
+    @ObservationIgnored private var lastBlock: (key: String, at: Date)?
+    /// Time between the chunks of one block, and after a block before the next.
+    @ObservationIgnored var chunkGap: Duration = .seconds(3.5)
+    @ObservationIgnored var blockGap: Duration = .seconds(4)
+
+    static let gestureKey = "glasses.liveCaptions.factCheckGesture"
+    /// The glasses message (hex) that means "fact-check now", learned in the app.
+    private(set) var factCheckGesture: String?
+    private(set) var learningGesture = false
+    private(set) var gestureNotice: String?
+    /// What the glasses send on their own; never taken as a gesture.
+    static let noiseTypes: Set<Int> = [0, 4, 17, 20, 24, 35]
     private var lastPartialAt = Date.distantPast
     private var observer: UUID?
     private var connection: AnyCancellable?
@@ -86,18 +101,15 @@ final class LiveLensBridge {
         self.makeSurface = surface
         self.now = now
         enabledValue = defaults.bool(forKey: Self.showKey)
+        factCheckGesture = defaults.string(forKey: Self.gestureKey)
         styleValue = defaults.string(forKey: Self.styleKey).flatMap(LensCaptionStyle.init(rawValue:)) ?? .subtitles
     }
 
     func install() {
         guard observer == nil else { return }
         observer = InmoSession.shared.addEventObserver { [weak self] event in
-            guard let self, case let .message(type, fields, _) = event else { return }
-            if type == 18, case let .exception(code)? = try? GlassesSubtitlesWire.parse(type: type, fields: fields) {
-                self.handleSubtitlesException(code: code)
-            } else if type == 15, let app = try? fields.firstField(18)?.nested() {
-                self.handleLens(module: Int(app.firstField(1)?.varint ?? 0), opened: (app.firstField(2)?.varint ?? 0) == 0)
-            }
+            guard let self, case let .message(type, fields, raw) = event else { return }
+            self.handleGlasses(type: type, fields: fields, raw: raw)
         }
         connection = InmoSession.shared.$state.sink { [weak self] _ in
             Task { @MainActor in self?.connectionChanged() }
@@ -205,6 +217,8 @@ final class LiveLensBridge {
     // MARK: Blocks (answers, fact-checks)
 
     static let blockBar = String(repeating: "━", count: 22)
+    /// Between the parts of a block (the question and its answer).
+    static let blockDivider = String(repeating: "─", count: 22)
     /// Characters of body per lens chunk: about four lens lines.
     static let blockChunk = 150
 
@@ -212,40 +226,146 @@ final class LiveLensBridge {
     /// text block so it reads apart from what people said. Long ones go up in
     /// chunks a few seconds apart; live captions wait until it's been read.
     /// Without captions on the lens it falls back to a lens card.
-    func showBlock(title: String, body: String) {
-        guard open, let surface else {
-            InmoSession.shared.forwardNotification(title: title, body: String(body.prefix(400)))
+    func showBlock(title: String, body: String) { showBlock(title: title, parts: [body]) }
+
+    func showBlock(title: String, parts: [String]) {
+        // The same verdict from two paths (the gesture and the Live screen) shows once.
+        let key = title + "|" + parts.joined(separator: "|")
+        if let last = lastBlock, last.key == key, Date().timeIntervalSince(last.at) < 60 { return }
+        lastBlock = (key, Date())
+        guard open, surface != nil else {
+            InmoSession.shared.forwardNotification(title: title, body: String(parts.joined(separator: "\n").prefix(400)))
             return
         }
-        let chunks = Self.frame(title: title, body: body)
+        let chunks = Self.frame(title: title, parts: parts)
         blockActive = true
-        Task { [weak self] in
-            for (index, chunk) in chunks.enumerated() {
-                guard let self, self.open else { break }
-                surface.show(LensCaption(text: chunk, translation: "", final: true))
-                if index < chunks.count - 1 { try? await Task.sleep(for: .seconds(3.5)) }
-            }
-            try? await Task.sleep(for: .seconds(4))
+        pendingBlocks += 1
+        let previous = blockChain
+        blockChain = Task { [weak self] in
+            await previous?.value
             guard let self else { return }
-            self.blockActive = false
-            self.refresh()
+            for (index, chunk) in chunks.enumerated() {
+                guard self.open, let surface = self.surface else { break }
+                // A blank line before each block's header sets it apart.
+                surface.show(LensCaption(text: index == 0 ? "\n" + chunk : chunk, translation: "", final: true))
+                if index < chunks.count - 1 { try? await Task.sleep(for: self.chunkGap) }
+            }
+            try? await Task.sleep(for: self.blockGap)
+            self.pendingBlocks -= 1
+            if self.pendingBlocks == 0 {
+                self.blockActive = false
+                self.refresh()
+            }
         }
     }
 
-    static func frame(title: String, body: String) -> [String] {
-        let header = "━━━ 【\(title)】 ━━━"
-        var chunks: [String] = []
-        var current = ""
-        for word in body.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
-            if !current.isEmpty, current.count + word.count + 1 > blockChunk {
-                chunks.append(current)
-                current = ""
-            }
-            current += (current.isEmpty ? "" : " ") + word
+    // MARK: Gesture → fact-check
+
+    /// The next message the glasses send (not their own chatter) becomes the
+    /// fact-check gesture.
+    func learnGesture() {
+        learningGesture = true
+        gestureNotice = "Now do the gesture on the glasses…"
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard let self, self.learningGesture else { return }
+            self.learningGesture = false
+            self.gestureNotice = "The glasses didn't send anything for that gesture. Try another — the GO button, a double tap or a long press."
         }
-        if !current.isEmpty || chunks.isEmpty { chunks.append(current) }
-        chunks[0] = header + "\n" + chunks[0]
-        chunks[chunks.count - 1] += "\n" + blockBar
+    }
+
+    func forgetGesture() {
+        factCheckGesture = nil
+        defaults.removeObject(forKey: Self.gestureKey)
+        gestureNotice = nil
+    }
+
+    /// Every message from the glasses: a learned gesture first, then lens app
+    /// opens/closes and Subtitles errors.
+    func handleGlasses(type: Int, fields: [InmoWireField], raw: Data) {
+        let hex = raw.map { String(format: "%02x", $0) }.joined()
+        if learningGesture, !Self.noiseTypes.contains(type), !isOwnEcho(type: type, fields: fields) {
+            learningGesture = false
+            factCheckGesture = hex
+            defaults.set(hex, forKey: Self.gestureKey)
+            gestureNotice = "Saved (\(Self.describe(type: type, fields: fields))). Do it while captions show to fact-check."
+            undoGestureSideEffect(type: type, fields: fields)
+            return
+        }
+        if let gesture = factCheckGesture, gesture == hex, enabledValue {
+            InmoRuntimeDiagnostics.note("live captions: fact-check gesture")
+            Task { [weak self] in
+                guard let self, let verdict = await self.source.runFactCheck() else { return }
+                self.showBlock(title: verdict.title, parts: [verdict.text])
+            }
+            undoGestureSideEffect(type: type, fields: fields)
+            return
+        }
+        if type == 18, case let .exception(code)? = try? GlassesSubtitlesWire.parse(type: type, fields: fields) {
+            handleSubtitlesException(code: code)
+        } else if type == 15, let app = try? fields.firstField(18)?.nested() {
+            handleLens(module: Int(app.firstField(1)?.varint ?? 0), opened: (app.firstField(2)?.varint ?? 0) == 0)
+        }
+    }
+
+    private func isOwnEcho(type: Int, fields: [InmoWireField]) -> Bool {
+        guard type == 15, let app = try? fields.firstField(18)?.nested() else { return false }
+        let module = Int(app.firstField(1)?.varint ?? 0)
+        return module == surface?.module || module == probeModule || module == GlassesSubtitlesWire.module
+    }
+
+    /// A gesture that opened another lens app gets it closed again (captions come
+    /// back); one that closed ours gets captions reopened.
+    private func undoGestureSideEffect(type: Int, fields: [InmoWireField]) {
+        guard type == 15, let app = try? fields.firstField(18)?.nested() else { return }
+        let module = Int(app.firstField(1)?.varint ?? 0)
+        let opened = (app.firstField(2)?.varint ?? 0) == 0
+        if opened, module != surface?.module {
+            Task { try? await InmoSession.shared.send(InmoCommand.closeModule(module)) }
+        } else if !opened, module == surface?.module {
+            open = false
+            refresh()
+        }
+    }
+
+    static func describe(type: Int, fields: [InmoWireField]) -> String {
+        if type == 15, let app = try? fields.firstField(18)?.nested() {
+            return "opens glasses app \(app.firstField(1)?.varint ?? 0)"
+        }
+        return "glasses message type \(type)"
+    }
+
+    static func frame(title: String, body: String) -> [String] { frame(title: title, parts: [body]) }
+
+    /// Header bar, the parts with a divider line between them, closing bar — in
+    /// lens-sized chunks. A short block is one chunk.
+    static func frame(title: String, parts: [String]) -> [String] {
+        let header = "━━━ 【\(title)】 ━━━"
+        var lines: [String] = []
+        for (index, part) in parts.enumerated() {
+            if index > 0 { lines.append(blockDivider) }
+            var current = ""
+            for word in part.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+                if !current.isEmpty, current.count + word.count + 1 > blockChunk {
+                    lines.append(current)
+                    current = ""
+                }
+                current += (current.isEmpty ? "" : " ") + word
+            }
+            if !current.isEmpty { lines.append(current) }
+        }
+        // Pack lines into chunks of about `blockChunk` characters.
+        var chunks: [String] = []
+        var chunk = header
+        for line in lines {
+            if chunk != header, chunk.count + line.count + 1 > blockChunk + header.count {
+                chunks.append(chunk)
+                chunk = line
+            } else {
+                chunk += "\n" + line
+            }
+        }
+        chunks.append(chunk + "\n" + blockBar)
         return chunks
     }
 

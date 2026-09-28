@@ -19,6 +19,23 @@ struct LiveCaptionsSettingsView: View {
                 Text("While Live Jarvis records, the lens shows who is speaking and what they say, with Live's translation when there is one. Opening Subtitles on the glasses turns this on; closing it turns it off. It steps aside for AI notes and translation.")
             }
             Section {
+                HStack {
+                    Text("Fact-check gesture")
+                    Spacer()
+                    Text(bridge.factCheckGesture == nil ? "Not set" : "Set").foregroundStyle(JcTheme.muted)
+                }
+                Button(bridge.learningGesture ? "Do the gesture on the glasses…" : "Learn gesture", jcIcon: "hand.tap") {
+                    bridge.learnGesture()
+                }
+                .disabled(bridge.learningGesture)
+                if bridge.factCheckGesture != nil {
+                    Button("Forget gesture", jcIcon: "trash", role: .destructive) { bridge.forgetGesture() }
+                }
+                if let notice = bridge.gestureNotice { Text(notice).font(.caption).foregroundStyle(JcTheme.muted) }
+            } header: { Text("Glasses gesture") } footer: {
+                Text("While captions are on the lens, this gesture on the glasses fact-checks the conversation; the verdict shows on the lens.")
+            }
+            Section {
                 Button(probing ? "Sending test captions…" : "Send test captions", jcIcon: "text.bubble") {
                     probing = true
                     Task { await bridge.sendTestCaptions(); probing = false }

@@ -46,7 +46,7 @@ final class LiveAsk {
                 let answer = turn.message.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !answer.isEmpty {
                     LiveLensBridge.shared.showBlock(title: "Jarvis",
-                                                    body: "Q: \(text)\nA: \(answer.prefix(450))")
+                                                    parts: ["Q: \(text)", "A: \(answer.prefix(450))"])
                 }
             } catch {
                 self?.update(exchange.id, reply: nil, pending: false,

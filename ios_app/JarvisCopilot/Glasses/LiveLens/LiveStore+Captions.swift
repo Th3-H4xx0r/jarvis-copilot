@@ -7,6 +7,8 @@ protocol LiveCaptionSource: AnyObject {
     func captionSnapshot() -> LiveCaptionSnapshot
     /// Starts recording if it can; true when Live is recording afterwards.
     func startCapture() async -> Bool
+    /// Fact-checks the conversation; the verdict to show, or nil.
+    func runFactCheck() async -> (title: String, text: String)?
 }
 
 extension LiveStore: LiveCaptionSource {
@@ -24,5 +26,12 @@ extension LiveStore: LiveCaptionSource {
     func startCapture() async -> Bool {
         await start()
         return capturing
+    }
+
+    func runFactCheck() async -> (title: String, text: String)? {
+        await factCheckConversation()
+        guard let result = factCheck, !result.pending, !result.failed, !result.text.isEmpty else { return nil }
+        let title = result.verdict.isEmpty ? "Fact-check" : "Fact-check · \(result.verdict.uppercased())"
+        return (title, result.text)
     }
 }
