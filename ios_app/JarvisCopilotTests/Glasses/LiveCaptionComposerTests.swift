@@ -72,4 +72,40 @@ final class LiveCaptionComposerTests: XCTestCase {
         XCTAssertFalse(fit.dropFirst().hasPrefix(" "))
         XCTAssertEqual(LiveCaptionComposer.fit("short"), "short")
     }
+
+    /// Review C1: a new Live session numbers its lines from 1 again.
+    func testANewSessionStartsCountingAgain() {
+        var c = LiveCaptionComposer()
+        _ = c.begin(.init(partial: "", segments: [seg(40, "Maya", "old")], session: "a"))
+        XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "new day")], session: "b")),
+                       [LensCaption(text: "Luis: new day", translation: "", final: true)])
+        XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "new day"), seg(2, "Maya", "hi")], session: "b")),
+                       [LensCaption(text: "Maya: hi", translation: "", final: true)])
+    }
+
+    /// Review C1: the transcript was cleared under us (same session id).
+    func testATranscriptThatStartedOverIsNotIgnored() {
+        var c = LiveCaptionComposer()
+        _ = c.begin(.init(partial: "", segments: [seg(40, "Maya", "old")]))
+        XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "again")])),
+                       [LensCaption(text: "Luis: again", translation: "", final: true)])
+    }
+
+    /// Review I7: a long line keeps its speaker's name.
+    func testALongLineKeepsTheName() {
+        var c = LiveCaptionComposer()
+        _ = c.begin(.init(partial: "", segments: []))
+        let words = (1...60).map { "word\($0)" }.joined(separator: " ")
+        let out = c.update(.init(partial: "", segments: [seg(1, "Maya", words)]))
+        XCTAssertTrue(out.first?.text.hasPrefix("Maya: …") ?? false)
+        XCTAssertLessThanOrEqual(out.first?.text.count ?? 999, LiveCaptionComposer.maxChars)
+    }
+
+    /// Review I6: a late translation for an older line must not put it back on the lens.
+    func testALateTranslationForAnOlderLineIsNotResent() {
+        var c = LiveCaptionComposer()
+        _ = c.begin(.init(partial: "", segments: []))
+        _ = c.update(.init(partial: "", segments: [seg(1, "Luis", "hola"), seg(2, "Maya", "hi")]))
+        XCTAssertEqual(c.update(.init(partial: "", segments: [seg(1, "Luis", "hola", "hello"), seg(2, "Maya", "hi")])), [])
+    }
 }

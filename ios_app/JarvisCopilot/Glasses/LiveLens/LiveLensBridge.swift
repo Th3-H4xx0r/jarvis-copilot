@@ -9,7 +9,9 @@ import Combine
 @MainActor
 @Observable
 final class LiveLensBridge {
-    static let shared = LiveLensBridge(source: LiveStore.shared)
+    /// Live is built only when captions are wanted: building LiveStore at launch
+    /// sets up the mic engine and spool (LiveCaptureBeacon).
+    static let shared = LiveLensBridge(source: { LiveStore.shared })
     static let showKey = "glasses.liveCaptions.show"
     static let styleKey = "glasses.liveCaptions.style"
     /// Non-final captions at most this often.
@@ -25,6 +27,7 @@ final class LiveLensBridge {
         set {
             enabledValue = newValue
             defaults.set(newValue, forKey: Self.showKey)
+            if newValue { watchLive() }
             refresh()
         }
     }
@@ -42,7 +45,17 @@ final class LiveLensBridge {
 
     private var enabledValue: Bool
     private var styleValue: LensCaptionStyle
-    private let source: LiveCaptionSource
+    private let sourceProvider: @MainActor () -> LiveCaptionSource
+    @ObservationIgnored private var sourceStorage: LiveCaptionSource?
+    private var source: LiveCaptionSource {
+        if let sourceStorage { return sourceStorage }
+        let made = sourceProvider()
+        sourceStorage = made
+        return made
+    }
+    @ObservationIgnored private var watching = false
+    /// The lens app the test action has open: its echoes are ours, not the user's.
+    private var probeModule: Int?
     private let defaults: UserDefaults
     private let lensBusy: @MainActor () -> Bool
     private let glassesReady: @MainActor () -> Bool
@@ -59,12 +72,12 @@ final class LiveLensBridge {
     private var connection: AnyCancellable?
     private var tick: Task<Void, Never>?
 
-    init(source: LiveCaptionSource, defaults: UserDefaults = .standard,
+    init(source: @escaping @MainActor () -> LiveCaptionSource, defaults: UserDefaults = .standard,
          lensBusy: @escaping @MainActor () -> Bool = { GlassesNoteRecorder.shared.phase != .idle || GlassesTranslator.shared.phase != .idle },
          glassesReady: @escaping @MainActor () -> Bool = { InmoSession.shared.state == .ready },
          surface: @escaping @MainActor (LensCaptionStyle) -> LensCaptionSurface = { $0.makeSurface() },
          now: @escaping () -> Date = Date.init) {
-        self.source = source
+        self.sourceProvider = source
         self.defaults = defaults
         self.lensBusy = lensBusy
         self.glassesReady = glassesReady
@@ -85,14 +98,27 @@ final class LiveLensBridge {
             }
         }
         connection = InmoSession.shared.$state.sink { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.connectionChanged() }
         }
-        watchLive()
+        if enabledValue { watchLive() }
         refresh()
     }
 
-    /// Re-reads Live and the lens owners whenever any of them changes.
+    /// A lost link forgets which other app had the lens: its close never came.
+    func connectionChanged() {
+        otherApp = nil
+        refresh()
+    }
+
+    /// Re-reads Live and the lens owners whenever any of them changes. Started only
+    /// once captions are wanted, so Live is not built at every launch.
     private func watchLive() {
+        guard !watching else { return }
+        watching = true
+        track()
+    }
+
+    private func track() {
         withObservationTracking {
             _ = source.isCapturing
             _ = source.captionSnapshot()
@@ -100,12 +126,15 @@ final class LiveLensBridge {
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.refresh()
-                self?.watchLive()
+                self?.track()
             }
         }
     }
 
-    func ownsLens(module: Int) -> Bool { open && surface?.module == module }
+    func ownsLens(module: Int) -> Bool { (open && surface?.module == module) || probeModule == module }
+
+    func beginProbe(module: Int) { probeModule = module }
+    func endProbe() { probeModule = nil }
 
     // MARK: State
 
@@ -116,6 +145,7 @@ final class LiveLensBridge {
         else if !glassesReady() { next = .glassesOff }
         else if lensBusy() || otherApp != nil { next = .pausedForLens }
         else { next = .showing }
+        if next == .showing { notice = nil }
 
         if next == .showing {
             if !open {
@@ -173,6 +203,8 @@ final class LiveLensBridge {
     // MARK: Glasses
 
     func handleLens(module: Int, opened: Bool) {
+        // The test action's own echoes.
+        if module == probeModule { return }
         // The app we are showing on: an open is our own echo; a close is the user
         // leaving it on the glasses.
         if open, module == surface?.module {
@@ -187,12 +219,18 @@ final class LiveLensBridge {
         if module == GlassesSubtitlesWire.module {
             // Closing: the echo of our own close. Opening: the user asked for captions.
             guard opened else { return }
+            let was = enabledValue
             enabledValue = true
-            defaults.set(true, forKey: Self.showKey)
+            otherApp = nil
+            watchLive()
             if source.isCapturing { refresh(); return }
             Task { [weak self] in
                 guard let self else { return }
-                if await !self.source.startCapture() {
+                if await self.source.startCapture() {
+                    self.defaults.set(true, forKey: Self.showKey)
+                } else {
+                    // Leave the toggle as it was; tell him why nothing shows.
+                    self.enabledValue = was
                     self.notice = "Live Jarvis couldn't start recording."
                     Task { try? await InmoSession.shared.send(InmoCommand.closeModule(module)) }
                 }
@@ -213,15 +251,23 @@ final class LiveLensBridge {
 
     /// Three test lines on the current lens style, to see how they look.
     func sendTestCaptions() async {
+        let lines = [LensCaption(text: "Speaker 2: testing one two", translation: "", final: false),
+                     LensCaption(text: "Maya: are we still on for six?", translation: "", final: true),
+                     LensCaption(text: "Luis: ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true)]
+        // Captions already showing: the test lines go through them; nothing opens or closes.
+        if open, let surface {
+            for line in lines { surface.show(line); try? await Task.sleep(for: .seconds(2)) }
+            return
+        }
         let probe = makeSurface(styleValue)
+        beginProbe(module: probe.module)
         probe.open()
         try? await Task.sleep(for: .milliseconds(800))
-        probe.show(LensCaption(text: "Speaker 2: testing one two", translation: "", final: false))
-        try? await Task.sleep(for: .seconds(2))
-        probe.show(LensCaption(text: "Maya: are we still on for six?", translation: "", final: true))
-        try? await Task.sleep(for: .seconds(3))
-        probe.show(LensCaption(text: "Luis: ¿Nos vemos a las seis?", translation: "Are we meeting at six?", final: true))
-        try? await Task.sleep(for: .seconds(15))
+        for line in lines { probe.show(line); try? await Task.sleep(for: .seconds(2.5)) }
+        try? await Task.sleep(for: .seconds(12))
         probe.close()
+        // Let the close echo arrive before its echoes count again.
+        try? await Task.sleep(for: .seconds(2))
+        endProbe()
     }
 }

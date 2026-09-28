@@ -17,7 +17,8 @@ extension LiveStore: LiveCaptionSource {
             LiveCaptionSegment(seq: $0.seq, name: LiveFormat.speakerLabel(id: $0.speakerID, name: $0.speakerName),
                                text: $0.text, translation: $0.translation ?? "")
         }
-        return LiveCaptionSnapshot(partial: partialText.isEmpty ? committingText : partialText, segments: Array(tail))
+        return LiveCaptionSnapshot(partial: partialText.isEmpty ? committingText : partialText,
+                                   segments: Array(tail), session: liveSessionID)
     }
 
     func startCapture() async -> Bool {

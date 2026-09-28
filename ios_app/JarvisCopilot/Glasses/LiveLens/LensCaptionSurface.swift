@@ -25,6 +25,9 @@ enum LensCaptionStyle: String, CaseIterable, Identifiable {
 /// Sends in order: BLE writes are queued behind one another.
 @MainActor
 final class LensSendQueue {
+    /// One queue for every surface, so a close on one style and an open on the
+    /// other reach the glasses in the order they were made.
+    static let shared = LensSendQueue()
     private var chain: Task<Void, Never>?
     func post(_ message: Data) {
         let previous = chain
@@ -40,7 +43,7 @@ final class LensSendQueue {
 @MainActor
 final class SubtitlesSurface: LensCaptionSurface {
     let module = GlassesSubtitlesWire.module
-    private let queue = LensSendQueue()
+    private let queue = LensSendQueue.shared
     func open() {
         queue.post(InmoCommand.openModule(module))
         queue.post(GlassesSubtitlesWire.start())
@@ -59,7 +62,7 @@ final class SubtitlesSurface: LensCaptionSurface {
 @MainActor
 final class TranslationAppSurface: LensCaptionSurface {
     let module = GlassesTranslateWire.Mode.simultaneous.module
-    private let queue = LensSendQueue()
+    private let queue = LensSendQueue.shared
     func open() {
         queue.post(InmoCommand.openModule(module))
         // Captions are not a language pair: the header shows the device language twice.

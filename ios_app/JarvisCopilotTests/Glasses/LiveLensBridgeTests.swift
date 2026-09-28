@@ -8,7 +8,8 @@ final class LiveLensBridgeTests: XCTestCase {
         var snapshot = LiveCaptionSnapshot(partial: "", segments: [])
         var startCalls = 0
         func captionSnapshot() -> LiveCaptionSnapshot { snapshot }
-        func startCapture() async -> Bool { startCalls += 1; isCapturing = true; return true }
+        var startSucceeds = true
+        func startCapture() async -> Bool { startCalls += 1; isCapturing = startSucceeds; return startSucceeds }
     }
     final class FakeSurface: LensCaptionSurface {
         let module: Int
@@ -32,7 +33,7 @@ final class LiveLensBridgeTests: XCTestCase {
         source = FakeSource(); surface = FakeSurface(module: 8); busy = false; ready = true
     }
     private func bridge() -> LiveLensBridge {
-        LiveLensBridge(source: source, defaults: defaults, lensBusy: { [unowned self] in busy },
+        LiveLensBridge(source: { [unowned self] in source }, defaults: defaults, lensBusy: { [unowned self] in busy },
                        glassesReady: { [unowned self] in ready },
                        surface: { [unowned self] style in style == .subtitles ? surface : FakeSurface(module: 0) },
                        now: { [unowned self] in clock })
@@ -146,5 +147,42 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertFalse(b.ownsLens(module: 8))
         b.enabled = false
         XCTAssertFalse(b.ownsLens(module: 0))
+    }
+
+    /// Review C2: the test action's own open/close echoes are not the user.
+    func testTheTestCaptionEchoesAreIgnored() {
+        let b = bridge()
+        b.beginProbe(module: 8)
+        b.handleLens(module: 8, opened: true)
+        XCTAssertFalse(b.enabled)
+        XCTAssertEqual(source.startCalls, 0)
+        XCTAssertTrue(b.ownsLens(module: 8))
+        b.handleLens(module: 8, opened: false)
+        b.endProbe()
+        XCTAssertFalse(b.ownsLens(module: 8))
+    }
+
+    /// Review I3: a glasses-started open that cannot start Live leaves the toggle as it was.
+    func testAFailedGlassesStartRestoresTheToggle() async {
+        source.isCapturing = false
+        source.startSucceeds = false
+        let b = bridge()
+        b.handleLens(module: 8, opened: true)
+        for _ in 0..<20 where b.notice == nil { await Task.yield() }
+        XCTAssertFalse(b.enabled)
+        XCTAssertNotNil(b.notice)
+    }
+
+    /// Review I4: a lost connection forgets which other app had the lens.
+    func testReconnectingForgetsAnotherAppThatNeverClosed() {
+        let b = bridge()
+        b.enabled = true
+        b.handleLens(module: 5, opened: true)
+        XCTAssertEqual(b.status, .pausedForLens)
+        ready = false
+        b.connectionChanged()
+        ready = true
+        b.connectionChanged()
+        XCTAssertEqual(b.status, .showing)
     }
 }
