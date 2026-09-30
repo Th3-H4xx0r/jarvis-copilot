@@ -27,18 +27,20 @@ final class LiveLensBridgeTests: XCTestCase {
     private var busy = false
     private var ready = true
     private var clock = Date(timeIntervalSince1970: 1000)
+    private var posted: [Data] = []
     private let suite = "LiveLensBridgeTests"
     private var defaults: UserDefaults { UserDefaults(suiteName: suite)! }
 
     override func setUp() {
         UserDefaults(suiteName: suite)!.removePersistentDomain(forName: suite)
-        source = FakeSource(); surface = FakeSurface(module: 8); busy = false; ready = true
+        source = FakeSource(); surface = FakeSurface(module: 8); busy = false; ready = true; posted = []
     }
     private func bridge() -> LiveLensBridge {
         LiveLensBridge(source: { [unowned self] in source }, defaults: defaults, lensBusy: { [unowned self] in busy },
                        glassesReady: { [unowned self] in ready },
                        surface: { [unowned self] style in style == .subtitles ? surface : FakeSurface(module: 0) },
-                       now: { [unowned self] in clock })
+                       now: { [unowned self] in clock },
+                       post: { [unowned self] in posted.append($0) })
     }
     private func seg(_ seq: Int, _ name: String, _ text: String) -> LiveCaptionSegment {
         .init(seq: seq, name: name, text: text, translation: "")
@@ -216,6 +218,48 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertEqual(source.factChecks, 1)
         XCTAssertTrue(b.enabled)
         XCTAssertEqual(surface.calls.filter { $0 == "open" }.count, opensBefore + 1)   // captions reopened
+    }
+
+    /// Holding GO opens Face Link (app 6). As the gesture, that app is closed
+    /// again and captions come back on the lens; the lens leaving Subtitles
+    /// meanwhile doesn't turn captions off.
+    func testTheGOHoldGestureClosesItsAppAndBringsCaptionsBack() async {
+        let b = bridge()
+        b.reopenDelay = .zero
+        b.enabled = true
+        let hold = InmoCommand.openModule(6)
+        clock = clock.addingTimeInterval(5)
+        b.learnGesture()
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(hold), raw: hold)
+        XCTAssertEqual(b.factCheckGesture, hold.map { String(format: "%02x", $0) }.joined())
+        clock = clock.addingTimeInterval(10)
+        posted = []
+        let opensBefore = surface.calls.filter { $0 == "open" }.count
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(hold), raw: hold)
+        let left = InmoCommand.closeModule(8)                // the lens left Subtitles
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(left), raw: left)
+        for _ in 0..<100 where surface.calls.filter({ $0 == "open" }).count == opensBefore {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(posted.first, InmoCommand.closeModule(6))
+        XCTAssertEqual(surface.calls.filter { $0 == "open" }.count, opensBefore + 1)
+        XCTAssertTrue(b.enabled)
+        XCTAssertEqual(b.status, .showing)
+    }
+
+    /// Face Link isn't told "ready" for the app the gesture opened, so its camera
+    /// never starts; a Face Link opened any other time is left alone.
+    func testTheGestureAppIsKnownOnlyForAMoment() {
+        let b = bridge()
+        b.enabled = true
+        let hold = InmoCommand.openModule(6)
+        clock = clock.addingTimeInterval(5)
+        b.learnGesture()
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(hold), raw: hold)
+        XCTAssertTrue(b.gestureOpened(module: 6))
+        XCTAssertFalse(b.gestureOpened(module: 5))
+        clock = clock.addingTimeInterval(10)
+        XCTAssertFalse(b.gestureOpened(module: 6))
     }
 
     /// Our own close echoes the same bytes: right after we close, it's not the gesture.

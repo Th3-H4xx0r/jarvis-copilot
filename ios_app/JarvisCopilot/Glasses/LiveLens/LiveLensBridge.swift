@@ -61,6 +61,8 @@ final class LiveLensBridge {
     private let glassesReady: @MainActor () -> Bool
     private let makeSurface: @MainActor (LensCaptionStyle) -> LensCaptionSurface
     private let now: () -> Date
+    /// Raw sends to the glasses, in order with the captions' own.
+    private let post: @MainActor (Data) -> Void
     private var surface: LensCaptionSurface?
     private var open = false
     private var composer = LiveCaptionComposer()
@@ -77,6 +79,13 @@ final class LiveLensBridge {
     /// an echo inside this window is ours, not a gesture.
     @ObservationIgnored private var lastOwnLensChange = Date.distantPast
     static let echoWindow: TimeInterval = 2
+    /// When the learned gesture last fired, and the lens app it opened (holding GO
+    /// opens Face Link): that app gets closed and captions come back.
+    @ObservationIgnored private var gestureAt = Date.distantPast
+    @ObservationIgnored private var gestureApp: Int?
+    static let gestureWindow: TimeInterval = 4
+    /// Pause between closing the gesture's app and reopening captions.
+    @ObservationIgnored var reopenDelay: Duration = .milliseconds(600)
     /// Time between the chunks of one block, and after a block before the next.
     @ObservationIgnored var chunkGap: Duration = .seconds(3.5)
     @ObservationIgnored var blockGap: Duration = .seconds(4)
@@ -97,13 +106,15 @@ final class LiveLensBridge {
          lensBusy: @escaping @MainActor () -> Bool = { GlassesNoteRecorder.shared.phase != .idle || GlassesTranslator.shared.phase != .idle },
          glassesReady: @escaping @MainActor () -> Bool = { InmoSession.shared.state == .ready },
          surface: @escaping @MainActor (LensCaptionStyle) -> LensCaptionSurface = { $0.makeSurface() },
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         post: @escaping @MainActor (Data) -> Void = { LensSendQueue.shared.post($0) }) {
         self.sourceProvider = source
         self.defaults = defaults
         self.lensBusy = lensBusy
         self.glassesReady = glassesReady
         self.makeSurface = surface
         self.now = now
+        self.post = post
         enabledValue = defaults.bool(forKey: Self.showKey)
         factCheckGesture = defaults.string(forKey: Self.gestureKey)
         styleValue = defaults.string(forKey: Self.styleKey).flatMap(LensCaptionStyle.init(rawValue:)) ?? .subtitles
@@ -325,18 +336,37 @@ final class LiveLensBridge {
         return ours && now().timeIntervalSince(lastOwnLensChange) < Self.echoWindow
     }
 
-    /// A gesture that opened another lens app gets it closed again (captions come
-    /// back); one that closed ours gets captions reopened.
+    /// A gesture that opened another lens app gets it closed again and captions
+    /// put back; one that closed ours gets captions reopened.
     private func undoGestureSideEffect(type: Int, fields: [InmoWireField]) {
         guard type == 15, let app = try? fields.firstField(18)?.nested() else { return }
         let module = Int(app.firstField(1)?.varint ?? 0)
         let opened = (app.firstField(2)?.varint ?? 0) == 0
+        gestureAt = now()
         if opened, module != surface?.module {
-            Task { try? await InmoSession.shared.send(InmoCommand.closeModule(module)) }
+            gestureApp = module
+            post(InmoCommand.closeModule(module))
+            reopenCaptions(after: reopenDelay)
         } else if !opened, module == surface?.module {
-            open = false
-            refresh()
+            reopenCaptions(after: .zero)
         }
+    }
+
+    /// The glasses left the captions app for the gesture: open it again.
+    private func reopenCaptions(after delay: Duration) {
+        guard delay > .zero else { open = false; refresh(); return }
+        Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self else { return }
+            self.open = false
+            self.refresh()
+        }
+    }
+
+    /// The lens app the gesture just opened (and is closing again): Face Link
+    /// must not start its camera for it.
+    func gestureOpened(module: Int) -> Bool {
+        gestureApp == module && now().timeIntervalSince(gestureAt) < Self.gestureWindow
     }
 
     static func describe(type: Int, fields: [InmoWireField]) -> String {
@@ -391,6 +421,8 @@ final class LiveLensBridge {
         // The app we are showing on: an open is our own echo; a close is the user
         // leaving it on the glasses.
         if open, module == surface?.module {
+            // The lens left captions for the gesture's app; they're coming back.
+            if !opened, now().timeIntervalSince(gestureAt) < Self.gestureWindow { return }
             if !opened {
                 open = false
                 enabledValue = false

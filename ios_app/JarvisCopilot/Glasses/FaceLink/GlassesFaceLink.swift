@@ -44,6 +44,9 @@ final class GlassesFaceLink {
         case .closed:
             InmoRuntimeDiagnostics.note("face link closed; images this run=\(imagesReceived)")
         case .prepareRequested:
+            // Holding GO as the Live captions gesture opens Face Link for a moment;
+            // it's being closed again, so its camera never starts.
+            if LiveLensBridge.shared.gestureOpened(module: GlassesFaceLinkWire.module) { return }
             post(GlassesFaceLinkWire.prepared(true))
         case .image(let image):
             imagesReceived += 1
