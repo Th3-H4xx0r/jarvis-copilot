@@ -198,6 +198,41 @@ final class LiveLensBridgeTests: XCTestCase {
         XCTAssertTrue(b.learningGesture)
     }
 
+    /// Taps and swipes never reach the phone; leaving Subtitles on the glasses does.
+    /// That exit can be the gesture: it fact-checks and captions come straight back.
+    func testLeavingSubtitlesOnTheGlassesCanBeTheGesture() async {
+        let b = bridge()
+        b.enabled = true
+        let exit = InmoCommand.closeModule(8)
+        clock = clock.addingTimeInterval(5)                 // well after our own open
+        b.learnGesture()
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(exit), raw: exit)
+        XCTAssertNotNil(b.factCheckGesture)
+        XCTAssertTrue(b.enabled)
+        clock = clock.addingTimeInterval(5)
+        let opensBefore = surface.calls.filter { $0 == "open" }.count
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(exit), raw: exit)
+        for _ in 0..<100 where source.factChecks == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(source.factChecks, 1)
+        XCTAssertTrue(b.enabled)
+        XCTAssertEqual(surface.calls.filter { $0 == "open" }.count, opensBefore + 1)   // captions reopened
+    }
+
+    /// Our own close echoes the same bytes: right after we close, it's not the gesture.
+    func testOurOwnCloseEchoIsNotTheGesture() async {
+        let b = bridge()
+        b.enabled = true
+        let exit = InmoCommand.closeModule(8)
+        clock = clock.addingTimeInterval(5)
+        b.learnGesture()
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(exit), raw: exit)
+        clock = clock.addingTimeInterval(5)
+        b.enabled = false                                   // we close app 8 now
+        b.handleGlasses(type: 15, fields: try! InmoWireCodec.decode(exit), raw: exit)   // its echo
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(source.factChecks, 0)
+    }
+
     /// The question and the answer are set apart by a divider line.
     func testQuestionAndAnswerHaveADividerBetweenThem() {
         let chunks = LiveLensBridge.frame(title: "Jarvis", parts: ["Q: Is this a fair price?", "A: It's a bit high."])

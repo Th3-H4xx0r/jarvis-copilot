@@ -73,6 +73,10 @@ final class LiveLensBridge {
     @ObservationIgnored private var blockChain: Task<Void, Never>?
     @ObservationIgnored private var pendingBlocks = 0
     @ObservationIgnored private var lastBlock: (key: String, at: Date)?
+    /// When Jarvis last opened or closed a lens app: the glasses echo it back, and
+    /// an echo inside this window is ours, not a gesture.
+    @ObservationIgnored private var lastOwnLensChange = Date.distantPast
+    static let echoWindow: TimeInterval = 2
     /// Time between the chunks of one block, and after a block before the next.
     @ObservationIgnored var chunkGap: Duration = .seconds(3.5)
     @ObservationIgnored var blockGap: Duration = .seconds(4)
@@ -165,6 +169,7 @@ final class LiveLensBridge {
             if !open {
                 let current = surface ?? makeSurface(styleValue)
                 surface = current
+                lastOwnLensChange = now()
                 current.open()
                 open = true
                 heldPartial = nil
@@ -177,7 +182,10 @@ final class LiveLensBridge {
         } else if open {
             open = false
             // Another app has the lens, or the glasses are gone: leave the lens alone.
-            if next != .pausedForLens, next != .glassesOff { surface?.close() }
+            if next != .pausedForLens, next != .glassesOff {
+                lastOwnLensChange = now()
+                surface?.close()
+            }
         }
         status = next
     }
@@ -292,7 +300,7 @@ final class LiveLensBridge {
             undoGestureSideEffect(type: type, fields: fields)
             return
         }
-        if let gesture = factCheckGesture, gesture == hex, enabledValue {
+        if let gesture = factCheckGesture, gesture == hex, enabledValue, !isOwnEcho(type: type, fields: fields) {
             InmoRuntimeDiagnostics.note("live captions: fact-check gesture")
             Task { [weak self] in
                 guard let self, let verdict = await self.source.runFactCheck() else { return }
@@ -308,10 +316,13 @@ final class LiveLensBridge {
         }
     }
 
+    /// An open/close of our own lens app within a moment of making it is its echo.
     private func isOwnEcho(type: Int, fields: [InmoWireField]) -> Bool {
         guard type == 15, let app = try? fields.firstField(18)?.nested() else { return false }
         let module = Int(app.firstField(1)?.varint ?? 0)
-        return module == surface?.module || module == probeModule || module == GlassesSubtitlesWire.module
+        if module == probeModule { return true }
+        let ours = module == surface?.module || module == GlassesSubtitlesWire.module
+        return ours && now().timeIntervalSince(lastOwnLensChange) < Self.echoWindow
     }
 
     /// A gesture that opened another lens app gets it closed again (captions come
@@ -330,7 +341,10 @@ final class LiveLensBridge {
 
     static func describe(type: Int, fields: [InmoWireField]) -> String {
         if type == 15, let app = try? fields.firstField(18)?.nested() {
-            return "opens glasses app \(app.firstField(1)?.varint ?? 0)"
+            let module = app.firstField(1)?.varint ?? 0
+            let closes = (app.firstField(2)?.varint ?? 0) == 1
+            if module == UInt64(GlassesSubtitlesWire.module) { return closes ? "leaving Subtitles" : "opening Subtitles" }
+            return (closes ? "closes" : "opens") + " glasses app \(module)"
         }
         return "glasses message type \(type)"
     }

@@ -33,7 +33,7 @@ struct LiveCaptionsSettingsView: View {
                 }
                 if let notice = bridge.gestureNotice { Text(notice).font(.caption).foregroundStyle(JcTheme.muted) }
             } header: { Text("Glasses gesture") } footer: {
-                Text("While captions are on the lens, this gesture on the glasses fact-checks the conversation; the verdict shows on the lens.")
+                Text("While captions are on the lens, this gesture fact-checks the conversation and the verdict shows on the lens. The glasses keep taps and swipes to themselves — only gestures that open or leave a glasses app reach the phone. Good choices: the back/exit gesture while captions show (captions come straight back), or a long-press of the GO button.")
             }
             Section {
                 Button(probing ? "Sending test captions…" : "Send test captions", jcIcon: "text.bubble") {
