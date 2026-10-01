@@ -6,11 +6,16 @@ volume via the built-in `osascript set volume` interface.
 """
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import json
 import logging
+import os
 import re
 import shlex
+import struct
 import subprocess
+import time
 
 from jc_client.skills import skill
 
@@ -294,6 +299,156 @@ def volume_set(level: int) -> dict:
     v = max(0, min(100, int(level)))
     _osa(f"set volume output volume {v}")
     return {"ok": True, "level": v}
+
+
+# ── Media ──────────────────────────────────────────────────────────────────
+#
+# The keyboard's ⏯ ⏭ ⏮ keys, posted as system media-key events: they reach
+# whichever app owns Now Playing (Music, Spotify, a browser tab) with no
+# per-app scripting. MediaRemote would say what's playing, but macOS 15.4+
+# refuses it to unentitled processes. The key only toggles, so play/pause first
+# ask Core Audio which processes are making sound and skip the key when the
+# player is already in the asked-for state.
+
+_MEDIA_ACTIONS = ("play", "pause", "toggle", "next", "previous", "status")
+_MEDIA_KEYS = {"next": "media_next", "previous": "media_previous"}
+_MEDIA_POLL_S = 0.25
+_MEDIA_POLLS = 8  # ~2 s for the player to start or stop its audio
+
+
+def _press_media_key(name: str) -> None:
+    from jc_client.skills.common import _keyboard
+
+    kbd, Key, _ = _keyboard()
+    key = getattr(Key, name)
+    kbd.press(key)
+    kbd.release(key)
+
+
+def _fourcc(code: str) -> int:
+    return struct.unpack(">I", code.encode())[0]
+
+
+class _AudioAddress(ctypes.Structure):
+    _fields_ = [("selector", ctypes.c_uint32), ("scope", ctypes.c_uint32),
+                ("element", ctypes.c_uint32)]
+
+
+def _audio_property(core_audio, obj: int, selector: str) -> bytes | None:
+    address = _AudioAddress(_fourcc(selector), _fourcc("glob"), 0)
+    size = ctypes.c_uint32(0)
+    if core_audio.AudioObjectGetPropertyDataSize(
+            ctypes.c_uint32(obj), ctypes.byref(address), 0, None, ctypes.byref(size)):
+        return None
+    buf = ctypes.create_string_buffer(size.value)
+    if core_audio.AudioObjectGetPropertyData(
+            ctypes.c_uint32(obj), ctypes.byref(address), 0, None, ctypes.byref(size), buf):
+        return None
+    return buf.raw[:size.value]
+
+
+def _audio_output_pids() -> set[int] | None:
+    """PIDs Core Audio says are playing sound right now (macOS 14.2+ process
+    objects); None when this macOS can't say."""
+    try:
+        core_audio = ctypes.CDLL(ctypes.util.find_library("CoreAudio"))
+        raw = _audio_property(core_audio, 1, "prs#")  # system object → process list
+        if raw is None:
+            return None
+        pids: set[int] = set()
+        for obj in struct.unpack(f"<{len(raw) // 4}I", raw):
+            running = _audio_property(core_audio, obj, "piro")
+            pid = _audio_property(core_audio, obj, "ppid")
+            if running and pid and struct.unpack("<I", running)[0]:
+                pids.add(struct.unpack("<i", pid)[0])
+        return pids
+    except Exception:  # noqa: BLE001 — no CoreAudio means "unknown", not a failed skill
+        log.debug("core audio process list unavailable", exc_info=True)
+        return None
+
+
+def _child_pids() -> set[int]:
+    """This client's own children (`say`, clips it plays)."""
+    res = subprocess.run(["pgrep", "-P", str(os.getpid())],
+                         capture_output=True, text=True, check=False)
+    return {int(p) for p in res.stdout.split() if p.isdigit()}
+
+
+def _others_playing() -> set[int] | None:
+    """Processes other than Jarvis making sound; None when unknown."""
+    pids = _audio_output_pids()
+    if pids is None:
+        return None
+    return pids - {os.getpid()} - _child_pids()
+
+
+def _process_name(pid: int) -> str:
+    res = subprocess.run(["ps", "-p", str(pid), "-o", "comm="],
+                         capture_output=True, text=True, check=False)
+    return os.path.basename(res.stdout.strip()) or str(pid)
+
+
+def _wait_playing(want: bool) -> bool | None:
+    state = None
+    for _ in range(_MEDIA_POLLS):
+        time.sleep(_MEDIA_POLL_S)
+        others = _others_playing()
+        state = None if others is None else bool(others)
+        if state is None or state == want:
+            return state
+    return state
+
+
+@skill(
+    "media_control",
+    "Control music/video playing on this Mac — the same as its play/pause, "
+    "next and previous media keys, so it reaches whatever app is playing "
+    "(Music, Spotify, a browser tab). `play` and `pause` do nothing when it's "
+    "already in that state. `status` says whether anything is playing.",
+    {
+        "type": "object",
+        "properties": {"action": {"type": "string", "enum": list(_MEDIA_ACTIONS)}},
+        "required": ["action"],
+    },
+    destructive=True,
+)
+def media_control(action: str) -> dict:
+    act = (action or "").strip().lower()
+    if act not in _MEDIA_ACTIONS:
+        raise ValueError(f"action must be one of {', '.join(_MEDIA_ACTIONS)}")
+    others = _others_playing()
+    playing = None if others is None else bool(others)
+    if act == "status":
+        out = {"ok": True, "action": act}
+        if others is None:
+            out["note"] = "this macOS can't say what is playing"
+        else:
+            out["playing"] = playing
+            out["apps"] = sorted({_process_name(pid) for pid in others})
+        return out
+    if act in _MEDIA_KEYS:
+        _press_media_key(_MEDIA_KEYS[act])
+        return {"ok": True, "action": act, "changed": True}
+    if act == "pause" and playing is False:
+        return {"ok": True, "action": act, "changed": False, "playing": False,
+                "note": "nothing is playing"}
+    if act == "play" and playing:
+        return {"ok": True, "action": act, "changed": False, "playing": True,
+                "note": "already playing"}
+    _press_media_key("media_play_pause")
+    out = {"ok": True, "action": act, "changed": True}
+    if playing is None:
+        out["note"] = "pressed play/pause; this macOS can't confirm what is playing"
+        return out
+    want = not playing if act == "toggle" else act == "play"
+    after = _wait_playing(want)
+    if after is not None:
+        out["playing"] = after
+        if after != want:
+            out["ok"] = False
+            out["note"] = ("still playing — the app making sound didn't take the media key"
+                           if after else "nothing started — no app took the play key")
+    return out
 
 
 # ── Local ack TTS (plan 4.4-mac) ────────────────────────────────────────────

@@ -169,4 +169,78 @@ final class DefaultAudioPlayer: AudioPlaying {
     }
 }
 
+// MARK: - Other apps' playback
+
+/// Plays, pauses and skips whatever app owns Now Playing through MediaRemote, the private
+/// framework behind Control Center's player. There is no public API for another app's
+/// playback, so it is loaded at runtime — and iOS may still drop the command, which is why
+/// the skill checks `isOtherAudioPlaying` afterwards instead of trusting `send`.
+final class DefaultMediaController: MediaControlling {
+    private typealias SendFn = @convention(c) (UInt32, CFDictionary?) -> Bool
+    private typealias InfoFn = @convention(c) (DispatchQueue, @escaping @convention(block) (CFDictionary?) -> Void) -> Void
+    private typealias AppFn = @convention(c) (DispatchQueue, @escaping @convention(block) (CFString?) -> Void) -> Void
+
+    private static let framework = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY)
+
+    private static func symbol<T>(_ name: String, _ type: T.Type) -> T? {
+        guard let framework, let pointer = dlsym(framework, name) else { return nil }
+        return unsafeBitCast(pointer, to: type)
+    }
+
+    private static let sendCommand = symbol("MRMediaRemoteSendCommand", SendFn.self)
+    private static let getInfo = symbol("MRMediaRemoteGetNowPlayingInfo", InfoFn.self)
+    private static let getApp = symbol("MRMediaRemoteGetNowPlayingApplicationDisplayID", AppFn.self)
+
+    /// MediaRemote's `MRMediaRemoteCommand` numbers.
+    private static func code(_ command: MediaCommand) -> UInt32 {
+        switch command {
+        case .play: return 0
+        case .pause: return 1
+        case .toggle: return 2
+        case .next: return 4
+        case .previous: return 5
+        }
+    }
+
+    func othersPlaying() async -> Bool {
+        AVAudioSession.sharedInstance().isOtherAudioPlaying
+    }
+
+    func send(_ command: MediaCommand) async -> Bool {
+        guard let send = Self.sendCommand else { return false }
+        return send(Self.code(command), nil)
+    }
+
+    func nowPlaying() async -> NowPlaying? {
+        var info: NSDictionary?
+        var app: String?
+        if let getInfo = Self.getInfo {
+            info = await Self.ask { reply in getInfo(.global()) { reply($0 as NSDictionary?) } }
+        }
+        if let getApp = Self.getApp {
+            app = await Self.ask { reply in getApp(.global()) { reply($0 as String?) } }
+        }
+        let text = { (key: String) in info?["kMRMediaRemoteNowPlayingInfo\(key)"] as? String }
+        let playing = NowPlaying(title: text("Title"), artist: text("Artist"), album: text("Album"), app: app)
+        return playing == NowPlaying() ? nil : playing
+    }
+
+    /// MediaRemote answers on a queue — or, when iOS won't let us ask, never; a second is plenty.
+    private static func ask<T>(_ start: (@escaping (T?) -> Void) -> Void) async -> T? {
+        await withCheckedContinuation { continuation in
+            let lock = NSLock()
+            var done = false
+            let finish = { (value: T?) in
+                lock.lock()
+                defer { lock.unlock() }
+                guard !done else { return }
+                done = true
+                continuation.resume(returning: value)
+            }
+            start(finish)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { finish(nil) }
+        }
+    }
+}
+
 // MARK: - Camera / library

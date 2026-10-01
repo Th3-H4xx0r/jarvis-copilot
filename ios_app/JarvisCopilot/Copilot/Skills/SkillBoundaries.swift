@@ -144,6 +144,29 @@ protocol AudioPlaying: Sendable {
     func play(url: URL, volume: Double) async throws
 }
 
+// MARK: - Media playback (other apps)
+
+enum MediaCommand: Sendable, Equatable {
+    case play, pause, toggle, next, previous
+}
+
+struct NowPlaying: Sendable, Equatable {
+    var title: String?
+    var artist: String?
+    var album: String?
+    /// Bundle id of the app that owns Now Playing.
+    var app: String?
+}
+
+protocol MediaControlling: Sendable {
+    /// Whether another app is making sound right now; this app's own audio doesn't count.
+    func othersPlaying() async -> Bool
+    /// Hands a command to whichever app owns Now Playing. False when it couldn't be sent.
+    func send(_ command: MediaCommand) async -> Bool
+    /// What the system says is playing; nil when it won't say.
+    func nowPlaying() async -> NowPlaying?
+}
+
 // MARK: - Calendar
 
 struct CalendarEventRecord: Sendable, Equatable {

@@ -193,4 +193,79 @@ enum MediaSkills {
             }
         }
     }
+
+    // MARK: media_control
+
+    static let mediaActions = ["play", "pause", "toggle", "next", "previous", "status"]
+
+    /// `settle` is the wait between checks while the playing app starts or stops its audio.
+    static func mediaControl(_ media: any MediaControlling, settle: TimeInterval = 0.25) -> AnySkill {
+        AnySkill(
+            name: "media_control",
+            description: "Control the music, podcast or video playing on this phone in any app, like "
+                + "the Control Center player: play, pause, toggle, next or previous track. `play` and "
+                + "`pause` do nothing when it's already in that state; `status` says what is playing.",
+            inputSchema: SkillSchema.object([
+                "action": SkillSchema.enumeration(mediaActions),
+            ], required: ["action"])
+        ) { args in
+            let action = SkillArgs.string(args, "action").lowercased()
+            guard mediaActions.contains(action) else {
+                throw SkillError.badArgument("action must be one of \(mediaActions.joined(separator: ", "))")
+            }
+            let pause = { try? await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000)) }
+            var out: [String: Any] = ["action": action]
+            let refused = ["ok": false, "action": action,
+                           "error": "iOS refused the playback command."] as [String: Any]
+
+            if action == "status" {
+                out["ok"] = true
+                out["playing"] = await media.othersPlaying()
+                if let now = await media.nowPlaying() { out["now_playing"] = json(now) }
+                return out
+            }
+            if action == "next" || action == "previous" {
+                guard await media.send(action == "next" ? .next : .previous) else { return refused }
+                await pause()
+                out["ok"] = true
+                out["changed"] = true
+                if let now = await media.nowPlaying() { out["now_playing"] = json(now) }
+                return out
+            }
+
+            let playing = await media.othersPlaying()
+            if action == "pause" && !playing || action == "play" && playing {
+                out["ok"] = true
+                out["changed"] = false
+                out["playing"] = playing
+                out["note"] = playing ? "already playing" : "nothing is playing"
+                return out
+            }
+            let want = action == "toggle" ? !playing : action == "play"
+            guard await media.send(want ? .play : .pause) else { return refused }
+            var now = playing
+            for _ in 0..<8 where now != want {
+                await pause()
+                now = await media.othersPlaying()
+            }
+            out["ok"] = now == want
+            out["changed"] = true
+            out["playing"] = now
+            if now != want {
+                out["error"] = want
+                    ? "Nothing started playing — iOS may not let Jarvis start another app's playback."
+                    : "Still playing — iOS didn't pass the pause on to the app that's playing."
+            }
+            return out
+        }
+    }
+
+    private static func json(_ now: NowPlaying) -> [String: Any] {
+        var out: [String: Any] = [:]
+        if let title = now.title { out["title"] = title }
+        if let artist = now.artist { out["artist"] = artist }
+        if let album = now.album { out["album"] = album }
+        if let app = now.app { out["app"] = app }
+        return out
+    }
 }

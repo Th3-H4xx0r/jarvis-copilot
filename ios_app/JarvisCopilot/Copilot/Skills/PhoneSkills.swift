@@ -27,6 +27,7 @@ enum PhoneSkills {
         var speech: any SpeechSynthesizing = DefaultSpeechSynthesizer()
         var recorder: any AudioRecording = DefaultAudioRecorder()
         var player: any AudioPlaying = DefaultAudioPlayer()
+        var media: any MediaControlling = DefaultMediaController()
         var contacts: any ContactsStore = DefaultContactsStore()
         var calendars: any CalendarAccessing = DefaultCalendarAccess()
         var health: any HealthReading = DefaultHealthReader()
@@ -61,6 +62,7 @@ enum PhoneSkills {
             MediaSkills.textToSpeech(b.speech),
             MediaSkills.recordAudio(b.recorder),
             MediaSkills.playAudio(b.player),
+            MediaSkills.mediaControl(b.media),
             DataSkills.readContacts(b.contacts),
             DataSkills.addCalendarEvent(b.calendars),
             DataSkills.listCalendarEvents(b.calendars),
