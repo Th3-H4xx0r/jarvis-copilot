@@ -79,6 +79,7 @@ enum PhoneSkills {
             IOSSkills.createShortcut(b.shortcuts),
             IOSSkills.phoneControl(b.shortcuts, contacts: b.contacts, sms: b.sms),
             IOSSkills.phoneCapabilities(),
+            WidgetSkills.refresh(),
         ]
     }
 

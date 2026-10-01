@@ -295,8 +295,9 @@ final class AppServices {
         ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
         ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
 
-        // 10c. Widgets: the live values every Jarvis widget reads.
+        // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
         WidgetDataHub.shared.start()
+        Task { await WidgetSync.shared.sync() }
         Task { await ControlButtonStore.shared.runPending() }
 
         // 11. The server's active personality → the on-device model, so a locally
@@ -329,6 +330,7 @@ final class AppServices {
                 await self.runner.drainPending()
                 await ControlButtonStore.shared.runPending()
                 WidgetDataHub.shared.refreshSoon()
+                await WidgetSync.shared.sync()
                 await self.voice.resumeFromBackground()
             }
         } else {
