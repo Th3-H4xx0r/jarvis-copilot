@@ -1,8 +1,10 @@
-"""The Colmi ring as a health source.
+"""A smart ring as a health source: the Colmi R12, and the X5 by another prefix.
 
-It speaks the `ring_*` device skills, which run on the phone the ring is paired
-to — the phone is the radio, so an unreachable phone means an unreachable ring,
-and that is reported as such rather than as a day with nothing in it.
+It speaks the ring's device skills (`ring_*` for the R12, `x5_*` for the X5 —
+the same names after the prefix and the same JSON), which run on the phone the
+ring is paired to — the phone is the radio, so an unreachable phone means an
+unreachable ring, and that is reported as such rather than as a day with
+nothing in it.
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ from ..metrics import (
 )
 from . import SourceUnreachable
 
-#: `ring_get_history` takes at most 30 days in one call.
+#: `<prefix>get_history` takes at most 30 days in one call.
 HISTORY_CHUNK = 30
 
 #: The ring's own stage codes onto the SDK's. Getting this backwards would swap
@@ -44,15 +46,26 @@ class RingSource:
     is the *phone* the device bridge routes skills to, while `wearable_id` is
     the ring's own BLE identifier, which is what `wearables_connect` needs and
     what the integration's space id is derived from.
+
+    `prefix` names the ring's skills (`ring_` for the R12, `x5_` for the X5)
+    and `kind` is what its days are filed under; both rings answer the same
+    shapes, so nothing else differs.
     """
 
     kind = "ring"
 
     def __init__(self, bridge_device_id: str, wearable_id: str = "",
-                 invoke: Optional[Callable[..., dict]] = None) -> None:
+                 invoke: Optional[Callable[..., dict]] = None,
+                 prefix: str = "ring_", kind: str = "ring") -> None:
         self.bridge_device_id = bridge_device_id
         self.wearable_id = wearable_id or bridge_device_id
         self._invoke = invoke or bridge_invoke
+        self.prefix = prefix
+        self.kind = kind
+
+    def _skill(self, name: str) -> str:
+        """This ring's name for a skill: `get_status` → `ring_get_status`."""
+        return f"{self.prefix}{name}"
 
     # ── plumbing ────────────────────────────────────────────────────────────
     def _call(self, skill: str, args: Optional[dict] = None, timeout: float = 30) -> dict:
@@ -71,7 +84,7 @@ class RingSource:
 
     # ── HealthSource ────────────────────────────────────────────────────────
     def identity(self) -> dict[str, Any]:
-        status = self._call("ring_get_status", timeout=20)
+        status = self._call(self._skill("get_status"), timeout=20)
         return {
             "kind": self.kind,
             "device_id": self.wearable_id,
@@ -85,7 +98,7 @@ class RingSource:
         return True
 
     def battery(self) -> dict[str, Any]:
-        status = self._call("ring_get_status", timeout=20)
+        status = self._call(self._skill("get_status"), timeout=20)
         return {"percent": status.get("battery_percent"), "charging": bool(status.get("charging"))}
 
     def fetch_day(self, date: Optional[str], tz: str) -> HealthDay:
@@ -94,21 +107,22 @@ class RingSource:
         # real test of whether the ring answered. The hub's argument is
         # `wearable_id` — it refuses `device_id`, which the bridge injects.
         self._invoke(self.bridge_device_id, "wearables_connect", {"wearable_id": self.wearable_id}, 20)
-        self._call_or_raise("ring_sync", {"days": 0}, timeout=60)
+        self._call_or_raise(self._skill("sync"), {"days": 0}, timeout=60)
         # No date: the phone knows which local day it is, and answers with the
         # date and zone it used, so the first run cannot ask for a UTC tomorrow.
-        raw = self._call_or_raise("ring_get_health_day", {} if date is None else {"date": date}, timeout=40)
+        raw = self._call_or_raise(self._skill("get_health_day"), {} if date is None else {"date": date},
+                                  timeout=40)
         answered = raw.get("date") or date or ""
-        return day_from_ring_json(raw or {}, answered, raw.get("timezone") or tz)
+        return day_from_ring_json(raw or {}, answered, raw.get("timezone") or tz, source=self.kind)
 
     def backfill(self, days: int) -> list[HealthDay]:
         """Whatever history the phone still holds, in one window.
 
-        `ring_get_history` takes a day count and no cursor, so asking twice
+        `<prefix>get_history` takes a day count and no cursor, so asking twice
         returns the same window — there is no paging to do, only a cap.
         """
         out: list[HealthDay] = []
-        history = self._call("ring_get_history", {"days": min(HISTORY_CHUNK, max(1, days))}, timeout=90)
+        history = self._call(self._skill("get_history"), {"days": min(HISTORY_CHUNK, max(1, days))}, timeout=90)
         rows = history.get("days") or []
         if True:
             for row in rows:
@@ -129,11 +143,12 @@ class RingSource:
         return out
 
 
-def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
-    """The ring skills' day JSON as a HealthDay.
+def day_from_ring_json(raw: dict, date: str, tz: str, source: str = "ring") -> HealthDay:
+    """The ring skills' day JSON as a HealthDay, labelled with the ring's kind.
 
     Module-level because the phone pushes this exact shape straight to the
-    server, and both paths must agree on what it means.
+    server, and both paths must agree on what it means. Both rings send it,
+    with the same stage codes; `source` says which one did.
     """
     midnight = local_midnight_utc(date, tz)
 
@@ -188,7 +203,7 @@ def day_from_ring_json(raw: dict, date: str, tz: str) -> HealthDay:
             "charging": bool(raw.get("charging")),
         },
         synced_at=utc_now(),
-        source="ring",
+        source=source,
     )
 
 

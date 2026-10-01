@@ -6,11 +6,13 @@ from typing import Any, Optional, Protocol, runtime_checkable
 from ..metrics import HealthDay
 
 #: Device kinds that report enough to be scored. The others get no integration.
-ELIGIBLE_KINDS = {"ring", "scale"}
+#: `ring` is the Colmi R12, `x5ring` the X5 smart ring.
+ELIGIBLE_KINDS = {"ring", "x5ring", "scale"}
 
-#: Kinds the server syncs days from. A scale joins Jarvis Health too, but its
-#: readings are pushed by the phone as they happen (`HealthStore.put_weights`).
-DAY_KINDS = {"ring"}
+#: Kinds the server syncs days from — both rings, through the same adapter. A
+#: scale joins Jarvis Health too, but its readings are pushed by the phone as
+#: they happen (`HealthStore.put_weights`).
+DAY_KINDS = {"ring", "x5ring"}
 
 
 class SourceUnreachable(RuntimeError):
@@ -41,10 +43,16 @@ def source_for(kind: str, bridge_device_id: str, wearable_id: str = "") -> Healt
     """The adapter for a device kind. New wearables register here.
 
     `bridge_device_id` is the phone the skills run on; `wearable_id` is the
-    device itself. They are different values and both are needed.
+    device itself. They are different values and both are needed. The X5
+    answers the R12's skills under its own `x5_` prefix, so one adapter serves
+    both rings.
     """
     if kind == "ring":
         from .ring import RingSource
 
         return RingSource(bridge_device_id, wearable_id)
+    if kind == "x5ring":
+        from .ring import RingSource
+
+        return RingSource(bridge_device_id, wearable_id, prefix="x5_", kind="x5ring")
     raise ValueError(f"no health source for {kind!r}")
