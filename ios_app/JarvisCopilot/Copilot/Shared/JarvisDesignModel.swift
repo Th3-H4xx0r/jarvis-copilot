@@ -209,7 +209,12 @@ struct JCNode: Decodable {
             case "type":
                 type = (try? c.decode(String.self, forKey: key)) ?? ""
             case "style":
-                style = try? c.decode(JCStyle.self, forKey: key)
+                // A chart's `style` is its kind ("bar"), not a style object: keep it as a prop.
+                if let kind = try? c.decode(String.self, forKey: key) {
+                    props["style"] = .string(kind)
+                } else {
+                    style = try? c.decode(JCStyle.self, forKey: key)
+                }
             case "when":
                 when = try? c.decode(JCJSON.self, forKey: key)
             default:

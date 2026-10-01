@@ -489,7 +489,7 @@ final class JCDesignRenderer {
         let points = JCChartPoint.points(from: n.ref("series")?.array(ctx) ?? [])
         let color = n.ref("color")?.color(ctx) ?? n.style?.tint.flatMap(jcParseColor) ?? tint
         let style = n.string("style") ?? "line"
-        let height = n.style?.height.map { CGFloat($0) } ?? 60
+        let height = CGFloat(n.double("height") ?? n.style?.height ?? 60)
         if points.isEmpty {
             Text("—").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
                 .frame(maxWidth: .infinity, minHeight: height)
