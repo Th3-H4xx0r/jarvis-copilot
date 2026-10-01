@@ -238,10 +238,10 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
-                    ControlButtonsPage()
+                    WidgetCreatorPage()
                 } label: {
-                    GlassRow(symbol: "switch.2", title: "Control Center buttons",
-                             subtitle: "Your own buttons, each running any Jarvis action")
+                    GlassRow(symbol: "square.grid.2x2.fill", title: "Widget creator",
+                             subtitle: "Home Screen, Lock Screen and Control Center")
                 }
                 .buttonStyle(.plain)
 
