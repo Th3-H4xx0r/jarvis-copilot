@@ -1,8 +1,10 @@
 import Foundation
 
-/// Which ring Jarvis Health reads. Pranav picks it in Health settings; both rings keep syncing
-/// their own history either way, but only this one is registered with the server, pushed, shown
-/// in the Health tab and exported to Apple Health.
+/// Which ring leads Jarvis Health. Pranav picks it in Health settings. Both rings keep syncing,
+/// pushing their days and staying linked on the server, so switching never hides history — the
+/// server merges each day from the primary first and fills the rest from the other ring. The
+/// choice also picks which ring's spot checks the Health tab offers and which one Apple Health
+/// gets its days from (from the switch on, so no day is written twice).
 enum HealthRing: String, CaseIterable, Identifiable {
     case r12 = "ring"
     case x5 = "x5ring"
@@ -46,9 +48,10 @@ enum HealthRing: String, CaseIterable, Identifiable {
             && WearableIdentity.remembered(WearableKeepAlive.x5ring, defaults: defaults) != nil
     }
 
-    /// The kinds registered with Jarvis Health: the chosen ring, and the scale.
-    static func eligibleKinds(chosen: HealthRing) -> Set<String> {
-        [chosen.kind, WearableKeepAlive.scale]
+    /// What registration tells the server about a ring once both are paired: every ring stays
+    /// linked, so its days keep counting, and only the chosen one is primary.
+    static func serverFlags(for kind: String, chosen: HealthRing) -> [String: Any] {
+        ["linked": true, "primary": kind == chosen.kind]
     }
 
     /// The chosen ring's history.
@@ -59,13 +62,14 @@ enum HealthRing: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Switches Jarvis Health to `ring`: re-registers, and sends the new ring's recent days.
+    /// Makes `ring` the primary: re-registers, and sends the new ring's recent days in case some
+    /// never reached the server.
     @MainActor static func choose(_ ring: HealthRing) {
         guard ring != current else { return }
         set(ring)
         UserDefaults.standard.set(RingDates.dayKey(Date()), forKey: sinceKey)
         WearablesHub.shared.registerHealthIntegrations()
-        if ring == .x5, let store = WearablesHub.shared.x5.store {
+        if let store = WearablesHub.shared.x5.store {
             Task { await X5HealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.x5) }
         }
         NotificationCenter.default.post(name: .jcHealthRingChanged, object: nil)
@@ -76,13 +80,13 @@ extension Notification.Name {
     static let jcHealthRingChanged = Notification.Name("jcHealthRingChanged")
 }
 
-/// Sends X5 days to Jarvis Health after a sync, when the X5 is its ring — the X5's side of
-/// what `RingSync.pushDays` does for the R12.
+/// Sends X5 days to Jarvis Health after a sync, whichever ring leads — the X5's side of what
+/// `RingSync.pushDays` does for the R12.
 enum X5HealthPush {
     @MainActor
     @discardableResult
     static func push(_ keys: Set<String>, manager: X5Manager) async -> Bool {
-        guard HealthRing.current == .x5, let deviceID = manager.deviceID, let store = manager.store, !keys.isEmpty else {
+        guard let deviceID = manager.deviceID, let store = manager.store, !keys.isEmpty else {
             return false
         }
         let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))

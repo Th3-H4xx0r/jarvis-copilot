@@ -400,7 +400,7 @@ final class RingSync: ObservableObject {
     /// scheduled run, which reads the same history back off the phone.
     @discardableResult
     private func pushDays(_ keys: Set<String>) async -> Bool {
-        guard HealthRing.current == .r12, let deviceID = deviceIDForHealth, !keys.isEmpty else { return false }
+        guard let deviceID = deviceIDForHealth, !keys.isEmpty else { return false }
         let client = HealthClient(spaceID: HealthSpace.id(forRing: deviceID))
         guard let store = storeProvider() else { return false }
         for key in keys.sorted() {

@@ -31,10 +31,15 @@ final class HealthRingTests: XCTestCase {
         XCTAssertEqual(HealthRing.current(defaults: defaults), .r12)
     }
 
-    /// Only the chosen ring is registered with Jarvis Health; the scale always is.
-    func testOnlyTheChosenRingIsEligible() {
-        XCTAssertEqual(HealthRing.eligibleKinds(chosen: .x5), [WearableKeepAlive.x5ring, WearableKeepAlive.scale])
-        XCTAssertEqual(HealthRing.eligibleKinds(chosen: .r12), [WearableKeepAlive.ring, WearableKeepAlive.scale])
+    /// Switching rings only changes which one leads: both stay linked on the server, so the
+    /// other ring's history keeps showing and its days keep filling the gaps.
+    func testBothRingsStayLinkedAndOnlyTheChosenOneIsPrimary() {
+        let x5 = HealthRing.serverFlags(for: WearableKeepAlive.x5ring, chosen: .x5)
+        let r12 = HealthRing.serverFlags(for: WearableKeepAlive.ring, chosen: .x5)
+        XCTAssertEqual(x5["linked"] as? Bool, true)
+        XCTAssertEqual(x5["primary"] as? Bool, true)
+        XCTAssertEqual(r12["linked"] as? Bool, true)
+        XCTAssertEqual(r12["primary"] as? Bool, false)
     }
 
     /// The R12's Apple Health ids never change (that would duplicate its history); the X5's are

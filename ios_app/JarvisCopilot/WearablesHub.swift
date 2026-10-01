@@ -413,9 +413,9 @@ final class WearablesHub: ObservableObject {
     /// so running it on each launch and pairing is free.
     func registerHealthIntegrations() {
         let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
-        // Both rings paired: the server links only the one Health reads, and makes it primary.
+        // Both rings paired: both stay linked, and the chosen one is primary.
         let choosing = HealthRing.bothPaired()
-        let chosen = HealthRing.current.kind
+        let chosen = HealthRing.current
         let rings: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring]
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
         // Without the phone's own id the server has nothing to invoke through,
@@ -438,8 +438,7 @@ final class WearablesHub: ObservableObject {
                 "timezone": TimeZone.current.identifier,
             ]
             if choosing, rings.contains(entry.kind) {
-                out["linked"] = entry.kind == chosen
-                out["primary"] = entry.kind == chosen
+                out.merge(HealthRing.serverFlags(for: entry.kind, chosen: chosen)) { _, flag in flag }
             }
             return out
         }
