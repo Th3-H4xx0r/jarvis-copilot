@@ -107,6 +107,15 @@ final class X5Manager: NSObject, ObservableObject {
         session.wantedHID = { [weak self] in Self.hid(for: self?.inputs?.wantedMode ?? .off) }
     }
 
+    /// Whether a device belongs in the X5 list: an X5 name, or — unless only names count — the X5's
+    /// FFF0 service, whatever the device calls itself. A ring iOS already holds doesn't advertise,
+    /// so it is only ever found that way. Never the R12, which has its own card; anything else is
+    /// checked on connect before it is remembered.
+    static func isCandidate(name: String, hasService: Bool, strict: Bool) -> Bool {
+        guard !RingProtocol.isRingName(name) else { return false }
+        return X5Protocol.isX5Name(name) || (!strict && hasService)
+    }
+
     /// The touch-surface mode an inputs-screen mode asks for.
     static func hid(for mode: RingInputMode) -> (enabled: Bool, mode: X5HIDMode) {
         switch mode {
@@ -207,9 +216,11 @@ final class X5Manager: NSObject, ObservableObject {
             candidates += central.retrievePeripherals(withIdentifiers: [uuid])
         }
         for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
-            let name = p.name ?? "X5 ring"
-            guard X5Protocol.isX5Name(name) || p.identifier.uuidString == last else { continue }
-            discovered.append(DiscoveredRing(id: p.identifier, name: name, rssi: 0, peripheral: p))
+            let name = p.name ?? ""
+            // Everything here was found by its FFF0 service (or is the ring used last time).
+            guard p.identifier.uuidString == last
+                    || Self.isCandidate(name: name, hasService: true, strict: strictNameMatch) else { continue }
+            discovered.append(DiscoveredRing(id: p.identifier, name: name.isEmpty ? "X5 ring" : name, rssi: 0, peripheral: p))
         }
     }
 
@@ -458,7 +469,9 @@ extension X5Manager: CBCentralManagerDelegate {
         let on = c.state == .poweredOn
         Task { @MainActor in
             self.bluetoothReady = on
-            if !on {
+            if on {
+                self.startScan()
+            } else {
                 self.state = .failed("Bluetooth off")
                 self.resetLink()
             }
@@ -483,10 +496,8 @@ extension X5Manager: CBCentralManagerDelegate {
         let services = ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
         let rssi = RSSI.intValue
         Task { @MainActor in
-            let byName = X5Protocol.isX5Name(name)
-            let byService = services.contains(X5Protocol.service)
-            // The R12 has its own card; never list it here.
-            guard !RingProtocol.isRingName(name), byName || (!self.strictNameMatch && byService) else { return }
+            guard Self.isCandidate(name: name, hasService: services.contains(X5Protocol.service),
+                                   strict: self.strictNameMatch) else { return }
             if let i = self.discovered.firstIndex(where: { $0.id == p.identifier }) {
                 self.discovered[i].rssi = rssi
                 if !name.isEmpty { self.discovered[i].name = name }

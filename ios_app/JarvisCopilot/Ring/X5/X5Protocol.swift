@@ -16,14 +16,19 @@ enum X5Protocol {
     static let write = CBUUID(string: "FFF6")
     static let notify = CBUUID(string: "FFF7")
 
-    /// "X5", optionally followed by a separator and a suffix ("X5_7A21", "X5 ring").
-    /// FFF0 is a generic service, so a name match is only a candidate — the manager still
-    /// checks the ring answers like an X5 before remembering it.
+    /// "X5" as a word anywhere in the name ("X5_7A21", "X5 ring", "Smart Ring X5"), not inside
+    /// another one ("X50", "AX5B"). FFF0 is a generic service, so a name match is only a
+    /// candidate — the manager still checks the ring answers like an X5 before remembering it.
     static func isX5Name(_ name: String) -> Bool {
-        let upper = name.uppercased()
-        guard upper.hasPrefix("X5") else { return false }
-        guard let next = upper.dropFirst(2).first else { return true }
-        return !(next.isLetter || next.isNumber)
+        let chars = Array(name.uppercased())
+        guard chars.count >= 2 else { return false }
+        for i in 0..<(chars.count - 1) where chars[i] == "X" && chars[i + 1] == "5" {
+            let before = i == 0 ? nil : chars[i - 1]
+            let after = i + 2 < chars.count ? chars[i + 2] : nil
+            let isWord = { (c: Character?) in c.map { $0.isLetter || $0.isNumber } ?? false }
+            if !isWord(before), !isWord(after) { return true }
+        }
+        return false
     }
 
     /// Six BCD bytes: YY MM DD HH mm SS in `calendar`'s zone.
