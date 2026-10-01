@@ -333,10 +333,11 @@ enum X5Decode {
 /// then 5 s (0E), then 10 s (0F). When a longer hold has an action, the shorter one waits to see
 /// whether the hold goes on, and is dropped if it does; otherwise it runs at once.
 struct X5HoldGate {
-    /// After 0C, how long 0E can take to follow.
-    static let toFive: TimeInterval = 4.5
-    /// After 0E, how long 0F can take to follow.
-    static let toTen: TimeInterval = 5.5
+    /// After 0C, how long 0E can take to follow. Nominally 4 s, but the ring has been seen
+    /// a full 5 s late, which let a 5-second hold run the long press too.
+    static let toFive: TimeInterval = 5.5
+    /// After 0E, how long 0F can take to follow (nominally 5 s).
+    static let toTen: TimeInterval = 6.0
 
     enum Step: Equatable {
         case run(RingInput)

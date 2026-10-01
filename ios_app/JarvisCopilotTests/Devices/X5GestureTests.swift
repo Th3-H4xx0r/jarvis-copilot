@@ -73,6 +73,27 @@ final class X5GestureTests: XCTestCase {
         XCTAssertNil(gate.due(at: t0.addingTimeInterval(9)))
     }
 
+    // On the ring 0E came a full 5 s after 0C (22:25:28 → :33): the long press had already run.
+    func testAFiveSecondHoldReportedFiveSecondsAfterTheLongPressStillCancelsIt() {
+        var gate = X5HoldGate()
+        let t0 = Date(timeIntervalSince1970: 0)
+        let bound: (RingInput) -> Bool = { $0 == .longPress || $0 == .holdFiveSeconds }
+        _ = gate.arrive(.longPress, at: t0, bound: bound)
+        XCTAssertNil(gate.due(at: t0.addingTimeInterval(5.1)))
+        XCTAssertEqual(gate.arrive(.hold5s, at: t0.addingTimeInterval(5.1), bound: bound),
+                       [.cancel(.longPress), .run(.holdFiveSeconds)])
+    }
+
+    func testATenSecondHoldReportedLateStillCancelsTheFiveSecondOne() {
+        var gate = X5HoldGate()
+        let t0 = Date(timeIntervalSince1970: 0)
+        let all: (RingInput) -> Bool = { _ in true }
+        _ = gate.arrive(.hold5s, at: t0, bound: all)
+        XCTAssertNil(gate.due(at: t0.addingTimeInterval(5.6)))
+        XCTAssertEqual(gate.arrive(.hold10s, at: t0.addingTimeInterval(5.6), bound: all),
+                       [.cancel(.holdFiveSeconds), .run(.holdTenSeconds)])
+    }
+
     func testWithNoLongerHoldBoundALongPressRunsAtOnce() {
         var gate = X5HoldGate()
         let now = Date(timeIntervalSince1970: 0)
