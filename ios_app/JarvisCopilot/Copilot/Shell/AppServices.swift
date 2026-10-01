@@ -298,6 +298,7 @@ final class AppServices {
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
         WidgetDataHub.shared.start()
         Task { await WidgetSync.shared.sync() }
+        WidgetModelSnapshots.refreshIfNeeded()
         Task { await ControlButtonStore.shared.runPending() }
 
         // 11. The server's active personality → the on-device model, so a locally
