@@ -105,9 +105,16 @@ struct JCPresentations: Decodable {
     var compactLeading: JCNode?
     var compactTrailing: JCNode?
     var minimal: JCNode?
+    /// Home Screen and Lock Screen widget layouts, by `WidgetSize`.
+    var widgets: [WidgetSize: JCNode] = [:]
 
     enum CodingKeys: String, CodingKey {
         case expanded, lockScreen, compactLeading, compactTrailing, minimal
+    }
+    private struct SizeKey: CodingKey {
+        var stringValue: String; var intValue: Int? = nil
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -116,8 +123,58 @@ struct JCPresentations: Decodable {
         compactLeading = try? c.decode(JCNode.self, forKey: .compactLeading)
         compactTrailing = try? c.decode(JCNode.self, forKey: .compactTrailing)
         minimal = try? c.decode(JCNode.self, forKey: .minimal)
+        let sizes = try decoder.container(keyedBy: SizeKey.self)
+        for size in WidgetSize.allCases {
+            if let key = SizeKey(stringValue: size.rawValue), let node = try? sizes.decode(JCNode.self, forKey: key) {
+                widgets[size] = node
+            }
+        }
     }
     init() {}
+}
+
+/// The widget sizes a design can lay out, by the key it uses in `presentations`.
+enum WidgetSize: String, CaseIterable, Codable, Identifiable {
+    case small, medium, large, extraLarge, circular, rectangular, inline
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        case .extraLarge: return "Extra large"
+        case .circular: return "Lock: circle"
+        case .rectangular: return "Lock: rectangle"
+        case .inline: return "Lock: inline"
+        }
+    }
+
+    var isLockScreen: Bool { self == .circular || self == .rectangular || self == .inline }
+
+    /// Where a size borrows its layout from when the design has none of its own.
+    var fallback: WidgetSize? {
+        switch self {
+        case .extraLarge: return .large
+        case .large: return .medium
+        case .medium: return .small
+        case .rectangular: return .inline
+        case .small, .circular, .inline: return nil
+        }
+    }
+}
+
+extension JCDesign {
+    /// The layout for `size`, or the nearest smaller one of the same kind.
+    func node(for size: WidgetSize) -> JCNode? {
+        var current: WidgetSize? = size
+        while let s = current {
+            if let node = presentations.widgets[s] { return node }
+            current = s.fallback
+        }
+        return nil
+    }
 }
 
 /// A node in the layout tree: `{type, ...props, style?, when?}`. The `type` is a
@@ -400,6 +457,11 @@ struct JCBindingContext {
             data = [:]
         }
         row = nil
+    }
+    /// A widget's context: the data hub's snapshot.
+    init(data: [String: JCJSON]) {
+        self.data = data
+        self.row = nil
     }
     private init(data: [String: JCJSON], row: [String: JCJSON]?) {
         self.data = data; self.row = row

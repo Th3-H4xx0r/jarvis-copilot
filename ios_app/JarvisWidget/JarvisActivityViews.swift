@@ -2,16 +2,6 @@ import WidgetKit
 import SwiftUI
 import ActivityKit
 
-func jcStateColor(_ s: String) -> Color {
-    switch s {
-    case "listening": return JcAccent.color                           // the app accent
-    case "thinking":  return Color(red: 0.93, green: 0.94, blue: 0.97) // bright neutral, as in the app
-    case "speaking":  return Color(red: 1.0,  green: 0.44, blue: 0.85) // pink
-    case "error":     return Color(red: 1.0,  green: 0.42, blue: 0.49) // red
-    default:          return JcAccent.soft                            // idle: the soft accent
-    }
-}
-
 func jcStateLabel(_ s: String) -> String {
     switch s {
     case "listening": return "Listening"
@@ -148,15 +138,6 @@ struct JarvisConvo: View {
 // working = green, waiting = amber (the attention state), idle = grey; the two
 // usage rings are 5-hour = red (inner) and weekly = blue (outer).
 
-func jcCodingColor(_ s: String) -> Color {
-    switch s {
-    case "working": return Color(red: 0.20, green: 0.83, blue: 0.60)  // green
-    case "waiting": return Color(red: 1.0,  green: 0.76, blue: 0.30)  // amber — as "waiting on you" in the app
-    case "dim":     return Color(red: 0.40, green: 0.42, blue: 0.45)  // muted (forgotten)
-    default:        return Color(red: 0.51, green: 0.55, blue: 0.59)  // grey (idle)
-    }
-}
-
 /// Color for a per-session sub-state shorthand (w/p/i/d) in the segmented bar.
 func jcSubColor(_ s: String) -> Color {
     switch s {
@@ -169,9 +150,6 @@ func jcSubColor(_ s: String) -> Color {
 
 /// A forgotten (detached+idle) entry is de-emphasized: muted color + dimmed.
 func jcEntryOpacity(_ state: String) -> Double { state == "dim" ? 0.5 : 1.0 }
-let jcUsage5Color = Color(red: 0.98, green: 0.44, blue: 0.52)    // red
-let jcUsageWeekColor = JcAccent.color
-
 func jcCodingStateLabel(_ s: String) -> String {
     switch s {
     case "working": return "working"
