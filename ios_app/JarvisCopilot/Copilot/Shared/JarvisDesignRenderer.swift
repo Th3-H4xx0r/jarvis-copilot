@@ -1,3 +1,5 @@
+import AppIntents
+import Charts
 import Foundation
 import SwiftUI
 import WidgetKit
@@ -134,6 +136,15 @@ final class JCDesignRenderer {
             RoundedRectangle(cornerRadius: 2)
                 .fill(n.ref("color")?.color(ctx) ?? tint)
                 .frame(width: 3)
+        // ── Widget blocks ───────────────────────────────────────────────────
+        case "chart":
+            jcChart(n, ctx)
+        case "model":
+            jcModel(n, ctx)
+        case "button":
+            jcButton(n, ctx)
+        case "toggle":
+            jcToggle(n, ctx)
         default:
             // Unknown type → render nothing (forward-compat).
             EmptyView()
@@ -472,6 +483,107 @@ final class JCDesignRenderer {
             .frame(height: 22)
     }
 
+    /// A Swift Charts line, bar or area chart over a series of numbers or `{x, y}` points.
+    @ViewBuilder
+    private func jcChart(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let points = JCChartPoint.points(from: n.ref("series")?.array(ctx) ?? [])
+        let color = n.ref("color")?.color(ctx) ?? n.style?.tint.flatMap(jcParseColor) ?? tint
+        let style = n.string("style") ?? "line"
+        let height = n.style?.height.map { CGFloat($0) } ?? 60
+        if points.isEmpty {
+            Text("—").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
+                .frame(maxWidth: .infinity, minHeight: height)
+        } else {
+            Chart(points) { point in
+                switch style {
+                case "bar":
+                    BarMark(x: .value("x", point.label), y: .value("y", point.value))
+                        .foregroundStyle(color)
+                        .cornerRadius(3)
+                case "area":
+                    AreaMark(x: .value("x", point.label), y: .value("y", point.value))
+                        .foregroundStyle(color.opacity(0.35))
+                    LineMark(x: .value("x", point.label), y: .value("y", point.value))
+                        .foregroundStyle(color)
+                default:
+                    LineMark(x: .value("x", point.label), y: .value("y", point.value))
+                        .foregroundStyle(color)
+                        .interpolationMethod(.catmullRom)
+                }
+            }
+            .chartYScale(domain: jcChartDomain(n, points))
+            .chartXAxis(n.bool("axes") == true ? .automatic : .hidden)
+            .chartYAxis(n.bool("axes") == true ? .automatic : .hidden)
+            .frame(height: height)
+        }
+    }
+
+    private func jcChartDomain(_ n: JCNode, _ points: [JCChartPoint]) -> ClosedRange<Double> {
+        let low = n.double("min") ?? min(0, points.map(\.value).min() ?? 0)
+        let high = n.double("max") ?? max(points.map(\.value).max() ?? 1, low + 1)
+        return low...max(high, low + 1)
+    }
+
+    /// A wearable's 3D model, as the picture the app rendered of it.
+    private func jcModel(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let device = n.ref("device")?.string(ctx) ?? n.string("device") ?? ""
+        let w = n.style?.width.map { CGFloat($0) }
+        let h = n.style?.height.map { CGFloat($0) } ?? w ?? 64
+        return Group {
+            if let image = WidgetImages.model(device) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: WidgetImages.symbol(device)).resizable().scaledToFit()
+                    .foregroundStyle(.white.opacity(0.8)).padding(h * 0.15)
+            }
+        }
+        .frame(width: w, height: h)
+    }
+
+    /// Runs a Jarvis button (set up in the app) without opening the app.
+    @ViewBuilder
+    private func jcButton(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let id = n.string("button") ?? ""
+        let info = ControlButtonShelf.infos().first { $0.id == id }
+        let label = n.ref("label")?.string(ctx) ?? info?.name ?? "Button"
+        let symbol = n.string("symbol") ?? info?.symbol ?? "bolt.fill"
+        let color = n.ref("color")?.color(ctx) ?? info?.tintColor ?? tint
+        let face = Label(label, systemImage: symbol)
+            .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(color.opacity(info == nil ? 0.12 : 0.35), in: Capsule())
+        if let info {
+            Button(intent: RunJarvisButtonIntent(button: ControlButtonEntity(info))) { face }
+                .buttonStyle(.plain)
+        } else {
+            face.opacity(0.5)
+        }
+    }
+
+    /// A Jarvis switch: lit while on, flipping it runs the button in the app.
+    @ViewBuilder
+    private func jcToggle(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let id = n.string("button") ?? ""
+        let info = ControlButtonShelf.infos().first { $0.id == id }
+        let label = n.ref("label")?.string(ctx) ?? info?.name ?? "Switch"
+        let on = info?.isOn ?? false
+        let symbol = on ? (info?.symbol ?? "switch.2") : (info?.offSymbol ?? info?.symbol ?? "switch.2")
+        let face = Label(label, systemImage: symbol)
+            .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13, weight: .semibold))
+            .lineLimit(1)
+        if let info {
+            Toggle(isOn: on, intent: SetJarvisButtonIntent(button: ControlButtonEntity(info))) { face }
+                .toggleStyle(.switch)
+                .tint(info.tintColor ?? tint)
+                .foregroundStyle(.white)
+        } else {
+            face.foregroundStyle(.white).opacity(0.5)
+        }
+    }
+
     private func jcIconStrip(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
         let items = (n.ref("items")?.array(ctx) ?? []).compactMap { $0.asString }
         let maxN = n.int("max") ?? items.count
@@ -619,3 +731,53 @@ func jcCodingColor(_ s: String) -> Color {
 let jcUsage5Color = Color(red: 0.98, green: 0.44, blue: 0.52)    // red
 let jcUsageWeekColor = JcAccent.color
 
+
+
+// MARK: - Widget block helpers
+
+/// One point of a `chart`: a series item that is a number, or `{x, y}`.
+struct JCChartPoint: Identifiable, Equatable {
+    let id: Int
+    let label: String
+    let value: Double
+
+    static func points(from items: [JCJSON]) -> [JCChartPoint] {
+        items.enumerated().compactMap { index, item in
+            if let value = item.asDouble, item.asObject == nil {
+                if case .string = item { return nil }
+                return JCChartPoint(id: index, label: String(index), value: value)
+            }
+            guard let object = item.asObject, let value = object["y"]?.asDouble else { return nil }
+            return JCChartPoint(id: index, label: object["x"]?.asString ?? String(index), value: value)
+        }
+    }
+}
+
+/// Pictures the app prepares for widgets in the App Group (the extension can't render SceneKit).
+enum WidgetImages {
+    static func modelURL(_ device: String) -> URL? {
+        guard !device.isEmpty, device.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }),
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: JarvisShared.appGroupID) else { return nil }
+        return container.appendingPathComponent("widgets/models", isDirectory: true)
+            .appendingPathComponent("\(device).png")
+    }
+
+    static func model(_ device: String) -> UIImage? {
+        guard let url = modelURL(device) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    /// What stands in for a device's model until its picture exists.
+    static func symbol(_ device: String) -> String {
+        switch device {
+        case "ring", "x5ring": return "circle.circle"
+        case "glasses": return "eyeglasses"
+        case "bottle": return "waterbottle"
+        case "scale": return "scalemass"
+        case "esp32": return "cpu"
+        case "pod": return "circle.hexagongrid"
+        default: return "sensor"
+        }
+    }
+}

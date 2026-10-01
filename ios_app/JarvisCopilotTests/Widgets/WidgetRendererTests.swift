@@ -48,4 +48,41 @@ final class WidgetRendererTests: XCTestCase {
         let view = JCDesignRenderer(tint: .white).render(d.node(for: .small), ctx).frame(width: 170, height: 170)
         XCTAssertNotNil(ImageRenderer(content: view).uiImage)
     }
+
+    // MARK: chart, model, button, toggle
+
+    private func image(_ json: String, data: [String: JCJSON] = [:]) throws -> UIImage? {
+        let node = try JSONDecoder().decode(JCNode.self, from: Data(json.utf8))
+        let view = JCDesignRenderer(tint: .white).render(node, JCBindingContext(data: data))
+            .frame(width: 170, height: 170)
+        return ImageRenderer(content: view).uiImage
+    }
+
+    func testAChartDrawsASeriesOfNumbersOrPoints() throws {
+        XCTAssertNotNil(try image(#"{"type":"chart","series":{"src":"health.steps_week"},"style":"bar"}"#,
+                                  data: ["health.steps_week": .array([.number(1), .number(3), .number(2)])]))
+        let points: JCJSON = .array([.object(["x": .string("Mon"), "y": .number(4)]),
+                                     .object(["x": .string("Tue"), "y": .number(6)])])
+        XCTAssertNotNil(try image(#"{"type":"chart","series":{"src":"s"},"style":"line"}"#, data: ["s": points]))
+    }
+
+    func testAChartWithNoDataStillDraws() throws {
+        XCTAssertNotNil(try image(#"{"type":"chart","series":{"src":"missing"}}"#))
+    }
+
+    func testAModelWithoutItsPictureFallsBackToASymbol() throws {
+        XCTAssertNil(WidgetImages.model("no-such-device"))
+        XCTAssertNotNil(try image(#"{"type":"model","device":"no-such-device"}"#))
+    }
+
+    func testButtonsAndTogglesDrawEvenForAMissingButton() throws {
+        XCTAssertNotNil(try image(#"{"type":"button","button":"gone","label":"Lights"}"#))
+        XCTAssertNotNil(try image(#"{"type":"toggle","button":"gone","label":"X5 link"}"#))
+    }
+
+    func testChartValuesComeFromNumbersOrXYObjects() {
+        XCTAssertEqual(JCChartPoint.points(from: [.number(1), .number(2)]).map(\.value), [1, 2])
+        XCTAssertEqual(JCChartPoint.points(from: [.object(["x": .string("a"), "y": .number(5)])]).map(\.label), ["a"])
+        XCTAssertEqual(JCChartPoint.points(from: [.string("bad")]), [])
+    }
 }
