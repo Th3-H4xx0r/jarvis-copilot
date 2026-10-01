@@ -222,6 +222,9 @@ def _wearables(client, device_id: str) -> list:
 def wearable_kind(model: str, name: str) -> str:
     """Which picture to show. Matched on the model the phone reports."""
     blob = f"{model} {name}".lower()
+    # Before "ring": the X5 is a ring too, with its own picture.
+    if "x5" in blob:
+        return "x5ring"
     if "r12" in blob or "ring" in blob:
         return "ring"
     if "vsitoo" in blob or "bottle" in blob:

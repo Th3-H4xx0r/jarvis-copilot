@@ -14,7 +14,7 @@ import Foundation
 /// catalogue stay registered while the device is out of range.
 enum WearableIdentity {
     /// Ids that mean "we don't actually know yet". Never remembered.
-    private static let placeholders: Set<String> = ["unpaired", "esf551", "esp32", "ring", "unknown", ""]
+    private static let placeholders: Set<String> = ["unpaired", "esf551", "esp32", "ring", "x5ring", "unknown", ""]
 
     private static func key(_ device: String) -> String { "jc.deviceID.\(device)" }
 
@@ -71,6 +71,7 @@ enum WearableIdentity {
             Esf551Scale.model: WearableKeepAlive.scale,
             Esp32Board.model: WearableKeepAlive.esp32,
             ColmiR12.model: WearableKeepAlive.ring,
+            X5Ring.model: WearableKeepAlive.x5ring,
         ]
         for (deviceID, model) in records {
             guard let kind = byModel[model], remembered(kind, defaults: defaults) == nil else { continue }

@@ -37,6 +37,7 @@ enum WearableArt {
         case WearableKeepAlive.bottle: return "waterbottle"
         case WearableKeepAlive.scale:  return "scalemass"
         case WearableKeepAlive.ring:   return "circle.circle"
+        case WearableKeepAlive.x5ring: return "circle.circle"
         case WearableKeepAlive.esp32:  return "cpu"
         case WearableKeepAlive.glasses: return "eyeglasses"
         default:                       return "dot.radiowaves.left.and.right"

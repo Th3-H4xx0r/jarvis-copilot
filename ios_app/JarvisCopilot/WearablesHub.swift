@@ -167,6 +167,7 @@ final class WearablesHub: ObservableObject {
     let scale = ScaleManager()
     let esp32 = Esp32Manager()
     let ring = RingManager()
+    let x5 = X5Manager()
     let glasses = InmoGo3Device.shared
 
     private var reconnectTask: Task<Void, Never>?
@@ -178,6 +179,7 @@ final class WearablesHub: ObservableObject {
         restoreSharedDevices()
         bottle.enterForeground()
         ring.enterForeground()
+        x5.enterForeground()
         if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.ensureConnected() } }
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
@@ -189,6 +191,7 @@ final class WearablesHub: ObservableObject {
         reconnectTask?.cancel()
         bottle.enterBackground()
         ring.enterBackground()
+        x5.enterBackground()
     }
 
     /// Bring the last-used bottle back without anyone opening the Devices tab,
@@ -224,6 +227,18 @@ final class WearablesHub: ObservableObject {
                 }
                 if await self.ring.ensureConnected(timeout: 15) == false {
                     JcLog.services.notice("wearables: ring not reachable at launch")
+                }
+            }
+            // The X5 the same way: its gestures only reach Jarvis over a live link.
+            if let x5ID = WearableIdentity.remembered(WearableKeepAlive.x5ring),
+               WearableKeepAlive.isOn(WearableKeepAlive.x5ring)
+                   || RingInputStore.shared(for: x5ID).wantedMode == .jarvis {
+                for _ in 0..<20 where !self.x5.bluetoothReady {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if Task.isCancelled { return }
+                }
+                if await self.x5.ensureConnected(timeout: 15) == false {
+                    JcLog.services.notice("wearables: X5 ring not reachable at launch")
                 }
             }
         }
@@ -293,6 +308,19 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
                                      listed: live != nil))
         }
+        if let id = WearableIdentity.remembered(WearableKeepAlive.x5ring) {
+            let live = x5.discovered.first { $0.id == x5.connected?.id } ?? x5.discovered.first
+            out.append(WearableEntry(kind: WearableKeepAlive.x5ring,
+                                     deviceID: id,
+                                     model: X5Ring.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.x5ring,
+                                                                     fallback: live?.name ?? x5.connected?.name ?? X5Ring.model),
+                                     connected: x5.state == .ready,
+                                     rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
+                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.x5ring),
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.x5ring),
+                                     listed: live != nil))
+        }
         // Control identity stays stable independently of the remembered audio port.
         // The glasses always have their own card (`listed`).
         if WearableIdentity.remembered(WearableKeepAlive.glasses) != nil || WearableIdentity.remembered("inmoGo3Control") != nil {
@@ -323,6 +351,8 @@ final class WearablesHub: ObservableObject {
              rssi: esp32.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.ring, connected: ring.state == .ready,
              rssi: ring.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.x5ring, connected: x5.state == .ready,
+             rssi: x5.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.glasses, connected: glasses.isConnected, rssi: nil)
     }
 
@@ -354,6 +384,7 @@ final class WearablesHub: ObservableObject {
         scale.publishRemembered()
         esp32.publishRemembered()
         ring.publishRemembered()
+        x5.publishRemembered()
         InmoTeleprompter.shared.install(on: glasses)
         InmoAIChannel.shared.install(on: glasses)
         GlassesNoteRecorder.shared.install()
@@ -444,6 +475,15 @@ final class WearablesHub: ObservableObject {
             }) else { return false }
             if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
             return await waitUntil(timeout: timeout) { self.ring.state == .ready }
+        case WearableKeepAlive.x5ring:
+            if await x5.ensureConnected(timeout: 3) { return true }
+            x5.startScan()
+            // Only this ring: other FFF0 devices nearby answer a scan too.
+            guard let found = await waitFor(timeout: timeout, {
+                self.x5.discovered.first { $0.id.uuidString == deviceID }
+            }) else { return false }
+            if x5.connected?.id != found.id || !x5.linkIsUp { x5.connect(found) }
+            return await waitUntil(timeout: timeout) { self.x5.state == .ready }
         case WearableKeepAlive.glasses:
             do { try await glasses.session.ensureConnected(); return glasses.isConnected } catch { return false }
         default:
@@ -477,5 +517,6 @@ final class WearablesHub: ObservableObject {
         scale.startScan()
         esp32.startScan()
         ring.startScan()
+        x5.startScan()
     }
 }

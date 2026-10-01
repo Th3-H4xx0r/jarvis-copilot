@@ -52,6 +52,21 @@ final class WearablesAvailabilityTests: XCTestCase {
         XCTAssertNil(WearableIdentity.remembered(WearableKeepAlive.esp32, defaults: defaults))
     }
 
+    func testTheX5IsSeededByItsModelBesideTheR12() {
+        WearableIdentity.seedFromSharedRecords([
+            "5F0C-x5": X5Ring.model,
+            "9A1B-r12": ColmiR12.model,
+        ], defaults: defaults)
+        XCTAssertEqual(WearableIdentity.remembered(WearableKeepAlive.x5ring, defaults: defaults), "5F0C-x5")
+        XCTAssertEqual(WearableIdentity.remembered(WearableKeepAlive.ring, defaults: defaults), "9A1B-r12")
+    }
+
+    /// `X5Ring.deviceID` falls back to the kind before the ring is known; that must never stick.
+    func testTheX5PlaceholderIdIsNeverRemembered() {
+        WearableIdentity.remember(WearableKeepAlive.x5ring, for: WearableKeepAlive.x5ring, defaults: defaults)
+        XCTAssertNil(WearableIdentity.remembered(WearableKeepAlive.x5ring, defaults: defaults))
+    }
+
     func testAnExistingInstallIsSeededFromItsSharedDevices() {
         // Upgrades have a shared bottle but no recorded id yet. Without seeding they'd
         // show nothing until the bottle reconnected once — the bug, again.
