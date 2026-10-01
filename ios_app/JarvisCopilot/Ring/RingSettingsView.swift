@@ -85,7 +85,8 @@ struct RingSettingsView: View {
                                       },
                                       onSensitivity: { value in
                                           apply { try await session.setGestureMode(.game, strength: value) }
-                                      })
+                                      },
+                                      keepAliveDevice: WearableKeepAlive.ring)
                 }
                 goalsSection
                 profileSection

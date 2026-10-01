@@ -216,11 +216,10 @@ final class WearablesHub: ObservableObject {
             }
             if WearableKeepAlive.isOn(WearableKeepAlive.scale) { self.scale.startScan() }
             // The ring has its own central, which reports power separately.
-            // Keep Alive, or a ring whose gestures are set: both need the link back at launch,
-            // since a gesture can only reach Jarvis while the ring is connected.
-            if let ringID = WearableIdentity.remembered(WearableKeepAlive.ring),
-               WearableKeepAlive.isOn(WearableKeepAlive.ring)
-                   || RingInputStore.shared(for: ringID).wantedMode == .jarvis {
+            // Keep Alive alone brings the link back at launch. Gestures only reach Jarvis over a
+            // live link, so they ride on it — off means off, to save the ring's battery.
+            if WearableIdentity.remembered(WearableKeepAlive.ring) != nil,
+               WearableKeepAlive.isOn(WearableKeepAlive.ring) {
                 for _ in 0..<20 where !self.ring.bluetoothReady {
                     try? await Task.sleep(for: .milliseconds(250))
                     if Task.isCancelled { return }
@@ -229,10 +228,9 @@ final class WearablesHub: ObservableObject {
                     JcLog.services.notice("wearables: ring not reachable at launch")
                 }
             }
-            // The X5 the same way: its gestures only reach Jarvis over a live link.
-            if let x5ID = WearableIdentity.remembered(WearableKeepAlive.x5ring),
-               WearableKeepAlive.isOn(WearableKeepAlive.x5ring)
-                   || RingInputStore.shared(for: x5ID).wantedMode == .jarvis {
+            // The X5 the same way.
+            if WearableIdentity.remembered(WearableKeepAlive.x5ring) != nil,
+               WearableKeepAlive.isOn(WearableKeepAlive.x5ring) {
                 for _ in 0..<20 where !self.x5.bluetoothReady {
                     try? await Task.sleep(for: .milliseconds(250))
                     if Task.isCancelled { return }
@@ -449,6 +447,25 @@ final class WearablesHub: ObservableObject {
                 JcLog.services.notice("health: could not register wearables — \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// Flips a wearable's Keep Alive the way its own switch does: on reconnects now, off lets
+    /// go of a link nothing else is using. `on` nil toggles. Returns the new setting.
+    @discardableResult
+    func setKeepAlive(_ on: Bool?, for device: String) -> Bool {
+        let value = on ?? !WearableKeepAlive.isOn(device)
+        WearableKeepAlive.set(value, for: device)
+        switch device {
+        case WearableKeepAlive.ring:
+            if value { Task { _ = await ring.ensureConnected(timeout: 10) } } else { ring.releaseIfIdle() }
+        case WearableKeepAlive.x5ring:
+            if value { Task { _ = await x5.ensureConnected(timeout: 10) } } else { x5.releaseIfIdle() }
+        case WearableKeepAlive.bottle:
+            if value { Task { _ = await bottle.ensureConnected(timeout: 10) } } else { bottle.releaseIfIdle() }
+        default:
+            break
+        }
+        return value
     }
 
     /// Bring one paired device's link up on request. Only devices the user has already

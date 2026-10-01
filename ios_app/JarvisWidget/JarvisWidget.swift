@@ -99,3 +99,37 @@ struct JarvisVoiceControl: ControlWidget {
         .description("Quick-launch JARVIS into voice and start listening.")
     }
 }
+
+// ── Jarvis buttons (iOS 18+) ─────────────────────────────────────────────────
+//
+// One control, added as many times as you like: each copy is pointed at one of the
+// buttons set up in Jarvis → Settings → Control Center buttons (iOS asks which when
+// it is added), and runs that button's action — in the app, in the background.
+
+@available(iOS 18.0, *)
+struct JarvisButtonControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        AppIntentControlConfiguration(kind: ControlButtonShelf.controlKind,
+                                      provider: JarvisButtonProvider()) { button in
+            ControlWidgetButton(action: RunJarvisButtonIntent(button: button)) {
+                Label(button?.name ?? "Jarvis button", systemImage: button?.symbol ?? "bolt.circle")
+            }
+        }
+        .displayName("Jarvis button")
+        .description("Runs one of the buttons set up in Jarvis settings.")
+        .promptsForUserConfiguration()
+    }
+}
+
+@available(iOS 18.0, *)
+struct JarvisButtonProvider: AppIntentControlValueProvider {
+    func previewValue(configuration: ConfigureJarvisButtonIntent) -> ControlButtonEntity? {
+        configuration.button
+    }
+
+    /// Re-read so a button renamed or given a new icon in settings shows the new one.
+    func currentValue(configuration: ConfigureJarvisButtonIntent) async throws -> ControlButtonEntity? {
+        guard let id = configuration.button?.id else { return nil }
+        return ControlButtonShelf.infos().first { $0.id == id }.map(ControlButtonEntity.init)
+    }
+}

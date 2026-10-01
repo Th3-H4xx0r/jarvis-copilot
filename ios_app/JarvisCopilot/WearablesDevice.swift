@@ -56,6 +56,18 @@ final class WearablesDevice: WearableDevice {
                     "wearable_id": ["type": "string",
                                     "description": "device_id from wearables_list or wearables_scan."],
                 ], required: ["wearable_id"])),
+            DeviceCapability(
+                name: "wearables_keep_alive",
+                description: """
+                    Turn a wearable's "Connection Keep Alive" on, off or toggle it. On holds the \
+                    Bluetooth link open (gestures and instant commands, more battery); off connects \
+                    only when something needs it.
+                    """,
+                inputSchema: DeviceCapability.schema([
+                    "wearable": ["type": "string", "enum": WearableKeepAlive.switchable.map(\.key),
+                                 "description": "ring = the R12, x5ring = the X5, bottle, scale or esp32."],
+                    "state": ["type": "string", "enum": ["on", "off", "toggle"]],
+                ], required: ["wearable", "state"])),
         ]
     }
 
@@ -109,6 +121,22 @@ final class WearablesDevice: WearableDevice {
             // skills return the state AFTER the change.
             out["devices"] = hub.roster().map(\.json)
             return out
+
+        case "wearables_keep_alive":
+            let wearable = (args["wearable"] as? String ?? "").lowercased()
+            guard WearableKeepAlive.switchable.contains(where: { $0.key == wearable }) else {
+                throw DeviceError.badArgument("'wearable' must be one of "
+                    + WearableKeepAlive.switchable.map(\.key).joined(separator: ", "))
+            }
+            let state = (args["state"] as? String ?? "").lowercased()
+            let on: Bool?
+            switch state {
+            case "on": on = true
+            case "off": on = false
+            case "toggle": on = nil
+            default: throw DeviceError.badArgument("'state' must be on, off or toggle")
+            }
+            return ["wearable": wearable, "keep_alive": hub.setKeepAlive(on, for: wearable)]
 
         default:
             throw DeviceError.unknownCommand(name)

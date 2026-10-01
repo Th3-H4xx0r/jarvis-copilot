@@ -289,6 +289,12 @@ final class AppServices {
         }
         Task { await runner.drainPending() }
 
+        // 10b. Control Center buttons run here — iOS launches the app in the background for
+        //      a press if it has to. A press that reached the widget extension instead waits
+        //      in the App Group until now.
+        ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
+        Task { await ControlButtonStore.shared.runPending() }
+
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.
@@ -317,6 +323,7 @@ final class AppServices {
                 guard let self else { return }
                 await self.push.drainNow()
                 await self.runner.drainPending()
+                await ControlButtonStore.shared.runPending()
                 await self.voice.resumeFromBackground()
             }
         } else {

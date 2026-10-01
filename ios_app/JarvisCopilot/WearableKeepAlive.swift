@@ -27,11 +27,16 @@ enum WearableKeepAlive {
 
     private static func key(_ device: String) -> String { "jc.keepAlive.\(device)" }
 
+    /// The wearables with a "Connection Keep Alive" switch, by key, as a button or Jarvis names them.
+    static let switchable: [(key: String, name: String)] = [
+        (ring, "R12 ring"), (x5ring, "X5 ring"), (bottle, "bottle"), (scale, "scale"), (esp32, "ESP32 board"),
+    ]
+
     /// Defaults to OFF, because holding a BLE link for a device nobody is using
     /// runs all day for the rare command that arrives — and with the background
     /// keepalive on, "all day" is literal. The on-demand path (`ensureConnected`)
     /// covers the same commands at the cost of a second or two of connect time,
-    /// and ring gestures keep their link regardless (`holdsLinkForInputs`).
+    /// and ring gestures ride on it: off, they only arrive while something else has the ring up.
     ///
     /// Someone who toggled it on keeps it on: only an install that never touched
     /// the switch changes behaviour here.

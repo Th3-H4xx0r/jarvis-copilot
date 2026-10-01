@@ -225,6 +225,7 @@ struct JarvisWidgetBundle: WidgetBundle {
         // Control Center button — only on iOS 18+, where Controls exist.
         if #available(iOS 18.0, *) {
             JarvisVoiceControl()
+            JarvisButtonControl()
         }
     }
 }

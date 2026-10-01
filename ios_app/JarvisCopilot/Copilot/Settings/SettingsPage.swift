@@ -238,6 +238,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    ControlButtonsPage()
+                } label: {
+                    GlassRow(symbol: "switch.2", title: "Control Center buttons",
+                             subtitle: "Your own buttons, each running any Jarvis action")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     SpeechEngineScreen()
                 } label: {
                     GlassRow(symbol: "waveform", title: "Speech engine",

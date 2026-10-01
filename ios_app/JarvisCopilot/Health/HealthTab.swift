@@ -135,6 +135,7 @@ struct HealthTab: View {
     private func holdWearables(_ on: Bool) {
         let hold = on && HealthScreenHold.isOn
         WearablesHub.shared.ring.screenIsOpen = hold
+        WearablesHub.shared.x5.healthIsOpen = hold
         WearablesHub.shared.bottle.screenIsOpen = hold
     }
 

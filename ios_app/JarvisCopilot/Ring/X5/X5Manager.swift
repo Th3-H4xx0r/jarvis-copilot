@@ -42,8 +42,6 @@ final class X5Manager: NSObject, ObservableObject {
     var workoutRunning = false
 
     var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.x5ring) }
-    /// "Jarvis gestures" only works while the ring is connected, so it holds the link.
-    var holdsLinkForInputs: Bool { inputs?.wantedMode == .jarvis }
     var holdsLinkForWorkout: Bool { workoutRunning }
 
     var deviceID: String? {
@@ -72,6 +70,21 @@ final class X5Manager: NSObject, ObservableObject {
             session.holdsLive = screenIsOpen
             if state == .ready { Task { await session.setLive(screenIsOpen) } }
             if !screenIsOpen { releaseIfIdle() }
+        }
+    }
+
+    /// True while the Health tab is open: the link is held so a refresh or a spot check needs
+    /// no connect, but — unlike this ring's own screen — no live stream runs.
+    var healthIsOpen = false {
+        didSet {
+            guard oldValue != healthIsOpen else { return }
+            if healthIsOpen {
+                idleDropTask?.cancel()
+                idleDropTask = nil
+                if !linkIsUp { Task { _ = await ensureConnected(timeout: 12) } }
+            } else {
+                releaseIfIdle()
+            }
         }
     }
 
@@ -329,7 +342,7 @@ final class X5Manager: NSObject, ObservableObject {
     }
 
     func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForInputs, !holdsLinkForWorkout else { return }
+        guard !keepAliveEnabled, !screenIsOpen, !healthIsOpen, !holdsLinkForWorkout else { return }
         idleDropTask?.cancel()
         idleDropTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
@@ -337,7 +350,7 @@ final class X5Manager: NSObject, ObservableObject {
                 try? await Task.sleep(for: .seconds(5))
             }
             guard let self, !Task.isCancelled, !self.keepAliveEnabled, !self.screenIsOpen,
-                  !self.holdsLinkForInputs, !self.holdsLinkForWorkout else { return }
+                  !self.healthIsOpen, !self.holdsLinkForWorkout else { return }
             JcLog.devices.notice("x5: idle after on-demand use; dropping the link")
             await self.session.setLive(false)
             self.disconnect()
@@ -464,7 +477,7 @@ final class X5Manager: NSObject, ObservableObject {
     }
 
     private func releaseLinkForBackground() {
-        guard !holdsLinkForInputs, !holdsLinkForWorkout else { return }
+        guard !holdsLinkForWorkout else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
         if connected != nil {
             wasConnectedBeforeBackground = connected
@@ -476,7 +489,7 @@ final class X5Manager: NSObject, ObservableObject {
         isBackgrounded = false
         if let ring = wasConnectedBeforeBackground {
             wasConnectedBeforeBackground = nil
-            if keepAliveEnabled || screenIsOpen || holdsLinkForWorkout { connect(ring) }
+            if keepAliveEnabled || screenIsOpen || healthIsOpen || holdsLinkForWorkout { connect(ring) }
         } else if state == .ready {
             if screenIsOpen { Task { await self.session.setLive(true) } }
             if sync.isStale { Task { await self.sync.sync() } }
@@ -561,7 +574,7 @@ extension X5Manager: CBCentralManagerDelegate {
             self.setupTask?.cancel()
             self.setupTask = nil
             self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForInputs || self.holdsLinkForWorkout else {
+            guard self.keepAliveEnabled || self.screenIsOpen || self.healthIsOpen || self.holdsLinkForWorkout else {
                 JcLog.devices.notice("x5: link dropped (\(reason, privacy: .public)); keep-alive off")
                 self.connected = nil
                 self.state = .idle

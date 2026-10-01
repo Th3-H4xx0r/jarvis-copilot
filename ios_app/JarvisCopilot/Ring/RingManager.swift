@@ -72,9 +72,6 @@ final class RingManager: NSObject, ObservableObject {
 
     var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
 
-    /// Ring gestures need the link up: an action set on the ring is useless if the link goes
-    /// when the app leaves the screen, so choosing "Jarvis actions" holds it like Keep Alive.
-    var holdsLinkForInputs: Bool { inputs?.wantedMode == .jarvis }
     /// A workout needs the link the whole time, in the background too: let
     /// go and the ring loses the phone and pauses its session.
     var holdsLinkForWorkout: Bool { workout.isActive && !workout.phoneOnly }
@@ -276,7 +273,7 @@ final class RingManager: NSObject, ObservableObject {
 
     /// Releases an on-demand link once the work is done (Keep Alive off, no screen open).
     func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForInputs, !holdsLinkForWorkout else { return }
+        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForWorkout else { return }
         idleDropTask?.cancel()
         idleDropTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
@@ -405,10 +402,11 @@ final class RingManager: NSObject, ObservableObject {
         releaseLinkForBackground()
     }
 
-    /// Gestures need the link in the background — that is the whole point of them. Bridge
-    /// mode + Keep Alive holds it too; otherwise the link is reopened on demand.
+    /// Bridge mode + Keep Alive holds the link in the background; otherwise it is reopened on
+    /// demand. Gestures ride on Keep Alive: off, they only reach Jarvis while something else has
+    /// the ring connected — saving the battery is the point of turning it off.
     private func releaseLinkForBackground() {
-        guard !holdsLinkForInputs, !holdsLinkForWorkout else { return }
+        guard !holdsLinkForWorkout else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
         if connected != nil {
             wasConnectedBeforeBackground = connected
@@ -549,8 +547,7 @@ extension RingManager: CBCentralManagerDelegate {
             self.setupTask?.cancel()
             self.setupTask = nil
             self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForInputs
-                    || self.holdsLinkForWorkout else {
+            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForWorkout else {
                 JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); keep-alive off")
                 self.connected = nil
                 self.state = .idle

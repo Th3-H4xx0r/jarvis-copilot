@@ -356,6 +356,14 @@ enum RingActionCatalogue {
                          arguments: ["action": "focus", "value": "1"], note: "Runs the \"JC Focus\" Shortcut."),
         RingActionOption(id: "focus_off", group: "Media", label: "Focus off", skill: "phone_control",
                          arguments: ["action": "focus", "value": "0"], note: "Runs the \"JC Focus\" Shortcut."),
+        // Wearables: their Keep Alive switch, so a button can save a ring's battery.
+    ] + WearableKeepAlive.switchable.map { device in
+        RingActionOption(id: "keep_alive_\(device.key)", group: "Wearables",
+                         label: "Keep the \(device.name) connected", skill: "wearables_keep_alive",
+                         arguments: ["wearable": device.key, "state": "toggle"],
+                         parameter: .init(key: "state", title: "On, off or toggle", placeholder: "toggle"),
+                         note: "on, off, or toggle to flip it each time.")
+    } + [
         // The ring itself
         RingActionOption(id: "measure_heart_rate", group: "Ring", label: "Measure heart rate", skill: "ring_measure",
                          arguments: ["metric": "heart_rate"]),

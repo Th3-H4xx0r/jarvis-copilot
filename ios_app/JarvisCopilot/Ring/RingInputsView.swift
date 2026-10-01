@@ -22,16 +22,26 @@ struct RingInputsSection: View {
     let onSensitivity: (Int) -> Void
     /// The modes this ring offers.
     var modes: [RingInputMode] = RingInputMode.r12
+    /// The ring's Keep Alive key: gestures only arrive over a live link, which it decides.
+    var keepAliveDevice: String?
+
+    private var footer: String {
+        var text = inputs.contains(.shake)
+            ? "Tap and shake. Tap twice or three times, about a second apart."
+            : "Do a gesture and watch which row lights up."
+        if store.wantedMode == .jarvis, let device = keepAliveDevice, !WearableKeepAlive.isOn(device) {
+            text += " Keep connection alive is off, so gestures only reach Jarvis while the ring is "
+                + "connected for something else — a sync, a measurement or this screen."
+        }
+        return text
+    }
 
     /// What the stepper shows. Kept locally so the buttons always move, and reconciled with
     /// what the ring reports underneath.
     @State private var wantedSensitivity = 1
 
     var body: some View {
-        CardGroup("Ring inputs",
-                  footer: inputs.contains(.shake)
-                      ? "Tap and shake. Tap twice or three times, about a second apart."
-                      : "Do a gesture and watch which row lights up.") {
+        CardGroup("Ring inputs", footer: footer) {
             Row {
                 Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
                     ForEach(modes) { Text($0.label).tag($0) }
@@ -232,8 +242,20 @@ struct RingInputsSection: View {
 /// Picks what one input does: a prompt Jarvis runs, or one of the phone's own actions.
 struct RingActionPicker: View {
     @ObservedObject private var devices = DeviceRegistry.shared
-    @ObservedObject var store: RingInputStore
-    let input: RingInput
+    let title: String
+    let current: RingAction
+    let onSave: (RingAction) -> Void
+
+    /// Any action Jarvis can run — a ring gesture's, a Control Center button's.
+    init(title: String, current: RingAction, onSave: @escaping (RingAction) -> Void) {
+        self.title = title
+        self.current = current
+        self.onSave = onSave
+    }
+
+    init(store: RingInputStore, input: RingInput) {
+        self.init(title: input.label, current: store.action(for: input)) { store.set($0, for: input) }
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var prompt = ""
@@ -273,7 +295,7 @@ struct RingActionPicker: View {
                     ForEach(devices.devices, id: \.deviceID) { device in
                         ForEach(device.capabilities, id: \.name) { capability in
                             NavigationLink {
-                                RingWearableActionEditor(store: store, input: input, deviceID: device.deviceID,
+                                RingWearableActionEditor(current: current, onSave: onSave, deviceID: device.deviceID,
                                     model: type(of: device).model, capability: capability)
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
@@ -295,7 +317,7 @@ struct RingActionPicker: View {
             .padding(.vertical, 16)
             .padding(.bottom, 30)
         }
-        .navigationTitle(input.label)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: load)
     }
@@ -335,12 +357,12 @@ struct RingActionPicker: View {
     }
 
     private func isCurrent(_ option: RingActionOption) -> Bool {
-        if case .skill(let id, _) = store.action(for: input) { return id == option.id }
+        if case .skill(let id, _) = current { return id == option.id }
         return false
     }
 
     private func load() {
-        switch store.action(for: input) {
+        switch current {
         case .prompt(let text):
             prompt = text
         case .skill(let id, let arguments):
@@ -352,7 +374,7 @@ struct RingActionPicker: View {
     }
 
     private func save(_ action: RingAction) {
-        store.set(action, for: input)
+        onSave(action)
         dismiss()
     }
 }
@@ -360,8 +382,8 @@ struct RingActionPicker: View {
 
 /// Uses the exact parameter schema advertised to chat; saves stable target identity.
 struct RingWearableActionEditor: View {
-    @ObservedObject var store: RingInputStore
-    let input: RingInput
+    let current: RingAction
+    let onSave: (RingAction) -> Void
     let deviceID: String
     let model: String
     let capability: DeviceCapability
@@ -384,10 +406,10 @@ struct RingWearableActionEditor: View {
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
             Section {
-                Button("Save for \(input.label.lowercased())") {
+                Button("Save") {
                     do {
                         _ = try SkillArgsForm.validatedArguments(values, schema: capability.inputSchema)
-                        store.set(.wearable(deviceID: deviceID, skill: capability.name, arguments: values), for: input)
+                        onSave(.wearable(deviceID: deviceID, skill: capability.name, arguments: values))
                         dismiss()
                     } catch { self.error = error.localizedDescription }
                 }
@@ -396,7 +418,7 @@ struct RingWearableActionEditor: View {
         .navigationTitle(capability.name.replacingOccurrences(of: "_", with: " ").capitalized)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if case .wearable(let target, let skill, let stored) = store.action(for: input),
+            if case .wearable(let target, let skill, let stored) = current,
                target == deviceID, skill == capability.name { values = stored }
             else {
                 let props = capability.inputSchema["properties"] as? [String: [String: Any]] ?? [:]

@@ -189,7 +189,8 @@ struct X5DeviceView: View {
                                   Task { await manager.applyInputMode() }
                               },
                               onSensitivity: { _ in },
-                              modes: RingInputMode.x5)
+                              modes: RingInputMode.x5,
+                              keepAliveDevice: WearableKeepAlive.x5ring)
             CardGroup(footer: keyboardFooter(inputs.wantedMode)) {
                 Row {
                     Picker("Touch stays awake", selection: Binding(
