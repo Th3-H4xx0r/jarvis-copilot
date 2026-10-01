@@ -150,6 +150,10 @@ enum MediaCommand: Sendable, Equatable {
     case play, pause, toggle, next, previous
 }
 
+enum MusicAppState: Sendable, Equatable {
+    case playing, paused, stopped
+}
+
 struct NowPlaying: Sendable, Equatable {
     var title: String?
     var artist: String?
@@ -158,13 +162,22 @@ struct NowPlaying: Sendable, Equatable {
     var app: String?
 }
 
+/// iOS lets an app drive exactly one other player directly — the Music app. Everything
+/// else (Spotify, YouTube, podcasts) only answers the system Play/Pause, which an app
+/// can reach through a Shortcut and nothing else: MediaRemote, the private route,
+/// drops commands from apps without Apple's entitlement.
 protocol MediaControlling: Sendable {
     /// Whether another app is making sound right now; this app's own audio doesn't count.
     func othersPlaying() async -> Bool
-    /// Hands a command to whichever app owns Now Playing. False when it couldn't be sent.
-    func send(_ command: MediaCommand) async -> Bool
-    /// What the system says is playing; nil when it won't say.
-    func nowPlaying() async -> NowPlaying?
+    /// The Music app's own state; nil when this app may not read it (no Apple Music access).
+    func musicState() async -> MusicAppState?
+    /// Drives the Music app directly.
+    func sendToMusic(_ command: MediaCommand) async
+    /// The Music app's current song.
+    func musicNowPlaying() async -> NowPlaying?
+    /// The universal route: the "JC …" Shortcut for this command, which reaches any app
+    /// but needs this app on screen (deferred behind a notification tap otherwise).
+    func runShortcut(_ command: MediaCommand) async -> [String: Any]
 }
 
 // MARK: - Calendar

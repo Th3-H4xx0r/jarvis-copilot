@@ -1,33 +1,41 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// `media_control`: play / pause / next / previous for whatever app is playing,
-/// with play and pause checked against whether another app is making sound, so
-/// a pause never starts music that wasn't on.
+/// `media_control`: play / pause / next / previous for whatever is playing. Apple Music is
+/// driven directly; any other app goes through the "JC …" Shortcuts. Play and pause are
+/// checked against whether another app is making sound, so a pause never starts music.
 @MainActor
 final class MediaControlSkillTests: XCTestCase {
 
     /// Scripted answers: `playing` is consumed one per question, the last one repeating.
     final class FakeMedia: MediaControlling, @unchecked Sendable {
         var playing: [Bool]
-        var accepts = true
-        var sent: [MediaCommand] = []
-        var info: NowPlaying?
-        var infoAfterSend: NowPlaying?
+        var music: MusicAppState?
+        var toMusic: [MediaCommand] = []
+        var shortcuts: [MediaCommand] = []
+        var shortcutResult: [String: Any] = ["ran": true, "shortcut": "JC Play Pause"]
+        var song: NowPlaying?
+        var songAfterSkip: NowPlaying?
 
-        init(playing: Bool...) { self.playing = playing }
-
-        func othersPlaying() async -> Bool {
-            playing.count > 1 ? playing.removeFirst() : playing[0]
+        init(playing: Bool..., music: MusicAppState? = nil) {
+            self.playing = playing
+            self.music = music
         }
 
-        func send(_ command: MediaCommand) async -> Bool {
-            sent.append(command)
-            if let next = infoAfterSend { info = next }
-            return accepts
+        func othersPlaying() async -> Bool { playing.count > 1 ? playing.removeFirst() : playing[0] }
+        func musicState() async -> MusicAppState? { music }
+
+        func sendToMusic(_ command: MediaCommand) async {
+            toMusic.append(command)
+            if let next = songAfterSkip { song = next }
         }
 
-        func nowPlaying() async -> NowPlaying? { info }
+        func musicNowPlaying() async -> NowPlaying? { song }
+
+        func runShortcut(_ command: MediaCommand) async -> [String: Any] {
+            shortcuts.append(command)
+            return shortcutResult
+        }
     }
 
     private func run(_ media: FakeMedia, _ action: String) async throws -> [String: Any] {
@@ -45,85 +53,121 @@ final class MediaControlSkillTests: XCTestCase {
         XCTAssertEqual(skill.inputSchema["required"] as? [String], ["action"])
     }
 
-    func testPauseWithNothingPlayingSendsNothing() async throws {
-        let media = FakeMedia(playing: false)
+    func testPauseWithNothingPlayingDoesNothing() async throws {
+        let media = FakeMedia(playing: false, music: .paused)
         let out = try await run(media, "pause")
-        XCTAssertEqual(media.sent, [])
+        XCTAssertEqual(media.toMusic, [])
+        XCTAssertEqual(media.shortcuts, [])
         XCTAssertEqual(out["ok"] as? Bool, true)
         XCTAssertEqual(out["changed"] as? Bool, false)
         XCTAssertEqual(out["playing"] as? Bool, false)
     }
 
-    func testPlayWhileAlreadyPlayingSendsNothing() async throws {
+    func testPlayWhileAlreadyPlayingDoesNothing() async throws {
         let media = FakeMedia(playing: true)
         let out = try await run(media, "play")
-        XCTAssertEqual(media.sent, [])
+        XCTAssertEqual(media.shortcuts, [])
         XCTAssertEqual(out["changed"] as? Bool, false)
     }
 
-    func testPauseWhilePlayingSendsPauseAndConfirmsSilence() async throws {
-        let media = FakeMedia(playing: true, false)
+    func testPausingAppleMusicGoesStraightToMusic() async throws {
+        let media = FakeMedia(playing: true, false, music: .playing)
         let out = try await run(media, "pause")
-        XCTAssertEqual(media.sent, [.pause])
+        XCTAssertEqual(media.toMusic, [.pause])
+        XCTAssertEqual(media.shortcuts, [])
+        XCTAssertEqual(out["via"] as? String, "apple_music")
         XCTAssertEqual(out["ok"] as? Bool, true)
-        XCTAssertEqual(out["changed"] as? Bool, true)
         XCTAssertEqual(out["playing"] as? Bool, false)
     }
 
-    func testPauseThatDoesNotTakeIsReportedAsFailed() async throws {
-        let media = FakeMedia(playing: true)
+    func testPausingAnotherAppRunsTheShortcut() async throws {
+        let media = FakeMedia(playing: true, false, music: .stopped)
         let out = try await run(media, "pause")
-        XCTAssertEqual(media.sent, [.pause])
+        XCTAssertEqual(media.toMusic, [])
+        XCTAssertEqual(media.shortcuts, [.pause])
+        XCTAssertEqual(out["via"] as? String, "shortcut")
+        XCTAssertEqual(out["ok"] as? Bool, true)
+        XCTAssertEqual(out["playing"] as? Bool, false)
+    }
+
+    func testWithoutMusicAccessEverythingGoesThroughTheShortcut() async throws {
+        let media = FakeMedia(playing: true, false, music: nil)
+        _ = try await run(media, "pause")
+        XCTAssertEqual(media.shortcuts, [.pause])
+    }
+
+    func testAShortcutQueuedBehindANotificationIsReportedAsQueued() async throws {
+        let media = FakeMedia(playing: true)
+        media.shortcutResult = ["queued": true, "note": "Sent to your phone — tap the notification to run it."]
+        let out = try await run(media, "pause")
+        XCTAssertEqual(out["ok"] as? Bool, true)
+        XCTAssertEqual(out["queued"] as? Bool, true)
+        XCTAssertNotNil(out["note"])
+        XCTAssertNil(out["error"])
+    }
+
+    func testAShortcutThatDidNotRunIsAFailure() async throws {
+        let media = FakeMedia(playing: true)
+        media.shortcutResult = ["ran": false, "error": "Could not open Shortcuts"]
+        let out = try await run(media, "next")
+        XCTAssertEqual(out["ok"] as? Bool, false)
+        XCTAssertEqual(out["error"] as? String, "Could not open Shortcuts")
+    }
+
+    func testAPauseThatDoesNotTakeIsAFailure() async throws {
+        let media = FakeMedia(playing: true, music: .playing)
+        let out = try await run(media, "pause")
         XCTAssertEqual(out["ok"] as? Bool, false)
         XCTAssertEqual(out["playing"] as? Bool, true)
         XCTAssertNotNil(out["error"])
     }
 
-    func testToggleSendsTheExplicitOppositeCommand() async throws {
-        let playing = FakeMedia(playing: true, false)
-        _ = try await run(playing, "toggle")
-        XCTAssertEqual(playing.sent, [.pause])
-
-        let silent = FakeMedia(playing: false, true)
-        let out = try await run(silent, "toggle")
-        XCTAssertEqual(silent.sent, [.play])
+    func testToggleFromSilenceResumesThroughTheShortcut() async throws {
+        // Nothing is playing, so whichever app last had Now Playing should resume —
+        // only the system Play/Pause (the Shortcut) knows which one that is.
+        let media = FakeMedia(playing: false, true, music: .paused)
+        let out = try await run(media, "toggle")
+        XCTAssertEqual(media.toMusic, [])
+        XCTAssertEqual(media.shortcuts, [.play])
         XCTAssertEqual(out["playing"] as? Bool, true)
     }
 
-    func testNextReportsWhatIsPlayingAfterTheSkip() async throws {
-        let media = FakeMedia(playing: true)
-        media.info = NowPlaying(title: "Song A", artist: "X", album: nil, app: "com.spotify.client")
-        media.infoAfterSend = NowPlaying(title: "Song B", artist: "X", album: nil, app: "com.spotify.client")
+    func testNextOnAppleMusicSaysWhatIsPlayingNow() async throws {
+        let media = FakeMedia(playing: true, music: .playing)
+        media.song = NowPlaying(title: "Song A", artist: "X", album: nil, app: "com.apple.Music")
+        media.songAfterSkip = NowPlaying(title: "Song B", artist: "X", album: nil, app: "com.apple.Music")
         let out = try await run(media, "next")
-        XCTAssertEqual(media.sent, [.next])
-        XCTAssertEqual(out["ok"] as? Bool, true)
+        XCTAssertEqual(media.toMusic, [.next])
+        XCTAssertEqual(out["via"] as? String, "apple_music")
         XCTAssertEqual((out["now_playing"] as? [String: Any])?["title"] as? String, "Song B")
     }
 
-    func testPreviousSendsPrevious() async throws {
-        let media = FakeMedia(playing: true)
+    func testSkippingInAnotherAppRunsTheShortcut() async throws {
+        let media = FakeMedia(playing: true, music: .stopped)
+        let next = try await run(media, "next")
         _ = try await run(media, "previous")
-        XCTAssertEqual(media.sent, [.previous])
+        XCTAssertEqual(media.toMusic, [])
+        XCTAssertEqual(media.shortcuts, [.next, .previous])
+        XCTAssertEqual(next["via"] as? String, "shortcut")
+        XCTAssertEqual(next["ok"] as? Bool, true)
     }
 
-    func testARefusedCommandIsAFailure() async throws {
-        let media = FakeMedia(playing: true)
-        media.accepts = false
-        let out = try await run(media, "next")
-        XCTAssertEqual(out["ok"] as? Bool, false)
-        XCTAssertNotNil(out["error"])
-    }
-
-    func testStatusSaysWhatIsPlaying() async throws {
-        let media = FakeMedia(playing: true)
-        media.info = NowPlaying(title: "Song A", artist: "Band", album: "LP", app: "com.apple.Music")
+    func testStatusNamesTheSongWhenAppleMusicIsPlaying() async throws {
+        let media = FakeMedia(playing: true, music: .playing)
+        media.song = NowPlaying(title: "Song A", artist: "Band", album: "LP", app: "com.apple.Music")
         let out = try await run(media, "status")
-        XCTAssertEqual(media.sent, [])
+        XCTAssertEqual(media.toMusic, [])
         XCTAssertEqual(out["playing"] as? Bool, true)
+        XCTAssertEqual(out["player"] as? String, "Apple Music")
         let now = out["now_playing"] as? [String: Any]
         XCTAssertEqual(now?["title"] as? String, "Song A")
         XCTAssertEqual(now?["artist"] as? String, "Band")
-        XCTAssertEqual(now?["app"] as? String, "com.apple.Music")
+    }
+
+    func testStatusSaysAnotherAppWhenMusicIsNotTheOnePlaying() async throws {
+        let out = try await run(FakeMedia(playing: true, music: .paused), "status")
+        XCTAssertEqual(out["player"] as? String, "another app")
+        XCTAssertNil(out["now_playing"])
     }
 
     func testAnUnknownActionIsABadArgument() async {
@@ -134,6 +178,14 @@ final class MediaControlSkillTests: XCTestCase {
             guard case .badArgument = error else { return XCTFail("\(error)") }
         } catch {
             XCTFail("\(error)")
+        }
+    }
+
+    func testRingMediaGesturesRunTheNativeSkill() {
+        for (id, action) in [("play_pause", "toggle"), ("next_track", "next"), ("previous_track", "previous")] {
+            let option = RingActionCatalogue.option(id)
+            XCTAssertEqual(option?.skill, "media_control", id)
+            XCTAssertEqual(option?.arguments["action"], action, id)
         }
     }
 

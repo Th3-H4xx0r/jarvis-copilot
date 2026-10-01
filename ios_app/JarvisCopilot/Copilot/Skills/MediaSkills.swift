@@ -202,9 +202,11 @@ enum MediaSkills {
     static func mediaControl(_ media: any MediaControlling, settle: TimeInterval = 0.25) -> AnySkill {
         AnySkill(
             name: "media_control",
-            description: "Control the music, podcast or video playing on this phone in any app, like "
-                + "the Control Center player: play, pause, toggle, next or previous track. `play` and "
-                + "`pause` do nothing when it's already in that state; `status` says what is playing.",
+            description: "Control the music, podcast or video playing on this phone: play, pause, "
+                + "toggle, next or previous track. Apple Music is driven directly, even with the phone "
+                + "locked; any other app goes through the \"JC Play Pause\" / \"JC Next Track\" / "
+                + "\"JC Previous Track\" Shortcuts, which need the phone unlocked. `play` and `pause` "
+                + "do nothing when it's already in that state; `status` says what is playing.",
             inputSchema: SkillSchema.object([
                 "action": SkillSchema.enumeration(mediaActions),
             ], required: ["action"])
@@ -213,23 +215,36 @@ enum MediaSkills {
             guard mediaActions.contains(action) else {
                 throw SkillError.badArgument("action must be one of \(mediaActions.joined(separator: ", "))")
             }
-            let pause = { try? await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000)) }
+            let wait = { try? await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000)) }
             var out: [String: Any] = ["action": action]
-            let refused = ["ok": false, "action": action,
-                           "error": "iOS refused the playback command."] as [String: Any]
 
             if action == "status" {
+                let playing = await media.othersPlaying()
                 out["ok"] = true
-                out["playing"] = await media.othersPlaying()
-                if let now = await media.nowPlaying() { out["now_playing"] = json(now) }
+                out["playing"] = playing
+                if await media.musicState() == .playing {
+                    out["player"] = "Apple Music"
+                    if let now = await media.musicNowPlaying() { out["now_playing"] = json(now) }
+                } else if playing {
+                    out["player"] = "another app"
+                }
                 return out
             }
+
             if action == "next" || action == "previous" {
-                guard await media.send(action == "next" ? .next : .previous) else { return refused }
-                await pause()
+                let command: MediaCommand = action == "next" ? .next : .previous
+                if await media.musicState() == .playing {
+                    await media.sendToMusic(command)
+                    await wait()
+                    out["ok"] = true
+                    out["changed"] = true
+                    out["via"] = "apple_music"
+                    if let now = await media.musicNowPlaying() { out["now_playing"] = json(now) }
+                    return out
+                }
+                if finished(await media.runShortcut(command), &out) { return out }
                 out["ok"] = true
                 out["changed"] = true
-                if let now = await media.nowPlaying() { out["now_playing"] = json(now) }
                 return out
             }
 
@@ -242,22 +257,46 @@ enum MediaSkills {
                 return out
             }
             let want = action == "toggle" ? !playing : action == "play"
-            guard await media.send(want ? .play : .pause) else { return refused }
+            // Only a pause can go straight to Music: a play from silence has to resume whichever
+            // app last had Now Playing, and only the system Play/Pause knows which one that is.
+            if !want, await media.musicState() == .playing {
+                await media.sendToMusic(.pause)
+                out["via"] = "apple_music"
+            } else if finished(await media.runShortcut(want ? .play : .pause), &out) {
+                return out
+            }
             var now = playing
             for _ in 0..<8 where now != want {
-                await pause()
+                await wait()
                 now = await media.othersPlaying()
             }
             out["ok"] = now == want
             out["changed"] = true
             out["playing"] = now
             if now != want {
-                out["error"] = want
-                    ? "Nothing started playing — iOS may not let Jarvis start another app's playback."
-                    : "Still playing — iOS didn't pass the pause on to the app that's playing."
+                out["error"] = want ? "Nothing started playing." : "It is still playing."
             }
             return out
         }
+    }
+
+    /// Folds a Shortcut run into the reply; true when there is nothing left to check — it was
+    /// queued behind a notification (the app is in the background) or it didn't run.
+    private static func finished(_ result: [String: Any], _ out: inout [String: Any]) -> Bool {
+        out["via"] = "shortcut"
+        if let name = result["shortcut"] as? String { out["shortcut"] = name }
+        if SkillArgs.bool(result, "queued") == true {
+            out["ok"] = true
+            out["queued"] = true
+            out["note"] = result["note"] as? String ?? "Sent to your phone — tap the notification to run it."
+            return true
+        }
+        if SkillArgs.bool(result, "ran") == false {
+            out["ok"] = false
+            out["error"] = result["error"] as? String ?? "The Shortcut didn't run."
+            return true
+        }
+        return false
     }
 
     private static func json(_ now: NowPlaying) -> [String: Any] {

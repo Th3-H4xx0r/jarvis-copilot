@@ -506,6 +506,7 @@
 		9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */; };
 		9D6490D43E0CF5A7E36BC279 /* RouteDetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ABEA2B42CFE266EE76A8324 /* RouteDetailTests.swift */; };
 		9D8CD0C148729985EB0ECC8D /* CodingTerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA0E3DE449DDEAD76B43425B /* CodingTerminalPanel.swift */; };
+		9D9462F5D237252E59E29DC5 /* MediaControlSkillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D009B96B2C66BD2172A1591D /* MediaControlSkillTests.swift */; };
 		9DFFA6948F912885BD771AAF /* AudioQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8762A5A1DFE2B6DD0E005A /* AudioQueueTests.swift */; };
 		9E7268EEFF6816A1E31ED383 /* InmoGo3Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D90A02CB8AC56AC8C815B2 /* InmoGo3Model.swift */; };
 		9EB9D44293B49E0CA44FA29B /* ChatMediaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1FEF8EE3C4BA6BAD6F6C0B /* ChatMediaTests.swift */; };
@@ -1541,6 +1542,7 @@
 		CF1066E089AF5BEBF4ED2204 /* InmoControlsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoControlsView.swift; sourceTree = "<group>"; };
 		CF2DCCFAD52533B6A5D0D97B /* InmoTeleprompter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoTeleprompter.swift; sourceTree = "<group>"; };
 		CFDC505734B2535E26D0C3A3 /* WebViewPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebViewPage.swift; sourceTree = "<group>"; };
+		D009B96B2C66BD2172A1591D /* MediaControlSkillTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaControlSkillTests.swift; sourceTree = "<group>"; };
 		D03A1C8EE55E835D55208BEE /* SkillsGrouping.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillsGrouping.swift; sourceTree = "<group>"; };
 		D11497E6868E174645424158 /* RingDeviceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDeviceView.swift; sourceTree = "<group>"; };
 		D132B7937C3D516237DC06DE /* MoreUIARouteTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreUIARouteTests.swift; sourceTree = "<group>"; };
@@ -1910,6 +1912,7 @@
 				0A39F960D71FEDFAF350D453 /* PhoneDeviceTests.swift */,
 				3CD789B1A172654A7E485137 /* ShortcutRunnerTests.swift */,
 				0B5A7079298755592C4A14CE /* SkillArgsTests.swift */,
+				D009B96B2C66BD2172A1591D /* MediaControlSkillTests.swift */,
 			);
 			path = Skills;
 			sourceTree = "<group>";
@@ -3709,6 +3712,7 @@
 				E41E345C1690B27939EAFCE1 /* X5GestureTests.swift in Sources */,
 				0DE57AD0613CDD6A01D5C9E9 /* X5ModelRenderTests.swift in Sources */,
 				2ACB6849EA919D90CF5AF4EC /* HealthRingTests.swift in Sources */,
+				9D9462F5D237252E59E29DC5 /* MediaControlSkillTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4514,6 +4518,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = JarvisCopilot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = JarvisCopilot;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "JarvisCopilot plays, pauses and skips Apple Music when you ask Jarvis or use a ring gesture.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";
@@ -4622,6 +4627,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = JarvisCopilot/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = JarvisCopilot;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "JarvisCopilot plays, pauses and skips Apple Music when you ask Jarvis or use a ring gesture.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "JarvisCopilot uses Bluetooth to connect to your glasses, wearables and Jarvis devices.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.";

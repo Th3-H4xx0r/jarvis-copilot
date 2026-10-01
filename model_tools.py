@@ -261,6 +261,31 @@ def _clear_tool_defs_cache() -> None:
     _tool_defs_cache.clear()
 
 
+_SPOTIFY_MEDIA_HINT = (
+    " When Spotify is what's playing, spotify_playback controls it directly on any"
+    " device, even with the phone locked."
+)
+
+
+def _hint_spotify_for_media(tools: List[Dict[str, Any]], names: set) -> List[Dict[str, Any]]:
+    """Point the devices' media_control at Spotify's own tools when both are on.
+
+    A phone's media_control reaches Spotify only through a Shortcut that needs the
+    phone unlocked; the Web API doesn't. Added here rather than in the device's
+    schema so the description never names a tool that isn't available.
+    """
+    if "device_media_control" not in names or "spotify_playback" not in names:
+        return tools
+    out = []
+    for td in tools:
+        fn = td.get("function", {})
+        desc = fn.get("description", "")
+        if fn.get("name") == "device_media_control" and _SPOTIFY_MEDIA_HINT not in desc:
+            td = {"type": "function", "function": {**fn, "description": desc + _SPOTIFY_MEDIA_HINT}}
+        out.append(td)
+    return out
+
+
 def get_tool_definitions(
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
@@ -458,6 +483,8 @@ def _compute_tool_definitions(
                         "function": {**td["function"], "description": desc},
                     }
                     break
+
+    filtered_tools = _hint_spotify_for_media(filtered_tools, available_tool_names)
 
     if not quiet_mode:
         if filtered_tools:

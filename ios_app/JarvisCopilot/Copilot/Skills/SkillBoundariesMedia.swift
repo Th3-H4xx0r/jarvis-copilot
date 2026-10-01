@@ -1,5 +1,7 @@
 import AVFoundation
 import Foundation
+import MediaPlayer
+import UIKit
 import UserNotifications
 
 /// Production implementations of the notification / speech / audio / camera
@@ -171,75 +173,86 @@ final class DefaultAudioPlayer: AudioPlaying {
 
 // MARK: - Other apps' playback
 
-/// Plays, pauses and skips whatever app owns Now Playing through MediaRemote, the private
-/// framework behind Control Center's player. There is no public API for another app's
-/// playback, so it is loaded at runtime — and iOS may still drop the command, which is why
-/// the skill checks `isOtherAudioPlaying` afterwards instead of trusting `send`.
+/// Apple Music through `MPMusicPlayerController` — the one other player iOS lets an app
+/// drive — and everything else through the "JC …" Shortcuts, run like `run_shortcut`
+/// (deferred behind a notification tap when the app is in the background).
 final class DefaultMediaController: MediaControlling {
-    private typealias SendFn = @convention(c) (UInt32, CFDictionary?) -> Bool
-    private typealias InfoFn = @convention(c) (DispatchQueue, @escaping @convention(block) (CFDictionary?) -> Void) -> Void
-    private typealias AppFn = @convention(c) (DispatchQueue, @escaping @convention(block) (CFString?) -> Void) -> Void
+    static let shortcutNames: [MediaCommand: String] = [
+        .play: "JC Play Pause", .pause: "JC Play Pause", .toggle: "JC Play Pause",
+        .next: "JC Next Track", .previous: "JC Previous Track",
+    ]
 
-    private static let framework = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY)
+    private let shortcut: @MainActor (String) async -> [String: Any]
 
-    private static func symbol<T>(_ name: String, _ type: T.Type) -> T? {
-        guard let framework, let pointer = dlsym(framework, name) else { return nil }
-        return unsafeBitCast(pointer, to: type)
+    init(shortcut: @escaping @MainActor (String) async -> [String: Any] = DefaultMediaController.viaRunner) {
+        self.shortcut = shortcut
     }
 
-    private static let sendCommand = symbol("MRMediaRemoteSendCommand", SendFn.self)
-    private static let getInfo = symbol("MRMediaRemoteGetNowPlayingInfo", InfoFn.self)
-    private static let getApp = symbol("MRMediaRemoteGetNowPlayingApplicationDisplayID", AppFn.self)
-
-    /// MediaRemote's `MRMediaRemoteCommand` numbers.
-    private static func code(_ command: MediaCommand) -> UInt32 {
-        switch command {
-        case .play: return 0
-        case .pause: return 1
-        case .toggle: return 2
-        case .next: return 4
-        case .previous: return 5
+    /// Through the runner rather than the Shortcut boundary, so a backgrounded app defers it
+    /// behind a notification and a user who switched `run_shortcut` off is respected.
+    @MainActor
+    static func viaRunner(_ name: String) async -> [String: Any] {
+        let outcome = await InvokeRunner.shared.run("run_shortcut", ["name": name, "timeout_seconds": 20])
+        var out = outcome.result ?? [:]
+        if let error = outcome.error {
+            out["ran"] = false
+            out["error"] = error
         }
+        out["shortcut"] = name
+        return out
     }
 
     func othersPlaying() async -> Bool {
         AVAudioSession.sharedInstance().isOtherAudioPlaying
     }
 
-    func send(_ command: MediaCommand) async -> Bool {
-        guard let send = Self.sendCommand else { return false }
-        return send(Self.code(command), nil)
-    }
-
-    func nowPlaying() async -> NowPlaying? {
-        var info: NSDictionary?
-        var app: String?
-        if let getInfo = Self.getInfo {
-            info = await Self.ask { reply in getInfo(.global()) { reply($0 as NSDictionary?) } }
+    func musicState() async -> MusicAppState? {
+        let ask = await MainActor.run {
+            MPMediaLibrary.authorizationStatus() == .notDetermined
+                && UIApplication.shared.applicationState == .active
         }
-        if let getApp = Self.getApp {
-            app = await Self.ask { reply in getApp(.global()) { reply($0 as String?) } }
-        }
-        let text = { (key: String) in info?["kMRMediaRemoteNowPlayingInfo\(key)"] as? String }
-        let playing = NowPlaying(title: text("Title"), artist: text("Artist"), album: text("Album"), app: app)
-        return playing == NowPlaying() ? nil : playing
-    }
-
-    /// MediaRemote answers on a queue — or, when iOS won't let us ask, never; a second is plenty.
-    private static func ask<T>(_ start: (@escaping (T?) -> Void) -> Void) async -> T? {
-        await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var done = false
-            let finish = { (value: T?) in
-                lock.lock()
-                defer { lock.unlock() }
-                guard !done else { return }
-                done = true
-                continuation.resume(returning: value)
+        if ask { await Self.askForMusic() }
+        return await MainActor.run {
+            guard MPMediaLibrary.authorizationStatus() == .authorized else { return nil }
+            switch MPMusicPlayerController.systemMusicPlayer.playbackState {
+            case .playing, .seekingForward, .seekingBackward: return .playing
+            case .paused, .interrupted: return .paused
+            default: return .stopped
             }
-            start(finish)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { finish(nil) }
         }
+    }
+
+    /// The Apple Music prompt can only show on screen, so it is asked the first time this
+    /// runs with the app open; until it's granted everything goes through the Shortcuts.
+    private static func askForMusic() async {
+        await withCheckedContinuation { continuation in
+            MPMediaLibrary.requestAuthorization { _ in continuation.resume() }
+        }
+    }
+
+    func sendToMusic(_ command: MediaCommand) async {
+        await MainActor.run {
+            let player = MPMusicPlayerController.systemMusicPlayer
+            switch command {
+            case .play: player.play()
+            case .pause: player.pause()
+            case .toggle: player.playbackState == .playing ? player.pause() : player.play()
+            case .next: player.skipToNextItem()
+            case .previous: player.skipToPreviousItem()
+            }
+        }
+    }
+
+    func musicNowPlaying() async -> NowPlaying? {
+        await MainActor.run {
+            guard MPMediaLibrary.authorizationStatus() == .authorized,
+                  let item = MPMusicPlayerController.systemMusicPlayer.nowPlayingItem else { return nil }
+            return NowPlaying(title: item.title, artist: item.artist, album: item.albumTitle, app: "com.apple.Music")
+        }
+    }
+
+    func runShortcut(_ command: MediaCommand) async -> [String: Any] {
+        await shortcut(Self.shortcutNames[command] ?? "JC Play Pause")
     }
 }
 

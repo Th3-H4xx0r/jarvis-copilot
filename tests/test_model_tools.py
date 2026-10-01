@@ -358,3 +358,34 @@ class TestCoerceNumberInfNan:
         assert _coerce_number("42") == 42
         assert _coerce_number("3.14") == 3.14
         assert _coerce_number("1e3") == 1000
+
+
+# =========================================================================
+# media_control → Spotify hint
+# =========================================================================
+
+class TestSpotifyMediaHint:
+    @staticmethod
+    def _tools(*names):
+        return [{"type": "function", "function": {"name": n, "description": f"{n} does things."}}
+                for n in names]
+
+    def test_points_media_control_at_spotify_when_both_are_on(self):
+        from model_tools import _hint_spotify_for_media
+        tools = _hint_spotify_for_media(self._tools("device_media_control", "spotify_playback"),
+                                        {"device_media_control", "spotify_playback"})
+        media = tools[0]["function"]["description"]
+        assert "spotify_playback" in media
+        assert "spotify_playback" not in tools[1]["function"]["description"].replace("spotify_playback does", "")
+
+    def test_never_names_spotify_when_its_tools_are_off(self):
+        from model_tools import _hint_spotify_for_media
+        tools = _hint_spotify_for_media(self._tools("device_media_control"), {"device_media_control"})
+        assert "spotify" not in tools[0]["function"]["description"].lower()
+
+    def test_is_idempotent(self):
+        from model_tools import _hint_spotify_for_media
+        names = {"device_media_control", "spotify_playback"}
+        once = _hint_spotify_for_media(self._tools("device_media_control", "spotify_playback"), names)
+        twice = _hint_spotify_for_media(once, names)
+        assert twice[0]["function"]["description"] == once[0]["function"]["description"]
