@@ -125,6 +125,14 @@ final class RingTransport {
         }
     }
 
+    /// A frame another parser already split out — the X5 packs several into one notification
+    /// and sends some without a checksum, so `receive` can't take its bytes as they come.
+    func deliver(_ inbound: RingInbound, note: String = "") {
+        onFrame?(RingFrame(outbound: false, channel: inbound.channel, cmd: inbound.cmd,
+                           payload: inbound.payload, isError: inbound.isError, note: note))
+        route(inbound)
+    }
+
     /// The link went away: nothing in flight or queued can complete.
     func linkDropped() {
         assembler.reset()

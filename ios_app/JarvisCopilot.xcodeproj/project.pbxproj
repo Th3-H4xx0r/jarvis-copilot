@@ -582,6 +582,7 @@
 		BAB05975ED8195CC9079091B /* RingWorkoutActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCD94F5FA43F6F95B97B676 /* RingWorkoutActivity.swift */; };
 		BAB225A15F143AE73C24BDC9 /* JarvisPodAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BD0A95997264D8485F52BC0 /* JarvisPodAPITests.swift */; };
 		BAD1D44AEE137DF747B79EC6 /* PushHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2496152FD251C830018FA2B9 /* PushHandler.swift */; };
+		BB15BE4B410BA7913908438A /* X5Frames.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8A84197FF9598EF67D5716 /* X5Frames.swift */; };
 		BBEEB098CEE2443291A08EFC /* PcmChunkerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE252910CC1C29B46825B96A /* PcmChunkerTests.swift */; };
 		BC70F76F6925133982A62EAA /* NotificationActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEC49EA36A83A4A16885049 /* NotificationActions.swift */; };
 		BC967F36BB4EAFFB88B2187E /* CodingJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101A90FBA72A470C3AC5E12D /* CodingJSON.swift */; };
@@ -662,6 +663,7 @@
 		D3D05FE52093A2C472290A1C /* ScaleUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453F1881C3D4B7E9F8509168 /* ScaleUploader.swift */; };
 		D431078012583F933C7D4510 /* LiveAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D8B60B518877AA484FC13B /* LiveAPI.swift */; };
 		D43BE8C4C13772DC12D5E254 /* InmoTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BAB54D4A34591ED45C42CF9 /* InmoTraceTests.swift */; };
+		D478F6A7507252707319286F /* X5FramesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE6DD13B962F0592D20B885 /* X5FramesTests.swift */; };
 		D4AFD27F5C91E04620158FEC /* MessageRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EECBB4BBB75D1EFAAA11C3 /* MessageRow.swift */; };
 		D4C889F76CD6BB6EDBE9920B /* PhoneDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6829487143171EDC108FDBF7 /* PhoneDevice.swift */; };
 		D52F80A6F9D671C237D51A8F /* BoardChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */; };
@@ -1428,11 +1430,13 @@
 		BBC59431147E7314E8587018 /* AckTimer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AckTimer.swift; sourceTree = "<group>"; };
 		BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailsView.swift; sourceTree = "<group>"; };
 		BC1FEF8EE3C4BA6BAD6F6C0B /* ChatMediaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatMediaTests.swift; sourceTree = "<group>"; };
+		BC8A84197FF9598EF67D5716 /* X5Frames.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Frames.swift; sourceTree = "<group>"; };
 		BCE45BFEC6399F894248E925 /* VoiceLocalLane.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLocalLane.swift; sourceTree = "<group>"; };
 		BD30CD7269938E614C2E31E0 /* PhoneSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkills.swift; sourceTree = "<group>"; };
 		BD4A2C551311912B4A444807 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BD85C337C09C2129C82247FA /* PairPayloadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairPayloadTests.swift; sourceTree = "<group>"; };
 		BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesFaceLinkWire.swift; sourceTree = "<group>"; };
+		BDE6DD13B962F0592D20B885 /* X5FramesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5FramesTests.swift; sourceTree = "<group>"; };
 		BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HealthWidget.swift; path = JarvisWidget/HealthWidget.swift; sourceTree = "<group>"; };
 		BEA8341C7336CAEB461139EA /* MoreGapTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreGapTests.swift; sourceTree = "<group>"; };
 		BEAE6A435982222E11D399BF /* RingProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProtocolTests.swift; sourceTree = "<group>"; };
@@ -3007,6 +3011,7 @@
 				F2AF54CA5093E96BDBB2A681 /* InmoControlsTests.swift */,
 				18D25430B8EECD051E1F0311 /* InmoAIResponseRendererTests.swift */,
 				742A0DCF5CEC674A2CFBF1D8 /* X5ProtocolTests.swift */,
+				BDE6DD13B962F0592D20B885 /* X5FramesTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3015,6 +3020,7 @@
 			isa = PBXGroup;
 			children = (
 				13230616650AD4EA4F83CF5A /* X5Protocol.swift */,
+				BC8A84197FF9598EF67D5716 /* X5Frames.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3627,6 +3633,7 @@
 				EB25C7E42F86ED0183C77BD1 /* LiveCaptionComposerTests.swift in Sources */,
 				398B3DF92609F6383C0F5E27 /* LiveLensBridgeTests.swift in Sources */,
 				CF74C845A1C47E59AE30F91D /* X5ProtocolTests.swift in Sources */,
+				D478F6A7507252707319286F /* X5FramesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4169,6 +4176,7 @@
 				034082D75854BCAF4477C39E /* LiveCaptionsSettingsView.swift in Sources */,
 				F0D8752F63D255ED3C40AEB0 /* LiveAsk.swift in Sources */,
 				82C66C1FE13E3F9D8BD4B3A3 /* X5Protocol.swift in Sources */,
+				BB15BE4B410BA7913908438A /* X5Frames.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
