@@ -85,4 +85,20 @@ final class WidgetRendererTests: XCTestCase {
         XCTAssertEqual(JCChartPoint.points(from: [.object(["x": .string("a"), "y": .number(5)])]).map(\.label), ["a"])
         XCTAssertEqual(JCChartPoint.points(from: [.string("bad")]), [])
     }
+
+    // MARK: review fixes
+
+    func testAValueBindingFallsBackToItsDefault() {
+        let ref = JCValueRef(.object(["src": .string("alarm.next"), "default": .string("—")]))
+        XCTAssertEqual(ref.string(JCBindingContext(data: [:])), "—")
+        XCTAssertEqual(ref.string(JCBindingContext(data: ["alarm.next": .string("07:00")])), "07:00")
+    }
+
+    func testNonFiniteAndHugeNumbersNeverTrap() {
+        XCTAssertNil(JCJSON.string("nan").asDouble)
+        XCTAssertNil(JCJSON.string("inf").asDouble)
+        XCTAssertNotNil(JCJSON.number(1e300).asInt)
+        XCTAssertEqual(JCChartPoint.points(from: [.object(["y": .string("nan")]), .number(2)]).map(\.value), [2])
+    }
+
 }

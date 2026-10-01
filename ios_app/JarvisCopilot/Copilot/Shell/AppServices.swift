@@ -331,6 +331,7 @@ final class AppServices {
                 await self.runner.drainPending()
                 await ControlButtonStore.shared.runPending()
                 WidgetDataHub.shared.refreshSoon()
+                WidgetModelSnapshots.refreshIfNeeded()
                 await WidgetSync.shared.sync()
                 await self.voice.resumeFromBackground()
             }

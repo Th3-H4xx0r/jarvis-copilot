@@ -55,4 +55,15 @@ final class WidgetDesignCacheTests: XCTestCase {
         XCTAssertEqual(WidgetSize(family: .accessoryRectangular), .rectangular)
         XCTAssertEqual(WidgetSize(family: .accessoryInline), .inline)
     }
+
+    func testADeletedDesignStillResolvesSoTheWidgetCanSaySo() async throws {
+        let entities = try await WidgetDesignQuery().entities(for: ["deleted-\(UUID().uuidString.lowercased())"])
+        XCTAssertEqual(entities.count, 1)
+    }
+
+    func testABlankRenderIsNeverSavedAsAModelPicture() {
+        let blank = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { _ in }
+        XCTAssertTrue(WidgetModelSnapshots.isBlank(blank))
+    }
+
 }

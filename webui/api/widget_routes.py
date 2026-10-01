@@ -67,7 +67,9 @@ def _upsert(store, body):
         design = body["design"]
     saved, errors, warnings = store.upsert_design(design)
     if saved is None:
-        return 400, {"ok": False, "error": "invalid design", "errors": errors}
+        # The phone shows `error` alone, so it carries the first few reasons, not just a label.
+        summary = "; ".join(errors[:3]) + (f" (+{len(errors) - 3} more)" if len(errors) > 3 else "")
+        return 400, {"ok": False, "error": summary or "invalid design", "errors": errors}
     return 200, {"ok": True, "design": saved, "warnings": warnings}
 
 

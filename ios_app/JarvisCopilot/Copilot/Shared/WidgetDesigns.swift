@@ -111,8 +111,13 @@ struct WidgetDesignEntity: AppEntity {
 }
 
 struct WidgetDesignQuery: EntityQuery {
+    /// A design that has since been deleted still resolves, so its widget says so instead of
+    /// quietly showing some other design.
     func entities(for identifiers: [String]) async throws -> [WidgetDesignEntity] {
-        WidgetDesignCache.infos().filter { identifiers.contains($0.id) }.map(WidgetDesignEntity.init)
+        let known = Dictionary(uniqueKeysWithValues: WidgetDesignCache.infos().map { ($0.id, $0) })
+        return identifiers.map { id in
+            WidgetDesignEntity(known[id] ?? WidgetDesignInfo(id: id, name: "Deleted design", icon: "questionmark.square.dashed"))
+        }
     }
 
     func suggestedEntities() async throws -> [WidgetDesignEntity] {

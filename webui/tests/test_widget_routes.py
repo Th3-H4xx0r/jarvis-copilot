@@ -411,3 +411,36 @@ def test_trailing_slash_and_query_are_tolerated(store):
 ])
 def test_unknown_endpoints(store, method, path, status):
     assert H(method, path, {}, store)[0] == status
+
+
+# ── review fixes ────────────────────────────────────────────────────────────
+
+
+def test_a_refused_design_says_why_in_its_error_summary(store):
+    # The phone shows only `error`; "invalid design" told the user nothing.
+    status, body = H("POST", "/designs", _design(presentations={}), store)
+    assert status == 400
+    assert "presentations" in body["error"]
+    assert body["errors"]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_numbers_are_refused(bad):
+    errors, _ = ws.validate_design(_design(presentations={
+        "small": {"type": "chart", "series": [1, bad, 3]}}))
+    assert any("finite" in e for e in errors)
+
+
+def test_an_oversized_design_is_refused():
+    big = {"type": "text", "value": "x" * (ws.MAX_DESIGN_BYTES + 10)}
+    errors, _ = ws.validate_design(_design(presentations={"small": big}))
+    assert any("too large" in e for e in errors)
+
+
+def test_a_binding_default_is_allowed_and_must_be_text():
+    ok, _ = ws.validate_design(_design(presentations={
+        "small": {"type": "stat", "value": {"src": "health.steps", "default": "—"}}}))
+    assert ok == []
+    errors, _ = ws.validate_design(_design(presentations={
+        "small": {"type": "stat", "value": {"src": "health.steps", "default": {"x": 1}}}}))
+    assert any("default" in e for e in errors)

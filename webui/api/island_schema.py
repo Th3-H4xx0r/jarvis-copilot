@@ -428,6 +428,9 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
             rules.check_binding(key, ref, path, errors)
         if "fmt" in v and not isinstance(v["fmt"], str):
             errors.append(f"{path}.fmt must be a string")
+        if "default" in v and (isinstance(v["default"], bool)
+                               or not isinstance(v["default"], (str, int, float))):
+            errors.append(f"{path}.default must be text or a number (shown while the value is missing)")
         if "map" in v and not isinstance(v["map"], dict):
             errors.append(f"{path}.map must be an object")
         return

@@ -101,4 +101,30 @@ final class WidgetDataHubTests: XCTestCase {
         XCTAssertTrue(keys.contains("health.steps_week"))
         XCTAssertEqual(WidgetDataCatalog.entry("health.steps_week")?.kind, .series)
     }
+
+    // MARK: review fixes
+
+    func testOverlappingRefreshesNeverRunAtOnce() async {
+        final class Slow: WidgetDataProvider {
+            var running = 0
+            var most = 0
+            var calls = 0
+            func values() async -> [String: JCJSON] {
+                running += 1
+                most = max(most, running)
+                calls += 1
+                try? await Task.sleep(for: .milliseconds(30))
+                running -= 1
+                return ["a.b": .number(Double(calls))]
+            }
+        }
+        let slow = Slow()
+        let h = hub([slow])
+        async let first: Void = h.refresh()
+        async let second: Void = h.refresh()
+        _ = await (first, second)
+        XCTAssertEqual(slow.most, 1)
+        XCTAssertEqual(written.last?["a.b"], .number(Double(slow.calls)), "the newest values are the ones kept")
+    }
+
 }

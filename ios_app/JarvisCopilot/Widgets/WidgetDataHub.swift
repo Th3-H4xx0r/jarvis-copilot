@@ -2,7 +2,9 @@ import Foundation
 import UIKit
 import WidgetKit
 
-/// One area's live values for widgets, keyed `area.name` (see `WidgetDataCatalog`).
+/// One area's live values for widgets, keyed `area.name` (see `WidgetDataCatalog`). Called on the
+/// main actor, one refresh at a time, so a provider's own cache is never raced.
+@MainActor
 protocol WidgetDataProvider {
     func values() async -> [String: JCJSON]
 }
@@ -32,6 +34,8 @@ final class WidgetDataHub {
     private var timer: Timer?
     private var soon: Task<Void, Never>?
     private var watches: [NSObjectProtocol] = []
+    private var refreshing = false
+    private var again = false
 
     init(providers: [any WidgetDataProvider],
          write: @escaping ([String: JCJSON]) -> Void = { WidgetDataFile.write($0) },
@@ -67,7 +71,22 @@ final class WidgetDataHub {
         }
     }
 
+    /// One at a time: a refresh asked for while one runs makes that one go round once more, so
+    /// an older, slower pass can never overwrite a newer snapshot.
     func refresh() async {
+        if refreshing {
+            again = true
+            return
+        }
+        refreshing = true
+        defer { refreshing = false }
+        repeat {
+            again = false
+            await refreshOnce()
+        } while again
+    }
+
+    private func refreshOnce() async {
         var values: [String: JCJSON] = [:]
         for provider in providers {
             values.merge(await provider.values()) { _, new in new }
@@ -105,6 +124,7 @@ final class WidgetDataHub {
 // MARK: - Providers
 
 /// Scores from the last Jarvis Health run, and each metric's last seven days from the server.
+@MainActor
 final class HealthWidgetData: WidgetDataProvider {
     private var cache: (at: Date, values: [String: JCJSON])?
     private static let metrics = ["steps": "steps", "sleep": "sleep", "heart_rate": "hr", "hrv": "hrv",
@@ -122,7 +142,7 @@ final class HealthWidgetData: WidgetDataProvider {
             out["health.analysis"] = .string(s.analysis)
         }
         if let cache, Date().timeIntervalSince(cache.at) < 600 { return out.merging(cache.values) { a, _ in a } }
-        guard await BridgeClient.shared.isPaired else { return out }
+        guard BridgeClient.shared.isPaired else { return out }
         var history: [String: JCJSON] = [:]
         let client = HealthClient(spaceID: HealthSpace.shared)
         for metric in Self.metrics.keys.sorted() {
@@ -187,12 +207,13 @@ struct WearablesWidgetData: WidgetDataProvider {
 }
 
 /// The most recent chat: its title, Jarvis's last reply, and whether a turn is running.
+@MainActor
 final class ChatWidgetData: WidgetDataProvider {
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {
         if let cache, Date().timeIntervalSince(cache.at) < 120 { return cache.values }
-        guard await BridgeClient.shared.isPaired,
+        guard BridgeClient.shared.isPaired,
               let sessions = try? await SessionsAPI().list(),
               let latest = sessions.filter({ !$0.archived }).max(by: { ($0.updatedAt ?? 0) < ($1.updatedAt ?? 0) })
         else { return cache?.values ?? [:] }
@@ -212,12 +233,13 @@ final class ChatWidgetData: WidgetDataProvider {
 }
 
 /// Coding sessions: how many are working, how many are waiting on you.
+@MainActor
 final class CodingWidgetData: WidgetDataProvider {
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {
         if let cache, Date().timeIntervalSince(cache.at) < 120 { return cache.values }
-        guard await BridgeClient.shared.isPaired, let sessions = try? await CodingSessionsAPI().listSessions() else {
+        guard BridgeClient.shared.isPaired, let sessions = try? await CodingSessionsAPI().listSessions() else {
             return cache?.values ?? [:]
         }
         let running = sessions.filter { $0.activityState != nil }

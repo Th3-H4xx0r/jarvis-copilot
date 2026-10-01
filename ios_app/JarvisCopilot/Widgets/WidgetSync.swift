@@ -63,6 +63,11 @@ final class WidgetSync {
 
     private static let pendingKey = "jc.widgets.pendingPush"
     private static let deletedKey = "jc.widgets.pendingDelete"
+    private static let localOnlyKey = "jc.widgets.localOnly"
+
+    /// Saves that finished while a pull's request was out: that pull's list can't know them.
+    private var savedDuringPull: Set<String> = []
+    private var pulling = false
 
     init(server: WidgetDesignsServing, directory: URL? = WidgetDesignCache.directory,
          defaults: UserDefaults = ControlButtonShelf.defaults,
@@ -85,6 +90,12 @@ final class WidgetSync {
         set { defaults.set(Array(newValue), forKey: Self.deletedKey) }
     }
 
+    /// Designs the server refused: they stay on this phone, as the user saved them.
+    private var localOnly: Set<String> {
+        get { Set(defaults.stringArray(forKey: Self.localOnlyKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: Self.localOnlyKey) }
+    }
+
     /// Everything: push what's waiting, pull the server's, tell it what can be bound.
     func sync() async {
         await pushPending()
@@ -94,8 +105,11 @@ final class WidgetSync {
 
     /// The server's designs into the cache; the server's deletions out of it.
     func pull() async {
+        pulling = true
+        savedDuringPull = []
+        defer { pulling = false }
         guard let designs = try? await server.designs() else { return }
-        let waiting = pending
+        let waiting = pending.union(localOnly).union(savedDuringPull)
         var seen: Set<String> = []
         for json in designs {
             guard let id = (try? JSONSerialization.jsonObject(with: json) as? [String: Any])?["id"] as? String,
@@ -114,17 +128,22 @@ final class WidgetSync {
     func save(_ json: Data) async throws -> SaveOutcome {
         let info = try WidgetDesignCache.save(json, in: directory)
         pending.insert(info.id)
+        if pulling { savedDuringPull.insert(info.id) }
         reload()
         do {
             let result = try await server.upsert(json)
             try? WidgetDesignCache.save(result.saved, in: directory)
             pending.remove(info.id)
+            localOnly.remove(info.id)
             reload()
             return .saved(warnings: result.warnings)
-        } catch APIError.http(let status, let message) where (400..<500).contains(status) {
+        } catch APIError.http(let status, let message) where status == 400 || status == 422 {
+            // The design itself is wrong: keep it here, don't keep retrying it.
             pending.remove(info.id)
+            localOnly.insert(info.id)
             return .rejected(message)
         } catch {
+            // Unreachable, signed out, the route not deployed yet: it goes on the next sync.
             return .local(error.localizedDescription)
         }
     }
@@ -132,6 +151,7 @@ final class WidgetSync {
     func delete(_ id: String) async {
         WidgetDesignCache.remove(id, in: directory)
         pending.remove(id)
+        localOnly.remove(id)
         reload()
         do {
             try await server.delete(id)
@@ -144,7 +164,12 @@ final class WidgetSync {
 
     private func pushPending() async {
         for id in pendingDeletes {
-            if (try? await server.delete(id)) != nil { pendingDeletes.remove(id) }
+            do {
+                try await server.delete(id)
+                pendingDeletes.remove(id)
+            } catch APIError.http(status: 404, _) {
+                pendingDeletes.remove(id)  // the server never had it
+            } catch {}
         }
         for id in pending {
             guard let json = WidgetDesignCache.rawJSON(id, in: directory) else { pending.remove(id); continue }

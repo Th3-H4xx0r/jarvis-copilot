@@ -55,7 +55,9 @@ struct JarvisDesignWidgetView: View {
             // No layout for this size: the design's icon and name, so it is never blank.
             fallback(icon: design.icon.isEmpty ? "square.grid.2x2" : design.icon, title: design.name)
         } else {
-            fallback(icon: "square.grid.2x2.fill", title: "Pick a design in Jarvis → Settings → Widget creator")
+            fallback(icon: "square.grid.2x2.fill",
+                     title: entry.chosen ? "That design was deleted — touch and hold → Edit Widget to pick another"
+                                         : "Pick a design in Jarvis → Settings → Widget creator")
         }
     }
 

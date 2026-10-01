@@ -101,4 +101,42 @@ final class WidgetBuilderTests: XCTestCase {
             }
         }
     }
+
+    // MARK: review fixes
+
+    func testAGaugeAlwaysCarriesItsRing() {
+        // The server requires `rings`; it used to appear only once a colour was picked.
+        let n = node(WidgetBlock(kind: .gauge, source: "health.score"))
+        XCTAssertFalse((n["rings"] as? [Any] ?? []).isEmpty)
+    }
+
+    func testAButtonWithNoneChosenCompilesToAHintNotAnEmptyId() {
+        for kind in [WidgetBlock.Kind.button, .toggle] {
+            let n = node(WidgetBlock(kind: kind))
+            XCTAssertEqual(n["type"] as? String, "text", "\(kind)")
+        }
+    }
+
+    func testABoundTextKeepsItsLabelAndShowsADashWhenTheValueIsMissing() {
+        let n = node(WidgetBlock(kind: .text, source: "alarm.next", label: "Next alarm"))
+        XCTAssertEqual(n["type"] as? String, "vstack")
+        let value = (n["children"] as? [[String: Any]])?.last?["value"] as? [String: Any]
+        XCTAssertEqual(value?["default"] as? String, "—")
+    }
+
+    /// With WIDGET_EXPORT_DIR set, writes every template's design so the server's validator can
+    /// be run over exactly what the phone sends.
+    func testExportTemplatesForTheServerValidator() throws {
+        guard let dir = ProcessInfo.processInfo.environment["WIDGET_EXPORT_DIR"] else { return }
+        for template in WidgetTemplates.all {
+            let draft = template.make([ControlButtonInfo(id: "B1", name: "Lights", symbol: "lightbulb.fill")])
+            try draft.compile().write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(template.id).json"))
+        }
+        var blocks = WidgetDesignDraft.blank(name: "Every block")
+        blocks.layouts["small"] = WidgetLayout(rows: [WidgetRow(blocks: WidgetBlock.Kind.allCases.map {
+            WidgetBlock(kind: $0, source: $0.binds ? ($0 == .chart || $0 == .sparkline ? "health.steps_week" : "health.steps") : nil)
+        })])
+        try blocks.compile().write(to: URL(fileURLWithPath: dir).appendingPathComponent("every-block.json"))
+    }
+
 }

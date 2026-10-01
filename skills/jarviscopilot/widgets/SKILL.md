@@ -111,7 +111,8 @@ width, height}, "when"?: <condition>}`. At most 160 nodes per size, 12 deep.
 **Bindings** (any value): a literal, `{"src": "health.steps"}` (a data key from `catalog`; `{"$":
 key}` reads the same snapshot), `{"$row": "field"}` inside a `list` row, or a `{"clock": …}`
 binding. Add `"fmt": "{} steps"` to template the value and `"map": {"low": "#ff3b30"}` to swap it
-(map, then fmt). A key with no value yet renders "—".
+(map, then fmt). Add `"default": "—"` to every data binding: it's what shows until the phone has
+that value (no alarm set, a ring never paired) — without it a text or label goes blank.
 
 **`when`** hides a node unless it holds: `{"op": "gt", "a": {"src": "x5ring.battery"}, "b": 20}`;
 ops `and` `or` (`items`), `not` (`item`), `eq` `ne` `gt` `lt` (`a`, `b`), `exists` (`a`),
@@ -119,10 +120,13 @@ ops `and` `or` (`items`), `not` (`item`), `eq` `ne` `gt` `lt` (`a`, `b`), `exist
 
 **Data keys** are `area.key`. Run `catalog` for the real list with label, kind (number, text,
 bool, series) and unit. Typical: `health.score`, `health.band`, `health.sleep_score`,
-`health.steps`, `health.hr_latest`, `health.hrv`, series `health.steps_week` /
-`health.sleep_week` / `health.hr_today`; per wearable `<device>.connected`, `.battery`, `.name`
-(`x5ring.battery`); `chat.last_reply`, `coding.working`, `server.connected`, `phone.battery`,
-`alarm.next`.
+`health.steps`, `health.hr_avg`, `health.hrv`, `health.asleep`, series `health.steps_week` /
+`health.sleep_week` / `health.hr_week`; per wearable `<device>.connected`, `.status`, `.battery`,
+`.name`, `.keep_alive` (`x5ring.battery`); `chat.last_reply`, `coding.waiting`,
+`coding.summary`, `server.status`, `phone.battery`, `alarm.next`.
+
+The catalog also lists the user's Control Center buttons as `controls.<id>` (kind `button` or
+`toggle`): the `button` prop takes the id **without** the `controls.` prefix.
 
 ### Example: steps, every glance size
 
@@ -164,7 +168,7 @@ bool, series) and unit. Typical: `health.score`, `health.band`, `health.sleep_sc
         {"type": "symbolValue", "symbol": "bed.double.fill",
          "value": {"src": "health.sleep_score", "fmt": "sleep {}"}},
         {"type": "symbolValue", "symbol": "heart.fill",
-         "value": {"src": "health.hr_latest", "fmt": "{} bpm"}}
+         "value": {"src": "health.hr_avg", "fmt": "{} bpm", "default": "—"}}
       ]},
       {"type": "vstack", "spacing": 4, "align": "leading", "children": [
         {"type": "text", "value": "Steps, last 7 days", "style": {"size": 12, "color": "secondary"}},
@@ -197,8 +201,7 @@ bool, series) and unit. Typical: `health.score`, `health.band`, `health.sleep_sc
          "when": {"op": "eq", "a": {"src": "x5ring.connected"}, "b": true}},
         {"type": "symbolValue", "symbol": "battery.75percent",
          "value": {"src": "x5ring.battery", "fmt": "{}%"}},
-        {"type": "symbolValue", "symbol": "heart.fill",
-         "value": {"src": "x5ring.hr_latest", "fmt": "{} bpm"}},
+        {"type": "text", "value": {"src": "x5ring.status", "default": "—"}, "style": {"size": 12}},
         {"type": "button", "button": "<button id>", "label": "Find ring",
          "symbol": "dot.radiowaves.left.and.right"},
         {"type": "toggle", "button": "<switch id>", "label": "Keep alive"}
@@ -224,7 +227,7 @@ bool, series) and unit. Typical: `health.score`, `health.band`, `health.sleep_sc
 
 - **Never invent a `button`/`toggle` id.** They are the ids of Control Center buttons the user
   made in the app (Settings → Widget creator → Control Center); `toggle` needs one that keeps
-  state. Use an id the user gives you or one the phone lists in `catalog`; otherwise build the
+  state. Use an id the user gives you or one the phone lists in `catalog` (strip `controls.`); otherwise build the
   rest and tell the user to add the button in the creator. An unknown id draws a dimmed label.
 - **Widgets are snapshots.** Values refresh when the phone publishes (opening Jarvis, syncs, about
   every 15 minutes), never per second. For a countdown use `timer`, which ticks on its own.

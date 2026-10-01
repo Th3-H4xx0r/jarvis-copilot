@@ -11,6 +11,7 @@ final class WidgetSyncTests: XCTestCase {
         var reachable = true
         var catalog: [[String: Any]] = []
         var rejects = false
+        var rejectStatus = 400
 
         private func check() throws { if !reachable { throw APIError.http(status: 502, message: "down") } }
 
@@ -18,13 +19,16 @@ final class WidgetSyncTests: XCTestCase {
 
         func upsert(_ design: Data) async throws -> WidgetUpsert {
             try check()
-            if rejects { throw APIError.http(status: 400, message: "presentations: needs at least one size") }
+            if rejects { throw APIError.http(status: rejectStatus, message: "presentations: needs at least one size") }
             let object = try JSONSerialization.jsonObject(with: design) as! [String: Any]
             stored[object["id"] as! String] = design
             return WidgetUpsert(saved: design, warnings: ["health.nope is not in the catalog"])
         }
 
-        func delete(_ id: String) async throws { try check(); stored[id] = nil }
+        func delete(_ id: String) async throws {
+            try check()
+            guard stored.removeValue(forKey: id) != nil else { throw APIError.http(status: 404, message: "design not found") }
+        }
 
         func postCatalog(_ entries: [[String: Any]]) async throws { try check(); catalog = entries }
     }
@@ -106,4 +110,38 @@ final class WidgetSyncTests: XCTestCase {
         XCTAssertTrue(keys.contains("controls.B1"))
         XCTAssertEqual(server.catalog.first { $0["key"] as? String == "controls.B1" }?["kind"] as? String, "toggle")
     }
+
+    // MARK: review fixes
+
+    func testADesignTheServerRejectsStaysOnThePhoneThroughAPull() async throws {
+        server.rejects = true
+        let s = sync()
+        _ = try await s.save(design("bad"))
+        await s.pull()
+        XCTAssertNotNil(WidgetDesignCache.load("bad", in: dir), "rejected designs stay on this phone")
+    }
+
+    func testOnlyABadDesignIsARejectionOtherErrorsWaitForLater() async throws {
+        server.rejects = true
+        server.rejectStatus = 404
+        let s = sync()
+        let outcome = try await s.save(design("later"))
+        guard case .local = outcome else { return XCTFail("\(outcome)") }
+        server.rejects = false
+        await s.sync()
+        XCTAssertNotNil(server.stored["later"])
+    }
+
+    func testAQueuedDeleteTheServerNeverHadIsDone() async {
+        server.reachable = false
+        let s = sync()
+        try? WidgetDesignCache.save(design("x"), in: dir)
+        await s.delete("x")
+        server.reachable = true
+        await s.sync()
+        server.stored["x"] = design("x", name: "Back again")
+        await s.pull()
+        XCTAssertEqual(WidgetDesignCache.infos(in: dir).map(\.name), ["Back again"])
+    }
+
 }

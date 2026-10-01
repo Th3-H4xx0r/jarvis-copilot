@@ -18,6 +18,9 @@ published), never an error.
 """
 from __future__ import annotations
 
+import json
+import math
+
 import re
 from dataclasses import replace
 from typing import Any, Iterable
@@ -91,6 +94,23 @@ WIDGET_RULES = NodeRules(
 )
 
 
+#: A design is a layout, not data: anything bigger is a mistake (or abuse), and the phone
+#: and widget hold every design in memory.
+MAX_DESIGN_BYTES = 64_000
+
+
+def _non_finite(value: Any, path: str, errors: list[str]) -> None:
+    """NaN / Infinity parse as JSON numbers in Python but break the phone (and are not JSON)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        errors.append(f"{path}: numbers must be finite, not {value!r}")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _non_finite(v, f"{path}.{k}", errors)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            _non_finite(v, f"{path}[{i}]", errors)
+
+
 def validate_design(design: Any, catalog_keys: Iterable[str] | None = None
                     ) -> tuple[list[str], list[str]]:
     """Return ``(errors, warnings)``; no errors means the design may be stored.
@@ -120,6 +140,15 @@ def validate_design(design: Any, catalog_keys: Iterable[str] | None = None
     tint = design.get("tint")
     if tint is not None and not (isinstance(tint, str) and _is_color_literal(tint)):
         errors.append("tint must be a hex (#RGB/#RRGGBB/#RRGGBBAA) or named color")
+
+    try:
+        size = len(json.dumps(design, allow_nan=True))
+    except (TypeError, ValueError):
+        size = 0
+        errors.append("design must be plain JSON")
+    if size > MAX_DESIGN_BYTES:
+        errors.append(f"design is too large ({size} bytes > {MAX_DESIGN_BYTES})")
+    _non_finite(design, "design", errors)
 
     pres = design.get("presentations")
     if not isinstance(pres, dict):
@@ -186,5 +215,5 @@ def validate_catalog(entries: Any) -> list[str]:
     return errors
 
 
-__all__ = ["CHART_STYLES", "MODEL_DEVICES", "SIZES", "WIDGET_NODE_TYPES", "WIDGET_RULES",
+__all__ = ["CHART_STYLES", "MAX_DESIGN_BYTES", "MODEL_DEVICES", "SIZES", "WIDGET_NODE_TYPES", "WIDGET_RULES",
            "validate_catalog", "validate_design"]

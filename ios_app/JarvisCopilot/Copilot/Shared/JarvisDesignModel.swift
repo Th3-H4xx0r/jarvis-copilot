@@ -291,13 +291,15 @@ indirect enum JCJSON: Decodable, Equatable {
     }
     var asDouble: Double? {
         switch self {
-        case .number(let n): return n
-        case .string(let s): return Double(s)
+        case .number(let n): return n.isFinite ? n : nil
+        // "nan" and "inf" parse as numbers; a chart or gauge built from one traps.
+        case .string(let s): return Double(s).flatMap { $0.isFinite ? $0 : nil }
         case .bool(let b): return b ? 1 : 0
         default: return nil
         }
     }
-    var asInt: Int? { asDouble.map { Int($0) } }
+    /// Clamped, so a huge or odd number in a design can never trap the widget.
+    var asInt: Int? { asDouble.map { Int(max(-1_000_000_000, min(1_000_000_000, $0))) } }
     var asBool: Bool? {
         switch self {
         case .bool(let b): return b
@@ -394,7 +396,13 @@ struct JCValueRef {
 
     /// Resolve to a display string, or nil when missing/unbound.
     func string(_ ctx: JCBindingContext) -> String? {
-        resolve(ctx).flatMap { applyTransforms($0, kind: .string) }
+        resolve(ctx).flatMap { applyTransforms($0, kind: .string) } ?? fallback
+    }
+
+    /// `default`: what a binding shows while its value is missing ("—" from the widget builder).
+    private var fallback: String? {
+        if case .object(let o) = raw { return o["default"]?.asString }
+        return nil
     }
     /// Resolve to a number (0–100 progress, gauge values, etc.), or nil.
     func double(_ ctx: JCBindingContext) -> Double? {

@@ -68,12 +68,18 @@ struct WidgetBlock: Codable, Identifiable, Equatable {
     /// Full scale of a gauge or progress bar.
     var max: Double?
 
-    /// The value binding.
+    /// The value binding; a value the phone hasn't got yet shows "—", never a blank.
     private var ref: Any? {
         guard let source, !source.isEmpty else { return nil }
-        var out: [String: Any] = ["src": source]
+        var out: [String: Any] = ["src": source, "default": "—"]
         if let format, !format.isEmpty { out["fmt"] = format }
         return out
+    }
+
+    /// A button or switch with nothing chosen yet: a hint, not an empty id the server refuses.
+    private var unchosen: [String: Any] {
+        ["type": "text", "value": kind == .toggle ? "Choose a switch" : "Choose a button",
+         "style": ["size": 12, "opacity": 0.5]]
     }
 
     private var style: [String: Any] {
@@ -102,14 +108,14 @@ struct WidgetBlock: Codable, Identifiable, Equatable {
         case .text:
             node = ["type": "text", "value": ref ?? (label ?? ""), "lineLimit": 4]
             if !style.isEmpty { node["style"] = style }
-            return node
+            return ref == nil ? node : caption(node)
         case .symbol:
             node = ["type": "symbol", "name": symbol ?? "star.fill"]
             node["style"] = style.merging(["size": size ?? 22]) { a, _ in a }
             return node
         case .gauge:
-            node = ["type": "gauge", "value": ref ?? 0, "scale": max ?? 100, "label": ref ?? ""]
-            if let color { node["rings"] = [["value": ref ?? 0, "tint": color]] }
+            node = ["type": "gauge", "value": ref ?? 0, "scale": max ?? 100, "label": ref ?? "",
+                    "rings": [["value": ref ?? 0, "tint": color ?? String(format: "#%06X", JcAccent.hex)]]]
             return caption(node)
         case .progress:
             node = ["type": "progress", "value": ref ?? 0, "scale": max ?? 100]
@@ -126,12 +132,14 @@ struct WidgetBlock: Codable, Identifiable, Equatable {
         case .model:
             return ["type": "model", "device": device ?? "x5ring", "style": ["height": size ?? 80]]
         case .button:
-            node = ["type": "button", "button": button ?? ""]
+            guard let button, !button.isEmpty else { return unchosen }
+            node = ["type": "button", "button": button]
             if let label, !label.isEmpty { node["label"] = label }
             if let symbol { node["symbol"] = symbol }
             return node
         case .toggle:
-            node = ["type": "toggle", "button": button ?? ""]
+            guard let button, !button.isEmpty else { return unchosen }
+            node = ["type": "toggle", "button": button]
             if let label, !label.isEmpty { node["label"] = label }
             return node
         case .spacer:

@@ -521,7 +521,7 @@ final class JCDesignRenderer {
     private func jcChartDomain(_ n: JCNode, _ points: [JCChartPoint]) -> ClosedRange<Double> {
         let low = n.double("min") ?? min(0, points.map(\.value).min() ?? 0)
         let high = n.double("max") ?? max(points.map(\.value).max() ?? 1, low + 1)
-        return low...max(high, low + 1)
+        return low...max(high, low + 1)  // asDouble never yields NaN/inf, so this is a valid range
     }
 
     /// A wearable's 3D model, as the picture the app rendered of it.

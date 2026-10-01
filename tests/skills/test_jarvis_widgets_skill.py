@@ -243,7 +243,8 @@ def test_invalid_design_prints_the_errors_and_skips_the_phone(run, store, tmp_pa
     design = steps_design(presentations={"small": {"type": "chart"}})
     code, out, err = run(["upsert", write_json(tmp_path, design)], transport)
     assert code == 1 and out is None
-    assert err["error"] == "invalid design" and any("series" in e for e in err["errors"])
+    # The summary names the problem itself (the phone shows only this line).
+    assert "series" in err["error"] and any("series" in e for e in err["errors"])
     assert transport.invokes == [] and store.list_designs() == []
 
 
