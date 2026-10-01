@@ -114,12 +114,33 @@ final class MediaControlSkillTests: XCTestCase {
         XCTAssertEqual(out["error"] as? String, "Could not open Shortcuts")
     }
 
-    func testAPauseThatDoesNotTakeIsAFailure() async throws {
+    func testAudioThatLingersAfterAPauseIsNotAFailure() async throws {
+        // Players hold the audio session for a moment after pausing; the command worked.
         let media = FakeMedia(playing: true, music: .playing)
         let out = try await run(media, "pause")
-        XCTAssertEqual(out["ok"] as? Bool, false)
-        XCTAssertEqual(out["playing"] as? Bool, true)
-        XCTAssertNotNil(out["error"])
+        XCTAssertEqual(out["ok"] as? Bool, true)
+        XCTAssertEqual(out["confirmed"] as? Bool, false)
+        XCTAssertNil(out["error"])
+    }
+
+    func testASecondPauseWhileTheAudioLingersDoesNotToggleItBackOn() async throws {
+        // "JC Play Pause" is a toggle, so trusting the lingering audio would resume the music.
+        let media = FakeMedia(playing: true, music: .stopped)
+        let skill = MediaSkills.mediaControl(media, settle: 0)
+        _ = try await skill.run(["action": "pause"])
+        let out = try await skill.run(["action": "pause"])
+        XCTAssertEqual(media.shortcuts, [.pause])
+        XCTAssertEqual(out["changed"] as? Bool, false)
+    }
+
+    func testOnceTheMomentPassesTheAudioIsBelievedAgain() async throws {
+        var clock = Date(timeIntervalSince1970: 0)
+        let media = FakeMedia(playing: true, music: .stopped)
+        let skill = MediaSkills.mediaControl(media, settle: 0, now: { clock })
+        _ = try await skill.run(["action": "pause"])
+        clock += 60
+        _ = try await skill.run(["action": "pause"])
+        XCTAssertEqual(media.shortcuts, [.pause, .pause])
     }
 
     func testToggleFromSilenceResumesThroughTheShortcut() async throws {

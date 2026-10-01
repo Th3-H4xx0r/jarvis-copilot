@@ -22,6 +22,7 @@ def keys(monkeypatch):
     pressed: list[str] = []
     monkeypatch.setattr(mac, "_press_media_key", pressed.append)
     monkeypatch.setattr(mac, "_MEDIA_POLL_S", 0)
+    monkeypatch.setattr(mac, "_recent", {})
     return pressed
 
 
@@ -86,12 +87,38 @@ def test_pause_while_playing_presses_the_key_and_confirms_silence(monkeypatch, k
     assert out["playing"] is False
 
 
-def test_pause_that_does_not_take_reports_failure(monkeypatch, keys):
+def test_audio_that_lingers_after_a_pause_is_not_reported_as_a_failure(monkeypatch, keys):
+    # Players keep the audio device running for seconds after pausing; the key worked.
     _audio(monkeypatch, {4242})
     out = mac.media_control("pause")
     assert keys == ["media_play_pause"]
-    assert out["ok"] is False
-    assert out["playing"] is True
+    assert out["ok"] is True
+    assert out["confirmed"] is False
+    assert "error" not in out
+
+
+def test_a_second_pause_while_the_audio_lingers_presses_nothing(monkeypatch, keys):
+    _audio(monkeypatch, {4242})
+    mac.media_control("pause")
+    out = mac.media_control("pause")
+    assert keys == ["media_play_pause"]
+    assert out["changed"] is False
+
+
+def test_play_right_after_a_pause_presses_play_even_though_audio_lingers(monkeypatch, keys):
+    _audio(monkeypatch, {4242})
+    mac.media_control("pause")
+    mac.media_control("play")
+    assert keys == ["media_play_pause", "media_play_pause"]
+
+
+def test_core_audio_is_believed_again_once_the_moment_passes(monkeypatch, keys):
+    _audio(monkeypatch, {4242})
+    mac.media_control("pause")
+    mac._recent["at"] -= mac._MEDIA_TRUST_S + 1
+    out = mac.media_control("pause")
+    assert keys == ["media_play_pause", "media_play_pause"]
+    assert out["changed"] is True
 
 
 def test_play_from_silence_confirms_sound(monkeypatch, keys):

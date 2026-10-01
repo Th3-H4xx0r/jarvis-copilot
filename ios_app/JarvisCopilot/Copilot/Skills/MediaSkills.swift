@@ -198,9 +198,24 @@ enum MediaSkills {
 
     static let mediaActions = ["play", "pause", "toggle", "next", "previous", "status"]
 
+    /// What media_control last asked for. Players hold the audio session for a few seconds
+    /// after pausing, so for a moment our own record beats `isOtherAudioPlaying` — otherwise a
+    /// second "pause" would run the toggle Shortcut and start the music again.
+    private final class RecentPress {
+        var playing = false
+        var at: Date?
+    }
+    static let mediaTrust: TimeInterval = 15
+
     /// `settle` is the wait between checks while the playing app starts or stops its audio.
-    static func mediaControl(_ media: any MediaControlling, settle: TimeInterval = 0.25) -> AnySkill {
-        AnySkill(
+    static func mediaControl(_ media: any MediaControlling, settle: TimeInterval = 0.25,
+                             now: @escaping () -> Date = Date.init) -> AnySkill {
+        let recent = RecentPress()
+        let isPlaying = { () async -> Bool in
+            if let at = recent.at, now().timeIntervalSince(at) < mediaTrust { return recent.playing }
+            return await media.othersPlaying()
+        }
+        return AnySkill(
             name: "media_control",
             description: "Control the music, podcast or video playing on this phone: play, pause, "
                 + "toggle, next or previous track. Apple Music is driven directly, even with the phone "
@@ -219,7 +234,7 @@ enum MediaSkills {
             var out: [String: Any] = ["action": action]
 
             if action == "status" {
-                let playing = await media.othersPlaying()
+                let playing = await isPlaying()
                 out["ok"] = true
                 out["playing"] = playing
                 if await media.musicState() == .playing {
@@ -248,7 +263,7 @@ enum MediaSkills {
                 return out
             }
 
-            let playing = await media.othersPlaying()
+            let playing = await isPlaying()
             if action == "pause" && !playing || action == "play" && playing {
                 out["ok"] = true
                 out["changed"] = false
@@ -265,16 +280,20 @@ enum MediaSkills {
             } else if finished(await media.runShortcut(want ? .play : .pause), &out) {
                 return out
             }
-            var now = playing
-            for _ in 0..<8 where now != want {
+            recent.playing = want
+            recent.at = now()
+            var heard = playing
+            for _ in 0..<12 where heard != want {
                 await wait()
-                now = await media.othersPlaying()
+                heard = await media.othersPlaying()
             }
-            out["ok"] = now == want
+            out["ok"] = true
             out["changed"] = true
-            out["playing"] = now
-            if now != want {
-                out["error"] = want ? "Nothing started playing." : "It is still playing."
+            out["playing"] = want
+            if heard != want {
+                out["confirmed"] = false
+                out["note"] = want ? "Sent; nothing is making sound yet — the app may still be starting."
+                    : "Sent; the app is still holding the audio, which some do for a few seconds after pausing."
             }
             return out
         }

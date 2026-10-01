@@ -313,7 +313,12 @@ def volume_set(level: int) -> dict:
 _MEDIA_ACTIONS = ("play", "pause", "toggle", "next", "previous", "status")
 _MEDIA_KEYS = {"next": "media_next", "previous": "media_previous"}
 _MEDIA_POLL_S = 0.25
-_MEDIA_POLLS = 8  # ~2 s for the player to start or stop its audio
+_MEDIA_POLLS = 12  # ~3 s for the player to start or stop its audio
+# Players keep the audio device running for several seconds after a pause (and
+# take a moment to start), so for this long after pressing play/pause our own
+# record of what we asked for beats what Core Audio says.
+_MEDIA_TRUST_S = 15.0
+_recent: dict = {}  # {"playing": bool, "at": monotonic seconds} of the last press
 
 
 def _press_media_key(name: str) -> None:
@@ -418,6 +423,8 @@ def media_control(action: str) -> dict:
         raise ValueError(f"action must be one of {', '.join(_MEDIA_ACTIONS)}")
     others = _others_playing()
     playing = None if others is None else bool(others)
+    if _recent and time.monotonic() - _recent["at"] < _MEDIA_TRUST_S:
+        playing = _recent["playing"]
     if act == "status":
         out = {"ok": True, "action": act}
         if others is None:
@@ -441,13 +448,15 @@ def media_control(action: str) -> dict:
         out["note"] = "pressed play/pause; this macOS can't confirm what is playing"
         return out
     want = not playing if act == "toggle" else act == "play"
+    _recent.update(playing=want, at=time.monotonic())
     after = _wait_playing(want)
-    if after is not None:
-        out["playing"] = after
-        if after != want:
-            out["ok"] = False
-            out["note"] = ("still playing — the app making sound didn't take the media key"
-                           if after else "nothing started — no app took the play key")
+    out["playing"] = want
+    if after is not None and after != want:
+        out["confirmed"] = False
+        out["note"] = ("key sent; the player is still holding the audio device, which "
+                       "some do for a few seconds after pausing"
+                       if want is False else
+                       "key sent; nothing is making sound yet — the player may still be starting")
     return out
 
 

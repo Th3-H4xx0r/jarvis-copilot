@@ -128,29 +128,30 @@ struct X5SettingsView: View {
 
     private var monitoring: some View {
         CardGroup("Automatic measurements", footer: "The ring measures on its own and keeps the readings until it syncs.") {
-            ForEach(Array([X5MonitorType.heartRate, .hrv, .spo2].enumerated()), id: \.offset) { index, type in
+            ForEach(Array([X5MonitorType.heartRate, .spo2, .hrv].enumerated()), id: \.offset) { index, type in
                 if index > 0 { RowDivider() }
-                Row {
-                    let current = session.monitoring[type]
-                    Toggle(isOn: Binding(
-                        get: { current?.on ?? false },
-                        set: { on in
-                            guard var m = current ?? X5Session.defaultMonitoring.first(where: { $0.type == type }) else { return }
-                            m.on = on
-                            apply { try await session.setMonitoring(m) }
-                        })) {
+                let schedule = session.monitoring[type] ?? X5Session.defaultMonitoring.first { $0.type == type }!
+                NavigationLink {
+                    X5MonitoringEditor(manager: manager, title: label(type), schedule: schedule)
+                } label: {
+                    HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(label(type))
-                            if let m = current {
-                                Text(String(format: "Every %d min · %02d:%02d–%02d:%02d", m.intervalMinutes, m.startHour,
-                                            m.startMinute, m.endHour, m.endMinute))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            Text(label(type)).font(.subheadline)
+                            if let window = schedule.window, schedule.on {
+                                Text(window).font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        Spacer(minLength: 8)
+                        Text(session.monitoring[type] == nil ? "—" : schedule.value)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
-                    .disabled(!ready)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
             }
         }
     }
