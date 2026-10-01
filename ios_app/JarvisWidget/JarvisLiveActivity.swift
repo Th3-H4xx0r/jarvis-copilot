@@ -215,6 +215,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         if #available(iOS 17.0, *) {
             HealthWidget()
         }
+        // Any design from the widget creator.
+        JarvisDesignWidget()
         // AlarmKit alarm / timer countdown (iOS 26+). The type only exists
         // when the SDK has AlarmKit, so the availability check is not enough.
         #if canImport(AlarmKit)
