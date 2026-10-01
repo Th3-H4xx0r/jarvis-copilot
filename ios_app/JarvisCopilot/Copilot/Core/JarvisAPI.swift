@@ -463,6 +463,12 @@ final class JarvisAPI: @unchecked Sendable {
         return try await perform(try request("DELETE", path, query: query, headers: h, body: data))
     }
 
+    /// Raw bytes as the request body (dashcam thumbnails and upload chunks).
+    func postData(_ path: String, _ data: Data, contentType: String, query: [String: String] = [:],
+                  timeout: TimeInterval = 120) async throws -> APIResponse {
+        try await perform(try request("POST", path, query: query, headers: ["Content-Type": contentType], body: data, timeout: timeout))
+    }
+
     /// Multipart upload (`/api/upload`, `/api/coding/upload`).
     func postMultipart(_ path: String, _ body: MultipartBody, timeout: TimeInterval = 120) async throws -> APIResponse {
         try await perform(try request("POST", path, headers: ["Content-Type": body.contentType], body: body.encoded(), timeout: timeout))
