@@ -15,6 +15,14 @@ final class InmoProtocolTests: XCTestCase {
         XCTAssertEqual(InmoCommand.wifi(open: true), data("1011a2010608032a020800"))
         XCTAssertEqual(InmoCommand.enableClassicGATT(), data("08011011a2010408035000"))
     }
+    // Schema-composed (not yet an observed golden): the remote's GO button is CommandType.GO_INDEX(7),
+    // in the same Control message as BACK_INDEX(4) and HOME_INDEX(5), whose bytes are observed above.
+    // A double press is two of them inside the glasses' double-click window.
+    func testGoButtonIsGoIndexInTheRemoteControlMessage() {
+        XCTAssertEqual(InmoCommand.go(), data("080110022a020807"))
+        XCTAssertEqual(InmoCommand.goDouble(), [data("080110022a020807"), data("080110022a020807")])
+        XCTAssertLessThan(InmoCommand.doublePressGap, 0.4)
+    }
     // Schema-composed (not an observed golden): GlassesSettings{msgType: IOS_ANCS_ENABLE(24), isOpen}.
     // version=1, MessageType.GLASSES_SETTINGS(19) at tag 2, GlassesSettings at field 22,
     // nested msgType(1)=24 (0x18) and isOpen(2)=1. Proves the wire bytes before the hardware ANCS test.
