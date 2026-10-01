@@ -30,13 +30,21 @@ final class InmoProtocolTests: XCTestCase {
         XCTAssertEqual(InmoCommand.goKey(pressed: false, atMillis: 1000), data("080110022a0b08146a070801100420e807"))
     }
 
-    func testADoubleGoIsTwoTimedPressesInsideTheDoubleClickWindow() {
+    /// As the INMO app does it (PacketLogger, 2026-10-01): each press held ~30 ms, the second press
+    /// ~180 ms after the first. Offsets are from the start, so write acks can't stretch the gaps.
+    func testADoubleGoMatchesTheAppsCapturedTiming() {
         let steps = InmoCommand.goDoublePress(startMillis: 1000)
         XCTAssertEqual(steps.map(\.bytes), [InmoCommand.goKey(pressed: true, atMillis: 1000),
-                                            InmoCommand.goKey(pressed: false, atMillis: 1070),
-                                            InmoCommand.goKey(pressed: true, atMillis: 1190),
-                                            InmoCommand.goKey(pressed: false, atMillis: 1260)])
-        XCTAssertEqual(steps.map(\.delayMillis), [0, 70, 120, 70])
+                                            InmoCommand.goKey(pressed: false, atMillis: 1030),
+                                            InmoCommand.goKey(pressed: true, atMillis: 1180),
+                                            InmoCommand.goKey(pressed: false, atMillis: 1210)])
+        XCTAssertEqual(steps.map(\.offsetMillis), [0, 30, 180, 210])
+    }
+
+    /// The press the app sent at 16:37:51, byte for byte (its timestamp included).
+    func testGoKeyPressMatchesTheCapturedAppFrame() {
+        XCTAssertEqual(InmoCommand.goKey(pressed: true, atMillis: 1_790_822_271_082),
+                       data("080110022a1108146a0d08011004180120ea90cdaa8f34"))
     }
     // Schema-composed (not an observed golden): GlassesSettings{msgType: IOS_ANCS_ENABLE(24), isOpen}.
     // version=1, MessageType.GLASSES_SETTINGS(19) at tag 2, GlassesSettings at field 22,

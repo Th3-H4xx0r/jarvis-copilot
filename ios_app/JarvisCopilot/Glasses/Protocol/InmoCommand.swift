@@ -19,14 +19,12 @@ enum InmoCommand {
             + (pressed ? InmoWireCodec.uint(3, 1) : Data()) + InmoWireCodec.uint(4, millis)
         return control(20, field: 13, payload: event)
     }
-    /// Two taps inside the glasses' double-click window: down 70 ms, up 120 ms, down 70 ms, up.
-    static func goDoublePress(startMillis: UInt64) -> [(bytes: Data, delayMillis: UInt64)] {
-        var at = startMillis
-        let presses: [(Bool, UInt64)] = [(true, 0), (false, 70), (true, 120), (false, 70)]
-        return presses.map { pressed, delay in
-            at += delay
-            return (goKey(pressed: pressed, atMillis: at), delay)
-        }
+    /// Two taps the way the INMO app sends them (captured 2026-10-01): each press held ~30 ms, the
+    /// second ~180 ms after the first. Offsets are from the start, not between writes, so the write
+    /// acknowledgements can't stretch the taps past the glasses' double-click window.
+    static func goDoublePress(startMillis: UInt64) -> [(bytes: Data, offsetMillis: UInt64)] {
+        let events: [(Bool, UInt64)] = [(true, 0), (false, 30), (true, 180), (false, 210)]
+        return events.map { pressed, offset in (goKey(pressed: pressed, atMillis: startMillis + offset), offset) }
     }
     static func touch(kind: Int, direction: Int?, x: Int, y: Int) throws -> Data {
         guard (1...2).contains(kind), (0...100).contains(x), (0...100).contains(y), direction == nil || (0...3).contains(direction!) else { throw InmoProtocolError.malformed("Invalid touch gesture") }

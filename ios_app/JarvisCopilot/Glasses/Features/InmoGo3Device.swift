@@ -138,9 +138,12 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         case "glasses_back": bytes = InmoCommand.back()
         case "glasses_go": bytes = InmoCommand.go()
         case "glasses_go_double":
-            // Raw key events, timed like a finger, so the glasses see a real double click.
-            for step in InmoCommand.goDoublePress(startMillis: UInt64(Date().timeIntervalSince1970 * 1000)) {
-                if step.delayMillis > 0 { try await Task.sleep(nanoseconds: step.delayMillis * 1_000_000) }
+            // Raw key events on the app's own schedule, so the glasses see a real double click: each
+            // write waits only for what is left of its offset after the previous one was acknowledged.
+            let start = Date()
+            for step in InmoCommand.goDoublePress(startMillis: UInt64(start.timeIntervalSince1970 * 1000)) {
+                let wait = Double(step.offsetMillis) / 1000 - Date().timeIntervalSince(start)
+                if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
                 try await session.send(step.bytes)
             }
             recentResult = "\(name): sent · awaiting device state"
