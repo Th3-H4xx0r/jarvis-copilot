@@ -33,9 +33,15 @@ struct RingLogEntry: Identifiable, Equatable {
 final class RingLog: ObservableObject {
     @Published private(set) var entries: [RingLogEntry] = []
     private let limit = 400
+    /// Names a frame. The R12's opcodes by default; the X5 brings its own.
+    private let describe: (RingFrame) -> (title: String, detail: String)
+
+    init(describe: @escaping (RingFrame) -> (title: String, detail: String) = RingLogDecoder.describe) {
+        self.describe = describe
+    }
 
     func record(_ frame: RingFrame, at date: Date = Date()) {
-        let described = RingLogDecoder.describe(frame)
+        let described = describe(frame)
         entries.insert(RingLogEntry(date: date, frame: frame, title: described.title, detail: described.detail), at: 0)
         if entries.count > limit { entries.removeLast(entries.count - limit) }
     }

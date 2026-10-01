@@ -205,6 +205,7 @@
 		3C436A9B0BBA5E3E99EC6FCB /* JarvisMemoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CAB96E7132FCDB494738F7F /* JarvisMemoryStore.swift */; };
 		3C708A6B385E2F0B343A9B72 /* SpeechEngineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0393646E148583432A47D9FD /* SpeechEngineStore.swift */; };
 		3CA6E2B3EA71FAD975AD28C5 /* ChatUIFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03F98ED6A45E260A67C5935 /* ChatUIFormat.swift */; };
+		3CBC0CD2600189C8D7F4B147 /* X5SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4718FC64FF8148AD758B3A27 /* X5SessionTests.swift */; };
 		3CD102A79237B5ECFD9E6A24 /* RoutePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65A6B5B3A323B798A544D40A /* RoutePicker.swift */; };
 		3D2EBA99AFE9401D0E412E84 /* GlassesTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8AC9A01B043EA1D328F5CE /* GlassesTranslator.swift */; };
 		3D4C1320A5A8BEDDB663420D /* RouteMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5828A335B2735C89D0150FF /* RouteMath.swift */; };
@@ -538,6 +539,7 @@
 		AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00AA00000000ICON0001 /* Assets.xcassets */; };
 		AABB00BB00000000AEBA0002 /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = AABB00BB00000000AEBA0001 /* OrbShader.metal */; };
 		AAEE7D4588345241B7B2F492 /* JarvisCopilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB26F406B74736CE3749527 /* JarvisCopilotApp.swift */; };
+		AB249271111D76134B9DD2B6 /* X5Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5FEFDBE3ED50E017F63336 /* X5Session.swift */; };
 		AB5EB5047AE70CA4A896E42A /* SkillsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2B17CF791F5B815FD41CA3 /* SkillsUITests.swift */; };
 		ABCC761098A143292F5BDE98 /* AudioOutputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43F3AA0AC3B28393D27CB98 /* AudioOutputEngine.swift */; };
 		ABD3DF32AFA46F7B7A26F6B6 /* OnDeviceChatBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */; };
@@ -909,6 +911,7 @@
 		0B41F649D854309CB84F046F /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		0B5A7079298755592C4A14CE /* SkillArgsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillArgsTests.swift; sourceTree = "<group>"; };
 		0BA6255BEA379704AED580E9 /* ProfilesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesAPI.swift; sourceTree = "<group>"; };
+		0C5FEFDBE3ED50E017F63336 /* X5Session.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Session.swift; sourceTree = "<group>"; };
 		0D1788D1CD0A121B7279E028 /* WatchPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchPage.swift; sourceTree = "<group>"; };
 		0DB8484F4BE66341F040395B /* TabVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TabVisibility.swift; sourceTree = "<group>"; };
 		0E333BC6784D2209F2B7ED4C /* VoiceOrb.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceOrb.swift; sourceTree = "<group>"; };
@@ -1081,6 +1084,7 @@
 		46894A9489E1D504A9302CB8 /* WorkoutRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutRenderTests.swift; sourceTree = "<group>"; };
 		46A4E46CD442B184301CB829 /* HealthHistory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthHistory.swift; sourceTree = "<group>"; };
 		46BF39F12C20434F9523011B /* CodingSheetKit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSheetKit.swift; sourceTree = "<group>"; };
+		4718FC64FF8148AD758B3A27 /* X5SessionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SessionTests.swift; sourceTree = "<group>"; };
 		4757C5F4EF7713DDC093F1BE /* JarvisWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4777ED4C3D2F6225754BEFF3 /* PairStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairStoreTests.swift; sourceTree = "<group>"; };
 		4860218388E7A2B6F9AD6C1A /* HealthTabModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTabModel.swift; sourceTree = "<group>"; };
@@ -3030,6 +3034,7 @@
 				F54077106F55F93BDAFE7BB3 /* X5DayMapperTests.swift */,
 				03C49121F383AAB1F2DF96BC /* X5SyncTests.swift */,
 				6E5645C81A770207FB92F51A /* X5TestSupport.swift */,
+				4718FC64FF8148AD758B3A27 /* X5SessionTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3042,6 +3047,7 @@
 				5BA5D1D7A7E6B01264839350 /* X5Decoders.swift */,
 				BBA4DB5DDB8CCE0F6E4F5B3D /* X5DayMapper.swift */,
 				04A3A19FD77D7466DE72F90D /* X5Sync.swift */,
+				0C5FEFDBE3ED50E017F63336 /* X5Session.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3659,6 +3665,7 @@
 				C6E354D16BE77EC388812F1E /* X5DayMapperTests.swift in Sources */,
 				33AFC2CA477EA089060C6606 /* X5SyncTests.swift in Sources */,
 				4B1B20E924DFC1C8BC88DEC2 /* X5TestSupport.swift in Sources */,
+				3CBC0CD2600189C8D7F4B147 /* X5SessionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4205,6 +4212,7 @@
 				75A44CF686B6E0BBCBB997DA /* X5Decoders.swift in Sources */,
 				751590D844BC6A01F4F01946 /* X5DayMapper.swift in Sources */,
 				B777422940BE057265208DDB /* X5Sync.swift in Sources */,
+				AB249271111D76134B9DD2B6 /* X5Session.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
