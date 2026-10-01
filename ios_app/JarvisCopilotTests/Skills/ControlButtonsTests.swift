@@ -105,6 +105,12 @@ final class ControlButtonsTests: XCTestCase {
         XCTAssertTrue(ran.isEmpty)
     }
 
+    func testTheAppHandlesSwitchFlipsInsteadOfQueueingThem() {
+        // Installed at launch: without it a flipped switch only ran the next time the app opened.
+        XCTAssertNotNil(ControlButtonBridge.set)
+        XCTAssertNotNil(ControlButtonBridge.run)
+    }
+
     func testTheIntentHandsThePressToTheApp() async throws {
         let saved = ControlButtonBridge.run
         defer { ControlButtonBridge.run = saved }

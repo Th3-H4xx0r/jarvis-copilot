@@ -217,6 +217,7 @@ final class RingSync: ObservableObject {
             Task { [weak self] in
                 await self?.pushDays(keys)
                 await self?.backfillHealthIfNeeded()
+                await MainActor.run { WidgetDataHub.shared.refreshSoon() }
             }
         }
         return report

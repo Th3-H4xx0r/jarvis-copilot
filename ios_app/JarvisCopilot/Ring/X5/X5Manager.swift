@@ -115,6 +115,7 @@ final class X5Manager: NSObject, ObservableObject {
         onDaysChanged = { [weak self] keys in
             guard let self else { return }
             Task { await X5HealthPush.push(keys, manager: self) }
+            WidgetDataHub.shared.refreshSoon()
         }
         session.wantedHID = { [weak self] in Self.hid(for: self?.inputs?.wantedMode ?? .off) }
     }

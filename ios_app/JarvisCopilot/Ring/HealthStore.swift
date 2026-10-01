@@ -177,5 +177,6 @@ final class HealthStore: ObservableObject {
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadTimelines(ofKind: HealthSnapshot.widgetKind)
         #endif
+        WidgetDataHub.shared.refreshSoon()
     }
 }

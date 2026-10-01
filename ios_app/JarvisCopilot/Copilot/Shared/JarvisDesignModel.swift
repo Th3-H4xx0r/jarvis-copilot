@@ -257,7 +257,7 @@ struct JCStyle: Decodable {
 }
 
 /// A tolerant JSON value (used for props, ValueRefs, conditions, list rows).
-indirect enum JCJSON: Decodable {
+indirect enum JCJSON: Decodable, Equatable {
     case string(String)
     case number(Double)
     case bool(Bool)

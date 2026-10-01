@@ -293,6 +293,10 @@ final class AppServices {
         //      a press if it has to. A press that reached the widget extension instead waits
         //      in the App Group until now.
         ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
+        ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
+
+        // 10c. Widgets: the live values every Jarvis widget reads.
+        WidgetDataHub.shared.start()
         Task { await ControlButtonStore.shared.runPending() }
 
         // 11. The server's active personality → the on-device model, so a locally
@@ -324,6 +328,7 @@ final class AppServices {
                 await self.push.drainNow()
                 await self.runner.drainPending()
                 await ControlButtonStore.shared.runPending()
+                WidgetDataHub.shared.refreshSoon()
                 await self.voice.resumeFromBackground()
             }
         } else {
