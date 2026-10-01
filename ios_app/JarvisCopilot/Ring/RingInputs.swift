@@ -16,6 +16,14 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     case longPress = "long_press"
     case doubleTap = "double_tap"
     case shake
+    // The X5's touch surface: four swipes and two long holds (its click, double click and
+    // long press reuse `tap`, `doubleTap` and `longPress`).
+    case swipeUp = "swipe_up"
+    case swipeDown = "swipe_down"
+    case swipeLeft = "swipe_left"
+    case swipeRight = "swipe_right"
+    case holdFiveSeconds = "hold_5s"
+    case holdTenSeconds = "hold_10s"
 
     var id: String { rawValue }
 
@@ -31,8 +39,18 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
         case .longPress: return "Long press"
         case .doubleTap: return "Double tap"
         case .shake: return "Shake"
+        case .swipeUp: return "Swipe up"
+        case .swipeDown: return "Swipe down"
+        case .swipeLeft: return "Swipe left"
+        case .swipeRight: return "Swipe right"
+        case .holdFiveSeconds: return "Hold 5 seconds"
+        case .holdTenSeconds: return "Hold 10 seconds"
         }
     }
+
+    /// The X5's nine gestures, in the order its inputs screen lists them.
+    static let x5: [RingInput] = [.tap, .doubleTap, .longPress, .swipeUp, .swipeDown, .swipeLeft, .swipeRight,
+                                  .holdFiveSeconds, .holdTenSeconds]
 
     /// What a ring can actually produce.
     ///
@@ -44,7 +62,10 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     /// does. Swipes and long press need a touch strip, which this ring does not have — its
     /// capability word has the touch bit clear, and the firmware's touch dispatcher is dead code.
     static func available(touchSurface: Bool) -> [RingInput] {
-        touchSurface ? allCases : [.tap, .doublePress, .triplePress, .shake]
+        touchSurface
+            ? [.tap, .doublePress, .triplePress, .swipeForward, .swipeBack, .volumeUp, .volumeDown, .longPress,
+               .doubleTap, .shake]
+            : [.tap, .doublePress, .triplePress, .shake]
     }
 
     /// Gestures that are not presses, so they never go through the press counter.
