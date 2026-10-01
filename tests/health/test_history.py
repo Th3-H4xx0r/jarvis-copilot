@@ -144,3 +144,33 @@ def test_exercise_is_the_days_workout_minutes_and_lists_every_workout(tmp_regist
     stats = {s["label"]: s["value"] for s in out["stats"]}
     assert stats["Workouts"] == 2 and stats["Total"] == 70.0 and stats["Calories"] == 460.0
     assert [w["sport_name"] for w in out["workouts"]] == ["Strength", "Run"], "newest first"
+
+
+def _steps_week(store):
+    return [b["value"] for b in history(store, "steps", "W", "2026-09-18", NOW)["buckets"] if b["days"]]
+
+
+def test_unlinking_and_relinking_a_device_moves_its_old_days_in_and_out_of_history(tmp_registry):
+    # Old days are remembered between calls; a link change has to reach them anyway.
+    store = HealthStore()
+    _stored(store, d2026_09_13={}, d2026_09_14={})
+    assert len(_steps_week(store)) == 2
+    store.set_linked(KEY, False)
+    assert _steps_week(store) == []
+    store.set_linked(KEY, True)
+    assert len(_steps_week(store)) == 2
+
+
+def test_changing_the_primary_device_changes_old_days_in_history(tmp_registry):
+    store = HealthStore()
+    _stored(store, d2026_09_13={"hr": [60] * 200})
+    other = store.upsert_device({"kind": "x5ring", "device_id": "bbbb0000"})["key"]
+    store.put_day(day(date="2026-09-13", steps=100, hr=[90] * 200), other)
+
+    def hr():
+        return [b["value"] for b in history(store, "heart_rate", "W", "2026-09-18", NOW)["buckets"] if b["days"]]
+
+    store.put_settings({"primary_device": KEY})
+    assert hr() == [60.0]
+    store.put_settings({"primary_device": other})
+    assert hr() == [90.0]

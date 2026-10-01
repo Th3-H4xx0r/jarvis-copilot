@@ -60,12 +60,19 @@ METRICS: dict[str, Metric] = {
 
 # ── day summaries ──────────────────────────────────────────────────────────
 
-#: (registry path, space, date) → summary, for days old enough not to change.
-_memo: dict[tuple, dict] = {}
+#: (registry path, space, date) → (devices, summary), for days old enough not to change.
+_memo: dict[tuple, tuple[tuple, dict]] = {}
 
 
 def _memo_key(store, date: str) -> tuple:
     return (str(getattr(store._registry, "path", id(store._registry))), store.space_id, date)
+
+
+def _devices(store) -> tuple:
+    """What an old day's merge depends on besides its own records: which devices are linked
+    and which one is primary. Linking a ring back, or switching rings, changes every day."""
+    linked = tuple(sorted(str(e.get("key")) for e in store.linked()))
+    return linked, str(store.settings().get("primary_device") or "")
 
 
 def forget(store, date: str) -> None:
@@ -132,6 +139,7 @@ def _summaries(store, dates: list[str], now: str, today_window: dict) -> dict[st
     # History starts at the first day anything was measured: a ring day or a weigh-in.
     starts = [d for d in (min(stored) if stored else None, store.first_weight_date()) if d]
     first = min(starts) if starts else None
+    devices = _devices(store)
     out = {}
     for date in dates:
         # History starts at the first day a wearable stored — not the sliver
@@ -143,12 +151,13 @@ def _summaries(store, dates: list[str], now: str, today_window: dict) -> dict[st
             out[date] = {"date": date}
             continue
         key = _memo_key(store, date)
-        if date < fresh_after and key in _memo:
-            out[date] = _memo[key]
+        remembered = _memo.get(key)
+        if date < fresh_after and remembered and remembered[0] == devices:
+            out[date] = remembered[1]
             continue
         summary = day_summary(store, date, now, today_window if date == today_window["date"] else None)
         if date < fresh_after:
-            _memo[key] = summary
+            _memo[key] = (devices, summary)
         out[date] = summary
     return out
 
