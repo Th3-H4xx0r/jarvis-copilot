@@ -20,6 +20,8 @@ struct RingInputsSection: View {
     let gestureFeed: [RingGestureEvent]
     let onMode: (RingInputMode) -> Void
     let onSensitivity: (Int) -> Void
+    /// The modes this ring offers.
+    var modes: [RingInputMode] = RingInputMode.r12
 
     /// What the stepper shows. Kept locally so the buttons always move, and reconciled with
     /// what the ring reports underneath.
@@ -32,7 +34,7 @@ struct RingInputsSection: View {
                       : "Do a gesture and watch which row lights up.") {
             Row {
                 Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
-                    ForEach(RingInputMode.allCases) { Text($0.label).tag($0) }
+                    ForEach(modes) { Text($0.label).tag($0) }
                 }
                 .disabled(!ready)
             }

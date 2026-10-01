@@ -514,7 +514,7 @@ final class RingSession: ObservableObject {
         if let touch = await read(.readTouch, RingDecode.touch, accept: \.isTouch) { settings.touch = touch }
         if let gesture = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch }) { settings.gesture = gesture }
         let taken = settings.gesture?.mode ?? settings.touch?.mode ?? 0
-        inputMode = RingInputMode.allCases.first { $0.appType == taken } ?? .off
+        inputMode = RingInputMode.r12.first { $0.appType == taken } ?? .off
         log.note("Ring gestures → \(inputMode.label)",
                  inputMode == mode ? "the ring took it"
                                    : "asked for \(mode.label); the ring kept mode \(taken)")

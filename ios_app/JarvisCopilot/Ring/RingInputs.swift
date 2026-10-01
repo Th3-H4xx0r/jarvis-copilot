@@ -184,6 +184,15 @@ struct RingPressCounter {
 /// one this ring advertises.
 enum RingInputMode: String, CaseIterable, Codable, Identifiable {
     case jarvis, music, off
+    // The X5's keyboard modes. Kept after `off`: the R12 reads its mode back by app type, and
+    // these never belong to it.
+    case shortVideo = "short_videos"
+    case camera
+
+    /// What the R12 offers.
+    static let r12: [RingInputMode] = [.jarvis, .music, .off]
+    /// What the X5's touch surface offers.
+    static let x5: [RingInputMode] = [.jarvis, .shortVideo, .music, .camera, .off]
 
     var id: String { rawValue }
 
@@ -192,6 +201,8 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
         case .jarvis: return "Jarvis actions"
         case .music: return "Music"
         case .off: return "Off"
+        case .shortVideo: return "Short videos"
+        case .camera: return "Camera"
         }
     }
 
@@ -200,6 +211,8 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
         case .jarvis: return "Presses run what you set below. Stays connected in the background."
         case .music: return "A media remote for iOS. Jarvis never sees these presses."
         case .off: return "The ring ignores taps and swipes."
+        case .shortVideo: return "Swipe up or right for the next video, down or left for the last. iOS takes these, not Jarvis."
+        case .camera: return "Any gesture takes a photo in the Camera app. iOS takes these, not Jarvis."
         }
     }
 
@@ -208,7 +221,7 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .jarvis: return RingTouchMode.game.rawValue
         case .music: return RingTouchMode.music.rawValue
-        case .off: return RingTouchMode.off.rawValue
+        case .off, .shortVideo, .camera: return RingTouchMode.off.rawValue
         }
     }
 }

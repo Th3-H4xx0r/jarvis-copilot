@@ -10,12 +10,12 @@ import Foundation
 /// ring adapter translates them, so no vendor numbering leaks into the scoring.
 enum HealthDayPayload {
     static func make(_ day: RingDay, key: String, timezone: String = TimeZone.current.identifier,
-                     deviceID: String = "") -> [String: Any] {
+                     deviceID: String = "", source: String = "ring") -> [String: Any] {
         var out: [String: Any] = [
             "date": key,
             "timezone": timezone,
             "utc_offset": TimeZone(identifier: timezone)?.secondsFromGMT() ?? TimeZone.current.secondsFromGMT(),
-            "source": "ring",
+            "source": source,
         ]
         // Jarvis Health files each wearable's days under its own key.
         if !deviceID.isEmpty { out["device_id"] = deviceID }
@@ -78,8 +78,8 @@ enum HealthDayPayload {
     /// The battery belongs to the device rather than the day, but the alert rule
     /// that watches it reads it off the day the run scored.
     static func make(_ day: RingDay, key: String, timezone: String = TimeZone.current.identifier,
-                     deviceID: String = "", battery: RingBattery?) -> [String: Any] {
-        var out = make(day, key: key, timezone: timezone, deviceID: deviceID)
+                     deviceID: String = "", source: String = "ring", battery: RingBattery?) -> [String: Any] {
+        var out = make(day, key: key, timezone: timezone, deviceID: deviceID, source: source)
         if let battery {
             out["battery_percent"] = battery.percent
             out["charging"] = battery.charging

@@ -19,6 +19,8 @@ enum WearableKeepAlive {
     static let scale = "scale"
     static let esp32 = "esp32"
     static let ring = "ring"
+    /// The X5 touch ring — a second ring with its own card, link and history.
+    static let x5ring = "x5ring"
     /// The roster kind for the INMO GO3. There is no link of ours to keep alive —
     /// iOS holds its Bluetooth audio — so it never has a toggle.
     static let glasses = "glasses"
