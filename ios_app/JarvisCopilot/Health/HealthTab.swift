@@ -11,6 +11,7 @@ struct HealthTab: View {
     @StateObject private var model: HealthTabModel
     /// Readings taken now, from the cards: the ring is the wearable that can.
     @ObservedObject private var measure: RingMeasureController
+    @ObservedObject private var x5Measure: X5MeasureController
     @State private var selection: HealthSelection = .today
     @State private var showingSettings = false
     /// The metric whose history is open.
@@ -23,8 +24,9 @@ struct HealthTab: View {
 
     init(model: HealthTabModel? = nil, ring: RingManager? = nil) {
         let ring = ring ?? WearablesHub.shared.ring
-        _model = StateObject(wrappedValue: model ?? HealthTabModel(spots: { ring.store }))
+        _model = StateObject(wrappedValue: model ?? HealthTabModel(spots: { HealthRing.store }))
         _measure = ObservedObject(wrappedValue: ring.measure)
+        _x5Measure = ObservedObject(wrappedValue: WearablesHub.shared.x5.measure)
     }
 
     var body: some View {
@@ -66,7 +68,9 @@ struct HealthTab: View {
                                       showAll: { historyMetric = $0 },
                                       measure: { type in
                                           // A reading taken now belongs to today, not a day gone.
-                                          selection == .today ? measure.card(type, from: .health) : nil
+                                          guard selection == .today else { return nil }
+                                          return HealthRing.current == .x5 ? x5Measure.card(type, from: .health)
+                                                                           : measure.card(type, from: .health)
                                       })
                 }
                 .padding(.top, 8)
@@ -104,6 +108,7 @@ struct HealthTab: View {
                 // The reading is in the ring's history now; put it on the card.
                 model.mergeSpots(selection)
             }
+            .onChange(of: x5Measure.finished) { model.mergeSpots(selection) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutSaved)) { note in
             if let saved = note.object as? RingWorkout { model.noteSaved(saved) }

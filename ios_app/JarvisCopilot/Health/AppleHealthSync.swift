@@ -359,7 +359,8 @@ final class AppleHealthSync: ObservableObject {
 
     private func writeChanges(days: Int) async -> Bool {
         let version = Int(Date().timeIntervalSince1970)
-        if let ring = WearablesHub.shared.ring.store {
+        if let ring = HealthRing.store {
+            let healthRing = HealthRing.current
             let keys = Array(ring.allKeys().suffix(days))
             let wanted = AppleHealthKind.fromRingDays.filter { kinds.contains($0) && allowed($0) }
             let types = allowedTypes()
@@ -377,7 +378,7 @@ final class AppleHealthSync: ObservableObject {
                 // and 180 of them on it would freeze the app (and iOS would end it).
                 let built = await Task.detached(priority: .utility) { () -> [(String, String, SampleBatch)] in
                     pending.map { kind in
-                        let samples = AppleHealthPlan.samples(kind, day: day, busy: busy)
+                        let samples = AppleHealthPlan.tagged(AppleHealthPlan.samples(kind, day: day, busy: busy), ring: healthRing)
                         let print = "\(stamp)|" + AppleHealthPlan.fingerprint(samples)
                         return ("\(kind.rawValue)|\(key)", print, SampleBatch(samples, allowed: types, version: version))
                     }

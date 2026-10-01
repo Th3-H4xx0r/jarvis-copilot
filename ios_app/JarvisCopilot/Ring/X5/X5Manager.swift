@@ -54,6 +54,7 @@ final class X5Manager: NSObject, ObservableObject {
     }
 
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
+    var exposedDeviceID: String? { exposedDevice?.deviceID }
     var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
 
     var linkIsUp: Bool {
@@ -99,6 +100,10 @@ final class X5Manager: NSObject, ObservableObject {
         session.attach(self)
         _ = sync
         session.onGesture = { [weak self] gesture in self?.received(gesture) }
+        onDaysChanged = { [weak self] keys in
+            guard let self else { return }
+            Task { await X5HealthPush.push(keys, manager: self) }
+        }
         session.wantedHID = { [weak self] in Self.hid(for: self?.inputs?.wantedMode ?? .off) }
     }
 

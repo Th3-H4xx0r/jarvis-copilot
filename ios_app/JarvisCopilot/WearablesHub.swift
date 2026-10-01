@@ -412,7 +412,8 @@ final class WearablesHub: ObservableObject {
     /// server has no space for the ring and every health call 404s. Idempotent,
     /// so running it on each launch and pairing is free.
     func registerHealthIntegrations() {
-        let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
+        let chosen = HealthRing.eligibleKinds(chosen: HealthRing.current)
+        let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) && chosen.contains($0.kind) }
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
         // Without the phone's own id the server has nothing to invoke through,
         // so there is no point registering yet; the next launch tries again.

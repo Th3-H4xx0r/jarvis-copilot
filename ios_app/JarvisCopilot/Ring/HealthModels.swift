@@ -131,7 +131,7 @@ struct HealthSettings: Codable, Equatable {
 enum HealthEligibility {
     /// The ring's days are synced by the server; a scale's weigh-ins are
     /// pushed by the phone (`ScaleUploader`).
-    static let kinds: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.scale]
+    static let kinds: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring, WearableKeepAlive.scale]
 }
 
 /// Jarvis Health is one integration every wearable feeds; a device is a key

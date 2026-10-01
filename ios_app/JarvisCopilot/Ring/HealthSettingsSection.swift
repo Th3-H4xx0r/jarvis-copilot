@@ -12,6 +12,7 @@ struct HealthSettingsSection: View {
     var embedded = false
     @State private var working = false
     @State private var runMessage: String?
+    @State private var healthRing = HealthRing.current
 
     private var settings: HealthSettings? { health.settings }
 
@@ -35,6 +36,20 @@ struct HealthSettingsSection: View {
                 Text("The server charts your Body Battery from your linked wearables and writes a short summary. Alerts are thresholds against your own baseline.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if HealthRing.bothPaired() {
+                RowDivider()
+                Row {
+                    Picker("Ring for Jarvis Health", selection: Binding(
+                        get: { healthRing },
+                        set: { ring in
+                            healthRing = ring
+                            HealthRing.choose(ring)
+                        })) {
+                        ForEach(HealthRing.allCases) { Text($0.label).tag($0) }
+                    }
+                }
             }
 
             if let settings {

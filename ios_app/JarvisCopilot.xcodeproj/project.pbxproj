@@ -92,6 +92,7 @@
 		1A29B2E4B90128A166EC5BEA /* CodingUIFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D79439207C33B8E5CF27CBF /* CodingUIFormatTests.swift */; };
 		1A41418F70298C4D4C8E4ED6 /* ChatDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD7DFA6DB3D4B1B5317BC9 /* ChatDashboard.swift */; };
 		1A63FB3FAF994BEE9690CBBC /* WearableIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F1DBB8FD844D28B35DC2EA /* WearableIdentity.swift */; };
+		1AD5BEBDCD6020DFD78E1AA7 /* X5SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBFFB5AA3D0B8B2F2CED14D7 /* X5SettingsView.swift */; };
 		1B139C8F9E202305775442C6 /* PhonePedometer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88B98DE1E4C6CD188404C04 /* PhonePedometer.swift */; };
 		1B68A1BA6B7CF7A90A79203A /* ChatPageSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */; };
 		1B9D4F9E6815996883CC9659 /* StrengthExerciseList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F17B268C834C2793F95B105 /* StrengthExerciseList.swift */; };
@@ -148,6 +149,7 @@
 		2A2E210CC5D33E179A64033C /* BottleProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB41EB73741A77002320B13 /* BottleProtocol.swift */; };
 		2A4A6A75346A4EC684FA5C0F /* WearablesDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83932DC6F3E44032B3655D15 /* WearablesDevice.swift */; };
 		2AC42558DA523D2FCBC4882F /* GradientButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F4338E72F1443806778AE7 /* GradientButton.swift */; };
+		2ACB6849EA919D90CF5AF4EC /* HealthRingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 147D758171AF421660BBF6DD /* HealthRingTests.swift */; };
 		2B03F20C352F08FEB2919368 /* RingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48670F467C67F30CDE44936 /* RingSettingsView.swift */; };
 		2B3E9FA1CD58363F73A84D01 /* X5SceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */; };
 		2B48BFAF259F095BC25C1944 /* VoiceModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6480C0ADC9254A6368121AE /* VoiceModelSelectionTests.swift */; };
@@ -398,6 +400,7 @@
 		7932A25DE32E74A9AFA727AD /* LiveStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14F6F9AD459413F173CF47EB /* LiveStoreTests.swift */; };
 		7976EBB570FA56D06F859828 /* RingProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC55A5B95B8F19C84D67EF5E /* RingProbe.swift */; };
 		79A3FF24889CBCF4FF8B2158 /* ServerLogsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D629E8B337070323B8B81A /* ServerLogsUITests.swift */; };
+		79AB959202AA7B5E0D9459B1 /* X5DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04CA5691C8FD4F2CD9250BC /* X5DeviceView.swift */; };
 		79DDA4B0154CB8EFE38BB660 /* AppRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E86E8201FF48A08F47C84F3 /* AppRouterTests.swift */; };
 		7A469F841B0C25A23BE886A9 /* RingDeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11497E6868E174645424158 /* RingDeviceView.swift */; };
 		7A8A8CFE95F053160467B553 /* InsightsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E75DFCC60331E46E217F12 /* InsightsStore.swift */; };
@@ -535,6 +538,7 @@
 		A5D22BC10AD8A33649503E96 /* GlassesPlaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4AD08296D0BB6CACA7C8ED /* GlassesPlaces.swift */; };
 		A5ED895F72873F3804E7319B /* ServerLogsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C28D93963C3124D74BFC1E6 /* ServerLogsModels.swift */; };
 		A6A2A3064EED1DDDCE8A1C88 /* GlassesNotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 198B5126C253D56E569AAF1B /* GlassesNotesStore.swift */; };
+		A6D2C67ED377CE21C470EE61 /* HealthRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C617671C9D1004D791BE0EA /* HealthRing.swift */; };
 		A71AFD3027FBBDDDE3CE7051 /* WebViewPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDC505734B2535E26D0C3A3 /* WebViewPage.swift */; };
 		A8DFCA4B156C4BE31C084C4A /* ProfilesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */; };
 		A8FDBC65E9655EB0A2F57B8E /* GlassesFaceLinkWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */; };
@@ -949,6 +953,7 @@
 		14039A35A737105416C29A49 /* VoicePlatform.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePlatform.swift; sourceTree = "<group>"; };
 		1449F3D6EF57843C53341D70 /* CronFormSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronFormSheet.swift; sourceTree = "<group>"; };
 		146EE21C044A20976CE8A332 /* InmoProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoProtocolTests.swift; sourceTree = "<group>"; };
+		147D758171AF421660BBF6DD /* HealthRingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRingTests.swift; sourceTree = "<group>"; };
 		148FC917440AA35E2ED13B4E /* ServerLogsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsAPI.swift; sourceTree = "<group>"; };
 		14AE0F62C79D41B95694B4E1 /* GlassesAudioLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesAudioLink.swift; sourceTree = "<group>"; };
 		14B28F720B2069CA6D8DD306 /* TaskHandleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaskHandleTests.swift; sourceTree = "<group>"; };
@@ -978,6 +983,7 @@
 		1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundLocationTests.swift; sourceTree = "<group>"; };
 		1C3E7176C46606A0A20279B7 /* ChatJSONValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatJSONValue.swift; sourceTree = "<group>"; };
 		1C42C38B892C02081FA69717 /* HealthHistoryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthHistoryView.swift; sourceTree = "<group>"; };
+		1C617671C9D1004D791BE0EA /* HealthRing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRing.swift; sourceTree = "<group>"; };
 		1C64B0D1FF25641EC316AE1D /* ServerLogsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsTests.swift; sourceTree = "<group>"; };
 		1C79C79DEEE34968F8E62367 /* StrengthWorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthWorkoutTests.swift; sourceTree = "<group>"; };
 		1CAB96E7132FCDB494738F7F /* JarvisMemoryStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisMemoryStore.swift; sourceTree = "<group>"; };
@@ -1481,6 +1487,7 @@
 		BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSessionsSheet.swift; sourceTree = "<group>"; };
 		C03F98ED6A45E260A67C5935 /* ChatUIFormat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormat.swift; sourceTree = "<group>"; };
 		C04A36F3466DF1D868E03D03 /* ScaleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleModels.swift; sourceTree = "<group>"; };
+		C04CA5691C8FD4F2CD9250BC /* X5DeviceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5DeviceView.swift; sourceTree = "<group>"; };
 		C07FB9679704687D68406EB4 /* InmoAIChannel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAIChannel.swift; sourceTree = "<group>"; };
 		C0D11906CB17D802304BE126 /* EndpointerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EndpointerTests.swift; sourceTree = "<group>"; };
 		C0D57976E70D77D0DA8B31D6 /* AppLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLifecycle.swift; sourceTree = "<group>"; };
@@ -1654,6 +1661,7 @@
 		FA0085102BFC2EB8AB8FC68B /* IntegrationsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsTests.swift; sourceTree = "<group>"; };
 		FA6F8D16290937BE3DB979AA /* CodingAttachments.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingAttachments.swift; sourceTree = "<group>"; };
 		FAD8A1EDEAC1B1071D820CEC /* LocalRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalRouter.swift; sourceTree = "<group>"; };
+		FBFFB5AA3D0B8B2F2CED14D7 /* X5SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SettingsView.swift; sourceTree = "<group>"; };
 		FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingRenderTests.swift; sourceTree = "<group>"; };
 		FC1A737C3A59A38264516752 /* MoreDestinationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreDestinationTests.swift; sourceTree = "<group>"; };
 		FC349768DB1466D704F3107B /* LoadErrorBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoadErrorBanner.swift; sourceTree = "<group>"; };
@@ -3056,6 +3064,7 @@
 				51EF7F153081587C4D1E1074 /* X5RingTests.swift */,
 				272E675A6D3B764552D4CB0A /* X5GestureTests.swift */,
 				023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */,
+				147D758171AF421660BBF6DD /* HealthRingTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3074,6 +3083,8 @@
 				9D7DCD0D66F9964AC4FB6B64 /* X5Ring.swift */,
 				3F95C9BCD02B03D23E8450F1 /* X5Model.swift */,
 				2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */,
+				C04CA5691C8FD4F2CD9250BC /* X5DeviceView.swift */,
+				FBFFB5AA3D0B8B2F2CED14D7 /* X5SettingsView.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3191,6 +3202,7 @@
 				81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */,
 				E3871C7B134E97874F25B1E9 /* X5 */,
 				41DCD577ADAA3427809FECC3 /* RingDayJSON.swift */,
+				1C617671C9D1004D791BE0EA /* HealthRing.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -3696,6 +3708,7 @@
 				20549939B16322F08DE89AC8 /* X5RingTests.swift in Sources */,
 				E41E345C1690B27939EAFCE1 /* X5GestureTests.swift in Sources */,
 				0DE57AD0613CDD6A01D5C9E9 /* X5ModelRenderTests.swift in Sources */,
+				2ACB6849EA919D90CF5AF4EC /* HealthRingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4249,6 +4262,9 @@
 				DD3776C118ED240C7466B619 /* X5Ring.swift in Sources */,
 				C4DD6DB99CC99A7BE1BE2D23 /* X5Model.swift in Sources */,
 				2B3E9FA1CD58363F73A84D01 /* X5SceneView.swift in Sources */,
+				A6D2C67ED377CE21C470EE61 /* HealthRing.swift in Sources */,
+				79AB959202AA7B5E0D9459B1 /* X5DeviceView.swift in Sources */,
+				1AD5BEBDCD6020DFD78E1AA7 /* X5SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
