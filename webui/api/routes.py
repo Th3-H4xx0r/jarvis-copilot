@@ -3487,6 +3487,13 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, store_for_request())
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/widgets/"):
+        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
+        from api.widget_store import store_for_request as widget_store
+        status, payload = handle_widgets_request(
+            "GET", parsed.path[len(WIDGETS_PATH_PREFIX):], None, widget_store())
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -4824,6 +4831,13 @@ def handle_post(handler, parsed) -> bool:
             token_store = None
         status, payload = handle_island_request(
             "POST", sub, body, store_for_request(), token_store=token_store)
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/widgets/"):
+        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
+        from api.widget_store import store_for_request as widget_store
+        status, payload = handle_widgets_request(
+            "POST", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -6811,6 +6825,13 @@ def handle_delete(handler, parsed) -> bool:
             sub += "?" + parsed.query
         status, payload = handle_island_request(
             "DELETE", sub, body, store_for_request())
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/widgets/"):
+        from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
+        from api.widget_store import store_for_request as widget_store
+        status, payload = handle_widgets_request(
+            "DELETE", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/kanban/"):

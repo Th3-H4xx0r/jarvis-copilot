@@ -8,11 +8,17 @@ and never raises on bad data — callers decide what to do with the errors.
 
 Kept intentionally framework-free so it can be imported from the webui store,
 the routes, or a test with no side effects.
+
+The node/value/condition checks take a ``NodeRules`` (default ``ISLAND_RULES``)
+so another surface that renders the same trees — Home Screen widgets, see
+``widget_schema`` — can add node types and its own data-binding rules without
+copying the validator.
 """
 from __future__ import annotations
 
 import re
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping
 
 # Defensive bounds (mirrored by the Swift renderer's clamps). A design past
 # these is rejected at author time rather than truncated silently on-device.
@@ -95,6 +101,35 @@ _OPTIONAL_VALUE_PROPS: dict[str, dict[str, str]] = {
     "waveform": {"active": "value"},
     "accent": {"color": "value"},
 }
+
+
+@dataclass(frozen=True)
+class NodeRules:
+    """What a layout tree may contain, and how its data bindings are checked.
+
+    ``check_binding(kind, ref, path, errors)`` sees every ``{"$": ref}`` and
+    ``{"src": ref}`` binding (kind is ``"$"`` or ``"src"``) and appends errors.
+    ``check_leaf(ntype, node, path, errors, in_row)`` runs after the generic
+    required/optional prop checks, for props that aren't ValueRefs.
+    """
+    node_types: frozenset
+    required_props: Mapping[str, Mapping[str, str]]
+    optional_props: Mapping[str, Mapping[str, str]]
+    check_binding: Callable[[str, str, str, list], None]
+    check_leaf: Callable[..., None] | None = None
+
+
+def _check_island_binding(kind, ref, path, errors):
+    if kind == "src" and not _is_known_source(ref):
+        errors.append(f"{path}.src: unknown source {ref!r}")
+
+
+ISLAND_RULES = NodeRules(
+    node_types=frozenset(NODE_TYPES),
+    required_props=_REQUIRED_PROPS,
+    optional_props=_OPTIONAL_VALUE_PROPS,
+    check_binding=_check_island_binding,
+)
 
 
 def is_valid(design: Any) -> bool:
@@ -224,16 +259,23 @@ def _validate_jobs(jobs, errors) -> None:
                     errors.append(f"jobs[{i}].action.args must be an object")
 
 
-def validate_condition(expr: Any, path: str = "condition") -> list[str]:
+def validate_condition(expr: Any, path: str = "condition", *,
+                       rules: NodeRules = ISLAND_RULES) -> list[str]:
     """Validate a condition expression (used by `when` and auto-rules)."""
     errors: list[str] = []
-    _validate_condition(expr, path, errors)
+    _validate_condition(expr, path, errors, rules=rules)
     return errors
+
+
+def validate_tree(node: Any, path: str, errors: list[str], counter: list[int], *,
+                  rules: NodeRules = ISLAND_RULES) -> None:
+    """Validate one presentation's tree into ``errors``; ``counter[0]`` counts nodes."""
+    _validate_node(node, path, errors, counter, depth=1, in_row=False, rules=rules)
 
 
 # ── internals ────────────────────────────────────────────────────────────────
 
-def _validate_node(node, path, errors, counter, depth, in_row):
+def _validate_node(node, path, errors, counter, depth, in_row, rules=ISLAND_RULES):
     if depth > MAX_DEPTH:
         errors.append(f"{path}: nesting too deep (> {MAX_DEPTH})")
         return
@@ -242,11 +284,11 @@ def _validate_node(node, path, errors, counter, depth, in_row):
         return
     counter[0] += 1
     ntype = node.get("type")
-    if ntype not in NODE_TYPES:
+    if ntype not in rules.node_types:
         errors.append(f"{path}: unknown node type {ntype!r}")
         return
     if "when" in node:
-        _validate_condition(node["when"], f"{path}.when", errors)
+        _validate_condition(node["when"], f"{path}.when", errors, rules=rules)
 
     if ntype in ("hstack", "vstack", "zstack", "grid"):
         children = node.get("children", [])
@@ -255,7 +297,7 @@ def _validate_node(node, path, errors, counter, depth, in_row):
         else:
             for i, ch in enumerate(children):
                 _validate_node(ch, f"{path}.children[{i}]", errors, counter,
-                               depth + 1, in_row)
+                               depth + 1, in_row, rules)
         if ntype == "grid":
             cols = node.get("columns")
             if not isinstance(cols, int) or cols < 1:
@@ -267,17 +309,18 @@ def _validate_node(node, path, errors, counter, depth, in_row):
         for slot in ("leading", "trailing", "center", "bottom"):
             if slot in node:
                 _validate_node(node[slot], f"{path}.{slot}", errors, counter,
-                               depth + 1, in_row)
+                               depth + 1, in_row, rules)
     elif ntype == "list":
         _validate_value(node.get("data"), f"{path}.data", errors,
-                        allow_array=True, in_row=in_row, required=True)
+                        allow_array=True, in_row=in_row, required=True,
+                        rules=rules)
         row = node.get("row")
         if row is None:
             errors.append(f"{path}.row is required")
         else:
             # Inside a row template, {"$row":"field"} bindings become legal.
             _validate_node(row, f"{path}.row", errors, counter, depth + 1,
-                           in_row=True)
+                           in_row=True, rules=rules)
         cols = node.get("columns")
         if cols is not None and (not isinstance(cols, int) or cols < 1):
             errors.append(f"{path}.columns must be a positive integer")
@@ -285,16 +328,18 @@ def _validate_node(node, path, errors, counter, depth, in_row):
         pass  # no required props
     else:
         # leaf element
-        for prop, kind in _REQUIRED_PROPS.get(ntype, {}).items():
+        for prop, kind in rules.required_props.get(ntype, {}).items():
             if prop not in node:
                 errors.append(f"{path}.{prop} is required for {ntype}")
             else:
                 _validate_value(node[prop], f"{path}.{prop}", errors,
-                                allow_array=(kind == "array"), in_row=in_row)
-        for prop, kind in _OPTIONAL_VALUE_PROPS.get(ntype, {}).items():
+                                allow_array=(kind == "array"), in_row=in_row,
+                                rules=rules)
+        for prop, kind in rules.optional_props.get(ntype, {}).items():
             if prop in node:
                 _validate_value(node[prop], f"{path}.{prop}", errors,
-                                allow_array=(kind == "array"), in_row=in_row)
+                                allow_array=(kind == "array"), in_row=in_row,
+                                rules=rules)
         if ntype == "gauge":
             rings = node.get("rings")
             if not isinstance(rings, list) or not rings:
@@ -305,7 +350,7 @@ def _validate_node(node, path, errors, counter, depth, in_row):
                         errors.append(f"{path}.rings[{i}] must have a value")
                     else:
                         _validate_value(r.get("value"), f"{path}.rings[{i}].value",
-                                        errors, in_row=in_row)
+                                        errors, in_row=in_row, rules=rules)
         elif ntype == "keyValue":
             pairs = node.get("pairs")
             if not isinstance(pairs, list) or not pairs:
@@ -316,12 +361,15 @@ def _validate_node(node, path, errors, counter, depth, in_row):
                         errors.append(f"{path}.pairs[{i}] must have a value")
                     else:
                         _validate_value(p.get("value"), f"{path}.pairs[{i}].value",
-                                        errors, in_row=in_row)
+                                        errors, in_row=in_row, rules=rules)
         if ntype in ("progress", "segbar") and "tip" in node:
-            _validate_tip(node["tip"], f"{path}.tip", errors, in_row=in_row)
+            _validate_tip(node["tip"], f"{path}.tip", errors, in_row=in_row,
+                          rules=rules)
+        if rules.check_leaf is not None:
+            rules.check_leaf(ntype, node, path, errors, in_row)
 
 
-def _validate_tip(tip, path, errors, *, in_row=False):
+def _validate_tip(tip, path, errors, *, in_row=False, rules=ISLAND_RULES):
     """A tip indicator is an SF Symbol name (string) or an object
     {symbol, color?, size?, rotation?}. `symbol`/`color` may be bindings;
     `size`/`rotation` are literal numbers (the renderer does not resolve
@@ -336,16 +384,18 @@ def _validate_tip(tip, path, errors, *, in_row=False):
     if "symbol" not in tip:
         errors.append(f"{path}.symbol is required")
     else:
-        _validate_value(tip["symbol"], f"{path}.symbol", errors, in_row=in_row)
+        _validate_value(tip["symbol"], f"{path}.symbol", errors, in_row=in_row,
+                        rules=rules)
     if "color" in tip:
-        _validate_value(tip["color"], f"{path}.color", errors, in_row=in_row)
+        _validate_value(tip["color"], f"{path}.color", errors, in_row=in_row,
+                        rules=rules)
     for key in ("size", "rotation"):
         if key in tip and not isinstance(tip[key], (int, float)):
             errors.append(f"{path}.{key} must be a number")
 
 
 def _validate_value(v, path, errors, allow_array=False, in_row=False,
-                    required=False):
+                    required=False, rules=ISLAND_RULES):
     """A ValueRef: a scalar literal, a binding dict, or (if allow_array) a list
     or array-binding."""
     if v is None:
@@ -362,7 +412,7 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
         return
     if isinstance(v, dict):
         if "clock" in v:
-            _validate_clock(v, path, errors)
+            _validate_clock(v, path, errors, rules=rules)
             return
         keys = {"$", "$row", "src"} & set(v.keys())
         if len(keys) != 1:
@@ -374,8 +424,8 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
             errors.append(f"{path}.{key} must be a non-empty string")
         elif key == "$row" and not in_row:
             errors.append(f"{path}: $row binding only valid inside a list row")
-        elif key == "src" and not _is_known_source(ref):
-            errors.append(f"{path}.src: unknown source {ref!r}")
+        elif key in ("$", "src"):
+            rules.check_binding(key, ref, path, errors)
         if "fmt" in v and not isinstance(v["fmt"], str):
             errors.append(f"{path}.fmt must be a string")
         if "map" in v and not isinstance(v["map"], dict):
@@ -384,7 +434,7 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
     errors.append(f"{path}: invalid value")
 
 
-def _validate_timestamp(v, path, errors):
+def _validate_timestamp(v, path, errors, rules=ISLAND_RULES):
     """A clock timestamp: an epoch number, an ISO/epoch STRING, or a binding that
     resolves to one. The device parses these with jcParseDate and never errors, so
     rejecting wrong TYPES here (a list, a bool, a nested object) is the only place a
@@ -397,12 +447,13 @@ def _validate_timestamp(v, path, errors):
         if not v.strip():
             errors.append(f"{path}: empty timestamp")
     elif isinstance(v, dict):
-        _validate_value(v, path, errors)  # a $/src binding resolving to a timestamp
+        # a $/src binding resolving to a timestamp
+        _validate_value(v, path, errors, rules=rules)
     else:
         errors.append(f"{path} must be an epoch number, ISO date string, or binding")
 
 
-def _validate_clock(v, path, errors):
+def _validate_clock(v, path, errors, rules=ISLAND_RULES):
     """An on-device clock binding: {"clock": <kind>, …} computed from Date() at
     render time (updates OFFLINE). `at`/`from`/`to`/`keys[].at` are epoch seconds or
     ISO strings (NOT segment ordinals — they are absolute times)."""
@@ -420,33 +471,33 @@ def _validate_clock(v, path, errors):
                 if not isinstance(k, dict) or "at" not in k or "value" not in k:
                     errors.append(f"{path}.keys[{i}] must have 'at' and 'value'")
                 else:
-                    _validate_timestamp(k["at"], f"{path}.keys[{i}].at", errors)
+                    _validate_timestamp(k["at"], f"{path}.keys[{i}].at", errors, rules)
         else:  # index: keys are bare timestamps
             for i, k in enumerate(keys):
-                _validate_timestamp(k, f"{path}.keys[{i}]", errors)
+                _validate_timestamp(k, f"{path}.keys[{i}]", errors, rules)
     elif kind == "fraction":
         for req in ("from", "to"):
             if req not in v:
                 errors.append(f"{path}: clock 'fraction' needs '{req}'")
             else:
-                _validate_timestamp(v[req], f"{path}.{req}", errors)
+                _validate_timestamp(v[req], f"{path}.{req}", errors, rules)
     elif kind == "remaining":
         if "to" not in v:
             errors.append(f"{path}: clock 'remaining' needs 'to'")
         else:
-            _validate_timestamp(v["to"], f"{path}.to", errors)
+            _validate_timestamp(v["to"], f"{path}.to", errors, rules)
     elif kind == "elapsed":
         if "from" not in v:
             errors.append(f"{path}: clock 'elapsed' needs 'from'")
         else:
-            _validate_timestamp(v["from"], f"{path}.from", errors)
+            _validate_timestamp(v["from"], f"{path}.from", errors, rules)
     if "fmt" in v and not isinstance(v["fmt"], str):
         errors.append(f"{path}.fmt must be a string")
     if "map" in v and not isinstance(v["map"], dict):
         errors.append(f"{path}.map must be an object")
 
 
-def _validate_condition(expr, path, errors, depth=0):
+def _validate_condition(expr, path, errors, depth=0, rules=ISLAND_RULES):
     if depth > MAX_DEPTH:
         errors.append(f"{path}: condition nested too deep")
         return
@@ -463,13 +514,13 @@ def _validate_condition(expr, path, errors, depth=0):
             errors.append(f"{path}.items must be a non-empty list")
         else:
             for i, it in enumerate(items):
-                _validate_condition(it, f"{path}.items[{i}]", errors, depth + 1)
+                _validate_condition(it, f"{path}.items[{i}]", errors, depth + 1, rules)
     elif op == "not":
-        _validate_condition(expr.get("item"), f"{path}.item", errors, depth + 1)
+        _validate_condition(expr.get("item"), f"{path}.item", errors, depth + 1, rules)
     elif op == "exists":
-        _validate_value(expr.get("a"), f"{path}.a", errors, required=True)
+        _validate_value(expr.get("a"), f"{path}.a", errors, required=True, rules=rules)
     elif op == "between":
-        _validate_value(expr.get("a"), f"{path}.a", errors, required=True)
+        _validate_value(expr.get("a"), f"{path}.a", errors, required=True, rules=rules)
         if "lo" not in expr or "hi" not in expr:
             errors.append(f"{path}: between needs lo and hi")
     elif op in ("after", "before"):
@@ -477,10 +528,10 @@ def _validate_condition(expr, path, errors, depth=0):
         if "at" not in expr:
             errors.append(f"{path}.at is required")
         else:
-            _validate_timestamp(expr["at"], f"{path}.at", errors)
+            _validate_timestamp(expr["at"], f"{path}.at", errors, rules)
     else:  # eq/ne/gt/lt
-        _validate_value(expr.get("a"), f"{path}.a", errors, required=True)
-        _validate_value(expr.get("b"), f"{path}.b", errors, required=True)
+        _validate_value(expr.get("a"), f"{path}.a", errors, required=True, rules=rules)
+        _validate_value(expr.get("b"), f"{path}.b", errors, required=True, rules=rules)
 
 
 def _is_known_source(ref: str) -> bool:
