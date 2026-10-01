@@ -3494,6 +3494,20 @@ def handle_get(handler, parsed) -> bool:
             "GET", parsed.path[len(WIDGETS_PATH_PREFIX):], None, widget_store())
         return j(handler, payload, status=status)
 
+    if parsed.path == "/api/dashcam" or parsed.path.startswith("/api/dashcam/"):
+        from api import dashcam_relay
+        from api.dashcam_routes import (
+            DASHCAM_PATH_PREFIX, handle_dashcam_binary_get, handle_dashcam_request)
+        from api.dashcam_store import store_for_request as dashcam_store
+        dashcam_relay.ensure_worker(dashcam_store)
+        store = dashcam_store()
+        sub = parsed.path[len(DASHCAM_PATH_PREFIX):]
+        # Thumbnail JPEG, Range-aware clip stream and GPX first; JSON for the rest.
+        if handle_dashcam_binary_get(handler, sub, store):
+            return True
+        status, payload = handle_dashcam_request("GET", sub, parse_qs(parsed.query), None, store)
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -4787,6 +4801,19 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
 
+    # Dashcam raw-body POSTs (16 MiB upload chunks, JPEG thumbnails) must be read
+    # before read_body would try to parse them as JSON; other dashcam paths fall through.
+    if parsed.path.startswith("/api/dashcam/"):
+        from api import dashcam_relay
+        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_raw_post
+        from api.dashcam_store import store_for_request as dashcam_store
+        dashcam_relay.ensure_worker(dashcam_store)
+        sub = parsed.path[len(DASHCAM_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        if handle_dashcam_raw_post(handler, sub, dashcam_store()):
+            return True
+
     if diag:
         diag.stage("read_body")
     try:
@@ -4838,6 +4865,13 @@ def handle_post(handler, parsed) -> bool:
         from api.widget_store import store_for_request as widget_store
         status, payload = handle_widgets_request(
             "POST", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/dashcam/"):
+        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
+        from api.dashcam_store import store_for_request as dashcam_store
+        status, payload = handle_dashcam_request(
+            "POST", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -6832,6 +6866,15 @@ def handle_delete(handler, parsed) -> bool:
         from api.widget_store import store_for_request as widget_store
         status, payload = handle_widgets_request(
             "DELETE", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/dashcam/"):
+        from api import dashcam_relay
+        from api.dashcam_routes import DASHCAM_PATH_PREFIX, handle_dashcam_request
+        from api.dashcam_store import store_for_request as dashcam_store
+        dashcam_relay.ensure_worker(dashcam_store)
+        status, payload = handle_dashcam_request(
+            "DELETE", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/kanban/"):

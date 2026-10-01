@@ -139,6 +139,12 @@ def test_a_clip_without_fixes_joins_by_time_but_adds_no_distance():
     assert d["distance_m"] == pytest.approx(no_gap["distance_m"])
 
 
+def test_clips_without_any_gps_make_no_drive():
+    clips = [clip("a", T0), clip("b", T0 + 60), clip("c", T0 + 9000)]
+    drives = dd.build_drives(clips, {"c": track(T0 + 9000, 60)})
+    assert [d["clip_ids"] for d in drives] == [["c"]]
+
+
 def test_wrong_camera_clock_uses_gps_time():
     # Before the first time sync the camera thinks it is 2020; the GPS time is right.
     clips = [clip("a", T0), clip("b", 1580000000.0)]

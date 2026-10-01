@@ -440,6 +440,13 @@ class DashcamStore:
                     clip["drive_id"] = drive_id
                     self._save_clip(clip)
 
+    def is_uploaded(self, clip: dict, dests: dict | None = None) -> bool:
+        """Every enabled destination taking the clip has it (or its staging is already released)."""
+        return _is_uploaded(clip, self._dest_doc() if dests is None else dests)
+
+    def destinations_by_id(self) -> dict:
+        return self._dest_doc()
+
     def counts(self) -> dict:
         dests = self._dest_doc()
         clips = self.all_clips()

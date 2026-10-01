@@ -15,6 +15,7 @@ Rules:
   clip overlapping a normal clip collapse), cleaned of implied jumps > 70 m/s: the track is
   split at every jump, stretches under 5 points are dropped, and of two stretches that still
   disagree the longer wins - so nothing draws a line to null island or across the globe.
+- A group with fewer than 2 fixes in total (no GPS yet, or none at all) is not a drive.
 - ``moving_s`` counts time at >= 1 m/s; ``avg_mps`` = distance / moving_s; ``max_mps`` drops
   the top 0.5 % of speed samples (one-sample GPS spikes).
 """
@@ -31,6 +32,7 @@ MAX_IMPLIED_MPS = 70.0   # jump filter
 THIN_POINTS = 2000
 DRIVE_KINDS = ("normal", "event")
 MOVING_MPS = 1.0
+MIN_DRIVE_POINTS = 2
 MIN_STRETCH = 5          # fixes; shorter stretches between jumps are junk
 SPEED_SAMPLE_DT = 5.0    # trust the GPS speed field for steps up to this long
 EARTH_R = 6371008.8
@@ -190,6 +192,8 @@ def build_drives(clips: list[dict], fixes_by_clip: dict[str, list]) -> list[dict
             stop = max(r[1][1] for r in group)
             ids = [r[0]["id"] for r in group]
             fx = clean_fixes(_merge(fixes_by_clip.get(i) or [] for i in ids))
+            if len(fx) < MIN_DRIVE_POINTS:
+                continue
             extra = [r[0]["id"] for r in skipped + others.get(cam, []) if _overlaps(r[1], (start, stop))
                      or r[1][0] == r[1][1] and start <= r[1][0] <= stop]
             drive = {"id": _drive_id(start, cam), "camera_id": cam, "start": now_iso(start),
