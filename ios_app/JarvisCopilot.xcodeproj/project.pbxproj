@@ -171,6 +171,7 @@
 		32C87E91E5475B870067803E /* CodeMemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3526BAFCD7BC9EC9A661AE62 /* CodeMemoryAPI.swift */; };
 		32F6A1E6E4969180EA4540C7 /* MoreTone+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18882C61E749AD15922B366C /* MoreTone+Color.swift */; };
 		3380E51BFB8791987ED40488 /* InmoGo3View.swift in Sources */ = {isa = PBXBuildFile; fileRef = C64A5B0161F52695201E17FF /* InmoGo3View.swift */; };
+		33AFC2CA477EA089060C6606 /* X5SyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03C49121F383AAB1F2DF96BC /* X5SyncTests.swift */; };
 		342E97ADABC05352312664CF /* RingSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CEB16CF033FDA0F91DCEE16 /* RingSync.swift */; };
 		35662096AF2D65B89D17550B /* OnDeviceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4C84B25EEC207DA7084976B /* OnDeviceEngine.swift */; };
 		35CA6E0EB16537278CABEABC /* VoiceLocalLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE45BFEC6399F894248E925 /* VoiceLocalLane.swift */; };
@@ -254,6 +255,7 @@
 		4AFFE3EDCA6FAFDD4A8BC366 /* ActionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D81F3D77511AA70B32B057 /* ActionBanner.swift */; };
 		4B094A5B148B84AFD5CE91A7 /* PairStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83547EEF6AC9B210B3E7D813 /* PairStore.swift */; };
 		4B0E4C9DCC1242612A8ABDE9 /* CodingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60603B62973C8E1495A067A3 /* CodingStore.swift */; };
+		4B1B20E924DFC1C8BC88DEC2 /* X5TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5645C81A770207FB92F51A /* X5TestSupport.swift */; };
 		4B6BD2583EA8A2742663DFDF /* VoicePagePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911130C5D9F9EBCB12B39CE3 /* VoicePagePresentation.swift */; };
 		4B73A68721F21EAEB45F7DCA /* VoicePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550948BFF04A6252D0AC447F /* VoicePage.swift */; };
 		4CC3CF910EC71EE4C7489FFA /* WearableDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95869D4E2FEC6BE6541E8F5 /* WearableDevice.swift */; };
@@ -576,6 +578,7 @@
 		B63614C0D2D77FFA07097A16 /* StrengthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 438D0DAA806C23BD75CDA6F7 /* StrengthSession.swift */; };
 		B6CAC8B91301829A7D0F00C8 /* CodingAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6F8D16290937BE3DB979AA /* CodingAttachments.swift */; };
 		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
+		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
 		B8772BBE4770F5AF25A3C1DB /* SpeechServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F3BF326978B8240E913298 /* SpeechServices.swift */; };
 		B8AEAF21BE8844C5268A67FF /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255E22F98CF91A5B288D04E /* VoiceSession.swift */; };
 		B94EC411423C14B47481E208 /* HealthHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C42C38B892C02081FA69717 /* HealthHistoryView.swift */; };
@@ -876,8 +879,10 @@
 		02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthSync.swift; sourceTree = "<group>"; };
 		034FFC524E870F818694414F /* VoiceReply.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReply.swift; sourceTree = "<group>"; };
 		0393646E148583432A47D9FD /* SpeechEngineStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechEngineStore.swift; sourceTree = "<group>"; };
+		03C49121F383AAB1F2DF96BC /* X5SyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SyncTests.swift; sourceTree = "<group>"; };
 		04285B3485FA6A403C8B069A /* ExercisePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExercisePicker.swift; sourceTree = "<group>"; };
 		044FE3473B389F40EB81E9F3 /* ContactLookup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookup.swift; sourceTree = "<group>"; };
+		04A3A19FD77D7466DE72F90D /* X5Sync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Sync.swift; sourceTree = "<group>"; };
 		05020FDF91A61E75B981519B /* RingWorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkoutTests.swift; sourceTree = "<group>"; };
 		05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseLibraryTests.swift; sourceTree = "<group>"; };
 		056DD31ABA27162A9A80A666 /* ProfilesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesStore.swift; sourceTree = "<group>"; };
@@ -1184,6 +1189,7 @@
 		6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceOrbGeometry.swift; sourceTree = "<group>"; };
 		6E2A4A7B3E94BF71678C423F /* ChatStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStoreTests.swift; sourceTree = "<group>"; };
 		6E42D2FF078487E8F65AAD06 /* ForegroundDeferTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForegroundDeferTests.swift; sourceTree = "<group>"; };
+		6E5645C81A770207FB92F51A /* X5TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5TestSupport.swift; sourceTree = "<group>"; };
 		6F26EE8116FF48964B72C773 /* WeightCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WeightCard.swift; sourceTree = "<group>"; };
 		6F729A9BCD2E7FE28C7F1435 /* VoiceTurnMachine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachine.swift; sourceTree = "<group>"; };
 		6FE0D7CD4CD48E51AD9157DE /* ColmiR12.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ColmiR12.swift; sourceTree = "<group>"; };
@@ -3022,6 +3028,8 @@
 				BDE6DD13B962F0592D20B885 /* X5FramesTests.swift */,
 				E2139A233942561B671294AC /* X5DecodersTests.swift */,
 				F54077106F55F93BDAFE7BB3 /* X5DayMapperTests.swift */,
+				03C49121F383AAB1F2DF96BC /* X5SyncTests.swift */,
+				6E5645C81A770207FB92F51A /* X5TestSupport.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3033,6 +3041,7 @@
 				BC8A84197FF9598EF67D5716 /* X5Frames.swift */,
 				5BA5D1D7A7E6B01264839350 /* X5Decoders.swift */,
 				BBA4DB5DDB8CCE0F6E4F5B3D /* X5DayMapper.swift */,
+				04A3A19FD77D7466DE72F90D /* X5Sync.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3648,6 +3657,8 @@
 				D478F6A7507252707319286F /* X5FramesTests.swift in Sources */,
 				E91F4889A93AF4958B8C17FC /* X5DecodersTests.swift in Sources */,
 				C6E354D16BE77EC388812F1E /* X5DayMapperTests.swift in Sources */,
+				33AFC2CA477EA089060C6606 /* X5SyncTests.swift in Sources */,
+				4B1B20E924DFC1C8BC88DEC2 /* X5TestSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4193,6 +4204,7 @@
 				BB15BE4B410BA7913908438A /* X5Frames.swift in Sources */,
 				75A44CF686B6E0BBCBB997DA /* X5Decoders.swift in Sources */,
 				751590D844BC6A01F4F01946 /* X5DayMapper.swift in Sources */,
+				B777422940BE057265208DDB /* X5Sync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
