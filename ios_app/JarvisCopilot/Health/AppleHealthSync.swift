@@ -361,7 +361,8 @@ final class AppleHealthSync: ObservableObject {
         let version = Int(Date().timeIntervalSince1970)
         if let ring = HealthRing.store {
             let healthRing = HealthRing.current
-            let keys = Array(ring.allKeys().suffix(days))
+            let since = HealthRing.since()
+            let keys = Array(ring.allKeys().suffix(days)).filter { since == nil || $0 >= since! }
             let wanted = AppleHealthKind.fromRingDays.filter { kinds.contains($0) && allowed($0) }
             let types = allowedTypes()
             var done = 0

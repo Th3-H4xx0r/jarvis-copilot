@@ -34,6 +34,12 @@ enum HealthRing: String, CaseIterable, Identifiable {
         defaults.set(ring.rawValue, forKey: key)
     }
 
+    static let sinceKey = "jc.health.ring.since"
+
+    /// The day the current ring took over, if it was switched: Apple Health gets its days from
+    /// then on, so the two rings never both write a day.
+    static func since(defaults: UserDefaults = .standard) -> String? { defaults.string(forKey: sinceKey) }
+
     /// Whether there is a choice to make.
     static func bothPaired(defaults: UserDefaults = .standard) -> Bool {
         WearableIdentity.remembered(WearableKeepAlive.ring, defaults: defaults) != nil
@@ -57,6 +63,7 @@ enum HealthRing: String, CaseIterable, Identifiable {
     @MainActor static func choose(_ ring: HealthRing) {
         guard ring != current else { return }
         set(ring)
+        UserDefaults.standard.set(RingDates.dayKey(Date()), forKey: sinceKey)
         WearablesHub.shared.registerHealthIntegrations()
         if ring == .x5, let store = WearablesHub.shared.x5.store {
             Task { await X5HealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.x5) }

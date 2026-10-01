@@ -412,8 +412,11 @@ final class WearablesHub: ObservableObject {
     /// server has no space for the ring and every health call 404s. Idempotent,
     /// so running it on each launch and pairing is free.
     func registerHealthIntegrations() {
-        let chosen = HealthRing.eligibleKinds(chosen: HealthRing.current)
-        let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) && chosen.contains($0.kind) }
+        let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
+        // Both rings paired: the server links only the one Health reads, and makes it primary.
+        let choosing = HealthRing.bothPaired()
+        let chosen = HealthRing.current.kind
+        let rings: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring]
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
         // Without the phone's own id the server has nothing to invoke through,
         // so there is no point registering yet; the next launch tries again.
@@ -427,13 +430,18 @@ final class WearablesHub: ObservableObject {
         // The server-issued id for this phone, which is what the device bridge
         // routes a skill call to.
         let payload = eligible.map { entry -> [String: Any] in
-            [
+            var out: [String: Any] = [
                 "kind": entry.kind,
                 "device_id": entry.deviceID,
                 "name": entry.name,
                 "bridge_device_id": phone,
                 "timezone": TimeZone.current.identifier,
             ]
+            if choosing, rings.contains(entry.kind) {
+                out["linked"] = entry.kind == chosen
+                out["primary"] = entry.kind == chosen
+            }
+            return out
         }
         Task {
             do {

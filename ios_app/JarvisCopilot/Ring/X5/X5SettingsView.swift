@@ -32,7 +32,7 @@ struct X5SettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 sharing
-                health
+                if HealthRing.bothPaired() { health }
                 monitoring
                 maintenance
                 deviceInfo
@@ -49,7 +49,13 @@ struct X5SettingsView: View {
             Text("It turns back on when you put it on its charger.")
         }
         .confirmationDialog("Clear the ring's history?", isPresented: $confirmClear, titleVisibility: .visible) {
-            Button("Clear ring history", role: .destructive) { apply { try await session.clearHistory() } }
+            Button("Clear ring history", role: .destructive) {
+                apply {
+                    try await session.clearHistory()
+                    // The ring no longer holds the entries the cursors point at.
+                    if let id = manager.deviceID { X5Cursors(deviceID: id).reset() }
+                }
+            }
         } message: {
             Text("Deletes what is stored on the ring. Everything already on this phone is kept.")
         }

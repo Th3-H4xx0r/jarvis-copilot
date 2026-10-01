@@ -199,3 +199,30 @@ def test_a_day_the_phone_pushes_for_the_x5_is_filed_as_the_x5(tmp_registry, monk
     stored = HealthStore().day("2026-09-17", "x5ring-c0ffee00")
     assert stored.source == "x5ring"
     assert stored.activity["steps"] == 4200
+
+
+def test_registration_links_only_the_chosen_ring_and_makes_it_primary(tmp_path, monkeypatch):
+    """The phone registers both rings and says which one Jarvis Health uses."""
+    from jarvis_health.bootstrap import ensure_health_integration
+    from jarvis_health.store import HealthStore, SHARED_SPACE, device_key_for
+
+    roster = [
+        {"kind": "ring", "device_id": "r12-0001", "name": "R12", "bridge_device_id": "phone", "linked": False},
+        {"kind": "x5ring", "device_id": "x5-0002", "name": "X5", "bridge_device_id": "phone", "linked": True,
+         "primary": True},
+    ]
+    ensure_health_integration(roster)
+    store = HealthStore(SHARED_SPACE)
+    linked = {d["key"]: d.get("linked") for d in store.roster()}
+    assert linked[device_key_for("ring", "r12-0001")] is False
+    assert linked[device_key_for("x5ring", "x5-0002")] is True
+    assert store.settings().get("primary_device") == device_key_for("x5ring", "x5-0002")
+
+    # Switching back flips both.
+    roster[0].update(linked=True, primary=True)
+    roster[1].update(linked=False, primary=False)
+    ensure_health_integration(roster)
+    linked = {d["key"]: d.get("linked") for d in store.roster()}
+    assert linked[device_key_for("ring", "r12-0001")] is True
+    assert linked[device_key_for("x5ring", "x5-0002")] is False
+    assert store.settings().get("primary_device") == device_key_for("ring", "r12-0001")

@@ -184,8 +184,10 @@ extension RingRequest {
     static var x5Restart: RingRequest { .command(X5Op.restart) }
     static var x5SkinTemp: RingRequest { .command(X5Op.skinTemp) }
 
-    /// `09 01` starts the live stream (one packet whenever a value changes), `09 00` stops it.
-    static func x5Live(_ on: Bool) -> RingRequest { .command(X5Op.live, [on ? 1 : 0]) }
+    /// `09 01 01` starts the live stream with a packet every second — what the sheet's spot
+    /// measurement asks for; the SDK's `09 01 00` only reports when the step count changes, so a
+    /// still finger gets nothing. `09 00` stops it.
+    static func x5Live(_ on: Bool) -> RingRequest { .command(X5Op.live, on ? [1, 1] : [0]) }
 
     /// `kind`: 1 = 50 Hz raw, 2 = heart rate, 3 = SpO₂. Under 30 s the ring uses 30 s.
     static func x5Measure(_ kind: UInt8, start: Bool, seconds: Int) -> RingRequest {

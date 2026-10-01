@@ -194,6 +194,22 @@ enum X5DayMapper {
         }
     }
 
+    /// `run` laid over the stored night minute by minute: the night up to where the run starts,
+    /// awake across any gap, the run itself, and whatever of the night came after it.
+    private static func overlay(_ run: (start: Date, stages: [RingSleepStage], end: Date),
+                                onto night: RingSleepSession) -> (start: Date, stages: [RingSleepStage], end: Date) {
+        var minutes: [Int] = night.stages.flatMap { [Int](repeating: $0.stage, count: max(0, $0.minutes)) }
+        let offset = max(0, Int((run.start.timeIntervalSince(night.start) / 60).rounded()))
+        let runMinutes = run.stages.flatMap { [Int](repeating: $0.stage, count: max(0, $0.minutes)) }
+        if minutes.count < offset { minutes += [Int](repeating: RingSleepStage.awake, count: offset - minutes.count) }
+        for (i, stage) in runMinutes.enumerated() {
+            if offset + i < minutes.count { minutes[offset + i] = stage } else { minutes.append(stage) }
+        }
+        var stages: [RingSleepStage] = []
+        for stage in minutes { append(stage, minutes: 1, to: &stages) }
+        return (night.start, stages, night.start.addingTimeInterval(TimeInterval(minutes.count * 60)))
+    }
+
     private static func append(_ stage: Int, minutes: Int, to stages: inout [RingSleepStage]) {
         guard minutes > 0 else { return }
         if let last = stages.last, last.stage == stage {
@@ -232,18 +248,15 @@ enum X5DayMapper {
         }
 
         for var run in runs {
-            // A night stored by an earlier sync that this run carries on.
-            let candidates = Set([key(run.start), key(run.start.addingTimeInterval(-sleepJoinGap))])
+            // A night stored by an earlier sync that this run carries on — or overlaps, because the
+            // newest chunk is read again until the ring has finished writing it.
+            let candidates = Set([key(run.start.addingTimeInterval(-sleepJoinGap)), key(run.start), key(run.end)])
             for k in candidates {
                 var stored = day(k)
                 guard let previous = stored.sleep.first(where: {
-                    run.start.timeIntervalSince($0.end) >= 0 && run.start.timeIntervalSince($0.end) <= sleepJoinGap
-                        && $0.start < run.start
+                    $0.start < run.start && run.start <= $0.end.addingTimeInterval(sleepJoinGap)
                 }) else { continue }
-                var stages = previous.stages
-                append(RingSleepStage.awake, minutes: Int(run.start.timeIntervalSince(previous.end) / 60), to: &stages)
-                for s in run.stages { append(s.stage, minutes: s.minutes, to: &stages) }
-                run = (previous.start, stages, run.end)
+                run = overlay(run, onto: previous)
                 stored.sleep.removeAll { $0 == previous }
                 days[k] = stored
             }

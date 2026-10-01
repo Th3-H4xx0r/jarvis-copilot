@@ -209,6 +209,7 @@ final class X5Ring: WearableDevice {
             "gesture_mode": (backend.inputs?.wantedMode ?? .off).rawValue,
             "touch_awake": awakeJSON(backend.awakePolicy),
             "touch_asleep": session.touchAsleep,
+            "wear": session.wear.rawValue,
             "monitoring": session.monitoring.values.sorted { $0.type.rawValue < $1.type.rawValue }.map(monitoringJSON),
         ]
         if let name = backend.displayName { out["name"] = name }

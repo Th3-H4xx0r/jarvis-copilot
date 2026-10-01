@@ -41,6 +41,12 @@ final class X5GestureTests: XCTestCase {
         XCTAssertFalse(X5Manager.isCandidate(name: "Headphones", hasService: false, strict: false))
     }
 
+    /// Review finding #10: the bathroom scale advertises FFF0 too.
+    func testTheScaleIsNeverAnX5Candidate() {
+        XCTAssertFalse(X5Manager.isCandidate(name: "Etekcity Smart Fitness Scale", hasService: true, strict: false))
+        XCTAssertFalse(X5Manager.isCandidate(name: "ESF551", hasService: true, strict: false))
+    }
+
     func testX5AnywhereInTheNameAsAWordCounts() {
         XCTAssertTrue(X5Protocol.isX5Name("Smart Ring X5"))
         XCTAssertTrue(X5Protocol.isX5Name("X5-Ring"))

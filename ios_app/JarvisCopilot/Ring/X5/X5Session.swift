@@ -17,6 +17,17 @@ struct X5Measurement: Equatable {
     var isActive: Bool
 }
 
+/// Whether the ring is on a finger. The X5 has no wear command, so it is read off the skin
+/// temperature and any heart rate the live stream carries.
+enum X5Wear: String, Codable {
+    case worn, offFinger = "off_finger", unknown
+
+    /// Skin on a finger reads 30 °C or more; a ring on a table reads the room.
+    static func from(celsius: Double) -> X5Wear {
+        celsius >= 30 ? .worn : (celsius > 0 && celsius < 28 ? .offFinger : .unknown)
+    }
+}
+
 /// Features the X5's sheet doesn't promise, switched on only when the ring answers for them.
 enum X5Feature: String, Codable, CaseIterable {
     case stepGoal, manualSpO2, ppg
@@ -77,6 +88,10 @@ final class X5Session: ObservableObject {
     @Published private(set) var skinTemp: Double?
     @Published private(set) var isSetUp = false
     @Published private(set) var touchAsleep = false
+    @Published private(set) var wear: X5Wear = .unknown
+
+    /// Why a reading wasn't taken: the ring isn't on a finger.
+    static let notWorn = "not on a finger"
 
     var onGesture: ((X5Gesture) -> Void)?
     var onWorkoutTick: ((X5WorkoutTick) -> Void)?
@@ -119,11 +134,8 @@ final class X5Session: ObservableObject {
     // MARK: Setup
 
     func runSetup(deviceID: String) async throws {
-        if defaults.bool(forKey: Self.liveStopOwedKey) {
-            if (try? await transport.perform(.x5Live(false), until: .single)) != nil {
-                defaults.set(false, forKey: Self.liveStopOwedKey)
-                log.note("X5 sensor", "stopped live data left running on an earlier link")
-            }
+        if defaults.bool(forKey: Self.liveStopOwedKey), await sendLiveStop() {
+            log.note("X5 sensor", "stopped live data left running on an earlier link")
         }
         _ = try await transport.perform(.x5SetTime(now(), calendar: calendar), until: .single)
         if let p = try? await reply(.x5GetProfile) { profile = X5Decode.profile(p) }
@@ -219,10 +231,19 @@ final class X5Session: ObservableObject {
             }
         } else {
             liveOn = false
-            if (try? await transport.perform(.x5Live(false), until: .single)) != nil {
-                defaults.set(false, forKey: Self.liveStopOwedKey)
-            }
+            _ = await sendLiveStop()
         }
+    }
+
+    /// The stop is owed until the ring acknowledges it with a frame of its own — a live packet
+    /// already on its way is not that, and the link may be let go right after.
+    private func sendLiveStop() async -> Bool {
+        let frames = (try? await transport.perform(.x5Live(false),
+                                                    until: .packets { $0.payload.count == RingProtocol.payloadLength })) ?? []
+        frames.forEach(handleLive)
+        guard frames.contains(where: { $0.payload.count == RingProtocol.payloadLength }) else { return false }
+        defaults.set(false, forKey: Self.liveStopOwedKey)
+        return true
     }
 
     // MARK: Measurements
@@ -232,9 +253,9 @@ final class X5Session: ObservableObject {
     func measure(_ type: RingMeasurementType, seconds: Int = 30) async throws -> Double? {
         if type == .temperature {
             let value = try await reply(.x5SkinTemp)
-            skinTemp = X5Decode.skinTemp(value)
+            noteSkin(value)
             measurement = X5Measurement(type: type, startedAt: now(), seconds: 0, latest: skinTemp, result: skinTemp,
-                                        failed: skinTemp == nil ? "not on a finger" : nil, isActive: false)
+                                        failed: skinTemp == nil ? Self.notWorn : nil, isActive: false)
             return skinTemp
         }
         let kind: UInt8
@@ -244,6 +265,11 @@ final class X5Session: ObservableObject {
         default: throw RingError.unsupported(type.name)
         }
         if measurement?.isActive == true { throw RingError.busy("a measurement is running") }
+        // Off the finger the ring would light up for half a minute and find nothing.
+        if await checkWear() == .offFinger {
+            measurement = X5Measurement(type: type, startedAt: now(), seconds: 0, failed: Self.notWorn, isActive: false)
+            return nil
+        }
         measurementValues = []
         measurement = X5Measurement(type: type, startedAt: now(), seconds: seconds, isActive: true)
         do {
@@ -254,7 +280,9 @@ final class X5Session: ObservableObject {
             throw error
         }
         let liveWasOn = liveOn
-        if !liveWasOn { await setLive(true) }
+        // The ring only streams its per-second readings when asked after the measurement starts —
+        // even if live data was already on.
+        await setLive(true)
         let deadline = Date().addingTimeInterval(TimeInterval(seconds) + 1)
         while Date() < deadline, measurement?.isActive == true {
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -266,6 +294,18 @@ final class X5Session: ObservableObject {
         measurement?.result = result
         if result == nil { measurement?.failed = "no reading — is the ring on a finger?" }
         return result
+    }
+
+    /// Reads the skin temperature to tell whether the ring is on a finger.
+    @discardableResult
+    func checkWear() async -> X5Wear {
+        if let p = try? await reply(.x5SkinTemp) { noteSkin(p) }
+        return wear
+    }
+
+    private func noteSkin(_ p: [UInt8]) {
+        skinTemp = X5Decode.skinTemp(p)
+        if let raw = X5Decode.rawSkinTemp(p) { wear = X5Wear.from(celsius: raw) }
     }
 
     func stopMeasurement() async {
@@ -395,6 +435,7 @@ final class X5Session: ObservableObject {
     private func handleLive(_ inbound: RingInbound) {
         guard inbound.cmd == X5Op.live, let sample = X5Decode.live(inbound.payload) else { return }
         live = sample
+        if sample.heartRate > 0 { wear = .worn } else if sample.celsius > 0 { wear = X5Wear.from(celsius: sample.celsius) }
         guard let m = measurement, m.isActive else { return }
         let value: Double
         switch m.type {

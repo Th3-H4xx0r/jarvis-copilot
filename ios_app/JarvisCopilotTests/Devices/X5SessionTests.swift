@@ -121,6 +121,18 @@ final class X5SessionTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: "jc.x5.liveStopOwed"))
     }
 
+    /// Review finding #7: a live packet already in flight is not the ring acknowledging the stop.
+    func testAStreamPacketIsNotTakenAsTheStopAck() async {
+        link.script(0x09, [X5Bytes.frame("09 01")])
+        await session.setLive(true)
+        link.script(0x09, [X5Bytes.data("09 66 00 00 00 19 01 00 00 05 00 00 00 25 00 00 00 00 00 00 00 48 5A 01 00 00 00 00 00 00 00 00")])
+        await session.setLive(false)
+        XCTAssertTrue(defaults.bool(forKey: "jc.x5.liveStopOwed"))
+        link.script(0x09, [X5Bytes.frame("09 00")])
+        await session.setLive(false)
+        XCTAssertFalse(defaults.bool(forKey: "jc.x5.liveStopOwed"))
+    }
+
     func testAHeartRateCheckReadsTheLiveStreamAndStopsBoth() async throws {
         link.script(0x28, [X5Bytes.frame("28 02")])
         let live = (70...74).map { hr in
@@ -138,6 +150,49 @@ final class X5SessionTests: XCTestCase {
         XCTAssertEqual(link.payloads(0x09).last?.first, 0x00)
         XCTAssertFalse(session.liveOn)
         XCTAssertEqual(session.measurement?.result, 72)
+    }
+
+    /// On the ring: with the page's live data already on, a spot check sent no `09` after starting,
+    /// no packets came, and every reading ended "No reading". It always asks after starting now.
+    func testASpotCheckAsksForPerSecondDataEvenWithLiveAlreadyOn() async throws {
+        link.script(0x09, [X5Bytes.frame("09 01")])
+        await session.setLive(true)
+        session.holdsLive = true
+        link.script(0x28, [X5Bytes.frame("28 02")])
+        let live = (70...74).map { hr in
+            X5Bytes.data("09 66 00 00 00 19 01 00 00 05 00 00 00 25 00 00 00 00 00 00 00 "
+                          + String(format: "%02X", hr) + " 5A 01 00 00 00 00 00 00 00 00")
+        }
+        link.script(0x09, live)
+        link.script(0x28, [X5Bytes.frame("28 02")])
+        let result = try await session.measure(.heartRate, seconds: 1)
+        XCTAssertEqual(result, 72)
+        let writes = link.sent.map { Array($0.prefix(3)) }
+        let start = try XCTUnwrap(writes.firstIndex(of: [0x28, 0x02, 0x01]))
+        XCTAssertEqual(writes[(start + 1)...].first, [0x09, 0x01, 0x01])
+        XCTAssertTrue(session.liveOn, "the page still wants live data")
+    }
+
+    /// The X5 has no wear command: wear is read off the skin temperature (35.5 °C is a finger,
+    /// 24.4 °C the table) and any heart rate in the live stream.
+    func testWearIsReadFromTheSkinTemperature() async {
+        link.script(0x14, [X5Bytes.frame("14 63 01 03 55")])
+        let worn = await session.checkWear()
+        XCTAssertEqual(worn, .worn)
+        link.script(0x14, [X5Bytes.frame("14 F4 00 03 55")])
+        let off = await session.checkWear()
+        XCTAssertEqual(off, .offFinger)
+        link.push(X5Bytes.data("09 66 00 00 00 19 01 00 00 05 00 00 00 25 00 00 00 00 00 00 00 48 5A 01 61 00 00 00 00 00 00 00"))
+        XCTAssertEqual(session.wear, .worn)
+    }
+
+    /// Off the finger a spot check says so straight away instead of running 30 s for nothing.
+    func testASpotCheckOffTheFingerSaysSoWithoutMeasuring() async throws {
+        link.script(0x14, [X5Bytes.frame("14 F4 00 03 55")])
+        let result = try await session.measure(.heartRate, seconds: 1)
+        XCTAssertNil(result)
+        XCTAssertEqual(session.measurement?.failed, X5Session.notWorn)
+        XCTAssertFalse(link.sentCommands.contains(0x28))
     }
 
     func testWorkoutTicksReachTheHandler() {

@@ -94,7 +94,9 @@ final class X5MeasureController: ObservableObject {
         guard let m = session.measurement, m.type == type else { return .idle }
         if m.isActive { return .measuring(m.latest.map { text(type, $0) }) }
         if let result = m.result { return .result(text(type, result)) }
-        if m.failed != nil { return .failed(type == .temperature ? "Put the ring on first" : "No reading — keep still") }
+        if let failed = m.failed {
+            return .failed(failed == X5Session.notWorn ? "Put the ring on first" : "No reading — keep still")
+        }
         return .idle
     }
 

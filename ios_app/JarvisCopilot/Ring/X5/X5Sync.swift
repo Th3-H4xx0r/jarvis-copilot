@@ -116,20 +116,34 @@ final class X5Sync: ObservableObject {
 
     private func read(_ kind: X5HistoryKind, store: RingHistoryStore, cursors: X5Cursors) async throws -> Set<String> {
         // Day totals are fifteen small entries: always read whole, so today's keeps moving.
-        let after = kind == .dayTotals ? nil : cursors.newest(kind)
+        var after = kind == .dayTotals ? nil : cursors.newest(kind)
         var request = RingRequest.x5History(kind, after: after, calendar: calendar)
         var touched: Set<String> = []
-        for _ in 0..<Self.maxPages {
-            let frames = try await transport.perform(request, until: .packets(X5Frames.isEnd))
+        var seen: [Date] = []
+        var pages = 0
+        while pages < Self.maxPages {
+            let frames: [RingInbound]
+            do {
+                frames = try await transport.perform(request, until: .packets(X5Frames.isEnd))
+            } catch RingError.rejected where after != nil {
+                // The ring no longer holds that entry (overwritten, or its history cleared).
+                after = nil
+                request = .x5History(kind, after: nil, calendar: calendar)
+                continue
+            }
+            pages += 1
             let entries = frames.filter { !X5Frames.isEnd($0) }.map(\.payload)
             if entries.isEmpty { break }
             let (batch, dates, workouts) = decode(entries, kind: kind)
             if !batch.isEmpty { touched.formUnion(X5DayMapper.apply(batch, to: store, calendar: calendar)) }
             if !workouts.isEmpty { onWorkouts?(workouts) }
-            if let newest = cursorDate(dates, kind: kind) { cursors.advance(kind, to: newest) }
+            seen += dates
             guard entries.count >= Self.pageSize else { break }
             request = .x5HistoryNext(kind)
         }
+        // Only once the store has been read to its end: pages may come newest first, and an
+        // interrupted read must be asked again from where the last whole one stopped.
+        if let newest = cursorDate(seen, kind: kind) { cursors.advance(kind, to: newest) }
         return touched
     }
 

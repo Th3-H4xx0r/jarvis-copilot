@@ -53,13 +53,19 @@ def ensure_health_integration(roster: list[dict[str, Any]]) -> dict:
             continue
         # Two identities and a zone: the wearable itself, the phone whose bridge
         # reaches it, and the timezone its days are bucketed in.
-        store.upsert_device({
+        saved = store.upsert_device({
             "kind": kind,
             "device_id": device_id,
             "name": entry.get("name") or kind.title(),
             "bridge_device_id": entry.get("bridge_device_id") or entry.get("phone_id") or "",
             "timezone": entry.get("timezone") or "",
         })
+        # With two rings paired the phone says which one Jarvis Health reads: that one is
+        # linked and primary, the other unlinked. Older phones send neither; nothing changes.
+        if isinstance(entry.get("linked"), bool):
+            store.set_linked(saved["key"], entry["linked"])
+        if entry.get("primary") is True:
+            store.put_settings({"primary_device": saved["key"]})
     ensure_schedule(store.settings())
     return {"space": SHARED_SPACE, "devices": store.roster()}
 

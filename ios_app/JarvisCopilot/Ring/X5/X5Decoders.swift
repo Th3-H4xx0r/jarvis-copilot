@@ -222,6 +222,11 @@ enum X5Decode {
 
     static func goal(_ p: [UInt8]) -> Int? { p.count >= 4 ? u32(p, 0) : nil }
 
+    /// The sensor's reading as sent, finger or not.
+    static func rawSkinTemp(_ p: [UInt8]) -> Double? {
+        p.count >= 2 ? Double(u16(p, 0)) / 10 : nil
+    }
+
     /// °C, or nil off the finger (the sensor reads the room).
     static func skinTemp(_ p: [UInt8]) -> Double? {
         guard p.count >= 2 else { return nil }

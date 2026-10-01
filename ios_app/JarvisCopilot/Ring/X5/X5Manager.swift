@@ -31,7 +31,6 @@ final class X5Manager: NSObject, ObservableObject {
     private(set) lazy var sync: X5Sync = {
         let sync = X5Sync(transport: session.transport, store: { [weak self] in self?.store },
                           cursors: { [weak self] in self?.deviceID.map { X5Cursors(deviceID: $0) } })
-        sync.extraKinds = [.workouts]
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
         return sync
     }()
@@ -112,9 +111,18 @@ final class X5Manager: NSObject, ObservableObject {
     /// so it is only ever found that way. Never the R12, which has its own card; anything else is
     /// checked on connect before it is remembered.
     static func isCandidate(name: String, hasService: Bool, strict: Bool) -> Bool {
-        guard !RingProtocol.isRingName(name) else { return false }
+        guard !RingProtocol.isRingName(name), !isScaleName(name) else { return false }
         return X5Protocol.isX5Name(name) || (!strict && hasService)
     }
+
+    /// The bathroom scale advertises FFF0 too; it has its own card.
+    static func isScaleName(_ name: String) -> Bool {
+        let n = name.lowercased()
+        return n.contains("esf551") || n.contains("esf-551") || n.contains("etekcity") || n.contains("scale")
+    }
+
+    /// Rings forgotten this session: their page must not reconnect them on the way out.
+    @Published private(set) var forgottenIDs: Set<UUID> = []
 
     /// The touch-surface mode an inputs-screen mode asks for.
     static func hid(for mode: RingInputMode) -> (enabled: Bool, mode: X5HIDMode) {
@@ -189,6 +197,8 @@ final class X5Manager: NSObject, ObservableObject {
 
     func startScan() {
         guard bluetoothReady else { return }
+        // A deliberate scan is how a forgotten ring comes back.
+        forgottenIDs.removeAll()
         discovered.removeAll { $0.id != connected?.id }
         surfaceKnownPeripherals()
         if !linkIsUp { state = .scanning }
@@ -323,6 +333,10 @@ final class X5Manager: NSObject, ObservableObject {
     func forget() async {
         if state == .ready { await session.unbind() }
         let id = deviceID
+        if let ring = connected?.id ?? peripheral?.identifier {
+            forgottenIDs.insert(ring)
+            discovered.removeAll { $0.id == ring }
+        }
         disconnect()
         if let device = exposedDevice { DeviceRegistry.shared.remove(deviceID: device.deviceID) }
         exposedDevice = nil
@@ -386,8 +400,10 @@ final class X5Manager: NSObject, ObservableObject {
             }
             self.setupTask = nil
             guard self.state == .ready else { return }
-            if self.session.features.contains(.manualSpO2) { self.sync.extraKinds = [.manualSpO2, .workouts] }
-            if self.screenIsOpen { await self.session.setLive(true) }
+            // Workout records wait for something to read them (the shared workout screen).
+            if self.session.features.contains(.manualSpO2) { self.sync.extraKinds = [.manualSpO2] }
+            // Never from the background: the firmware streams all night once asked.
+            if self.screenIsOpen, !self.isBackgrounded { await self.session.setLive(true) }
             if self.sync.isStale { await self.sync.sync() }
             self.releaseIfIdle()
         }

@@ -54,7 +54,9 @@ final class X5ProtocolTests: XCTestCase {
     func testMeasurementAndLiveFramesMatchTheVendorSDK() {
         assertFrame(.x5PPG(1), "78 01 00 00 00 00 00 00 00 00 00 00 00 00 00 79")
         assertFrame(.x5PPG(2, status: 50), "78 02 32 00 00 00 00 00 00 00 00 00 00 00 00 AC")
-        assertFrame(.x5Live(true), "09 01 00 00 00 00 00 00 00 00 00 00 00 00 00 0A")
+        // Per-second live data, as the sheet's spot-measurement steps send it (`09 01 01`) — the SDK's
+        // `09 01 00` only reports when the step count changes, so a still spot check gets nothing.
+        assertFrame(.x5Live(true), "09 01 01 00 00 00 00 00 00 00 00 00 00 00 00 0B")
         assertFrame(.x5Measure(2, start: true, seconds: 30), "28 02 01 00 1E 00 00 00 00 00 00 00 00 00 00 49")
         assertFrame(.x5Measure(3, start: true, seconds: 30), "28 03 01 00 1E 00 00 00 00 00 00 00 00 00 00 4A")
         assertFrame(.x5MeasureStatus, "28 80 00 00 00 00 00 00 00 00 00 00 00 00 00 A8")

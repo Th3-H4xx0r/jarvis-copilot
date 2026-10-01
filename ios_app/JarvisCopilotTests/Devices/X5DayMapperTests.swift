@@ -94,6 +94,28 @@ final class X5DayMapperTests: XCTestCase {
         XCTAssertTrue(store.day("2024-08-23").sleep.isEmpty)
     }
 
+    /// Review finding #1: the cursor re-reads the newest chunk, which grew since; the stored night
+    /// must be extended, not replaced by the chunk alone (or doubled).
+    func testARereadChunkExtendsTheStoredNight() {
+        let first = [X5SleepChunk(id: 0, start: date(2024, 8, 23, 23, 0), codes: [Int](repeating: 2, count: 120)),
+                     X5SleepChunk(id: 1, start: date(2024, 8, 24, 1, 0), codes: [Int](repeating: 1, count: 120)),
+                     X5SleepChunk(id: 2, start: date(2024, 8, 24, 3, 0), codes: [Int](repeating: 2, count: 120)),
+                     X5SleepChunk(id: 3, start: date(2024, 8, 24, 5, 0), codes: [Int](repeating: 3, count: 90))]
+        _ = apply(X5Batch(sleep: first))
+        XCTAssertEqual(store.day("2024-08-24").sleep.first?.end, date(2024, 8, 24, 6, 30))
+        // The same last chunk again, grown by half an hour.
+        _ = apply(X5Batch(sleep: [X5SleepChunk(id: 3, start: date(2024, 8, 24, 5, 0), codes: [Int](repeating: 3, count: 120))]))
+        let nights = store.day("2024-08-24").sleep
+        XCTAssertEqual(nights.count, 1)
+        XCTAssertEqual(nights.first?.start, date(2024, 8, 23, 23, 0))
+        XCTAssertEqual(nights.first?.end, date(2024, 8, 24, 7, 0))
+        XCTAssertEqual(nights.first.map { $0.stages.reduce(0) { $0 + $1.minutes } }, 480)
+        // And the same chunk once more, unchanged: still one night of the same length.
+        _ = apply(X5Batch(sleep: [X5SleepChunk(id: 3, start: date(2024, 8, 24, 5, 0), codes: [Int](repeating: 3, count: 120))]))
+        XCTAssertEqual(store.day("2024-08-24").sleep.count, 1)
+        XCTAssertEqual(store.day("2024-08-24").sleep.first.map { $0.stages.reduce(0) { $0 + $1.minutes } }, 480)
+    }
+
     func testAnAfternoonSleepIsANap() {
         let nap = X5SleepChunk(id: 4, start: date(2024, 8, 24, 14, 0), codes: [Int](repeating: 2, count: 40))
         _ = apply(X5Batch(sleep: [nap]))

@@ -59,17 +59,30 @@ final class X5SyncTests: XCTestCase {
         XCTAssertEqual(store.day("2024-08-27").manualHeartRate.count, 53)
     }
 
+    /// Pages may come newest first, so the cursor only moves once a store has been read to its
+    /// end: an interrupted read is asked again from where the last complete one stopped.
     func testALinkDroppedAfterAPageResumesWithoutLosingOrDoublingEntries() async {
         link.script(0x55, X5Bytes.notifications(readings(50, hour: 8), op: 0x55))
         // No answer to "next page": the link went quiet.
         _ = await sync.sync(kinds: [.singleHR])
         XCTAssertEqual(store.day("2024-08-27").manualHeartRate.count, 50)
-        XCTAssertEqual(X5Cursors(deviceID: "ring-1", defaults: defaults).newest(.singleHR), X5Bytes.date(2024, 8, 27, 8, 49, 30))
+        XCTAssertNil(X5Cursors(deviceID: "ring-1", defaults: defaults).newest(.singleHR))
 
         link.script(0x55, X5Bytes.notifications(readings(3, hour: 9, idStart: 50), op: 0x55))
         _ = await sync.sync(kinds: [.singleHR])
-        XCTAssertEqual(Array(link.payloads(0x55).last!.prefix(9)), [0x00, 0x00, 0x00, 0x24, 0x08, 0x27, 0x08, 0x49, 0x30])
+        XCTAssertEqual(link.payloads(0x55).last, [UInt8](repeating: 0, count: 14))
         XCTAssertEqual(store.day("2024-08-27").manualHeartRate.count, 53)
+    }
+
+    /// A cursor the ring no longer holds (overwritten, cleared) is refused: start again from the newest.
+    func testARefusedCursorRetriesFromTheNewest() async {
+        link.script(0x55, X5Bytes.notifications(readings(1, hour: 9), op: 0x55))
+        _ = await sync.sync(kinds: [.singleHR])
+        link.script(0x55, [X5Bytes.frame("D5")])
+        link.script(0x55, X5Bytes.notifications(readings(2, hour: 10, idStart: 5), op: 0x55))
+        _ = await sync.sync(kinds: [.singleHR])
+        XCTAssertEqual(link.payloads(0x55).last, [UInt8](repeating: 0, count: 14))
+        XCTAssertEqual(store.day("2024-08-27").manualHeartRate.count, 3)
     }
 
     func testAnEmptyAnswerChangesNothing() async {

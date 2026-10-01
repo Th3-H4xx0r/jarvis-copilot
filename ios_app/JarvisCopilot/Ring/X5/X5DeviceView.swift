@@ -23,6 +23,7 @@ struct X5DeviceView: View {
     }
 
     @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.dismiss) private var dismiss
 
     private var ready: Bool { manager.state == .ready }
     private var today: RingDaySummary? { manager.store?.day(RingDates.dayKey(Date())).summary }
@@ -58,8 +59,14 @@ struct X5DeviceView: View {
             WearableNames.shared.rename(WearableKeepAlive.x5ring, to: $0)
         }
         .onAppear {
+            // Back from Settings after "Forget": leave, don't reconnect it.
+            if manager.forgottenIDs.contains(ring.id) {
+                dismiss()
+                return
+            }
             manager.screenIsOpen = true
             if manager.connected?.id != ring.id || !manager.linkIsUp { manager.connect(ring) }
+            if ready { Task { await session.checkWear() } }
         }
         .onDisappear {
             // Settings is a push from here and comes straight back; keep the stream across it.
@@ -139,6 +146,11 @@ struct X5DeviceView: View {
 
     private var liveRows: [(String, String)] {
         var rows: [(String, String)] = []
+        switch session.wear {
+        case .worn: rows.append(("Worn", "On a finger"))
+        case .offFinger: rows.append(("Worn", "Off — put it on to measure"))
+        case .unknown: break
+        }
         if let g = session.lastGesture {
             rows.append(("Last gesture", "\(g.gesture.input.label) · \(g.date.formatted(date: .omitted, time: .shortened))"))
         }
