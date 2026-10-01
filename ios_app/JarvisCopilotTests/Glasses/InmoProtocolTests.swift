@@ -20,8 +20,23 @@ final class InmoProtocolTests: XCTestCase {
     // A double press is two of them inside the glasses' double-click window.
     func testGoButtonIsGoIndexInTheRemoteControlMessage() {
         XCTAssertEqual(InmoCommand.go(), data("080110022a020807"))
-        XCTAssertEqual(InmoCommand.goDouble(), [data("080110022a020807"), data("080110022a020807")])
-        XCTAssertLessThan(InmoCommand.doublePressGap, 0.4)
+    }
+
+    // The INMO app's own GO button (HomeConsoleFragment): raw key events, press on finger down and
+    // release on lift — Control{TOUCH_CTRL(20), 13: {source APP(1), key GO(4), state, systick ms}} —
+    // so the glasses tell single, double and long presses apart themselves.
+    func testGoKeyEventsAreTheAppsRawPressAndRelease() {
+        XCTAssertEqual(InmoCommand.goKey(pressed: true, atMillis: 1000), data("080110022a0d08146a0908011004180120e807"))
+        XCTAssertEqual(InmoCommand.goKey(pressed: false, atMillis: 1000), data("080110022a0b08146a070801100420e807"))
+    }
+
+    func testADoubleGoIsTwoTimedPressesInsideTheDoubleClickWindow() {
+        let steps = InmoCommand.goDoublePress(startMillis: 1000)
+        XCTAssertEqual(steps.map(\.bytes), [InmoCommand.goKey(pressed: true, atMillis: 1000),
+                                            InmoCommand.goKey(pressed: false, atMillis: 1070),
+                                            InmoCommand.goKey(pressed: true, atMillis: 1190),
+                                            InmoCommand.goKey(pressed: false, atMillis: 1260)])
+        XCTAssertEqual(steps.map(\.delayMillis), [0, 70, 120, 70])
     }
     // Schema-composed (not an observed golden): GlassesSettings{msgType: IOS_ANCS_ENABLE(24), isOpen}.
     // version=1, MessageType.GLASSES_SETTINGS(19) at tag 2, GlassesSettings at field 22,

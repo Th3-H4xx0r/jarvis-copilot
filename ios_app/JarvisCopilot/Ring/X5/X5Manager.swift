@@ -164,6 +164,8 @@ final class X5Manager: NSObject, ObservableObject {
 
     // MARK: Gestures
 
+    private var holdGate = X5HoldGate()
+
     private func received(_ gesture: X5Gesture) {
         let input = gesture.input
         lastInput = RingInputEvent(input: input, date: Date())
@@ -172,6 +174,24 @@ final class X5Manager: NSObject, ObservableObject {
             feed(.ignored, input.label, "gestures aren't set to Jarvis")
             return
         }
+        let bound = { [weak self] (input: RingInput) in self?.inputs?.action(for: input).isSet ?? false }
+        for step in holdGate.arrive(gesture, at: Date(), bound: bound) {
+            switch step {
+            case .run(let input):
+                run(input)
+            case .cancel(let input):
+                feed(.ignored, input.label, "the hold went on")
+            case .wait(_, let until):
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, until.timeIntervalSinceNow) * 1_000_000_000))
+                    guard let self, let due = self.holdGate.due(at: Date()) else { return }
+                    self.run(due)
+                }
+            }
+        }
+    }
+
+    private func run(_ input: RingInput) {
         let action = inputs?.action(for: input) ?? .none
         guard action.isSet else {
             session.log.note("X5 gesture: \(input.label)", "no action set")

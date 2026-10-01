@@ -54,6 +54,41 @@ final class X5GestureTests: XCTestCase {
         XCTAssertFalse(X5Protocol.isX5Name("X50"))
     }
 
+    // One 10-second hold reports 0C (~1 s), 0E (5 s) and 0F (10 s): only the longest bound hold runs.
+    func testALongHoldRunsOnlyTheLongestHoldThatHasAnAction() {
+        var gate = X5HoldGate()
+        let t0 = Date(timeIntervalSince1970: 0)
+        let bound: (RingInput) -> Bool = { $0 == .longPress || $0 == .holdFiveSeconds }
+        XCTAssertEqual(gate.arrive(.longPress, at: t0, bound: bound), [.wait(.longPress, until: t0.addingTimeInterval(X5HoldGate.toFive))])
+        XCTAssertEqual(gate.arrive(.hold5s, at: t0.addingTimeInterval(4), bound: bound), [.cancel(.longPress), .run(.holdFiveSeconds)])
+        XCTAssertNil(gate.due(at: t0.addingTimeInterval(10)))
+    }
+
+    func testALongPressReleasedEarlyRunsWhenItsWaitIsOver() {
+        var gate = X5HoldGate()
+        let t0 = Date(timeIntervalSince1970: 0)
+        _ = gate.arrive(.longPress, at: t0, bound: { _ in true })
+        XCTAssertNil(gate.due(at: t0.addingTimeInterval(1)))
+        XCTAssertEqual(gate.due(at: t0.addingTimeInterval(X5HoldGate.toFive)), .longPress)
+        XCTAssertNil(gate.due(at: t0.addingTimeInterval(9)))
+    }
+
+    func testWithNoLongerHoldBoundALongPressRunsAtOnce() {
+        var gate = X5HoldGate()
+        let now = Date(timeIntervalSince1970: 0)
+        XCTAssertEqual(gate.arrive(.longPress, at: now, bound: { $0 == .longPress }), [.run(.longPress)])
+        XCTAssertEqual(gate.arrive(.click, at: now, bound: { _ in true }), [.run(.tap)])
+    }
+
+    func testATenSecondHoldCancelsTheFiveSecondOne() {
+        var gate = X5HoldGate()
+        let t0 = Date(timeIntervalSince1970: 0)
+        let all: (RingInput) -> Bool = { _ in true }
+        _ = gate.arrive(.longPress, at: t0, bound: all)
+        _ = gate.arrive(.hold5s, at: t0.addingTimeInterval(4), bound: all)
+        XCTAssertEqual(gate.arrive(.hold10s, at: t0.addingTimeInterval(9), bound: all), [.cancel(.holdFiveSeconds), .run(.holdTenSeconds)])
+    }
+
     func testTheX5InputsAreAllNineGestures() {
         XCTAssertEqual(RingInput.x5.count, 9)
         XCTAssertFalse(RingInput.x5.contains(.doublePress))

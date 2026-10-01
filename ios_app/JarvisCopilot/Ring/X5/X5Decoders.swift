@@ -327,3 +327,65 @@ enum X5Decode {
                                paceSeconds: Int(p[15]), kcal: f32(p, 16), km: f32(p, 20))
     }
 }
+
+
+/// One long hold on the X5 reports each threshold it passes — long press (0C) at about a second,
+/// then 5 s (0E), then 10 s (0F). When a longer hold has an action, the shorter one waits to see
+/// whether the hold goes on, and is dropped if it does; otherwise it runs at once.
+struct X5HoldGate {
+    /// After 0C, how long 0E can take to follow.
+    static let toFive: TimeInterval = 4.5
+    /// After 0E, how long 0F can take to follow.
+    static let toTen: TimeInterval = 5.5
+
+    enum Step: Equatable {
+        case run(RingInput)
+        case wait(RingInput, until: Date)
+        case cancel(RingInput)
+    }
+
+    private(set) var pending: (input: RingInput, due: Date)?
+
+    mutating func arrive(_ gesture: X5Gesture, at now: Date, bound: (RingInput) -> Bool) -> [Step] {
+        var steps: [Step] = []
+        switch gesture {
+        case .longPress:
+            steps += flush()
+            if bound(.holdFiveSeconds) || bound(.holdTenSeconds) {
+                pending = (.longPress, now.addingTimeInterval(Self.toFive))
+                steps.append(.wait(.longPress, until: now.addingTimeInterval(Self.toFive)))
+            } else {
+                steps.append(.run(.longPress))
+            }
+        case .hold5s:
+            if pending?.input == .longPress { steps.append(.cancel(.longPress)); pending = nil }
+            if bound(.holdTenSeconds) {
+                pending = (.holdFiveSeconds, now.addingTimeInterval(Self.toTen))
+                steps.append(.wait(.holdFiveSeconds, until: now.addingTimeInterval(Self.toTen)))
+            } else {
+                steps.append(.run(.holdFiveSeconds))
+            }
+        case .hold10s:
+            if let waiting = pending?.input { steps.append(.cancel(waiting)); pending = nil }
+            steps.append(.run(.holdTenSeconds))
+        default:
+            steps += flush()
+            steps.append(.run(gesture.input))
+        }
+        return steps
+    }
+
+    /// The waiting hold, once its time is up.
+    mutating func due(at now: Date) -> RingInput? {
+        guard let pending, now >= pending.due else { return nil }
+        self.pending = nil
+        return pending.input
+    }
+
+    /// A new gesture means the hold that was waiting has ended: run it now.
+    private mutating func flush() -> [Step] {
+        guard let waiting = pending?.input else { return [] }
+        pending = nil
+        return [.run(waiting)]
+    }
+}

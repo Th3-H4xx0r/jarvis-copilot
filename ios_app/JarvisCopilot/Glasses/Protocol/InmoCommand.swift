@@ -11,9 +11,23 @@ enum InmoCommand {
     static func back() -> Data { control(4) }
     /// The remote's GO button: Control{CommandType.GO_INDEX(7)}, beside BACK_INDEX(4) and HOME_INDEX(5).
     static func go() -> Data { control(7) }
-    /// No message means "double GO": the glasses see two GO presses inside their double-click window.
-    static func goDouble() -> [Data] { [go(), go()] }
-    static let doublePressGap: TimeInterval = 0.25
+    /// The GO key as the INMO app's remote sends it: one raw key event (press on finger down, release
+    /// on lift) — Control{TOUCH_CTRL(20), 13: CommandTouchCtrl{source APP(1), key GO(4), state, systick}}.
+    /// The glasses tell single, double and long presses apart from these, so a double press needs them.
+    static func goKey(pressed: Bool, atMillis millis: UInt64) -> Data {
+        let event = InmoWireCodec.uint(1, 1) + InmoWireCodec.uint(2, 4)
+            + (pressed ? InmoWireCodec.uint(3, 1) : Data()) + InmoWireCodec.uint(4, millis)
+        return control(20, field: 13, payload: event)
+    }
+    /// Two taps inside the glasses' double-click window: down 70 ms, up 120 ms, down 70 ms, up.
+    static func goDoublePress(startMillis: UInt64) -> [(bytes: Data, delayMillis: UInt64)] {
+        var at = startMillis
+        let presses: [(Bool, UInt64)] = [(true, 0), (false, 70), (true, 120), (false, 70)]
+        return presses.map { pressed, delay in
+            at += delay
+            return (goKey(pressed: pressed, atMillis: at), delay)
+        }
+    }
     static func touch(kind: Int, direction: Int?, x: Int, y: Int) throws -> Data {
         guard (1...2).contains(kind), (0...100).contains(x), (0...100).contains(y), direction == nil || (0...3).contains(direction!) else { throw InmoProtocolError.malformed("Invalid touch gesture") }
         return control(8, field: 8, payload: InmoWireCodec.uint(1, UInt64(kind)) + (direction.map { InmoWireCodec.uint(2, UInt64($0)) } ?? Data()) + InmoWireCodec.uint(3, UInt64(x)) + InmoWireCodec.uint(4, UInt64(y)))
