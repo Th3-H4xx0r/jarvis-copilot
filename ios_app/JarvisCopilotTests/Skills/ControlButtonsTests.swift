@@ -162,6 +162,42 @@ final class ControlButtonsTests: XCTestCase {
         XCTAssertEqual(info(b.id)?.isOn, true)
     }
 
+    func testASwitchRunsItsOnActionAndItsOffAction() async {
+        let s = store()
+        var b = button("Bottle UV", .wearable(deviceID: "b1", skill: "bottle_sterilise",
+                                              arguments: ["on": "true", "confirm": "true"]))
+        b.keepsState = true
+        b.offAction = .wearable(deviceID: "b1", skill: "bottle_sterilise", arguments: ["on": "false"])
+        s.save(b)
+        await s.set(b.id, true)
+        await s.set(b.id, false)
+        XCTAssertEqual(ran, [b.action, b.offAction])
+        XCTAssertEqual(info(b.id)?.isOn, false)
+    }
+
+    func testASwitchWithoutAnOffActionRunsTheSameActionBothWays() async {
+        let s = store()
+        var b = button("Lamp", .prompt("toggle the lamp"))
+        b.keepsState = true
+        s.save(b)
+        await s.set(b.id, true)
+        await s.set(b.id, false)
+        XCTAssertEqual(ran, [b.action, b.action])
+    }
+
+    func testOnOffQuickActionsExistForEveryCommandWithAnOnSwitch() {
+        let capability = DeviceCapability(name: "bottle_sterilise", description: "",
+                                          inputSchema: DeviceCapability.schema([
+                                              "on": ["type": "boolean"], "confirm": ["type": "boolean"],
+                                          ], required: ["on"]))
+        let quick = WearableQuickActions.actions(for: capability)
+        XCTAssertEqual(quick.map(\.label), ["Sterilise now", "Stop sterilising"])
+        XCTAssertEqual(quick.first?.arguments, ["on": "true", "confirm": "true"])
+        XCTAssertEqual(quick.last?.arguments, ["on": "false"])
+        let plain = DeviceCapability(name: "bottle_get_status", description: "", inputSchema: DeviceCapability.schema())
+        XCTAssertTrue(WearableQuickActions.actions(for: plain).isEmpty)
+    }
+
     func testAKeepAliveChangedElsewhereRelightsTheSwitch() {
         let s = store()
         var b = button("X5 link", .skill(id: "keep_alive_x5ring", arguments: ["wearable": "x5ring", "state": "toggle"]))

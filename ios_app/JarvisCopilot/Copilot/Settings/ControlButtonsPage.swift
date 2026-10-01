@@ -7,6 +7,8 @@ struct ControlButton: Codable, Identifiable, Equatable {
     var name: String
     var symbol: String
     var action: RingAction
+    /// A switch's action when turned off; `.none` runs `action` both ways.
+    var offAction: RingAction = .none
     /// Goes in Control Center as a "Jarvis switch" that stays lit while on.
     var keepsState = false
     var isOn = false
@@ -63,7 +65,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
     // Older buttons have none of the state fields; the widget reads `caption`, which is
     // written but never read back.
     private enum CodingKeys: String, CodingKey {
-        case id, name, symbol, action, keepsState, isOn, offSymbol, tint, captionKind, captionText, lastResult
+        case id, name, symbol, action, offAction, keepsState, isOn, offSymbol, tint, captionKind, captionText, lastResult
         case caption
     }
 
@@ -73,6 +75,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         symbol = try c.decode(String.self, forKey: .symbol)
         action = try c.decodeIfPresent(RingAction.self, forKey: .action) ?? .none
+        offAction = try c.decodeIfPresent(RingAction.self, forKey: .offAction) ?? .none
         keepsState = try c.decodeIfPresent(Bool.self, forKey: .keepsState) ?? false
         isOn = try c.decodeIfPresent(Bool.self, forKey: .isOn) ?? false
         offSymbol = try c.decodeIfPresent(String.self, forKey: .offSymbol)
@@ -88,6 +91,7 @@ struct ControlButton: Codable, Identifiable, Equatable {
         try c.encode(name, forKey: .name)
         try c.encode(symbol, forKey: .symbol)
         try c.encode(action, forKey: .action)
+        try c.encode(offAction, forKey: .offAction)
         try c.encode(keepsState, forKey: .keepsState)
         try c.encode(isOn, forKey: .isOn)
         try c.encodeIfPresent(offSymbol, forKey: .offSymbol)
@@ -176,7 +180,7 @@ final class ControlButtonStore: ObservableObject {
     /// really is; any other action runs and the switch keeps the state it was flipped to.
     func set(_ id: String, _ on: Bool) async {
         guard var button = button(id) else { return }
-        var action = button.action
+        var action = !on && button.offAction.isSet ? button.offAction : button.action
         if button.keepAliveDevice != nil, case .skill(let option, var arguments) = action {
             arguments["state"] = on ? "on" : "off"
             action = .skill(id: option, arguments: arguments)
@@ -325,24 +329,22 @@ struct ControlButtonEditor: View {
                 CardGroup("Name") {
                     Row { TextField("e.g. Play / pause", text: $draft.name) }
                 }
-                CardGroup("Action", footer: "Anything a ring gesture can do: a phone or media action, a "
-                    + "wearable's command, a Jarvis prompt, or switching a wearable's keep-alive.") {
-                    NavigationLink {
-                        RingActionPicker(title: draft.name.isEmpty ? "Action" : draft.name,
-                                         current: draft.action) { draft.action = $0 }
-                    } label: {
-                        Row {
-                            HStack {
-                                Text(draft.action.isSet ? draft.action.summary : "Choose what it does")
-                                    .foregroundStyle(draft.action.isSet ? .primary : .secondary)
-                                    .lineLimit(2)
-                                Spacer(minLength: 8)
-                                JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                CardGroup(draft.keepsState ? "When turned on" : "Action",
+                          footer: "Anything a ring gesture can do: a phone or media action, a wearable's "
+                            + "command, a Jarvis prompt, or switching a wearable's keep-alive.") {
+                    actionRow(draft.action, empty: "Choose what it does") { draft.action = $0 }
+                }
+                if draft.keepsState && draft.keepAliveDevice == nil {
+                    CardGroup("When turned off", footer: "Leave it empty to run the same action both ways.") {
+                        actionRow(draft.offAction, empty: "Same as when turned on") { draft.offAction = $0 }
+                        if draft.offAction.isSet {
+                            RowDivider()
+                            Row {
+                                Button("Clear", role: .destructive) { draft.offAction = .none }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                 }
                 CardGroup("State", footer: draft.keepsState
                           ? "Add it in Control Center as a \"Jarvis switch\": it stays lit while on, even after "
@@ -403,6 +405,25 @@ struct ControlButtonEditor: View {
         } message: {
             Text("A Control Center control pointed at it stops doing anything.")
         }
+    }
+
+    private func actionRow(_ action: RingAction, empty: String,
+                           set: @escaping (RingAction) -> Void) -> some View {
+        NavigationLink {
+            RingActionPicker(title: draft.name.isEmpty ? "Action" : draft.name, current: action, onSave: set)
+        } label: {
+            Row {
+                HStack {
+                    Text(action.isSet ? action.summary : empty)
+                        .foregroundStyle(action.isSet ? .primary : .secondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func symbolRow(_ title: String, symbol: String, set: @escaping (String) -> Void) -> some View {

@@ -294,6 +294,23 @@ struct RingActionPicker: View {
                     }
                     ForEach(devices.devices, id: \.deviceID) { device in
                         ForEach(device.capabilities, id: \.name) { capability in
+                            ForEach(WearableQuickActions.actions(for: capability), id: \.label) { quick in
+                                Button {
+                                    save(.wearable(deviceID: device.deviceID, skill: capability.name,
+                                                   arguments: quick.arguments))
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(quick.label)
+                                        Text("\(type(of: device).model) · \(device.deviceID.suffix(6))")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    .padding(16)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                RowDivider()
+                            }
                             NavigationLink {
                                 RingWearableActionEditor(current: current, onSave: onSave, deviceID: device.deviceID,
                                     model: type(of: device).model, capability: capability)
@@ -379,6 +396,30 @@ struct RingActionPicker: View {
     }
 }
 
+
+/// One-tap versions of a wearable command with an on/off switch (`on: boolean`), so stopping is
+/// as easy to pick as starting — "Stop sterilising" next to "Sterilise now".
+enum WearableQuickActions {
+    struct Quick: Equatable {
+        let label: String
+        let arguments: [String: String]
+    }
+
+    private static let labels: [String: (on: String, off: String)] = [
+        "bottle_sterilise": ("Sterilise now", "Stop sterilising"),
+    ]
+
+    static func actions(for capability: DeviceCapability) -> [Quick] {
+        let properties = capability.inputSchema["properties"] as? [String: [String: Any]] ?? [:]
+        guard properties["on"]?["type"] as? String == "boolean" else { return [] }
+        let words = capability.name.split(separator: "_").map(String.init)
+        let title = (words.count > 1 ? words.dropFirst() : words[...]).joined(separator: " ").capitalized
+        let names = labels[capability.name] ?? ("\(title) on", "\(title) off")
+        // Starting a cycle the device asks to confirm is confirmed by choosing it here.
+        let on = properties["confirm"] != nil ? ["on": "true", "confirm": "true"] : ["on": "true"]
+        return [Quick(label: names.on, arguments: on), Quick(label: names.off, arguments: ["on": "false"])]
+    }
+}
 
 /// Uses the exact parameter schema advertised to chat; saves stable target identity.
 struct RingWearableActionEditor: View {
