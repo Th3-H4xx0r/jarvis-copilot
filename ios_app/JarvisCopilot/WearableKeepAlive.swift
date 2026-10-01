@@ -46,6 +46,7 @@ enum WearableKeepAlive {
 
     static func set(_ on: Bool, for device: String, defaults: UserDefaults = .standard) {
         defaults.set(on, forKey: key(device))
+        NotificationCenter.default.post(name: .jcKeepAliveChanged, object: device)
     }
 
     /// How long an on-demand link is held after the work finishes, so a burst
@@ -81,4 +82,9 @@ struct WearableKeepAliveToggle: View {
         + "so Jarvis can always reach this device. Off, it connects only when "
         + "something needs it — a command, an automation, or this screen — which "
         + "avoids the repeated reconnects and saves battery on both sides."
+}
+
+extension Notification.Name {
+    /// A wearable's Keep Alive changed; `object` is its key.
+    static let jcKeepAliveChanged = Notification.Name("jcKeepAliveChanged")
 }

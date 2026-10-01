@@ -226,6 +226,7 @@ struct JarvisWidgetBundle: WidgetBundle {
         if #available(iOS 18.0, *) {
             JarvisVoiceControl()
             JarvisButtonControl()
+            JarvisSwitchControl()
         }
     }
 }

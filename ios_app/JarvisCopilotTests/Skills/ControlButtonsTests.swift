@@ -10,8 +10,10 @@ final class ControlButtonsTests: XCTestCase {
     private var ran: [RingAction] = []
     private var notes: [(String, String)] = []
     private var reply = "done"
+    private var keepAlive: [String: Bool] = [:]
 
     override func setUp() async throws {
+        keepAlive = [:]
         defaults = UserDefaults(suiteName: "ControlButtonsTests-\(UUID().uuidString)")
         reloads = 0
         ran = []
@@ -23,7 +25,8 @@ final class ControlButtonsTests: XCTestCase {
         ControlButtonStore(defaults: defaults,
                            reloadControls: { [unowned self] in reloads += 1 },
                            runAction: { [unowned self] action in ran.append(action); return reply },
-                           notify: { [unowned self] title, body in notes.append((title, body)) })
+                           notify: { [unowned self] title, body in notes.append((title, body)) },
+                           keepAliveIsOn: { [unowned self] in keepAlive[$0] ?? false })
     }
 
     private func button(_ name: String, _ action: RingAction, symbol: String = "bolt.fill") -> ControlButton {
@@ -35,7 +38,8 @@ final class ControlButtonsTests: XCTestCase {
         let b = button("Play / pause", .skill(id: "play_pause", arguments: [:]), symbol: "playpause.fill")
         s.save(b)
         XCTAssertEqual(ControlButtonShelf.infos(defaults: defaults),
-                       [ControlButtonInfo(id: b.id, name: "Play / pause", symbol: "playpause.fill")])
+                       [ControlButtonInfo(id: b.id, name: "Play / pause", symbol: "playpause.fill",
+                                          keepsState: false, isOn: false)])
         XCTAssertEqual(reloads, 1, "Control Center is told to redraw")
     }
 
@@ -109,6 +113,93 @@ final class ControlButtonsTests: XCTestCase {
         let entity = ControlButtonEntity(ControlButtonInfo(id: "b1", name: "B", symbol: "bolt.fill"))
         _ = try await RunJarvisButtonIntent(button: entity).perform()
         XCTAssertEqual(pressed, ["b1"])
+    }
+
+    // MARK: buttons that keep their state
+
+    private func info(_ id: String) -> ControlButtonInfo? {
+        ControlButtonShelf.infos(defaults: defaults).first { $0.id == id }
+    }
+
+    func testAButtonThatKeepsItsStateFlipsAndTheWidgetSeesIt() async {
+        let s = store()
+        var b = button("Lamp", .prompt("toggle the lamp"))
+        b.keepsState = true
+        s.save(b)
+        await s.press(b.id)
+        XCTAssertEqual(info(b.id)?.isOn, true)
+        XCTAssertEqual(info(b.id)?.caption, "On")
+        XCTAssertEqual(info(b.id)?.keepsState, true)
+        await s.press(b.id)
+        XCTAssertEqual(info(b.id)?.isOn, false)
+        XCTAssertEqual(info(b.id)?.caption, "Off")
+    }
+
+    func testTheSwitchsLineCanBeTheLastResultOrOwnText() async {
+        let s = store()
+        var b = button("Day", .skill(id: "battery_level", arguments: [:]))
+        b.keepsState = true
+        b.captionKind = .lastResult
+        s.save(b)
+        reply = "battery_level: 85%"
+        await s.set(b.id, true)
+        XCTAssertEqual(info(b.id)?.caption, "battery_level: 85%")
+        b = s.button(b.id)!
+        b.captionKind = .text
+        b.captionText = "Saving battery"
+        s.save(b)
+        XCTAssertEqual(info(b.id)?.caption, "Saving battery")
+    }
+
+    func testAKeepAliveSwitchSetsExactlyThatStateAndShowsTheRealOne() async {
+        let s = store()
+        var b = button("X5 link", .skill(id: "keep_alive_x5ring", arguments: ["wearable": "x5ring", "state": "toggle"]))
+        b.keepsState = true
+        s.save(b)
+        keepAlive["x5ring"] = true
+        await s.set(b.id, true)
+        XCTAssertEqual(ran.last, .skill(id: "keep_alive_x5ring", arguments: ["wearable": "x5ring", "state": "on"]))
+        XCTAssertEqual(info(b.id)?.isOn, true)
+    }
+
+    func testAKeepAliveChangedElsewhereRelightsTheSwitch() {
+        let s = store()
+        var b = button("X5 link", .skill(id: "keep_alive_x5ring", arguments: ["wearable": "x5ring", "state": "toggle"]))
+        b.keepsState = true
+        s.save(b)
+        XCTAssertEqual(info(b.id)?.isOn, false)
+        keepAlive["x5ring"] = true
+        s.syncKeepAlive()
+        XCTAssertEqual(info(b.id)?.isOn, true)
+    }
+
+    func testAQueuedSwitchFlipIsRunWithItsValue() async {
+        let s = store()
+        var b = button("Lamp", .prompt("lamp"))
+        b.keepsState = true
+        s.save(b)
+        ControlButtonShelf.queue(b.id + "=on", defaults: defaults)
+        await s.runPending()
+        XCTAssertEqual(info(b.id)?.isOn, true)
+    }
+
+    func testButtonsSavedBeforeStatesExistedStillLoad() throws {
+        // Exactly what the first build wrote: no state fields at all.
+        let action = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RingAction.prompt("hi")))
+        let old: [[String: Any]] = [["id": "a", "name": "Old", "symbol": "bolt.fill", "action": action]]
+        let data = try JSONSerialization.data(withJSONObject: old)
+        defaults.setValue(data, forKey: ControlButtonShelf.key)
+        let loaded = store().button("a")
+        XCTAssertEqual(loaded?.name, "Old")
+        XCTAssertEqual(loaded?.keepsState, false)
+        XCTAssertEqual(loaded?.action, .prompt("hi"))
+    }
+
+    func testTheSymbolCatalogueHasThousandsAndSearches() {
+        XCTAssertGreaterThan(SFSymbolCatalog.all.count, 5000)
+        XCTAssertTrue(SFSymbolCatalog.search("bolt fill").contains { $0.name == "bolt.fill" })
+        XCTAssertTrue(SFSymbolCatalog.search("", category: "health").allSatisfy { $0.categories.contains("health") })
+        XCTAssertFalse(SFSymbolCatalog.all.contains { $0.name.hasSuffix(".ar") })
     }
 
     // MARK: wearable keep-alive as an action

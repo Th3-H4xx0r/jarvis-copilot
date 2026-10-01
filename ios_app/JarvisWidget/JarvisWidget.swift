@@ -114,6 +114,7 @@ struct JarvisButtonControl: ControlWidget {
             ControlWidgetButton(action: RunJarvisButtonIntent(button: button)) {
                 Label(button?.name ?? "Jarvis button", systemImage: button?.symbol ?? "bolt.circle")
             }
+            .tint(button?.info.tintColor)
         }
         .displayName("Jarvis button")
         .description("Runs one of the buttons set up in Jarvis settings.")
@@ -129,6 +130,44 @@ struct JarvisButtonProvider: AppIntentControlValueProvider {
 
     /// Re-read so a button renamed or given a new icon in settings shows the new one.
     func currentValue(configuration: ConfigureJarvisButtonIntent) async throws -> ControlButtonEntity? {
+        guard let id = configuration.button?.id else { return nil }
+        return ControlButtonShelf.infos().first { $0.id == id }.map(ControlButtonEntity.init)
+    }
+}
+
+// A button set to keep its state: lit while on, with the app's line under it (On/Off, the
+// last result or your own text). Flipping it runs the button in the app, like a press.
+
+@available(iOS 18.0, *)
+struct JarvisSwitchControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        AppIntentControlConfiguration(kind: ControlButtonShelf.switchKind,
+                                      provider: JarvisSwitchProvider()) { button in
+            ControlWidgetToggle(isOn: button?.info.isOn ?? false,
+                                action: SetJarvisButtonIntent(button: button)) {
+                Label(button?.name ?? "Jarvis switch", systemImage: button?.symbol ?? "switch.2")
+            } valueLabel: { isOn in
+                // The value label's symbol is the one Control Center draws for that state.
+                let lit = button?.symbol ?? "switch.2"
+                Label(button?.info.caption ?? (isOn ? "On" : "Off"),
+                      systemImage: isOn ? lit : (button?.info.offSymbol ?? lit))
+            }
+            .tint(button?.info.tintColor)
+        }
+        .displayName("Jarvis switch")
+        .description("A Jarvis button that stays lit while it is on.")
+        .promptsForUserConfiguration()
+    }
+}
+
+@available(iOS 18.0, *)
+struct JarvisSwitchProvider: AppIntentControlValueProvider {
+    func previewValue(configuration: ConfigureJarvisSwitchIntent) -> ControlButtonEntity? {
+        configuration.button
+    }
+
+    /// Re-read every time: the state, its line and the icon all change from the app.
+    func currentValue(configuration: ConfigureJarvisSwitchIntent) async throws -> ControlButtonEntity? {
         guard let id = configuration.button?.id else { return nil }
         return ControlButtonShelf.infos().first { $0.id == id }.map(ControlButtonEntity.init)
     }
