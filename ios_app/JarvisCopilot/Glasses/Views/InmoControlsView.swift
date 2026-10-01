@@ -68,17 +68,20 @@ struct InmoControlsView: View {
             }
             section("Remote") {
                 trackpad
+                // The INMO remote's own order: Back, Home, GO.
                 HStack {
-                    remoteButton("Home", icon: "house", name: "glasses_home")
                     remoteButton("Back", icon: "chevron.backward", name: "glasses_back")
+                    remoteButton("Home", icon: "house", name: "glasses_home")
+                    remoteButton("GO", icon: "arrowshape.forward.circle", name: "glasses_go")
                 }
+                remoteButton("Double GO", icon: "forward.circle", name: "glasses_go_double")
                 HStack {
                     directionButton("Left", symbol: "arrow.left", direction: "left")
                     directionButton("Up", symbol: "arrow.up", direction: "up")
                     directionButton("Down", symbol: "arrow.down", direction: "down")
                     directionButton("Right", symbol: "arrow.right", direction: "right")
                 }
-                Text("GO and the additional shortcut icons remain unavailable until their behavior is resolved from source and a device trial.").font(.caption).foregroundStyle(.secondary)
+                Text("Double GO sends two taps on the INMO app's own timing. The additional shortcut icons remain unavailable until their behavior is resolved from source and a device trial.").font(.caption).foregroundStyle(.secondary)
             }
             section("Display and sound") {
                 slider("Brightness", value: $brightness, observed: session.status.brightness, command: "glasses_set_brightness")
