@@ -376,6 +376,7 @@
 		73C8A57690DD0E0BB38340EA /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8C72BB81CD5599B46B3DA6E /* SettingsStore.swift */; };
 		74A39A4C24A4A53D671A9E46 /* HealthMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 438CBFA66B125FE31EA00B31 /* HealthMetric.swift */; };
 		74BC9B218D32CBC8139B1781 /* AmbientAudioInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = E064318F1F811F1B9FCEEBA5 /* AmbientAudioInput.swift */; };
+		751590D844BC6A01F4F01946 /* X5DayMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA4DB5DDB8CCE0F6E4F5B3D /* X5DayMapper.swift */; };
 		7546D428D70AF77791FEE43A /* VoiceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274510D099AF75A2D4633FAD /* VoiceStore.swift */; };
 		75A44CF686B6E0BBCBB997DA /* X5Decoders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA5D1D7A7E6B01264839350 /* X5Decoders.swift */; };
 		767AEF3A04221D4FFF907984 /* LocalConnectionNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1BDAA8C24CC7817B369158D /* LocalConnectionNotifier.swift */; };
@@ -619,6 +620,7 @@
 		C66D79970409AD8164FD3B33 /* AttachPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D80FE4FB1B0C68D6E945677 /* AttachPicker.swift */; };
 		C697ABCEBFCDF0436AF54A0F /* VoiceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F89193A08A684698BC94D5 /* VoiceControls.swift */; };
 		C6A02A63D446C814B4EE9C31 /* RingSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 636315DA1BBAF9F563DF7781 /* RingSyncTests.swift */; };
+		C6E354D16BE77EC388812F1E /* X5DayMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54077106F55F93BDAFE7BB3 /* X5DayMapperTests.swift */; };
 		C76E80B9F4DBC45C33F0D8F0 /* IslandDemoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */; };
 		C79C7D1B082B3B84896901E0 /* LiveVoiceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE69F2B05A9CDCD6C2E768EF /* LiveVoiceHistory.swift */; };
 		C7AADA8AF3D7D88D669318DD /* GlassesFaceLinkWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDD5AB20A075BC578FDD85AA /* GlassesFaceLinkWire.swift */; };
@@ -1430,6 +1432,7 @@
 		BAD972BD94BF423F742A06C7 /* MoreToneColorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreToneColorTests.swift; sourceTree = "<group>"; };
 		BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSkillsTests.swift; sourceTree = "<group>"; };
 		BB391EB2C40AAEA96CC56A2B /* RouteFollower.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteFollower.swift; sourceTree = "<group>"; };
+		BBA4DB5DDB8CCE0F6E4F5B3D /* X5DayMapper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5DayMapper.swift; sourceTree = "<group>"; };
 		BBC59431147E7314E8587018 /* AckTimer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AckTimer.swift; sourceTree = "<group>"; };
 		BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceDetailsView.swift; sourceTree = "<group>"; };
 		BC1FEF8EE3C4BA6BAD6F6C0B /* ChatMediaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatMediaTests.swift; sourceTree = "<group>"; };
@@ -1604,6 +1607,7 @@
 		F4C679DCAB3A6D97B2E47100 /* LiveStorageScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveStorageScreen.swift; sourceTree = "<group>"; };
 		F4C84B25EEC207DA7084976B /* OnDeviceEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceEngine.swift; sourceTree = "<group>"; };
 		F527682D7EBAB98DE66BB543 /* GlassesNavigator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNavigator.swift; sourceTree = "<group>"; };
+		F54077106F55F93BDAFE7BB3 /* X5DayMapperTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5DayMapperTests.swift; sourceTree = "<group>"; };
 		F5BF48AA40CAD7891EB709FC /* JarvisCopilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JarvisCopilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F6358EC26D522B891FC6A82E /* WatchBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingModelsTests.swift; sourceTree = "<group>"; };
@@ -3017,6 +3021,7 @@
 				742A0DCF5CEC674A2CFBF1D8 /* X5ProtocolTests.swift */,
 				BDE6DD13B962F0592D20B885 /* X5FramesTests.swift */,
 				E2139A233942561B671294AC /* X5DecodersTests.swift */,
+				F54077106F55F93BDAFE7BB3 /* X5DayMapperTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3027,6 +3032,7 @@
 				13230616650AD4EA4F83CF5A /* X5Protocol.swift */,
 				BC8A84197FF9598EF67D5716 /* X5Frames.swift */,
 				5BA5D1D7A7E6B01264839350 /* X5Decoders.swift */,
+				BBA4DB5DDB8CCE0F6E4F5B3D /* X5DayMapper.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3641,6 +3647,7 @@
 				CF74C845A1C47E59AE30F91D /* X5ProtocolTests.swift in Sources */,
 				D478F6A7507252707319286F /* X5FramesTests.swift in Sources */,
 				E91F4889A93AF4958B8C17FC /* X5DecodersTests.swift in Sources */,
+				C6E354D16BE77EC388812F1E /* X5DayMapperTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4185,6 +4192,7 @@
 				82C66C1FE13E3F9D8BD4B3A3 /* X5Protocol.swift in Sources */,
 				BB15BE4B410BA7913908438A /* X5Frames.swift in Sources */,
 				75A44CF686B6E0BBCBB997DA /* X5Decoders.swift in Sources */,
+				751590D844BC6A01F4F01946 /* X5DayMapper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

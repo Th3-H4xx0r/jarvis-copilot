@@ -1,5 +1,12 @@
 import Foundation
 
+/// One minute's steps, with its share of the block's energy (small calories) and distance.
+struct RingStepMinute: Codable, Equatable {
+    var steps: Int
+    var calories: Int
+    var distanceMeters: Int
+}
+
 struct RingMeasurementRecord: Codable, Equatable {
     var type: String
     var time: Date
@@ -35,6 +42,10 @@ struct RingDay: Codable, Equatable {
     var bloodPressure: [RingBloodPressureReading] = []
     var measurements: [RingMeasurementRecord] = []
     var syncedAt: Date?
+    /// Steps minute by minute (minute of the day), for rings that report them — the X5. Its
+    /// 15-minute `stepSlots` are rebuilt from these, so blocks that reach a slot in different
+    /// syncs neither go missing nor count twice.
+    var stepMinutes: [Int: RingStepMinute]?
 
     init(date: String) {
         self.date = date
@@ -43,7 +54,7 @@ struct RingDay: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case date, activity, stepSlots, sleep, naps, legacySleepSlots, heartRate, hrv, stress, temperature, spo2,
              bloodSugar, manualHeartRate, manualSpO2, instantHeartRate, instantSpO2, instantTemperature,
-             bloodPressure, measurements, syncedAt
+             bloodPressure, measurements, syncedAt, stepMinutes
     }
 
     /// Tolerates files written before a field existed.
@@ -69,6 +80,7 @@ struct RingDay: Codable, Equatable {
         bloodPressure = try c.decodeIfPresent([RingBloodPressureReading].self, forKey: .bloodPressure) ?? []
         measurements = try c.decodeIfPresent([RingMeasurementRecord].self, forKey: .measurements) ?? []
         syncedAt = try c.decodeIfPresent(Date.self, forKey: .syncedAt)
+        stepMinutes = try c.decodeIfPresent([Int: RingStepMinute].self, forKey: .stepMinutes)
     }
 
     // MARK: Merging
