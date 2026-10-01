@@ -58,6 +58,7 @@
 		0D71CED774F4761CD29B88B8 /* ChatAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58650A5C9B15B6832F2CB9D0 /* ChatAPITests.swift */; };
 		0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */; };
 		0D7CC8B9BED4D8B8F29E778C /* InmoAdvancedControlsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0572D9FE6F17A755CEDBB2F /* InmoAdvancedControlsTests.swift */; };
+		0DE57AD0613CDD6A01D5C9E9 /* X5ModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */; };
 		0E08A4E71E8B533FBA967C64 /* AppleHealthSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */; };
 		0E417891F65C1C75850F30E3 /* OnDeviceAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */; };
 		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
@@ -148,6 +149,7 @@
 		2A4A6A75346A4EC684FA5C0F /* WearablesDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83932DC6F3E44032B3655D15 /* WearablesDevice.swift */; };
 		2AC42558DA523D2FCBC4882F /* GradientButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F4338E72F1443806778AE7 /* GradientButton.swift */; };
 		2B03F20C352F08FEB2919368 /* RingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48670F467C67F30CDE44936 /* RingSettingsView.swift */; };
+		2B3E9FA1CD58363F73A84D01 /* X5SceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */; };
 		2B48BFAF259F095BC25C1944 /* VoiceModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6480C0ADC9254A6368121AE /* VoiceModelSelectionTests.swift */; };
 		2B84AD8307094FA3EE74158B /* ChatLinkGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */; };
 		2BA5D1B69E15131CC92A7547 /* RingFirmwareSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */; };
@@ -619,6 +621,7 @@
 		C486B6A4B100DBD7DE646E91 /* LiveTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB8072E619D2B019D5CDC0F /* LiveTranslator.swift */; };
 		C499C8D5B309FF9B23E33696 /* JarvisWatchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */; };
 		C4C918CF2E1E639E211C6E22 /* DevicesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451350B37D84B249122DE911 /* DevicesModels.swift */; };
+		C4DD6DB99CC99A7BE1BE2D23 /* X5Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F95C9BCD02B03D23E8450F1 /* X5Model.swift */; };
 		C523B6DB23478070B96CB497 /* LiveCaptureAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6731BC35052EE46AE1591D /* LiveCaptureAttributes.swift */; };
 		C5275C9CDB9223DFEF7D031E /* OnDeviceAISettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59437ADD8499A9F58BCACCEF /* OnDeviceAISettingsPage.swift */; };
 		C5296BF639CBA353F3942A60 /* AmbientSegmenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A7C6D26BF3CF6E295291166 /* AmbientSegmenterTests.swift */; };
@@ -883,6 +886,7 @@
 		01EFFA0F3449BFE8B91287B3 /* SkillBoundariesMedia.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SkillBoundariesMedia.swift; sourceTree = "<group>"; };
 		01F941B5EAA9C62201055E85 /* HealthTab.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTab.swift; sourceTree = "<group>"; };
 		022844154506DD1C8D094A52 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5ModelRenderTests.swift; sourceTree = "<group>"; };
 		02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCoreTests.swift; sourceTree = "<group>"; };
 		02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthSync.swift; sourceTree = "<group>"; };
 		034FFC524E870F818694414F /* VoiceReply.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReply.swift; sourceTree = "<group>"; };
@@ -1022,6 +1026,7 @@
 		2C6731BC35052EE46AE1591D /* LiveCaptureAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureAttributes.swift; sourceTree = "<group>"; };
 		2CB6A3F88662D09F9B8BFE8C /* FormSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FormSheet.swift; sourceTree = "<group>"; };
 		2D79439207C33B8E5CF27CBF /* CodingUIFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingUIFormatTests.swift; sourceTree = "<group>"; };
+		2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SceneView.swift; sourceTree = "<group>"; };
 		2DB1DCE5A5277236E8DD6F3D /* GlassesModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesModelRenderTests.swift; sourceTree = "<group>"; };
 		2E7F6CFA348BC6D331132861 /* HealthWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthWireTests.swift; sourceTree = "<group>"; };
 		2EAF49343F83819ADBB1C63C /* ChatStreamReducerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducerTests.swift; sourceTree = "<group>"; };
@@ -1073,6 +1078,7 @@
 		3E927550CC7A702DA1D9CD19 /* DevicesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesAPI.swift; sourceTree = "<group>"; };
 		3EE084463952C282DCF39416 /* InmoBluetoothFrameCodec.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoBluetoothFrameCodec.swift; sourceTree = "<group>"; };
 		3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3F95C9BCD02B03D23E8450F1 /* X5Model.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Model.swift; sourceTree = "<group>"; };
 		400FA2F56850D118445F9F10 /* RingHand-LICENSE.md */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = net.daringfireball.markdown; path = "RingHand-LICENSE.md"; sourceTree = "<group>"; };
 		40C064350AA8B81978194E2B /* ShellSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShellSnapshotTests.swift; sourceTree = "<group>"; };
 		413E3BCBB775B509259D57DF /* InvokeRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InvokeRunner.swift; sourceTree = "<group>"; };
@@ -3049,6 +3055,7 @@
 				4718FC64FF8148AD758B3A27 /* X5SessionTests.swift */,
 				51EF7F153081587C4D1E1074 /* X5RingTests.swift */,
 				272E675A6D3B764552D4CB0A /* X5GestureTests.swift */,
+				023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3065,6 +3072,8 @@
 				F639C80D373289F6AB6A8862 /* X5Manager.swift */,
 				229DB1F0276D51562C58631D /* X5MeasureController.swift */,
 				9D7DCD0D66F9964AC4FB6B64 /* X5Ring.swift */,
+				3F95C9BCD02B03D23E8450F1 /* X5Model.swift */,
+				2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */,
 			);
 			name = X5;
 			path = X5;
@@ -3686,6 +3695,7 @@
 				3CBC0CD2600189C8D7F4B147 /* X5SessionTests.swift in Sources */,
 				20549939B16322F08DE89AC8 /* X5RingTests.swift in Sources */,
 				E41E345C1690B27939EAFCE1 /* X5GestureTests.swift in Sources */,
+				0DE57AD0613CDD6A01D5C9E9 /* X5ModelRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4237,6 +4247,8 @@
 				44100161EFA4BC399696C1C9 /* X5Manager.swift in Sources */,
 				E0FED5DF23E37DA8B1824022 /* X5MeasureController.swift in Sources */,
 				DD3776C118ED240C7466B619 /* X5Ring.swift in Sources */,
+				C4DD6DB99CC99A7BE1BE2D23 /* X5Model.swift in Sources */,
+				2B3E9FA1CD58363F73A84D01 /* X5SceneView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

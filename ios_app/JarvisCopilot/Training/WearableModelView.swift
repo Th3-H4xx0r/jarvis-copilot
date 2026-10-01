@@ -14,6 +14,8 @@ struct WearableModelView: View {
             switch kind {
             case WearableKeepAlive.ring:
                 RingSceneView(spin: spins, tilt: 1.0, cameraDistance: 5.2, spinSeconds: 26, animatesAnywhere: true)
+            case WearableKeepAlive.x5ring:
+                X5SceneView(spin: spins, tilt: 1.0, cameraDistance: 5.2, spinSeconds: 26, animatesAnywhere: true)
             case WearableKeepAlive.bottle:
                 BottleSceneView(spin: spins, tilt: -0.16, animatesAnywhere: true)
             case WearableKeepAlive.scale:
