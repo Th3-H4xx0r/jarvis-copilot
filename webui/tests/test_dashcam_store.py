@@ -890,7 +890,7 @@ def test_upsert_camera_merges_and_drops_secrets(store):
 
 def test_settings_defaults_and_validation(store):
     s = store.get_settings()
-    assert s["rules"] == {"normal": "off", "normal_when": "any", "phone_cap_gb": 20, "keep_on_phone": False}
+    assert s["rules"] == ds.DEFAULT_SETTINGS["rules"]
     assert s["staging_cap_bytes"] == 4 * 1024 ** 3
     saved, errors = store.update_settings({"rules": {"normal": "front", "keep_on_phone": True}})
     assert errors == [] and saved["rules"]["normal"] == "front" and saved["rules"]["normal_when"] == "any"
@@ -921,7 +921,7 @@ def test_corrupt_files_read_as_empty(store):
     (store.base / "fixes").mkdir(exist_ok=True)
     (store.base / "fixes" / f"{cid}.json").write_text("nope")
     assert store.cameras() == [] and store.destinations() == []
-    assert store.get_settings()["rules"]["normal"] == "off"
+    assert store.get_settings()["rules"] == ds.DEFAULT_SETTINGS["rules"]
     assert store.get_clip(cid) is None and store.get_fixes(cid) == []
     assert store.list_clips() == ([], None) and store.drives() == []
 

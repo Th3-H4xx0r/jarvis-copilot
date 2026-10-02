@@ -77,7 +77,7 @@ IDLE_UPLOAD_S = 24 * 3600              # unfinished uploads idle this long are p
 DISK_RESERVE_BYTES = 2 * 1024 ** 3     # an upload is refused (staging_full) if it would leave less free
 
 DEFAULT_SETTINGS = {
-    "rules": {"normal": "off",          # off | front | all
+    "rules": {"normal": "all",          # off | front | all (auto sync pulls everything by default)
               "normal_when": "any",     # any | parked
               "phone_cap_gb": 20,       # 1..512, applies to normal footage only
               "keep_on_phone": False},
