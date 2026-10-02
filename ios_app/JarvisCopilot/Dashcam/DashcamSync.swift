@@ -290,7 +290,9 @@ final class DashcamSync: ObservableObject {
                 forced.remove(f.path)
                 report.downloaded.append(f.path)
                 try? await server.setPhone(clipID: id, state: "local", error: nil)
-                await uploader.enqueue(clipID: id, local: dest, size: f.size, kind: f.kind)
+                // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
+                let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
+                await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind)
                 queuedDownloads = max(0, queuedDownloads - 1)
             } catch {
                 downloading = nil

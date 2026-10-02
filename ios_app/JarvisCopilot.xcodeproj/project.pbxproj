@@ -822,6 +822,7 @@
 		EB3653AF37C362BF3DC16C40 /* EndpointerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D11906CB17D802304BE126 /* EndpointerTests.swift */; };
 		EC14C36CC09CE319961BC110 /* VoiceModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */; };
 		EC207F774C0218D2783B94D9 /* VoiceReply.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034FFC524E870F818694414F /* VoiceReply.swift */; };
+		EC55078BF03309A17DA84033 /* DashcamLiveCameraTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */; };
 		ECEC3610EB3AE9052A6F446C /* DashcamCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9379EFBA47C09851A8E9A52 /* DashcamCamera.swift */; };
 		ECED814028FBA24B42228563 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96A33C9D808787F7E83495B /* RouteMap.swift */; };
 		ED1634C71A49D7D0C50976E1 /* InmoRuntimeDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92160D7DC26CA93B6E15D30E /* InmoRuntimeDiagnostics.swift */; };
@@ -1373,6 +1374,7 @@
 		83D9B59BF874209D4DD6281A /* BottleSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleSceneView.swift; sourceTree = "<group>"; };
 		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
+		8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLiveCameraTests.swift; sourceTree = "<group>"; };
 		858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureSource.swift; sourceTree = "<group>"; };
 		8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelSelection.swift; sourceTree = "<group>"; };
 		863366496127EA732989D701 /* ChatUIFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatUIFormatTests.swift; sourceTree = "<group>"; };
@@ -3067,6 +3069,7 @@
 				F9985639A9F0FC30B7E4C373 /* DashcamSyncTests.swift */,
 				A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */,
 				AD01036FD92CB886C124E925 /* DashcamUIModelTests.swift */,
+				8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -3957,6 +3960,7 @@
 				1A1D4C9F1AF7D2330893D396 /* DashcamSyncTests.swift in Sources */,
 				85F52E07CDA999CB735729A8 /* DashcamDeviceTests.swift in Sources */,
 				72ADB3BA62CDB03AE393A9D6 /* DashcamUIModelTests.swift in Sources */,
+				EC55078BF03309A17DA84033 /* DashcamLiveCameraTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

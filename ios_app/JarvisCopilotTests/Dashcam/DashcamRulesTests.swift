@@ -48,6 +48,20 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertEqual(DashcamRules(json: ["normal": "bogus"]).normal, .off)
     }
 
+    func testAListingRoundedUpToWholeKBStillCountsAsDownloaded() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = DashcamStorage(root: root)
+        let listed = file(.event, size: 3 * 1024, name: "e.mp4")          // camera says 3 KB
+        let url = storage.localURL(camera: "cam", file: listed)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 2 * 1024 + 300).write(to: url)                    // real file is 2.3 KB
+        XCTAssertTrue(storage.exists(camera: "cam", file: listed))
+        XCTAssertEqual(storage.localSize(camera: "cam", file: listed), 2 * 1024 + 300)
+        try Data(count: 100).write(to: url)
+        XCTAssertFalse(storage.exists(camera: "cam", file: listed), "far short of the listing")
+    }
+
     func testEvictionOnlyRemovesOldUploadedNormalClips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

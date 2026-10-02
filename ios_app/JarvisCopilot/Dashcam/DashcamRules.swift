@@ -91,10 +91,15 @@ struct DashcamStorage: Sendable {
             .appendingPathComponent(file.name)
     }
 
+    /// A download only lands at its final path once it finished, so a file there is complete. The
+    /// size check allows for Viidure listing sizes in whole KB (rounded up).
     func exists(camera: String, file: DashcamFile) -> Bool {
-        guard let size = try? FileManager.default.attributesOfItem(atPath: localURL(camera: camera, file: file).path)[.size] as? NSNumber
-        else { return false }
-        return size.int64Value >= file.size
+        guard let size = localSize(camera: camera, file: file) else { return false }
+        return size > 0 && size >= file.size - 1024
+    }
+
+    func localSize(camera: String, file: DashcamFile) -> Int64? {
+        (try? FileManager.default.attributesOfItem(atPath: localURL(camera: camera, file: file).path)[.size] as? NSNumber)?.int64Value
     }
 
     /// Bytes of normal footage on the phone (what the cap measures).
