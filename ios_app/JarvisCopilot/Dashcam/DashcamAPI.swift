@@ -49,6 +49,8 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var uploadState: String
     var destinations: [String: DashcamDestinationState]
     var driveID: String?
+    /// The server's own verdict (every enabled destination has it); preferred over recomputing.
+    var serverUploaded: Bool?
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
@@ -76,12 +78,13 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
         }
         destinations = dests
         driveID = str(json["drive_id"])
+        serverUploaded = json["uploaded"].map(bool)
     }
 
     var end: Date { start.addingTimeInterval(durationS) }
 
     /// Every destination the clip was sent to has it.
-    var uploaded: Bool { !destinations.isEmpty && destinations.values.allSatisfy { $0.state == "done" } }
+    var uploaded: Bool { serverUploaded ?? (!destinations.isEmpty && destinations.values.allSatisfy { $0.state == "done" }) }
     var failed: Bool { destinations.values.contains { $0.state == "failed" } || phoneState == "failed" }
     var uploading: Bool {
         !uploaded && (uploadState == "staging" || uploadState == "staged"
@@ -158,6 +161,7 @@ struct DashcamUploadTicket: Equatable, Sendable {
     let uploadID: String
     let chunkSize: Int
     let received: Set<Int>
+    var complete: Bool = false
 }
 
 // MARK: - Client
@@ -170,8 +174,12 @@ struct DashcamAPI: Sendable {
 
     enum UploadStart: Equatable, Sendable {
         case ticket(DashcamUploadTicket)
+        /// The server already has this clip (finished earlier, or uploaded and cleaned up).
+        case alreadyThere
         /// 507: the server's staging area is full; try again after this many seconds.
         case full(retryAfter: TimeInterval)
+        /// 413: bigger than the server's whole staging area — it can never be sent as things stand.
+        case tooLarge
     }
 
     func state() async throws -> DashcamServerState {
@@ -307,12 +315,20 @@ struct DashcamAPI: Sendable {
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> UploadStart {
         do {
             let o = try await api.post(Self.prefix + "/uploads", json: ["clip_id": clipID, "size": size, "sha256": sha256]).object()
-            guard let id = str(o["upload_id"]) else { throw APIError.badResponse("no upload_id") }
-            let received = Set((o["received"] as? [Any] ?? []).compactMap { num($0).map(Int.init) })
-            return .ticket(DashcamUploadTicket(uploadID: id, chunkSize: Int(num(o["chunk_size"]) ?? 16_777_216), received: received))
+            return try Self.uploadStart(o)
         } catch APIError.http(let status, _) where status == 507 {
             return .full(retryAfter: 60)
+        } catch APIError.http(let status, _) where status == 413 {
+            return .tooLarge
         }
+    }
+
+    static func uploadStart(_ o: [String: Any]) throws -> UploadStart {
+        if bool(o["already_uploaded"]) { return .alreadyThere }
+        guard let id = str(o["upload_id"]) else { throw APIError.badResponse("no upload_id") }
+        let received = Set((o["received"] as? [Any] ?? []).compactMap { num($0).map(Int.init) })
+        return .ticket(DashcamUploadTicket(uploadID: id, chunkSize: Int(num(o["chunk_size"]) ?? 16_777_216),
+                                           received: received, complete: bool(o["complete"])))
     }
 
     /// The request for one chunk, for a background upload task (the body comes from a file).

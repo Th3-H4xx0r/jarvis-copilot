@@ -44,6 +44,21 @@ final class DashcamAPITests: XCTestCase {
         XCTAssertNil(DashcamFix(row: ["x"]))
     }
 
+    func testUploadStartReplies() throws {
+        XCTAssertEqual(try DashcamAPI.uploadStart(["ok": true, "upload_id": NSNull(), "complete": true, "already_uploaded": true]), .alreadyThere)
+        guard case .ticket(let t) = try DashcamAPI.uploadStart(["upload_id": "u1", "chunk_size": 4, "received": [0, 2], "complete": false]) else {
+            return XCTFail("expected a ticket")
+        }
+        XCTAssertEqual(t.received, [0, 2])
+        XCTAssertFalse(t.complete)
+        XCTAssertThrowsError(try DashcamAPI.uploadStart(["ok": true]))
+    }
+
+    func testServerUploadedFlagWins() throws {
+        let c = try XCTUnwrap(DashcamServerClip(json: ["id": "c", "path": "/p", "uploaded": true, "destinations": [:]]))
+        XCTAssertTrue(c.uploaded)
+    }
+
     func testInventoryRowNeedsIdAndPath() {
         XCTAssertNotNil(DashcamInventoryRow(json: ["id": "c", "path": "/p", "has_gps": 1, "uploaded": true]))
         XCTAssertNil(DashcamInventoryRow(json: ["id": "c"]))

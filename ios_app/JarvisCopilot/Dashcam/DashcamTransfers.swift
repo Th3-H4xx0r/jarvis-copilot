@@ -190,6 +190,14 @@ actor DashcamUploader {
             do {
                 if job.sha256 == nil { job.sha256 = try Self.sha256(of: URL(fileURLWithPath: job.localPath)) }
                 switch try await server.startUpload(clipID: job.clipID, size: job.size, sha256: job.sha256 ?? "") {
+                case .alreadyThere:
+                    done.append(clipID)
+                    jobs.removeAll { $0.clipID == clipID }
+                    persist()
+                case .tooLarge:
+                    job.notBefore = now().addingTimeInterval(24 * 3600)
+                    job.lastError = "bigger than the server's upload space — raise the staging cap"
+                    update(job)
                 case .full(let retryAfter):
                     job.notBefore = now().addingTimeInterval(max(retryAfter, Self.backoff(attempts: job.attempts + 1)))
                     job.lastError = "the server's upload space is full"
@@ -198,8 +206,16 @@ actor DashcamUploader {
                 case .ticket(let ticket):
                     job.uploadID = ticket.uploadID
                     job.chunkSize = ticket.chunkSize
-                    try await sendMissing(job: job, ticket: ticket, server: server, cellular: cellular, progress: progress)
-                    try await server.completeUpload(ticket.uploadID)
+                    if !ticket.complete {
+                        try await sendMissing(job: job, ticket: ticket, server: server, cellular: cellular, progress: progress)
+                        do {
+                            try await server.completeUpload(ticket.uploadID)
+                        } catch APIError.http(let status, let message) where status == 400 && message.contains("mismatch") {
+                            // The server dropped the chunks; hash the file again and start over next run.
+                            job.sha256 = nil
+                            throw APIError.http(status: status, message: message)
+                        }
+                    }
                     done.append(clipID)
                     jobs.removeAll { $0.clipID == clipID }
                     persist()

@@ -91,7 +91,9 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
     var full = false
     var completed: [String] = []
     var failChunk: Int?
+    var start: DashcamAPI.UploadStart?
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> DashcamAPI.UploadStart {
+        if let start { return start }
         if full { return .full(retryAfter: 60) }
         return .ticket(DashcamUploadTicket(uploadID: "u_" + clipID, chunkSize: 4, received: received))
     }
@@ -295,6 +297,24 @@ final class DashcamUploaderTests: XCTestCase {
         let later = await uploader.run(server: server, cellular: false, now: { clock })
         XCTAssertEqual(later, ["c1"])
         XCTAssertEqual(server.chunks.map(\.1), [0, 1, 2], "chunk 0 was not sent twice")
+    }
+
+    func testAlreadyUploadedClipsLeaveTheQueueAndTooLargeOnesPark() async throws {
+        let a = try tempFile(4), b = try tempFile(4)
+        let uploader = DashcamUploader(file: FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID().uuidString).json"))
+        await uploader.enqueue(clipID: "a", local: a, size: 4, kind: .event)
+        let server = FakeUploadServer()
+        server.start = .alreadyThere
+        let done = await uploader.run(server: server, cellular: false)
+        XCTAssertEqual(done, ["a"])
+        XCTAssertTrue(server.chunks.isEmpty, "nothing re-sent")
+        await uploader.enqueue(clipID: "b", local: b, size: 4, kind: .event)
+        server.start = .tooLarge
+        let none = await uploader.run(server: server, cellular: false)
+        XCTAssertTrue(none.isEmpty)
+        let job = await uploader.jobs.first
+        XCTAssertNotNil(job?.lastError)
+        XCTAssertGreaterThan(job?.notBefore ?? .distantPast, Date().addingTimeInterval(3600))
     }
 
     func testFullStagingStopsTheRunAndNormalFootageWaitsForWiFi() async throws {
