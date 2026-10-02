@@ -424,7 +424,48 @@ class Relay:
         return name
 
     def delete_remote(self, remote: str) -> None:
-        self.rc("config/delete", {"name": remote})
+        """Deletes ``remote`` and the secrets in it. When rclone can't be asked (not installed, not
+        starting, not answering) its section is cut out of rclone.conf directly; rclone re-reads a
+        config file that changed under it. Raises only when neither worked."""
+        try:
+            self.rc("config/delete", {"name": remote})
+            return
+        except (RelayError, RelayUnavailable) as exc:
+            error = exc
+        if not self._remove_config_section(remote):
+            raise error
+        logger.info("dashcam relay: rclone unavailable (%s); removed %s from %s directly", error, remote,
+                    self.config_path)
+
+    def _remove_config_section(self, remote: str) -> bool:
+        """Drops ``[remote]`` and its keys from rclone.conf (atomically, mode 0600). True when the
+        file no longer holds it."""
+        with self._lock:
+            try:
+                lines = self.config_path.read_text(encoding="utf-8").splitlines(keepends=True)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            kept, skipping, removed = [], False, False
+            for line in lines:
+                text = line.strip()
+                if text.startswith("[") and text.endswith("]"):
+                    skipping = text[1:-1].strip() == remote
+                    removed = removed or skipping
+                if not skipping:
+                    kept.append(line)
+            if not removed:
+                return True
+            tmp = self.config_path.with_name(self.config_path.name + ".tmp")
+            try:
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write("".join(kept))
+                os.replace(tmp, self.config_path)
+            except OSError:
+                return False
+            return True
 
     def test_remote(self, remote: str, path: str) -> tuple[bool, str | None]:
         """Creates the base folder if needed and lists it: proves the login and write access path."""
@@ -495,10 +536,14 @@ class Relay:
         try:
             resp = urllib.request.urlopen(req, timeout=RC_TIMEOUT_S)
         except urllib.error.HTTPError as exc:
-            body = exc.read()
-            exc.close()
+            try:
+                body = exc.read()
+            except (OSError, http.client.HTTPException):
+                body = json.dumps({"ok": False, "error": f"rclone answered HTTP {exc.code}"}).encode()
+            finally:
+                exc.close()
             return exc.code, {"Content-Type": "application/json"}, iter([body])
-        except (urllib.error.URLError, OSError) as exc:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             raise RelayError(f"rclone is not answering: {exc}") from None
         out = {}
         for key in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified"):

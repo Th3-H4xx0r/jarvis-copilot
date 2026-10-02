@@ -7,6 +7,7 @@ A real DashcamStore on tmp_path, a stub relay, and a fake request handler. Run f
 from __future__ import annotations
 
 import hashlib
+import http.client
 import io
 import json
 import xml.etree.ElementTree as ET
@@ -397,6 +398,27 @@ def test_stream_from_a_done_destination(store, H, relay):
     h = FakeHandler()
     dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay)
     assert h.status == 503
+
+
+@pytest.mark.parametrize("error", [TimeoutError("timed out"), http.client.IncompleteRead(b"", 90),
+                                   OSError("connection reset by rclone")])
+def test_a_stream_that_breaks_after_the_headers_just_ends(store, H, relay, error):
+    d = add_dest(H)
+    (cid,) = inventory(H, "a.MP4", size=10)
+    upload(H, store, cid, b"0123456789")
+    store.set_destination_state(cid, d["id"], "done", remote_path="dashcam/A4-1234/x/a.MP4")
+    store.release_staging_if_done(cid)
+
+    def blocks():
+        yield b"01234"
+        raise error
+
+    relay.stream = (206, relay.stream[1], blocks())
+    relay.open_stream = lambda *a: (relay.stream[0], dict(relay.stream[1]), relay.stream[2])
+    h = FakeHandler({"Range": "bytes=0-99"})
+    assert dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay) is True
+    # The 206 had started: no JSON error in the body, just a short body and a closed connection.
+    assert h.status == 206 and h.wfile.getvalue() == b"01234" and h.close_connection is True
 
 
 def test_stream_before_upload_is_404(store, H, relay):

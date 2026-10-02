@@ -641,8 +641,13 @@ def _stream(handler, store, cid: str, relay) -> None:
         try:
             for block in blocks:
                 handler.wfile.write(block)
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # the player cancelled this range
+        except Exception as exc:
+            # The status line and headers are out: a JSON error now would land inside the clip's
+            # bytes. End the response instead; the short body plus the closed connection tells the
+            # player to ask for the range again.
+            handler.close_connection = True
+            if not isinstance(exc, (BrokenPipeError, ConnectionResetError)):  # else: the player cancelled
+                logger.info("dashcam stream of %s ended early: %s", cid, exc)
         finally:
             close = getattr(blocks, "close", None)
             if close:

@@ -326,6 +326,23 @@ def test_delete_and_test_remote(fake, relay):
     assert fake.remotes == {}
 
 
+def test_deleting_a_remote_while_rclone_is_down_still_removes_its_secrets(tmp_path, monkeypatch):
+    monkeypatch.delenv("JC_RCLONE_BIN", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    r = Relay(tmp_path)
+    r.config_path.parent.mkdir(parents=True)
+    r.config_path.write_text("[jc_d_aaaaaaaa]\ntype = sftp\nhost = nas.local\npass = OBSCURED-SECRET\n\n"
+                             "[jc_d_bbbbbbbb]\ntype = ftp\nhost = ftp.local\n")
+    r.config_path.chmod(0o600)
+    r.delete_remote("jc_d_aaaaaaaa")                      # rclone is not installed: no error either
+    text = r.config_path.read_text()
+    assert "jc_d_aaaaaaaa" not in text and "OBSCURED-SECRET" not in text and "nas.local" not in text
+    assert "[jc_d_bbbbbbbb]" in text and "host = ftp.local" in text
+    assert stat.S_IMODE(r.config_path.stat().st_mode) == 0o600
+    r.delete_remote("jc_d_cccccccc")                      # not there: nothing to do
+    assert r.config_path.read_text() == text
+
+
 # ── paths, copies, jobs ──────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("base,expected", [
