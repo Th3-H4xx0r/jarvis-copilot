@@ -500,6 +500,65 @@ def test_abandon_upload_resets_a_staged_clip_no_destination_takes(store):
     assert store.abandon_upload("c_missing") is False
 
 
+def test_low_free_disk_is_staging_full(store, monkeypatch):
+    add_dest(store)
+    store.apply_inventory(CAM, [item("a.MP4", size=10)])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    assert ds.DISK_RESERVE_BYTES == 2 * 1024 ** 3
+    monkeypatch.setattr(ds, "DISK_RESERVE_BYTES", 1 << 62)   # more than any disk has free
+    assert store.create_upload(cid, 10, "a" * 64, 4) == (None, "staging_full")
+    assert store.get_clip(cid)["upload"]["state"] == "none"
+    monkeypatch.setattr(ds, "DISK_RESERVE_BYTES", 0)
+    assert store.create_upload(cid, 10, "a" * 64, 4)[1] is None
+
+
+def test_a_chunk_racing_a_dropped_upload_leaves_no_orphan(store, monkeypatch):
+    add_dest(store)
+    data = b"01234567"
+    store.apply_inventory(CAM, [item("a.MP4", size=8)])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    up, _ = store.create_upload(cid, 8, hashlib.sha256(data).hexdigest(), 4)
+    part = store.staging_path(up["id"])
+    real_path = store.staging_path
+    fired = []
+
+    def racing(upload_id):
+        if not fired:   # the next camera listing shows a new size between the check and the write
+            fired.append(1)
+            store.apply_inventory(CAM, [item("a.MP4", size=200)])
+        return real_path(upload_id)
+
+    monkeypatch.setattr(store, "staging_path", racing)
+    assert store.write_chunk(up["id"], 1, data[4:])[1] == "upload_not_found"
+    assert fired and not part.exists()
+
+
+def test_create_upload_makes_the_part_file_up_front(store):
+    add_dest(store)
+    store.apply_inventory(CAM, [item("a.MP4", size=8)])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    up, _ = store.create_upload(cid, 8, "a" * 64, 4)
+    assert store.staging_path(up["id"]).is_file()
+
+
+def test_a_retried_complete_never_resets_destinations_in_flight(store, monkeypatch):
+    dest = add_dest(store)
+    cid, up = upload_clip(store, item("a.MP4", size=10), b"0123456789")
+    store.set_destination_state(cid, dest["id"], "uploading", remote_path="r", upload_id=up["id"])
+    stale = dict(store.get_upload(up["id"]), completed_at=None, complete=False)
+    real_get = store.get_upload
+    calls = []
+
+    def first_call_stale(upload_id):   # the retry read the upload just before the first finished
+        calls.append(upload_id)
+        return dict(stale) if len(calls) == 1 else real_get(upload_id)
+
+    monkeypatch.setattr(store, "get_upload", first_call_stale)
+    clip, err = store.complete_upload(up["id"])
+    assert err is None and clip["upload"]["state"] == "staged"
+    assert store.get_clip(cid)["destinations"][dest["id"]]["state"] == "uploading"
+
+
 # ── destinations ─────────────────────────────────────────────────────────────
 
 def test_destinations_store_metadata_never_secrets(store):

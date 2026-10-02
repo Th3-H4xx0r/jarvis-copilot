@@ -37,6 +37,7 @@ import math
 import os
 import re
 import secrets
+import shutil
 import threading
 import time
 from datetime import datetime, timezone
@@ -63,6 +64,7 @@ MAX_SPEED_MPS = 100.0
 STAGING_CAP_MIN = 256 * 1024 ** 2
 STAGING_CAP_MAX = 64 * 1024 ** 3
 IDLE_UPLOAD_S = 24 * 3600              # unfinished uploads idle this long are purged when space is needed
+DISK_RESERVE_BYTES = 2 * 1024 ** 3     # an upload is refused (staging_full) if it would leave less free
 
 DEFAULT_SETTINGS = {
     "rules": {"normal": "off",          # off | front | all
@@ -682,6 +684,16 @@ class DashcamStore:
         """Clips whose bytes are checked and waiting in staging for the relay."""
         return sorted({u["clip_id"] for u in self._uploads() if u.get("completed_at") and u.get("clip_id")})
 
+    def _has_room(self, size: int, cap: int, staging: Path) -> bool:
+        """Under the staging cap, and the disk keeps DISK_RESERVE_BYTES free after this upload."""
+        if self.staging_bytes() + size > cap:
+            return False
+        try:
+            free = shutil.disk_usage(staging).free
+        except OSError:
+            return True
+        return free - size >= DISK_RESERVE_BYTES
+
     def _purge_idle_uploads(self, now: float) -> None:
         for u in self._uploads():
             if u.get("completed_at") or now - float(u.get("updated_at") or 0) < IDLE_UPLOAD_S:
@@ -727,14 +739,18 @@ class DashcamStore:
             if size > cap:
                 return None, "too_large"
             now = time.time()
-            if self.staging_bytes() + size > cap:
+            staging = self.base / "staging"
+            staging.mkdir(parents=True, exist_ok=True)
+            if not self._has_room(size, cap, staging):
                 self._purge_idle_uploads(now)
-                if self.staging_bytes() + size > cap:
+                if not self._has_room(size, cap, staging):
                     return None, "staging_full"
             doc = {"id": "u_" + secrets.token_hex(8), "clip_id": clip_id, "size": size, "sha256": sha256,
                    "chunk_size": chunk_size, "chunks": math.ceil(size / chunk_size), "received": [],
                    "created_at": now, "updated_at": now, "completed_at": None}
             self._save_upload(doc)
+            # The .part exists from the start, so write_chunk never has to create it.
+            os.close(os.open(self.staging_path(doc["id"]), os.O_RDWR | os.O_CREAT, 0o600))
             clip["upload"] = {"state": "staging", "upload_id": doc["id"], "bytes": 0, "sha256": sha256}
             self._save_clip(clip)
         doc["complete"] = False
@@ -754,8 +770,20 @@ class DashcamStore:
         if up.get("completed_at"):
             return up, None  # the checked bytes are never rewritten
         path = self.staging_path(upload_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        with _LOCK:
+            # Opened only after re-checking, under the lock, that the upload still exists: a drop
+            # (new camera size, idle purge, replaced upload) can't slip in between and leave an
+            # orphan .part behind. A drop after the open just writes into the unlinked file.
+            current = self.get_upload(upload_id)
+            if current is None:
+                return None, "upload_not_found"
+            if current.get("completed_at"):
+                return current, None
+            try:
+                fd = os.open(path, os.O_RDWR)
+            except FileNotFoundError:   # an upload opened before create_upload made the .part
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             os.pwrite(fd, data, n * up["chunk_size"])
         finally:
@@ -803,6 +831,10 @@ class DashcamStore:
             up = self.get_upload(upload_id)
             if up is None:
                 return None, "upload_not_found"
+            if up.get("completed_at"):
+                # A retried /complete that raced the first: never reset destinations in flight.
+                clip = self.get_clip(up["clip_id"])
+                return (clip, None) if clip is not None else (None, "clip_not_found")
             if actual != up["size"] or digest.hexdigest() != up["sha256"]:
                 up["received"] = []
                 up["updated_at"] = time.time()

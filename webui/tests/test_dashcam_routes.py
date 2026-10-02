@@ -310,6 +310,15 @@ def test_staging_full_is_507_and_too_large_is_413(H, store):
     assert status == 413 and payload["error"] == "too_large"
 
 
+def test_low_free_disk_is_507(H, store, monkeypatch):
+    from api import dashcam_store
+    add_dest(H)
+    (cid,) = inventory(H, "a.MP4")
+    monkeypatch.setattr(dashcam_store, "DISK_RESERVE_BYTES", 1 << 62)
+    status, payload = H("POST", "/uploads", {"clip_id": cid, "size": 20, "sha256": "a" * 64})
+    assert status == 507 and payload == {"ok": False, "error": "staging_full", "retry_after": 60}
+
+
 def test_raw_chunk_limits(store, H):
     add_dest(H)
     (cid,) = inventory(H, "a.MP4", size=20)
