@@ -164,6 +164,33 @@ def _free_port() -> int:
         s.close()
 
 
+# Curly quotes iOS "smart punctuation" swaps in when a token is pasted into a text field.
+_SMART_QUOTES = str.maketrans({"\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
+                               "\u2018": "'", "\u2019": "'"})
+
+
+def drive_token(raw) -> str:
+    """The rclone Drive token as compact JSON, from whatever was pasted: the bare token, the whole
+    destination `connect_drive.sh` prints (token nested inside, as a string or object), with or
+    without iOS curly quotes. ValueError when there is no usable token in it."""
+    def parse(value):
+        if isinstance(value, dict):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("a Drive destination needs the token from `rclone authorize drive`")
+        try:
+            return json.loads(value.strip().translate(_SMART_QUOTES))
+        except ValueError:
+            raise ValueError("the Drive token must be the JSON printed by `rclone authorize drive`") from None
+
+    obj = parse(raw)
+    if isinstance(obj, dict) and "access_token" not in obj and "refresh_token" not in obj and "token" in obj:
+        obj = parse(obj["token"])   # the whole pasted destination
+    if not isinstance(obj, dict) or not (obj.get("access_token") or obj.get("refresh_token")):
+        raise ValueError("that isn't a Drive token: it needs the access_token/refresh_token JSON from `rclone authorize drive`")
+    return json.dumps(obj, separators=(",", ":"))
+
+
 def remote_parameters(dtype: str, fields: dict) -> tuple[dict, list[str]]:
     """rclone ``parameters`` for one destination type, and the secret values in them.
     Raises ValueError for a bad type or missing fields."""
@@ -174,22 +201,12 @@ def remote_parameters(dtype: str, fields: dict) -> tuple[dict, list[str]]:
             raise ValueError("local destinations are for tests only")
         return {}, secrets_
     if dtype == "drive":
-        token = fields.get("token")
-        if isinstance(token, dict):
-            token = json.dumps(token, separators=(",", ":"))
-        if not isinstance(token, str) or not token.strip():
-            raise ValueError("a Drive destination needs the token from `rclone authorize drive`")
-        try:
-            parsed = json.loads(token)
-        except ValueError:
-            raise ValueError("the Drive token must be the JSON printed by `rclone authorize drive`") from None
-        if not isinstance(parsed, dict):
-            raise ValueError("the Drive token must be a JSON object")
-        params = {"scope": "drive", "token": token.strip()}
+        token = drive_token(fields.get("token"))
+        params = {"scope": "drive", "token": token}
         for key in ("client_id", "client_secret", "root_folder_id"):
             if fields.get(key):
                 params[key] = str(fields[key])
-        return params, secrets_ + [token.strip()]
+        return params, secrets_ + [token]
     if dtype not in DEFAULT_PORTS:
         raise ValueError(f"destination type must be one of {', '.join(DEST_TYPES)}")
     host, user = fields.get("host"), fields.get("user")

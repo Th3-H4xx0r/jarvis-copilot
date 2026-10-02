@@ -286,7 +286,7 @@ def test_create_drive_remote_with_own_client(fake, relay):
 def test_an_unexpected_config_question_aborts_and_removes_the_remote(fake, relay):
     fake.extra_question = "config_is_local"
     with pytest.raises(RelayError, match="config_is_local"):
-        relay.create_remote("d_0000abcd", "drive", {"token": "{}"})
+        relay.create_remote("d_0000abcd", "drive", {"token": "{\"access_token\": \"x\"}"})
     assert "jc_d_0000abcd" not in fake.remotes
     assert not any(b.get("opt", {}).get("state") == "x" for _, b in fake.requests)
 
@@ -757,3 +757,38 @@ def test_supervisor_spawns_restarts_and_keeps_the_password_off_argv(fake_rclone_
         assert r.generation == 2              # job ids from the first process mean nothing now
     finally:
         r.shutdown()
+
+
+# ── Drive token pasted in whatever form the user has it ────────────────────────
+
+_INNER = {"access_token": "ya29.x", "token_type": "Bearer", "refresh_token": "1//r", "expiry": "2026-10-02T19:00:00Z"}
+
+
+def _drive_token(token):
+    from api.dashcam_relay import remote_parameters
+    params, _secrets = remote_parameters("drive", {"token": token})
+    return json.loads(params["token"])
+
+
+def test_drive_token_accepts_the_bare_token():
+    assert _drive_token(json.dumps(_INNER)) == _INNER
+
+
+def test_drive_token_accepts_the_whole_connect_drive_output():
+    pasted = json.dumps({"type": "drive", "name": "Google Drive", "path": "dashcam", "token": json.dumps(_INNER)}, indent=2)
+    assert _drive_token(pasted) == _INNER
+
+
+def test_drive_token_survives_ios_smart_quotes():
+    smart = json.dumps(_INNER).replace('"', "“", 1).replace('"', "”")
+    assert _drive_token(smart) == _INNER
+
+
+def test_drive_token_still_rejects_junk():
+    from api.dashcam_relay import remote_parameters
+    for bad in ("not json", json.dumps({"type": "drive"}), json.dumps(["a"])):
+        try:
+            remote_parameters("drive", {"token": bad})
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad!r}")
