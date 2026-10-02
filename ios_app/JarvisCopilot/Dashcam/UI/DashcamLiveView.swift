@@ -14,6 +14,17 @@ struct DashcamLiveSource: Equatable {
     /// Several lenses behind one URL switch with `setparamvalue?param=switchcam`.
     var canSwitch: Bool { switchesByURL || lenses >= 2 }
 
+    /// The order to try transports in: the vendor app streams over UDP unless `getmediainfo`'s
+    /// `transport` says "tcp" (`N4/q.C0`, devApiType 10), and falls back to the other.
+    var transports: [DashcamRTSPClient.Transport] {
+        transport?.trimmingCharacters(in: .whitespaces).lowercased() == "tcp" ? [.tcp, .udp] : [.udp, .tcp]
+    }
+
+    /// The stream for lens `index` (`rtsps` is indexed by the current camera).
+    func url(lens index: Int) -> URL? {
+        switchesByURL ? urls[min(max(0, index), urls.count - 1)] : urls.first
+    }
+
     static func parse(media: Any?, attr: Any?, host: String) -> DashcamLiveSource {
         let m = media as? [String: Any] ?? [:]
         let a = attr as? [String: Any] ?? [:]
@@ -36,7 +47,8 @@ struct DashcamLiveSource: Equatable {
             return c.url
         }
         return DashcamLiveSource(
-            urls: urls.isEmpty ? [URL(string: "rtsp://\(host):554/")].compactMap { $0 } : urls,
+            // The vendor app's own fallback for Eeasy cameras (`RTSP_URL_SUFFIX_EEASY`).
+            urls: urls.isEmpty ? [URL(string: "rtsp://\(host):554")].compactMap { $0 } : urls,
             lenses: max(1, int(a["camnum"]) ?? 1),
             currentLens: max(0, int(a["curcamid"]) ?? 0),
             transport: m["transport"].map { "\($0)" })
@@ -77,6 +89,9 @@ final class DashcamLiveModel: ObservableObject {
     private var camera: DashcamCamera?
     private var isOpen = false
     private var idleTimerWasDisabled = false
+    /// The transport that last played, tried first on the next connect (lens switch, return
+    /// from the background) so it doesn't sit through the other one's timeout again.
+    private var preferredTransport: DashcamRTSPClient.Transport?
 
     var lensName: String { Self.lensName(lens) }
     var otherLensName: String { Self.lensName(source.map { (lens + 1) % lensCount($0) } ?? 0) }
@@ -104,7 +119,10 @@ final class DashcamLiveModel: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled
     }
 
-    func retry() async { await connect(reload: true) }
+    func retry() async {
+        preferredTransport = nil
+        await connect(reload: true)
+    }
 
     /// App backgrounded: the decoder and the socket go away anyway; reconnect on return.
     func suspend() { if isOpen { stopClient() } }
@@ -115,16 +133,16 @@ final class DashcamLiveModel: ObservableObject {
         switching = true
         defer { switching = false }
         let next = (lens + 1) % lensCount(source)
-        if !source.switchesByURL {
-            stopClient()
-            status = .connecting
-            do {
-                try await camera?.set("switchcam", "\(next)")
-            } catch {
-                status = .failed("Couldn't switch to the \(Self.lensName(next).lowercased()) camera: \(error.localizedDescription)")
-                return
-            }
-        }
+        stopClient()
+        status = .connecting
+        // The app always tells the camera (`switchcam`), then plays `rtsps[index]` when there is
+        // one URL per lens (E5/c.switchCamera + queryPreviewUrl).
+        do {
+            try await camera?.set("switchcam", "\(next)")
+        } catch let error where !source.switchesByURL {
+            status = .failed("Couldn't switch to the \(Self.lensName(next).lowercased()) camera: \(error.localizedDescription)")
+            return
+        } catch {}
         lens = next
         await connect(reload: false)
     }
@@ -137,23 +155,23 @@ final class DashcamLiveModel: ObservableObject {
             guard isOpen else { return }
             source = loaded.source
             camera = loaded.camera
-            lens = loaded.source.switchesByURL ? min(lens, loaded.source.urls.count - 1) : loaded.source.currentLens
+            lens = loaded.source.currentLens
         }
-        guard isOpen, let source, let url = source.switchesByURL ? source.urls[min(lens, source.urls.count - 1)] : source.urls.first else {
-            return
-        }
-        play(url)
+        guard isOpen, let source, let url = source.url(lens: lens) else { return }
+        play(url, transports: preferredTransport.map { [$0, $0.other] } ?? source.transports)
     }
 
-    private func play(_ url: URL) {
+    private func play(_ url: URL, transports: [DashcamRTSPClient.Transport]) {
         video.flush()
-        let c = DashcamRTSPClient(url: url)
+        let c = DashcamRTSPClient(url: url, transports: transports)
         c.onState = { [weak self, weak c] state in
             MainActor.assumeIsolated {
                 guard let self, let c, self.client === c else { return }
                 switch state {
                 case .connecting: self.status = .connecting
-                case .playing: self.status = .playing
+                case .playing:
+                    self.status = .playing
+                    self.preferredTransport = c.activeTransport
                 case .failed(let message): self.status = .failed(message); self.client = nil
                 }
             }

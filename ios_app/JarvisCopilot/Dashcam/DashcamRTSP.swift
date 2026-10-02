@@ -2,6 +2,7 @@ import CoreMedia
 import CryptoKit
 import Foundation
 import Network
+import os
 
 // The dashcam's live view. AVPlayer can't play RTSP, so this is a small RTSP client of our own:
 // RTSP over TCP with RTP interleaved on the same connection (what the vendor app's ijkplayer uses,
@@ -747,10 +748,278 @@ struct RTSPMessageParser {
     }
 }
 
+// MARK: - RTP over UDP
+
+extension DashcamRTSP {
+    /// A `client_port=a-b` / `server_port=a-b` pair from a Transport header.
+    static func ports(_ key: String, in transport: String) -> (rtp: UInt16, rtcp: UInt16)? {
+        for part in transport.split(separator: ";") {
+            let p = part.trimmingCharacters(in: .whitespaces)
+            guard p.lowercased().hasPrefix(key.lowercased() + "=") else { continue }
+            let nums = p.dropFirst(key.count + 1).split(separator: "-").compactMap { UInt16($0) }
+            guard let first = nums.first else { return nil }
+            return (first, nums.count > 1 ? nums[1] : first &+ 1)
+        }
+        return nil
+    }
+
+    /// The sender's SSRC and the middle 32 bits of its NTP time from an RTCP sender report
+    /// (the first SR in a compound packet).
+    static func senderReport(_ data: Data) -> (ssrc: UInt32, middleNTP: UInt32)? {
+        let b = [UInt8](data)
+        var i = 0
+        while i + 4 <= b.count {
+            let words = Int(b[i + 2]) << 8 | Int(b[i + 3])
+            if b[i] >> 6 == 2, b[i + 1] == 200, i + 16 <= b.count {
+                func u32(_ j: Int) -> UInt32 { UInt32(b[j]) << 24 | UInt32(b[j + 1]) << 16 | UInt32(b[j + 2]) << 8 | UInt32(b[j + 3]) }
+                return (u32(i + 4), u32(i + 10))
+            }
+            i += 4 * (words + 1)
+        }
+        return nil
+    }
+
+    /// RTCP receiver report (one report block) + SDES CNAME, RFC 3550 §6.4.2 / §6.5.
+    static func receiverReport(ssrc: UInt32, sourceSSRC: UInt32, fractionLost: UInt8, cumulativeLost: Int32,
+                               extendedHighestSequence: UInt32, lastSR: UInt32, delaySinceLastSR: UInt32,
+                               cname: String = "jarviscopilot") -> Data {
+        var out: [UInt8] = []
+        func u32(_ v: UInt32) { out += [UInt8(v >> 24), UInt8((v >> 16) & 0xFF), UInt8((v >> 8) & 0xFF), UInt8(v & 0xFF)] }
+        out += [0x81, 201, 0, 7]
+        u32(ssrc)
+        u32(sourceSSRC)
+        let lost = UInt32(bitPattern: max(-0x80_0000, min(0x7F_FFFF, cumulativeLost))) & 0xFF_FFFF
+        u32(UInt32(fractionLost) << 24 | lost)
+        u32(extendedHighestSequence)
+        u32(0)                      // jitter: not tracked
+        u32(lastSR)
+        u32(delaySinceLastSR)
+        let name = Array(cname.utf8.prefix(255))
+        var chunk: [UInt8] = []
+        chunk += [1, UInt8(name.count)] + name + [0]          // CNAME, END
+        while (4 + chunk.count) % 4 != 0 { chunk.append(0) }
+        let words = (4 + 4 + chunk.count) / 4 - 1
+        out += [0x81, 202, UInt8(words >> 8), UInt8(words & 0xFF)]
+        u32(ssrc)
+        out += chunk
+        return Data(out)
+    }
+}
+
+/// Puts UDP packets back in sequence order. The first few are sorted before any goes out (so a
+/// swapped start doesn't lose the keyframe's head); after that a missing packet is waited for
+/// while `window` later ones pile up, then skipped (the gap shows downstream as a loss).
+/// Packets that arrive after their slot was passed, and duplicates, are dropped.
+struct RTPReorderBuffer {
+    let window: Int
+    private var expected: UInt16?
+    private var held: [UInt16: RTPPacket] = [:]
+    private var warmup: [RTPPacket] = []
+    private static let warmupCount = 3
+    private static let restart = 3000   // a jump this big is a restarted stream, not reordering
+
+    init(window: Int = 16) { self.window = max(1, window) }
+
+    mutating func push(_ packet: RTPPacket) -> [RTPPacket] {
+        guard let exp = expected else {
+            warmup.append(packet)
+            guard warmup.count >= Self.warmupCount else { return [] }
+            let ref = warmup[0].sequence
+            let sorted = warmup.sorted { Int16(bitPattern: $0.sequence &- ref) < Int16(bitPattern: $1.sequence &- ref) }
+            warmup = []
+            expected = sorted[0].sequence
+            return sorted.flatMap { push($0) }
+        }
+        let ahead = Int(Int16(bitPattern: packet.sequence &- exp))
+        if abs(ahead) > Self.restart { return restart(with: packet) }
+        guard ahead >= 0 else { return [] }   // late or duplicate
+        held[packet.sequence] = packet
+        var out = drain()
+        while held.count > window, let next = oldestHeld() {
+            expected = next
+            out += drain()
+        }
+        return out
+    }
+
+    private mutating func drain() -> [RTPPacket] {
+        var out: [RTPPacket] = []
+        while let e = expected, let p = held.removeValue(forKey: e) {
+            out.append(p)
+            expected = e &+ 1
+        }
+        return out
+    }
+
+    private func oldestHeld() -> UInt16? {
+        guard let e = expected else { return held.keys.first }
+        return held.keys.min { Int16(bitPattern: $0 &- e) < Int16(bitPattern: $1 &- e) }
+    }
+
+    private mutating func restart(with packet: RTPPacket) -> [RTPPacket] {
+        var older: [RTPPacket] = []
+        while let next = oldestHeld() {
+            expected = next
+            older += drain()
+        }
+        held = [:]
+        expected = packet.sequence &+ 1
+        return older + [packet]
+    }
+}
+
+/// What a receiver report needs (RFC 3550 A.3, without jitter).
+struct RTPReceiveStats {
+    private(set) var ssrc: UInt32?
+    private(set) var received: UInt32 = 0
+    private var baseSequence: UInt32 = 0
+    private var maxSequence: UInt16 = 0
+    private var cycles: UInt32 = 0
+    private var expectedPrior: UInt32 = 0
+    private var receivedPrior: UInt32 = 0
+
+    mutating func record(_ packet: RTPPacket) {
+        guard let ssrc else {
+            self.ssrc = packet.ssrc
+            baseSequence = UInt32(packet.sequence)
+            maxSequence = packet.sequence
+            received = 1
+            return
+        }
+        guard packet.ssrc == ssrc else { return }
+        received &+= 1
+        let delta = packet.sequence &- maxSequence
+        if delta != 0 && delta < 0x8000 {
+            if packet.sequence < maxSequence { cycles &+= 1 << 16 }
+            maxSequence = packet.sequence
+        }
+    }
+
+    var extendedHighestSequence: UInt32 { cycles &+ UInt32(maxSequence) }
+    var expected: UInt32 { ssrc == nil ? 0 : extendedHighestSequence &- baseSequence &+ 1 }
+    var cumulativeLost: Int32 { Int32(clamping: max(0, Int64(expected) - Int64(received))) }
+
+    /// Loss since the last call, in 1/256ths.
+    mutating func takeFractionLost() -> UInt8 {
+        let expectedInterval = Int64(expected) - Int64(expectedPrior)
+        let receivedInterval = Int64(received) - Int64(receivedPrior)
+        expectedPrior = expected
+        receivedPrior = received
+        let lost = expectedInterval - receivedInterval
+        guard expectedInterval > 0, lost > 0 else { return 0 }
+        return UInt8(min(255, (lost << 8) / expectedInterval))
+    }
+}
+
+/// RTP and RTCP on a local even/odd UDP port pair (SETUP's `client_port`). Datagrams arrive as
+/// flows on two listeners, from whatever port the camera sends from; receiver reports go back on
+/// the camera's RTCP flow once it has sent one. Everything runs on the client's queue.
+final class RTSPUDPReceiver: @unchecked Sendable {
+    private let queue: DispatchQueue
+    private var listeners: [NWListener] = []
+    private var flows: [NWConnection] = []
+    private var rtcpFlow: NWConnection?
+    private var cancelled = false
+    private(set) var ports: (rtp: UInt16, rtcp: UInt16)?
+    var onRTP: ((Data) -> Void)?
+    var onRTCP: ((Data) -> Void)?
+
+    init(queue: DispatchQueue) { self.queue = queue }
+
+    /// Binds a free port pair, trying a few random ones; `completion(true)` once both listen.
+    func bind(tries: Int = 8, completion: @escaping (Bool) -> Void) {
+        guard !cancelled else { return }
+        dropListeners()
+        let rtp = UInt16.random(in: 25_000...32_700) * 2
+        let pair: [NWListener]
+        do {
+            pair = try [rtp, rtp + 1].map { port in
+                let params = NWParameters.udp
+                params.prohibitedInterfaceTypes = [.cellular]
+                return try NWListener(using: params, on: NWEndpoint.Port(rawValue: port) ?? .any)
+            }
+        } catch {
+            queue.async { tries > 1 ? self.bind(tries: tries - 1, completion: completion) : completion(false) }
+            return
+        }
+        listeners = pair
+        final class Progress { var ready = 0; var settled = false }
+        let progress = Progress()
+        for (i, listener) in pair.enumerated() {
+            listener.newConnectionHandler = { [weak self] conn in self?.accept(conn, rtcp: i == 1) }
+            listener.stateUpdateHandler = { [weak self] state in
+                guard let self, !progress.settled, !self.cancelled else { return }
+                switch state {
+                case .ready:
+                    progress.ready += 1
+                    if progress.ready == 2 {
+                        progress.settled = true
+                        self.ports = (rtp, rtp + 1)
+                        completion(true)
+                    }
+                case .failed, .cancelled:
+                    progress.settled = true
+                    self.dropListeners()
+                    if tries > 1 { self.bind(tries: tries - 1, completion: completion) } else { completion(false) }
+                default:
+                    break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    /// Sends on the camera's RTCP flow; false until the camera has sent RTCP.
+    @discardableResult
+    func sendRTCP(_ data: Data) -> Bool {
+        guard let rtcpFlow, !cancelled else { return false }
+        rtcpFlow.send(content: data, completion: .idempotent)
+        return true
+    }
+
+    func cancel() {
+        cancelled = true
+        onRTP = nil
+        onRTCP = nil
+        dropListeners()
+        flows.forEach { $0.cancel() }
+        flows = []
+        rtcpFlow = nil
+    }
+
+    private func dropListeners() {
+        for l in listeners {
+            l.stateUpdateHandler = nil
+            l.newConnectionHandler = nil
+            l.cancel()
+        }
+        listeners = []
+    }
+
+    private func accept(_ conn: NWConnection, rtcp: Bool) {
+        guard !cancelled else { return conn.cancel() }
+        flows.append(conn)
+        if rtcp { rtcpFlow = conn }
+        conn.start(queue: queue)
+        read(conn, rtcp: rtcp)
+    }
+
+    private func read(_ conn: NWConnection, rtcp: Bool) {
+        conn.receiveMessage { [weak self] data, _, _, error in
+            guard let self, !self.cancelled else { return }
+            if let data, !data.isEmpty { (rtcp ? self.onRTCP : self.onRTP)?(data) }
+            if error == nil { self.read(conn, rtcp: rtcp) }
+        }
+    }
+}
+
 // MARK: - The client
 
-/// One live RTSP session over TCP: OPTIONS → DESCRIBE → SETUP (interleaved) → PLAY, a keepalive
-/// every 25 s (or half the session timeout), TEARDOWN on stop. Frames and state arrive on
+/// One live RTSP session: OPTIONS → DESCRIBE → SETUP → PLAY, a keepalive every 25 s (or half
+/// the session timeout), TEARDOWN on stop. RTP comes over UDP (client ports + RTCP receiver
+/// reports) or interleaved on the RTSP connection; `transports` is the order to try, and a
+/// transport that is refused at SETUP or brings no video within `firstPacketTimeout` is torn
+/// down for the next one — what the vendor app does. Frames and state arrive on
 /// `callbackQueue` (main by default); nothing arrives after `stop()`.
 final class DashcamRTSPClient: @unchecked Sendable {
     enum State: Equatable, Sendable {
@@ -759,43 +1028,76 @@ final class DashcamRTSPClient: @unchecked Sendable {
         case failed(String)
     }
 
+    enum Transport: String, Sendable, CaseIterable {
+        case udp = "UDP"
+        case tcp = "TCP"
+        var other: Transport { self == .udp ? .tcp : .udp }
+    }
+
     let url: URL
+    let transports: [Transport]
     var onState: ((State) -> Void)?
     var onFrame: ((CMSampleBuffer) -> Void)?
     var callbackQueue: DispatchQueue = .main
     var connectTimeout: TimeInterval = 10
+    /// No RTP at all this long after PLAY: the transport isn't getting through, try the next.
+    var firstPacketTimeout: TimeInterval = 4
     var stallTimeout: TimeInterval = 10
+    var rtcpInterval: TimeInterval = 5
+
+    /// The transport that delivered the first frame.
+    var activeTransport: Transport? {
+        lock.lock(); defer { lock.unlock() }
+        return _activeTransport
+    }
 
     private let queue = DispatchQueue(label: "jc.dashcam.rtsp", qos: .userInitiated)
-    private var keepaliveInterval: TimeInterval
-    private var connection: NWConnection?
-    private var parser = RTSPMessageParser()
-    private var cseq = 0
-    private var pending: [Int: (RTSPResponse) -> Void] = [:]
-    private var session: String?
+    private let configuredKeepalive: TimeInterval
     private let requestURL: String
-    private var baseURL: String
-    private var playURL: String
     private let user: String?
     private let password: String?
+    private let ssrc = UInt32.random(in: 1...UInt32.max)
+    private let lock = NSLock()
+    private var alive = true
+    private var _activeTransport: Transport?
+    // The whole session.
+    private var started = false
+    private var finished = false
+    private var deliveredFirst = false
+    private var attempt = 0
+    private var cseq = 0
     private var challenge: DashcamRTSP.Challenge?
     private var nonceCount = 0
+    // One attempt (one RTSP connection, one transport).
+    private var connection: NWConnection?
+    private var parser = RTSPMessageParser()
+    private var pending: [Int: (RTSPResponse) -> Void] = [:]
+    private var session: String?
+    private var baseURL: String
+    private var playURL: String
     private var pipeline: RTSPVideoPipeline?
+    private var using: Transport = .tcp
     private var videoChannel: UInt8 = 0
+    private var udp: RTSPUDPReceiver?
+    private var reorder = RTPReorderBuffer()
+    private var stats = RTPReceiveStats()
+    private var lastSR: (middle: UInt32, at: Date)?
+    private var keepaliveInterval: TimeInterval
     private var useGetParameter = true
     private var timers: [DispatchSourceTimer] = []
     private var connected = false
+    private var setupSent = false
     private var playing = false
-    private var deliveredFirst = false
-    private var startedAt = Date()
+    private var packets = 0
+    private var attemptStartedAt = Date()
+    private var playStartedAt = Date()
     private var lastProgress = Date()
-    private var finished = false
     private var lastError: String?
-    private let aliveLock = NSLock()
-    private var alive = true
 
-    init(url: URL, keepaliveInterval: TimeInterval = 25) {
+    init(url: URL, transports: [Transport] = [.udp, .tcp], keepaliveInterval: TimeInterval = 25) {
         self.url = url
+        self.transports = transports.isEmpty ? [.tcp] : transports
+        configuredKeepalive = keepaliveInterval
         self.keepaliveInterval = keepaliveInterval
         var c = URLComponents(url: url, resolvingAgainstBaseURL: false)
         user = c?.user.flatMap { $0.removingPercentEncoding ?? $0 }
@@ -809,46 +1111,26 @@ final class DashcamRTSPClient: @unchecked Sendable {
 
     deinit {
         timers.forEach { $0.cancel() }
+        udp?.cancel()
         connection?.cancel()
     }
 
     func start() {
         queue.async { [self] in
-            guard connection == nil, !finished else { return }
+            guard !started, !finished else { return }
+            started = true
             emit(.connecting)
             guard let host = url.host, !host.isEmpty else { return fail("That isn't a stream address: \(url.absoluteString)") }
-            let params = NWParameters.tcp
-            params.prohibitedInterfaceTypes = [.cellular]   // the camera only exists on its own Wi‑Fi
-            if let tcp = params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options { tcp.noDelay = true }
-            let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(exactly: url.port ?? 554) ?? 554) ?? 554,
-                                    using: params)
-            connection = conn
-            startedAt = Date()
-            conn.stateUpdateHandler = { [weak self] state in self?.connectionChanged(state, conn) }
-            conn.start(queue: queue)
-            receive(conn)
-            watchdog()
+            beginAttempt()
         }
     }
 
     func stop() {
-        aliveLock.lock(); alive = false; aliveLock.unlock()
+        lock.lock(); alive = false; lock.unlock()
         queue.async { [self] in
-            let wasLive = !finished && session != nil
+            let live = !finished
             finished = true
-            timers.forEach { $0.cancel() }
-            timers = []
-            pending = [:]
-            guard let conn = connection else { return }
-            connection = nil
-            if wasLive, connected {
-                cseq += 1
-                conn.send(content: Data(request("TEARDOWN", playURL, cseq: cseq).utf8),
-                          completion: .contentProcessed { _ in conn.cancel() })
-                queue.asyncAfter(deadline: .now() + 1) { conn.cancel() }
-            } else {
-                conn.cancel()
-            }
+            endAttempt(teardown: live)
         }
     }
 
@@ -860,7 +1142,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
     // MARK: Callbacks
 
     private var isAlive: Bool {
-        aliveLock.lock(); defer { aliveLock.unlock() }
+        lock.lock(); defer { lock.unlock() }
         return alive
     }
 
@@ -875,6 +1157,8 @@ final class DashcamRTSPClient: @unchecked Sendable {
         lastProgress = Date()
         if !deliveredFirst {
             deliveredFirst = true
+            lock.lock(); _activeTransport = using; lock.unlock()
+            JcLog.devices.notice("Dashcam live: playing over \(self.using.rawValue, privacy: .public)")
             emit(.playing)
         }
         callbackQueue.async { [weak self] in
@@ -883,18 +1167,92 @@ final class DashcamRTSPClient: @unchecked Sendable {
         }
     }
 
-    private func fail(_ message: String) {
+    /// Ends the session — or, when `canFallBack` and nothing has played yet, moves on to the
+    /// next transport.
+    private func fail(_ message: String, canFallBack: Bool = false) {
         guard !finished else { return }
+        if canFallBack, !deliveredFirst, attempt + 1 < transports.count {
+            JcLog.devices.notice("Dashcam live: \(self.using.rawValue, privacy: .public) gave nothing (\(message, privacy: .public)); trying \(self.transports[self.attempt + 1].rawValue, privacy: .public)")
+            endAttempt(teardown: true)
+            attempt += 1
+            beginAttempt()
+            return
+        }
         finished = true
+        endAttempt(teardown: true)
+        let tried = transports.prefix(attempt + 1).map(\.rawValue).joined(separator: " and ")
+        JcLog.devices.notice("Dashcam live failed: \(message, privacy: .public) (tried \(tried, privacy: .public))")
+        emit(.failed(attempt > 0 ? "\(message) (tried \(tried))" : message))
+    }
+
+    // MARK: Attempts
+
+    private func beginAttempt() {
+        parser = RTSPMessageParser()
+        pending = [:]
+        session = nil
+        baseURL = requestURL
+        playURL = requestURL
+        pipeline = nil
+        using = transports[attempt]
+        videoChannel = 0
+        reorder = RTPReorderBuffer()
+        stats = RTPReceiveStats()
+        lastSR = nil
+        keepaliveInterval = configuredKeepalive
+        useGetParameter = true
+        connected = false
+        setupSent = false
+        playing = false
+        packets = 0
+        lastError = nil
+        attemptStartedAt = Date()
+        JcLog.devices.notice("Dashcam live: RTSP over \(self.using.rawValue, privacy: .public) to \(self.requestURL, privacy: .public)")
+        watchdog()
+        guard using == .udp else { return connect() }
+        let receiver = RTSPUDPReceiver(queue: queue)
+        receiver.onRTP = { [weak self] data in self?.receivedUDP(data) }
+        receiver.onRTCP = { [weak self] data in self?.receivedRTCP(data) }
+        udp = receiver
+        receiver.bind { [weak self, weak receiver] ok in
+            guard let self, let receiver, receiver === self.udp, !self.finished else { return }
+            if ok { self.connect() } else { self.fail("Couldn't open local ports for the video", canFallBack: true) }
+        }
+    }
+
+    private func endAttempt(teardown: Bool) {
         timers.forEach { $0.cancel() }
         timers = []
         pending = [:]
-        connection?.cancel()
+        udp?.cancel()
+        udp = nil
+        guard let conn = connection else { return }
         connection = nil
-        emit(.failed(message))
+        if teardown, session != nil, connected {
+            cseq += 1
+            conn.send(content: Data(request("TEARDOWN", playURL, cseq: cseq).utf8),
+                      completion: .contentProcessed { _ in conn.cancel() })
+            queue.asyncAfter(deadline: .now() + 1) { conn.cancel() }
+        } else {
+            conn.cancel()
+        }
+        session = nil
     }
 
     // MARK: Connection
+
+    private func connect() {
+        guard let host = url.host else { return }
+        let params = NWParameters.tcp
+        params.prohibitedInterfaceTypes = [.cellular]   // the camera only exists on its own Wi‑Fi
+        if let tcp = params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options { tcp.noDelay = true }
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(exactly: url.port ?? 554) ?? 554) ?? 554,
+                                using: params)
+        connection = conn
+        conn.stateUpdateHandler = { [weak self] state in self?.connectionChanged(state, conn) }
+        conn.start(queue: queue)
+        receive(conn)
+    }
 
     private func connectionChanged(_ state: NWConnection.State, _ conn: NWConnection) {
         guard conn === connection, !finished else { return }
@@ -905,7 +1263,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
         case .waiting(let error):
             lastError = Self.describe(error)   // keeps retrying until the watchdog gives up
         case .failed(let error):
-            fail("Couldn't reach the camera's video stream (\(Self.describe(error)))")
+            fail("Couldn't reach the camera's video stream (\(Self.describe(error)))", canFallBack: setupSent)
         default:
             break
         }
@@ -918,19 +1276,23 @@ final class DashcamRTSPClient: @unchecked Sendable {
                 self.parser.append(data)
                 self.drain(conn)
             }
-            guard !self.finished else { return }
-            if let error { return self.fail("Lost the camera's video stream (\(Self.describe(error)))") }
-            if complete { return self.fail(self.playing ? "The camera closed the video stream" : "The camera hung up before the video started") }
+            guard conn === self.connection, !self.finished else { return }   // a reply may have moved on
+            if let error { return self.fail("Lost the camera's video stream (\(Self.describe(error)))", canFallBack: self.setupSent) }
+            if complete {
+                return self.fail(self.playing ? "The camera closed the video stream" : "The camera hung up before the video started",
+                                 canFallBack: self.setupSent)
+            }
             self.receive(conn)
         }
     }
 
     private func drain(_ conn: NWConnection) {
-        while !finished, let message = parser.next() {
+        while !finished, conn === connection, let message = parser.next() {
             switch message {
             case .interleaved(let channel, let payload):
                 guard channel == videoChannel, pipeline != nil, let packet = RTPPacket.parse(payload) else { continue }
-                for frame in pipeline?.push(packet) ?? [] { deliver(frame) }
+                packets += 1
+                feed(packet)
             case .response(let response):
                 guard let seq = response.cseq, let handler = pending.removeValue(forKey: seq) else { continue }
                 handler(response)
@@ -940,19 +1302,63 @@ final class DashcamRTSPClient: @unchecked Sendable {
         }
     }
 
-    /// Fails the session when it doesn't start, or when frames stop coming.
+    private func feed(_ packet: RTPPacket) {
+        for frame in pipeline?.push(packet) ?? [] { deliver(frame) }
+    }
+
+    private func receivedUDP(_ data: Data) {
+        guard !finished, using == .udp, pipeline != nil, let packet = RTPPacket.parse(data),
+              !(72...76).contains(packet.payloadType) else { return }
+        packets += 1
+        stats.record(packet)
+        for p in reorder.push(packet) { feed(p) }
+    }
+
+    private func receivedRTCP(_ data: Data) {
+        guard !finished, let sr = DashcamRTSP.senderReport(data) else { return }
+        lastSR = (sr.middleNTP, Date())
+    }
+
+    /// Fails (or falls back) when the session doesn't start, brings no video, or stalls.
     private func watchdog() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 1, repeating: 1)
+        t.schedule(deadline: .now() + 0.5, repeating: 0.5)
         t.setEventHandler { [weak self] in
             guard let self, !self.finished else { return }
             let now = Date()
-            if !self.playing, now.timeIntervalSince(self.startedAt) > self.connectTimeout {
-                self.fail(self.connected ? "The camera didn't start its video stream"
-                                         : "Couldn't reach the camera's video stream" + (self.lastError.map { " (\($0))" } ?? ""))
-            } else if self.playing, now.timeIntervalSince(self.lastProgress) > self.stallTimeout {
-                self.fail(self.deliveredFirst ? "The camera stopped sending video" : "No picture from the camera")
+            if !self.playing {
+                if now.timeIntervalSince(self.attemptStartedAt) > self.connectTimeout {
+                    self.fail(self.connected ? "The camera didn't start its video stream"
+                                             : "Couldn't reach the camera's video stream" + (self.lastError.map { " (\($0))" } ?? ""),
+                              canFallBack: self.setupSent)
+                }
+            } else if !self.deliveredFirst {
+                let waited = now.timeIntervalSince(self.playStartedAt)
+                if self.packets == 0, waited > self.firstPacketTimeout, self.attempt + 1 < self.transports.count {
+                    self.fail("No video arrived over \(self.using.rawValue)", canFallBack: true)
+                } else if waited > self.stallTimeout {
+                    self.fail(self.packets == 0 ? "No video from the camera" : "No picture from the camera", canFallBack: true)
+                }
+            } else if now.timeIntervalSince(self.lastProgress) > self.stallTimeout {
+                self.fail("The camera stopped sending video")
             }
+        }
+        t.resume()
+        timers.append(t)
+    }
+
+    /// RTCP receiver reports on the camera's RTCP flow, so it knows we're still listening.
+    private func startReceiverReports() {
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + rtcpInterval, repeating: rtcpInterval)
+        t.setEventHandler { [weak self] in
+            guard let self, !self.finished, let udp = self.udp, let source = self.stats.ssrc else { return }
+            let delay = self.lastSR.map { UInt32(min(Double(UInt32.max), Date().timeIntervalSince($0.at) * 65536)) } ?? 0
+            let report = DashcamRTSP.receiverReport(ssrc: self.ssrc, sourceSSRC: source, fractionLost: self.stats.takeFractionLost(),
+                                                    cumulativeLost: self.stats.cumulativeLost,
+                                                    extendedHighestSequence: self.stats.extendedHighestSequence,
+                                                    lastSR: self.lastSR?.middle ?? 0, delaySinceLastSR: delay)
+            udp.sendRTCP(report)
         }
         t.resume()
         timers.append(t)
@@ -993,7 +1399,10 @@ final class DashcamRTSPClient: @unchecked Sendable {
         }
         conn.send(content: Data(request(method, target, cseq: cseq, headers: headers).utf8), completion: .contentProcessed { [weak self] error in
             guard let error, let self else { return }
-            self.queue.async { self.fail("Couldn't talk to the camera (\(Self.describe(error)))") }
+            self.queue.async {
+                guard conn === self.connection else { return }
+                self.fail("Couldn't talk to the camera (\(Self.describe(error)))", canFallBack: self.setupSent)
+            }
         })
     }
 
@@ -1020,21 +1429,37 @@ final class DashcamRTSPClient: @unchecked Sendable {
     }
 
     private func setup(_ sdp: RTSPSessionDescription) {
-        send("SETUP", DashcamRTSP.resolve(control: sdp.control, base: baseURL),
-             headers: [("Transport", "RTP/AVP/TCP;unicast;interleaved=0-1")]) { [weak self] response in
+        let transport: String
+        switch using {
+        case .tcp:
+            transport = "RTP/AVP/TCP;unicast;interleaved=0-1"
+        case .udp:
+            guard let ports = udp?.ports else { return fail("Couldn't open local ports for the video", canFallBack: true) }
+            transport = "RTP/AVP;unicast;client_port=\(ports.rtp)-\(ports.rtcp)"
+        }
+        setupSent = true
+        send("SETUP", DashcamRTSP.resolve(control: sdp.control, base: baseURL), headers: [("Transport", transport)]) { [weak self] response in
             guard let self else { return }
             guard response.status == 200 else {
-                return self.fail(response.status == 461 ? "The camera won't stream over TCP"
-                                                        : "The camera refused the video track (\(response.status) \(response.reason))")
+                return self.fail(response.status == 461 ? "The camera won't stream over \(self.using.rawValue)"
+                                                        : "The camera refused the video track (\(response.status) \(response.reason))",
+                                 canFallBack: true)
             }
             if let header = response.header("session") {
                 let s = DashcamRTSP.parseSession(header)
                 self.session = s.id
                 if let timeout = s.timeout, timeout > 0 { self.keepaliveInterval = min(self.keepaliveInterval, max(1, Double(timeout) / 2)) }
             }
-            if let transport = response.header("transport"), let channel = DashcamRTSP.interleavedChannel(transport) {
+            let reply = response.header("transport") ?? ""
+            if let channel = DashcamRTSP.interleavedChannel(reply) {
                 self.videoChannel = UInt8(clamping: channel)
+                if self.using == .udp {   // asked for UDP, got interleaved: read it off the connection
+                    self.udp?.cancel()
+                    self.udp = nil
+                    self.using = .tcp
+                }
             }
+            JcLog.devices.notice("Dashcam live: SETUP over \(self.using.rawValue, privacy: .public) — \(reply, privacy: .public)")
             self.play(sdp)
         }
     }
@@ -1043,10 +1468,14 @@ final class DashcamRTSPClient: @unchecked Sendable {
         playURL = DashcamRTSP.resolve(control: sdp.sessionControl, base: baseURL)
         send("PLAY", playURL, headers: [("Range", "npt=0.000-")]) { [weak self] response in
             guard let self else { return }
-            guard response.status == 200 else { return self.fail("The camera wouldn't play the stream (\(response.status) \(response.reason))") }
+            guard response.status == 200 else {
+                return self.fail("The camera wouldn't play the stream (\(response.status) \(response.reason))", canFallBack: true)
+            }
             self.playing = true
+            self.playStartedAt = Date()
             self.lastProgress = Date()
             self.startKeepalive()
+            if self.using == .udp { self.startReceiverReports() }
         }
     }
 

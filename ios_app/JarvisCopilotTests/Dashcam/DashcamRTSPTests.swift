@@ -368,19 +368,35 @@ final class DashcamRTSPTests: XCTestCase {
         XCTAssertEqual(one.currentLens, 1)
         XCTAssertTrue(one.canSwitch, "two lenses behind one URL switch with switchcam")
         XCTAssertFalse(one.switchesByURL)
+        XCTAssertEqual(one.url(lens: 1)?.absoluteString, "rtsp://192.168.169.1:554/")
 
         let two = DashcamLiveSource.parse(media: ["rtsps": ["rtsp://192.168.169.1:554/front", "rtsp://192.168.169.1:554/rear"]],
-                                          attr: [:], host: "192.168.169.1")
+                                          attr: ["curcamid": 1], host: "192.168.169.1")
         XCTAssertEqual(two.urls.count, 2)
         XCTAssertTrue(two.canSwitch)
         XCTAssertTrue(two.switchesByURL)
+        XCTAssertEqual(two.url(lens: two.currentLens)?.path, "/rear", "rtsps is indexed by the current camera")
+        XCTAssertEqual(two.url(lens: 7)?.path, "/rear")
 
         let none = DashcamLiveSource.parse(media: nil, attr: nil, host: "10.0.0.5")
-        XCTAssertEqual(none.urls.map(\.absoluteString), ["rtsp://10.0.0.5:554/"], "falls back to the usual port")
+        XCTAssertEqual(none.urls.map(\.absoluteString), ["rtsp://10.0.0.5:554"], "the vendor app's Eeasy fallback")
         XCTAssertFalse(none.canSwitch)
 
         let zeroHost = DashcamLiveSource.parse(media: ["rtsp": "rtsp://0.0.0.0:554/live"], attr: ["camnum": "1"], host: "192.168.169.1")
         XCTAssertEqual(zeroHost.urls.first?.absoluteString, "rtsp://192.168.169.1:554/live", "a placeholder host is the camera's")
+    }
+
+    func testTransportChoiceFollowsMediaInfo() {
+        func order(_ transport: Any?) -> [DashcamRTSPClient.Transport] {
+            DashcamLiveSource.parse(media: transport.map { ["transport": $0] } ?? [:], attr: nil, host: "h").transports
+        }
+        XCTAssertEqual(order("tcp"), [.tcp, .udp])
+        XCTAssertEqual(order(" TCP "), [.tcp, .udp])
+        XCTAssertEqual(order("udp"), [.udp, .tcp])
+        XCTAssertEqual(order(""), [.udp, .tcp])
+        XCTAssertEqual(order(nil), [.udp, .tcp], "the app streams over UDP unless the camera says tcp")
+        XCTAssertEqual(order(1), [.udp, .tcp])
+        XCTAssertEqual(DashcamRTSPClient(url: URL(string: "rtsp://h")!).transports, [.udp, .tcp])
     }
 
     @MainActor
@@ -394,63 +410,169 @@ final class DashcamRTSPTests: XCTestCase {
         XCTAssertFalse(sync.liveActive)
     }
 
+    // MARK: UDP pieces
+
+    func testParsesTransportPorts() {
+        let reply = "RTP/AVP;unicast;client_port=50000-50001;server_port=6970-6971;ssrc=1234ABCD"
+        XCTAssertEqual(DashcamRTSP.ports("server_port", in: reply)?.rtp, 6970)
+        XCTAssertEqual(DashcamRTSP.ports("server_port", in: reply)?.rtcp, 6971)
+        XCTAssertEqual(DashcamRTSP.ports("client_port", in: reply)?.rtp, 50000)
+        XCTAssertEqual(DashcamRTSP.ports("client_port", in: "RTP/AVP;unicast;client_port=6000")?.rtcp, 6001)
+        XCTAssertNil(DashcamRTSP.ports("server_port", in: "RTP/AVP/TCP;unicast;interleaved=0-1"))
+    }
+
+    private func seqs(_ packets: [RTPPacket]) -> [UInt16] { packets.map(\.sequence) }
+    private func rtp(_ seq: UInt16) -> RTPPacket { RTPPacket(marker: false, payloadType: 96, sequence: seq, timestamp: 0, payload: Data([0x41])) }
+
+    func testReorderBufferRestoresOrderAndSkipsAMissingPacket() {
+        var r = RTPReorderBuffer(window: 3)
+        XCTAssertEqual(seqs(r.push(rtp(11))), [], "warming up")
+        XCTAssertEqual(seqs(r.push(rtp(10))), [])
+        XCTAssertEqual(seqs(r.push(rtp(12))), [10, 11, 12], "the first packets are sorted too")
+        XCTAssertEqual(seqs(r.push(rtp(14))), [])
+        XCTAssertEqual(seqs(r.push(rtp(13))), [13, 14])
+        XCTAssertEqual(seqs(r.push(rtp(13))), [], "duplicate")
+        // 15 never comes: once 3 later packets are held it is skipped.
+        XCTAssertEqual(seqs(r.push(rtp(16))), [])
+        XCTAssertEqual(seqs(r.push(rtp(17))), [])
+        XCTAssertEqual(seqs(r.push(rtp(18))), [])
+        XCTAssertEqual(seqs(r.push(rtp(19))), [16, 17, 18, 19])
+        XCTAssertEqual(seqs(r.push(rtp(15))), [], "too late: its slot was passed")
+        XCTAssertEqual(seqs(r.push(rtp(20))), [20])
+    }
+
+    func testReorderBufferAcrossTheSequenceWrapAndARestart() {
+        var r = RTPReorderBuffer(window: 4)
+        XCTAssertEqual(seqs(r.push(rtp(65534))), [])
+        XCTAssertEqual(seqs(r.push(rtp(0))), [])
+        XCTAssertEqual(seqs(r.push(rtp(65535))), [65534, 65535, 0])
+        XCTAssertEqual(seqs(r.push(rtp(1))), [1])
+        XCTAssertEqual(seqs(r.push(rtp(30000))), [30000], "a stream that restarted elsewhere is followed, not waited for")
+        XCTAssertEqual(seqs(r.push(rtp(30001))), [30001])
+    }
+
+    func testALostPacketDropsFramesUntilTheNextKeyframe() throws {
+        let enc = try TestEncoder.encode(codec: kCMVideoCodecType_H264, frames: 6, keyframes: [0, 3])
+        XCTAssertEqual(enc.frames.map(\.key), [true, false, false, true, false, false])
+        let sdp = RTSPSessionDescription(codec: .h264, payloadType: 96, clockRate: 90000, control: nil, sessionControl: nil, parameterSets: [])
+        var pipeline = RTSPVideoPipeline(sdp)
+        let packets = TestPacketizer.packets(codec: .h264, encoded: enc).compactMap(RTPPacket.parse)
+        let lost = try XCTUnwrap(packets.firstIndex { $0.timestamp == 1_003_000 })   // frame 1's first packet
+        var frames: [CMSampleBuffer] = []
+        for (i, p) in packets.enumerated() where i != lost { frames += pipeline.push(p) }
+        XCTAssertEqual(frames.map { CMSampleBufferGetPresentationTimeStamp($0).value }, [0, 9000, 12000, 15000],
+                       "frames 1 and 2 are dropped, not decoded as garbage; the keyframe at 3 picks up")
+    }
+
+    func testReceiveStatsAndReceiverReport() throws {
+        var stats = RTPReceiveStats()
+        for seq: UInt16 in [65533, 65534, 0, 1] {   // 65535 lost, across the wrap
+            stats.record(RTPPacket(marker: false, payloadType: 96, sequence: seq, timestamp: 0, ssrc: 0xCAFE, payload: Data()))
+        }
+        XCTAssertEqual(stats.ssrc, 0xCAFE)
+        XCTAssertEqual(stats.extendedHighestSequence, 65537)
+        XCTAssertEqual(stats.expected, 5)
+        XCTAssertEqual(stats.cumulativeLost, 1)
+        XCTAssertEqual(stats.takeFractionLost(), 51, "1 in 5, in 1/256ths")
+        XCTAssertEqual(stats.takeFractionLost(), 0, "per interval")
+
+        let sr = FakeRTSPServer.senderReport
+        let parsed = try XCTUnwrap(DashcamRTSP.senderReport(sr))
+        XCTAssertEqual(parsed.ssrc, 0x12345678)
+        XCTAssertEqual(parsed.middleNTP, 0x33445566)
+        XCTAssertNil(DashcamRTSP.senderReport(Data([0x80, 201, 0, 1, 0, 0, 0, 1])), "a receiver report isn't one")
+
+        let rr = [UInt8](DashcamRTSP.receiverReport(ssrc: 0x01020304, sourceSSRC: 0xCAFE, fractionLost: 51, cumulativeLost: 1,
+                                                    extendedHighestSequence: 65537, lastSR: parsed.middleNTP,
+                                                    delaySinceLastSR: 0x10000, cname: "jc"))
+        XCTAssertEqual(Array(rr[0..<4]), [0x81, 201, 0, 7])
+        XCTAssertEqual(u32(rr, 4), 0x01020304)
+        XCTAssertEqual(u32(rr, 8), 0xCAFE)
+        XCTAssertEqual(rr[12], 51)
+        XCTAssertEqual(u32(rr, 12) & 0xFF_FFFF, 1)
+        XCTAssertEqual(u32(rr, 16), 65537)
+        XCTAssertEqual(u32(rr, 24), 0x33445566)
+        XCTAssertEqual(u32(rr, 28), 0x10000)
+        XCTAssertEqual(rr[33], 202, "SDES CNAME follows")
+        XCTAssertEqual(rr.count % 4, 0)
+        XCTAssertEqual(32 + 4 * ((Int(rr[34]) << 8 | Int(rr[35])) + 1), rr.count)
+    }
+
+    private func u32(_ b: [UInt8], _ i: Int) -> UInt32 {
+        UInt32(b[i]) << 24 | UInt32(b[i + 1]) << 16 | UInt32(b[i + 2]) << 8 | UInt32(b[i + 3])
+    }
+
     // MARK: End to end against a fake camera
 
-    func testEndToEndH264InBandParameterSets() throws {
-        try runEndToEnd(codec: .h264, videoCodec: kCMVideoCodecType_H264, spropInSDP: false)
+    static func sdp(_ codec: RTSPVideoCodec, fmtp: String = "") -> String {
+        "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=fake\r\nt=0 0\r\na=control:*\r\n"
+            + "m=video 0 RTP/AVP 96\r\na=rtpmap:96 \(codec == .h264 ? "H264" : "H265")/90000\r\n"
+            + (fmtp.isEmpty ? "" : fmtp + "\r\n") + "a=control:track1\r\n"
     }
 
-    func testEndToEndH265WithSDPParameterSets() throws {
-        try runEndToEnd(codec: .h265, videoCodec: kCMVideoCodecType_HEVC, spropInSDP: true)
-    }
-
-    private func runEndToEnd(codec: RTSPVideoCodec, videoCodec: CMVideoCodecType, spropInSDP: Bool) throws {
-        let enc = try TestEncoder.encode(codec: videoCodec, frames: 8)
-        let fmtp: String
-        let b64 = enc.parameterSets.map { $0.base64EncodedString() }
-        switch codec {
-        case .h264: fmtp = "a=fmtp:96 packetization-mode=1" + (spropInSDP ? ";sprop-parameter-sets=\(b64.joined(separator: ","))" : "")
-        case .h265: fmtp = "a=fmtp:96 " + (spropInSDP ? "sprop-vps=\(b64[0]);sprop-sps=\(b64[1]);sprop-pps=\(b64[2])" : "")
-        }
-        let sdp = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=fake\r\nt=0 0\r\na=control:*\r\n"
-            + "m=video 0 RTP/AVP 96\r\na=rtpmap:96 \(codec == .h264 ? "H264" : "H265")/90000\r\n\(fmtp)\r\na=control:track1\r\n"
-        let packets = TestPacketizer.packets(codec: codec, encoded: enc, inBandParameterSets: !spropInSDP)
-        let server = try FakeRTSPServer(sdp: sdp, packets: packets)
-        defer { server.stop() }
-        let port = try server.start()
-
-        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, keepaliveInterval: 0.3)
+    final class Recorder {
         var states: [DashcamRTSPClient.State] = []
         var frames: [CMSampleBuffer] = []
-        let enough = expectation(description: "frames")
-        enough.assertForOverFulfill = false
-        let failed = expectation(description: "no failure")
-        failed.isInverted = true
+        var failed: Bool { states.contains { if case .failed = $0 { return true }; return false } }
+    }
+
+    /// Starts the client and waits for `count` frames (or a failure, which fails the test).
+    private func play(_ client: DashcamRTSPClient, until count: Int, timeout: TimeInterval = 10) -> Recorder {
+        let r = Recorder()
+        let done = expectation(description: "\(count) frames")
+        done.assertForOverFulfill = false
         client.onState = { s in
-            states.append(s)
-            if case .failed = s { failed.fulfill() }
+            r.states.append(s)
+            if case .failed(let message) = s { XCTFail("failed: \(message)"); done.fulfill() }
         }
         client.onFrame = { sb in
             XCTAssertTrue(Thread.isMainThread)
-            frames.append(sb)
-            if frames.count >= enc.frames.count { enough.fulfill() }
+            r.frames.append(sb)
+            if r.frames.count >= count { done.fulfill() }
         }
         client.start()
-        wait(for: [enough], timeout: 10)
+        wait(for: [done], timeout: timeout)
+        return r
+    }
+
+    func testEndToEndH264InBandParameterSets() throws {
+        try runTCPEndToEnd(codec: .h264, videoCodec: kCMVideoCodecType_H264, spropInSDP: false)
+    }
+
+    func testEndToEndH265WithSDPParameterSets() throws {
+        try runTCPEndToEnd(codec: .h265, videoCodec: kCMVideoCodecType_HEVC, spropInSDP: true)
+    }
+
+    private func runTCPEndToEnd(codec: RTSPVideoCodec, videoCodec: CMVideoCodecType, spropInSDP: Bool) throws {
+        let enc = try TestEncoder.encode(codec: videoCodec, frames: 8)
+        let b64 = enc.parameterSets.map { $0.base64EncodedString() }
+        let fmtp: String
+        switch codec {
+        case .h264: fmtp = "a=fmtp:96 packetization-mode=1" + (spropInSDP ? ";sprop-parameter-sets=\(b64.joined(separator: ","))" : "")
+        case .h265: fmtp = spropInSDP ? "a=fmtp:96 sprop-vps=\(b64[0]);sprop-sps=\(b64[1]);sprop-pps=\(b64[2])" : ""
+        }
+        let packets = TestPacketizer.packets(codec: codec, encoded: enc, inBandParameterSets: !spropInSDP)
+        let server = try FakeRTSPServer(sdp: Self.sdp(codec, fmtp: fmtp), packets: packets)
+        defer { server.stop() }
+        let port = try server.start()
+
+        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, transports: [.tcp], keepaliveInterval: 0.3)
+        let run = play(client, until: enc.frames.count)
         let keepalive = expectation(description: "keepalive")
         keepalive.assertForOverFulfill = false
         server.onRequest = { method in if method == "GET_PARAMETER" { keepalive.fulfill() } }
         wait(for: [keepalive], timeout: 3)
         server.onRequest = nil
-        wait(for: [failed], timeout: 0.2)
 
-        XCTAssertEqual(states.first, .connecting)
-        XCTAssertTrue(states.contains(.playing))
-        XCTAssertEqual(frames.count, enc.frames.count)
-        let fmt = try XCTUnwrap(frames.first.flatMap(CMSampleBufferGetFormatDescription))
+        XCTAssertEqual(run.states.first, .connecting)
+        XCTAssertTrue(run.states.contains(.playing))
+        XCTAssertFalse(run.failed)
+        XCTAssertEqual(run.frames.count, enc.frames.count)
+        XCTAssertEqual(client.activeTransport, .tcp)
+        let fmt = try XCTUnwrap(run.frames.first.flatMap(CMSampleBufferGetFormatDescription))
         XCTAssertEqual(CMVideoFormatDescriptionGetDimensions(fmt).width, 320)
         XCTAssertEqual(CMVideoFormatDescriptionGetDimensions(fmt).height, 240)
-        let image = try XCTUnwrap(frames.first.flatMap(TestEncoder.decode), "the first frame decodes")
+        let image = try XCTUnwrap(run.frames.first.flatMap(TestEncoder.decode), "the first frame decodes")
         XCTAssertEqual(CVPixelBufferGetWidth(image), 320)
 
         let methods = server.requests.map(\.method)
@@ -459,17 +581,116 @@ final class DashcamRTSPTests: XCTestCase {
         XCTAssertTrue(describe.text.contains("Accept: application/sdp"))
         let setup = try XCTUnwrap(server.requests.first { $0.method == "SETUP" })
         XCTAssertEqual(setup.url, "rtsp://127.0.0.1:\(port)/live/track1")
-        XCTAssertTrue(setup.text.contains("Transport: RTP/AVP/TCP;unicast;interleaved=0-1"), setup.text)
+        XCTAssertEqual(setup.transport, "RTP/AVP/TCP;unicast;interleaved=0-1")
         let play = try XCTUnwrap(server.requests.first { $0.method == "PLAY" })
         XCTAssertTrue(play.text.contains("Session: 66334873\r\n"), play.text)
         XCTAssertEqual(Set(server.requests.compactMap(\.cseq)).count, server.requests.count, "CSeq never repeats")
 
         let teardown = expectation(description: "teardown")
         server.onRequest = { method in if method == "TEARDOWN" { teardown.fulfill() } }
-        let count = frames.count
+        let count = run.frames.count
         client.stop()
         wait(for: [teardown], timeout: 3)
-        XCTAssertEqual(frames.count, count, "nothing is delivered after stop")
+        XCTAssertEqual(run.frames.count, count, "nothing is delivered after stop")
+    }
+
+    func testEndToEndOverUDPWithReorderingAndReceiverReports() throws {
+        let enc = try TestEncoder.encode(codec: kCMVideoCodecType_H264, frames: 8)
+        let server = try FakeRTSPServer(sdp: Self.sdp(.h264), packets: TestPacketizer.packets(codec: .h264, encoded: enc),
+                                        udpReorder: true)
+        defer { server.stop() }
+        let port = try server.start()
+        let report = expectation(description: "receiver report")
+        report.assertForOverFulfill = false
+        server.onRTCP = { data in if data.count >= 32, [UInt8](data)[1] == 201 { report.fulfill() } }
+
+        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, transports: [.udp, .tcp])
+        client.rtcpInterval = 0.2
+        let run = play(client, until: enc.frames.count)
+        wait(for: [report], timeout: 3)
+
+        XCTAssertFalse(run.failed)
+        XCTAssertEqual(run.frames.count, enc.frames.count, "every frame, though every pair of packets arrived swapped")
+        XCTAssertEqual(client.activeTransport, .udp)
+        let times = run.frames.map { CMSampleBufferGetPresentationTimeStamp($0).value }
+        XCTAssertEqual(times, times.sorted())
+        XCTAssertNotNil(run.frames.first.flatMap(TestEncoder.decode))
+
+        let setups = server.requests.filter { $0.method == "SETUP" }
+        XCTAssertEqual(setups.count, 1)
+        let ports = try XCTUnwrap(DashcamRTSP.ports("client_port", in: setups[0].transport), setups[0].text)
+        XCTAssertTrue(setups[0].transport.hasPrefix("RTP/AVP;unicast;client_port="), setups[0].transport)
+        XCTAssertEqual(ports.rtp % 2, 0, "RTP on the even port")
+        XCTAssertEqual(ports.rtcp, ports.rtp + 1)
+        let rr = try XCTUnwrap(server.rtcpReceived.map { [UInt8]($0) }.first { $0.count >= 32 && $0[1] == 201 })
+        XCTAssertEqual(u32(rr, 8), 0x12345678, "about the camera's stream")
+        XCTAssertEqual(u32(rr, 24), 0x33445566, "echoes the sender report's NTP time")
+
+        let teardown = expectation(description: "teardown")
+        server.onRequest = { method in if method == "TEARDOWN" { teardown.fulfill() } }
+        client.stop()
+        wait(for: [teardown], timeout: 3)
+    }
+
+    func testFallsBackToTCPWhenUDPBringsNothing() throws {
+        let enc = try TestEncoder.encode(codec: kCMVideoCodecType_H264, frames: 4)
+        let server = try FakeRTSPServer(sdp: Self.sdp(.h264), packets: TestPacketizer.packets(codec: .h264, encoded: enc),
+                                        udpSilent: true)
+        defer { server.stop() }
+        let port = try server.start()
+        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, transports: [.udp, .tcp])
+        client.firstPacketTimeout = 1
+        let started = Date()
+        let run = play(client, until: enc.frames.count, timeout: 15)
+
+        XCTAssertFalse(run.failed)
+        XCTAssertEqual(run.states.filter { $0 == .playing }.count, 1)
+        XCTAssertEqual(run.frames.count, enc.frames.count)
+        XCTAssertEqual(client.activeTransport, .tcp)
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 1, "UDP got its chance first")
+        let setups = server.requests.filter { $0.method == "SETUP" }
+        XCTAssertEqual(setups.count, 2)
+        XCTAssertTrue(setups.first?.transport.contains("client_port=") == true)
+        XCTAssertEqual(setups.last?.transport, "RTP/AVP/TCP;unicast;interleaved=0-1")
+        let methods = server.requests.map(\.method)
+        let teardown = try XCTUnwrap(methods.firstIndex(of: "TEARDOWN"), "the silent UDP session is torn down")
+        XCTAssertLessThan(teardown, try XCTUnwrap(methods.lastIndex(of: "SETUP")))
+        client.stop()
+    }
+
+    func testFallsBackWhenSetupRefusesTheTransport() throws {
+        let enc = try TestEncoder.encode(codec: kCMVideoCodecType_H264, frames: 3)
+        let cases: [(offered: Set<String>, order: [DashcamRTSPClient.Transport], plays: DashcamRTSPClient.Transport)] = [
+            (["tcp"], [.udp, .tcp], .tcp),
+            (["udp"], [.tcp, .udp], .udp),
+        ]
+        for c in cases {
+            let server = try FakeRTSPServer(sdp: Self.sdp(.h264), packets: TestPacketizer.packets(codec: .h264, encoded: enc),
+                                            transports: c.offered)
+            defer { server.stop() }
+            let port = try server.start()
+            let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, transports: c.order)
+            let run = play(client, until: enc.frames.count)
+            client.stop()
+            XCTAssertFalse(run.failed)
+            XCTAssertEqual(run.frames.count, enc.frames.count)
+            XCTAssertEqual(client.activeTransport, c.plays, "461 for \(c.order[0].rawValue), then \(c.plays.rawValue)")
+            XCTAssertEqual(server.requests.filter { $0.method == "SETUP" }.count, 2)
+            XCTAssertEqual(server.requests.filter { $0.method == "DESCRIBE" }.count, 2, "a fresh RTSP session for the second try")
+        }
+    }
+
+    func testOneTransportOnlyFailsWithoutFallingBack() throws {
+        let server = try FakeRTSPServer(sdp: Self.sdp(.h264), packets: [], transports: ["tcp"])
+        defer { server.stop() }
+        let port = try server.start()
+        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)/live")!, transports: [.udp])
+        let failed = expectation(description: "failed")
+        client.onState = { if case .failed(let message) = $0 { XCTAssertTrue(message.contains("UDP"), message); failed.fulfill() } }
+        client.start()
+        wait(for: [failed], timeout: 5)
+        client.stop()
+        XCTAssertEqual(server.requests.filter { $0.method == "SETUP" }.count, 1)
     }
 
     func testFailsWhenNothingAnswers() throws {
@@ -493,12 +714,9 @@ final class DashcamRTSPTests: XCTestCase {
         defer { server.stop() }
         let port = try server.start()
         let client = DashcamRTSPClient(url: URL(string: "rtsp://admin:secret@127.0.0.1:\(port)/")!)
-        let frame = expectation(description: "frame")
-        frame.assertForOverFulfill = false
-        client.onFrame = { _ in frame.fulfill() }
-        client.start()
-        wait(for: [frame], timeout: 10)
+        let run = play(client, until: 1)
         client.stop()
+        XCTAssertFalse(run.failed)
         let describes = server.requests.filter { $0.method == "DESCRIBE" }
         XCTAssertEqual(describes.count, 2, "one refused, one answered")
         XCTAssertTrue(describes.last?.text.contains(#"Authorization: Digest username="admin", realm="cam""#) == true,
@@ -517,7 +735,8 @@ enum TestEncoder {
         var frames: [(nals: [Data], key: Bool)]
     }
 
-    static func encode(codec: CMVideoCodecType, frames count: Int, width: Int32 = 320, height: Int32 = 240) throws -> Output {
+    static func encode(codec: CMVideoCodecType, frames count: Int, keyframes: Set<Int> = [0],
+                       width: Int32 = 320, height: Int32 = 240) throws -> Output {
         var session: VTCompressionSession?
         let status = VTCompressionSessionCreate(allocator: nil, width: width, height: height, codecType: codec,
                                                 encoderSpecification: nil, imageBufferAttributes: nil,
@@ -537,7 +756,7 @@ enum TestEncoder {
         var encoded: [CMSampleBuffer] = []
         for i in 0..<count {
             let pixels = try pixelBuffer(session: session, width: Int(width), height: Int(height), frame: i)
-            let props = i == 0 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
+            let props = keyframes.contains(i) ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
             let s = VTCompressionSessionEncodeFrame(session, imageBuffer: pixels,
                                                     presentationTimeStamp: CMTime(value: CMTimeValue(i), timescale: 30),
                                                     duration: .invalid, frameProperties: props, infoFlagsOut: nil) { status, _, sb in
@@ -700,29 +919,60 @@ enum TestPacketizer {
 }
 
 /// A camera's RTSP server on 127.0.0.1: answers OPTIONS/DESCRIBE/SETUP/PLAY/GET_PARAMETER/TEARDOWN
-/// and, after PLAY, streams the given RTP packets interleaved on channel 0 (plus an RTCP-ish
-/// frame on channel 1 that the client must ignore).
+/// and, after PLAY, streams the given RTP packets — interleaved on channel 0 (plus an RTCP-ish
+/// frame on channel 1 the client must ignore), or over UDP to the SETUP's client ports with an
+/// RTCP sender report, collecting the receiver reports that come back.
 final class FakeRTSPServer: @unchecked Sendable {
-    struct Request { var method: String; var url: String; var cseq: Int?; var text: String }
+    struct Request {
+        var method: String
+        var url: String
+        var cseq: Int?
+        var text: String
+        var transport: String { header("transport") ?? "" }
+
+        func header(_ name: String) -> String? {
+            text.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix(name.lowercased() + ":") }
+                .map { String($0.dropFirst(name.count + 1)).trimmingCharacters(in: .whitespaces) }
+        }
+    }
+
+    /// SR from SSRC 0x12345678 with NTP 0x11223344.55667788 (middle 32 bits 0x33445566).
+    static let senderReport = Data([0x80, 200, 0, 6, 0x12, 0x34, 0x56, 0x78, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]
+                                   + [UInt8](repeating: 0, count: 12))
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "fake.rtsp")
     private let lock = NSLock()
     private var _requests: [Request] = []
     private var _onRequest: ((String) -> Void)?
+    private var _onRTCP: ((Data) -> Void)?
+    private var _rtcp: [Data] = []
     private var connections: [NWConnection] = []
+    private var udpClients: [ObjectIdentifier: (rtp: UInt16, rtcp: UInt16)] = [:]
     let sdp: String
     let packets: [Data]
     let closeImmediately: Bool
     let digestRealm: String?
+    /// "tcp" and/or "udp"; SETUP for anything else gets 461.
+    let transports: Set<String>
+    /// Accepts UDP but never sends a packet (a transport that doesn't get through).
+    let udpSilent: Bool
+    /// Sends every pair of UDP packets swapped.
+    let udpReorder: Bool
 
     var requests: [Request] { lock.lock(); defer { lock.unlock() }; return _requests }
+    var rtcpReceived: [Data] { lock.lock(); defer { lock.unlock() }; return _rtcp }
     var onRequest: ((String) -> Void)? {
         get { lock.lock(); defer { lock.unlock() }; return _onRequest }
         set { lock.lock(); _onRequest = newValue; lock.unlock() }
     }
+    var onRTCP: ((Data) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _onRTCP }
+        set { lock.lock(); _onRTCP = newValue; lock.unlock() }
+    }
 
-    init(sdp: String, packets: [Data], closeImmediately: Bool = false, digestRealm: String? = nil) throws {
+    init(sdp: String, packets: [Data], closeImmediately: Bool = false, digestRealm: String? = nil,
+         transports: Set<String> = ["tcp", "udp"], udpSilent: Bool = false, udpReorder: Bool = false) throws {
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: params)
@@ -730,6 +980,9 @@ final class FakeRTSPServer: @unchecked Sendable {
         self.packets = packets
         self.closeImmediately = closeImmediately
         self.digestRealm = digestRealm
+        self.transports = transports
+        self.udpSilent = udpSilent
+        self.udpReorder = udpReorder
     }
 
     func start() throws -> UInt16 {
@@ -779,8 +1032,9 @@ final class FakeRTSPServer: @unchecked Sendable {
         guard parts.count >= 2 else { return }
         let method = parts[0]
         let cseq = lines.first { $0.lowercased().hasPrefix("cseq:") }.flatMap { Int($0.dropFirst(5).trimmingCharacters(in: .whitespaces)) }
+        let request = Request(method: method, url: parts[1], cseq: cseq, text: text)
         lock.lock()
-        _requests.append(Request(method: method, url: parts[1], cseq: cseq, text: text))
+        _requests.append(request)
         let callback = _onRequest
         lock.unlock()
         callback?(method)
@@ -801,9 +1055,23 @@ final class FakeRTSPServer: @unchecked Sendable {
             let base = parts[1].hasSuffix("/") ? parts[1] : parts[1] + "/"
             reply("200 OK", "Content-Type: application/sdp\r\nContent-Base: \(base)\r\n", body: sdp)
         case "SETUP":
-            reply("200 OK", "Transport: RTP/AVP/TCP;unicast;interleaved=0-1;ssrc=12345678\r\nSession: 66334873;timeout=60\r\n")
+            let t = request.transport
+            let wantsUDP = !t.contains("interleaved") && !t.uppercased().contains("/TCP")
+            guard transports.contains(wantsUDP ? "udp" : "tcp") else { return reply("461 Unsupported Transport") }
+            if wantsUDP, let ports = DashcamRTSP.ports("client_port", in: t) {
+                udpClients[ObjectIdentifier(conn)] = ports
+                reply("200 OK", "Transport: RTP/AVP;unicast;client_port=\(ports.rtp)-\(ports.rtcp);server_port=6970-6971;ssrc=12345678\r\n"
+                      + "Session: 66334873;timeout=60\r\n")
+            } else {
+                udpClients[ObjectIdentifier(conn)] = nil
+                reply("200 OK", "Transport: RTP/AVP/TCP;unicast;interleaved=0-1;ssrc=12345678\r\nSession: 66334873;timeout=60\r\n")
+            }
         case "PLAY":
             reply("200 OK", "Session: 66334873\r\nRTP-Info: url=track1;seq=4000;rtptime=1000000\r\n")
+            if let ports = udpClients[ObjectIdentifier(conn)] {
+                sendUDP(to: ports)
+                return
+            }
             var stream = Data([0x24, 0x01, 0x00, 0x04, 0x80, 0xC8, 0x00, 0x01])   // RTCP on channel 1
             for p in packets {
                 stream += Data([0x24, 0x00, UInt8(p.count >> 8), UInt8(p.count & 0xFF)]) + p
@@ -819,6 +1087,38 @@ final class FakeRTSPServer: @unchecked Sendable {
             reply("200 OK", "Session: 66334873\r\n")
         default:
             reply("501 Not Implemented")
+        }
+    }
+
+    private func sendUDP(to ports: (rtp: UInt16, rtcp: UInt16)) {
+        guard !udpSilent, let rtpPort = NWEndpoint.Port(rawValue: ports.rtp), let rtcpPort = NWEndpoint.Port(rawValue: ports.rtcp) else {
+            return
+        }
+        let rtp = NWConnection(host: "127.0.0.1", port: rtpPort, using: .udp)
+        let rtcp = NWConnection(host: "127.0.0.1", port: rtcpPort, using: .udp)
+        connections += [rtp, rtcp]
+        rtp.start(queue: queue)
+        rtcp.start(queue: queue)
+        var order = packets
+        if udpReorder {
+            for i in stride(from: 0, to: order.count - 1, by: 2) { order.swapAt(i, i + 1) }
+        }
+        for p in order { rtp.send(content: p, completion: .idempotent) }
+        rtcp.send(content: Self.senderReport, completion: .idempotent)
+        readRTCP(rtcp)
+    }
+
+    private func readRTCP(_ conn: NWConnection) {
+        conn.receiveMessage { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                self.lock.lock()
+                self._rtcp.append(data)
+                let callback = self._onRTCP
+                self.lock.unlock()
+                callback?(data)
+            }
+            if error == nil { self.readRTCP(conn) }
         }
     }
 }
