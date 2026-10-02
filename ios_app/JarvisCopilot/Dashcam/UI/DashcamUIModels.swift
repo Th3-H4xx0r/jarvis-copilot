@@ -124,6 +124,9 @@ struct DashcamClipStatus: Equatable {
         }
         switch clip.phoneState {
         case "local": return .init(label: "On phone", symbol: "iphone", tint: JcTheme.amber)
+        case "deleted":
+            return .init(label: clip.onCamera ? "Deleted from phone · on the SD card" : "Deleted from phone",
+                         symbol: "iphone.slash", tint: JcTheme.muted)
         case "downloading", "queued": return .init(label: "Downloading", symbol: "arrow.down.circle", tint: JcTheme.accent)
         default: break
         }

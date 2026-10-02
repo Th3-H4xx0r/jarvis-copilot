@@ -376,11 +376,14 @@ struct DashcamInventoryRow: Equatable, Sendable {
     var hasThumb: Bool
     var uploaded: Bool
     var sizeStable: Bool
+    /// Deleted from the phone by hand: never pulled again on its own (only "Download again").
+    var phoneDeleted = false
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]), let path = str(json["path"]) else { return nil }
         self.id = id
         self.path = path
+        phoneDeleted = str(json["phone_state"]) == "deleted"
         hasGPS = bool(json["has_gps"])
         hasThumb = bool(json["has_thumb"])
         uploaded = bool(json["uploaded"])

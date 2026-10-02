@@ -38,7 +38,7 @@ struct DashcamPage: View {
         .background(JcTheme.bg.ignoresSafeArea())
         .overlay(alignment: .bottomTrailing) {
             if tab == .library {
-                DashcamSelectionBar().padding(.trailing, 16).padding(.bottom, 96)   // above the tab bar
+                DashcamSelectionBar().padding(.trailing, 16).padding(.bottom, 12)   // just above the tab bar
             }
         }
         .fullScreenCover(isPresented: $live) { DashcamLiveView() }

@@ -455,6 +455,8 @@ final class DashcamSync: ObservableObject {
         var normalOnPhone = storage.normalBytes(camera: cameraID)
         func wanted(_ f: DashcamFile) -> Bool {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
+            // Deleted from the phone on purpose: stays deleted until "Download again".
+            if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
             return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone)
         }

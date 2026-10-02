@@ -434,7 +434,8 @@ class DashcamStore:
     def _row(clip: dict, dests: dict) -> dict:
         return {"id": clip["id"], "path": clip["path"], "has_gps": bool(clip.get("has_gps")),
                 "has_thumb": bool(clip.get("has_thumb")), "uploaded": _is_uploaded(clip, dests),
-                "size_stable": bool(clip.get("size_stable"))}
+                "size_stable": bool(clip.get("size_stable")),
+                "phone_state": (clip.get("phone") or {}).get("state")}
 
     def list_clips(self, *, kind=None, lens=None, state=None, drive=None, start_from=None, start_to=None,
                    cursor=None, limit=100) -> tuple[list[dict], str | None]:

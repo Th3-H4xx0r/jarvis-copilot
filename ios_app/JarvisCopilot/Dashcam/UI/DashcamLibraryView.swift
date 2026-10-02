@@ -340,6 +340,14 @@ struct DashcamSelectionBar: View {
                 } label: { Label("Delete", systemImage: "trash") }
                 .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                 .disabled(model.selected.isEmpty)
+                Button {
+                    // Download again: pulled even when deleted from the phone before.
+                    for clip in model.clips where model.selected.contains(clip.id) && clip.onCamera { DashcamSync.shared.pull(clip.path) }
+                    model.selecting = false
+                    model.selected = []
+                } label: { Label("Download", systemImage: "arrow.down.circle") }
+                .buttonStyle(.jcGlass(compact: true))
+                .disabled(!model.clips.contains { model.selected.contains($0.id) && $0.onCamera })
                 Button("Cancel") { model.selecting = false; model.selected = [] }
                     .buttonStyle(.jcGlass(compact: true))
             } else {
