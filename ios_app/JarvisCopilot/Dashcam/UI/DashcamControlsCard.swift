@@ -56,10 +56,10 @@ struct DashcamControlsCard: View {
     }
 
     private func toggleRecording() async {
+        await sync.refreshStatus()                 // act on what the camera is doing now, not the last read
         let on = sync.recording == false
         guard let out = await run("dashcam_set_recording", ["enabled": on]) else { return }
         let now = out["recording"] as? Bool ?? on
-        sync.noteRecording(now)
         note = now ? "Recording." : "Recording stopped — it stays off until you start it again."
     }
 

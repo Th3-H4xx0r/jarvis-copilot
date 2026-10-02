@@ -33,6 +33,9 @@ struct DashcamPage: View {
         }
         .background(JcTheme.bg.ignoresSafeArea())
         .fullScreenCover(isPresented: $live) { DashcamLiveView() }
+        .onAppear { sync.watchStatus(wifi.onCamera) }
+        .onChange(of: wifi.onCamera) { _, on in sync.watchStatus(on) }
+        .onDisappear { sync.watchStatus(false) }
         .navigationTitle(DashcamSetupStore.load()?.displayName ?? "Dashcam")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -61,7 +64,7 @@ struct DashcamPage: View {
                         syncing = true
                         Task { await sync.syncNow(); syncing = false }
                     } label: {
-                        if syncing { ProgressView() } else { Text("Sync now") }
+                        if syncing || sync.passActive { ProgressView() } else { Text("Sync now") }
                     }
                     .buttonStyle(.jcGlass(compact: true))
                     .disabled(!wifi.onCamera || syncing)

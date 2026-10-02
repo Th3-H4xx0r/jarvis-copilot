@@ -25,7 +25,13 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     func thumbnail(_ file: DashcamFile) async -> Data? { Data([0xFF, 0xD8] + Array(repeating: 0, count: 200)) }
     func setTime(_ date: Date, timeZone: TimeZone) async throws { calls.append("time") }
     func isRecording() async throws -> Bool { recordingOn }
-    func setRecording(_ on: Bool) async throws { calls.append("rec=\(on)"); recordingOn = on }
+    /// The A4 answers "set fail" when asked for the state it's already in.
+    var setFailsWhenSame = false
+    func setRecording(_ on: Bool) async throws {
+        calls.append("rec=\(on)")
+        if setFailsWhenSame && recordingOn == on { throw DashcamError.camera("setparamvalue?param=rec&value=1: set fail") }
+        recordingOn = on
+    }
     func lock() async throws { calls.append("lock") }
     func snapshot() async throws -> String? { nil }
     func settings() async throws -> [DashcamSettingItem] { [] }

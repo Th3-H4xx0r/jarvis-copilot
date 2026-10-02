@@ -163,8 +163,14 @@ final class DashcamDevice: WearableDevice {
         case "dashcam_set_recording":
             guard let on = args["enabled"] as? Bool else { throw DeviceError.badArgument("enabled must be true or false") }
             let cam = try camera()
-            try await cam.setRecording(on)
+            do {
+                try await cam.setRecording(on)
+            } catch {
+                // The A4 answers "set fail" when it's already in that state: what counts is the state it's in.
+                guard (try? await cam.isRecording()) == on else { throw error }
+            }
             let now = try? await cam.isRecording()
+            sync.noteRecording(now ?? on)
             return ["ok": true, "recording": now ?? on]
         case "dashcam_get_settings":
             let items = try await camera().settings()

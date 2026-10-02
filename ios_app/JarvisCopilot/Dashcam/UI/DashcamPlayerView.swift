@@ -127,6 +127,8 @@ final class DashcamPlayerModel: ObservableObject {
             if let d = sync.downloading, d.name == file.name, d.total > 0 {
                 progress = Double(d.done) / Double(d.total)
                 source = "Pulling it from the camera… \(Int((progress ?? 0) * 100))%"
+            } else if let d = sync.downloading, d.name != file.name {
+                source = "Pulling it from the camera… (after \(d.name))"
             } else if case .waitingForPark = sync.phase {
                 source = "The camera only hands over clips while the car is parked."
             }

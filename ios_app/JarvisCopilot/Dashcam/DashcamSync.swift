@@ -161,7 +161,11 @@ final class DashcamSync: ObservableObject {
     private var lastSizes: [String: Int64] = [:]
     private var cameraLoop: Task<Void, Never>?
     private var uploadLoop: Task<Void, Never>?
-    private var passRunning = false
+    private var passRunning = false { didSet { passActive = passRunning } }
+    /// A pass is running (the Sync button shows it; tapping it then queues the next pass).
+    @Published private(set) var passActive = false
+    private var statusWatch: Task<Void, Never>?
+    private var statusReads = 0
     private let pathMonitor = NWPathMonitor()
     private var internetPath: NWPath?
 
@@ -214,11 +218,37 @@ final class DashcamSync: ObservableObject {
     /// The controls changed recording by hand.
     func noteRecording(_ on: Bool) { recording = on }
 
-    /// Run a pass now (Sync now, `dashcam_sync`).
+    /// Run a pass now (Sync now, `dashcam_sync`). One already running chose its files before the tap,
+    /// so another follows it.
     @discardableResult
     func syncNow() async -> Report {
         guard onCameraProvider() else { phase = .away; return Report() }
+        if passRunning { passSoon(); await refreshStatus(); return Report() }
         return await syncPass()
+    }
+
+    // MARK: Live status
+
+    /// Recording state and card space, read on their own. A pass only reads them when it starts, and one
+    /// read at the wrong moment (a clip split) left "Stopped" showing for a whole pass.
+    func refreshStatus() async {
+        guard onCameraProvider(), !liveActive, let setup = setupProvider(), let cam = cameraFactory(setup) else { return }
+        if let rec = try? await cam.isRecording() { recording = rec }
+        statusReads += 1
+        if statusReads % 6 == 1, let card = try? await cam.sdInfo() { sd = card }
+    }
+
+    /// Polls the status every few seconds while the dashcam page is open.
+    func watchStatus(_ on: Bool) {
+        statusWatch?.cancel()
+        statusWatch = nil
+        guard on else { return }
+        statusWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshStatus()
+                try? await Task.sleep(for: .seconds(4))
+            }
+        }
     }
 
     // MARK: One pass while on the camera's Wi‑Fi
@@ -397,17 +427,23 @@ final class DashcamSync: ObservableObject {
             return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID))
         }
 
-        // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else.
-        for f in DashcamRules.order(files.filter { forced.contains($0.path) && wanted($0) }) {
-            guard await mayContinue() else { return report }
-            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+        // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else —
+        // and again between every other download, so a clip opened mid-pass doesn't queue behind an hour of footage.
+        func takeAsked() async {
+            for f in DashcamRules.order(files.filter { forced.contains($0.path) && wanted($0) }) {
+                guard await mayContinue() else { return }
+                await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+            }
         }
+        await takeAsked()
 
         // 1. Events, parking clips and photos first — they matter most.
         let urgent = DashcamRules.order(files.filter { $0.kind != .normal && wanted($0) })
         queuedDownloads = urgent.count
         for f in urgent {
             guard await mayContinue() else { return report }
+            await takeAsked()
+            guard !storage.exists(camera: cameraID, file: f) else { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
         }
 
@@ -438,6 +474,8 @@ final class DashcamSync: ObservableObject {
         queuedDownloads = normal.count
         for f in normal {
             guard await mayContinue() else { break }
+            await takeAsked()
+            guard !storage.exists(camera: cameraID, file: f) else { continue }
             if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID)) { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
             if !onCameraProvider() { break }

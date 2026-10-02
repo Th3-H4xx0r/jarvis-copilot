@@ -63,6 +63,33 @@ final class DashcamDeviceTests: XCTestCase {
         } catch {}
     }
 
+    func testStartingARecordingCameraIsNotAnError() async throws {
+        // The phone showed "Stopped" from a stale read; the camera was recording and refused rec=1.
+        cam.setFailsWhenSame = true
+        cam.recordingOn = true
+        let r = try await device.invoke("dashcam_set_recording", args: ["enabled": true])
+        XCTAssertEqual(r["recording"] as? Bool, true)
+        XCTAssertEqual(device.sync.recording, true)
+        // A refusal that leaves it in the wrong state still surfaces.
+        cam.setFailsWhenSame = false
+        cam.recordingOn = false
+        _ = try await device.invoke("dashcam_set_recording", args: ["enabled": false])
+        XCTAssertEqual(device.sync.recording, false)
+    }
+
+    func testStatusIsReadOnItsOwnBetweenPasses() async {
+        cam.recordingOn = false
+        await device.sync.refreshStatus()
+        XCTAssertEqual(device.sync.recording, false)
+        cam.recordingOn = true                      // the camera started recording by itself
+        await device.sync.refreshStatus()
+        XCTAssertEqual(device.sync.recording, true)
+        onCamera = false
+        cam.recordingOn = false
+        await device.sync.refreshStatus()           // off its Wi-Fi: nothing read
+        XCTAssertEqual(device.sync.recording, true)
+    }
+
     func testSettingValuesResolveFromCodeOrLabel() {
         let item = DashcamSettingItem(name: "speed_unit", value: "0",
                                       options: [.init(code: "0", label: "km/h"), .init(code: "1", label: "mph")])
