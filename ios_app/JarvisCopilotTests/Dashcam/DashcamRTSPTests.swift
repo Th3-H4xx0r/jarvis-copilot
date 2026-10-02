@@ -535,6 +535,57 @@ final class DashcamRTSPTests: XCTestCase {
         return r
     }
 
+    /// The A4's actual DESCRIBE reply (live-trace.log, 2026-10-02): audio track1, H.264 track2, start codes in sprop.
+    static let a4SDP = """
+        v=0\r\na=type:broadcast\r\na=control:*\r\na=range:npt=0-\r\nm=audio 0 RTP/AVP 96\r\nb=AS:96\r\nc=IN IP4 0.0.0.0\r\n\
+        a=rtpmap:96 MPEG4-GENERIC/0/0\r\na=fmtp:96 streamtype=5;profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;\
+        indexdeltalength=3;config=0e8056e500\r\na=control:track1\r\nm=video 0 RTP/AVP 97\r\nb=AS:1000\r\nc=IN IP4 0.0.0.0\r\n\
+        a=rtpmap:97 H264/90000\r\na=fmtp:97 profile-level-id=640033;packetization-mode=1;\
+        sprop-parameter-sets=AAAAAWdkADOs6AUAWyaIAAAfQAAGGoQg,AAAAAWjuPLA=\r\na=control:track2\r\n
+        """
+
+    func testTheA4sDescriptionParses() throws {
+        let sdp = try XCTUnwrap(DashcamRTSP.parseSDP(Self.a4SDP))
+        XCTAssertEqual(sdp.codec, .h264)
+        XCTAssertEqual(sdp.payloadType, 97)
+        XCTAssertEqual(sdp.control, "track2")
+        XCTAssertEqual(sdp.parameterSets.map { $0.first.map { Int($0 & 0x1F) } }, [7, 8], "start codes stripped from sprop")
+    }
+
+    func testStartCodesInsidePayloadsAreSplitOff() throws {
+        XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3])),
+                       [Data([0x67, 1, 2]), Data([0x68, 3])])
+        XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0x65, 0, 0, 1])), [Data([0x65, 0, 0, 1])], "a real NAL is left alone")
+        var d = RTPDepacketizer(codec: .h264)
+        let packet = RTPPacket.parse(TestPacketizer.rtp(seq: 1, ts: 9, marker: true, payload: Data([0, 0, 0, 1, 0x67, 0x64, 0, 0x33]),
+                                                        payloadType: 97))
+        let out = d.push(try XCTUnwrap(packet))
+        XCTAssertEqual(out.nals, [Data([0x67, 0x64, 0, 0x33])])
+    }
+
+    /// Everything the A4 did in the trace at once: empty first description, video on channel 2 although it
+    /// agreed to 0-1, payload type 97, start codes in every unit, FU-A cut from start-coded bytes, every
+    /// packet marked.
+    func testEndToEndLikeTheA4() throws {
+        let enc = try TestEncoder.encode(codec: kCMVideoCodecType_H264, frames: 6)
+        let b64 = enc.parameterSets.map { (Data([0, 0, 0, 1]) + $0).base64EncodedString() }
+        let sdp = Self.a4SDP.replacingOccurrences(of: "AAAAAWdkADOs6AUAWyaIAAAfQAAGGoQg,AAAAAWjuPLA=", with: b64.joined(separator: ","))
+        let server = try FakeRTSPServer(sdp: sdp, packets: TestPacketizer.a4Packets(encoded: enc), transports: ["tcp"],
+                                        emptyDescribes: 1, videoChannel: 2)
+        defer { server.stop() }
+        let port = try server.start()
+        let client = DashcamRTSPClient(url: URL(string: "rtsp://127.0.0.1:\(port)")!, transports: [.tcp], keepaliveInterval: 5)
+        // Grouped by timestamp, a picture is complete when the next one starts: the last one of a finite
+        // stream stays held (live, that's one frame — 40 ms at 25 fps).
+        let run = play(client, until: enc.frames.count - 1)
+        XCTAssertFalse(run.failed)
+        XCTAssertEqual(run.frames.count, enc.frames.count - 1, "one sample per picture, not per marked packet")
+        XCTAssertNotNil(run.frames.first.flatMap(TestEncoder.decode), "the first frame decodes")
+        XCTAssertEqual(server.requests.filter { $0.method == "DESCRIBE" }.count, 2, "asked again after the empty one")
+        XCTAssertTrue(server.requests.contains { $0.method == "SETUP" && $0.url.hasSuffix("track2") })
+        client.stop()
+    }
+
     func testEndToEndH264InBandParameterSets() throws {
         try runTCPEndToEnd(codec: .h264, videoCodec: kCMVideoCodecType_H264, spropInSDP: false)
     }
@@ -881,8 +932,39 @@ enum TestPacketizer {
         return out
     }
 
-    static func rtp(seq: UInt16, ts: UInt32, marker: Bool, payload: Data) -> Data {
-        var h: [UInt8] = [0x80, (marker ? 0x80 : 0) | 96, UInt8(seq >> 8), UInt8(seq & 0xFF)]
+    /// Packets the way the A4's Lombotech RTSP server sends them (from a real trace): every NAL unit keeps its
+    /// Annex-B start code, SPS and PPS go out alone before each keyframe, large units are FU-A fragments cut
+    /// from the start-coded bytes, and every packet has the marker bit set.
+    static func a4Packets(encoded: TestEncoder.Output, payloadType: UInt8 = 97, mtu: Int = 1200) -> [Data] {
+        var out: [Data] = []
+        var seq: UInt16 = 13
+        for (i, frame) in encoded.frames.enumerated() {
+            let ts = UInt32(216_306_900 + i * 3600)
+            let units = (frame.key ? encoded.parameterSets : []) + frame.nals
+            for nal in units {
+                let coded = [UInt8]([0, 0, 0, 1]) + [UInt8](nal)
+                if coded.count <= mtu {
+                    out.append(rtp(seq: seq, ts: ts, marker: true, payload: Data(coded), payloadType: payloadType)); seq &+= 1
+                    continue
+                }
+                let body = Array(coded.dropFirst())                      // the "header" byte is the first 0x00
+                var j = 0
+                while j < body.count {
+                    let end = min(j + mtu, body.count)
+                    var fu: UInt8 = coded[0] & 0x1F                       // type 0, as computed from the 0x00
+                    if j == 0 { fu |= 0x80 }
+                    if end == body.count { fu |= 0x40 }
+                    let payload = Data([(coded[0] & 0xE0) | 28, fu] + body[j..<end])
+                    out.append(rtp(seq: seq, ts: ts, marker: true, payload: payload, payloadType: payloadType)); seq &+= 1
+                    j = end
+                }
+            }
+        }
+        return out
+    }
+
+    static func rtp(seq: UInt16, ts: UInt32, marker: Bool, payload: Data, payloadType: UInt8 = 96) -> Data {
+        var h: [UInt8] = [0x80, (marker ? 0x80 : 0) | payloadType, UInt8(seq >> 8), UInt8(seq & 0xFF)]
         h += [UInt8(ts >> 24), UInt8((ts >> 16) & 0xFF), UInt8((ts >> 8) & 0xFF), UInt8(ts & 0xFF), 0x12, 0x34, 0x56, 0x78]
         return Data(h) + payload
     }
@@ -959,6 +1041,10 @@ final class FakeRTSPServer: @unchecked Sendable {
     let udpSilent: Bool
     /// Sends every pair of UDP packets swapped.
     let udpReorder: Bool
+    /// Answers the first N DESCRIBEs with an empty description (the A4 right after enterrecorder).
+    private var emptyDescribes: Int
+    /// Interleaved channel the video actually goes out on (the A4 agrees to 0-1 and uses 2).
+    let videoChannel: UInt8
 
     var requests: [Request] { lock.lock(); defer { lock.unlock() }; return _requests }
     var rtcpReceived: [Data] { lock.lock(); defer { lock.unlock() }; return _rtcp }
@@ -972,7 +1058,8 @@ final class FakeRTSPServer: @unchecked Sendable {
     }
 
     init(sdp: String, packets: [Data], closeImmediately: Bool = false, digestRealm: String? = nil,
-         transports: Set<String> = ["tcp", "udp"], udpSilent: Bool = false, udpReorder: Bool = false) throws {
+         transports: Set<String> = ["tcp", "udp"], udpSilent: Bool = false, udpReorder: Bool = false,
+         emptyDescribes: Int = 0, videoChannel: UInt8 = 0) throws {
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: params)
@@ -983,6 +1070,8 @@ final class FakeRTSPServer: @unchecked Sendable {
         self.transports = transports
         self.udpSilent = udpSilent
         self.udpReorder = udpReorder
+        self.emptyDescribes = emptyDescribes
+        self.videoChannel = videoChannel
     }
 
     func start() throws -> UInt16 {
@@ -1053,6 +1142,10 @@ final class FakeRTSPServer: @unchecked Sendable {
             reply("200 OK", "Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN, PLAY, GET_PARAMETER\r\n")
         case "DESCRIBE":
             let base = parts[1].hasSuffix("/") ? parts[1] : parts[1] + "/"
+            if emptyDescribes > 0 {
+                emptyDescribes -= 1
+                return reply("200 OK", "Content-Type: application/sdp\r\nContent-Base: \(base)\r\nContent-Length: 0\r\n")
+            }
             reply("200 OK", "Content-Type: application/sdp\r\nContent-Base: \(base)\r\n", body: sdp)
         case "SETUP":
             let t = request.transport
@@ -1074,7 +1167,7 @@ final class FakeRTSPServer: @unchecked Sendable {
             }
             var stream = Data([0x24, 0x01, 0x00, 0x04, 0x80, 0xC8, 0x00, 0x01])   // RTCP on channel 1
             for p in packets {
-                stream += Data([0x24, 0x00, UInt8(p.count >> 8), UInt8(p.count & 0xFF)]) + p
+                stream += Data([0x24, videoChannel, UInt8(p.count >> 8), UInt8(p.count & 0xFF)]) + p
             }
             // Split into odd-sized writes so frames straddle TCP reads.
             var i = 0

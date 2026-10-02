@@ -92,7 +92,8 @@ enum DashcamRTSP {
                 }
                 let params = fmtpParameters(m.fmtp[pt] ?? "")
                 let keys = codec == .h264 ? ["sprop-parameter-sets"] : ["sprop-vps", "sprop-sps", "sprop-pps"]
-                let sets = keys.flatMap { (params[$0] ?? "").split(separator: ",").compactMap { base64($0) } }
+                // The A4 (Lombotech RTSP server) puts Annex-B start codes inside its sprop values.
+                let sets = keys.flatMap { (params[$0] ?? "").split(separator: ",").compactMap { base64($0) } }.flatMap(splitAnnexB)
                 return RTSPSessionDescription(codec: codec, payloadType: pt, clockRate: map.clock,
                                               control: m.control, sessionControl: sessionControl, parameterSets: sets)
             }
@@ -111,6 +112,35 @@ enum DashcamRTSP {
     }
 
     /// Base64 as cameras write it: sometimes without the `=` padding.
+    /// A NAL unit that arrived with Annex-B start codes in front (00 00 01 / 00 00 00 01) — the A4 sends
+    /// them inside RTP payloads and sprop values, which RFC 6184 doesn't allow — split into bare NAL units.
+    /// A real NAL never starts with 0x00 (its header's type would be 0), so anything else passes through.
+    static func splitAnnexB(_ nal: Data) -> [Data] {
+        let b = [UInt8](nal)
+        guard b.count >= 4, b[0] == 0, b[1] == 0, b[2] == 1 || (b[2] == 0 && b[3] == 1) else { return [nal] }
+        var out: [Data] = []
+        var i = 0, start = -1
+        while i + 2 < b.count {
+            if b[i] == 0, b[i + 1] == 0, b[i + 2] == 1 {
+                if start >= 0 {
+                    var e = i
+                    while e > start, b[e - 1] == 0 { e -= 1 }          // the 4th start-code byte / trailing zeros
+                    if e > start { out.append(Data(b[start..<e])) }
+                }
+                i += 3
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        if start >= 0, start < b.count {
+            var e = b.count
+            while e > start, b[e - 1] == 0 { e -= 1 }
+            if e > start { out.append(Data(b[start..<e])) }
+        }
+        return out
+    }
+
     static func base64<S: StringProtocol>(_ s: S) -> Data? {
         var t = s.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return nil }
@@ -441,6 +471,11 @@ struct RTPDepacketizer {
         lastSequence = packet.sequence
         let p = [UInt8](packet.payload)
         var nals: [Data] = []
+        // A payload that starts with a start code is one or more whole NAL units (the A4's single packets).
+        if p.count >= 4, p[0] == 0, p[1] == 0, p[2] == 1 || (p[2] == 0 && p[3] == 1) {
+            if fragment != nil { lost = true; fragment = nil }
+            return Output(nals: DashcamRTSP.splitAnnexB(packet.payload), lost: lost)
+        }
         switch codec {
         case .h264:
             guard let first = p.first else { break }
@@ -471,7 +506,8 @@ struct RTPDepacketizer {
                 break
             }
         }
-        return Output(nals: nals, lost: lost)
+        // A fragmented unit the camera cut from its Annex-B output carries the start code inside.
+        return Output(nals: nals.flatMap(DashcamRTSP.splitAnnexB), lost: lost)
     }
 
     /// Returns true when a fragment was lost.
@@ -627,10 +663,19 @@ struct RTSPVideoPipeline {
         builder = RTSPFrameBuilder(codec: sdp.codec, parameterSets: sdp.parameterSets, clockRate: sdp.clockRate)
     }
 
+    /// The A4 sets the marker bit on every packet, SPS and PPS included: once a marker comes on a packet
+    /// with no picture in it, pictures are grouped by timestamp alone.
+    private var markerTrusted = true
+
     mutating func push(_ packet: RTPPacket) -> [CMSampleBuffer] {
         if (72...76).contains(packet.payloadType) { return [] }   // RTCP muxed onto the channel
         let out = depacketizer.push(packet)
-        return assembler.push(timestamp: packet.timestamp, marker: packet.marker, nals: out.nals, lost: out.lost)
+        if packet.marker, markerTrusted, !out.nals.isEmpty,
+           !out.nals.contains(where: { DashcamRTSP.isVCL($0, codec: sdp.codec) }) {
+            markerTrusted = false
+            DashcamLiveTrace.log("the camera marks every packet: grouping pictures by timestamp")
+        }
+        return assembler.push(timestamp: packet.timestamp, marker: packet.marker && markerTrusted, nals: out.nals, lost: out.lost)
             .compactMap { builder.build($0) }
     }
 
@@ -1090,6 +1135,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
     private var pipeline: RTSPVideoPipeline?
     private var using: Transport = .tcp
     private var videoChannel: UInt8 = 0
+    private var refusedRetries = 0
     private var udp: RTSPUDPReceiver?
     private var reorder = RTPReorderBuffer()
     private var stats = RTPReceiveStats()
@@ -1281,6 +1327,19 @@ final class DashcamRTSPClient: @unchecked Sendable {
         case .waiting(let error):
             lastError = Self.describe(error)   // keeps retrying until the watchdog gives up
         case .failed(let error):
+            // After a lens switch the A4 restarts its RTSP server and refuses connections for a moment.
+            if !setupSent, refusedRetries < 8, case .posix(let code) = error, code == .ECONNREFUSED {
+                refusedRetries += 1
+                DashcamLiveTrace.log("connection refused (camera restarting its stream?) — retry \(refusedRetries)")
+                conn.cancel()
+                connection = nil
+                queue.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self, !self.finished, self.connection == nil else { return }
+                    self.attemptStartedAt = Date()
+                    self.connect()
+                }
+                return
+            }
             fail("Couldn't reach the camera's video stream (\(Self.describe(error)))", canFallBack: setupSent)
         default:
             break
@@ -1311,7 +1370,14 @@ final class DashcamRTSPClient: @unchecked Sendable {
                 if let n = Self.tracePackets.next() {
                     DashcamLiveTrace.log("tcp rtp #\(n) ch=\(channel) \(payload.count) B head=" + payload.prefix(16).map { String(format: "%02x", $0) }.joined())
                 }
-                guard channel == videoChannel, pipeline != nil, let packet = RTPPacket.parse(payload) else { continue }
+                // Video is whatever even channel carries the video payload type: the A4 agrees to
+                // interleaved=0-1 and then sends the video on channel 2.
+                guard channel % 2 == 0, let sdp = pipeline?.sdp, let packet = RTPPacket.parse(payload),
+                      packet.payloadType == sdp.payloadType else { continue }
+                if channel != videoChannel {
+                    DashcamLiveTrace.log("video arrives on channel \(channel), not \(videoChannel): following it")
+                    videoChannel = channel
+                }
                 packets += 1
                 feed(packet)
             case .response(let response):
@@ -1444,10 +1510,18 @@ final class DashcamRTSPClient: @unchecked Sendable {
         }
     }
 
-    private func describe() {
+    private func describe(tries: Int = 0) {
         send("DESCRIBE", requestURL, headers: [("Accept", "application/sdp")]) { [weak self] response in
             guard let self else { return }
             guard response.status == 200 else { return self.fail("The camera refused the stream (\(response.status) \(response.reason))") }
+            // Right after `enterrecorder` the A4 answers DESCRIBE with an empty description; a moment later it's there.
+            if response.body.isEmpty, tries < 6 {
+                self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, !self.finished, self.connection != nil else { return }
+                    self.describe(tries: tries + 1)
+                }
+                return
+            }
             guard let sdp = DashcamRTSP.parseSDP(String(decoding: response.body, as: UTF8.self)) else {
                 return self.fail("The camera's stream isn't H.264 or H.265 video")
             }
