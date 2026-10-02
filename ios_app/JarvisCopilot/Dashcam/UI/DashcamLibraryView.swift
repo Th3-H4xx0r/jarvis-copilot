@@ -39,7 +39,7 @@ struct DashcamThumb: View {
         }
         .frame(width: 84, height: 52)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .task(id: clip.id) {
+        .task(id: "\(clip.id)/\(clip.hasThumb)") {      // a thumbnail that arrives later loads then
             if clip.hasThumb { image = await DashcamThumbnails.shared.image(for: clip.id) }
         }
     }
@@ -48,6 +48,7 @@ struct DashcamThumb: View {
 struct DashcamClipRow: View {
     let clip: DashcamServerClip
     let uploadingID: String?
+    @ObservedObject private var sync: DashcamSync = .shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -61,17 +62,37 @@ struct DashcamClipRow: View {
                     }
                 }
                 let status = DashcamClipStatus.of(clip, uploadingID: uploadingID)
+                let places = DashcamClipPlaces.of(clip)
                 HStack(spacing: 5) {
-                    JcIcon(status.symbol, size: 11).foregroundStyle(status.tint)
+                    place("sdcard", places.card, "On the camera's SD card")
+                    place("iphone", places.phone, "On this phone")
+                    place("icloud", places.cloud, "In the cloud")
                     Text(status.label).font(.caption).foregroundStyle(status.tint).lineLimit(1)
                     if clip.kind != .photo && clip.durationS > 0 {
                         Text("· \(DashcamSpeed.duration(clip.durationS))").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let t = DashcamClipTransfer.of(clip, downloading: sync.downloading, uploading: sync.uploading) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(t.fraction.map { "\(t.label) · \(Int($0 * 100))%" } ?? t.label)
+                            .font(.caption2).foregroundStyle(JcTheme.accent)
+                        if let f = t.fraction {
+                            ProgressView(value: f).tint(JcTheme.accent)
+                        } else {
+                            ProgressView().progressViewStyle(.linear).tint(JcTheme.accent)
+                        }
                     }
                 }
             }
             Spacer(minLength: 0)
             JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted)
         }
+    }
+
+    private func place(_ symbol: String, _ on: Bool, _ label: String) -> some View {
+        JcIcon(symbol, size: 11)
+            .foregroundStyle(on ? JcTheme.accent : JcTheme.muted.opacity(0.35))
+            .accessibilityLabel(on ? label : "Not \(label.prefix(1).lowercased() + label.dropFirst())")
     }
 
     @ViewBuilder private var kindBadge: some View {
@@ -126,6 +147,15 @@ struct DashcamLibraryView: View {
             }
         }
         .task { await model.reload() }
+        .task {
+            // States move on their own (uploads, the relay to the cloud): keep the first page current.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                if !model.pagedBeyondFirst, sync.downloading != nil || sync.uploading != nil || sync.pendingUploads > 0 {
+                    await model.reload()
+                }
+            }
+        }
         .refreshable { await model.reload() }
         .onChange(of: sync.lastSync) { _, _ in
             if !model.pagedBeyondFirst { Task { await model.reload() } }

@@ -80,7 +80,10 @@ DEFAULT_SETTINGS = {
     "rules": {"normal": "all",          # off | front | all (auto sync pulls everything by default)
               "normal_when": "any",     # any | parked
               "phone_cap_gb": 20,       # 1..512, applies to normal footage only
-              "keep_on_phone": False},
+              "keep_on_phone": False,
+              "upload": True,           # cloud uploads on/off
+              "upload_data": "all",     # all | events | never — what may use mobile data
+              "upload_when": "any"},    # any | parked
     "staging_cap_bytes": 4 * 1024 ** 3,
 }
 
@@ -286,8 +289,12 @@ class DashcamStore:
             elif key == "phone_cap_gb" and not (isinstance(value, int) and not isinstance(value, bool)
                                                 and 1 <= value <= 512):
                 errors.append("rules.phone_cap_gb must be a whole number from 1 to 512")
-            elif key == "keep_on_phone" and not isinstance(value, bool):
-                errors.append("rules.keep_on_phone must be true or false")
+            elif key in ("keep_on_phone", "upload") and not isinstance(value, bool):
+                errors.append(f"rules.{key} must be true or false")
+            elif key == "upload_data" and value not in ("all", "events", "never"):
+                errors.append("rules.upload_data must be all, events or never")
+            elif key == "upload_when" and value not in ("any", "parked"):
+                errors.append("rules.upload_when must be any or parked")
             elif key not in DEFAULT_SETTINGS["rules"]:
                 errors.append(f"unknown rule {key!r}")
         if "staging_cap_bytes" in patch:

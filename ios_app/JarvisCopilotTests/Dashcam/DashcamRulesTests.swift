@@ -40,6 +40,25 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertEqual(ordered.first?.start, Date(timeIntervalSince1970: 9))
     }
 
+    func testUploadRulesGateByDataAndParking() {
+        var r = DashcamRules()
+        XCTAssertTrue(r.mayUpload(.normal, metered: true, parked: false), "default: everything, any time, LTE too")
+        r.uploadData = .events
+        XCTAssertFalse(r.mayUpload(.normal, metered: true, parked: true))
+        XCTAssertTrue(r.mayUpload(.event, metered: true, parked: true))
+        XCTAssertTrue(r.mayUpload(.normal, metered: false, parked: true), "Wi‑Fi is never limited")
+        r.uploadData = .never
+        XCTAssertFalse(r.mayUpload(.photo, metered: true, parked: true))
+        r.uploadData = .all
+        r.uploadWhen = .parked
+        XCTAssertFalse(r.mayUpload(.event, metered: false, parked: false))
+        XCTAssertTrue(r.mayUpload(.event, metered: false, parked: true))
+        r.upload = false
+        XCTAssertFalse(r.mayUpload(.event, metered: false, parked: true))
+        let back = DashcamRules(json: r.json)
+        XCTAssertEqual(back, r)
+    }
+
     func testRulesRoundTripThroughJSONAndClampTheCap() {
         var r = DashcamRules()
         r.normal = .all; r.normalWhen = .parked; r.phoneCapGB = 64; r.keepOnPhone = true

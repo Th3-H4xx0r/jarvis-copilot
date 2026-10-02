@@ -211,6 +211,7 @@ struct DashcamAddDestinationView: View {
         }
         do {
             _ = try await DashcamAPI().addDestination(body)
+            DashcamSync.shared.destinationsChanged()       // clips refused for "no destination" go now
             onAdded()
             dismiss()
         } catch {

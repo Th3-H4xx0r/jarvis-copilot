@@ -14,6 +14,7 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     var gpsByPath: [String: [DashcamFix]] = [:]
     var playbackEnterThrows = false
     var gpsCalls: [String] = []
+    var gpsThrows = false
 
     func info() async throws -> DashcamCameraInfo { DashcamCameraInfo(id: "CAM", family: .viidure) }
     func files(timeZone: TimeZone) async throws -> [DashcamFile] {
@@ -48,6 +49,7 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     }
     func gps(_ file: DashcamFile, tzOffset: Int) async throws -> [DashcamFix] {
         gpsCalls.append(file.path)
+        if gpsThrows { throw DashcamError.notConnected }
         return gpsByPath[file.path] ?? []
     }
 }
@@ -185,6 +187,30 @@ final class DashcamSyncTests: XCTestCase {
         let second = await sync.syncPass()       // same sizes → now stable
         XCTAssertEqual(second.gps, 2)
         XCTAssertEqual(server.fixes.count, 6)
+    }
+
+    /// His A4's GPS module sometimes has no lock: every clip's track is empty. "Reading GPS" sat there.
+    func testACameraWithoutAGPSLockDoesNotHoldUpThePass() async {
+        cam.files = (0..<12).map { file(.normal, .front, at: TimeInterval($0 * 60)) } + [file(.photo, .front, at: 40, folder: "event")]
+        cam.gpsByPath = [:]
+        _ = await sync.syncPass()
+        XCTAssertLessThanOrEqual(cam.gpsCalls.count, 5, "stops after a run of clips without a fix")
+        XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("front_40.mp4"), "the photo still comes down")
+        let first = cam.gpsCalls
+        _ = await sync.syncPass()
+        XCTAssertTrue(Set(cam.gpsCalls.dropFirst(first.count)).isDisjoint(with: first), "a clip without a fix isn't read again")
+        let remembered = sync.defaults.dictionary(forKey: DashcamSync.noGPSKey) ?? [:]
+        XCTAssertTrue(first.allSatisfy { remembered[$0] != nil }, "remembered across launches")
+        XCTAssertEqual(cam.gpsCalls.first, "/mnt/card/loop/front_600.mp4", "newest first")
+    }
+
+    func testGPSErrorsDoNotHoldUpThePass() async {
+        cam.files = (0..<12).map { file(.normal, .front, at: TimeInterval($0 * 60)) } + [file(.photo, .front, at: 40, folder: "event")]
+        cam.gpsThrows = true
+        _ = await sync.syncPass()
+        XCTAssertLessThanOrEqual(cam.gpsCalls.count, 3)
+        XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("front_40.mp4"))
+        XCTAssertNil(sync.defaults.dictionary(forKey: DashcamSync.noGPSKey), "an error isn't 'no fix': tried again later")
     }
 
     func testNormalFootageFollowsTheRulesAndFetchRangeForcesIt() async {
@@ -413,6 +439,41 @@ final class DashcamUploaderTests: XCTestCase {
         let later = await uploader.run(server: server, cellular: false, now: { clock })
         XCTAssertEqual(later, ["c1"])
         XCTAssertEqual(server.chunks.map(\.1), [0, 1, 2], "chunk 0 was not sent twice")
+    }
+
+    /// He connected Drive after 69 clips were refused for "no destination"; nothing went up after.
+    func testAddingADestinationWakesClipsParkedOnNoDestination() async throws {
+        let a = try tempFile(4)
+        let uploader = DashcamUploader(file: FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID().uuidString).json"))
+        await uploader.enqueue(clipID: "a", local: a, size: 4, kind: .normal)
+        let server = FakeUploadServer()
+        server.start = .noDestination
+        _ = await uploader.run(server: server, cellular: false)
+        let parked = await uploader.jobs.first?.notBefore
+        XCTAssertNotNil(parked)
+        XCTAssertLessThanOrEqual(parked ?? .distantFuture, Date().addingTimeInterval(301), "a short park, not an hour")
+        server.start = .alreadyThere
+        let stillParked = await uploader.run(server: server, cellular: false)
+        XCTAssertTrue(stillParked.isEmpty, "still parked")
+        await uploader.retryParked()
+        let woken = await uploader.run(server: server, cellular: false)
+        XCTAssertEqual(woken, ["a"])
+    }
+
+    func testTheUploadRulesDecideWhatGoesOverMobileData() async throws {
+        let n = try tempFile(4)
+        let uploader = DashcamUploader(file: FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID().uuidString).json"))
+        await uploader.enqueue(clipID: "n", local: n, size: 4, kind: .normal)
+        let server = FakeUploadServer()
+        var rules = DashcamRules()
+        rules.uploadData = .events
+        let frozen = rules
+        let held = await uploader.run(server: server, cellular: true, allow: { frozen.mayUpload($0, metered: true, parked: true) })
+        XCTAssertTrue(held.isEmpty)
+        rules.uploadData = .all
+        let open = rules
+        let sent = await uploader.run(server: server, cellular: true, allow: { open.mayUpload($0, metered: true, parked: true) })
+        XCTAssertEqual(sent, ["n"], "LTE on the camera's Wi‑Fi carries normal footage when the rules say so")
     }
 
     func testAlreadyUploadedClipsLeaveTheQueueAndTooLargeOnesPark() async throws {

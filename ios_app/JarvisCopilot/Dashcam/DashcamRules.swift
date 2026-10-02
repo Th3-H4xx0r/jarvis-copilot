@@ -18,12 +18,27 @@ struct DashcamRules: Equatable, Sendable {
         case any, parked
         var label: String { self == .any ? "Any time" : "Only when parked" }
     }
+    /// What may go to the cloud over mobile data (LTE — also the way out while on the camera's Wi‑Fi).
+    enum UploadData: String, CaseIterable, Sendable {
+        case all, events, never
+        var label: String {
+            switch self {
+            case .all: return "Everything"
+            case .events: return "Events and photos"
+            case .never: return "Nothing — Wi‑Fi only"
+            }
+        }
+    }
 
     var normal: Normal = .off
     var normalWhen: When = .any
     /// Phone storage the normal footage may use. Events and photos are not counted against it.
     var phoneCapGB: Int = 20
     var keepOnPhone: Bool = false
+    /// Cloud uploads: on/off, what may use mobile data, and whether to wait until parked.
+    var upload: Bool = true
+    var uploadData: UploadData = .all
+    var uploadWhen: When = .any
 
     init() {}
 
@@ -32,10 +47,25 @@ struct DashcamRules: Equatable, Sendable {
         normalWhen = When(rawValue: json["normal_when"] as? String ?? "") ?? .any
         if let cap = (json["phone_cap_gb"] as? NSNumber)?.intValue { phoneCapGB = min(512, max(1, cap)) }
         keepOnPhone = (json["keep_on_phone"] as? NSNumber)?.boolValue ?? false
+        upload = (json["upload"] as? NSNumber)?.boolValue ?? true
+        uploadData = UploadData(rawValue: json["upload_data"] as? String ?? "") ?? .all
+        uploadWhen = When(rawValue: json["upload_when"] as? String ?? "") ?? .any
+    }
+
+    /// Whether a clip of `kind` may go up now.
+    func mayUpload(_ kind: DashcamClipKind, metered: Bool, parked: Bool) -> Bool {
+        guard upload, uploadWhen == .any || parked else { return false }
+        guard metered else { return true }
+        switch uploadData {
+        case .all: return true
+        case .events: return kind != .normal
+        case .never: return false
+        }
     }
 
     var json: [String: Any] {
-        ["normal": normal.rawValue, "normal_when": normalWhen.rawValue, "phone_cap_gb": phoneCapGB, "keep_on_phone": keepOnPhone]
+        ["normal": normal.rawValue, "normal_when": normalWhen.rawValue, "phone_cap_gb": phoneCapGB, "keep_on_phone": keepOnPhone,
+         "upload": upload, "upload_data": uploadData.rawValue, "upload_when": uploadWhen.rawValue]
     }
 
     var phoneCapBytes: Int64 { Int64(phoneCapGB) * 1_073_741_824 }

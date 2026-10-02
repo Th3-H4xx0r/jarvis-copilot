@@ -68,6 +68,39 @@ enum DashcamTrack {
     }
 }
 
+/// Where a clip is: the camera's SD card, the phone, the cloud (every destination has it).
+struct DashcamClipPlaces: Equatable {
+    let card: Bool
+    let phone: Bool
+    let cloud: Bool
+
+    static func of(_ clip: DashcamServerClip) -> DashcamClipPlaces {
+        .init(card: clip.onCamera, phone: clip.phoneState == "local" || clip.phoneState == "uploading", cloud: clip.uploaded)
+    }
+}
+
+/// A transfer in progress for one clip, for its row and the page header.
+struct DashcamClipTransfer: Equatable {
+    let label: String
+    let fraction: Double?
+
+    /// Camera → phone (by file name: the sync knows the camera's file), phone → server (by id), then the
+    /// server → destinations relay (no byte counts from rclone, so no percentage).
+    static func of(_ clip: DashcamServerClip, downloading: (name: String, done: Int64, total: Int64)?,
+                   uploading: (clipID: String, done: Int64, total: Int64)?) -> DashcamClipTransfer? {
+        if let d = downloading, d.name == clip.name, d.total > 0 {
+            return .init(label: "Downloading to the phone", fraction: min(1, Double(d.done) / Double(d.total)))
+        }
+        if let u = uploading, u.clipID == clip.id, u.total > 0 {
+            return .init(label: "Uploading", fraction: min(1, Double(u.done) / Double(u.total)))
+        }
+        if !clip.uploaded, clip.uploadState == "staged" || clip.uploading {
+            return .init(label: "Sending to the cloud", fraction: nil)
+        }
+        return nil
+    }
+}
+
 /// What the library chip says about a clip.
 struct DashcamClipStatus: Equatable {
     let label: String
@@ -79,7 +112,7 @@ struct DashcamClipStatus: Equatable {
             let reason = clip.destinations.values.first { $0.state == "failed" }?.error ?? clip.phoneError
             return .init(label: reason.map { "Failed: \($0)" } ?? "Failed", symbol: "exclamationmark.triangle.fill", tint: JcTheme.danger)
         }
-        if clip.uploaded { return .init(label: "Uploaded", symbol: "checkmark.icloud.fill", tint: JcTheme.success) }
+        if clip.uploaded { return .init(label: "In the cloud", symbol: "checkmark.icloud.fill", tint: JcTheme.success) }
         if clip.id == uploadingID || clip.uploading {
             return .init(label: "Uploading", symbol: "arrow.up.circle.fill", tint: JcTheme.accent)
         }
@@ -88,7 +121,7 @@ struct DashcamClipStatus: Equatable {
         case "downloading", "queued": return .init(label: "Downloading", symbol: "arrow.down.circle", tint: JcTheme.accent)
         default: break
         }
-        if clip.onCamera { return .init(label: "On camera", symbol: "sdcard", tint: JcTheme.muted) }
+        if clip.onCamera { return .init(label: "On the SD card", symbol: "sdcard", tint: JcTheme.muted) }
         return .init(label: "Gone from camera", symbol: "sdcard.fill", tint: JcTheme.muted)
     }
 }

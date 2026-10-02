@@ -218,11 +218,13 @@ actor DashcamUploader {
     }
 
     /// Works through the queue once. `cellular` = the only way to the server right now is mobile
-    /// data: normal footage then waits for Wi‑Fi, events and photos still go.
-    /// Returns the clip ids that reached the server.
+    /// data. `allow` says which kinds may go now (the upload rules); by default normal footage waits
+    /// for Wi‑Fi on mobile data. Returns the clip ids that reached the server.
     @discardableResult
-    func run(server: DashcamUploadServer, cellular: Bool, now: @Sendable () -> Date = { Date() },
+    func run(server: DashcamUploadServer, cellular: Bool, allow: (@Sendable (DashcamClipKind) -> Bool)? = nil,
+             now: @Sendable () -> Date = { Date() },
              progress: @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
+        let allowed = allow ?? { kind in !(cellular && kind == .normal) }
         guard !running else { return [] }
         running = true
         defer { running = false }
@@ -231,8 +233,7 @@ actor DashcamUploader {
             guard let index = jobs.firstIndex(where: { $0.clipID == clipID }) else { continue }
             var job = jobs[index]
             if let nb = job.notBefore, nb > now() { continue }
-            // Normal footage never goes over mobile data; events and photos may.
-            if cellular && job.kind == .normal { continue }
+            guard allowed(job.kind) else { continue }
             // The app container moves on every reinstall/update: re-anchor the stored path.
             let path = Self.resolve(job.localPath)
             guard FileManager.default.fileExists(atPath: path) else {
@@ -250,7 +251,8 @@ actor DashcamUploader {
                     jobs.removeAll { $0.clipID == clipID }
                     persist()
                 case .noDestination:
-                    job.notBefore = now().addingTimeInterval(3600)
+                    // Short: adding a destination also wakes these (retryParked), this is the fallback.
+                    job.notBefore = now().addingTimeInterval(300)
                     job.lastError = "no upload destination takes \(job.kind.label.lowercased()) clips — add one in Destinations"
                     update(job)
                 case .tooLarge:

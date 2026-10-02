@@ -21,6 +21,7 @@ struct DashcamSettingsView: View {
             }
             autoSyncCard
             rules
+            uploadCard
             if wifi.onCamera { cameraSettings; card; wifiSection } else {
                 CardGroup("Camera") {
                     CardEmptyBlock("Camera settings show up while the phone is on the dashcam's Wi‑Fi (start the car).", symbol: "wifi.slash")
@@ -58,6 +59,33 @@ struct DashcamSettingsView: View {
                 .tint(JcTheme.accent)
             }
         }
+    }
+
+    // MARK: Uploads to the cloud (stored on the server with the rules)
+
+    private var uploadCard: some View {
+        CardGroup("Upload to the cloud", footer: sync.rules.upload
+                  ? "Uploads run while clips download. On the camera's Wi‑Fi they go over mobile data (LTE). 4K front + rear is about 2.5 GB per 10 minutes of driving. A clip leaves the phone once every destination has it, unless you keep clips on the phone."
+                  : "Clips stay on the phone until uploads are switched back on.") {
+            Row { Toggle("Upload clips", isOn: ruleBinding(\.upload)).tint(JcTheme.accent) }
+            if sync.rules.upload {
+                RowDivider()
+                Row {
+                    Self.menu("Over mobile data", selection: ruleBinding(\.uploadData)) {
+                        ForEach(DashcamRules.UploadData.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                }
+                RowDivider()
+                Row {
+                    Self.menu("When", selection: ruleBinding(\.uploadWhen)) {
+                        ForEach(DashcamRules.When.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                }
+            }
+        }
+        .disabled(!sync.rulesLoaded)
+        .opacity(sync.rulesLoaded ? 1 : 0.5)
+        .onChange(of: sync.rules) { _, _ in sync.kickUploads() }
     }
 
     // MARK: Sync rules (stored on the server)

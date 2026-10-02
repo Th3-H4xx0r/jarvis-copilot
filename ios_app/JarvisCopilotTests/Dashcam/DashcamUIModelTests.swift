@@ -38,12 +38,12 @@ final class DashcamUIModelTests: XCTestCase {
                                    "destinations": ["d": ["state": "failed", "error": "auth"]]]
         XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "Failed: auth")
         json["destinations"] = ["d": ["state": "done"]]
-        XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "Uploaded")
+        XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "In the cloud")
         json["destinations"] = [:]
         json["phone"] = ["state": "local"]
         XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "On phone")
         json["phone"] = ["state": "none"]
-        XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "On camera")
+        XCTAssertEqual(DashcamClipStatus.of(try XCTUnwrap(DashcamServerClip(json: json))).label, "On the SD card")
     }
 
     @MainActor

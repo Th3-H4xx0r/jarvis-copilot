@@ -183,8 +183,7 @@ final class DashcamSync: ObservableObject {
             Task { @MainActor in self?.internetPath = path; self?.kickUploads() }
         }
         pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
-        Task { await refreshRules(); await refreshCounts() }
-        kickUploads()
+        Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
     }
 
     func cameraChanged(_ on: Bool) {
@@ -264,7 +263,23 @@ final class DashcamSync: ObservableObject {
         set { defaults.set(newValue, forKey: Self.playbackFlagKey) }
     }
     /// Clips that had no GPS block / no thumbnail at this size — not asked for again every pass.
-    private var noGPS: [String: Int64] = [:]
+    /// Remembered across launches: a finished clip recorded without a GPS lock never gains one, and a
+    /// camera whose GPS is out re-read every clip on every launch.
+    private lazy var noGPS: [String: Int64] = {
+        (defaults.dictionary(forKey: Self.noGPSKey) as? [String: NSNumber] ?? [:]).mapValues(\.int64Value)
+    }()
+    static let noGPSKey = "jc.dashcam.noGPS"
+    /// The longest the GPS step may take in one pass; the rest waits for the next.
+    static let gpsBudget: TimeInterval = 30
+
+    private func markNoGPS(_ f: DashcamFile, listed: [DashcamFile]) {
+        noGPS[f.path] = f.size
+        if noGPS.count > 3000 {                     // clips long gone from the card
+            let onCard = Set(listed.map(\.path))
+            noGPS = noGPS.filter { onCard.contains($0.key) }
+        }
+        defaults.set(noGPS.mapValues { NSNumber(value: $0) }, forKey: Self.noGPSKey)
+    }
     private var noThumb: [String: Int64] = [:]
     private var passes = 0
 
@@ -447,15 +462,33 @@ final class DashcamSync: ObservableObject {
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
         }
 
-        // 2. GPS + speed for every finished clip (two small range reads each).
-        phase = .syncing("Reading GPS")
-        for f in files where f.isVideo && stable(f) && rows[f.path]?.hasGPS != true && noGPS[f.path] != f.size {
+        // 2. GPS + speed (two small range reads a clip; none for clips already on the phone), newest first and
+        // within a time budget. A camera with no GPS lock, or one too busy to answer, never holds up the
+        // thumbnails and downloads: after a few clips in a row without a fix, or a few errors, it waits.
+        let needGPS = files.filter { $0.isVideo && stable($0) && rows[$0.path]?.hasGPS != true && noGPS[$0.path] != $0.size }
+            .sorted { $0.start > $1.start }
+        let gpsDeadline = Date().addingTimeInterval(Self.gpsBudget)
+        var noFixRun = 0, errorRun = 0
+        for (i, f) in needGPS.enumerated() {
             guard await mayContinue() else { return report }
+            guard Date() < gpsDeadline, noFixRun < 5, errorRun < 3 else { break }
+            phase = .syncing("Reading GPS (\(i + 1) of \(needGPS.count))")
             let tz = zone.secondsFromGMT(for: f.start)
-            if let fixes = try? await cam.gps(f, tzOffset: tz), !fixes.isEmpty {
-                if (try? await server.putFixes(clipID: clipID(f), fixes: fixes)) != nil { report.gps += 1 }
+            var fixes: [DashcamFix] = []
+            if storage.exists(camera: cameraID, file: f) {
+                fixes = DashcamGPS.align(DashcamRemux.tailFixes(storage.localURL(camera: cameraID, file: f)),
+                                         clipStart: f.start, duration: f.durationS, tzOffset: tz)
+            }
+            if fixes.isEmpty {
+                do { fixes = try await cam.gps(f, tzOffset: tz) } catch { errorRun += 1; continue }
+            }
+            errorRun = 0
+            if fixes.isEmpty {
+                noFixRun += 1
+                markNoGPS(f, listed: files)
             } else {
-                noGPS[f.path] = f.size
+                noFixRun = 0
+                if (try? await server.putFixes(clipID: clipID(f), fixes: fixes)) != nil { report.gps += 1 }
             }
         }
 
@@ -510,6 +543,7 @@ final class DashcamSync: ObservableObject {
             // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
             let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
             await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind)
+            kickUploads()                                   // uploads run beside the downloads
             queuedDownloads = max(0, queuedDownloads - 1)
         } catch {
             downloading = nil
@@ -536,17 +570,26 @@ final class DashcamSync: ObservableObject {
     // MARK: Uploads
 
     /// Starts the upload loop if there is anything to send and nothing is running.
+    /// Uploads run beside the camera sync, not after it: a clip goes up as soon as it's on the phone, and the
+    /// phone's copy goes once every destination has it. The loop lives while there is anything to send or
+    /// anything on the server still on its way to a destination.
     func kickUploads() {
         guard uploadLoop == nil else { return }
         uploadLoop = Task { [weak self] in
             defer { Task { @MainActor in self?.uploadLoop = nil } }
+            var lastCleanUp = Date.distantPast
             while !Task.isCancelled {
                 guard let self else { return }
                 let pending = await self.uploader.pendingCount
                 self.pendingUploads = pending
-                if pending == 0 { await self.cleanUpUploaded(); return }
-                await self.uploadOnce()
-                try? await Task.sleep(for: .seconds(45))
+                if pending > 0 { await self.uploadOnce() }
+                var relaying = 0
+                if Date().timeIntervalSince(lastCleanUp) > 30 || pending == 0 {
+                    relaying = await self.cleanUpUploaded()
+                    lastCleanUp = Date()
+                }
+                if pending == 0 && relaying == 0 { return }
+                try? await Task.sleep(for: .seconds(pending > 0 ? 8 : 30))
             }
         }
     }
@@ -554,26 +597,41 @@ final class DashcamSync: ObservableObject {
     func uploadOnce() async {
         let path = internetPath
         let onCam = onCameraProvider()
-        // On the camera's Wi‑Fi the internet goes over mobile data; off it, Wi‑Fi unless only cellular is up.
-        // Metered = mobile data, a personal hotspot or Low Data Mode: normal footage waits for free Wi‑Fi.
+        // On the camera's Wi‑Fi the internet goes over mobile data (LTE); off it, Wi‑Fi unless only cellular
+        // is up. Metered = mobile data, a personal hotspot or Low Data Mode — what the upload rules gate.
         let cellular = onCam || (path.map { $0.isExpensive || $0.isConstrained || !$0.usesInterfaceType(.wifi) } ?? false)
         if path?.status == .unsatisfied && !onCam { return }
-        let done = await uploader.run(server: uploadServer, cellular: cellular) { id, sent, total in
+        let rules = self.rules
+        guard rules.upload else { return }
+        let isParked = rules.uploadWhen == .parked ? await parked() : true
+        let done = await uploader.run(server: uploadServer, cellular: cellular,
+                                      allow: { rules.mayUpload($0, metered: cellular, parked: isParked) }) { id, sent, total in
             Task { @MainActor in self.uploading = (id, sent, total) }
         }
         uploading = nil
         pendingUploads = await uploader.pendingCount
-        if !done.isEmpty { await cleanUpUploaded() }
+        if !done.isEmpty { _ = await cleanUpUploaded() }
+    }
+
+    /// A destination was added or changed: clips parked on "no destination" go now.
+    func destinationsChanged() {
+        Task {
+            await uploader.retryParked()
+            kickUploads()
+        }
     }
 
     /// Reconciles the phone's copies with the server: deletes those every destination already has
     /// (unless "keep on phone"), and queues again any the server no longer holds or never got
     /// (its staging was dropped, e.g. the only destination was removed).
-    func cleanUpUploaded() async {
-        guard let setup = setupProvider() else { return }
+    /// Returns how many clips are on the server but not yet at every destination (worth checking again).
+    @discardableResult
+    func cleanUpUploaded() async -> Int {
+        guard let setup = setupProvider() else { return 0 }
         let cameraID = info?.id ?? setup.cameraID
-        guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return }
+        guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return 0 }
         var requeued = false
+        var relaying = 0
         for clip in page.clips {
             let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start,
                                 durationS: clip.durationS, size: clip.size)
@@ -583,6 +641,8 @@ final class DashcamSync: ObservableObject {
                 guard !rules.keepOnPhone else { continue }
                 if local { try? FileManager.default.removeItem(at: url) }
                 try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
+            } else if clip.uploadState == "staged" || clip.uploading {
+                relaying += 1
             } else if local, clip.uploadState == "none", await !uploader.contains(clip.id) {
                 await uploader.enqueue(clipID: clip.id, local: url,
                                        size: (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? clip.size,
@@ -591,6 +651,7 @@ final class DashcamSync: ObservableObject {
             }
         }
         if requeued { kickUploads() }
+        return relaying
     }
 
     // MARK: Requests from Jarvis / the UI

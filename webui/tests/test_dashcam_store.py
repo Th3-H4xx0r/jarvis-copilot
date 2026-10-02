@@ -888,6 +888,14 @@ def test_upsert_camera_merges_and_drops_secrets(store):
     assert [c["id"] for c in store.cameras()] == [CAM]
 
 
+def test_upload_rules_validate(store):
+    saved, errors = store.update_settings({"rules": {"upload": False, "upload_data": "events", "upload_when": "parked"}})
+    assert errors == [] and saved["rules"]["upload"] is False
+    assert saved["rules"]["upload_data"] == "events" and saved["rules"]["upload_when"] == "parked"
+    _, errors = store.update_settings({"rules": {"upload": "yes", "upload_data": "lte", "upload_when": "soon"}})
+    assert len(errors) == 3
+
+
 def test_settings_defaults_and_validation(store):
     s = store.get_settings()
     assert s["rules"] == ds.DEFAULT_SETTINGS["rules"]
