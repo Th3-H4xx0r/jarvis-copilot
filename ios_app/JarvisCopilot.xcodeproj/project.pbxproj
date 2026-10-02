@@ -523,6 +523,7 @@
 		93C33EB06552DAC800F2D305 /* WidgetDesignCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1D7492E612547E4B6D96F8 /* WidgetDesignCacheTests.swift */; };
 		93EF274C3A1D8F085247237C /* LiveVoiceprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */; };
 		94022CAE7249652D2F66FE66 /* RestingHeartRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86A2BEA0DCA28EE2E7705DAF /* RestingHeartRateTests.swift */; };
+		944B5082D3F34F591C1E63D0 /* DashcamRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF38FA02DB3C09C3D924287E /* DashcamRenderTests.swift */; };
 		953771BF04409D1EB5F0C22C /* InmoTraceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2762DB36289D5C293D3DA55D /* InmoTraceStore.swift */; };
 		956CD496E2654E5DE5FA24E0 /* AudioQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7F16FA169627D2EED523E35 /* AudioQueue.swift */; };
 		9572099E8AE0D566CACDE6CC /* SkillBoundariesData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB72A7E79E5A6378130F9C4 /* SkillBoundariesData.swift */; };
@@ -1800,6 +1801,7 @@
 		FEECBD4B5207707D0F7D6AAF /* CodingChatModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatModels.swift; sourceTree = "<group>"; };
 		FF223B04A284F6970E4CC848 /* GlassesNoteRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteRecorder.swift; sourceTree = "<group>"; };
 		FF2A317E20A5E208791DCAA4 /* LiveModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveModels.swift; sourceTree = "<group>"; };
+		FF38FA02DB3C09C3D924287E /* DashcamRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRenderTests.swift; sourceTree = "<group>"; };
 		FF62BEF2FA9BF96229F9DA3A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisWatchWidget/Info.plist; sourceTree = "<group>"; };
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -3070,6 +3072,7 @@
 				A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */,
 				AD01036FD92CB886C124E925 /* DashcamUIModelTests.swift */,
 				8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */,
+				FF38FA02DB3C09C3D924287E /* DashcamRenderTests.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -3961,6 +3964,7 @@
 				85F52E07CDA999CB735729A8 /* DashcamDeviceTests.swift in Sources */,
 				72ADB3BA62CDB03AE393A9D6 /* DashcamUIModelTests.swift in Sources */,
 				EC55078BF03309A17DA84033 /* DashcamLiveCameraTests.swift in Sources */,
+				944B5082D3F34F591C1E63D0 /* DashcamRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
