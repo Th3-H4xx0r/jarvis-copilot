@@ -180,6 +180,8 @@ struct DashcamAPI: Sendable {
         case full(retryAfter: TimeInterval)
         /// 413: bigger than the server's whole staging area — it can never be sent as things stand.
         case tooLarge
+        /// 409: no enabled destination takes this kind of clip — nothing to send it to yet.
+        case noDestination
     }
 
     func state() async throws -> DashcamServerState {
@@ -320,6 +322,8 @@ struct DashcamAPI: Sendable {
             return .full(retryAfter: 60)
         } catch APIError.http(let status, _) where status == 413 {
             return .tooLarge
+        } catch APIError.http(let status, _) where status == 409 {
+            return .noDestination
         }
     }
 

@@ -48,6 +48,7 @@ enum DashcamSamples {
     /// 20:40:00 UTC = 15:40:00 in the camera's UTC-5 clock.
     static let clipStart = Date(timeIntervalSince1970: 1_790_887_200)
     static let tz = -5 * 3600
+    static let zone = TimeZone(secondsFromGMT: -5 * 3600)!
 
     static func json(_ obj: Any) -> DashcamStubProtocol.Reply {
         .init(status: 200, headers: ["Content-Type": "application/json"],

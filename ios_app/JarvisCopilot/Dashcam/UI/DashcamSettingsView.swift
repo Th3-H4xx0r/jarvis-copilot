@@ -45,7 +45,9 @@ struct DashcamSettingsView: View {
     // MARK: Sync rules (stored on the server)
 
     private var rules: some View {
-        CardGroup("Sync rules", footer: "Events, parking clips and photos are always pulled. Normal footage is 15–20 GB an hour at 4K, so it follows these rules.") {
+        CardGroup("Sync rules", footer: sync.rulesLoaded
+                  ? "Events, parking clips and photos are always pulled. Normal footage is 15–20 GB an hour at 4K, so it follows these rules."
+                  : "Loading the rules from the server…") {
             Row {
                 Picker("Normal footage", selection: ruleBinding(\.normal)) {
                     ForEach(DashcamRules.Normal.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -64,6 +66,9 @@ struct DashcamSettingsView: View {
             RowDivider()
             Row { Toggle("Keep clips on the phone after upload", isOn: ruleBinding(\.keepOnPhone)).tint(JcTheme.accent) }
         }
+        .disabled(!sync.rulesLoaded)
+        .opacity(sync.rulesLoaded ? 1 : 0.5)
+        .task { if !sync.rulesLoaded { await sync.refreshRules() } }
     }
 
     private func ruleBinding<T>(_ key: WritableKeyPath<DashcamRules, T>) -> Binding<T> {

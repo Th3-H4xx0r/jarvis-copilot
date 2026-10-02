@@ -85,10 +85,30 @@ struct DashcamStorage: Sendable {
         return root.appendingPathComponent(String(safe).isEmpty ? "camera" : String(safe), isDirectory: true)
     }
 
-    /// Kind subfolders keep a normal clip and an event clip with the same name apart.
+    /// Kind and lens subfolders keep same-named clips apart (a front and a rear clip often share
+    /// a file name; so can a normal clip and its locked event copy).
+    /// The camera folder goes in too: event and emr folders share a kind and can share names.
     func localURL(camera: String, file: DashcamFile) -> URL {
-        folder(camera: camera).appendingPathComponent(file.kind.rawValue, isDirectory: true)
+        let parent = file.path.split(separator: "/").dropLast().last.map(String.init) ?? "card"
+        let safeParent = String(parent.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" })
+        return folder(camera: camera).appendingPathComponent(file.kind.rawValue, isDirectory: true)
+            .appendingPathComponent(file.lens.rawValue, isDirectory: true)
+            .appendingPathComponent(safeParent.isEmpty ? "card" : safeParent, isDirectory: true)
             .appendingPathComponent(file.name)
+    }
+
+    /// Every file under the normal-footage folder (all lenses), with size and age.
+    private func normalFiles(camera: String) -> [(url: URL, size: Int64, date: Date)] {
+        let dir = folder(camera: camera).appendingPathComponent(DashcamClipKind.normal.rawValue, isDirectory: true)
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys) else { return [] }
+        var out: [(URL, Int64, Date)] = []
+        for case let url as URL in walker {
+            let v = try? url.resourceValues(forKeys: Set(keys))
+            guard v?.isRegularFile == true else { continue }
+            out.append((url, Int64(v?.fileSize ?? 0), v?.contentModificationDate ?? .distantPast))
+        }
+        return out
     }
 
     /// A download only lands at its final path once it finished, so a file there is complete. The
@@ -104,9 +124,7 @@ struct DashcamStorage: Sendable {
 
     /// Bytes of normal footage on the phone (what the cap measures).
     func normalBytes(camera: String) -> Int64 {
-        let dir = folder(camera: camera).appendingPathComponent(DashcamClipKind.normal.rawValue, isDirectory: true)
-        let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
-        return items.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        normalFiles(camera: camera).reduce(0) { $0 + $1.size }
     }
 
     /// Frees room for `needed` bytes of normal footage by deleting the oldest normal clips the
@@ -114,14 +132,7 @@ struct DashcamStorage: Sendable {
     /// uploaded are never touched. Returns the deleted file names.
     @discardableResult
     func evict(camera: String, needed: Int64, cap: Int64, uploadedNames: Set<String>) -> [String] {
-        let dir = folder(camera: camera).appendingPathComponent(DashcamClipKind.normal.rawValue, isDirectory: true)
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
-        let items = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys)) ?? [])
-            .map { url -> (URL, Int64, Date) in
-                let v = try? url.resourceValues(forKeys: Set(keys))
-                return (url, Int64(v?.fileSize ?? 0), v?.contentModificationDate ?? .distantPast)
-            }
-            .sorted { $0.2 < $1.2 }
+        let items = normalFiles(camera: camera).sorted { $0.date < $1.date }
         var used = items.reduce(0) { $0 + $1.1 }
         var removed: [String] = []
         for (url, size, _) in items where used + needed > cap {

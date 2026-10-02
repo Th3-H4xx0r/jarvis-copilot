@@ -24,14 +24,14 @@ struct NovatekCamera: DashcamCamera {
         return DashcamCameraInfo(id: id.isEmpty ? "novatek" : id, family: .novatek, firmware: fw)
     }
 
-    func files(tzOffset: Int) async throws -> [DashcamFile] {
-        NovatekCamera.parseFileList(try await cmd(3015, timeout: 15), tzOffset: tzOffset)
+    func files(timeZone: TimeZone) async throws -> [DashcamFile] {
+        NovatekCamera.parseFileList(try await cmd(3015, timeout: 15), timeZone: timeZone)
     }
 
-    static func parseFileList(_ root: NovatekXML.Node, tzOffset: Int) -> [DashcamFile] {
+    static func parseFileList(_ root: NovatekXML.Node, timeZone: TimeZone) -> [DashcamFile] {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: tzOffset) ?? .current
+        f.timeZone = timeZone
         f.dateFormat = "yyyy/MM/dd HH:mm:ss"
         return root.all("File").compactMap { node in
             let fpath = node.first("FPATH")?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

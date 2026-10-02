@@ -12,9 +12,11 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
     var recordingOn = true
     var calls: [String] = []
     var gpsByPath: [String: [DashcamFix]] = [:]
+    var playbackEnterThrows = false
+    var gpsCalls: [String] = []
 
     func info() async throws -> DashcamCameraInfo { DashcamCameraInfo(id: "CAM", family: .viidure) }
-    func files(tzOffset: Int) async throws -> [DashcamFile] {
+    func files(timeZone: TimeZone) async throws -> [DashcamFile] {
         calls.append("files")
         if refuseOutsidePlayback && !inPlayback { throw DashcamError.camera("getfilelist: not in playback mode") }
         return files
@@ -36,8 +38,12 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
         calls.append("playback=\(enter)")
         inPlayback = enter
         if enter { recordingOn = false }   // the worst case: playback mode pauses recording
+        if enter && playbackEnterThrows { throw DashcamError.notConnected }   // switched, but the reply timed out
     }
-    func gps(_ file: DashcamFile, tzOffset: Int) async throws -> [DashcamFix] { gpsByPath[file.path] ?? [] }
+    func gps(_ file: DashcamFile, tzOffset: Int) async throws -> [DashcamFix] {
+        gpsCalls.append(file.path)
+        return gpsByPath[file.path] ?? []
+    }
 }
 
 final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
@@ -133,7 +139,8 @@ final class DashcamSyncTests: XCTestCase {
         sync.storage = DashcamStorage(root: root)
         sync.parked = { [unowned self] in self.parked }
         sync.onCameraProvider = { [unowned self] in self.onCamera }
-        sync.tzOffset = { 0 }
+        sync.timeZone = { TimeZone(secondsFromGMT: 0)! }
+        sync.defaults = UserDefaults(suiteName: "dashcam-sync-\(UUID().uuidString)")!
         sync.now = { Date(timeIntervalSince1970: 1_790_010_000) }
         cam.files = [
             file(.normal, .front, at: 0), file(.normal, .front, at: 60), file(.normal, .front, at: 120),
@@ -176,7 +183,7 @@ final class DashcamSyncTests: XCTestCase {
 
     func testNormalFootageFollowsTheRulesAndFetchRangeForcesIt() async {
         var rules = DashcamRules(); rules.normal = .front
-        sync.rules = rules
+        server.rules = rules            // rules come from the server every pass
         _ = await sync.syncPass()
         XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("front_0.mp4"))
         XCTAssertFalse(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"))
@@ -208,7 +215,7 @@ final class DashcamSyncTests: XCTestCase {
 
     func testLeavingTheCameraWiFiStopsDownloads() async {
         var rules = DashcamRules(); rules.normal = .all
-        sync.rules = rules
+        server.rules = rules
         fetcher.onFetch = { [unowned self] in self.onCamera = false }
         _ = await sync.syncPass()
         XCTAssertEqual(fetcher.fetched.count, 1, "stops after the Wi‑Fi drops")
@@ -231,6 +238,90 @@ final class DashcamSyncTests: XCTestCase {
         XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("front_9990.mp4"), "same size twice → done")
     }
 
+    func testALeftoverPlaybackModeIsExitedFirstAndRecordingRestored() async {
+        sync.defaults.set(true, forKey: DashcamSync.playbackFlagKey)
+        cam.inPlayback = true
+        cam.recordingOn = false
+        _ = await sync.syncPass()
+        let exitIndex = cam.calls.firstIndex(of: "playback=false")
+        XCTAssertNotNil(exitIndex)
+        XCTAssertLessThan(exitIndex!, cam.calls.firstIndex(of: "files")!, "exits before anything else")
+        XCTAssertTrue(cam.recordingOn)
+        XCTAssertFalse(sync.defaults.bool(forKey: DashcamSync.playbackFlagKey))
+    }
+
+    func testAnEmptyCardNeverTriggersPlaybackMode() async {
+        cam.files = []
+        parked = true
+        _ = await sync.syncPass()
+        XCTAssertFalse(cam.calls.contains("playback=true"))
+        XCTAssertEqual(sync.phase, .idle)
+    }
+
+    func testARefusalWhileDrivingWaitsAndLearnsNothing() async {
+        cam.refuseOutsidePlayback = true
+        var saved: [DashcamSetup] = []
+        sync.setupStore = { saved.append($0) }
+        _ = await sync.syncPass()
+        XCTAssertEqual(sync.phase, .waitingForPark)
+        XCTAssertTrue(saved.isEmpty, "a refusal alone doesn't mark the camera playback-only")
+        XCTAssertFalse(sync.defaults.bool(forKey: DashcamSync.playbackFlagKey))
+    }
+
+    func testDrivingOffMidPassStopsWorkAndRestoresRecording() async {
+        cam.refuseOutsidePlayback = true
+        var checks = 0
+        sync.parked = { checks += 1; return checks <= 2 }   // parked to enter, then the car moves
+        let report = await sync.syncPass()
+        XCTAssertTrue(report.usedPlayback)
+        XCTAssertTrue(cam.calls.contains("playback=false"))
+        XCTAssertTrue(cam.recordingOn)
+        XCTAssertLessThan(fetcher.fetched.count, 2, "stopped as soon as the car moved")
+    }
+
+    func testAPlaybackEntryThatTimesOutIsStillExited() async {
+        cam.refuseOutsidePlayback = true
+        cam.playbackEnterThrows = true
+        parked = true
+        _ = await sync.syncPass()
+        XCTAssertTrue(cam.calls.contains("playback=false"))
+        XCTAssertFalse(cam.inPlayback)
+        XCTAssertTrue(cam.recordingOn)
+    }
+
+    func testDuplicatePathsFromTheFirmwareDoNotCrash() async {
+        cam.files += cam.files
+        let report = await sync.syncPass()
+        XCTAssertEqual(report.listed, 7)
+        _ = await sync.syncPass()
+    }
+
+    func testAClipWithoutGPSIsNotReadEveryPass() async {
+        cam.gpsByPath[cam.files[0].path] = []
+        _ = await sync.syncPass()
+        _ = await sync.syncPass()
+        XCTAssertEqual(cam.gpsCalls.filter { $0 == cam.files[0].path }.count, 1)
+    }
+
+    func testFetchRangesSurviveARelaunch() async {
+        onCamera = false
+        _ = await sync.fetch(from: Date(timeIntervalSince1970: 1_790_000_000), to: Date(timeIntervalSince1970: 1_790_000_010))
+        let relaunched = DashcamSync()
+        relaunched.defaults = sync.defaults
+        relaunched.setupProvider = sync.setupProvider
+        relaunched.cameraFactory = { [unowned self] _ in self.cam }
+        relaunched.server = server
+        relaunched.fetcher = fetcher
+        relaunched.uploader = DashcamUploader(file: root.appendingPathComponent("uploads2.json"))
+        relaunched.storage = DashcamStorage(root: root)
+        relaunched.parked = { false }
+        relaunched.onCameraProvider = { true }
+        relaunched.timeZone = { TimeZone(secondsFromGMT: 0)! }
+        relaunched.now = { Date(timeIntervalSince1970: 1_790_010_000) }
+        _ = await relaunched.syncPass()
+        XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"), "asked for while away, pulled after relaunch")
+    }
+
     func testClipIDMatchesTheServerFormula() {
         // sha1("CAM:/mnt/card/loop/a.mp4")[:20], computed with Python's hashlib.
         XCTAssertEqual(DashcamIDs.clipID(cameraID: "CAM", path: "/mnt/card/loop/a.mp4"), "c_fd34c4c010f0bc429c01")
@@ -244,6 +335,25 @@ final class DashcamUploaderTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString).mp4")
         try Data((0..<bytes).map { UInt8($0 % 251) }).write(to: url)
         return url
+    }
+
+    func testStoredPathsReanchorAfterAReinstall() throws {
+        let docs = FileManager.default.temporaryDirectory.appendingPathComponent("docs-\(UUID().uuidString)")
+        let file = docs.appendingPathComponent("Dashcam/cam/event/front/a.mp4")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([1]).write(to: file)
+        let old = "/private/var/mobile/Containers/Data/Application/OLD-UUID/Documents/Dashcam/cam/event/front/a.mp4"
+        XCTAssertEqual(DashcamUploader.resolve(old, documents: docs), file.path)
+    }
+
+    func testADownloadedAgainClipReplacesItsJob() async throws {
+        let a = try tempFile(4)
+        let uploader = DashcamUploader(file: FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID().uuidString).json"))
+        await uploader.enqueue(clipID: "c", local: a, size: 3, kind: .event)
+        await uploader.enqueue(clipID: "c", local: a, size: 4, kind: .event)
+        let jobs = await uploader.jobs
+        XCTAssertEqual(jobs.count, 1)
+        XCTAssertEqual(jobs.first?.size, 4)
     }
 
     func testChunkMath() {

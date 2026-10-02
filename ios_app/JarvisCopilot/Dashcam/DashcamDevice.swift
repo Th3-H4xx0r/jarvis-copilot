@@ -207,26 +207,45 @@ final class DashcamDevice: WearableDevice {
             }
             guard let path = args["path"] as? String, !path.isEmpty else { throw DeviceError.badArgument("path is required") }
             let cam = try camera()
-            let files = try await cam.files(tzOffset: TimeZone.current.secondsFromGMT())
-            guard let file = files.first(where: { $0.path == path || $0.name == path }) else {
-                throw DeviceError.badArgument("\(path) is not on the dashcam")
+            // A full camera path (from the library) is deleted as is — no listing, which playback-only
+            // firmware refuses outside playback mode. A bare name is looked up in the last listing.
+            let target: DashcamFile
+            if path.hasPrefix("/") {
+                target = sync.cameraFiles.first { $0.path == path }
+                    ?? DashcamFile(path: path, kind: .normal, lens: .front, start: Date(), durationS: 0, size: 0)
+            } else if let hit = sync.cameraFiles.first(where: { $0.name == path }) {
+                target = hit
+            } else {
+                throw DeviceError.badArgument("\(path) is not in the last listing — give the full path")
             }
-            try await cam.delete(file)
-            return ["ok": true, "deleted": file.path]
+            try await cam.delete(target)
+            return ["ok": true, "deleted": target.path]
         case "dashcam_set_wifi":
             let ssid = (args["ssid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let password = (args["password"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             guard ssid != nil || password != nil else { throw DeviceError.badArgument("give an ssid and/or a password") }
             if let password, password.count < 8 { throw DeviceError.badArgument("Wi‑Fi passwords need 8+ characters") }
             guard var current = setup() else { throw DashcamError.notConnected }
-            try await camera().setWiFi(ssid: ssid, password: password)
-            // The camera drops this connection to apply it; remember the new network for next time.
-            let oldSSID = current.ssid
-            if let ssid { current.ssid = ssid }
-            if let password { DashcamSetupStore.password = password }
-            DashcamSetupStore.save(current)
-            DashcamWiFi.shared.forget(ssid: oldSSID)
-            Task { try? await DashcamWiFi.shared.save(ssid: current.ssid, password: DashcamSetupStore.password) }
+            let cam = try camera()
+            // The camera may apply each change at once and drop the link, so remember each part the
+            // moment it is accepted. The old saved network is left alone (harmless once unused).
+            if let ssid {
+                try await cam.setWiFi(ssid: ssid, password: nil)
+                current.ssid = ssid
+                DashcamSetupStore.save(current)
+            }
+            if let password {
+                do {
+                    try await cam.setWiFi(ssid: nil, password: password)
+                    DashcamSetupStore.password = password
+                } catch where ssid != nil {
+                    Task { try? await DashcamWiFi.shared.save(ssid: current.ssid, password: DashcamSetupStore.password) }
+                    return ["ok": false, "ssid": current.ssid,
+                            "message": "The name changed but the password didn't (the camera dropped the link). Rejoin it and set the password again."]
+                }
+            }
+            let saved = current
+            Task { try? await DashcamWiFi.shared.save(ssid: saved.ssid, password: DashcamSetupStore.password) }
             return ["ok": true, "ssid": current.ssid, "message": "The dashcam restarts its Wi‑Fi; the phone rejoins on its own."]
         case "dashcam_fetch_range":
             guard let from = (args["from"] as? String).flatMap(Self.parseTime),

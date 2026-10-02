@@ -7,8 +7,8 @@ protocol DashcamCamera: Sendable {
     var http: DashcamHTTP { get }
 
     func info() async throws -> DashcamCameraInfo
-    /// Every file on the card. `tzOffset` is the camera clock's UTC offset in seconds.
-    func files(tzOffset: Int) async throws -> [DashcamFile]
+    /// Every file on the card; `timeZone` is the zone the camera's clock runs in (stamps are local).
+    func files(timeZone: TimeZone) async throws -> [DashcamFile]
     func fileURL(_ file: DashcamFile) -> URL
     func thumbnailURL(_ file: DashcamFile) -> URL?
     func setTime(_ date: Date, timeZone: TimeZone) async throws

@@ -49,7 +49,7 @@ struct ViidureCamera: DashcamCamera {
             autorecord: (media["autorecord"] as? NSNumber)?.intValue == 1)
     }
 
-    func files(tzOffset: Int) async throws -> [DashcamFile] {
+    func files(timeZone: TimeZone) async throws -> [DashcamFile] {
         var out: [DashcamFile] = []
         var anyAnswered = false
         var lastError: Error?
@@ -65,31 +65,33 @@ struct ViidureCamera: DashcamCamera {
                     lastError = DashcamError.camera(m)
                     break   // an empty or unknown folder answers with an error on some firmware
                 }
-                let pageFiles = ViidureCamera.parseFileList(info, tzOffset: tzOffset)
-                let fresh = pageFiles.filter { !seen.contains($0.path) }
-                if fresh.isEmpty { break }
+                // Page until a page comes back empty (protocol.md §3) — counting raw entries, not
+                // the files kept (zero-size, still-being-written ones are dropped).
+                let raw = ViidureCamera.rawCount(info)
+                let fresh = ViidureCamera.parseFileList(info, timeZone: timeZone).filter { !seen.contains($0.path) }
                 fresh.forEach { seen.insert($0.path) }
                 out += fresh
-                if pageFiles.count < ViidureCamera.page { break }
+                if raw == 0 || (fresh.isEmpty && raw > 0 && start > 0) { break }   // empty, or paging ignored
+                if raw < ViidureCamera.page && fresh.count == raw { break }
                 start += ViidureCamera.page
+                if start > 20_000 { break }
             }
         }
         if !anyAnswered, let lastError { throw lastError }
         return out
     }
 
-    private static let stampFormat: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyyMMddHHmmss"
-        return f
-    }()
+    static func rawCount(_ info: Any?) -> Int {
+        (info as? [[String: Any]] ?? []).reduce(0) { $0 + ($1["files"] as? [Any] ?? []).count }
+    }
 
     /// `getfilelist` info → files (protocol.md §3).
-    static func parseFileList(_ info: Any?, tzOffset: Int) -> [DashcamFile] {
+    static func parseFileList(_ info: Any?, timeZone: TimeZone) -> [DashcamFile] {
         guard let folders = info as? [[String: Any]] else { return [] }
-        let stamps = stampFormat
-        stamps.timeZone = TimeZone(secondsFromGMT: tzOffset) ?? .current
+        let stamps = DateFormatter()
+        stamps.locale = Locale(identifier: "en_US_POSIX")
+        stamps.dateFormat = "yyyyMMddHHmmss"
+        stamps.timeZone = timeZone
         var out: [DashcamFile] = []
         for folder in folders {
             let name = (folder["folder"] as? String ?? "").lowercased()
@@ -101,8 +103,10 @@ struct ViidureCamera: DashcamCamera {
                 if let stamp = item["createtimestr"] as? String, stamp.count == 14, let d = stamps.date(from: stamp) {
                     start = d
                 } else {
+                    // Local wall-clock seconds: take off the zone's offset at that moment.
                     let local = (item["createtime"] as? NSNumber)?.doubleValue ?? 0
-                    start = Date(timeIntervalSince1970: local - Double(tzOffset))
+                    let guess = Date(timeIntervalSince1970: local)
+                    start = Date(timeIntervalSince1970: local - Double(timeZone.secondsFromGMT(for: guess)))
                 }
                 let video = (item["type"] as? NSNumber)?.intValue == 2
                 let kind: DashcamClipKind = !video ? .photo : {

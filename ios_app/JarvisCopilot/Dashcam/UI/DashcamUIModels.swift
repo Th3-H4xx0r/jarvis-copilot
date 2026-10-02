@@ -133,6 +133,8 @@ final class DashcamLibraryModel: ObservableObject {
     var api = DashcamAPI()
 
     var canLoadMore: Bool { next != nil && !loading }
+    /// More than the first page is on screen: an automatic refresh would throw the reader back to the top.
+    var pagedBeyondFirst: Bool { clips.count > 60 }
 
     func reload() async {
         next = nil

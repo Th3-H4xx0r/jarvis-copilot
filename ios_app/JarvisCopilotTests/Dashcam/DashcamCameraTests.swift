@@ -81,7 +81,7 @@ final class DashcamCameraTests: XCTestCase {
                 ["name": "/mnt/card/photo/empty.jpg", "createtimestr": "20261001154200", "size": 0, "type": 1],
             ]],
         ]
-        let files = ViidureCamera.parseFileList(info, tzOffset: DashcamSamples.tz)
+        let files = ViidureCamera.parseFileList(info, timeZone: DashcamSamples.zone)
         XCTAssertEqual(files.count, 4, "zero-size files are skipped")
         XCTAssertEqual(files[0].start, DashcamSamples.clipStart)
         XCTAssertEqual(files[0].lens, .front)
@@ -128,7 +128,7 @@ final class DashcamCameraTests: XCTestCase {
         <File><NAME>c.JPG</NAME><FPATH>A:\\CARDV\\PHOTO\\c.JPG</FPATH><SIZE>50</SIZE><TIME>2026/10/01 15:42:00</TIME><ATTR>32</ATTR></File>
         </ALLFile></LIST>
         """
-        let files = NovatekCamera.parseFileList(try NovatekXML.parse(Data(xml.utf8)), tzOffset: DashcamSamples.tz)
+        let files = NovatekCamera.parseFileList(try NovatekXML.parse(Data(xml.utf8)), timeZone: DashcamSamples.zone)
         XCTAssertEqual(files.map(\.path).first, "/CARDV/MOVIE/2026_1001_154000_F.MP4")
         XCTAssertEqual(files[0].start, DashcamSamples.clipStart)
         XCTAssertEqual(files[1].kind, .event)
@@ -150,16 +150,30 @@ final class DashcamCameraTests: XCTestCase {
         DashcamStubProtocol.on("folder=emr") { _ in DashcamSamples.json(["result": 0, "info": page("emr", 2, 0)]) }
         DashcamStubProtocol.on("getfilelist") { _ in DashcamSamples.json(["result": -1, "info": "empty"]) }
         let cam = ViidureCamera(http: DashcamHTTP(base: URL(string: "http://192.168.169.1")!, session: DashcamStubProtocol.session()))
-        let files = try await cam.files(tzOffset: DashcamSamples.tz)
+        let files = try await cam.files(timeZone: DashcamSamples.zone)
         XCTAssertEqual(files.filter { $0.folder == "loop" }.count, 103)
         XCTAssertEqual(files.filter { $0.kind == .event }.count, 2)
+    }
+
+    func testPagingContinuesPastFilesItDropped() async throws {
+        // 100 raw entries of which two are 0 KB (still being written): not the last page.
+        var first: [[String: Any]] = (0..<98).map { ["name": "/mnt/card/loop/\($0).mp4", "createtimestr": "20261001154000", "size": 10, "type": 2] }
+        first += [["name": "/mnt/card/loop/w1.mp4", "size": 0, "type": 2], ["name": "/mnt/card/loop/w2.mp4", "size": 0, "type": 2]]
+        DashcamStubProtocol.on("folder=loop&start=0&") { _ in DashcamSamples.json(["result": 0, "info": [["folder": "loop", "files": first]]]) }
+        DashcamStubProtocol.on("folder=loop&start=100&") { _ in
+            DashcamSamples.json(["result": 0, "info": [["folder": "loop", "files": [["name": "/mnt/card/loop/x.mp4", "createtimestr": "20261001154000", "size": 10, "type": 2]]]]])
+        }
+        DashcamStubProtocol.on("getfilelist") { _ in DashcamSamples.json(["result": 0, "info": []]) }
+        let cam = ViidureCamera(http: DashcamHTTP(base: URL(string: "http://192.168.169.1")!, session: DashcamStubProtocol.session()))
+        let files = try await cam.files(timeZone: DashcamSamples.zone)
+        XCTAssertEqual(files.count, 99)
     }
 
     func testListingRefusedEverywhereThrowsTheCameraMessage() async {
         DashcamStubProtocol.on("getfilelist") { _ in DashcamSamples.json(["result": -3, "info": "not in playback mode"]) }
         let cam = ViidureCamera(http: DashcamHTTP(base: URL(string: "http://192.168.169.1")!, session: DashcamStubProtocol.session()))
         do {
-            _ = try await cam.files(tzOffset: 0)
+            _ = try await cam.files(timeZone: TimeZone(secondsFromGMT: 0)!)
             XCTFail("expected the refusal to surface")
         } catch {
             XCTAssertEqual(error as? DashcamError, .camera("getfilelist?folder=race&start=0&end=99: not in playback mode"))

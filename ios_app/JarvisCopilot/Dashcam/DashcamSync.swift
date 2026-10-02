@@ -30,20 +30,63 @@ enum DashcamIDs {
     }
 }
 
-/// "Has the car been still for a few minutes?" — from the phone's motion coprocessor. Without
-/// motion access the answer is "no", which only ever delays a sync, never interrupts recording.
-enum DashcamMotion {
-    static func isParked(window: TimeInterval = 180) async -> Bool {
-        guard CMMotionActivityManager.isActivityAvailable(),
-              CMMotionActivityManager.authorizationStatus() == .authorized else { return false }
-        let manager = CMMotionActivityManager()
+/// "Has the car been still for a few minutes?" from the motion coprocessor's live activity.
+///
+/// The history query alone can't answer it: it returns *changes* only and lags by minutes, so a
+/// drive that started a minute ago, or a steady one, came back empty = "parked". Live updates run
+/// only while the phone is on the camera's Wi‑Fi (seeded from the last 30 minutes of history), and
+/// anything uncertain — no permission, no reading yet, driving in the last 3 minutes — is "no",
+/// which only ever delays a sync, never interrupts recording.
+@MainActor
+final class DashcamMotion {
+    static let shared = DashcamMotion()
+    private let manager = CMMotionActivityManager()
+    private(set) var latest: CMMotionActivity?
+    private(set) var lastDriving: Date?
+    private var running = false
+
+    static var allowed: Bool {
+        CMMotionActivityManager.isActivityAvailable()
+            && [.authorized, .notDetermined].contains(CMMotionActivityManager.authorizationStatus())
+    }
+
+    func start() {
+        guard !running, Self.allowed else { return }
+        running = true
         let now = Date()
-        return await withCheckedContinuation { cont in
-            manager.queryActivityStarting(from: now.addingTimeInterval(-window), to: now, to: .main) { activities, _ in
-                let driving = (activities ?? []).contains { $0.automotive && $0.confidence != .low }
-                cont.resume(returning: !driving)
-            }
+        manager.queryActivityStarting(from: now.addingTimeInterval(-1800), to: now, to: .main) { [weak self] acts, _ in
+            guard let self, let acts else { return }
+            if let end = Self.lastDrivingEnd(acts, now: now) { self.lastDriving = max(self.lastDriving ?? .distantPast, end) }
         }
+        manager.startActivityUpdates(to: .main) { [weak self] a in
+            guard let self, let a else { return }
+            self.latest = a
+            if a.automotive && a.confidence != .low { self.lastDriving = Date() }
+        }
+    }
+
+    func stop() {
+        guard running else { return }
+        manager.stopActivityUpdates()
+        running = false
+    }
+
+    /// When the last automotive stretch in `acts` (changes, oldest first) ended: the start of the
+    /// change after it, or `now` if it is the latest.
+    nonisolated static func lastDrivingEnd(_ acts: [CMMotionActivity], now: Date) -> Date? {
+        let sorted = acts.sorted { $0.startDate < $1.startDate }
+        for (i, a) in sorted.enumerated().reversed() where a.automotive && a.confidence != .low {
+            return i + 1 < sorted.count ? sorted[i + 1].startDate : now
+        }
+        return nil
+    }
+
+    func isParked(now: Date = Date()) -> Bool {
+        guard Self.allowed else { return false }
+        if !running { start() }
+        guard let latest, !latest.automotive else { return false }
+        if let lastDriving, now.timeIntervalSince(lastDriving) < 180 { return false }
+        return (latest.stationary || latest.walking) && latest.confidence != .low
     }
 }
 
@@ -105,10 +148,12 @@ final class DashcamSync: ObservableObject {
     var fetcher: DashcamFetcher = DashcamDownloader.shared
     var uploader: DashcamUploader = .shared
     var storage: DashcamStorage = .standard
-    var parked: () async -> Bool = { await DashcamMotion.isParked() }
+    var parked: () async -> Bool = { await DashcamMotion.shared.isParked() }
     var onCameraProvider: () -> Bool = { DashcamWiFi.shared.onCamera }
     var now: () -> Date = { Date() }
-    var tzOffset: () -> Int = { TimeZone.current.secondsFromGMT() }
+    /// The camera clock's zone (set from the phone every pass); DST-aware, so clips recorded
+    /// before a daylight-saving change keep their real time.
+    var timeZone: () -> TimeZone = { .current }
 
     /// Paths someone asked for (`dashcam_fetch_range`), pulled even when the rules say no.
     private(set) var forced = Set<String>()
@@ -140,7 +185,12 @@ final class DashcamSync: ObservableObject {
 
     func cameraChanged(_ on: Bool) {
         cameraLoop?.cancel()
-        guard on else { phase = setupProvider() == nil ? .notSetUp : .away; return }
+        guard on else {
+            DashcamMotion.shared.stop()
+            phase = setupProvider() == nil ? .notSetUp : .away
+            return
+        }
+        DashcamMotion.shared.start()
         cameraLoop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.onCameraProvider() else { return }
@@ -159,6 +209,44 @@ final class DashcamSync: ObservableObject {
 
     // MARK: One pass while on the camera's Wi‑Fi
 
+    /// "The camera may be in playback mode": set *before* asking it to enter, cleared only once
+    /// it has demonstrably left. Survives crashes and relaunches, so the next pass always gets it
+    /// recording again.
+    var defaults: UserDefaults = .standard
+    static let playbackFlagKey = "jc.dashcam.maybeInPlayback"
+    static let fetchRangesKey = "jc.dashcam.fetchRanges"
+    private var maybeInPlayback: Bool {
+        get { defaults.bool(forKey: Self.playbackFlagKey) }
+        set { defaults.set(newValue, forKey: Self.playbackFlagKey) }
+    }
+    /// Clips that had no GPS block / no thumbnail at this size — not asked for again every pass.
+    private var noGPS: [String: Int64] = [:]
+    private var noThumb: [String: Int64] = [:]
+    private var passes = 0
+
+    /// Leaves playback mode and gets the camera recording again, in a task of its own so a
+    /// cancelled sync (Wi‑Fi dropped, Forget) can't skip it. Retries; recording is restored unless
+    /// the camera was known to be stopped before.
+    private func leavePlayback(_ cam: DashcamCamera, wasRecording: Bool?) async {
+        let ok = await Task { () -> Bool in
+            var left = false
+            for attempt in 0..<3 {
+                if (try? await cam.playback(false)) != nil { left = true; break }
+                try? await Task.sleep(for: .seconds(1 + Double(attempt)))
+            }
+            if wasRecording != false {
+                for attempt in 0..<3 {
+                    if (try? await cam.isRecording()) == true { break }
+                    if (try? await cam.setRecording(true)) != nil, (try? await cam.isRecording()) != false { break }
+                    try? await Task.sleep(for: .seconds(1 + Double(attempt)))
+                }
+            }
+            return left
+        }.value
+        if ok { maybeInPlayback = false }
+        recording = try? await cam.isRecording()
+    }
+
     @discardableResult
     func syncPass() async -> Report {
         var report = Report()
@@ -166,7 +254,8 @@ final class DashcamSync: ObservableObject {
         guard var setup = setupProvider(), let cam = cameraFactory(setup) else { phase = .notSetUp; return report }
         passRunning = true
         defer { passRunning = false }
-        let tz = tzOffset()
+        passes += 1
+        let zone = timeZone()
 
         phase = .syncing("Connecting to the dashcam")
         let info: DashcamCameraInfo
@@ -175,46 +264,68 @@ final class DashcamSync: ObservableObject {
             return report
         }
         self.info = info
-        try? await server.upsertCamera(info, ssid: setup.ssid)
-        try? await cam.setTime(now(), timeZone: TimeZone(secondsFromGMT: tz) ?? .current)
         let wasRecording = try? await cam.isRecording()
+        // A previous pass (or a crash) may have left it in playback mode: get it recording first.
+        if maybeInPlayback { await leavePlayback(cam, wasRecording: nil) }
+        await refreshRules()
+        try? await server.upsertCamera(info, ssid: setup.ssid)
+        try? await cam.setTime(now(), timeZone: zone)
         recording = wasRecording
         sd = try? await cam.sdInfo()
 
-        // Listing. Some firmware only lists in playback mode, which can pause recording:
-        // that is only ever done while the car is parked, and recording is restored after.
+        // Listing. Some firmware only lists in playback mode, which can pause recording: that is
+        // only ever done while the car is parked, re-checked before every file, and recording is
+        // always restored after.
         var files: [DashcamFile] = []
         var usedPlayback = false
-        do {
-            if setup.listingNeedsPlayback {
-                guard await parked() else { phase = .waitingForPark; return report }
-                try await cam.playback(true)
-                usedPlayback = true
+        phase = .syncing("Reading the card")
+        let retest = setup.listingNeedsPlayback && passes % 10 == 1
+        var refused = false
+        func list() async -> [DashcamFile] {
+            do { return try await cam.files(timeZone: zone) }
+            catch DashcamError.camera { refused = true; return [] }
+            catch { return [] }
+        }
+        if !setup.listingNeedsPlayback || retest {
+            files = await list()
+            if files.isEmpty && refused {
+                try? await Task.sleep(for: .seconds(2))     // a session error right after joining is common
+                refused = false
+                files = await list()
             }
-            phase = .syncing("Reading the card")
-            do {
-                files = try await cam.files(tzOffset: tz)
-            } catch DashcamError.camera where !usedPlayback && setup.family == .viidure {
-                setup.listingNeedsPlayback = true
+            if !files.isEmpty && setup.listingNeedsPlayback {
+                setup.listingNeedsPlayback = false            // lists fine again (firmware update?)
                 DashcamSetupStore.save(setup)
-                guard await parked() else { phase = .waitingForPark; return report }
-                try await cam.playback(true)
-                usedPlayback = true
-                files = try await cam.files(tzOffset: tz)
+                setupStore(setup)
             }
-            report.usedPlayback = usedPlayback
-            report = await work(on: files, camera: cam, setup: setup, cameraID: info.id, tz: tz,
-                                recording: wasRecording ?? true, report: report)
-        } catch {
-            phase = onCameraProvider() ? .error(error.localizedDescription) : .away
         }
-        if usedPlayback {
-            try? await cam.playback(false)
-            if wasRecording == true, (try? await cam.isRecording()) == false {
-                try? await cam.setRecording(true)
+        // Refused outside playback mode (or known to need it): only ever while parked.
+        if files.isEmpty, setup.family == .viidure, setup.listingNeedsPlayback || refused {
+            guard await parked() else {
+                phase = .waitingForPark
+                lastSync = now()
+                return report
             }
-            recording = try? await cam.isRecording()
+            maybeInPlayback = true
+            usedPlayback = true
+            if (try? await cam.playback(true)) != nil {
+                files = (try? await cam.files(timeZone: zone)) ?? []
+                if !files.isEmpty && !setup.listingNeedsPlayback {
+                    setup.listingNeedsPlayback = true          // learned only from a listing that worked
+                    DashcamSetupStore.save(setup)
+                    setupStore(setup)
+                }
+            }
         }
+        report.usedPlayback = usedPlayback
+        // One entry per path, whatever the firmware's folders do.
+        var seen = Set<String>()
+        files = files.filter { seen.insert($0.path).inserted }
+        if !files.isEmpty {
+            report = await work(on: files, camera: cam, cameraID: info.id, zone: zone,
+                                recording: wasRecording ?? true, inPlayback: usedPlayback, report: report)
+        }
+        if usedPlayback { await leavePlayback(cam, wasRecording: wasRecording) }
         if case .syncing = phase { phase = .idle }
         lastSync = now()
         await refreshCounts()
@@ -222,17 +333,27 @@ final class DashcamSync: ObservableObject {
         return report
     }
 
-    private func work(on files: [DashcamFile], camera cam: DashcamCamera, setup: DashcamSetup, cameraID: String,
-                      tz: Int, recording: Bool, report start: Report) async -> Report {
+    /// Persists the learned listing mode for the rest of this pass's dependencies (tests).
+    var setupStore: (DashcamSetup) -> Void = { _ in }
+
+    private func work(on files: [DashcamFile], camera cam: DashcamCamera, cameraID: String, zone: TimeZone,
+                      recording: Bool, inPlayback: Bool, report start: Report) async -> Report {
         var report = start
         report.listed = files.count
         cameraFiles = files.sorted { $0.start > $1.start }
         let rows = (try? await server.inventory(cameraID: cameraID, files: files)) ?? [:]
         func clipID(_ f: DashcamFile) -> String { rows[f.path]?.id ?? DashcamIDs.clipID(cameraID: cameraID, path: f.path) }
+        /// Still on the camera's Wi‑Fi, not cancelled — and, in playback mode, still parked.
+        func mayContinue() async -> Bool {
+            guard onCameraProvider(), !Task.isCancelled else { return false }
+            return inPlayback ? await parked() : true
+        }
 
-        // A clip may still be growing while the camera records: the newest normal/parking clip of
-        // each lens (the folders it records into), or any clip whose expected end is under a
-        // minute ago. It becomes safe once its size holds still between two listings.
+        // A clip may still be growing while the camera records. The newest normal/parking clip of
+        // each lens (the folders it records into) counts as finished only once its size held
+        // between two listings AND its expected end is clearly past (a pre-allocated file keeps its
+        // size; a camera clock that was wrong makes clips look old) — so a finished parking clip
+        // still comes down while the camera records. Any other clip needs one of the two.
         var newest: [String: DashcamFile] = [:]
         for f in files where f.kind == .normal || f.kind == .parking {
             let key = "\(f.lens.rawValue)/\(f.folder)"
@@ -241,67 +362,111 @@ final class DashcamSync: ObservableObject {
         }
         let nowT = now()
         func stable(_ f: DashcamFile) -> Bool {
-            if lastSizes[f.path] == f.size { return true }
             guard f.isVideo, recording else { return true }
-            if newest["\(f.lens.rawValue)/\(f.folder)"]?.path == f.path { return false }
-            return f.start.addingTimeInterval(max(f.durationS, 60) + 60) < nowT
+            let held = lastSizes[f.path] == f.size
+            let ended = f.start.addingTimeInterval(max(f.durationS, 60) + 60) < nowT
+            if newest["\(f.lens.rawValue)/\(f.folder)"]?.path == f.path { return held && ended }
+            return held || ended
         }
-        defer { lastSizes = Dictionary(uniqueKeysWithValues: files.map { ($0.path, $0.size) }) }
+        defer { lastSizes = Dictionary(files.map { ($0.path, $0.size) }, uniquingKeysWith: { a, _ in a }) }
 
-        // GPS + speed for every finished clip (two small range reads each).
+        let ranges = fetchRanges()
+        func isForced(_ f: DashcamFile) -> Bool {
+            forced.contains(f.path) || ranges.contains { f.end >= $0.from && f.start <= $0.to }
+        }
+        let isParked = inPlayback ? true : await parked()
+        func wanted(_ f: DashcamFile) -> Bool {
+            guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
+            guard stable(f) else { report.skippedUnstable += 1; return false }
+            return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID))
+        }
+
+        // 1. Events, parking clips and photos first — they matter most.
+        let urgent = DashcamRules.order(files.filter { $0.kind != .normal && wanted($0) })
+        queuedDownloads = urgent.count
+        for f in urgent {
+            guard await mayContinue() else { return report }
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+        }
+
+        // 2. GPS + speed for every finished clip (two small range reads each).
         phase = .syncing("Reading GPS")
-        for f in files where f.isVideo && stable(f) && rows[f.path]?.hasGPS != true {
-            guard onCameraProvider(), !Task.isCancelled else { return report }
+        for f in files where f.isVideo && stable(f) && rows[f.path]?.hasGPS != true && noGPS[f.path] != f.size {
+            guard await mayContinue() else { return report }
+            let tz = zone.secondsFromGMT(for: f.start)
             if let fixes = try? await cam.gps(f, tzOffset: tz), !fixes.isEmpty {
                 if (try? await server.putFixes(clipID: clipID(f), fixes: fixes)) != nil { report.gps += 1 }
+            } else {
+                noGPS[f.path] = f.size
             }
         }
 
-        // Thumbnails for the library.
+        // 3. Thumbnails for the library (at most 60 tries a pass).
         phase = .syncing("Fetching thumbnails")
-        for f in files where stable(f) && rows[f.path] != nil && rows[f.path]?.hasThumb != true {
-            guard onCameraProvider(), !Task.isCancelled, report.thumbs < 60 else { break }
-            guard let data = await cam.thumbnail(f) else { continue }
+        var tries = 0
+        for f in files where stable(f) && rows[f.path] != nil && rows[f.path]?.hasThumb != true && noThumb[f.path] != f.size {
+            guard tries < 60, await mayContinue() else { break }
+            tries += 1
+            guard let data = await cam.thumbnail(f) else { noThumb[f.path] = f.size; continue }
             if (try? await server.putThumb(clipID: clipID(f), jpeg: data)) != nil { report.thumbs += 1 }
         }
 
-        // Downloads by rule (events and photos first).
-        let isParked = await parked()
-        let wanted = DashcamRules.order(files.filter { f in
-            guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
-            guard stable(f) else { report.skippedUnstable += 1; return false }
-            return forced.contains(f.path)
-                || rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID))
-        })
-        queuedDownloads = wanted.count
-        for f in wanted {
-            guard onCameraProvider(), !Task.isCancelled else { break }
-            if f.kind == .normal, !forced.contains(f.path),
-               !rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID)) { continue }
-            let id = clipID(f)
-            let dest = storage.localURL(camera: cameraID, file: f)
-            phase = .syncing("Downloading \(f.name)")
-            try? await server.setPhone(clipID: id, state: "downloading", error: nil)
-            do {
-                try await fetcher.download(cam.fileURL(f), to: dest, key: id) { done, total in
-                    Task { @MainActor in self.downloading = (f.name, done, total > 0 ? total : f.size) }
-                }
-                downloading = nil
-                forced.remove(f.path)
-                report.downloaded.append(f.path)
-                try? await server.setPhone(clipID: id, state: "local", error: nil)
-                // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
-                let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
-                await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind)
-                queuedDownloads = max(0, queuedDownloads - 1)
-            } catch {
-                downloading = nil
-                try? await server.setPhone(clipID: id, state: "failed", error: error.localizedDescription)
-                if !onCameraProvider() { break }
-            }
+        // 4. Normal footage by rule (or asked for), newest first.
+        let normal = DashcamRules.order(files.filter { $0.kind == .normal && wanted($0) })
+        queuedDownloads = normal.count
+        for f in normal {
+            guard await mayContinue() else { break }
+            if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID)) { continue }
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+            if !onCameraProvider() { break }
         }
         queuedDownloads = 0
         return report
+    }
+
+    private func download(_ f: DashcamFile, camera cam: DashcamCamera, cameraID: String, id: String,
+                          report: inout Report) async {
+        let dest = storage.localURL(camera: cameraID, file: f)
+        phase = .syncing("Downloading \(f.name)")
+        try? await server.setPhone(clipID: id, state: "downloading", error: nil)
+        do {
+            try await fetcher.download(cam.fileURL(f), to: dest, key: id) { done, total in
+                Task { @MainActor in self.downloading = (f.name, done, total > 0 ? total : f.size) }
+            }
+            downloading = nil
+            // Short of the listing → not the whole clip (the camera was still writing it): drop it.
+            guard storage.exists(camera: cameraID, file: f) else {
+                try? FileManager.default.removeItem(at: dest)
+                try? await server.setPhone(clipID: id, state: "failed", error: "download came up short")
+                return
+            }
+            forced.remove(f.path)
+            report.downloaded.append(f.path)
+            try? await server.setPhone(clipID: id, state: "local", error: nil)
+            // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
+            let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
+            await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind)
+            queuedDownloads = max(0, queuedDownloads - 1)
+        } catch {
+            downloading = nil
+            try? await server.setPhone(clipID: id, state: "failed", error: error.localizedDescription)
+        }
+    }
+
+    // MARK: Saved fetch requests
+
+    struct FetchRange: Codable, Equatable { var from: Date; var to: Date; var asked: Date }
+
+    /// `dashcam_fetch_range` requests, kept a week so "pull it next time" survives relaunches and
+    /// clips recorded after the last listing.
+    func fetchRanges() -> [FetchRange] {
+        guard let data = defaults.data(forKey: Self.fetchRangesKey),
+              let all = try? JSONDecoder().decode([FetchRange].self, from: data) else { return [] }
+        return all.filter { $0.asked > now().addingTimeInterval(-7 * 86400) }
+    }
+
+    private func saveFetchRanges(_ ranges: [FetchRange]) {
+        defaults.set(try? JSONEncoder().encode(ranges), forKey: Self.fetchRangesKey)
     }
 
     // MARK: Uploads
@@ -326,7 +491,8 @@ final class DashcamSync: ObservableObject {
         let path = internetPath
         let onCam = onCameraProvider()
         // On the camera's Wi‑Fi the internet goes over mobile data; off it, Wi‑Fi unless only cellular is up.
-        let cellular = onCam || (path.map { !$0.usesInterfaceType(.wifi) && $0.usesInterfaceType(.cellular) } ?? false)
+        // Metered = mobile data, a personal hotspot or Low Data Mode: normal footage waits for free Wi‑Fi.
+        let cellular = onCam || (path.map { $0.isExpensive || $0.isConstrained || !$0.usesInterfaceType(.wifi) } ?? false)
         if path?.status == .unsatisfied && !onCam { return }
         let done = await uploader.run(server: uploadServer, cellular: cellular) { id, sent, total in
             Task { @MainActor in self.uploading = (id, sent, total) }
@@ -336,18 +502,31 @@ final class DashcamSync: ObservableObject {
         if !done.isEmpty { await cleanUpUploaded() }
     }
 
-    /// Deletes local copies every destination already has (unless "keep on phone").
+    /// Reconciles the phone's copies with the server: deletes those every destination already has
+    /// (unless "keep on phone"), and queues again any the server no longer holds or never got
+    /// (its staging was dropped, e.g. the only destination was removed).
     func cleanUpUploaded() async {
-        guard !rules.keepOnPhone, let setup = setupProvider() else { return }
+        guard let setup = setupProvider() else { return }
         let cameraID = info?.id ?? setup.cameraID
         guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return }
-        for clip in page.clips where clip.uploaded {
+        var requeued = false
+        for clip in page.clips {
             let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start,
                                 durationS: clip.durationS, size: clip.size)
-            let url = storage.localURL(camera: cameraID, file: f)
-            if FileManager.default.fileExists(atPath: url.path) { try? FileManager.default.removeItem(at: url) }
-            try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
+            let url = storage.localURL(camera: clip.cameraID.isEmpty ? cameraID : clip.cameraID, file: f)
+            let local = FileManager.default.fileExists(atPath: url.path)
+            if clip.uploaded {
+                guard !rules.keepOnPhone else { continue }
+                if local { try? FileManager.default.removeItem(at: url) }
+                try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
+            } else if local, clip.uploadState == "none", await !uploader.contains(clip.id) {
+                await uploader.enqueue(clipID: clip.id, local: url,
+                                       size: (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? clip.size,
+                                       kind: clip.kind)
+                requeued = true
+            }
         }
+        if requeued { kickUploads() }
     }
 
     // MARK: Requests from Jarvis / the UI
@@ -358,6 +537,7 @@ final class DashcamSync: ObservableObject {
     func fetch(from: Date, to: Date) async -> Int {
         let matches = cameraFiles.filter { $0.end >= from && $0.start <= to }
         matches.forEach { forced.insert($0.path) }
+        saveFetchRanges(fetchRanges() + [FetchRange(from: from, to: to, asked: now())])
         if onCameraProvider() { Task { await self.syncPass() } }
         return matches.count
     }
@@ -367,8 +547,11 @@ final class DashcamSync: ObservableObject {
         if onCameraProvider() { Task { await self.syncPass() } }
     }
 
+    /// True once the rules came from the server — Settings won't send edits built on defaults.
+    @Published private(set) var rulesLoaded = false
+
     func refreshRules() async {
-        if let state = try? await server.state() { rules = state.rules }
+        if let state = try? await server.state() { rules = state.rules; rulesLoaded = true }
     }
 
     func refreshCounts() async {

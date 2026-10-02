@@ -28,7 +28,8 @@ final class DashcamLiveCameraTests: XCTestCase {
         sync.storage = DashcamStorage(root: root)
         sync.parked = { parked }
         sync.onCameraProvider = { true }
-        sync.tzOffset = { -5 * 3600 }
+        sync.timeZone = { TimeZone(secondsFromGMT: -5 * 3600)! }
+        sync.defaults = UserDefaults(suiteName: "dashcam-live-\(UUID().uuidString)")!
         _ = setup
         setup.listingNeedsPlayback = false
         return sync

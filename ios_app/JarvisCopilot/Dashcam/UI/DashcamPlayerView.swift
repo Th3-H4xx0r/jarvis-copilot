@@ -20,17 +20,28 @@ final class DashcamPlayerModel: ObservableObject {
         DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start, durationS: clip.durationS, size: clip.size)
     }
 
+    private var generation = 0
+
     func load(seekTo offset: Double? = nil) async {
         stop()
         error = nil
-        if let detail = try? await api.clip(clip.id) {
+        generation += 1
+        let mine = generation, target = clip.id
+        // A newer load (Previous/Next) supersedes this one: never let a slow reply put the old clip back.
+        func stale() -> Bool { mine != generation || Task.isCancelled }
+        fixes = []
+        destinations = []
+        if let detail = try? await api.clip(target), !stale() {
             clip = detail.clip
             fixes = detail.fixes.sorted { $0.t < $1.t }
         }
-        if let full = try? await api.api.get(DashcamAPI.prefix + "/clips/\(clip.id)").object(),
+        if let full = try? await api.api.get(DashcamAPI.prefix + "/clips/\(target)").object(), !stale(),
            let rows = full["destinations"] as? [[String: Any]] {
-            destinations = rows.map { ("\($0["name"] ?? $0["id"] ?? "?")", "\($0["state"] ?? "pending")", $0["error"] as? String) }
+            func text(_ v: Any?) -> String? { v.flatMap { $0 is NSNull ? nil : "\($0)" } }
+            destinations = rows.map { (text($0["name"]) ?? text($0["id"]) ?? "Removed destination",
+                                       text($0["state"]) ?? "pending", text($0["error"])) }
         }
+        guard !stale() else { return }
         let setup = DashcamSetupStore.load()
         let cameraID = DashcamSync.shared.info?.id ?? setup?.cameraID ?? clip.cameraID
         let local = DashcamSync.shared.storage.localURL(camera: cameraID, file: file)
@@ -64,6 +75,7 @@ final class DashcamPlayerModel: ObservableObject {
                 : "This clip isn't on the phone, the camera or any upload destination."
             return
         }
+        guard !stale() else { return }
         let p = AVPlayer(playerItem: item)
         let start = clip.start.timeIntervalSince1970
         observer = p.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] time in

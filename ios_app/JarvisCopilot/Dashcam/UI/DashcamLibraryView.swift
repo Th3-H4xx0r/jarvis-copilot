@@ -127,7 +127,9 @@ struct DashcamLibraryView: View {
         }
         .task { await model.reload() }
         .refreshable { await model.reload() }
-        .onChange(of: sync.lastSync) { _, _ in Task { await model.reload() } }
+        .onChange(of: sync.lastSync) { _, _ in
+            if !model.pagedBeyondFirst { Task { await model.reload() } }
+        }
         .alert("Delete from the camera?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
             Button("Delete", role: .destructive) {
                 if let clip = confirmDelete { Task { await deleteFromCamera(clip) } }
