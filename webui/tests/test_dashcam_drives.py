@@ -5,6 +5,7 @@ Pure functions plus rebuild() on a real DashcamStore in tmp_path. Run from webui
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -38,7 +39,8 @@ def test_clips_30_s_apart_make_one_drive():
     assert len(drives) == 1
     d = drives[0]
     assert d["clip_ids"] == ["a", "b"]
-    assert d["id"] == f"dr_{int(T0)}_A4-123"
+    assert re.fullmatch(rf"dr_{int(T0)}_[0-9a-f]{{6}}", d["id"])
+    assert dd.build_drives(clips, fixes)[0]["id"] == d["id"]       # stable across rebuilds
     assert d["camera_id"] == CAM and d["start"] == now_iso(T0) and d["end"] == now_iso(T0 + 149)
 
 
@@ -212,3 +214,25 @@ def test_polyline_points_carry_their_time():
     line = dd.drive_polyline(d, {"a": fixes}, limit=100)
     assert [p[3] for p in line] == [f[0] for f in fixes]
     assert line[0][:3] == [41.0, -87.0, 10.0]
+
+
+def test_drive_ids_of_cameras_sharing_a_prefix_never_collide():
+    a, b = "Affver-A4-0001", "Affver-A4-0002"     # same first six characters
+    clips = [clip("a", T0, camera=a), clip("b", T0, camera=b)]
+    fixes = {"a": track(T0, 60), "b": track(T0, 60, lat0=40.0)}
+    ids = [d["id"] for d in dd.build_drives(clips, fixes)]
+    assert len(ids) == 2 and len(set(ids)) == 2
+    route = re.compile(r"^dr_[0-9]+_[A-Za-z0-9_-]{0,6}$")   # what /drives/<id> accepts
+    assert all(route.match(i) for i in ids)
+
+
+@pytest.mark.parametrize("t,expected", [
+    (1759351200.0, "2025-10-01T20:40:00Z"),
+    (1759351200.5, "2025-10-01T20:40:00.500Z"),
+    (1759351200.0004, "2025-10-01T20:40:00Z"),
+    (1759351200.0006, "2025-10-01T20:40:00.001Z"),
+    (1759351200.9996, "2025-10-01T20:40:01Z"),       # rounds up into the next second, never ".1000Z"
+    (1759351259.9999, "2025-10-01T20:41:00Z"),
+])
+def test_gpx_time_rounds_to_milliseconds(t, expected):
+    assert dd._gpx_time(t) == expected

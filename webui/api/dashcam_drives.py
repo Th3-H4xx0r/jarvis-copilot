@@ -21,8 +21,8 @@ Rules:
 """
 from __future__ import annotations
 
+import hashlib
 import math
-import re
 from xml.sax.saxutils import escape
 
 from api.dashcam_store import now_iso, parse_iso
@@ -150,7 +150,9 @@ def _stats(fx: list) -> dict:
 
 
 def _drive_id(start: float, camera_id: str) -> str:
-    return f"dr_{int(start)}_{re.sub(r'[^A-Za-z0-9_-]', '', str(camera_id))[:6]}"
+    """``dr_<start>_<6 hex of sha1(camera id)>``: two cameras whose ids share a prefix never
+    collide (a prefix of the id did)."""
+    return f"dr_{int(start)}_{hashlib.sha1(str(camera_id).encode('utf-8')).hexdigest()[:6]}"
 
 
 def build_drives(clips: list[dict], fixes_by_clip: dict[str, list]) -> list[dict]:
@@ -231,10 +233,9 @@ def drive_polyline(drive: dict, fixes_by_clip: dict[str, list], limit: int = THI
 
 
 def _gpx_time(t: float) -> str:
-    if float(t).is_integer():
-        return now_iso(t)
-    whole = math.floor(t)
-    return now_iso(whole)[:-1] + f".{int(round((t - whole) * 1000)):03d}Z"
+    """ISO-8601 UTC to the millisecond; a fraction that rounds up carries into the second."""
+    whole, ms = divmod(int(round(float(t) * 1000)), 1000)
+    return now_iso(whole) if ms == 0 else now_iso(whole)[:-1] + f".{ms:03d}Z"
 
 
 def drive_gpx(drive: dict, fixes_by_clip: dict[str, list]) -> str:
