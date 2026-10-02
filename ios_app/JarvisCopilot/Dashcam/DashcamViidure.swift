@@ -78,7 +78,34 @@ struct ViidureCamera: DashcamCamera {
             }
         }
         if !anyAnswered, let lastError { throw lastError }
-        return out
+        return ViidureCamera.fillDurations(out)
+    }
+
+    /// The A4 lists no durations. A lens records clip after clip, so the gaps between starts give its byte
+    /// rate; each clip's length is then its size at that rate, never past the next clip's start.
+    static func fillDurations(_ files: [DashcamFile]) -> [DashcamFile] {
+        let missing = files.filter { $0.isVideo && $0.durationS <= 0 }
+        guard !missing.isEmpty else { return files }
+        let byFolder = Dictionary(grouping: missing) { "\($0.lens.rawValue)/\($0.folder)" }
+            .mapValues { $0.sorted { $0.start < $1.start } }
+        var next: [String: Date] = [:]
+        var rates: [DashcamLens: [Double]] = [:]
+        for clips in byFolder.values {
+            for (a, b) in zip(clips, clips.dropFirst()) {
+                next[a.path] = b.start
+                let gap = b.start.timeIntervalSince(a.start)
+                if gap >= 5, gap <= 600 { rates[a.lens, default: []].append(Double(a.size) / gap) }
+            }
+        }
+        // The median, so a clip cut short before a pause doesn't skew it.
+        let rate = rates.mapValues { r in r.sorted()[r.count / 2] }
+        return files.map { f in
+            guard f.isVideo, f.durationS <= 0, let bps = rate[f.lens], bps > 0 else { return f }
+            var seconds = min(Double(f.size) / bps, 600)
+            if let n = next[f.path] { seconds = min(seconds, max(1, n.timeIntervalSince(f.start))) }
+            return DashcamFile(path: f.path, kind: f.kind, lens: f.lens, start: f.start, durationS: seconds.rounded(),
+                               size: f.size, locked: f.locked, folder: f.folder, gpsPath: f.gpsPath)
+        }
     }
 
     static func rawCount(_ info: Any?) -> Int {

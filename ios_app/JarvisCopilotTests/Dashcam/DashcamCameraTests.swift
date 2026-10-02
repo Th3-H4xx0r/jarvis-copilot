@@ -19,6 +19,25 @@ final class DashcamCameraTests: XCTestCase {
         return Data(out + Array(marker.utf8) + be32(size))
     }
 
+    func testMissingDurationsComeFromTheLensByteRate() {
+        let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+        func f(_ name: String, _ at: Double, _ mb: Double, lens: DashcamLens = .front, folder: String = "normal") -> DashcamFile {
+            DashcamFile(path: "/mnt/card/video_\(lens == .front ? "front" : "back")/\(name)", kind: .normal, lens: lens,
+                        start: t0.addingTimeInterval(at), durationS: 0, size: Int64(mb * 1_000_000), folder: folder)
+        }
+        // The A4: ~218 MB a minute front, back to back; a 13 MB clip before a pause; the newest still short.
+        let files = [f("a_f.ts", 0, 218), f("b_f.ts", 60, 218), f("c_f.ts", 120, 13.4), f("d_f.ts", 600, 51.3),
+                     f("a_b.ts", 0, 124.7, lens: .rear), f("b_b.ts", 60, 124.7, lens: .rear)]
+        let out = Dictionary(uniqueKeysWithValues: ViidureCamera.fillDurations(files).map { ($0.name, $0.durationS) })
+        XCTAssertEqual(out["a_f.ts"], 60)
+        XCTAssertEqual(out["c_f.ts"] ?? 0, 4, accuracy: 1)       // not the 480 s gap before the next clip
+        XCTAssertEqual(out["d_f.ts"] ?? 0, 14, accuracy: 1)      // the newest: from the rate
+        XCTAssertEqual(out["b_b.ts"], 60)                        // the rear lens has its own rate
+        // A listing that has durations is left alone.
+        let timed = DashcamFile(path: "x.mp4", kind: .normal, lens: .front, start: t0, durationS: 30, size: 1)
+        XCTAssertEqual(ViidureCamera.fillDurations([timed]), [timed])
+    }
+
     func testTheA4sSkipBoxGPSParses() throws {
         let block = Self.a4SkipBlock([
             "2026/10/02 13:19:32 N:4152.6860 W:08737.7880 48.0 km/h x:+0.00 y:+0.00 z:+0.00 A:91.0 H:182.0 304A126B2FC86505BTRX",
