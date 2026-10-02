@@ -11,6 +11,7 @@ struct DashcamPage: View {
     @ObservedObject private var wifi: DashcamWiFi = .shared
     @State private var tab: Tab = .library
     @State private var syncing = false
+    @State private var live = false
 
     var body: some View {
         ScrollView {
@@ -30,6 +31,7 @@ struct DashcamPage: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
+        .fullScreenCover(isPresented: $live) { DashcamLiveView() }
         .navigationTitle(DashcamSetupStore.load()?.displayName ?? "Dashcam")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -54,6 +56,9 @@ struct DashcamPage: View {
                         Text(subtitle).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if wifi.onCamera {
+                        Button("Live") { live = true }.buttonStyle(.jcGlass(compact: true))
+                    }
                     Button {
                         syncing = true
                         Task { await sync.syncNow(); syncing = false }
