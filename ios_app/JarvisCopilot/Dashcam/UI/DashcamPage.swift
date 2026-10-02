@@ -12,6 +12,10 @@ struct DashcamPage: View {
     @State private var tab: Tab = .library
     @State private var syncing = false
     @State private var live = false
+    @State private var reconnecting = false
+    @State private var askPassword = false
+    @State private var typedPassword = ""
+    @State private var reconnectNote: String?
 
     var body: some View {
         ScrollView {
@@ -33,6 +37,13 @@ struct DashcamPage: View {
         }
         .background(JcTheme.bg.ignoresSafeArea())
         .fullScreenCover(isPresented: $live) { DashcamLiveView() }
+        .alert("Camera Wi‑Fi password", isPresented: $askPassword) {
+            SecureField("Password", text: $typedPassword)
+            Button("Join") { let pw = typedPassword; Task { await reconnect(pw) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The password for \(DashcamSetupStore.load()?.ssid ?? "the camera") — it's on the camera's screen. Kept for rejoining on its own.")
+        }
         .onAppear { sync.watchStatus(wifi.onCamera) }
         .onChange(of: wifi.onCamera) { _, on in sync.watchStatus(on) }
         .onDisappear { sync.watchStatus(false) }
@@ -60,6 +71,15 @@ struct DashcamPage: View {
                         Text(subtitle).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if !wifi.onCamera {
+                        Button {
+                            Task { await reconnect(nil) }
+                        } label: {
+                            if reconnecting { ProgressView() } else { Text("Reconnect") }
+                        }
+                        .buttonStyle(.jcGlass(compact: true))
+                        .disabled(reconnecting)
+                    }
                     Button {
                         syncing = true
                         Task { await sync.syncNow(); syncing = false }
@@ -96,7 +116,20 @@ struct DashcamPage: View {
         }
     }
 
+    private func reconnect(_ password: String?) async {
+        if password == nil, DashcamSetupStore.password == nil { typedPassword = ""; askPassword = true; return }
+        reconnecting = true
+        defer { reconnecting = false }
+        do {
+            try await DashcamWiFi.shared.reconnect(password: password)
+            reconnectNote = nil
+        } catch {
+            reconnectNote = error.localizedDescription
+        }
+    }
+
     private var subtitle: String {
+        if let reconnectNote, !wifi.onCamera { return reconnectNote }
         var parts: [String] = []
         if let last = sync.lastSync { parts.append("Synced \(last.formatted(.relative(presentation: .named)))") }
         if sync.pendingUploads > 0 { parts.append("\(sync.pendingUploads) to upload") }
