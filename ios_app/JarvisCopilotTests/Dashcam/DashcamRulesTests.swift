@@ -62,6 +62,22 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertFalse(storage.exists(camera: "cam", file: listed), "far short of the listing")
     }
 
+    func testRearClipsFiledUnderFrontByOlderBuildsAreStillFound() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = DashcamStorage(root: root)
+        let rear = DashcamFile(path: "/mnt/card/video_back/2026-10-02_13_42_36_b.ts", kind: .normal, lens: .rear,
+                               start: Date(), durationS: 60, size: 2048)
+        let fresh = storage.localURL(camera: "cam", file: rear)
+        XCTAssertTrue(fresh.path.contains("/normal/rear/video_back/"))
+        // An older build put it under front/.
+        let legacy = root.appendingPathComponent("cam/normal/front/video_back/2026-10-02_13_42_36_b.ts")
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 2048).write(to: legacy)
+        XCTAssertEqual(storage.localURL(camera: "cam", file: rear).standardizedFileURL, legacy.standardizedFileURL)
+        XCTAssertTrue(storage.exists(camera: "cam", file: rear))
+    }
+
     func testEvictionOnlyRemovesOldUploadedNormalClips() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("dashcam-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

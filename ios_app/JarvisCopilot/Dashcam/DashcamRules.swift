@@ -89,10 +89,20 @@ struct DashcamStorage: Sendable {
     /// a file name; so can a normal clip and its locked event copy).
     /// The camera folder goes in too: event and emr folders share a kind and can share names.
     func localURL(camera: String, file: DashcamFile) -> URL {
+        let url = path(camera: camera, file: file, lens: file.lens)
+        // Builds before the A4 fix filed its rear clips (video_back/*_b.ts) under front/: keep finding them there.
+        if file.lens == .rear, !FileManager.default.fileExists(atPath: url.path) {
+            let legacy = path(camera: camera, file: file, lens: .front)
+            if FileManager.default.fileExists(atPath: legacy.path) { return legacy }
+        }
+        return url
+    }
+
+    private func path(camera: String, file: DashcamFile, lens: DashcamLens) -> URL {
         let parent = file.path.split(separator: "/").dropLast().last.map(String.init) ?? "card"
         let safeParent = String(parent.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" })
         return folder(camera: camera).appendingPathComponent(file.kind.rawValue, isDirectory: true)
-            .appendingPathComponent(file.lens.rawValue, isDirectory: true)
+            .appendingPathComponent(lens.rawValue, isDirectory: true)
             .appendingPathComponent(safeParent.isEmpty ? "card" : safeParent, isDirectory: true)
             .appendingPathComponent(file.name)
     }
