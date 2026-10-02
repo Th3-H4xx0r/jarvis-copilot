@@ -79,7 +79,7 @@ _UPLOAD = r"(u_[0-9a-f]{16})"
 _DEST = r"(d_[0-9a-f]{8})"
 _DRIVE = r"(dr_[0-9]+_[A-Za-z0-9_-]{0,6})"
 _RE_CLIP = re.compile(rf"^/clips/{_CLIP}$")
-_RE_CLIP_ACTION = re.compile(rf"^/clips/{_CLIP}/(gps|phone|retry|delete_cloud)$")
+_RE_CLIP_ACTION = re.compile(rf"^/clips/{_CLIP}/(gps|phone|retry|delete_cloud|forget)$")
 _RE_CLIP_THUMB = re.compile(rf"^/clips/{_CLIP}/thumb$")
 _RE_CLIP_STREAM = re.compile(rf"^/clips/{_CLIP}/stream$")
 _RE_UPLOAD = re.compile(rf"^/uploads/{_UPLOAD}$")
@@ -218,6 +218,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
                 return _phone(store, cid, body)
             if action == "delete_cloud":
                 return _delete_cloud(store, cid, relay)
+            if action == "forget":
+                return (200, {"ok": True}) if store.forget_clip(cid) else _err(404, "clip not found")
             n = store.retry_destinations(cid)
             return (200, {"ok": True, "requeued": n}) if n is not None else _err(404, "clip not found")
         m = _RE_UPLOAD_COMPLETE.match(p)

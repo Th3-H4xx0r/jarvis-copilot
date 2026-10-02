@@ -1043,6 +1043,17 @@ class DashcamStore:
             self._save_clip(clip)
         return True
 
+    def forget_clip(self, clip_id: str) -> bool:
+        """Deleted everywhere: the clip's record, track, thumbnail and any staged bytes go."""
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            if clip is None:
+                return False
+            self._drop_upload((clip.get("upload") or {}).get("upload_id"))
+            for path in (self._clip_path(clip_id), self._fixes_path(clip_id), self._thumb_file(clip_id)):
+                path.unlink(missing_ok=True)
+        return True
+
     def forget_cloud(self, clip_id: str) -> bool:
         """After the clip's copies were deleted from its destinations: no upload, no entries, nothing
         staged. False when there's no such clip."""

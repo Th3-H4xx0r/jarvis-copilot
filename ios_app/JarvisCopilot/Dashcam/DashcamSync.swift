@@ -214,6 +214,48 @@ final class DashcamSync: ObservableObject {
         }
     }
 
+    // MARK: Deleting from the camera
+
+    static let cameraDeletesKey = "jc.dashcam.cameraDeletes"
+    /// Card paths to delete from the dashcam: kept until done, so a delete asked for away from the camera
+    /// happens the next time the phone is on its Wi‑Fi.
+    var pendingCameraDeletes: Set<String> {
+        get { Set(defaults.stringArray(forKey: Self.cameraDeletesKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: Self.cameraDeletesKey) }
+    }
+
+    /// Deletes a clip from the card now when on the camera's Wi‑Fi (true), otherwise queues it.
+    func deleteFromCamera(_ path: String) async -> Bool {
+        pendingCameraDeletes.insert(path)
+        guard onCameraProvider(), let setup = setupProvider(), let cam = cameraFactory(setup) else { return false }
+        let f = DashcamFile(path: path, kind: .normal, lens: .front, start: now(), durationS: 0, size: 0)
+        if (try? await cam.delete(f)) != nil { pendingCameraDeletes.remove(path); return true }
+        passSoon()                    // the pass retries it, in playback mode when parked
+        return false
+    }
+
+    private func applyCameraDeletes(_ files: [DashcamFile], camera cam: DashcamCamera) async -> [DashcamFile] {
+        var pending = pendingCameraDeletes
+        let listed = Set(files.map(\.path))
+        pending = pending.filter { listed.contains($0) }          // already gone from the card
+        var refused: [DashcamFile] = []
+        for f in files where pending.contains(f.path) {
+            if (try? await cam.delete(f)) != nil { pending.remove(f.path) } else { refused.append(f) }
+        }
+        // Some firmware only deletes in playback mode — only ever while parked, recording restored after.
+        if !refused.isEmpty, setupProvider()?.family == .viidure, await parked(), !liveActive {
+            let wasRecording = try? await cam.isRecording()
+            maybeInPlayback = true
+            if (try? await cam.playback(true)) != nil {
+                for f in refused where (try? await cam.delete(f)) != nil { pending.remove(f.path) }
+            }
+            await leavePlayback(cam, wasRecording: wasRecording)
+        }
+        let asked = pendingCameraDeletes.intersection(listed)          // deleted now, or still waiting
+        pendingCameraDeletes = pending
+        return files.filter { !asked.contains($0.path) }               // neither comes back into the library
+    }
+
     /// The controls changed recording by hand.
     func noteRecording(_ on: Bool) { recording = on }
 
@@ -396,6 +438,8 @@ final class DashcamSync: ObservableObject {
         // One entry per path, whatever the firmware's folders do.
         var seen = Set<String>()
         files = files.filter { seen.insert($0.path).inserted }
+        // Deletions asked for while away from the camera, done before anything else (and never listed).
+        if !pendingCameraDeletes.isEmpty { files = await applyCameraDeletes(files, camera: cam) }
         if !files.isEmpty {
             report = await work(on: files, camera: cam, cameraID: info.id, zone: zone,
                                 recording: wasRecording ?? true, inPlayback: usedPlayback, report: report)

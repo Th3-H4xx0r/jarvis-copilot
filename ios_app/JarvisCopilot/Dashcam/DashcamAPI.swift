@@ -258,6 +258,11 @@ struct DashcamAPI: Sendable {
         return ((o["clips"] as? [[String: Any]] ?? []).compactMap(DashcamServerClip.init(json:)), str(o["next"]))
     }
 
+    /// Deleted everywhere: the server drops the clip's record too.
+    func forgetClip(_ clipID: String) async throws {
+        _ = try await api.post(Self.prefix + "/clips/\(clipID)/forget", timeout: 60)
+    }
+
     func deleteFromCloud(clipID: String) async throws {
         _ = try await api.post(Self.prefix + "/clips/\(clipID)/delete_cloud", timeout: 120)
     }

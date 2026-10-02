@@ -314,10 +314,11 @@ struct DashcamLibraryView: View {
             done.append("phone")
         }
         if places.contains(.camera), clip.onCamera {
-            do {
-                _ = try await DashcamDevice.shared.invoke("dashcam_delete_file", args: ["path": clip.path, "confirm": true])
-                done.append("dashcam")
-            } catch { failed.append("dashcam: \(error.localizedDescription)") }
+            // Now when on the camera's Wi‑Fi, otherwise queued for the next connection — never lost.
+            done.append(await sync.deleteFromCamera(clip.path) ? "dashcam" : "dashcam (when next connected)")
+        }
+        if places == [.phone, .cloud, .camera], failed.isEmpty {
+            try? await DashcamAPI().forgetClip(clip.id)          // gone from the library too
         }
         guard reload else { return failed.isEmpty }
         note = failed.isEmpty ? "Deleted \(clip.name) from the \(done.joined(separator: ", "))."
