@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import atexit
 import base64
+import http.client
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -51,7 +53,9 @@ logger = logging.getLogger(__name__)
 
 RC_USER = "jc"
 RC_TIMEOUT_S = 30
+TEST_TIMEOUT_S = 75        # testing a destination: longer than rclone's own 60 s connect timeout
 START_TIMEOUT_S = 15
+RESPAWN_BACKOFF_S = 30     # after rclone rcd failed to start, wait this long before trying again
 STREAM_BLOCK = 256 * 1024
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 30
@@ -81,7 +85,11 @@ class RelayError(Exception):
 
 
 class _Down(Exception):
-    """The rc endpoint did not answer (process gone)."""
+    """The rc endpoint could not be reached (``refused``: nothing listens on the port)."""
+
+    def __init__(self, message: str, refused: bool = False):
+        super().__init__(message)
+        self.refused = refused
 
 
 def default_state_dir() -> Path:
@@ -220,6 +228,8 @@ class Relay:
         # Bumped on every spawn. rclone numbers jobs from 1 in each process, so a job id is only
         # meaningful together with the generation of the process that issued it.
         self.generation = 0
+        self._spawn_error: str | None = None   # why the last spawn failed, and when
+        self._spawn_failed_at = 0.0
 
     # ── process ──────────────────────────────────────────────────────────────
     def binary(self) -> str | None:
@@ -232,7 +242,19 @@ class Relay:
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 return
+            if self._spawn_error is not None:
+                wait = self._spawn_failed_at + RESPAWN_BACKOFF_S - time.monotonic()
+                if wait > 0:
+                    raise RelayUnavailable(f"{self._spawn_error}; trying again in {math.ceil(wait)} s")
             self._spawn()
+
+    def _exited(self) -> bool:
+        proc = self._proc
+        return proc is None or proc.poll() is not None
+
+    def _spawn_failed(self, message: str) -> RelayUnavailable:
+        self._spawn_error, self._spawn_failed_at = message, time.monotonic()
+        return RelayUnavailable(message)
 
     def _pid_file(self) -> Path:
         return self.dir / "rclone.pid"
@@ -274,8 +296,12 @@ class Relay:
                "--config", str(self.config_path), "--log-level", "NOTICE",
                "--rc-job-expire-duration", JOB_EXPIRE]
         self.generation += 1
-        with open(log_path, "ab") as log:
-            proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            with open(log_path, "ab") as log:
+                proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                                        stderr=subprocess.STDOUT)
+        except OSError as exc:
+            raise self._spawn_failed(f"could not start rclone rcd: {exc}") from None
         self._proc, self._url, self._password = proc, f"http://127.0.0.1:{port}", password
         try:
             self._pid_file().write_text(str(proc.pid))
@@ -285,15 +311,16 @@ class Relay:
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 self._proc = None
-                raise RelayUnavailable(f"rclone rcd exited with code {proc.returncode} (see {log_path})")
+                raise self._spawn_failed(f"rclone rcd exited with code {proc.returncode} (see {log_path})")
             try:
                 self._post("core/version", {}, timeout=2)
                 logger.info("dashcam relay: rclone rcd running on 127.0.0.1:%s (pid %s)", port, proc.pid)
+                self._spawn_error = None
                 return
             except (_Down, RelayError):
                 time.sleep(0.1)
         self.shutdown()
-        raise RelayUnavailable("rclone rcd did not start in time")
+        raise self._spawn_failed("rclone rcd did not start in time")
 
     def shutdown(self) -> None:
         with self._lock:
@@ -309,41 +336,53 @@ class Relay:
     def _auth(self) -> str:
         return "Basic " + base64.b64encode(f"{self._user}:{self._password}".encode()).decode()
 
-    def _post(self, method: str, params: dict | None, timeout: float = RC_TIMEOUT_S) -> dict:
+    def _post(self, method: str, params: dict | None, timeout: float | None = None) -> dict:
+        """One rc call. A timeout is a RelayError (rclone is there, just slow - e.g. a dead SFTP
+        host); only an unreachable endpoint is ``_Down``."""
+        timeout = RC_TIMEOUT_S if timeout is None else timeout
         req = urllib.request.Request(f"{self._url}/{method}", data=json.dumps(params or {}).encode(),
                                      headers={"Content-Type": "application/json", "Authorization": self._auth()},
                                      method="POST")
+        timed_out = RelayError(f"rclone timed out after {timeout:g} s on {method}")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
-            raw = exc.read()
             try:
+                raw = exc.read()
                 msg = json.loads(raw or b"{}").get("error") or f"HTTP {exc.code}"
-            except ValueError:
+            except (ValueError, OSError, http.client.HTTPException):
                 msg = f"HTTP {exc.code}"
             raise RelayError(str(msg)) from None
-        except (urllib.error.URLError, ConnectionError, socket.timeout, OSError) as exc:
-            raise _Down(str(exc)) from None
+        except TimeoutError:
+            raise timed_out from None
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise timed_out from None
+            raise _Down(str(exc), refused=isinstance(exc.reason, ConnectionRefusedError)) from None
+        except (http.client.HTTPException, OSError) as exc:
+            raise _Down(str(exc), refused=isinstance(exc, ConnectionRefusedError)) from None
         try:
             out = json.loads(raw or b"{}")
         except ValueError:
             raise RelayError("rclone answered with something that is not JSON") from None
         return out if isinstance(out, dict) else {}
 
-    def rc(self, method: str, params: dict | None = None) -> dict:
-        """Calls one rc method; RelayError carries rclone's ``error`` text."""
+    def rc(self, method: str, params: dict | None = None, *, timeout: float | None = None) -> dict:
+        """Calls one rc method; RelayError carries rclone's ``error`` text. rclone rcd is restarted
+        only when it has exited or refuses connections - never because one call was slow, which
+        would kill every copy it is running."""
         self.ensure_running()
         try:
-            return self._post(method, params)
+            return self._post(method, params, timeout)
         except _Down as exc:
-            if self._attached:
+            if self._attached or not (exc.refused or self._exited()):
                 raise RelayError(f"rclone is not answering: {exc}") from None
         # The process died between calls: start a fresh one and try once more.
         self.shutdown()
         self.ensure_running()
         try:
-            return self._post(method, params)
+            return self._post(method, params, timeout)
         except _Down as exc:
             raise RelayError(f"rclone is not answering: {exc}") from None
 
@@ -386,8 +425,8 @@ class Relay:
         """Creates the base folder if needed and lists it: proves the login and write access path."""
         fs = f"{remote}:{path or ''}"
         try:
-            self.rc("operations/mkdir", {"fs": fs, "remote": ""})
-            self.rc("operations/list", {"fs": fs, "remote": ""})
+            self.rc("operations/mkdir", {"fs": fs, "remote": ""}, timeout=TEST_TIMEOUT_S)
+            self.rc("operations/list", {"fs": fs, "remote": ""}, timeout=TEST_TIMEOUT_S)
         except RelayError as exc:
             return False, str(exc)
         return True, None

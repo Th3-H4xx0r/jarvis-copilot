@@ -601,34 +601,87 @@ def test_missing_binary_is_relay_unavailable(tmp_path, monkeypatch):
 
 
 FAKE_RCLONE = r'''#!{python}
-import base64, json, os, sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import base64, json, os, sys, time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 args = sys.argv[1:]
 with open(os.environ["FAKE_RCLONE_RECORD"], "a") as f:
     f.write(json.dumps({{"argv": args, "pid": os.getpid(), "has_env_pass": bool(os.environ.get("RCLONE_RC_PASS"))}}) + "\n")
+if os.environ.get("FAKE_RCLONE_EXIT"):
+    sys.exit(int(os.environ["FAKE_RCLONE_EXIT"]))
 host, port = args[args.index("--rc-addr") + 1].rsplit(":", 1)
 want = "Basic " + base64.b64encode((os.environ["RCLONE_RC_USER"] + ":" + os.environ["RCLONE_RC_PASS"]).encode()).decode()
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.path == "/slow/call":
+            time.sleep(2)             # e.g. operations/list on an unreachable SFTP host
         ok = self.headers.get("Authorization") == want
         body = json.dumps({{"version": "fake", "pid": os.getpid()}} if ok else {{"error": "unauthorized"}}).encode()
         self.send_response(200 if ok else 401)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-HTTPServer((host, int(port)), H).serve_forever()
+ThreadingHTTPServer((host, int(port)), H).serve_forever()
 '''
 
 
-def test_supervisor_spawns_restarts_and_keeps_the_password_off_argv(tmp_path, monkeypatch):
+@pytest.fixture()
+def fake_rclone_bin(tmp_path, monkeypatch):
     exe = tmp_path / "rclone"
     exe.write_text(FAKE_RCLONE.format(python=sys.executable))
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     record = tmp_path / "record.jsonl"
     monkeypatch.setenv("FAKE_RCLONE_RECORD", str(record))
     monkeypatch.setenv("JC_RCLONE_BIN", str(exe))
+    return record
+
+
+def test_a_slow_call_times_out_without_killing_rclone(fake_rclone_bin, tmp_path, monkeypatch):
+    r = Relay(tmp_path / "state")
+    try:
+        pid = r.rc("core/version")["pid"]
+        monkeypatch.setattr(dr, "RC_TIMEOUT_S", 0.5)
+        with pytest.raises(RelayError, match="timed out"):
+            r.rc("slow/call")
+        # Same process, same generation: the copies it is running are still there.
+        assert r.rc("core/version")["pid"] == pid and r.generation == 1
+        assert len(fake_rclone_bin.read_text().splitlines()) == 1
+    finally:
+        r.shutdown()
+
+
+def test_testing_a_destination_waits_longer_than_rclones_connect_timeout(fake, relay):
+    seen = []
+    post = relay._post
+
+    def spy(method, params, timeout=None):
+        seen.append((method, timeout))
+        return post(method, params, timeout)
+
+    relay._post = spy
+    relay.test_remote("jc_d_1", "dashcam")
+    assert [m for m, _ in seen] == ["operations/mkdir", "operations/list"]
+    assert all(t == dr.TEST_TIMEOUT_S for _, t in seen) and dr.TEST_TIMEOUT_S > 60
+
+
+def test_rclone_that_will_not_start_is_retried_at_most_every_30_s(fake_rclone_bin, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_RCLONE_EXIT", "3")
+    r = Relay(tmp_path / "state")
+    with pytest.raises(RelayUnavailable, match="exited with code 3"):
+        r.rc("core/version")
+    with pytest.raises(RelayUnavailable, match="exited with code 3"):
+        r.rc("core/version")
+    assert len(fake_rclone_bin.read_text().splitlines()) == 1     # no second spawn yet
+    assert dr.RESPAWN_BACKOFF_S == 30
+    monkeypatch.setattr(dr, "RESPAWN_BACKOFF_S", 0)
+    with pytest.raises(RelayUnavailable):
+        r.rc("core/version")
+    assert len(fake_rclone_bin.read_text().splitlines()) == 2
+
+
+def test_supervisor_spawns_restarts_and_keeps_the_password_off_argv(fake_rclone_bin, tmp_path):
+    record = fake_rclone_bin
     r = Relay(tmp_path / "state")
     try:
         first = r.rc("core/version")["pid"]
