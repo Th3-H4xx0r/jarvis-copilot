@@ -346,3 +346,11 @@ def test_connect_drive_script_is_valid_and_keeps_secrets_off_argv():
     text = CONNECT_DRIVE.read_text()
     assert "rclone authorize drive" in text and "--json-stdin" in text and "drive-payload" in text
     assert "--token " not in text and "--password " not in text
+
+
+def test_every_device_skill_exists_in_the_ios_app():
+    """dashcam.py calls dashcam_* skills that the iPhone app must actually offer."""
+    swift = (REPO_ROOT / "ios_app" / "JarvisCopilot" / "Dashcam" / "DashcamDevice.swift").read_text()
+    offered = set(re.findall(r'name: "(dashcam_[a-z_]+)"', swift))
+    module = load_module()
+    assert set(module.DEVICE_SKILLS) <= offered, set(module.DEVICE_SKILLS) - offered

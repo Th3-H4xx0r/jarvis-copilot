@@ -458,6 +458,7 @@
 		854D7883CC4DB392B8D08AF0 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4C9C5AB789FDD5A49DB3FD /* AudioPlayer.swift */; };
 		85638C0619BFC4FD903E827C /* PhotonStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE3F02F71BEB4F1F5B0D06A /* PhotonStore.swift */; };
 		858D3CA9856905013FF05C54 /* OnDeviceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B8CC657BF59DCC1CF4F62C /* OnDeviceModel.swift */; };
+		85F52E07CDA999CB735729A8 /* DashcamDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */; };
 		8605719C198236E9532FA675 /* HealthTabSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B29D1AF169D0CE441CDDC9CF /* HealthTabSettings.swift */; };
 		8654ADC89BD4D6D085F4BCE1 /* LiveProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71186408396FE6D18CD4D3EF /* LiveProtocolTests.swift */; };
 		866549055491861BFCE38634 /* LocalConnectionNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76E2F4CF0FD8E7B48221EECB /* LocalConnectionNotifierTests.swift */; };
@@ -576,6 +577,7 @@
 		A8DFCA4B156C4BE31C084C4A /* ProfilesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */; };
 		A8FDBC65E9655EB0A2F57B8E /* GlassesFaceLinkWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7961C882BEC5EC5677B589AA /* GlassesFaceLinkWireTests.swift */; };
 		A91652A3935C3744817BD31C /* ChatAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D898180CF51F33C9BF268753 /* ChatAPI.swift */; };
+		A9D5D9876AC55E2C3C464FD5 /* DashcamDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7676A5D714B05EC1504F8395 /* DashcamDevice.swift */; };
 		AA7D46165035CF25746F6A19 /* RingTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA5AC544486624CE6A85698 /* RingTransportTests.swift */; };
 		AA97EC0CCD97D67E64FEF7C2 /* RingWorkoutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F6B43B3A58A8CCC4A489D3 /* RingWorkoutController.swift */; };
 		AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00AA00000000ICON0001 /* Assets.xcassets */; };
@@ -1307,6 +1309,7 @@
 		7541361D0B163C7747D739AC /* PodVoiceChoice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodVoiceChoice.swift; sourceTree = "<group>"; };
 		761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatPageSmokeTests.swift; sourceTree = "<group>"; };
 		7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneSkillsTests.swift; sourceTree = "<group>"; };
+		7676A5D714B05EC1504F8395 /* DashcamDevice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDevice.swift; sourceTree = "<group>"; };
 		76A4E3847E7B8475E457549C /* IOSSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IOSSkills.swift; sourceTree = "<group>"; };
 		76E2F4CF0FD8E7B48221EECB /* LocalConnectionNotifierTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalConnectionNotifierTests.swift; sourceTree = "<group>"; };
 		76E32C387D856F2FD9C6F865 /* InmoAIResponseRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAIResponseRenderer.swift; sourceTree = "<group>"; };
@@ -1478,6 +1481,7 @@
 		A71A64534AFAACA3EC2F55F2 /* CodingStreamReducer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingStreamReducer.swift; sourceTree = "<group>"; };
 		A7EFD59A50C3FF7D7A443DF5 /* InsightsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsAPI.swift; sourceTree = "<group>"; };
 		A8C977B201AFD54C03773DE4 /* AppDeepLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDeepLinkTests.swift; sourceTree = "<group>"; };
+		A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDeviceTests.swift; sourceTree = "<group>"; };
 		A90E1D05DBCB57D4A986B917 /* PodSetupCode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodSetupCode.swift; sourceTree = "<group>"; };
 		A934815D6CF5D882A1864B41 /* RingFirmwareUpdateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareUpdateTests.swift; sourceTree = "<group>"; };
 		A97FD72465CB4136DD69CED1 /* LiveStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveStore.swift; sourceTree = "<group>"; };
@@ -3041,6 +3045,7 @@
 				61D8B992D029AB27C68EA591 /* DashcamAPITests.swift */,
 				89041CFEB376E8D96A524649 /* DashcamRulesTests.swift */,
 				F9985639A9F0FC30B7E4C373 /* DashcamSyncTests.swift */,
+				A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -3120,6 +3125,7 @@
 				92478631C828B2E7AE6E0CD1 /* DashcamSync.swift */,
 				58333A19FA172C4973061BEE /* DashcamTransfers.swift */,
 				950DA76146CD3ED5582C3A8B /* DashcamWiFi.swift */,
+				7676A5D714B05EC1504F8395 /* DashcamDevice.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -3910,6 +3916,7 @@
 				D598D1A414C6B7DB1E68F381 /* DashcamAPITests.swift in Sources */,
 				4118BE782BBE548F691A9EE2 /* DashcamRulesTests.swift in Sources */,
 				1A1D4C9F1AF7D2330893D396 /* DashcamSyncTests.swift in Sources */,
+				85F52E07CDA999CB735729A8 /* DashcamDeviceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4497,6 +4504,7 @@
 				3C35E7827356A1E2582A1CA3 /* DashcamSync.swift in Sources */,
 				3D5D6CD507EC74E8C7053994 /* DashcamTransfers.swift in Sources */,
 				D065D24D2B27FBD64CCC3558 /* DashcamWiFi.swift in Sources */,
+				A9D5D9876AC55E2C3C464FD5 /* DashcamDevice.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4756,12 +4764,12 @@
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot connects to your glasses Wi-Fi to transfer photos and videos, and to Jarvis devices on your network.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot connects to your glasses and dashcam Wi-Fi to transfer photos and videos, and to Jarvis devices on your network.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot records the route of your outdoor workouts, and shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence, and checks whether you are driving before the dashcam is paused to copy footage.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
@@ -4865,12 +4873,12 @@
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "JarvisCopilot saves your workouts and what your ring and scale measure — heart rate, steps, sleep, blood oxygen, weight — to Apple Health. Choose which in Health settings.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot connects to your glasses Wi-Fi to transfer photos and videos, and to Jarvis devices on your network.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "JarvisCopilot connects to your glasses and dashcam Wi-Fi to transfer photos and videos, and to Jarvis devices on your network.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "JarvisCopilot records the route of your outdoor workouts, and shares a one-off location fix when you ask Jarvis where you are or for anything nearby.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "JarvisCopilot reads the barometer and pedometer during outdoor workouts, for your elevation, steps and cadence, and checks whether you are driving before the dashcam is paused to copy footage.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;

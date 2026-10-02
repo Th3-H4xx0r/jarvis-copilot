@@ -301,6 +301,10 @@ final class AppServices {
         WidgetModelSnapshots.refreshIfNeeded()
         Task { await ControlButtonStore.shared.runPending() }
 
+        // 10d. Dashcam: watch for its Wi‑Fi (iOS joins it on its own), sync, upload.
+        DashcamSync.shared.start()
+        DashcamDevice.shared.refreshMembership()
+
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.
@@ -323,6 +327,7 @@ final class AppServices {
             // queued while we were away.
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
             WearablesHub.shared.appDidBecomeActive()
+            Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.kickUploads() }
             WatchBridge.shared.pushLoginState()
             liveActivity.onResume()
             Task { [weak self] in
