@@ -96,7 +96,18 @@ struct DashcamPage: View {
             }
             if let u = sync.uploading {
                 RowDivider()
-                Row { progress("Uploading", u.done, u.total) }
+                Row { progress("Uploading to the cloud · \(sync.pendingUploads) waiting", u.done, u.total) }
+            }
+            if sync.pendingUploads > 0 || !sync.rules.upload {
+                RowDivider()
+                Row {
+                    HStack {
+                        Text(sync.rules.upload ? "Cloud backup on" : "Cloud backup paused").font(.callout)
+                        Spacer()
+                        Button(sync.rules.upload ? "Pause" : "Resume") { sync.setCloudBackup(!sync.rules.upload) }
+                            .buttonStyle(.jcGlass(compact: true))
+                    }
+                }
             }
             if wifi.onCamera {
                 RowDivider()

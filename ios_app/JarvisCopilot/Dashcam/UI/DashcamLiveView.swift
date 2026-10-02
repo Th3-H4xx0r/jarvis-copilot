@@ -152,7 +152,7 @@ final class DashcamLiveModel: ObservableObject {
 
     /// App backgrounded: the decoder and the socket go away anyway; reconnect on return.
     func suspend() { if isOpen { stopClient() } }
-    func resume() async { if isOpen && client == nil { await connect(reload: false) } }
+    func resume() async { if isOpen && client == nil && status != .connecting { await connect(reload: false) } }
 
     func switchLens() async {
         guard let source, source.canSwitch, !switching else { return }
@@ -173,12 +173,17 @@ final class DashcamLiveModel: ObservableObject {
         await connect(reload: false)
     }
 
+    private var connectGeneration = 0
+
+    /// One session at a time: the A4 serves a single RTSP client, and open() racing resume() started two.
     private func connect(reload: Bool) async {
+        connectGeneration += 1
+        let mine = connectGeneration
         stopClient()
         status = .connecting
         if reload || source == nil {
             let loaded = await DashcamLiveSource.load()
-            guard isOpen else { return }
+            guard isOpen, mine == connectGeneration else { return }
             source = loaded.source
             camera = loaded.camera
             lens = loaded.source.currentLens

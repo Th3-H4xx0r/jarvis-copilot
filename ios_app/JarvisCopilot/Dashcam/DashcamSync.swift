@@ -642,6 +642,14 @@ final class DashcamSync: ObservableObject {
         if !done.isEmpty { _ = await cleanUpUploaded() }
     }
 
+    /// The Pause/Resume cloud backup button: the upload rule, and the run in flight stops at once.
+    func setCloudBackup(_ on: Bool) {
+        rules.upload = on
+        let r = rules
+        Task { try? await DashcamAPI().updateRules(r) }
+        if on { kickUploads() } else { uploadLoop?.cancel(); uploadLoop = nil; uploading = nil }
+    }
+
     /// A destination was added or changed: clips parked on "no destination" go now.
     func destinationsChanged() {
         Task {

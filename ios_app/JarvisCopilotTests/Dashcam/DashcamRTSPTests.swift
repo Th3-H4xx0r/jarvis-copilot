@@ -555,7 +555,10 @@ final class DashcamRTSPTests: XCTestCase {
     func testStartCodesInsidePayloadsAreSplitOff() throws {
         XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3])),
                        [Data([0x67, 1, 2]), Data([0x68, 3])])
-        XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0x65, 0, 0, 1])), [Data([0x65, 0, 0, 1])], "a real NAL is left alone")
+        XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0x65, 0x88, 0x84])), [Data([0x65, 0x88, 0x84])], "a real NAL is left alone")
+        // The A4's keyframe: SPS, PPS and IDR in one unit under the SPS header.
+        XCTAssertEqual(DashcamRTSP.splitAnnexB(Data([0x67, 0x64, 0, 0, 0, 1, 0x68, 0xEE, 0, 0, 0, 1, 0x65, 0x88])),
+                       [Data([0x67, 0x64]), Data([0x68, 0xEE]), Data([0x65, 0x88])])
         var d = RTPDepacketizer(codec: .h264)
         let packet = RTPPacket.parse(TestPacketizer.rtp(seq: 1, ts: 9, marker: true, payload: Data([0, 0, 0, 1, 0x67, 0x64, 0, 0x33]),
                                                         payloadType: 97))

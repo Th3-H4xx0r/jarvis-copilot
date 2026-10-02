@@ -3,6 +3,13 @@ import Foundation
 
 /// Where transfer bookkeeping lives (resume data, the upload queue).
 enum DashcamPaths {
+    /// MP4 copies made for a direct upload, removed once it's done.
+    static var uploadTemp: URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("DashcamUpload", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     static var support: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("Dashcam", isDirectory: true)
@@ -139,11 +146,19 @@ struct DashcamUploadJob: Codable, Equatable, Sendable {
     var attempts: Int = 0
     var notBefore: Date?
     var lastError: String?
+    /// Direct uploads (Drive): open resumable sessions by destination id, and destinations already done.
+    var directSessions: [String: String]?
+    var directDone: [String]?
 }
 
 /// Anything that can take a chunk upload (the server, or a fake in tests).
 protocol DashcamUploadServer: Sendable {
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> DashcamAPI.UploadStart
+    /// Destinations, to send Drive ones directly. Empty = everything through the server (the old way).
+    func uploadDestinations() async throws -> [DashcamDestination]
+    func driveAccess(destinationID: String) async throws -> DashcamDriveAccess
+    func clipInfo(_ clipID: String) async throws -> DashcamServerClip
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws
     /// `sent` reports the bytes of this chunk on their way so far.
     func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool,
                    sent: @escaping @Sendable (Int64) -> Void) async throws
@@ -151,7 +166,7 @@ protocol DashcamUploadServer: Sendable {
 }
 
 /// Byte-level progress of one chunk's request body.
-private final class DashcamChunkProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class DashcamChunkProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let sent: @Sendable (Int64) -> Void
     init(_ sent: @escaping @Sendable (Int64) -> Void) { self.sent = sent }
     /// Clip uploads fill the LTE uplink for minutes; the app's own requests go first.
@@ -162,7 +177,36 @@ private final class DashcamChunkProgress: NSObject, URLSessionTaskDelegate, @unc
     }
 }
 
+extension DashcamUploadServer {
+    func uploadDestinations() async throws -> [DashcamDestination] { [] }
+    func driveAccess(destinationID: String) async throws -> DashcamDriveAccess { throw DashcamDriveError.unauthorized }
+    func clipInfo(_ clipID: String) async throws -> DashcamServerClip { throw APIError.badResponse("no clip info") }
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws {}
+}
+
+/// Destination types the phone uploads to itself.
+enum DashcamDirect {
+    static let types: Set<String> = ["drive"]
+}
+
 extension DashcamAPI: DashcamUploadServer {
+    func uploadDestinations() async throws -> [DashcamDestination] { try await destinations() }
+
+    func driveAccess(destinationID: String) async throws -> DashcamDriveAccess {
+        let o = try await api.post(Self.prefix + "/destinations/\(destinationID)/token", timeout: 90).object()
+        guard let token = o["access_token"] as? String, !token.isEmpty else { throw DashcamDriveError.unauthorized }
+        let expires = (o["expires_at"] as? NSNumber)?.doubleValue ?? Date().addingTimeInterval(600).timeIntervalSince1970
+        return DashcamDriveAccess(destinationID: destinationID, token: token, expiresAt: Date(timeIntervalSince1970: expires),
+                                  basePath: o["path"] as? String ?? "", teamDrive: o["team_drive"] as? String)
+    }
+
+    func clipInfo(_ clipID: String) async throws -> DashcamServerClip { try await clip(clipID).clip }
+
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws {
+        _ = try await api.post(Self.prefix + "/clips/\(clipID)/direct",
+                               json: ["destination_id": destinationID, "remote_path": remotePath, "file_id": fileID, "size": size])
+    }
+
     /// Chunks get their own session that fails fast when the network is gone — the shared one waits
     /// up to an hour for connectivity, which would hold the whole upload queue.
     static let chunkSession: URLSession = {
@@ -200,9 +244,12 @@ actor DashcamUploader {
     private(set) var jobs: [DashcamUploadJob] = []
     private let file: URL
     private var running = false
+    let drive: DashcamDriveClient
+    private var access: [String: DashcamDriveAccess] = [:]
     static let maxBackoff: TimeInterval = 600
 
-    init(file: URL? = nil) {
+    init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared) {
+        self.drive = drive
         self.file = file ?? DashcamPaths.support.appendingPathComponent("uploads.json")
         if let data = try? Data(contentsOf: self.file),
            let saved = try? JSONDecoder().decode([DashcamUploadJob].self, from: data) {
@@ -259,6 +306,8 @@ actor DashcamUploader {
              now: @Sendable () -> Date = { Date() },
              progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
+        // Fetched once a run; nil (server unreachable, older server) = everything through the server.
+        let destinations = try? await server.uploadDestinations()
         guard !running else { return [] }
         running = true
         defer { running = false }
@@ -275,6 +324,23 @@ actor DashcamUploader {
             }
             if path != job.localPath { job.localPath = path; update(job) }
             do {
+                // Drive destinations: straight from the phone (no tunnel, no staging). The server only
+                // hears where the clip went, and stays the route for SFTP/FTP/SMB.
+                if let dests = destinations {
+                    let applicable = dests.filter { $0.enabled && ($0.kinds.isEmpty || $0.kinds.contains(job.kind.rawValue)) }
+                    let direct = applicable.filter { DashcamDirect.types.contains($0.type) }
+                    for dest in direct where !(job.directDone ?? []).contains(dest.id) {
+                        try await uploadDirect(&job, to: dest, server: server, progress: progress)
+                        job.directDone = (job.directDone ?? []) + [dest.id]
+                        update(job)
+                    }
+                    if !direct.isEmpty && applicable.allSatisfy({ DashcamDirect.types.contains($0.type) }) {
+                        done.append(clipID)
+                        jobs.removeAll { $0.clipID == clipID }
+                        persist()
+                        continue
+                    }
+                }
                 if job.sha256 == nil {
                     job.sha256 = try Self.sha256(of: URL(fileURLWithPath: path))
                     update(job)   // a relaunch must not hash a 1 GB clip again
@@ -323,6 +389,68 @@ actor DashcamUploader {
             }
         }
         return done
+    }
+
+    /// One clip to one Drive destination: converted to MP4 (plays anywhere; the original if that fails),
+    /// filed where the server's relay would put it, resumable across drops and launches, and idempotent
+    /// (a finished copy of the same size is found, not uploaded twice).
+    private func uploadDirect(_ job: inout DashcamUploadJob, to dest: DashcamDestination, server: DashcamUploadServer,
+                              progress: @escaping @Sendable (String, Int64, Int64) -> Void) async throws {
+        let clip = try await server.clipInfo(job.clipID)
+        let local = URL(fileURLWithPath: job.localPath)
+        var upload = local
+        var converted = false
+        let temp = DashcamPaths.uploadTemp.appendingPathComponent(job.clipID + ".mp4")
+        if DashcamPlayable.needsRemux(local) {
+            if !FileManager.default.fileExists(atPath: temp.path) { _ = try? await DashcamRemux.remux(ts: local, to: temp) }
+            if FileManager.default.fileExists(atPath: temp.path) { upload = temp; converted = true }
+        }
+        let size = (try? FileManager.default.attributesOfItem(atPath: upload.path)[.size] as? NSNumber)?.int64Value ?? job.size
+        let name = DashcamRemotePath.name(clip.name, converted: converted)
+        let mime = converted || name.lowercased().hasSuffix(".mp4") ? "video/mp4"
+            : name.lowercased().hasSuffix(".jpg") ? "image/jpeg" : "application/octet-stream"
+        let clipID = job.clipID, destID = dest.id
+        var key = try await accessFor(destID, server: server, renew: false)
+        let folders = DashcamRemotePath.folders(base: key.basePath, cameraID: clip.cameraID, start: clip.start,
+                                                kind: clip.kind, lens: clip.lens)
+        func attempt(_ key: DashcamDriveAccess, session: URL?) async throws -> String {
+            let folder = try await drive.folder(folders, access: key)
+            if let id = try await drive.existing(name: name, size: size, in: folder, access: key) { return id }
+            return try await drive.upload(upload, name: name, mime: mime, folder: folder, access: key, session: session,
+                                          saveSession: { url in Task { await self.saveSession(clipID, destID, url) } },
+                                          sent: { progress(clipID, min($0, size), size) })
+        }
+        let session = job.directSessions?[destID].flatMap(URL.init(string:))
+        let fileID: String
+        do {
+            fileID = try await attempt(key, session: session)
+        } catch DashcamDriveError.unauthorized {
+            key = try await accessFor(destID, server: server, renew: true)
+            fileID = try await attempt(key, session: session)
+        } catch DashcamDriveError.sessionGone {
+            saveSession(clipID, destID, nil)
+            fileID = try await attempt(key, session: nil)
+        }
+        try await server.recordDirect(clipID: clipID, destinationID: destID,
+                                      remotePath: (folders + [name]).joined(separator: "/"), fileID: fileID, size: size)
+        if let i = jobs.firstIndex(where: { $0.clipID == clipID }) { job.directSessions = jobs[i].directSessions }
+        job.directSessions?[destID] = nil
+        try? FileManager.default.removeItem(at: temp)
+    }
+
+    private func accessFor(_ destID: String, server: DashcamUploadServer, renew: Bool) async throws -> DashcamDriveAccess {
+        if !renew, let cached = access[destID], cached.fresh { return cached }
+        let fresh = try await server.driveAccess(destinationID: destID)
+        access[destID] = fresh
+        return fresh
+    }
+
+    private func saveSession(_ clipID: String, _ destID: String, _ url: URL?) {
+        guard let i = jobs.firstIndex(where: { $0.clipID == clipID }) else { return }
+        var sessions = jobs[i].directSessions ?? [:]
+        sessions[destID] = url?.absoluteString
+        jobs[i].directSessions = sessions
+        persist()
     }
 
     private func sendMissing(job: DashcamUploadJob, ticket: DashcamUploadTicket, server: DashcamUploadServer,

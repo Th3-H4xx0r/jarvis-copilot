@@ -112,31 +112,29 @@ enum DashcamRTSP {
     }
 
     /// Base64 as cameras write it: sometimes without the `=` padding.
-    /// A NAL unit that arrived with Annex-B start codes in front (00 00 01 / 00 00 00 01) — the A4 sends
-    /// them inside RTP payloads and sprop values, which RFC 6184 doesn't allow — split into bare NAL units.
-    /// A real NAL never starts with 0x00 (its header's type would be 0), so anything else passes through.
+    /// NAL units out of bytes that may carry Annex-B start codes (00 00 01 / 00 00 00 01) — in front, or
+    /// inside. The A4 sends them in RTP payloads and sprop values, and fragments each keyframe as one unit
+    /// holding "SPS 00 00 00 01 PPS 00 00 00 01 IDR" under the SPS's header — none of which RFC 6184 allows.
+    /// Emulation prevention means a real NAL unit never contains 00 00 01, so any found is a boundary.
     static func splitAnnexB(_ nal: Data) -> [Data] {
         let b = [UInt8](nal)
-        guard b.count >= 4, b[0] == 0, b[1] == 0, b[2] == 1 || (b[2] == 0 && b[3] == 1) else { return [nal] }
-        var out: [Data] = []
-        var i = 0, start = -1
+        var cuts: [Int] = []                       // index just past each start code
+        var i = 0
         while i + 2 < b.count {
-            if b[i] == 0, b[i + 1] == 0, b[i + 2] == 1 {
-                if start >= 0 {
-                    var e = i
-                    while e > start, b[e - 1] == 0 { e -= 1 }          // the 4th start-code byte / trailing zeros
-                    if e > start { out.append(Data(b[start..<e])) }
-                }
-                i += 3
-                start = i
-            } else {
-                i += 1
-            }
+            if b[i] == 0, b[i + 1] == 0, b[i + 2] == 1 { cuts.append(i + 3); i += 3 } else { i += 1 }
         }
-        if start >= 0, start < b.count {
-            var e = b.count
-            while e > start, b[e - 1] == 0 { e -= 1 }
-            if e > start { out.append(Data(b[start..<e])) }
+        guard !cuts.isEmpty else { return [nal] }
+        var out: [Data] = []
+        func take(_ from: Int, _ to: Int) {
+            var e = to
+            while e > from, b[e - 1] == 0 { e -= 1 }   // the 4th start-code byte / trailing zeros
+            if e > from { out.append(Data(b[from..<e])) }
+        }
+        // Bytes before the first start code are a unit of their own (the SPS header case), unless they
+        // are just the leading zeros of that start code.
+        take(0, cuts[0] - 3)
+        for (n, start) in cuts.enumerated() {
+            take(start, n + 1 < cuts.count ? cuts[n + 1] - 3 : b.count)
         }
         return out
     }
