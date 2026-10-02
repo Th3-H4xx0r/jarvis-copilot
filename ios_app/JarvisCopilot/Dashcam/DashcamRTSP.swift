@@ -598,7 +598,7 @@ struct RTSPFrameBuilder {
 
     mutating func waitForKeyframe() { waitingForKeyframe = true }
 
-    static let traceUnits = DashcamLiveTrace.Sampler(first: 40, every: 250)
+    static let traceUnits = DashcamLiveTrace.Sampler(first: 80, every: 100)
 
     mutating func build(_ unit: RTSPAccessUnit) -> CMSampleBuffer? {
         for nal in unit.nals where DashcamRTSP.isParameterSet(nal, codec: codec) {
@@ -1367,6 +1367,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
         while !finished, conn === connection, let message = parser.next() {
             switch message {
             case .interleaved(let channel, let payload):
+                DashcamLiveTrace.capture(channel: channel, payload)
                 if let n = Self.tracePackets.next() {
                     DashcamLiveTrace.log("tcp rtp #\(n) ch=\(channel) \(payload.count) B head=" + payload.prefix(16).map { String(format: "%02x", $0) }.joined())
                 }
@@ -1393,7 +1394,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
         for frame in pipeline?.push(packet) ?? [] { deliver(frame) }
     }
 
-    static let tracePackets = DashcamLiveTrace.Sampler(first: 5, every: 1000)
+    static let tracePackets = DashcamLiveTrace.Sampler(first: 30, every: 1000)
 
     private func receivedUDP(_ data: Data) {
         if let n = Self.tracePackets.next() {
