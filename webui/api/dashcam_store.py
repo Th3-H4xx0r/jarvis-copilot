@@ -63,6 +63,7 @@ LENSES = ("front", "rear", "inside")
 PHONE_STATES = ("none", "queued", "downloading", "local", "deleted", "failed")
 DEST_STATES = ("pending", "uploading", "done", "failed")
 DEST_TYPES = ("drive", "sftp", "ftp", "smb")
+DIRECT_TYPES = ("drive",)              # the phone uploads to these itself; the server only records it
 STATE_FILTERS = ("on_camera_only", "on_phone", "uploading", "uploaded", "failed", "pending_upload")
 
 CHUNK_SIZE = 16 * 1024 * 1024          # under the edge nginx's 64 MiB body cap
@@ -663,6 +664,39 @@ class DashcamStore:
             self._save_clip(clip)
         return clip
 
+    def record_direct(self, clip_id: str, dest_id: str, remote_path: str, file_id: str | None,
+                      size: int) -> tuple[dict | None, str | None]:
+        """The phone uploaded the clip to a destination itself (Drive): record where, without any bytes
+        coming here. Once every destination that applies has it, the clip counts as uploaded.
+        Errors: clip_not_found, destination_not_found, not_direct, bad_request."""
+        if not isinstance(remote_path, str) or not remote_path.strip() or len(remote_path) > 1024:
+            return None, "bad_request"
+        if file_id is not None and (not isinstance(file_id, str) or len(file_id) > 256):
+            return None, "bad_request"
+        if not (isinstance(size, int) and not isinstance(size, bool) and size >= 0):
+            return None, "bad_request"
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            if clip is None:
+                return None, "clip_not_found"
+            dests = self._dest_doc()
+            dest = dests.get(dest_id)
+            if dest is None:
+                return None, "destination_not_found"
+            if dest.get("type") not in DIRECT_TYPES:
+                return None, "not_direct"
+            entries = clip.setdefault("destinations", {})
+            entries[dest_id] = {"state": "done", "error": None, "attempts": 0, "remote_path": remote_path,
+                                "next_at": None, "updated_at": now_iso(), "direct": True,
+                                "file_id": file_id, "size": size}
+            applicable = [d for d in dests.values() if _applicable(d, clip)]
+            upload = clip.get("upload") or _empty_upload()
+            if upload.get("state") in (None, "none") and applicable and all(
+                    (entries.get(d["id"]) or {}).get("state") == "done" for d in applicable):
+                clip["upload"] = {**_empty_upload(), "state": "done", "bytes": size, "direct": True}
+            self._save_clip(clip)
+        return clip, None
+
     def queue_destinations(self, clip_id: str) -> list[str]:
         """Adds a ``pending`` entry for every enabled destination that applies to a staged clip and
         has none yet (a destination added after the upload finished). Returns the ids added."""
@@ -770,8 +804,13 @@ class DashcamStore:
             same = up.get("sha256") == sha256
             if up.get("state") == "done" and same:
                 return None, "already_uploaded"
-            if not any(_applicable(d, clip) for d in self._dest_doc().values()):
+            applicable = [d for d in self._dest_doc().values() if _applicable(d, clip)]
+            if not applicable:
                 return None, "no_destination"  # staged bytes nobody takes would sit in staging forever
+            done_direct = {k for k, e in (clip.get("destinations") or {}).items()
+                           if isinstance(e, dict) and e.get("direct") and e.get("state") == "done"}
+            if all(d["id"] in done_direct for d in applicable):
+                return None, "already_uploaded"  # the phone put it on every destination itself
             if up.get("upload_id"):
                 existing = self.get_upload(up["upload_id"])
                 # Resume with the chunk size it was opened with once any chunk is in; one that never got a
@@ -903,10 +942,13 @@ class DashcamStore:
                 self._save_upload(up)
                 clip["upload"] = {"state": "staged", "upload_id": upload_id, "bytes": up["size"],
                                   "sha256": up["sha256"]}
-                entries = {}
+                # A destination the phone already uploaded to itself keeps its entry: the relay mustn't
+                # copy it there a second time.
+                entries = {k: e for k, e in (clip.get("destinations") or {}).items()
+                           if isinstance(e, dict) and e.get("direct") and e.get("state") == "done"}
                 now = now_iso()
                 for dest in self._dest_doc().values():
-                    if _applicable(dest, clip):
+                    if _applicable(dest, clip) and dest["id"] not in entries:
                         entries[dest["id"]] = {"state": "pending", "error": None, "attempts": 0,
                                                "remote_path": None, "next_at": None, "updated_at": now}
                 clip["destinations"] = entries

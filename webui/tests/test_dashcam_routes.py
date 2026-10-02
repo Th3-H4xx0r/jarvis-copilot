@@ -55,6 +55,12 @@ class StubRelay:
             raise self.test_result
         return self.test_result
 
+    def drive_access(self, remote):
+        self.calls.append(("token", remote))
+        if self.fail:
+            raise self.fail
+        return {"access_token": "ya29.test", "expires_at": 2_000_000_000.0, "team_drive": None}
+
     def open_stream(self, remote, remote_path, range_header):
         self.calls.append(("stream", remote, remote_path, range_header))
         status, headers, blocks = self.stream
@@ -621,3 +627,36 @@ def test_paths_may_carry_the_query_and_a_trailing_slash(H):
     inventory(H, "a.MP4")
     status, payload = H("GET", "/clips/?limit=1")
     assert status == 200 and len(payload["clips"]) == 1
+
+
+# ── direct uploads (the phone uploads to Drive itself) ──────────────────────
+
+def test_a_drive_destination_hands_the_phone_an_access_token(H, relay):
+    status, payload = H("POST", "/destinations", {"type": "drive", "name": "Drive", "path": "Dashcam Camry",
+                                                  "token": {"access_token": "x", "refresh_token": "y"}})
+    assert status == 200, payload
+    did = payload["destination"]["id"]
+    status, tok = H("POST", f"/destinations/{did}/token", {})
+    assert status == 200 and tok["access_token"] == "ya29.test" and tok["path"] == "Dashcam Camry"
+    assert ("token", "jc_" + did) in relay.calls
+    sftp = add_dest(H)
+    status, _ = H("POST", f"/destinations/{sftp['id']}/token", {})
+    assert status == 400, "only destinations the phone can reach itself"
+
+
+def test_a_direct_upload_counts_as_uploaded_without_any_bytes(H, store):
+    status, payload = H("POST", "/destinations", {"type": "drive", "name": "Drive", "path": "dc",
+                                                  "token": {"access_token": "x", "refresh_token": "y"}})
+    did = payload["destination"]["id"]
+    (cid,) = inventory(H, "a.ts", size=20)
+    status, out = H("POST", f"/clips/{cid}/direct", {"destination_id": did, "remote_path": "dc/CAM/2026-10-02/normal/front/a.mp4",
+                                                     "file_id": "1AbC", "size": 18})
+    assert status == 200, out
+    clip = store.get_clip(cid)
+    assert clip["upload"]["state"] == "done" and clip["destinations"][did]["file_id"] == "1AbC"
+    status, row = H("GET", f"/clips/{cid}")
+    assert status == 200 and row["clip"]["uploaded"] is True
+    status, again = H("POST", "/uploads", {"clip_id": cid, "size": 20, "sha256": hashlib.sha256(bytes(20)).hexdigest()})
+    assert status == 200 and again.get("already_uploaded"), "nothing left for the server to stage"
+    status, bad = H("POST", f"/clips/{cid}/direct", {"destination_id": did, "remote_path": "", "size": 18})
+    assert status == 400

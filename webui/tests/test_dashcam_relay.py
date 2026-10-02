@@ -877,3 +877,29 @@ def test_drive_token_still_rejects_junk():
         except ValueError:
             continue
         raise AssertionError(f"accepted {bad!r}")
+
+
+def test_drive_access_renews_a_lapsed_token_through_rclone(monkeypatch):
+    import json as _json
+    from api import dashcam_relay as relay_mod
+    calls = []
+    tokens = [{"access_token": "old", "expiry": "2020-01-01T00:00:00.123456789Z"},
+              {"access_token": "new", "expiry": "2099-01-01T00:00:00.5Z"}]
+
+    class R(relay_mod.Relay):
+        def __init__(self):
+            pass
+
+        def rc(self, method, params=None, *, timeout=None):
+            calls.append(method)
+            if method == "config/get":
+                return {"type": "drive", "token": _json.dumps(tokens[0])}
+            if method == "operations/about":
+                tokens.pop(0)
+                return {}
+            raise AssertionError(method)
+
+    out = R().drive_access("jc_d_1")
+    assert out["access_token"] == "new" and out["expires_at"] > 4_000_000_000
+    assert calls == ["config/get", "operations/about", "config/get"]
+    assert relay_mod._rfc3339("2026-10-02T20:40:18.288940198Z") == pytest.approx(1790973618.28894, abs=1e-3)

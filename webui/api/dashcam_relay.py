@@ -137,6 +137,19 @@ def remote_path_for(dest: dict, clip: dict) -> str:
     return prefix + rel
 
 
+def _rfc3339(value) -> float | None:
+    """rclone's token expiry (Go RFC 3339, nanoseconds) -> epoch seconds."""
+    if not isinstance(value, str) or not value:
+        return None
+    import re as _re
+    text = _re.sub(r"(\.\d{6})\d+", r"\1", value.strip()).replace("Z", "+00:00")
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
 def _split(remote_path: str) -> tuple[str, str]:
     """(folder, file name); the folder goes into the rclone Fs so relative and absolute paths
     both mean what they say on every backend."""
@@ -411,6 +424,33 @@ class Relay:
             return self._post(method, params, timeout)
         except _Down as exc:
             raise RelayError(f"rclone is not answering: {exc}") from None
+
+    # ── direct uploads ───────────────────────────────────────────────────────
+    def drive_access(self, remote: str) -> dict:
+        """The remote's current Drive access token, for the phone's own uploads (`DIRECT_TYPES`).
+        rclone refreshes an expired token on its next use of the remote, so a token close to expiry
+        is renewed by a cheap call (`operations/about`) first. Never logged."""
+        def read() -> tuple[dict, float | None, dict]:
+            conf = self.rc("config/get", {"name": remote})
+            try:
+                tok = json.loads(conf.get("token") or "{}")
+            except ValueError:
+                tok = {}
+            return tok, _rfc3339(tok.get("expiry")), conf
+
+        tok, expiry, conf = read()
+        for _ in range(2):
+            left = (expiry or 0) - time.time()
+            if tok.get("access_token") and left > 120:
+                break
+            if 0 < left <= 120:
+                time.sleep(min(left - 5, 60) if left > 15 else 0)   # rclone renews only once it has lapsed
+            self.rc("operations/about", {"fs": remote + ":"}, timeout=60)
+            tok, expiry, conf = read()
+        if not tok.get("access_token"):
+            raise RelayError("Drive gave no access token - test the destination")
+        return {"access_token": tok["access_token"], "expires_at": expiry,
+                "team_drive": conf.get("team_drive") or None}
 
     # ── remotes ──────────────────────────────────────────────────────────────
     def create_remote(self, dest_id: str, dtype: str, fields: dict) -> str:

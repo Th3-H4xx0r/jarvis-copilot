@@ -88,7 +88,8 @@ _RE_UPLOAD_CHUNK = re.compile(rf"^/uploads/{_UPLOAD}/chunk$")
 _RE_DRIVE = re.compile(rf"^/drives/{_DRIVE}$")
 _RE_DRIVE_GPX = re.compile(rf"^/drives/{_DRIVE}\.gpx$")
 _RE_DEST = re.compile(rf"^/destinations/{_DEST}$")
-_RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete)$")
+_RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete|token)$")
+_RE_CLIP_DIRECT = re.compile(rf"^/clips/{_CLIP}/direct$")
 
 _UNKNOWN = (404, {"ok": False, "error": "unknown dashcam endpoint"})
 
@@ -228,7 +229,12 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
             did, action = m.groups()
             if action == "test":
                 return _test_destination(store, did, relay)
+            if action == "token":
+                return _destination_token(store, did, relay)
             return _delete_destination(store, did, relay)
+        m = _RE_CLIP_DIRECT.match(p)
+        if m:
+            return _record_direct(store, m.group(1), body)
         return _UNKNOWN
 
     if method == "DELETE":
@@ -490,6 +496,38 @@ def _test_destination(store, did, relay):
     from api.dashcam_store import now_iso
     store.update_destination(did, {"status": "ok" if ok else "error", "error": error, "tested_at": now_iso()})
     return 200, ({"ok": True} if ok else {"ok": False, "error": error})
+
+
+def _destination_token(store, did, relay):
+    """A short-lived Drive access token, so the phone uploads clips to Drive itself (no Cloudflare
+    tunnel and no staging in between). Only for destinations the phone can reach directly."""
+    from api.dashcam_store import DIRECT_TYPES
+    dest = store.get_destination(did)
+    if dest is None:
+        return _err(404, "destination not found")
+    if dest.get("type") not in DIRECT_TYPES or not dest.get("remote"):
+        return _err(400, "not_direct")
+    try:
+        access = _relay(relay).drive_access(dest["remote"])
+    except RelayUnavailable as exc:
+        return _err(503, str(exc))
+    except RelayError as exc:
+        return _err(502, str(exc))
+    return 200, {"ok": True, "type": dest["type"], "access_token": access["access_token"],
+                 "expires_at": access["expires_at"], "team_drive": access["team_drive"],
+                 "path": dest.get("path") or ""}
+
+
+def _record_direct(store, cid, body):
+    did = body.get("destination_id")
+    if not isinstance(did, str):
+        return _err(400, "destination_id is required")
+    clip, err = store.record_direct(cid, did, body.get("remote_path"), body.get("file_id"), body.get("size"))
+    if err in ("clip_not_found", "destination_not_found"):
+        return _err(404, err.replace("_", " "))
+    if err:
+        return _err(400, err)
+    return 200, {"ok": True, "clip": clip}
 
 
 def _delete_destination(store, did, relay):

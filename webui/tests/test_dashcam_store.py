@@ -960,3 +960,23 @@ def test_ids_with_path_tricks_never_leave_the_store(store, tmp_path):
     assert store.get_clip("../../etc/passwd") is None
     assert store.get_upload("../x") is None
     assert tmp_path in store.staging_path("../../x").parents
+
+
+def test_staging_for_other_destinations_keeps_a_direct_drive_copy(store):
+    drive = add_dest(store, name="Drive")
+    nas = add_dest(store, name="NAS", dtype="sftp")
+    data = b"0123456789"
+    store.apply_inventory(CAM, [item("a.MP4", size=len(data))])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    clip, err = store.record_direct(cid, drive["id"], "dashcam/CAM/a.MP4", "fid", len(data))
+    assert err is None and clip["upload"]["state"] == "none", "the NAS still needs it"
+    up, err = store.create_upload(cid, len(data), hashlib.sha256(data).hexdigest(), 4)
+    assert err is None
+    for n in range(up["chunks"]):
+        store.write_chunk(up["id"], n, data[n * 4:(n + 1) * 4])
+    clip, err = store.complete_upload(up["id"])
+    assert err is None
+    assert clip["destinations"][drive["id"]]["state"] == "done", "not copied to Drive a second time"
+    assert clip["destinations"][nas["id"]]["state"] == "pending"
+    _, err = store.record_direct(cid, nas["id"], "x", None, 1)
+    assert err == "not_direct"
