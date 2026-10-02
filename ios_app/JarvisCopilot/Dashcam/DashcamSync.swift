@@ -465,7 +465,11 @@ final class DashcamSync: ObservableObject {
         for f in files where stable(f) && rows[f.path] != nil && rows[f.path]?.hasThumb != true && noThumb[f.path] != f.size {
             guard tries < 60, await mayContinue() else { break }
             tries += 1
-            guard let data = await cam.thumbnail(f) else { noThumb[f.path] = f.size; continue }
+            // A clip already on the phone gives its preview without touching the camera.
+            var preview = storage.exists(camera: cameraID, file: f)
+                ? DashcamRemux.embeddedJPEG(file: storage.localURL(camera: cameraID, file: f)) : nil
+            if preview == nil { preview = await cam.thumbnail(f) }
+            guard let data = preview else { noThumb[f.path] = f.size; continue }
             if (try? await server.putThumb(clipID: clipID(f), jpeg: data)) != nil { report.thumbs += 1 }
         }
 

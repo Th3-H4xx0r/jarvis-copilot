@@ -32,13 +32,17 @@ protocol DashcamCamera: Sendable {
 extension DashcamCamera {
     func fileURL(_ file: DashcamFile) -> URL { http.url(file.path) }
 
-    /// The camera's JPEG preview of a file, or nil when it has none.
+    /// The camera's JPEG preview of a file, or nil when it has none. The A4 answers `getthumbnail` for few
+    /// of its clips, but every `.ts` carries its own preview near the start: one range read gets it.
     func thumbnail(_ file: DashcamFile) async -> Data? {
-        guard let url = thumbnailURL(file),
-              let (data, resp) = try? await http.session.data(for: URLRequest(url: url, timeoutInterval: 6)),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              data.count > 100, data.prefix(2) == Data([0xFF, 0xD8]) else { return nil }
-        return data
+        if let url = thumbnailURL(file),
+           let (data, resp) = try? await http.session.data(for: URLRequest(url: url, timeoutInterval: 6)),
+           (resp as? HTTPURLResponse)?.statusCode == 200,
+           data.count > 100, data.prefix(2) == Data([0xFF, 0xD8]) { return data }
+        guard file.isVideo, file.path.lowercased().hasSuffix(".ts") else { return nil }
+        let length = Int(min(Int64(DashcamRemux.previewWindow), max(file.size, 0)))
+        guard length > 0, let head = try? await http.range(file.path, start: 0, length: length) else { return nil }
+        return DashcamRemux.embeddedJPEG(in: head)
     }
 }
 
@@ -83,6 +87,13 @@ enum DashcamDetect {
             }
             return best?.1
         }
+    }
+
+    /// Whether this family's camera answers at `host` (its usual address when nil) — one short request.
+    static func answers(family: DashcamFamily, host: String? = nil, timeout: TimeInterval = 1.5,
+                        session: URLSession = DashcamHTTP.foreground) async -> Bool {
+        guard let c = candidates.first(where: { $0.family == family }) else { return false }
+        return await probe(c, host: host, timeout: timeout, session: session) != nil
     }
 
     private static func probe(_ c: Candidate, host: String?, timeout: TimeInterval,

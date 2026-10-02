@@ -70,6 +70,57 @@ enum DashcamRemux {
         return DashcamGPS.parseBlock(block, marker: marker)
     }
 
+    /// How much of a clip's start holds its preview: the A4 writes a 640×360 JPEG (~13 KB, its own
+    /// private stream) about 0.7 MB into every `.ts`.
+    static let previewWindow = 1_572_864
+
+    /// The JPEG preview a camera embeds in its transport stream, from the first `previewWindow` bytes.
+    static func embeddedJPEG(in data: Data) -> Data? {
+        let b = [UInt8](data)
+        guard b.count >= packet * 2 else { return nil }
+        var start = -1
+        for i in 0..<min(packet, b.count - packet) where b[i] == 0x47 && b[i + packet] == 0x47 { start = i; break }
+        guard start >= 0 else { return nil }
+        var units: [Int: [UInt8]] = [:]          // PID → PES payload so far, only for units that start as a JPEG
+        var off = start
+        while off + packet <= b.count {
+            defer { off += packet }
+            guard b[off] == 0x47 else { continue }
+            let pusi = b[off + 1] & 0x40 != 0
+            let pid = Int(b[off + 1] & 0x1F) << 8 | Int(b[off + 2])
+            let afc = (b[off + 3] >> 4) & 0x3
+            guard afc == 1 || afc == 3 else { continue }
+            var p = off + 4
+            if afc == 3 { p += 1 + Int(b[off + 4]) }
+            guard p < off + packet else { continue }
+            if pusi {
+                if let done = units.removeValue(forKey: pid), let jpeg = wholeJPEG(done) { return jpeg }
+                let payload = Array(b[p..<(off + packet)])
+                guard payload.count > 9, payload[0] == 0, payload[1] == 0, payload[2] == 1 else { continue }
+                let body = Array(payload[min(payload.count, 9 + Int(payload[8]))...])
+                if body.count >= 2, body[0] == 0xFF, body[1] == 0xD8 { units[pid] = body }
+            } else if units[pid] != nil {
+                units[pid]! += b[p..<(off + packet)]
+                if let jpeg = wholeJPEG(units[pid]!) { return jpeg }
+            }
+        }
+        return nil
+    }
+
+    private static func wholeJPEG(_ unit: [UInt8]) -> Data? {
+        guard unit.count > 200, let end = unit.lastIndex(of: 0xD9), end > 0, unit[end - 1] == 0xFF else { return nil }
+        return Data(unit[...end])
+    }
+
+    /// A local clip's preview.
+    static func embeddedJPEG(file url: URL) -> Data? {
+        guard needsTSPreview(url), let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        return (try? h.read(upToCount: previewWindow)).flatMap { embeddedJPEG(in: $0) }
+    }
+
+    static func needsTSPreview(_ url: URL) -> Bool { url.pathExtension.lowercased() == "ts" }
+
     // MARK: Transport stream parsing
 
     /// One elementary-stream unit (a PES packet's payload) with its timestamps (90 kHz).

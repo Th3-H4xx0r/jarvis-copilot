@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 import XCTest
 @testable import JarvisCopilot
 
@@ -136,5 +137,39 @@ final class DashcamRemuxTests: XCTestCase {
         let left = try FileManager.default.contentsOfDirectory(atPath: cache.path).filter { $0.hasSuffix(".mp4") }
         XCTAssertEqual(left.count, DashcamPlayable.keep)
         XCTAssertTrue(left.contains(first.url.lastPathComponent))
+    }
+    /// A JPEG as the A4 stores its preview: one PES on its own PID, split over 188-byte packets.
+    static func previewPackets(_ jpeg: Data, pid: Int = 0xB3D) -> Data {
+        var pes: [UInt8] = [0, 0, 1, 0xBD, 0, 0, 0x80, 0x80, 0x05, 0x21, 0, 0x01, 0, 0x01] + Array(jpeg)
+        var out = Data()
+        var first = true
+        while !pes.isEmpty {
+            var pkt: [UInt8] = [0x47, UInt8((first ? 0x40 : 0) | (pid >> 8)), UInt8(pid & 0xFF), 0x10]
+            let take = min(184, pes.count)
+            pkt += pes.prefix(take)
+            pes.removeFirst(take)
+            pkt += [UInt8](repeating: 0xFF, count: 188 - pkt.count)
+            out.append(contentsOf: pkt)
+            first = false
+        }
+        return out
+    }
+
+    func testTheClipsOwnPreviewIsFoundNearItsStart() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 36)).image { ctx in
+            UIColor.systemTeal.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 36))
+        }
+        let jpeg = try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
+        var ts = DashcamTSFixtures.h264.prefix(188 * 40)            // video first, as on the camera
+        ts.append(Self.previewPackets(jpeg))
+        ts.append(DashcamTSFixtures.h264.suffix(from: 188 * 40))
+        let found = try XCTUnwrap(DashcamRemux.embeddedJPEG(in: Data(ts)))
+        XCTAssertEqual(found, jpeg)
+        XCTAssertNotNil(UIImage(data: found))
+        // From a range read that starts mid-packet, and from a local file.
+        XCTAssertEqual(DashcamRemux.embeddedJPEG(in: Data(ts).subdata(in: 77..<ts.count)), jpeg)
+        XCTAssertEqual(DashcamRemux.embeddedJPEG(file: try clip(Data(ts), "preview.ts")), jpeg)
+        // A clip without one.
+        XCTAssertNil(DashcamRemux.embeddedJPEG(in: DashcamTSFixtures.h264))
     }
 }
