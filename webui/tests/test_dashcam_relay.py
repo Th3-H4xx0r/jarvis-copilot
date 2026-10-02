@@ -24,6 +24,7 @@ from urllib.parse import unquote
 
 import pytest
 
+from api import dashcam_remux
 from api import dashcam_relay as dr
 from api.dashcam_relay import Relay, RelayError, RelayUnavailable, RelayWorker, remote_path_for
 from api.dashcam_store import DashcamStore
@@ -367,6 +368,15 @@ def test_front_and_rear_clips_with_the_same_name_never_collide():
     assert remote_path_for({"path": "dashcam"}, dict(clip(None))) == front   # no lens means front
 
 
+def test_remote_path_for_uses_the_staged_mp4_name():
+    clip = {"camera_id": CAM, "start": "2026-10-02T13:19:31Z", "kind": "normal", "lens": "front",
+            "name": "2026-10-02_13_19_31_f.ts"}
+    # Staged before uploads were remuxed (nothing recorded): the camera's name, as before.
+    assert remote_path_for({"path": "dashcam"}, clip).endswith("/front/2026-10-02_13_19_31_f.ts")
+    clip["staged_name"] = "2026-10-02_13_19_31_f.mp4"
+    assert remote_path_for({"path": "dashcam"}, clip) == "dashcam/A4-1234/2026-10-02/normal/front/2026-10-02_13_19_31_f.mp4"
+
+
 def test_remote_path_for_sanitises_and_handles_no_start():
     clip = {"camera_id": "../evil/cam", "start": None, "kind": "event", "name": "../x.MP4"}
     p = remote_path_for({"path": "d"}, clip)
@@ -430,6 +440,81 @@ def test_worker_copies_a_staged_clip_and_releases_staging(fake, relay, store):
     assert clip["upload"]["state"] == "done"
     assert not store.staging_path(up["id"]).exists() and store.staged_clip_ids() == []
     assert fake.files["jc_d_nas:dashcam/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"] == data
+
+
+MP4 = b"\x00\x00\x00\x18ftypisom" + b"remuxed" * 8
+
+
+@pytest.fixture()
+def remux_ok(monkeypatch):
+    """dashcam_remux.remux that writes MP4 for every clip, recording what it was given."""
+    calls = []
+
+    def remux(src, dst):
+        calls.append(Path(src))
+        Path(dst).write_bytes(MP4)
+        return None
+
+    monkeypatch.setattr(dashcam_remux, "remux", remux)
+    return calls
+
+
+def test_worker_copies_a_remuxed_ts_under_an_mp4_name_and_releases_it(fake, relay, store, remux_ok):
+    d = dest(store, "Drive", "jc_d_drive")
+    cid, up = staged_clip(store, b"\x47" * 300, name="2026-10-02_13_19_31_f.ts")
+    assert store.staged_file(up["id"]) == store.remuxed_path(up["id"])
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    w.tick()
+    clip = store.get_clip(cid)
+    remote = "dashcam/A4-1234/2026-10-01/normal/front/2026-10-02_13_19_31_f.mp4"
+    assert clip["destinations"][d["id"]] | {"updated_at": None} == {
+        "state": "done", "error": None, "attempts": 0, "remote_path": remote, "next_at": None, "updated_at": None}
+    assert fake.files[f"jc_d_drive:{remote}"] == MP4
+    copy = [b for p, b in fake.requests if p == "operations/copyfile"][0]
+    assert copy["srcRemote"] == str(store.remuxed_path(up["id"])).lstrip("/") and copy["dstRemote"].endswith(".mp4")
+    assert clip["upload"]["state"] == "done" and not store.remuxed_path(up["id"]).exists()
+    assert store.staging_bytes() == 0 and len(remux_ok) == 1
+
+
+def test_worker_remuxes_a_clip_staged_before_remuxing_and_keeps_copies_already_made(fake, relay, store, monkeypatch):
+    first = dest(store, "Drive", "jc_d_first")
+    data = b"\x47" * 300
+    monkeypatch.setattr(dashcam_remux, "remux", lambda src, dst: dashcam_remux.NOT_INSTALLED)
+    cid, up = staged_clip(store, data, name="2026-10-02_13_19_31_f.ts")
+    # What an upload staged by the previous release looks like: the .ts, nothing recorded, one
+    # destination already holding its .ts copy and a second one added since.
+    doc = store.get_upload(up["id"])
+    del doc["remuxed"], doc["staged_size"]
+    store._save_upload(doc)
+    clip = store.get_clip(cid)
+    del clip["container"], clip["staged_name"]
+    store._save_clip(clip)
+    old_remote = "dashcam/A4-1234/2026-10-01/normal/front/2026-10-02_13_19_31_f.ts"
+    store.set_destination_state(cid, first["id"], "done", remote_path=old_remote, upload_id=up["id"])
+    second = dest(store, "NAS", "jc_d_second")
+    calls = []
+
+    def remux(src, dst):
+        calls.append(Path(src))
+        Path(dst).write_bytes(MP4)
+        return None
+
+    monkeypatch.setattr(dashcam_remux, "remux", remux)
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    assert calls == [store.staging_path(up["id"])]          # remuxed before any copy started
+    w.tick()
+    clip = store.get_clip(cid)
+    assert clip["container"] == "mp4" and clip["staged_name"] == "2026-10-02_13_19_31_f.mp4"
+    assert clip["destinations"][first["id"]]["remote_path"] == old_remote          # left as it was
+    new_remote = clip["destinations"][second["id"]]["remote_path"]
+    assert clip["destinations"][second["id"]]["state"] == "done" and new_remote.endswith("_f.mp4")
+    assert fake.files[f"jc_d_second:{new_remote}"] == MP4
+    assert [p for p, _ in fake.requests if p == "operations/copyfile"] == ["operations/copyfile"]
+    assert clip["upload"]["state"] == "done" and store.staging_bytes() == 0
+    w.tick()
+    assert len(calls) == 1
 
 
 def test_a_failing_destination_backs_off_then_fails_while_the_other_completes(fake, relay, store):

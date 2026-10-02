@@ -1,19 +1,25 @@
 """Dashcam server store (api.dashcam_store): cameras, clips, fixes, thumbnails,
 settings, destinations, chunked uploads and staging.
 
-Pure: a real DashcamStore on tmp_path. Run from webui/:
+Pure: a real DashcamStore on tmp_path; the remux tests use a real ffmpeg when there is one
+(skipped otherwise) and a mocked one for the failure paths. Run from webui/:
     TZ=UTC LANG=C.UTF-8 python3 -m pytest -o addopts="" -q -p no:cacheprovider tests/test_dashcam_store.py
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import re
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
+from api import dashcam_remux
 from api import dashcam_store as ds
 from api.dashcam_store import DashcamStore
 
@@ -59,6 +65,61 @@ def upload_clip(store, it, data, chunk_size=4):
     clip, err = store.complete_upload(up["id"])
     assert err is None, err
     return cid, up
+
+
+def make_ts(path, seconds=2) -> bytes:
+    """A tiny real MPEG-TS (H.264 + AAC) made by ffmpeg; skips the test without one."""
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        pytest.skip("ffmpeg not installed")
+    made = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=15",
+                           "-f", "lavfi", "-i", "sine=f=440:sample_rate=16000", "-t", str(seconds),
+                           "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", str(path)], capture_output=True, text=True)
+    if made.returncode != 0:
+        pytest.skip(f"ffmpeg can't make the fixture: {made.stderr.strip()[:200]}")
+    return Path(path).read_bytes()
+
+
+class FakeRemux:
+    """Stands in for dashcam_remux.remux: writes ``output`` as the MP4, or fails with ``fail``;
+    ``during`` runs inside the call (what another thread does while ffmpeg works)."""
+    output = b"\x00\x00\x00\x18ftypisom" + b"m" * 40
+
+    def __init__(self):
+        self.calls, self.fail, self.during = [], None, None
+
+    def __call__(self, src, dst):
+        self.calls.append((Path(src), Path(dst)))
+        if self.during:
+            during, self.during = self.during, None
+            during()
+        if self.fail:
+            return self.fail
+        Path(dst).write_bytes(self.output)
+        return None
+
+
+@pytest.fixture()
+def fake_remux(monkeypatch):
+    fake = FakeRemux()
+    monkeypatch.setattr(dashcam_remux, "remux", fake)
+    return fake
+
+
+def staging_names(store) -> list[str]:
+    d = store.base / "staging"
+    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+
+def make_legacy(store, cid, upload_id):
+    """What a clip staged before uploads were remuxed looks like: nothing recorded about the staged file."""
+    doc = store.get_upload(upload_id)
+    for key in ("remuxed", "staged_size"):
+        doc.pop(key, None)
+    store._save_upload(doc)
+    clip = store.get_clip(cid)
+    for key in ("container", "staged_name"):
+        clip.pop(key, None)
+    store._save_clip(clip)
 
 
 # ── clip ids ─────────────────────────────────────────────────────────────────
@@ -557,6 +618,238 @@ def test_a_retried_complete_never_resets_destinations_in_flight(store, monkeypat
     clip, err = store.complete_upload(up["id"])
     assert err is None and clip["upload"]["state"] == "staged"
     assert store.get_clip(cid)["destinations"][dest["id"]]["state"] == "uploading"
+
+
+# ── remux to MP4 ─────────────────────────────────────────────────────────────
+
+def test_a_ts_upload_is_remuxed_to_mp4_before_it_is_staged(store, tmp_path):
+    data = make_ts(tmp_path / "in.ts")
+    dest = add_dest(store)
+    cid, up = upload_clip(store, item("2026-10-02_13_19_31_f.ts", size=len(data)), data, chunk_size=16384)
+    clip = store.get_clip(cid)
+    assert clip["container"] == "mp4" and clip["staged_name"] == "2026-10-02_13_19_31_f.mp4"
+    assert clip["name"] == "2026-10-02_13_19_31_f.ts"                      # the camera's name stays
+    assert clip["upload"]["state"] == "staged" and clip["upload"]["bytes"] == len(data)
+    assert clip["upload"]["sha256"] == hashlib.sha256(data).hexdigest()    # what the phone sent
+    mp4 = store.staged_file(up["id"])
+    assert mp4 == store.remuxed_path(up["id"]) and staging_names(store) == [mp4.name]   # .ts and temp gone
+    assert mp4.read_bytes()[4:8] == b"ftyp"
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name:format=format_name",
+                            "-of", "json", str(mp4)], capture_output=True, text=True)
+    info = json.loads(probe.stdout)
+    assert "mp4" in info["format"]["format_name"]
+    assert sorted(s["codec_name"] for s in info["streams"]) == ["aac", "h264"]
+    up_doc = store.get_upload(up["id"])
+    assert up_doc["remuxed"] is True and up_doc["staged_size"] == mp4.stat().st_size
+    assert store.staging_bytes() == mp4.stat().st_size != len(data)        # the real size on disk
+    store.set_destination_state(cid, dest["id"], "done", remote_path="x.mp4")
+    assert store.release_staging_if_done(cid) is True
+    assert staging_names(store) == [] and store.staging_bytes() == 0
+    assert store.get_clip(cid)["container"] == "mp4"                        # still what destinations have
+
+
+def test_a_failed_remux_keeps_the_ts_and_the_upload_still_completes(store, monkeypatch, caplog):
+    monkeypatch.setattr(dashcam_remux.shutil, "which", lambda name: f"/usr/bin/{name}")
+    ran = []
+
+    def run(cmd, **kwargs):
+        ran.append(cmd[0])
+        if cmd[0].endswith("ffprobe"):
+            streams = [{"codec_type": "video", "codec_name": "h264"}, {"codec_type": "audio", "codec_name": "aac"}]
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"streams": streams}), stderr="")
+        Path(cmd[-1]).write_bytes(b"half an mp4")          # ffmpeg died part-way through a corrupt clip
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="Invalid data found when processing input")
+
+    monkeypatch.setattr(dashcam_remux.subprocess, "run", run)
+    data = b"\x47" + b"t" * 99
+    add_dest(store)
+    with caplog.at_level(logging.WARNING):
+        cid, up = upload_clip(store, item("a.ts", size=len(data)), data, chunk_size=64)
+    assert ran == ["/usr/bin/ffprobe", "/usr/bin/ffmpeg"]
+    clip = store.get_clip(cid)
+    assert clip["upload"]["state"] == "staged" and clip["container"] == "ts" and clip["staged_name"] == "a.ts"
+    assert list(clip["destinations"].values())[0]["state"] == "pending"
+    part = store.staging_path(up["id"])
+    assert store.staged_file(up["id"]) == part and part.read_bytes() == data
+    assert staging_names(store) == [part.name]                  # the half-written MP4 is gone
+    assert store.get_upload(up["id"])["remuxed"] is False and store.staging_bytes() == len(data)
+    assert "Invalid data found" in caplog.text and "keeping the .ts" in caplog.text
+
+
+def test_without_ffmpeg_ts_clips_are_staged_as_they_are_and_it_is_warned_once(store, monkeypatch, caplog):
+    monkeypatch.setattr(dashcam_remux.shutil, "which", lambda name: None)
+    monkeypatch.setattr(dashcam_remux, "_warned_missing", False)
+    monkeypatch.setattr(dashcam_remux.subprocess, "run", lambda *a, **k: pytest.fail("ran without ffmpeg"))
+    add_dest(store)
+    with caplog.at_level(logging.WARNING):
+        for name in ("a.ts", "b.ts"):
+            data = name.encode() * 10
+            cid, up = upload_clip(store, item(name, size=len(data)), data, chunk_size=64)
+            clip = store.get_clip(cid)
+            assert clip["upload"]["state"] == "staged" and clip["container"] == "ts" and clip["staged_name"] == name
+            assert store.staged_file(up["id"]).read_bytes() == data
+    assert sum("ffmpeg/ffprobe not found" in r.getMessage() for r in caplog.records) == 1
+    assert "keeping the .ts" not in caplog.text
+
+
+def test_clips_that_are_not_ts_are_staged_without_a_remux(store, fake_remux):
+    add_dest(store)
+    cid, up = upload_clip(store, item("2026_1001_154012_F.MP4", size=10), b"0123456789")
+    clip = store.get_clip(cid)
+    assert fake_remux.calls == [] and clip["container"] == "mp4" and clip["staged_name"] == "2026_1001_154012_F.MP4"
+    assert store.staged_file(up["id"]) == store.staging_path(up["id"]) and store.get_upload(up["id"])["remuxed"] is False
+
+
+def test_clip_fields_start_empty_and_reset_with_the_upload(store, fake_remux):
+    dest = add_dest(store)
+    store.apply_inventory(CAM, [item("a.ts", size=10)])
+    clip = clip_of(store, item("a.ts"))
+    assert clip["container"] is None and clip["staged_name"] is None
+    cid, up = upload_clip(store, item("a.ts", size=10), b"0123456789")
+    assert store.get_clip(cid)["container"] == "mp4"
+    (store.base / "staging" / f"{up['id']}.0badc0de.mp4.tmp").write_bytes(b"left by a crash")
+    store.apply_inventory(CAM, [item("a.ts", size=12)])            # the camera was still writing it
+    clip = store.get_clip(cid)
+    assert clip["container"] is None and clip["staged_name"] is None and staging_names(store) == []
+    cid, up = upload_clip(store, item("a.ts", size=12), b"0123456789ab")
+    store.update_destination(dest["id"], {"enabled": False})
+    assert store.abandon_upload(cid) is True
+    assert store.get_clip(cid)["container"] is None and staging_names(store) == []
+
+
+def test_an_upload_dropped_during_its_remux_leaves_nothing_behind(store, fake_remux):
+    add_dest(store)
+    data = b"0123456789"
+    store.apply_inventory(CAM, [item("a.ts", size=10)])
+    cid = DashcamStore.clip_id(CAM, item("a.ts")["path"])
+    up, _ = store.create_upload(cid, 10, hashlib.sha256(data).hexdigest(), 4)
+    for n in range(3):
+        store.write_chunk(up["id"], n, data[n * 4:(n + 1) * 4])
+    fake_remux.during = lambda: store.apply_inventory(CAM, [item("a.ts", size=99)])
+    assert store.complete_upload(up["id"]) == (None, "upload_not_found")
+    assert staging_names(store) == [] and store.get_clip(cid)["upload"]["state"] == "none"
+
+
+def test_a_complete_racing_another_discards_its_own_remux(store, fake_remux):
+    dest = add_dest(store)
+    data = b"0123456789"
+    store.apply_inventory(CAM, [item("a.ts", size=10)])
+    cid = DashcamStore.clip_id(CAM, item("a.ts")["path"])
+    up, _ = store.create_upload(cid, 10, hashlib.sha256(data).hexdigest(), 4)
+    for n in range(3):
+        store.write_chunk(up["id"], n, data[n * 4:(n + 1) * 4])
+
+    def the_other_complete_wins():
+        clip, err = store.complete_upload(up["id"])
+        assert err is None and clip["container"] == "mp4"
+        store.set_destination_state(cid, dest["id"], "uploading", remote_path="r", upload_id=up["id"])
+
+    fake_remux.during = the_other_complete_wins
+    clip, err = store.complete_upload(up["id"])
+    assert err is None and len(fake_remux.calls) == 2
+    assert fake_remux.calls[0][1] != fake_remux.calls[1][1]          # each remux writes its own temp file
+    assert staging_names(store) == [store.remuxed_path(up["id"]).name]
+    assert store.get_clip(cid)["destinations"][dest["id"]]["state"] == "uploading"
+
+
+def test_remux_staged_brings_a_clip_staged_before_remuxing_in_line(store, fake_remux):
+    add_dest(store)
+    fake_remux.fail = dashcam_remux.NOT_INSTALLED     # staged as a .ts ...
+    cid, up = upload_clip(store, item("a.ts", size=10), b"0123456789")
+    make_legacy(store, cid, up["id"])                 # ... before anything was recorded about it
+    fake_remux.fail = None
+    assert store.remux_staged(cid) is True
+    clip = store.get_clip(cid)
+    assert clip["container"] == "mp4" and clip["staged_name"] == "a.mp4" and clip["upload"]["state"] == "staged"
+    assert store.staged_file(up["id"]) == store.remuxed_path(up["id"])
+    assert staging_names(store) == [store.remuxed_path(up["id"]).name]
+    assert store.staging_bytes() == len(FakeRemux.output)
+    assert store.remux_staged(cid) is False and len(fake_remux.calls) == 2   # once is enough
+    assert store.remux_staged("c_missing") is False
+
+
+def test_remux_staged_records_a_ts_it_cannot_remux_and_leaves_fresh_uploads_alone(store, fake_remux):
+    add_dest(store)
+    cid, up = upload_clip(store, item("a.ts", size=10), b"0123456789")
+    assert store.remux_staged(cid) is False and len(fake_remux.calls) == 1   # recorded at completion
+    other, up2 = upload_clip(store, item("b.ts", size=10), b"abcdefghij")
+    make_legacy(store, other, up2["id"])
+    store.remuxed_path(up2["id"]).unlink()            # a legacy staged .ts: only the .part
+    store.staging_path(up2["id"]).write_bytes(b"abcdefghij")
+    fake_remux.fail = "ffprobe failed: Invalid data found when processing input"
+    assert store.remux_staged(other) is True
+    clip = store.get_clip(other)
+    assert clip["container"] == "ts" and clip["staged_name"] == "b.ts"
+    assert store.staged_file(up2["id"]).read_bytes() == b"abcdefghij"
+    assert store.remux_staged(other) is False
+
+
+@pytest.mark.parametrize("streams,wanted,unwanted", [
+    ([("video", "hevc"), ("audio", "aac")], ["-tag:v", "hvc1", "-bsf:a", "aac_adtstoasc"], []),
+    ([("video", "h264"), ("audio", "aac")], ["-bsf:a", "aac_adtstoasc"], ["-tag:v"]),
+    ([("video", "h264"), ("audio", "mp2")], [], ["-tag:v", "-bsf:a"]),   # the AAC filter refuses other audio
+    ([("video", "h264"), ("data", "bin_data")], [], ["-tag:v", "-bsf:a"]),
+])
+def test_remux_command(tmp_path, monkeypatch, streams, wanted, unwanted):
+    monkeypatch.setattr(dashcam_remux.shutil, "which", lambda name: f"/usr/bin/{name}")
+    cmds = []
+
+    def run(cmd, **kwargs):
+        cmds.append(cmd)
+        assert kwargs["timeout"] and kwargs["stdin"] == subprocess.DEVNULL
+        if cmd[0].endswith("ffprobe"):
+            out = {"streams": [{"codec_type": t, "codec_name": c} for t, c in streams]}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(out), stderr="")
+        Path(cmd[-1]).write_bytes(b"mp4")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(dashcam_remux.subprocess, "run", run)
+    src, dst = tmp_path / "u.part", tmp_path / "u.mp4.tmp"
+    assert dashcam_remux.remux(src, dst) is None
+    cmd = cmds[1]
+    text = " ".join(cmd)
+    assert cmd[:6] == ["/usr/bin/ffmpeg", "-nostdin", "-v", "error", "-y", "-i"] and cmd[6] == str(src)
+    assert "-map 0:v -map 0:a? -c copy" in text and "-movflags +faststart" in text
+    assert cmd[-3:] == ["-f", "mp4", str(dst)]
+    for flag in wanted:
+        assert flag in cmd
+    for flag in unwanted:
+        assert flag not in cmd
+
+
+def test_remux_failures_leave_no_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(dashcam_remux.shutil, "which", lambda name: f"/usr/bin/{name}")
+    dst = tmp_path / "out.tmp"
+    video = json.dumps({"streams": [{"codec_type": "video", "codec_name": "h264"}]})
+
+    def runner(ffmpeg):
+        def run(cmd, **kwargs):
+            if cmd[0].endswith("ffprobe"):
+                return subprocess.CompletedProcess(cmd, 0, stdout=video, stderr="")
+            return ffmpeg(cmd)
+        return run
+
+    def silent(cmd):                       # exit 0 but nothing written
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    def slow(cmd):
+        Path(cmd[-1]).write_bytes(b"partial")
+        raise subprocess.TimeoutExpired(cmd, 300)
+
+    for ffmpeg, why in ((silent, "ffmpeg wrote nothing"), (slow, "ffmpeg timed out")):
+        monkeypatch.setattr(dashcam_remux.subprocess, "run", runner(ffmpeg))
+        assert dashcam_remux.remux(tmp_path / "in.ts", dst).startswith(why)
+        assert not dst.exists()
+    monkeypatch.setattr(dashcam_remux.subprocess, "run", lambda cmd, **k: subprocess.CompletedProcess(
+        cmd, 0, stdout=json.dumps({"streams": [{"codec_type": "audio", "codec_name": "aac"}]}), stderr=""))
+    assert dashcam_remux.remux(tmp_path / "in.ts", dst) == "no video stream"
+
+
+def test_mp4_name():
+    assert dashcam_remux.mp4_name("2026-10-02_13_19_31_f.ts") == "2026-10-02_13_19_31_f.mp4"
+    assert dashcam_remux.mp4_name("X.TS") == "X.mp4"
+    assert dashcam_remux.mp4_name("2026_1001_154012_F.MP4") == "2026_1001_154012_F.MP4"
+    assert dashcam_remux.is_ts("a.ts") and not dashcam_remux.is_ts("a.tsx") and not dashcam_remux.is_ts(None)
 
 
 # ── destinations ─────────────────────────────────────────────────────────────

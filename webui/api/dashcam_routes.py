@@ -26,7 +26,8 @@ Endpoints (GET/POST/DELETE only)::
     GET    /clips/<id>                  -> {ok, clip, fixes, destinations:[{id, name, type, state, error, attempts, remote_path, next_at, updated_at}]}
     GET    /clips/<id>/thumb            -> image/jpeg
     GET    /clips/<id>/stream           -> clip bytes (Range/206): staging file first, else the first
-                                           destination that has it, through rclone; 404 before upload
+                                           destination that has it, through rclone; 404 before upload.
+                                           A remuxed clip is video/mp4 (the clip's container says which)
     POST   /uploads {clip_id, size, sha256} -> {ok, upload_id, chunk_size, chunks, received, complete[, already_uploaded]}
                                            | 507 {ok:false, error:"staging_full", retry_after} | 413 too_large
                                            | 409 {ok:false, error:"no_destination"} (no enabled destination
@@ -34,6 +35,7 @@ Endpoints (GET/POST/DELETE only)::
     GET    /uploads/<id>                -> {ok, upload_id, size, chunk_size, chunks, received, complete}
     POST   /uploads/<id>/chunk?n=<n>    raw bytes (<= chunk_size) -> {ok, received, chunks}
     POST   /uploads/<id>/complete       -> {ok, clip} | 400 {error: missing_chunks (+missing) | size_mismatch | sha256_mismatch}
+                                           (a .ts clip is remuxed to MP4 first, in this request; see dashcam_store)
     GET    /drives?from&to              -> {drives}
     GET    /drives/<id>                 -> {ok, drive, polyline:[[lat, lon, speed], ...], clips}
     GET    /drives/<id>.gpx             -> application/gpx+xml
@@ -43,6 +45,10 @@ Endpoints (GET/POST/DELETE only)::
     POST   /destinations/<id> {name?, enabled?, kinds?, path?} -> {ok, destination}
     POST   /destinations/<id>/test      -> {ok, error?}
     POST   /destinations/<id>/delete    -> {ok}            (alias of DELETE /destinations/<id>)
+
+Clips carry ``container`` (``"mp4"`` once a ``.ts`` was remuxed, ``"ts"`` when it was kept as it
+is, null before an upload) and ``staged_name`` (the name destinations get it under) beside the
+camera's ``name``.
 
 Passwords and tokens go straight to rclone's config (``dashcam_relay.create_remote``) and are
 never stored in the dashcam store, echoed, or logged.
@@ -610,12 +616,13 @@ def _stream(handler, store, cid: str, relay) -> None:
     if clip is None:
         j(handler, {"ok": False, "error": "clip not found"}, status=404)
         return
-    mime = dashcam_relay._content_type(clip.get("name") or "")
     up = clip.get("upload") or {}
     if up.get("state") == "staged" and up.get("upload_id"):
-        target = store.staging_path(up["upload_id"])
+        target = store.staged_file(up["upload_id"])
         if target.is_file():
             from api.routes import _serve_file_bytes
+            # The file decides the type: a remuxed .mp4, else whatever the camera recorded.
+            mime = "video/mp4" if target.suffix == ".mp4" else dashcam_relay._content_type(clip.get("name") or "")
             _serve_file_bytes(handler, target, mime, "inline", "private, no-store")
             return
     dests = store.destinations_by_id()

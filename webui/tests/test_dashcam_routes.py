@@ -10,10 +10,14 @@ import hashlib
 import http.client
 import io
 import json
+import shutil
+import subprocess
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
+from api import dashcam_remux
 from api import dashcam_routes as dr
 from api.dashcam_relay import RelayError, RelayUnavailable
 from api.dashcam_store import DashcamStore, now_iso
@@ -419,6 +423,90 @@ def test_a_stream_that_breaks_after_the_headers_just_ends(store, H, relay, error
     assert dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay) is True
     # The 206 had started: no JSON error in the body, just a short body and a closed connection.
     assert h.status == 206 and h.wfile.getvalue() == b"01234" and h.close_connection is True
+
+
+MP4 = b"\x00\x00\x00\x18ftypisom" + bytes(range(256))
+
+
+def ts_inventory(H, name="2026-10-02_13_19_31_f.ts", size=20):
+    status, payload = H("POST", "/inventory", {"camera_id": CAM, "clips": [
+        {"path": f"/mnt/card/video_front/{name}", "kind": "normal", "lens": "front",
+         "start": "2026-10-02T13:19:31Z", "duration": 60, "size": size}]})
+    assert status == 200, payload
+    return payload["clips"][0]["id"]
+
+
+def test_a_remuxed_clip_lists_as_mp4_and_streams_as_video_mp4_with_range(store, H, relay, monkeypatch):
+    def remux(src, dst):
+        Path(dst).write_bytes(MP4)
+        return None
+
+    monkeypatch.setattr(dashcam_remux, "remux", remux)
+    add_dest(H)
+    data = b"\x47" + bytes(19)
+    cid = ts_inventory(H, size=len(data))
+    status, up = H("POST", "/uploads", {"clip_id": cid, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    for n in range(up["chunks"]):
+        chunk(store, up["upload_id"], n, data[n * CHUNK:(n + 1) * CHUNK])
+    status, done = H("POST", f"/uploads/{up['upload_id']}/complete", {})
+    assert status == 200 and done["clip"]["container"] == "mp4"
+    assert done["clip"]["staged_name"] == "2026-10-02_13_19_31_f.mp4" and done["clip"]["name"].endswith("_f.ts")
+    listed = H("GET", "/clips")[1]["clips"][0]
+    assert listed["container"] == "mp4" and listed["staged_name"] == "2026-10-02_13_19_31_f.mp4"
+    assert H("GET", f"/clips/{cid}")[1]["clip"]["container"] == "mp4"
+    assert H("GET", "/state")[1]["staging"]["bytes"] == len(MP4)          # the MP4's size, not the upload's
+    h = FakeHandler({"Range": "bytes=4-11"})
+    assert dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay) is True
+    assert h.status == 206 and h.wfile.getvalue() == MP4[4:12] == b"ftypisom"
+    assert h.sent["Content-Type"] == "video/mp4" and h.sent["Content-Range"] == f"bytes 4-11/{len(MP4)}"
+    assert h.sent["Accept-Ranges"] == "bytes"
+    whole = FakeHandler()
+    dr.handle_dashcam_binary_get(whole, f"/clips/{cid}/stream", store, relay=relay)
+    assert whole.status == 200 and whole.wfile.getvalue() == MP4 and whole.sent["Content-Type"] == "video/mp4"
+
+
+def test_a_ts_kept_as_it_is_streams_as_mpeg_ts(store, H, relay, monkeypatch):
+    monkeypatch.setattr(dashcam_remux, "remux", lambda src, dst: "ffprobe failed: Invalid data found")
+    add_dest(H)
+    data = b"\x47" + bytes(19)
+    cid = ts_inventory(H, size=len(data))
+    upload(H, store, cid, data)
+    clip = H("GET", f"/clips/{cid}")[1]["clip"]
+    assert clip["upload"]["state"] == "staged" and clip["container"] == "ts" and clip["staged_name"].endswith("_f.ts")
+    h = FakeHandler({"Range": "bytes=0-9"})
+    dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay)
+    assert h.status == 206 and h.wfile.getvalue() == data[:10] and h.sent["Content-Type"] == "video/mp2t"
+
+
+def test_a_real_ts_upload_streams_back_as_a_playable_mp4(store, H, relay, tmp_path, monkeypatch):
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        pytest.skip("ffmpeg not installed")
+    ts = tmp_path / "clip.ts"
+    made = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=15",
+                           "-f", "lavfi", "-i", "sine=f=440:sample_rate=16000", "-t", "2", "-c:v", "libx264",
+                           "-c:a", "aac", "-f", "mpegts", str(ts)], capture_output=True, text=True)
+    if made.returncode != 0:
+        pytest.skip(f"ffmpeg can't make the fixture: {made.stderr.strip()[:200]}")
+    data = ts.read_bytes()
+    monkeypatch.setattr(dr, "CHUNK_SIZE", 16 * 1024)
+    add_dest(H)
+    cid = ts_inventory(H, size=len(data))
+    status, up = H("POST", "/uploads", {"clip_id": cid, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    size = up["chunk_size"]
+    for n in range(up["chunks"]):
+        assert chunk(store, up["upload_id"], n, data[n * size:(n + 1) * size]).status == 200
+    status, done = H("POST", f"/uploads/{up['upload_id']}/complete", {})
+    assert status == 200 and done["clip"]["container"] == "mp4"
+    h = FakeHandler()
+    dr.handle_dashcam_binary_get(h, f"/clips/{cid}/stream", store, relay=relay)
+    assert h.status == 200 and h.sent["Content-Type"] == "video/mp4"
+    body = h.wfile.getvalue()
+    assert body[4:8] == b"ftyp" and body.find(b"moov") < body.find(b"mdat")      # faststart: index first
+    out = tmp_path / "back.mp4"
+    out.write_bytes(body)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(out)],
+                           capture_output=True, text=True)
+    assert sorted(probe.stdout.split()) == ["aac", "h264"]
 
 
 def test_stream_before_upload_is_404(store, H, relay):

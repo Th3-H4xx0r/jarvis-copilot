@@ -13,13 +13,19 @@ A JSON-file store under the webui state dir, beside the island/widget stores::
         thumbs/<clip_id>.jpg
         drives.json               {"drives": {drive_id: {...}}, "built_at"}   (written by dashcam_drives.rebuild)
         uploads/<upload_id>.json  {id, clip_id, size, sha256, chunk_size, chunks, received, created_at,
-                                   updated_at, completed_at}
-        staging/<upload_id>.part  the clip's bytes while they wait for every destination
+                                   updated_at, completed_at, remuxed, staged_size}
+        staging/<upload_id>.part  the clip's bytes as they arrive, and while they wait for every destination
+        staging/<upload_id>.mp4   instead of the .part once a .ts clip was remuxed (``dashcam_remux``)
 
 A clip's identity is ``<camera_id>:<camera path>``, hashed to ``c_<20 hex>``. Its
 ``upload.state`` walks ``none -> staging -> staged -> done``: staging while the phone
 sends chunks, staged once the bytes are checked (size + sha256) and waiting for the
-relay, done once every enabled destination has it and the staging file is gone. A staged
+relay, done once every enabled destination has it and the staging file is gone. A ``.ts``
+clip is remuxed to MP4 losslessly between the check and staged, so destinations get a file
+that plays anywhere; when that fails (ffmpeg missing, a corrupt clip) the ``.ts`` is staged as
+it is. The clip records what was staged - ``container`` (``"mp4"``, ``"ts"``, ... - the staged
+file's extension) and ``staged_name`` (the name destinations get: ``x.ts`` -> ``x.mp4``) - and
+the upload ``remuxed`` plus ``staged_size``, its real size on disk for the staging cap. A staged
 clip no enabled destination takes any more goes back to ``none`` (``abandon_upload``) so the
 phone sends it again later; an upload is refused (``no_destination``) while none takes it.
 Each destination entry walks ``pending -> uploading -> done`` (or ``failed`` after
@@ -33,6 +39,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import logging
 import math
 import os
 import re
@@ -43,7 +50,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api import dashcam_remux
 from api.island_store import _read_json, _safe_id, _write_json
+
+logger = logging.getLogger(__name__)
 
 # Serializes read-modify-write across the threaded HTTP server and the relay worker.
 _LOCK = threading.RLock()
@@ -176,6 +186,18 @@ def _empty_upload() -> dict:
     return {"state": "none", "upload_id": None, "bytes": 0, "sha256": None}
 
 
+def _reset_upload(clip: dict) -> None:
+    """Back to nothing uploaded: no upload, no destination entries, nothing staged."""
+    clip["upload"] = _empty_upload()
+    clip["destinations"] = {}
+    clip["container"] = None
+    clip["staged_name"] = None
+
+
+def _extension(name: str) -> str | None:
+    return os.path.splitext(name)[1].lstrip(".").lower() or None
+
+
 class DashcamStore:
     def __init__(self, root, profile: str = "default"):
         self.root = Path(root)
@@ -196,6 +218,15 @@ class DashcamStore:
 
     def staging_path(self, upload_id: str) -> Path:
         return self.base / "staging" / f"{_safe_id(upload_id)}.part"
+
+    def remuxed_path(self, upload_id: str) -> Path:
+        return self.base / "staging" / f"{_safe_id(upload_id)}.mp4"
+
+    def staged_file(self, upload_id: str) -> Path:
+        """Where an upload's checked bytes are: the remuxed ``.mp4`` once there is one, else the
+        ``.part`` they arrived in."""
+        up = self.get_upload(upload_id)
+        return self.remuxed_path(upload_id) if up and up.get("remuxed") else self.staging_path(upload_id)
 
     # ── cameras ──────────────────────────────────────────────────────────────
     def _cameras_doc(self) -> dict:
@@ -329,12 +360,18 @@ class DashcamStore:
             "has_gps": False, "has_thumb": False,
             "phone": {"state": "none", "error": None, "updated_at": now},
             "upload": _empty_upload(), "destinations": {}, "drive_id": None,
+            "container": None, "staged_name": None,
         }
 
     def _drop_upload(self, upload_id) -> None:
         if not upload_id:
             return
-        for p in (self._upload_path(upload_id), self.staging_path(upload_id)):
+        try:
+            self._upload_path(upload_id).unlink()
+        except FileNotFoundError:
+            pass
+        # The .part, the remuxed .mp4 and any remux still being written (it then fails and is discarded).
+        for p in (self.base / "staging").glob(f"{_safe_id(upload_id)}.*"):
             try:
                 p.unlink()
             except FileNotFoundError:
@@ -368,8 +405,7 @@ class DashcamStore:
                     clip["size_stable"] = not changed
                     if changed and (clip.get("upload") or {}).get("state") != "done":
                         self._drop_upload((clip.get("upload") or {}).get("upload_id"))
-                        clip["upload"] = _empty_upload()
-                        clip["destinations"] = {}
+                        _reset_upload(clip)
                     for key in ("kind", "lens", "size"):
                         clip[key] = item[key]
                     for key in ("start", "duration_s"):
@@ -677,8 +713,9 @@ class DashcamStore:
         _write_json(self._upload_path(doc["id"]), doc)
 
     def staging_bytes(self) -> int:
-        """Bytes reserved in staging: the full size of every upload not yet released."""
-        return sum(int(u.get("size") or 0) for u in self._uploads())
+        """Bytes reserved in staging: the full size of every upload still arriving, and the real
+        on-disk size of every staged one (a remuxed MP4 is a little smaller than its .ts)."""
+        return sum(int(u.get("staged_size", u.get("size")) or 0) for u in self._uploads())
 
     def staged_clip_ids(self) -> list[str]:
         """Clips whose bytes are checked and waiting in staging for the relay."""
@@ -732,8 +769,7 @@ class DashcamStore:
                 if existing and same and existing.get("size") == size:
                     return existing, None
                 self._drop_upload(up["upload_id"])
-                clip["upload"] = _empty_upload()
-                clip["destinations"] = {}
+                _reset_upload(clip)
                 self._save_clip(clip)
             cap = self.get_settings()["staging_cap_bytes"]
             if size > cap:
@@ -805,10 +841,14 @@ class DashcamStore:
         return up, None
 
     def complete_upload(self, upload_id: str) -> tuple[dict | None, str | None]:
-        """Checks every chunk is in, the size and the sha256, then stages the clip and queues it for
-        every enabled destination taking its kind. On a hash mismatch the received chunks are
-        forgotten so a resume re-sends them. Errors: upload_not_found, missing_chunks,
-        size_mismatch, sha256_mismatch, clip_not_found."""
+        """Checks every chunk is in, the size and the sha256, remuxes a ``.ts`` clip to MP4, then
+        stages the clip and queues it for every enabled destination taking its kind. On a hash
+        mismatch the received chunks are forgotten so a resume re-sends them. A failed remux keeps
+        the ``.ts`` and completes all the same. Errors: upload_not_found, missing_chunks,
+        size_mismatch, sha256_mismatch, clip_not_found.
+
+        The hash and the remux (a second or two for a 100 MB clip) run in the request's own thread
+        - the server is threaded - outside the store lock: only the swap into place is under it."""
         up = self.get_upload(upload_id)
         if up is None:
             return None, "upload_not_found"
@@ -827,35 +867,113 @@ class DashcamStore:
             with open(path, "rb") as f:
                 for block in iter(lambda: f.read(1024 * 1024), b""):
                     digest.update(block)
-        with _LOCK:
-            up = self.get_upload(upload_id)
-            if up is None:
-                return None, "upload_not_found"
-            if up.get("completed_at"):
-                # A retried /complete that raced the first: never reset destinations in flight.
+        remuxed = None
+        if actual == up["size"] and digest.hexdigest() == up["sha256"]:
+            remuxed = self._remux(upload_id, (self.get_clip(up["clip_id"]) or {}).get("name"))
+        try:
+            with _LOCK:
+                up = self.get_upload(upload_id)
+                if up is None:
+                    return None, "upload_not_found"
+                if up.get("completed_at"):
+                    # A retried /complete that raced the first: never reset destinations in flight.
+                    clip = self.get_clip(up["clip_id"])
+                    return (clip, None) if clip is not None else (None, "clip_not_found")
+                if actual != up["size"] or digest.hexdigest() != up["sha256"]:
+                    up["received"] = []
+                    up["updated_at"] = time.time()
+                    self._save_upload(up)
+                    return None, "size_mismatch" if actual != up["size"] else "sha256_mismatch"
                 clip = self.get_clip(up["clip_id"])
-                return (clip, None) if clip is not None else (None, "clip_not_found")
-            if actual != up["size"] or digest.hexdigest() != up["sha256"]:
-                up["received"] = []
-                up["updated_at"] = time.time()
+                if clip is None:
+                    return None, "clip_not_found"
+                self._swap_in(up, clip, remuxed)
+                up["completed_at"] = time.time()
                 self._save_upload(up)
-                return None, "size_mismatch" if actual != up["size"] else "sha256_mismatch"
-            clip = self.get_clip(up["clip_id"])
-            if clip is None:
-                return None, "clip_not_found"
-            up["completed_at"] = time.time()
-            self._save_upload(up)
-            clip["upload"] = {"state": "staged", "upload_id": upload_id, "bytes": up["size"],
-                              "sha256": up["sha256"]}
-            entries = {}
-            now = now_iso()
-            for dest in self._dest_doc().values():
-                if _applicable(dest, clip):
-                    entries[dest["id"]] = {"state": "pending", "error": None, "attempts": 0,
-                                           "remote_path": None, "next_at": None, "updated_at": now}
-            clip["destinations"] = entries
-            self._save_clip(clip)
+                clip["upload"] = {"state": "staged", "upload_id": upload_id, "bytes": up["size"],
+                                  "sha256": up["sha256"]}
+                entries = {}
+                now = now_iso()
+                for dest in self._dest_doc().values():
+                    if _applicable(dest, clip):
+                        entries[dest["id"]] = {"state": "pending", "error": None, "attempts": 0,
+                                               "remote_path": None, "next_at": None, "updated_at": now}
+                clip["destinations"] = entries
+                self._save_clip(clip)
+                if up["remuxed"]:
+                    path.unlink(missing_ok=True)   # the .ts, only once the MP4 is recorded
+        finally:
+            if remuxed is not None:
+                remuxed.unlink(missing_ok=True)    # not swapped in (a race, an error): discard it
         return clip, None
+
+    def _remux(self, upload_id: str, name) -> Path | None:
+        """A ``.ts`` upload's bytes remuxed to a temporary MP4 beside them (a unique name, so two
+        racing callers never share one), or None: not a .ts, or the remux failed (logged)."""
+        if not dashcam_remux.is_ts(name):
+            return None
+        tmp = self.base / "staging" / f"{_safe_id(upload_id)}.{secrets.token_hex(4)}.mp4.tmp"
+        why = dashcam_remux.remux(self.staging_path(upload_id), tmp)
+        if why is None:
+            return tmp
+        if why != dashcam_remux.NOT_INSTALLED:   # that one is warned once, by dashcam_remux
+            logger.warning("dashcam: remuxing %s (%s) to MP4 failed, keeping the .ts: %s", name, upload_id, why)
+        return None
+
+    def _swap_in(self, up: dict, clip: dict, remuxed: Path | None) -> None:
+        """Under _LOCK, once the bytes are checked: moves a remuxed MP4 into place and records what
+        is staged - ``remuxed`` and ``staged_size`` (the real size on disk) on the upload,
+        ``container`` and ``staged_name`` on the clip. The caller saves both and only then drops
+        the .part a remux replaced, so a crash in between never loses the bytes."""
+        name = str(clip.get("name") or "")
+        target = self.staging_path(up["id"])
+        if remuxed is not None:
+            try:
+                os.replace(remuxed, self.remuxed_path(up["id"]))
+                target, name = self.remuxed_path(up["id"]), dashcam_remux.mp4_name(name)
+            except OSError as exc:
+                logger.warning("dashcam: could not move the MP4 of %s into place, keeping the .ts: %s", up["id"], exc)
+                remuxed = None
+        up["remuxed"] = remuxed is not None
+        try:
+            up["staged_size"] = target.stat().st_size
+        except OSError:
+            up["staged_size"] = up["size"]
+        clip["container"] = _extension(name)
+        clip["staged_name"] = name or None
+
+    def remux_staged(self, clip_id: str) -> bool:
+        """Brings a clip staged before uploads were remuxed (its upload records no ``remuxed``) in
+        line with a fresh one: a ``.ts`` is remuxed to MP4 (kept as it is when that fails) and what
+        is staged gets recorded. The relay worker calls it before it copies a staged clip, so no
+        copy of its own is reading the .part; streams read through their open file. True when it
+        recorded anything."""
+        clip = self.get_clip(clip_id)
+        cur = (clip or {}).get("upload") or {}
+        upload_id = cur.get("upload_id")
+        if cur.get("state") != "staged" or not upload_id:
+            return False
+        up = self.get_upload(upload_id)
+        if up is None or not up.get("completed_at") or "remuxed" in up:
+            return False
+        remuxed = self._remux(upload_id, clip.get("name"))
+        try:
+            with _LOCK:
+                clip = self.get_clip(clip_id)
+                up = self.get_upload(upload_id)
+                cur = (clip or {}).get("upload") or {}
+                if (up is None or "remuxed" in up or cur.get("state") != "staged"
+                        or cur.get("upload_id") != upload_id):
+                    return False   # dropped, replaced or recorded meanwhile
+                self._swap_in(up, clip, remuxed)
+                self._save_upload(up)
+                self._save_clip(clip)
+                if up["remuxed"]:
+                    self.staging_path(upload_id).unlink(missing_ok=True)
+        finally:
+            if remuxed is not None:
+                remuxed.unlink(missing_ok=True)
+        return True
 
     def release_staging_if_done(self, clip_id: str) -> bool:
         """Deletes the staged bytes and the upload once every enabled destination that takes the
@@ -883,8 +1001,7 @@ class DashcamStore:
             if any(_applicable(d, clip) for d in self._dest_doc().values()):
                 return False
             self._drop_upload(clip["upload"].get("upload_id"))
-            clip["upload"] = _empty_upload()
-            clip["destinations"] = {}
+            _reset_upload(clip)
             self._save_clip(clip)
         return True
 

@@ -26,7 +26,10 @@ Process model::
   third attempt. Once every enabled destination is done the staging file is released.
   Copies overwrite by name, so a retried or restarted job never duplicates a clip.
 - On a destination a clip lands at ``<path>/<camera_id>/<YYYY-MM-DD>/<kind>/<lens>/<name>``
-  (``remote_path_for``; the UTC day of the clip's start, ``undated`` without one).
+  (``remote_path_for``; the UTC day of the clip's start, ``undated`` without one). ``<name>`` is
+  the staged one: a ``.ts`` the store remuxed goes up as ``.mp4``. A clip staged before uploads
+  were remuxed is remuxed by the worker (``store.remux_staged``) before its first copy; copies a
+  destination already has keep their ``.ts`` name.
 """
 from __future__ import annotations
 
@@ -118,15 +121,16 @@ def _segment(value, fallback: str = "_") -> str:
 
 def remote_path_for(dest: dict, clip: dict) -> str:
     """``<dest.path>/<camera_id>/<YYYY-MM-DD (UTC) of the clip start>/<kind>/<lens>/<name>``
-    (lens ``front`` when the clip has none). The lens folder keeps a front and a rear clip that
-    share a file name apart. A leading ``/`` on the destination path is kept (absolute on
-    SFTP/SMB/local)."""
+    (lens ``front`` when the clip has none). ``<name>`` is the clip's ``staged_name`` - the camera
+    name with ``.mp4`` once the store remuxed a ``.ts`` - else its camera name. The lens folder
+    keeps a front and a rear clip that share a file name apart. A leading ``/`` on the destination
+    path is kept (absolute on SFTP/SMB/local)."""
     base = str(dest.get("path") or "")
     absolute = base.startswith("/")
     base = base.strip("/")
     ts = parse_iso(clip.get("start"))
     day = time.strftime("%Y-%m-%d", time.gmtime(ts)) if ts is not None else "undated"
-    name = str(clip.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    name = str(clip.get("staged_name") or clip.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1]
     rel = "/".join([_segment(clip.get("camera_id")), day, _segment(clip.get("kind")),
                     _segment(clip.get("lens") or "front"), _segment(name, "clip")])
     prefix = ("/" if absolute else "") + (base + "/" if base else "")
@@ -668,6 +672,11 @@ class RelayWorker(threading.Thread):
                 if store.abandon_upload(cid):
                     logger.info("dashcam relay: no destination takes %s any more; dropped its staged copy", cid)
                 continue
+            # Staged before uploads were remuxed: remux it now, before this worker copies any of it.
+            if store.remux_staged(cid):
+                clip = store.get_clip(cid)
+                if clip is None or (clip.get("upload") or {}).get("state") != "staged":
+                    continue
             clips.append(clip)
         clips.sort(key=lambda c: (_PRIORITY.get(c.get("kind"), 9), -(parse_iso(c.get("start")) or 0)))
         try:
@@ -759,7 +768,7 @@ class RelayWorker(threading.Thread):
             generation = relay_.generation
             group = _group(cid, dest_id, upload_id)
             try:
-                jobid = relay_.start_copy(str(store.staging_path(upload_id)), dest["remote"], remote_path,
+                jobid = relay_.start_copy(str(store.staged_file(upload_id)), dest["remote"], remote_path,
                                           group=group)
             except RelayError as exc:
                 self._fail(store, cid, dest_id, attempts, str(exc), upload_id)
