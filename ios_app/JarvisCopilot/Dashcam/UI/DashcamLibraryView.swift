@@ -128,6 +128,8 @@ struct DashcamLibraryView: View {
     private var selected: Set<String> { get { model.selected } nonmutating set { model.selected = newValue } }
     private var bulkDelete: Set<Place>? { get { model.bulkDelete } nonmutating set { model.bulkDelete = newValue } }
     @State private var openedID: String?
+    @State private var deleting: (done: Int, total: Int)?
+    @State private var deleteTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -183,12 +185,16 @@ struct DashcamLibraryView: View {
             Button("Delete", role: .destructive) {
                 let places = bulkDelete ?? []
                 let clips = model.clips.filter { selected.contains($0.id) }
-                Task { await delete(clips, places); selecting = false; selected = [] }
+                deleteTask = Task { await delete(clips, places); selecting = false; selected = [] }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("From " + [bulkDelete?.contains(.phone) == true ? "this phone" : nil, bulkDelete?.contains(.cloud) == true ? "the cloud" : nil,
                             bulkDelete?.contains(.camera) == true ? "the dashcam" : nil].compactMap { $0 }.joined(separator: ", ") + ". This can't be undone.")
+        }
+        .fullScreenCover(isPresented: Binding(get: { deleting != nil }, set: { _ in })) {
+            DashcamDeletingPopup(done: deleting?.done ?? 0, total: deleting?.total ?? 0) { deleteTask?.cancel() }
+                .presentationBackground(.black.opacity(0.45))
         }
         .task { await model.reload() }
         .task {
@@ -274,10 +280,18 @@ struct DashcamLibraryView: View {
     }
 
     private func delete(_ clips: [DashcamServerClip], _ places: Set<Place>) async {
-        var failed = 0
-        for clip in clips { if !(await delete(clip, places, reload: false)) { failed += 1 } }
-        note = failed == 0 ? "Deleted \(clips.count) clip\(clips.count == 1 ? "" : "s")."
-                           : "\(failed) of \(clips.count) couldn't be deleted everywhere."
+        var failed = 0, done = 0
+        deleting = (0, clips.count)
+        for clip in clips {
+            if Task.isCancelled { break }               // Cancel stops after the clip in hand
+            if !(await delete(clip, places, reload: false)) { failed += 1 }
+            done += 1
+            deleting = (done, clips.count)
+        }
+        deleting = nil
+        deleteTask = nil
+        let stopped = done < clips.count ? " Stopped after \(done) of \(clips.count)." : ""
+        note = (failed == 0 ? "Deleted \(done) clip\(done == 1 ? "" : "s")." : "\(failed) of \(done) couldn't be deleted everywhere.") + stopped
         await model.reload()
     }
 
@@ -357,5 +371,33 @@ struct DashcamSelectionBar: View {
         }
         .padding(6)
         .background(.ultraThinMaterial, in: Capsule())
+    }
+}
+
+/// The "deleting" popup: a ring filling clip by clip, and Cancel.
+struct DashcamDeletingPopup: View {
+    let done: Int
+    let total: Int
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle().stroke(Color.white.opacity(0.12), lineWidth: 7)
+                Circle()
+                    .trim(from: 0, to: total > 0 ? CGFloat(done) / CGFloat(total) : 0)
+                    .stroke(JcTheme.accent, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.25), value: done)
+                Text(total > 0 ? "\(Int(Double(done) / Double(total) * 100))%" : "")
+                    .font(.headline.monospacedDigit())
+            }
+            .frame(width: 84, height: 84)
+            Text("Deleting \(min(done + 1, total)) of \(total)").font(.callout)
+            Button("Cancel", role: .cancel, action: cancel).buttonStyle(.jcGlass(compact: true))
+        }
+        .padding(28)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
