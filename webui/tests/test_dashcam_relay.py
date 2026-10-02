@@ -329,20 +329,31 @@ def test_delete_and_test_remote(fake, relay):
 # ── paths, copies, jobs ──────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("base,expected", [
-    ("dashcam", "dashcam/A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"),
-    ("/volume1/dashcam/", "/volume1/dashcam/A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"),
-    ("/", "/A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"),
-    ("", "A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"),
+    ("dashcam", "dashcam/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"),
+    ("/volume1/dashcam/", "/volume1/dashcam/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"),
+    ("/", "/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"),
+    ("", "A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"),
 ])
 def test_remote_path_for(base, expected):
-    clip = {"camera_id": CAM, "start": "2026-10-01T20:40:12Z", "kind": "normal", "name": "2026_1001_154012_F.MP4"}
+    clip = {"camera_id": CAM, "start": "2026-10-01T20:40:12Z", "kind": "normal", "lens": "front",
+            "name": "2026_1001_154012_F.MP4"}
     assert remote_path_for({"path": base}, clip) == expected
+
+
+def test_front_and_rear_clips_with_the_same_name_never_collide():
+    def clip(lens):
+        return {"camera_id": CAM, "start": "2026-10-01T20:40:00Z", "kind": "normal", "lens": lens,
+                "name": "20261001_154000.ts"}
+    front, rear = remote_path_for({"path": "dashcam"}, clip("front")), remote_path_for({"path": "dashcam"}, clip("rear"))
+    assert front == "dashcam/A4-1234/2026-10-01/normal/front/20261001_154000.ts"
+    assert rear == "dashcam/A4-1234/2026-10-01/normal/rear/20261001_154000.ts"
+    assert remote_path_for({"path": "dashcam"}, dict(clip(None))) == front   # no lens means front
 
 
 def test_remote_path_for_sanitises_and_handles_no_start():
     clip = {"camera_id": "../evil/cam", "start": None, "kind": "event", "name": "../x.MP4"}
     p = remote_path_for({"path": "d"}, clip)
-    assert ".." not in p.split("/") and p.startswith("d/") and "/undated/event/" in p
+    assert ".." not in p.split("/") and p.startswith("d/") and "/undated/event/front/" in p
 
 
 def test_start_copy_puts_the_folder_in_the_destination_fs(fake, relay, tmp_path):
@@ -393,7 +404,7 @@ def test_worker_copies_a_staged_clip_and_releases_staging(fake, relay, store):
     w.tick()
     entry = store.get_clip(cid)["destinations"][d["id"]]
     assert entry["state"] == "uploading"
-    assert entry["remote_path"] == "dashcam/A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"
+    assert entry["remote_path"] == "dashcam/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"
     w.tick()  # still running
     assert store.get_clip(cid)["destinations"][d["id"]]["state"] == "uploading"
     w.tick()
@@ -401,7 +412,7 @@ def test_worker_copies_a_staged_clip_and_releases_staging(fake, relay, store):
     assert clip["destinations"][d["id"]]["state"] == "done"
     assert clip["upload"]["state"] == "done"
     assert not store.staging_path(up["id"]).exists() and store.staged_clip_ids() == []
-    assert fake.files["jc_d_nas:dashcam/A4-1234/2026-10-01/normal/2026_1001_154012_F.MP4"] == data
+    assert fake.files["jc_d_nas:dashcam/A4-1234/2026-10-01/normal/front/2026_1001_154012_F.MP4"] == data
 
 
 def test_a_failing_destination_backs_off_then_fails_while_the_other_completes(fake, relay, store):

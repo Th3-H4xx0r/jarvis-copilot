@@ -25,6 +25,8 @@ Process model::
   back to ``pending`` after 30 s, then 120 s, and is ``failed`` (with rclone's message) after the
   third attempt. Once every enabled destination is done the staging file is released.
   Copies overwrite by name, so a retried or restarted job never duplicates a clip.
+- On a destination a clip lands at ``<path>/<camera_id>/<YYYY-MM-DD>/<kind>/<lens>/<name>``
+  (``remote_path_for``; the UTC day of the clip's start, ``undated`` without one).
 """
 from __future__ import annotations
 
@@ -115,15 +117,18 @@ def _segment(value, fallback: str = "_") -> str:
 
 
 def remote_path_for(dest: dict, clip: dict) -> str:
-    """``<dest.path>/<camera_id>/<YYYY-MM-DD (UTC) of the clip start>/<kind>/<name>``.
-    A leading ``/`` on the destination path is kept (absolute on SFTP/SMB/local)."""
+    """``<dest.path>/<camera_id>/<YYYY-MM-DD (UTC) of the clip start>/<kind>/<lens>/<name>``
+    (lens ``front`` when the clip has none). The lens folder keeps a front and a rear clip that
+    share a file name apart. A leading ``/`` on the destination path is kept (absolute on
+    SFTP/SMB/local)."""
     base = str(dest.get("path") or "")
     absolute = base.startswith("/")
     base = base.strip("/")
     ts = parse_iso(clip.get("start"))
     day = time.strftime("%Y-%m-%d", time.gmtime(ts)) if ts is not None else "undated"
     name = str(clip.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1]
-    rel = "/".join([_segment(clip.get("camera_id")), day, _segment(clip.get("kind")), _segment(name, "clip")])
+    rel = "/".join([_segment(clip.get("camera_id")), day, _segment(clip.get("kind")),
+                    _segment(clip.get("lens") or "front"), _segment(name, "clip")])
     prefix = ("/" if absolute else "") + (base + "/" if base else "")
     return prefix + rel
 
