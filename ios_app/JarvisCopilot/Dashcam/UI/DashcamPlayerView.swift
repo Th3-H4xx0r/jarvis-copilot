@@ -9,6 +9,7 @@ final class DashcamPlayerModel: ObservableObject {
     @Published private(set) var current: DashcamFix?
     @Published private(set) var source = ""
     @Published private(set) var error: String?
+    @Published private(set) var progress: Double?
     @Published private(set) var destinations: [(name: String, state: String, error: String?)] = []
     @Published var clip: DashcamServerClip
     private var observer: Any?
@@ -59,11 +60,33 @@ final class DashcamPlayerModel: ObservableObject {
             return
         }
         let item: AVPlayerItem
+        let sync = DashcamSync.shared
+        let onCamera = DashcamWiFi.shared.onCamera
+        if !FileManager.default.fileExists(atPath: local.path), onCamera, DashcamPlayable.needsRemux(local) {
+            // AVPlayer can't stream a camera's .ts: pull it to the phone (the sync's safe path), then play.
+            guard await pullFromCamera(cameraID: cameraID, stale: stale) else {
+                if !stale() && error == nil {
+                    error = "Couldn't pull this clip from the camera. Stay on its Wi‑Fi and try again."
+                }
+                return
+            }
+        }
         if FileManager.default.fileExists(atPath: local.path) {
-            item = AVPlayerItem(url: local)
-            source = "On this phone"
-        } else if DashcamWiFi.shared.onCamera, let setup, let cam = DashcamSync.shared.cameraFactory(setup) {
-            item = AVPlayerItem(url: cam.fileURL(file))
+            source = DashcamPlayable.needsRemux(local) ? "Preparing the clip…" : "On this phone"
+            do {
+                let ready = try await DashcamPlayable.prepare(local)
+                guard !stale() else { return }
+                if let made = ready.made { adoptFixes(made, cameraID: cameraID) }
+                item = AVPlayerItem(url: ready.url)
+                source = "On this phone"
+            } catch {
+                guard !stale() else { return }
+                source = ""
+                self.error = "This clip couldn't be prepared for playback: \(error.localizedDescription)"
+                return
+            }
+        } else if onCamera, let setup, let cam = sync.cameraFactory(setup) {
+            item = AVPlayerItem(url: cam.fileURL(file))       // MP4 cameras stream as they are
             source = "Straight from the camera"
         } else if clip.uploaded || clip.uploadState == "staged" || clip.uploadState == "done",
                   let asset = try? api.streamAsset(clipID: clip.id) {
@@ -71,7 +94,7 @@ final class DashcamPlayerModel: ObservableObject {
             source = "Streaming from your uploads"
         } else {
             error = clip.onCamera
-                ? "Not on the phone yet. Pull it from the camera (long-press it in the library) or wait for the next sync."
+                ? "Not on the phone yet. Join the camera's Wi‑Fi to pull and play it, or wait for the next sync."
                 : "This clip isn't on the phone, the camera or any upload destination."
             return
         }
@@ -88,6 +111,40 @@ final class DashcamPlayerModel: ObservableObject {
         if let offset { await p.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) }
         current = DashcamTrack.fix(at: start + (offset ?? 0), in: fixes)
         p.play()
+    }
+
+    /// Asks the sync to pull this clip (it handles playback mode and recording safely) and waits for it.
+    private func pullFromCamera(cameraID: String, stale: () -> Bool) async -> Bool {
+        let sync = DashcamSync.shared
+        sync.pull(clip.path)
+        source = "Pulling it from the camera…"
+        progress = 0
+        defer { progress = nil }
+        let started = Date()
+        while !stale() {
+            if sync.storage.exists(camera: cameraID, file: file) { return true }
+            guard DashcamWiFi.shared.onCamera else { error = "Left the camera's Wi‑Fi before the clip arrived."; return false }
+            if let d = sync.downloading, d.name == file.name, d.total > 0 {
+                progress = Double(d.done) / Double(d.total)
+                source = "Pulling it from the camera… \(Int((progress ?? 0) * 100))%"
+            } else if case .waitingForPark = sync.phase {
+                source = "The camera only hands over clips while the car is parked."
+            }
+            // Nothing moving for a few minutes (camera gone quiet, clip deleted): give up.
+            if sync.downloading == nil, Date().timeIntervalSince(started) > 300 { return false }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        return false
+    }
+
+    /// GPS read from the clip itself, for clips the server has no track for yet; shared with the server too.
+    private func adoptFixes(_ made: DashcamRemux.Result, cameraID: String) {
+        guard fixes.isEmpty, !made.fixes.isEmpty else { return }
+        let aligned = DashcamGPS.align(made.fixes, clipStart: clip.start, duration: made.duration,
+                                       tzOffset: TimeZone.current.secondsFromGMT(for: clip.start))
+        fixes = aligned.sorted { $0.t < $1.t }
+        let id = clip.id
+        Task { try? await DashcamAPI().putFixes(clipID: id, fixes: aligned) }
     }
 
     func stop() {
@@ -142,7 +199,15 @@ struct DashcamPlayerView: View {
                 Image(uiImage: photo).resizable().scaledToFit()
             } else {
                 Rectangle().fill(Color.white.opacity(0.05))
-                    .overlay { if model.error == nil { ProgressView() } }
+                    .overlay {
+                        if model.error == nil {
+                            if let p = model.progress {
+                                ProgressView(value: p).tint(JcTheme.accent).padding(.horizontal, 40)
+                            } else {
+                                ProgressView()
+                            }
+                        }
+                    }
             }
             if model.clip.kind != .photo, let fix = model.current {
                 VStack(alignment: .leading, spacing: 0) {
