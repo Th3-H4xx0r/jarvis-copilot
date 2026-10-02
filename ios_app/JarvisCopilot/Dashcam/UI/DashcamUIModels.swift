@@ -83,6 +83,8 @@ struct DashcamClipPlaces: Equatable {
 struct DashcamClipTransfer: Equatable {
     let label: String
     let fraction: Double?
+    /// Working, but with no byte count to show (the server's copy to the destinations).
+    var spinner = false
 
     /// Camera → phone (by file name: the sync knows the camera's file), phone → server (by id), then the
     /// server → destinations relay (no byte counts from rclone, so no percentage).
@@ -94,9 +96,13 @@ struct DashcamClipTransfer: Equatable {
         if let u = uploading, u.clipID == clip.id, u.total > 0 {
             return .init(label: "Uploading", fraction: min(1, Double(u.done) / Double(u.total)))
         }
-        if !clip.uploaded, clip.uploadState == "staged" || clip.uploading {
-            return .init(label: "Sending to the cloud", fraction: nil)
+        guard !clip.uploaded else { return nil }
+        if clip.uploadState == "staging" {
+            // Started, another clip is going up now: how far it got, without a bar that looks stuck.
+            let part = clip.size > 0 ? Double(clip.uploadBytes) / Double(clip.size) : 0
+            return .init(label: part > 0 ? "Upload paused at \(Int(part * 100))% — next in line" : "Waiting to upload", fraction: nil)
         }
+        if clip.uploading { return .init(label: "Sending to the cloud", fraction: nil, spinner: true) }
         return nil
     }
 }
@@ -128,6 +134,7 @@ struct DashcamClipStatus: Equatable {
 
 @MainActor
 final class DashcamLibraryModel: ObservableObject {
+    static let shared = DashcamLibraryModel()
     enum Filter: String, CaseIterable, Identifiable {
         case all, events, photos, toUpload, failed
         var id: String { rawValue }

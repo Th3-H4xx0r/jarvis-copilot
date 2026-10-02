@@ -23,7 +23,12 @@ final class FakeDashcam: DashcamCamera, @unchecked Sendable {
         return files
     }
     func thumbnailURL(_ file: DashcamFile) -> URL? { nil }
-    func thumbnail(_ file: DashcamFile) async -> Data? { Data([0xFF, 0xD8] + Array(repeating: 0, count: 200)) }
+    var thumbsMissing = false
+    var thumbCalls: [String] = []
+    func thumbnail(_ file: DashcamFile) async -> Data? {
+        thumbCalls.append(file.path)
+        return thumbsMissing ? nil : Data([0xFF, 0xD8] + Array(repeating: 0, count: 200))
+    }
     func setTime(_ date: Date, timeZone: TimeZone) async throws { calls.append("time") }
     func isRecording() async throws -> Bool { recordingOn }
     /// The A4 answers "set fail" when asked for the state it's already in.
@@ -100,7 +105,10 @@ final class FakeFetcher: DashcamFetcher, @unchecked Sendable {
 }
 
 final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
-    var chunks: [(String, Int, Int)] = []
+    private let lock = NSLock()
+    /// Chunks go up three at a time: record them in chunk order.
+    private var sentChunks: [(String, Int, Int)] = []
+    var chunks: [(String, Int, Int)] { lock.lock(); defer { lock.unlock() }; return sentChunks.sorted { $0.1 < $1.1 } }
     var received: Set<Int> = []
     var full = false
     var completed: [String] = []
@@ -111,10 +119,14 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
         if full { return .full(retryAfter: 60) }
         return .ticket(DashcamUploadTicket(uploadID: "u_" + clipID, chunkSize: 4, received: received))
     }
-    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool) async throws {
-        if index == failChunk { failChunk = nil; throw URLError(.networkConnectionLost) }
-        chunks.append((uploadID, index, data.count))
+    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool,
+                   sent: @escaping @Sendable (Int64) -> Void) async throws {
+        lock.lock()
+        if index == failChunk { failChunk = nil; lock.unlock(); throw URLError(.networkConnectionLost) }
+        sentChunks.append((uploadID, index, data.count))
         received.insert(index)
+        lock.unlock()
+        sent(Int64(data.count))
     }
     func completeUpload(_ uploadID: String) async throws { completed.append(uploadID) }
 }
@@ -202,6 +214,19 @@ final class DashcamSyncTests: XCTestCase {
         let remembered = sync.defaults.dictionary(forKey: DashcamSync.noGPSKey) ?? [:]
         XCTAssertTrue(first.allSatisfy { remembered[$0] != nil }, "remembered across launches")
         XCTAssertEqual(cam.gpsCalls.first, "/mnt/card/loop/front_600.mp4", "newest first")
+    }
+
+    /// "Fetching thumbnails" sat for minutes: a slow camera or clips without a preview.
+    func testClipsWithoutAPreviewDoNotHoldUpThePass() async {
+        cam.files = (0..<12).map { file(.normal, .front, at: TimeInterval($0 * 60)) } + [file(.photo, .front, at: 40, folder: "event")]
+        cam.thumbsMissing = true
+        _ = await sync.syncPass()
+        XCTAssertLessThanOrEqual(cam.thumbCalls.count, 3, "stops after three misses in a row")
+        XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("front_40.mp4"), "the photo still comes down")
+        let first = cam.thumbCalls
+        _ = await sync.syncPass()
+        XCTAssertTrue(Set(cam.thumbCalls.dropFirst(first.count)).isDisjoint(with: first), "a miss isn't asked again")
+        XCTAssertNotNil(sync.defaults.dictionary(forKey: DashcamSync.noThumbKey), "remembered across launches")
     }
 
     func testGPSErrorsDoNotHoldUpThePass() async {

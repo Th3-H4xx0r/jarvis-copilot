@@ -21,6 +21,19 @@ final class DashcamDownloader: @unchecked Sendable {
 
     let session: URLSession
     let resumeDir: URL
+    private let lock = NSLock()
+    private var active: [ObjectIdentifier: (box: TaskBox, resume: URL)] = [:]
+
+    /// Stops every download in flight, keeping resume data (the live view needs the camera's Wi‑Fi).
+    func pauseAll() {
+        lock.lock()
+        let now = Array(active.values)
+        lock.unlock()
+        for item in now {
+            let file = item.resume
+            item.box.task?.cancel { data in if let data { try? data.write(to: file, options: .atomic) } }
+        }
+    }
 
     init(session: URLSession? = nil, resumeDir: URL? = nil) {
         let c = URLSessionConfiguration.default
@@ -62,6 +75,8 @@ final class DashcamDownloader: @unchecked Sendable {
                      progress: @escaping @Sendable (Int64, Int64) -> Void) async throws {
         try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         let box = TaskBox()
+        lock.lock(); active[ObjectIdentifier(box)] = (box, resumeFile); lock.unlock()
+        defer { lock.lock(); active[ObjectIdentifier(box)] = nil; lock.unlock() }
         let poll = Task {
             while !Task.isCancelled {
                 if let t = box.task { progress(t.countOfBytesReceived, t.countOfBytesExpectedToReceive) }
@@ -129,8 +144,22 @@ struct DashcamUploadJob: Codable, Equatable, Sendable {
 /// Anything that can take a chunk upload (the server, or a fake in tests).
 protocol DashcamUploadServer: Sendable {
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> DashcamAPI.UploadStart
-    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool) async throws
+    /// `sent` reports the bytes of this chunk on their way so far.
+    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool,
+                   sent: @escaping @Sendable (Int64) -> Void) async throws
     func completeUpload(_ uploadID: String) async throws
+}
+
+/// Byte-level progress of one chunk's request body.
+private final class DashcamChunkProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let sent: @Sendable (Int64) -> Void
+    init(_ sent: @escaping @Sendable (Int64) -> Void) { self.sent = sent }
+    /// Clip uploads fill the LTE uplink for minutes; the app's own requests go first.
+    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) { task.priority = URLSessionTask.lowPriority }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        sent(totalBytesSent)
+    }
 }
 
 extension DashcamAPI: DashcamUploadServer {
@@ -139,18 +168,22 @@ extension DashcamAPI: DashcamUploadServer {
     static let chunkSession: URLSession = {
         let c = URLSessionConfiguration.default
         c.waitsForConnectivity = false
-        c.timeoutIntervalForRequest = 120
-        c.timeoutIntervalForResource = 900
+        // Weak LTE moves ~1 Mbit/s up: a 4 MiB chunk can take a minute, three at once longer.
+        c.timeoutIntervalForRequest = 300
+        c.timeoutIntervalForResource = 1800
+        c.httpMaximumConnectionsPerHost = 4
         c.httpShouldSetCookies = false
         c.httpCookieAcceptPolicy = .never
         return URLSession(configuration: c)
     }()
 
-    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool) async throws {
+    func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool,
+                   sent: @escaping @Sendable (Int64) -> Void) async throws {
         var req = try api.request("POST", Self.prefix + "/uploads/\(uploadID)/chunk", query: ["n": String(index)],
-                                  headers: ["Content-Type": "application/octet-stream"], body: data, timeout: 120)
+                                  headers: ["Content-Type": "application/octet-stream"], timeout: 600)
+        req.httpBody = nil
         req.allowsCellularAccess = cellular
-        let (body, resp) = try await Self.chunkSession.data(for: req)
+        let (body, resp) = try await Self.chunkSession.upload(for: req, from: data, delegate: DashcamChunkProgress(sent))
         guard let http = resp as? HTTPURLResponse else { throw APIError.badResponse("not HTTP") }
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.http(status: http.statusCode, message: APIError.message(status: http.statusCode, body: body))
@@ -158,8 +191,9 @@ extension DashcamAPI: DashcamUploadServer {
     }
 }
 
-/// Sends finished downloads to the server in 16 MiB chunks. Resumable: the server keeps the
-/// chunks it has and says which on every (re)start, so a dropped connection costs one chunk.
+/// Sends finished downloads to the server in 4 MiB chunks, three at a time (one stream over LTE is slow).
+/// Resumable: the server keeps the chunks it has and says which on every (re)start, so a dropped
+/// connection costs the chunks in flight.
 actor DashcamUploader {
     static let shared = DashcamUploader()
 
@@ -223,7 +257,7 @@ actor DashcamUploader {
     @discardableResult
     func run(server: DashcamUploadServer, cellular: Bool, allow: (@Sendable (DashcamClipKind) -> Bool)? = nil,
              now: @Sendable () -> Date = { Date() },
-             progress: @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
+             progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
         guard !running else { return [] }
         running = true
@@ -292,21 +326,42 @@ actor DashcamUploader {
     }
 
     private func sendMissing(job: DashcamUploadJob, ticket: DashcamUploadTicket, server: DashcamUploadServer,
-                             cellular: Bool, progress: @Sendable (String, Int64, Int64) -> Void) async throws {
+                             cellular: Bool, progress: @escaping @Sendable (String, Int64, Int64) -> Void) async throws {
         let chunk = max(1, ticket.chunkSize)
         let count = Self.chunkCount(size: job.size, chunk: chunk)
+        let missing = (0..<count).filter { !ticket.received.contains($0) }
         let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: job.localPath))
         defer { try? handle.close() }
-        var sent = Int64(ticket.received.count) * Int64(chunk)
-        for n in 0..<count where !ticket.received.contains(n) {
-            try Task.checkCancellation()
-            try handle.seek(toOffset: UInt64(n) * UInt64(chunk))
-            let data = try handle.read(upToCount: chunk) ?? Data()
-            try await server.sendChunk(uploadID: ticket.uploadID, index: n, data: data, cellular: cellular)
-            sent += Int64(data.count)
-            progress(job.clipID, min(sent, job.size), job.size)
+        let tally = DashcamUploadTally(done: min(job.size, Int64(ticket.received.count) * Int64(chunk)))
+        let clipID = job.clipID, size = job.size, uploadID = ticket.uploadID
+        progress(clipID, tally.total, size)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var next = 0
+            func launch() throws {
+                guard next < missing.count else { return }
+                let n = missing[next]
+                next += 1
+                try handle.seek(toOffset: UInt64(n) * UInt64(chunk))
+                let data = try handle.read(upToCount: chunk) ?? Data()
+                group.addTask {
+                    try await server.sendChunk(uploadID: uploadID, index: n, data: data, cellular: cellular) { bytes in
+                        tally.set(n, bytes)
+                        progress(clipID, min(tally.total, size), size)
+                    }
+                    tally.finish(n, Int64(data.count))
+                    progress(clipID, min(tally.total, size), size)
+                }
+            }
+            for _ in 0..<Self.parallelChunks { try launch() }
+            while try await group.next() != nil {
+                try Task.checkCancellation()
+                try launch()
+            }
         }
     }
+
+    static let parallelChunks = 3
+    static let chunkSize = 4 * 1024 * 1024
 
     /// A stored absolute path re-anchored to this install's Documents folder when the old container
     /// no longer exists (paths look like …/Containers/Data/Application/<UUID>/Documents/Dashcam/…).
@@ -334,5 +389,31 @@ actor DashcamUploader {
             return true
         }) {}
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// Bytes sent so far across the chunks in flight, for the progress bar.
+final class DashcamUploadTally: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done: Int64
+    private var inFlight: [Int: Int64] = [:]
+    init(done: Int64) { self.done = done }
+    func set(_ chunk: Int, _ bytes: Int64) { lock.lock(); inFlight[chunk] = bytes; lock.unlock() }
+    func finish(_ chunk: Int, _ bytes: Int64) { lock.lock(); inFlight[chunk] = nil; done += bytes; lock.unlock() }
+    var total: Int64 { lock.lock(); defer { lock.unlock() }; return done + inFlight.values.reduce(0, +) }
+}
+
+/// Passes at most a few updates a second (and always the last one) — byte-level progress would flood the UI.
+final class DashcamThrottle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = Date.distantPast
+    let every: TimeInterval
+    init(every: TimeInterval = 0.25) { self.every = every }
+    func pass(final: Bool = false) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        guard final || now.timeIntervalSince(last) >= every else { return false }
+        last = now
+        return true
     }
 }

@@ -141,6 +141,19 @@ def upload(H, store, cid, data):
     return up
 
 
+def test_the_phone_may_ask_for_smaller_chunks(H, store, monkeypatch):
+    # Over weak LTE a full-size chunk never finished inside a request.
+    monkeypatch.setattr(dr, "MIN_CHUNK_SIZE", 2)
+    add_dest(H)
+    (cid,) = inventory(H, "small.MP4", size=20)
+    sha = hashlib.sha256(bytes(20)).hexdigest()
+    status, up = H("POST", "/uploads", {"clip_id": cid, "size": 20, "sha256": sha, "chunk_size": 4})
+    assert status == 200 and up["chunk_size"] == 4 and up["chunks"] == 5
+    (other,) = inventory(H, "other.MP4", size=20)
+    status, up = H("POST", "/uploads", {"clip_id": other, "size": 20, "sha256": sha, "chunk_size": 1})
+    assert status == 200 and up["chunk_size"] == CHUNK      # below the floor: the default
+
+
 # ── state, cameras, settings ─────────────────────────────────────────────────
 
 def test_state(H):

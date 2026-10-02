@@ -66,6 +66,7 @@ DEST_TYPES = ("drive", "sftp", "ftp", "smb")
 STATE_FILTERS = ("on_camera_only", "on_phone", "uploading", "uploaded", "failed", "pending_upload")
 
 CHUNK_SIZE = 16 * 1024 * 1024          # under the edge nginx's 64 MiB body cap
+MIN_CHUNK_SIZE = 256 * 1024            # smallest chunk a phone may ask for
 THUMB_MAX_BYTES = 512 * 1024
 MAX_FIXES = 20_000
 FIX_MIN_T = 1420070400.0               # 2015-01-01T00:00:00Z
@@ -773,7 +774,10 @@ class DashcamStore:
                 return None, "no_destination"  # staged bytes nobody takes would sit in staging forever
             if up.get("upload_id"):
                 existing = self.get_upload(up["upload_id"])
-                if existing and same and existing.get("size") == size:
+                # Resume with the chunk size it was opened with once any chunk is in; one that never got a
+                # chunk (it stalled at 0%) starts over at the size the phone asks for now.
+                if existing and same and existing.get("size") == size and (
+                        existing.get("chunk_size") == chunk_size or existing.get("received")):
                     return existing, None
                 self._drop_upload(up["upload_id"])
                 _reset_upload(clip)

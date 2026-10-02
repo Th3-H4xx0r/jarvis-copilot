@@ -63,7 +63,7 @@ from urllib.parse import parse_qs
 
 from api import dashcam_drives, dashcam_relay
 from api.dashcam_relay import RelayError, RelayUnavailable
-from api.dashcam_store import CHUNK_SIZE as _STORE_CHUNK_SIZE
+from api.dashcam_store import CHUNK_SIZE as _STORE_CHUNK_SIZE, MIN_CHUNK_SIZE
 from api.dashcam_store import KINDS, LENSES, PHONE_STATES, STATE_FILTERS, THUMB_MAX_BYTES, parse_iso
 
 logger = logging.getLogger(__name__)
@@ -373,7 +373,11 @@ def _create_upload(store, body):
     cid = body.get("clip_id")
     if not isinstance(cid, str):
         return _err(400, "clip_id is required")
-    up, err = store.create_upload(cid, body.get("size"), body.get("sha256"), CHUNK_SIZE)
+    # The phone may ask for smaller chunks: over weak LTE a 16 MiB one can't finish inside a request.
+    asked = body.get("chunk_size")
+    chunk = asked if (isinstance(asked, int) and not isinstance(asked, bool)
+                      and MIN_CHUNK_SIZE <= asked <= CHUNK_SIZE) else CHUNK_SIZE
+    up, err = store.create_upload(cid, body.get("size"), body.get("sha256"), chunk)
     if err == "already_uploaded":
         clip = store.get_clip(cid) or {}
         size = int(clip.get("size") or body.get("size") or 0)

@@ -280,7 +280,21 @@ final class DashcamSync: ObservableObject {
         }
         defaults.set(noGPS.mapValues { NSNumber(value: $0) }, forKey: Self.noGPSKey)
     }
-    private var noThumb: [String: Int64] = [:]
+    /// Clips that gave no preview (camera or file), remembered across launches like `noGPS`.
+    private lazy var noThumb: [String: Int64] = {
+        (defaults.dictionary(forKey: Self.noThumbKey) as? [String: NSNumber] ?? [:]).mapValues(\.int64Value)
+    }()
+    static let noThumbKey = "jc.dashcam.noThumb"
+    static let thumbBudget: TimeInterval = 20
+
+    private func markNoThumb(_ f: DashcamFile, listed: [DashcamFile]) {
+        noThumb[f.path] = f.size
+        if noThumb.count > 3000 {
+            let onCard = Set(listed.map(\.path))
+            noThumb = noThumb.filter { onCard.contains($0.key) }
+        }
+        defaults.set(noThumb.mapValues { NSNumber(value: $0) }, forKey: Self.noThumbKey)
+    }
     private var passes = 0
 
     /// Leaves playback mode and gets the camera recording again, in a task of its own so a
@@ -436,10 +450,13 @@ final class DashcamSync: ObservableObject {
             forced.contains(f.path) || ranges.contains { f.end >= $0.from && f.start <= $0.to }
         }
         let isParked = inPlayback ? true : await parked()
+        // Normal footage on the phone, walked once a pass (it used to be walked for every listed clip, on
+        // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
+        var normalOnPhone = storage.normalBytes(camera: cameraID)
         func wanted(_ f: DashcamFile) -> Bool {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
-            return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID))
+            return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone)
         }
 
         // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else —
@@ -476,8 +493,9 @@ final class DashcamSync: ObservableObject {
             let tz = zone.secondsFromGMT(for: f.start)
             var fixes: [DashcamFix] = []
             if storage.exists(camera: cameraID, file: f) {
-                fixes = DashcamGPS.align(DashcamRemux.tailFixes(storage.localURL(camera: cameraID, file: f)),
-                                         clipStart: f.start, duration: f.durationS, tzOffset: tz)
+                let url = storage.localURL(camera: cameraID, file: f)
+                let raw = await Task.detached(priority: .utility) { DashcamRemux.tailFixes(url) }.value
+                fixes = DashcamGPS.align(raw, clipStart: f.start, duration: f.durationS, tzOffset: tz)
             }
             if fixes.isEmpty {
                 do { fixes = try await cam.gps(f, tzOffset: tz) } catch { errorRun += 1; continue }
@@ -492,17 +510,25 @@ final class DashcamSync: ObservableObject {
             }
         }
 
-        // 3. Thumbnails for the library (at most 60 tries a pass).
-        phase = .syncing("Fetching thumbnails")
-        var tries = 0
-        for f in files where stable(f) && rows[f.path] != nil && rows[f.path]?.hasThumb != true && noThumb[f.path] != f.size {
-            guard tries < 60, await mayContinue() else { break }
-            tries += 1
+        // 3. Thumbnails for the library, newest first and within a budget like GPS: a slow camera or clips
+        // without a preview must never hold up the downloads ("Fetching thumbnails" sat for minutes).
+        let needThumb = files.filter { stable($0) && rows[$0.path] != nil && rows[$0.path]?.hasThumb != true && noThumb[$0.path] != $0.size }
+            .sorted { $0.start > $1.start }
+        let thumbDeadline = Date().addingTimeInterval(Self.thumbBudget)
+        var thumbMisses = 0
+        for (i, f) in needThumb.enumerated() {
+            guard await mayContinue() else { return report }
+            guard Date() < thumbDeadline, thumbMisses < 3 else { break }
+            phase = .syncing("Fetching thumbnails (\(i + 1) of \(needThumb.count))")
             // A clip already on the phone gives its preview without touching the camera.
-            var preview = storage.exists(camera: cameraID, file: f)
-                ? DashcamRemux.embeddedJPEG(file: storage.localURL(camera: cameraID, file: f)) : nil
+            var preview: Data?
+            if storage.exists(camera: cameraID, file: f) {
+                let url = storage.localURL(camera: cameraID, file: f)
+                preview = await Task.detached(priority: .utility) { DashcamRemux.embeddedJPEG(file: url) }.value
+            }
             if preview == nil { preview = await cam.thumbnail(f) }
-            guard let data = preview else { noThumb[f.path] = f.size; continue }
+            guard let data = preview else { thumbMisses += 1; markNoThumb(f, listed: files); continue }
+            thumbMisses = 0
             if (try? await server.putThumb(clipID: clipID(f), jpeg: data)) != nil { report.thumbs += 1 }
         }
 
@@ -513,8 +539,9 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { break }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID)) { continue }
+            if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone) { continue }
             await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+            if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size }
             if !onCameraProvider() { break }
         }
         queuedDownloads = 0
@@ -604,8 +631,10 @@ final class DashcamSync: ObservableObject {
         let rules = self.rules
         guard rules.upload else { return }
         let isParked = rules.uploadWhen == .parked ? await parked() : true
+        let throttle = DashcamThrottle()
         let done = await uploader.run(server: uploadServer, cellular: cellular,
                                       allow: { rules.mayUpload($0, metered: cellular, parked: isParked) }) { id, sent, total in
+            guard throttle.pass(final: sent >= total) else { return }
             Task { @MainActor in self.uploading = (id, sent, total) }
         }
         uploading = nil

@@ -45,10 +45,29 @@ struct DashcamThumb: View {
     }
 }
 
+/// The one part of a row that follows live transfers — so progress redraws a line, not the list.
+struct DashcamClipTransferLine: View {
+    let clip: DashcamServerClip
+    @ObservedObject private var sync: DashcamSync = .shared
+
+    var body: some View {
+        if let t = DashcamClipTransfer.of(clip, downloading: sync.downloading, uploading: sync.uploading) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    // An indeterminate linear bar draws as an empty track on iOS — it read as "stuck at 0%".
+                    if t.spinner { ProgressView().controlSize(.mini).tint(JcTheme.accent) }
+                    Text(t.fraction.map { "\(t.label) · \(Int($0 * 100))%" } ?? t.label)
+                        .font(.caption2).foregroundStyle(JcTheme.accent)
+                }
+                if let f = t.fraction { ProgressView(value: f).tint(JcTheme.accent) }
+            }
+        }
+    }
+}
+
 struct DashcamClipRow: View {
     let clip: DashcamServerClip
     let uploadingID: String?
-    @ObservedObject private var sync: DashcamSync = .shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -72,17 +91,7 @@ struct DashcamClipRow: View {
                         Text("· \(DashcamSpeed.duration(clip.durationS))").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if let t = DashcamClipTransfer.of(clip, downloading: sync.downloading, uploading: sync.uploading) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(t.fraction.map { "\(t.label) · \(Int($0 * 100))%" } ?? t.label)
-                            .font(.caption2).foregroundStyle(JcTheme.accent)
-                        if let f = t.fraction {
-                            ProgressView(value: f).tint(JcTheme.accent)
-                        } else {
-                            ProgressView().progressViewStyle(.linear).tint(JcTheme.accent)
-                        }
-                    }
-                }
+                DashcamClipTransferLine(clip: clip)
             }
             Spacer(minLength: 0)
             JcIcon("chevron.right", size: 12).foregroundStyle(JcTheme.muted)
@@ -108,7 +117,9 @@ struct DashcamClipRow: View {
 
 /// Every clip Jarvis knows about — on the camera, on the phone, uploading, uploaded — by day.
 struct DashcamLibraryView: View {
-    @StateObject private var model = DashcamLibraryModel()
+    /// Shared, so coming back shows the last list at once while it refreshes (over LTE with uploads
+    /// running, the first reply can take seconds).
+    @ObservedObject private var model = DashcamLibraryModel.shared
     @ObservedObject private var sync: DashcamSync = .shared
     @ObservedObject private var wifi: DashcamWiFi = .shared
     @State private var confirmDelete: DashcamServerClip?

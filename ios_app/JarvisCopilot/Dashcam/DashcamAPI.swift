@@ -47,6 +47,8 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var phoneState: String
     var phoneError: String?
     var uploadState: String
+    /// Bytes of the phone → server upload the server holds so far.
+    var uploadBytes: Int64 = 0
     var destinations: [String: DashcamDestinationState]
     var driveID: String?
     /// The server's own verdict (every enabled destination has it); preferred over recomputing.
@@ -72,6 +74,7 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
         phoneError = str(phone["error"])
         let upload = json["upload"] as? [String: Any] ?? [:]
         uploadState = str(upload["state"]) ?? "none"
+        uploadBytes = Int64(num(upload["bytes"]) ?? 0)
         var dests: [String: DashcamDestinationState] = [:]
         for (k, v) in json["destinations"] as? [String: Any] ?? [:] {
             if let d = v as? [String: Any] { dests[k] = DashcamDestinationState(json: d) }
@@ -316,7 +319,8 @@ struct DashcamAPI: Sendable {
 
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> UploadStart {
         do {
-            let o = try await api.post(Self.prefix + "/uploads", json: ["clip_id": clipID, "size": size, "sha256": sha256]).object()
+            let o = try await api.post(Self.prefix + "/uploads", json: ["clip_id": clipID, "size": size, "sha256": sha256,
+                                                                        "chunk_size": DashcamUploader.chunkSize]).object()
             return try Self.uploadStart(o)
         } catch APIError.http(let status, _) where status == 507 {
             return .full(retryAfter: 60)

@@ -366,6 +366,20 @@ def test_create_upload_resumes_the_same_open_upload(store):
     assert store.get_clip(cid)["upload"]["state"] == "staging"
 
 
+def test_a_stalled_upload_restarts_at_the_chunk_size_asked_for(store):
+    # Over weak LTE a 16 MiB chunk never finished; the phone now asks for smaller ones.
+    add_dest(store)
+    store.apply_inventory(CAM, [item("a.MP4", size=10)])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    sha = hashlib.sha256(b"0123456789").hexdigest()
+    stalled, _ = store.create_upload(cid, 10, sha, 8)
+    smaller, err = store.create_upload(cid, 10, sha, 4)
+    assert err is None and smaller["id"] != stalled["id"] and smaller["chunk_size"] == 4
+    store.write_chunk(smaller["id"], 0, b"0123")
+    kept, _ = store.create_upload(cid, 10, sha, 8)      # chunks are in: keep its size, lose nothing
+    assert kept["id"] == smaller["id"] and kept["received"] == [0]
+
+
 def test_create_upload_with_a_new_hash_replaces_the_old_upload(store):
     add_dest(store)
     store.apply_inventory(CAM, [item("a.MP4", size=10)])
