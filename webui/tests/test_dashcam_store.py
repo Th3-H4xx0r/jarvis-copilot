@@ -96,6 +96,7 @@ def test_same_size_across_two_listings_is_stable_and_a_change_is_not(store):
 
 
 def test_size_change_resets_an_unfinished_upload_and_drops_its_staging(store):
+    add_dest(store)
     it = item("a.MP4", size=8)
     store.apply_inventory(CAM, [it])
     cid = DashcamStore.clip_id(CAM, it["path"])
@@ -291,6 +292,7 @@ def test_thumb_accepts_jpeg_and_rejects_png_and_oversize(store):
 # ── uploads ──────────────────────────────────────────────────────────────────
 
 def test_create_upload_resumes_the_same_open_upload(store):
+    add_dest(store)
     store.apply_inventory(CAM, [item("a.MP4", size=10)])
     cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
     sha = hashlib.sha256(b"0123456789").hexdigest()
@@ -304,6 +306,7 @@ def test_create_upload_resumes_the_same_open_upload(store):
 
 
 def test_create_upload_with_a_new_hash_replaces_the_old_upload(store):
+    add_dest(store)
     store.apply_inventory(CAM, [item("a.MP4", size=10)])
     cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
     old, _ = store.create_upload(cid, 10, "a" * 64, 4)
@@ -322,6 +325,7 @@ def test_create_upload_validates(store):
 
 
 def test_staging_cap_is_enforced(store):
+    add_dest(store)
     store.update_settings({"staging_cap_bytes": 256 * 1024 * 1024})
     store.apply_inventory(CAM, [item("a.MP4"), item("b.MP4"), item("c.MP4")])
     a, b, c = (DashcamStore.clip_id(CAM, item(n)["path"]) for n in ("a.MP4", "b.MP4", "c.MP4"))
@@ -333,6 +337,7 @@ def test_staging_cap_is_enforced(store):
 
 
 def test_idle_unfinished_uploads_are_purged_when_space_is_needed(store):
+    add_dest(store)
     store.update_settings({"staging_cap_bytes": 256 * 1024 * 1024})
     store.apply_inventory(CAM, [item("a.MP4"), item("b.MP4")])
     a, b = (DashcamStore.clip_id(CAM, item(n)["path"]) for n in ("a.MP4", "b.MP4"))
@@ -347,6 +352,7 @@ def test_idle_unfinished_uploads_are_purged_when_space_is_needed(store):
 
 
 def test_write_chunk_out_of_order_duplicate_and_short_last(store):
+    add_dest(store)
     data = b"0123456789"
     store.apply_inventory(CAM, [item("a.MP4", size=10)])
     cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
@@ -365,6 +371,7 @@ def test_write_chunk_out_of_order_duplicate_and_short_last(store):
 
 
 def test_complete_upload_checks_chunks_and_hash(store):
+    add_dest(store)
     data = b"0123456789"
     store.apply_inventory(CAM, [item("a.MP4", size=10)])
     cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
@@ -448,17 +455,49 @@ def test_deleting_a_failing_destination_lets_staging_go(store):
 
 
 def test_release_needs_at_least_one_destination(store):
+    dest = add_dest(store)
     cid, up = upload_clip(store, item("a.MP4", size=10), b"0123456789")
+    store.delete_destination(dest["id"])
     assert store.release_staging_if_done(cid) is False
     assert store.get_clip(cid)["upload"]["state"] == "staged"
 
 
 def test_staged_clip_ids_lists_completed_uploads_only(store):
+    add_dest(store)
     cid, _ = upload_clip(store, item("a.MP4", size=10), b"0123456789")
     store.apply_inventory(CAM, [item("a.MP4", size=10), item("b.MP4", size=10)])
     other = DashcamStore.clip_id(CAM, item("b.MP4")["path"])
     store.create_upload(other, 10, "a" * 64, 4)
     assert store.staged_clip_ids() == [cid]
+
+
+def test_upload_is_refused_when_no_enabled_destination_takes_the_kind(store):
+    store.apply_inventory(CAM, [item("a.MP4", size=10)])
+    cid = DashcamStore.clip_id(CAM, item("a.MP4")["path"])
+    sha = hashlib.sha256(b"0123456789").hexdigest()
+    assert store.create_upload(cid, 10, sha, 4) == (None, "no_destination")
+    add_dest(store, "Events", kinds=["event"])
+    off = add_dest(store, "Off", enabled=False)
+    assert store.create_upload(cid, 10, sha, 4) == (None, "no_destination")
+    assert store.staging_bytes() == 0 and store.get_clip(cid)["upload"]["state"] == "none"
+    store.update_destination(off["id"], {"enabled": True})
+    up, err = store.create_upload(cid, 10, sha, 4)
+    assert err is None and up["chunks"] == 3
+
+
+def test_abandon_upload_resets_a_staged_clip_no_destination_takes(store):
+    dest = add_dest(store)
+    cid, up = upload_clip(store, item("a.MP4", size=10), b"0123456789")
+    assert store.abandon_upload(cid) is False          # its destination still takes it
+    store.update_destination(dest["id"], {"enabled": False})
+    assert store.abandon_upload(cid) is True
+    clip = store.get_clip(cid)
+    assert clip["upload"] == {"state": "none", "upload_id": None, "bytes": 0, "sha256": None}
+    assert clip["destinations"] == {} and store.is_uploaded(clip) is False
+    assert store.get_upload(up["id"]) is None and not store.staging_path(up["id"]).exists()
+    assert store.staged_clip_ids() == [] and store.staging_bytes() == 0
+    assert store.abandon_upload(cid) is False          # nothing staged any more
+    assert store.abandon_upload("c_missing") is False
 
 
 # ── destinations ─────────────────────────────────────────────────────────────

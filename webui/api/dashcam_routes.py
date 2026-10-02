@@ -29,6 +29,8 @@ Endpoints (GET/POST/DELETE only)::
                                            destination that has it, through rclone; 404 before upload
     POST   /uploads {clip_id, size, sha256} -> {ok, upload_id, chunk_size, chunks, received, complete[, already_uploaded]}
                                            | 507 {ok:false, error:"staging_full", retry_after} | 413 too_large
+                                           | 409 {ok:false, error:"no_destination"} (no enabled destination
+                                             takes the clip's kind: keep the file, ask again later)
     GET    /uploads/<id>                -> {ok, upload_id, size, chunk_size, chunks, received, complete}
     POST   /uploads/<id>/chunk?n=<n>    raw bytes (<= chunk_size) -> {ok, received, chunks}
     POST   /uploads/<id>/complete       -> {ok, clip} | 400 {error: missing_chunks (+missing) | size_mismatch | sha256_mismatch}
@@ -374,6 +376,8 @@ def _create_upload(store, body):
                      "already_uploaded": True}
     if err == "clip_not_found":
         return _err(404, "clip not found")
+    if err == "no_destination":
+        return _err(409, "no_destination")   # the phone keeps the file and asks again later
     if err == "staging_full":
         return _err(507, "staging_full", retry_after=RETRY_AFTER_S)
     if err == "too_large":

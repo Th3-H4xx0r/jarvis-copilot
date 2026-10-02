@@ -114,6 +114,12 @@ def inventory(H, *names, size=20, kind="normal", start=None):
     return [row["id"] for row in payload["clips"]]
 
 
+def add_dest(H, **extra):
+    status, payload = H("POST", "/destinations", {"type": "sftp", "name": "NAS", "host": "h", "user": "u", **extra})
+    assert status == 200, payload
+    return payload["destination"]
+
+
 def chunk(store, upload_id, n, data):
     h = FakeHandler({"Content-Type": "application/octet-stream"}, data)
     assert dr.handle_dashcam_raw_post(h, f"/api/dashcam/uploads/{upload_id}/chunk?n={n}", store) is True
@@ -229,6 +235,7 @@ def test_retry_resets_failed_destinations(H, store):
 # ── uploads ──────────────────────────────────────────────────────────────────
 
 def test_chunked_upload_resumes_from_received(H, store):
+    add_dest(H)
     data = bytes(range(20))
     (cid,) = inventory(H, "a.MP4", size=20)
     sha = hashlib.sha256(data).hexdigest()
@@ -262,6 +269,16 @@ def test_upload_after_release_is_already_uploaded(H, store):
     assert payload["upload_id"] is None
 
 
+def test_upload_without_a_destination_for_the_kind_is_409(H, store):
+    (cid,) = inventory(H, "a.MP4", size=10)
+    body = {"clip_id": cid, "size": 10, "sha256": hashlib.sha256(b"0123456789").hexdigest()}
+    assert H("POST", "/uploads", body) == (409, {"ok": False, "error": "no_destination"})
+    add_dest(H, kinds=["event"])
+    assert H("POST", "/uploads", body) == (409, {"ok": False, "error": "no_destination"})
+    add_dest(H, kinds=["normal"])
+    assert H("POST", "/uploads", body)[0] == 200
+
+
 def test_upload_errors(H, store):
     (cid,) = inventory(H, "a.MP4", size=20)
     assert H("POST", "/uploads", {"clip_id": "c_00000000000000000000", "size": 1, "sha256": "a" * 64})[0] == 404
@@ -272,6 +289,7 @@ def test_upload_errors(H, store):
 
 
 def test_sha256_mismatch_is_400(H, store):
+    add_dest(H)
     (cid,) = inventory(H, "a.MP4", size=10)
     status, up = H("POST", "/uploads", {"clip_id": cid, "size": 10, "sha256": "b" * 64})
     chunk(store, up["upload_id"], 0, b"01234567")
@@ -281,6 +299,7 @@ def test_sha256_mismatch_is_400(H, store):
 
 
 def test_staging_full_is_507_and_too_large_is_413(H, store):
+    add_dest(H)
     store.update_settings({"staging_cap_bytes": 256 * 1024 * 1024})
     a, b, c = inventory(H, "a.MP4", "b.MP4", "c.MP4")
     mib = 1024 * 1024
@@ -292,6 +311,7 @@ def test_staging_full_is_507_and_too_large_is_413(H, store):
 
 
 def test_raw_chunk_limits(store, H):
+    add_dest(H)
     (cid,) = inventory(H, "a.MP4", size=20)
     status, up = H("POST", "/uploads", {"clip_id": cid, "size": 20, "sha256": "a" * 64})
     big = FakeHandler({}, b"x" * (CHUNK + 1))
@@ -341,6 +361,7 @@ def test_thumbnail_upload_and_get(store, H):
 # ── streaming ────────────────────────────────────────────────────────────────
 
 def test_stream_from_staging_honours_range(store, H, relay):
+    add_dest(H)
     data = bytes(range(200))
     (cid,) = inventory(H, "a.MP4", size=200)
     upload(H, store, cid, data)

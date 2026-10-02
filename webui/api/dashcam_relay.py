@@ -598,8 +598,15 @@ class RelayWorker(threading.Thread):
         for cid in staged:
             store.queue_destinations(cid)
             clip = store.get_clip(cid)
-            if clip is not None and (clip.get("upload") or {}).get("state") == "staged":
-                clips.append(clip)
+            if clip is None or (clip.get("upload") or {}).get("state") != "staged":
+                continue
+            if not any(_applicable(d, clip) for d in dests.values()):
+                # Its only destination was deleted, disabled or stopped taking its kind: free the
+                # staging space and let the phone send it again once a destination takes it.
+                if store.abandon_upload(cid):
+                    logger.info("dashcam relay: no destination takes %s any more; dropped its staged copy", cid)
+                continue
+            clips.append(clip)
         clips.sort(key=lambda c: (_PRIORITY.get(c.get("kind"), 9), -(parse_iso(c.get("start")) or 0)))
         try:
             for clip in clips:

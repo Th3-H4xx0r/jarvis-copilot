@@ -571,14 +571,41 @@ def test_disabling_a_destination_or_dropping_the_upload_frees_its_job(fake, rela
 
 
 def test_a_destination_added_later_gets_the_staged_clips(fake, relay, store):
+    slow = dest(store, "Drive", "jc_d_slow")
+    fake.polls_to_finish = 10 ** 6
     cid, _ = staged_clip(store)
     w = RelayWorker(lambda: store, relay, clock=Clock())
     w.tick()
-    assert store.get_clip(cid)["upload"]["state"] == "staged"
+    assert store.get_clip(cid)["destinations"][slow["id"]]["state"] == "uploading"
     d = dest(store, "NAS", "jc_d_nas")
+    fake.polls_to_finish = 0
     w.tick(); w.tick()
     clip = store.get_clip(cid)
-    assert clip["destinations"][d["id"]]["state"] == "done" and clip["upload"]["state"] == "done"
+    assert clip["destinations"][d["id"]]["state"] == "done"
+    assert clip["upload"]["state"] == "staged"            # still waiting for the slow one
+
+
+@pytest.mark.parametrize("how", ["delete", "disable", "kinds"])
+def test_a_staged_clip_no_destination_takes_any_more_goes_back_to_the_phone(fake, relay, store, how):
+    d = dest(store, "NAS", "jc_d_nas")
+    fake.polls_to_finish = 10 ** 6
+    cid, up = staged_clip(store)
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    if how == "delete":
+        store.delete_destination(d["id"])
+    elif how == "disable":
+        store.update_destination(d["id"], {"enabled": False})
+    else:
+        store.update_destination(d["id"], {"kinds": ["event"]})
+    w.tick()
+    clip = store.get_clip(cid)
+    # Not uploaded: the upload is reset so the phone keeps its copy and sends it again later.
+    assert clip["upload"]["state"] == "none" and clip["destinations"] == {}
+    assert store.is_uploaded(clip) is False and store.list_clips(state="uploaded")[0] == []
+    assert not store.staging_path(up["id"]).exists() and store.staging_bytes() == 0
+    w.tick()
+    assert w._jobs == {}
 
 
 def test_worker_idles_without_rclone(store, tmp_path, monkeypatch):

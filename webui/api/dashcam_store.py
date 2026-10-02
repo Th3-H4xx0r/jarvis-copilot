@@ -19,7 +19,9 @@ A JSON-file store under the webui state dir, beside the island/widget stores::
 A clip's identity is ``<camera_id>:<camera path>``, hashed to ``c_<20 hex>``. Its
 ``upload.state`` walks ``none -> staging -> staged -> done``: staging while the phone
 sends chunks, staged once the bytes are checked (size + sha256) and waiting for the
-relay, done once every enabled destination has it and the staging file is gone.
+relay, done once every enabled destination has it and the staging file is gone. A staged
+clip no enabled destination takes any more goes back to ``none`` (``abandon_upload``) so the
+phone sends it again later; an upload is refused (``no_destination``) while none takes it.
 Each destination entry walks ``pending -> uploading -> done`` (or ``failed`` after
 the relay's retries).
 
@@ -694,7 +696,8 @@ class DashcamStore:
         """Opens (or resumes) the upload of one clip's bytes. The same clip + size + sha256 returns
         the open upload with the chunks already received; once the bytes are staged it comes back
         ``complete`` and after release the answer is ``already_uploaded``. Errors: clip_not_found,
-        bad_request, too_large (bigger than the staging cap), staging_full."""
+        bad_request, no_destination (no enabled destination takes the clip's kind: the phone keeps
+        the file and asks again later), too_large (bigger than the staging cap), staging_full."""
         if not (isinstance(size, int) and not isinstance(size, bool) and size > 0):
             return None, "bad_request"
         if not isinstance(sha256, str) or not _SHA256.match(sha256.lower()):
@@ -710,6 +713,8 @@ class DashcamStore:
             same = up.get("sha256") == sha256
             if up.get("state") == "done" and same:
                 return None, "already_uploaded"
+            if not any(_applicable(d, clip) for d in self._dest_doc().values()):
+                return None, "no_destination"  # staged bytes nobody takes would sit in staging forever
             if up.get("upload_id"):
                 existing = self.get_upload(up["upload_id"])
                 if existing and same and existing.get("size") == size:
@@ -831,6 +836,23 @@ class DashcamStore:
                 return False
             self._drop_upload(clip["upload"].get("upload_id"))
             clip["upload"]["state"] = "done"
+            self._save_clip(clip)
+        return True
+
+    def abandon_upload(self, clip_id: str) -> bool:
+        """Drops a staged clip's bytes when no enabled destination takes it any more (its only
+        destination was deleted, disabled, or stopped taking its kind). The upload goes back to
+        ``none`` - not done: the clip is not uploaded, so the phone keeps it and sends it again
+        once a destination takes it. Re-checked under the lock; False when nothing was dropped."""
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            if clip is None or (clip.get("upload") or {}).get("state") != "staged":
+                return False
+            if any(_applicable(d, clip) for d in self._dest_doc().values()):
+                return False
+            self._drop_upload(clip["upload"].get("upload_id"))
+            clip["upload"] = _empty_upload()
+            clip["destinations"] = {}
             self._save_clip(clip)
         return True
 
