@@ -51,6 +51,19 @@ class FakeRclone:
         self.polls_to_finish = 0
         self.extra_question = None  # a question no one should answer
         self.drive_step = {}
+        self.stopped = []           # job ids passed to job/stop
+
+    def restart(self):
+        """What a fresh rclone rcd process looks like: no jobs, ids from 1 again."""
+        self.jobs = {}
+        self.next_job = 1
+
+    def unrelated_finished_call(self):
+        """rclone gives every rc call - sync ones too - a job id in the default group ``job/<id>``."""
+        jid = self.next_job
+        self.next_job += 1
+        self.jobs[jid] = {"polls_left": 0, "success": True, "error": "", "group": f"job/{jid}"}
+        return jid
 
 
 def make_handler(fake: FakeRclone):
@@ -138,7 +151,8 @@ def make_handler(fake: FakeRclone):
                     src = Path("/" + body["srcRemote"]).read_bytes()
                     fake.files[f"{body['dstFs'].rstrip('/')}/{body['dstRemote']}"] = src
                 fake.jobs[jid] = {"polls_left": fake.polls_to_finish, "success": ok,
-                                  "error": "" if ok else "ssh: handshake failed: unable to authenticate"}
+                                  "error": "" if ok else "ssh: handshake failed: unable to authenticate",
+                                  "group": body.get("_group") or f"job/{jid}"}
                 return self._send(200, {"jobid": jid, "executeId": "x"})
             if path == "job/status":
                 job = fake.jobs.get(body.get("jobid"))
@@ -146,9 +160,15 @@ def make_handler(fake: FakeRclone):
                     return self._send(500, {"error": "job not found"})
                 if job["polls_left"] > 0:
                     job["polls_left"] -= 1
-                    return self._send(200, {"finished": False, "success": False, "error": "", "id": body["jobid"]})
+                    return self._send(200, {"finished": False, "success": False, "error": "", "id": body["jobid"],
+                                            "group": job["group"]})
                 return self._send(200, {"finished": True, "success": job["success"], "error": job["error"],
-                                        "id": body["jobid"]})
+                                        "id": body["jobid"], "group": job["group"]})
+            if path == "job/stop":
+                if body.get("jobid") not in fake.jobs:
+                    return self._send(500, {"error": "job not found"})
+                fake.stopped.append(body["jobid"])
+                return self._send(200, {})
             return self._send(404, {"error": "unknown method"})
 
     return H
@@ -332,9 +352,23 @@ def test_start_copy_puts_the_folder_in_the_destination_fs(fake, relay, tmp_path)
     body = [b for p, b in fake.requests if p == "operations/copyfile"][0]
     assert body == {"srcFs": "/", "srcRemote": str(src).lstrip("/"), "dstFs": "jc_d_1:/volume1/dashcam/A4/2026-10-01/normal",
                     "dstRemote": "A.MP4", "_async": True}
-    assert relay.job_status(jid) == {"finished": True, "success": True, "error": None}
-    with pytest.raises(RelayError, match="job not found"):
-        relay.job_status(999)
+    assert relay.job_status(jid) == {"finished": True, "success": True, "error": None, "lost": False}
+    # A job rclone doesn't know (it restarted, or the job expired) is lost, not failed.
+    assert relay.job_status(999)["lost"] is True
+
+
+def test_job_status_only_trusts_a_job_from_the_same_group(fake, relay, tmp_path):
+    src = tmp_path / "u_1.part"
+    src.write_bytes(b"abc")
+    group = "dashcam/c_1/d_1/u_1"
+    jid = relay.start_copy(str(src), "jc_d_1", "dashcam/A.MP4", group=group)
+    assert [b for p, b in fake.requests if p == "operations/copyfile"][0]["_group"] == group
+    assert relay.job_status(jid, group=group) == {"finished": True, "success": True, "error": None, "lost": False}
+    # rclone restarted: the same id now names some other call that succeeded.
+    fake.restart()
+    assert fake.unrelated_finished_call() == jid
+    status = relay.job_status(jid, group=group)
+    assert status["lost"] is True and status["success"] is False
 
 
 def test_open_stream_passes_range_through(fake, relay):
@@ -420,6 +454,111 @@ def test_uploading_without_a_job_after_restart_goes_back_to_pending(fake, relay,
     assert store.get_clip(cid)["destinations"][d["id"]]["state"] == "done"
 
 
+def copies(fake):
+    return [b for p, b in fake.requests if p == "operations/copyfile"]
+
+
+def test_an_old_job_id_after_an_rclone_restart_never_marks_the_clip_done(fake, relay, store):
+    d = dest(store, "NAS", "jc_d_nas")
+    cid, up = staged_clip(store)
+    fake.polls_to_finish = 10 ** 6            # the copy is slow (or the host is a black hole)
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    assert store.get_clip(cid)["destinations"][d["id"]]["state"] == "uploading"
+    # rclone rcd restarts; its first rc call reuses the copy's job id and finishes fine.
+    fake.restart()
+    fake.unrelated_finished_call()
+    w.tick()
+    clip = store.get_clip(cid)
+    entry = clip["destinations"][d["id"]]
+    assert entry["state"] == "uploading" and entry["attempts"] == 0   # lost: copied again, no attempt counted
+    assert clip["upload"]["state"] == "staged" and store.staging_path(up["id"]).exists()
+    assert len(copies(fake)) == 2
+    for job in fake.jobs.values():
+        job["polls_left"] = 0
+    w.tick()
+    assert store.get_clip(cid)["upload"]["state"] == "done"
+
+
+def test_a_job_from_an_older_rclone_generation_is_lost_without_asking(fake, relay, store):
+    d = dest(store, "NAS", "jc_d_nas")
+    cid, _ = staged_clip(store)
+    fake.polls_to_finish = 10 ** 6
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    first = copies(fake)[0]
+    relay.generation += 1                     # what a respawn of rclone rcd does
+    polls = len([1 for p, _ in fake.requests if p == "job/status"])
+    w.tick()
+    assert len([1 for p, _ in fake.requests if p == "job/status"]) == polls
+    entry = store.get_clip(cid)["destinations"][d["id"]]
+    assert entry["state"] == "uploading" and entry["attempts"] == 0
+    assert len(copies(fake)) == 2 and copies(fake)[1]["_group"] == first["_group"]
+
+
+def test_a_copy_of_an_older_upload_never_completes_the_new_one(fake, relay, store):
+    d = dest(store, "NAS", "jc_d_nas")
+    cid, old = staged_clip(store)
+    fake.polls_to_finish = 10 ** 6
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    w.tick()
+    old_job = max(fake.jobs)
+    # The phone re-sends the clip (new bytes): a new upload replaces the staged one.
+    data = b"9876543210" * 10
+    up, err = store.create_upload(cid, len(data), hashlib.sha256(data).hexdigest(), 64)
+    assert err is None and up["id"] != old["id"]
+    for n in range(up["chunks"]):
+        store.write_chunk(up["id"], n, data[n * 64:(n + 1) * 64])
+    assert store.complete_upload(up["id"])[1] is None
+    fake.jobs[old_job]["polls_left"] = 0      # the old copy finishes
+    w.tick()
+    clip = store.get_clip(cid)
+    assert clip["upload"]["upload_id"] == up["id"] and clip["upload"]["state"] == "staged"
+    assert clip["destinations"][d["id"]]["state"] == "uploading"
+    assert copies(fake)[-1]["srcRemote"] == str(store.staging_path(up["id"])).lstrip("/")
+    # ...and even when a stale finish slips through, the store ignores it.
+    assert store.set_destination_state(cid, d["id"], "done", upload_id=old["id"]) is None
+    assert store.get_clip(cid)["destinations"][d["id"]]["state"] == "uploading"
+
+
+def test_deleting_a_destination_mid_copy_frees_its_job_slots(fake, relay, store):
+    bad = dest(store, "Wrong folder", "jc_d_bad")
+    fake.polls_to_finish = 10 ** 6
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    cids = [staged_clip(store, os.urandom(100), name=f"2026_1001_15400{i}_F.MP4")[0]
+            for i in range(dr.MAX_ACTIVE_JOBS)]
+    w.tick()
+    assert len(w._jobs) == dr.MAX_ACTIVE_JOBS
+    bad_jobs = sorted(fake.jobs)
+    store.delete_destination(bad["id"])
+    good = dest(store, "NAS", "jc_d_good")
+    fake.polls_to_finish = 0
+    w.tick(); w.tick()
+    assert all(store.get_clip(c)["upload"]["state"] == "done" for c in cids)
+    assert not any(k[1] == bad["id"] for k in w._jobs)
+    assert sorted(fake.stopped) == bad_jobs   # best effort: the abandoned copies are stopped
+    assert all(store.get_clip(c)["destinations"][good["id"]]["state"] == "done" for c in cids)
+
+
+def test_disabling_a_destination_or_dropping_the_upload_frees_its_job(fake, relay, store):
+    a = dest(store, "A", "jc_d_a")
+    b = dest(store, "B", "jc_d_b")
+    fake.polls_to_finish = 10 ** 6
+    w = RelayWorker(lambda: store, relay, clock=Clock())
+    cid, _ = staged_clip(store)
+    w.tick()
+    assert {k[1] for k in w._jobs} == {a["id"], b["id"]}
+    store.update_destination(b["id"], {"enabled": False})
+    w.tick()
+    assert {k[1] for k in w._jobs} == {a["id"]}
+    # The next camera listing shows a new size: the staged upload is thrown away.
+    store.apply_inventory(CAM, [{"path": store.get_clip(cid)["path"], "kind": "normal", "lens": "front",
+                                 "start": "2026-10-01T20:40:12Z", "duration": 60, "size": 999}])
+    w.tick()
+    assert w._jobs == {}
+    assert len(fake.stopped) == 2
+
+
 def test_a_destination_added_later_gets_the_staged_clips(fake, relay, store):
     cid, _ = staged_clip(store)
     w = RelayWorker(lambda: store, relay, clock=Clock())
@@ -500,9 +639,13 @@ def test_supervisor_spawns_restarts_and_keeps_the_password_off_argv(tmp_path, mo
         assert argv[argv.index("--rc-addr") + 1].startswith("127.0.0.1:")
         assert runs[0]["has_env_pass"] and "--rc-pass" not in argv and "--rc-user" not in argv
         assert not any(re.fullmatch(r"[0-9a-f]{32}", a) for a in argv)
+        # Finished jobs stay answerable long after a slow tick would poll them.
+        assert argv[argv.index("--rc-job-expire-duration") + 1] == "6h"
+        assert r.generation == 1
         os.kill(first, 9)
         time.sleep(0.2)
         second = r.rc("core/version")["pid"]
         assert second != first
+        assert r.generation == 2              # job ids from the first process mean nothing now
     finally:
         r.shutdown()

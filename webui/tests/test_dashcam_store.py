@@ -426,6 +426,17 @@ def test_release_staging_only_when_every_destination_is_done(store):
     assert store.list_clips(state="uploaded")[0][0]["id"] == cid
 
 
+def test_a_destination_update_for_another_upload_is_ignored(store):
+    dest = add_dest(store)
+    cid, up = upload_clip(store, item("a.MP4", size=10), b"0123456789")
+    assert store.set_destination_state(cid, dest["id"], "done", remote_path="x", upload_id="u_00000000000000ff") is None
+    entry = store.get_clip(cid)["destinations"][dest["id"]]
+    assert entry["state"] == "pending" and entry["remote_path"] is None
+    assert store.release_staging_if_done(cid) is False
+    clip = store.set_destination_state(cid, dest["id"], "done", remote_path="x", upload_id=up["id"])
+    assert clip["destinations"][dest["id"]]["state"] == "done"
+
+
 def test_deleting_a_failing_destination_lets_staging_go(store):
     a = add_dest(store, "A")
     b = add_dest(store, "B")

@@ -42,7 +42,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterator, NamedTuple
 from urllib.parse import quote
 
 from api.dashcam_store import KINDS, parse_iso
@@ -56,6 +56,7 @@ STREAM_BLOCK = 256 * 1024
 MAX_ATTEMPTS = 3
 BACKOFF_BASE_S = 30
 MAX_ACTIVE_JOBS = 4
+JOB_EXPIRE = "6h"          # rclone forgets finished async jobs after 1 min by default
 WORKER_INTERVAL_S = 5.0
 LOG_MAX_BYTES = 10 * 1024 * 1024
 
@@ -216,6 +217,9 @@ class Relay:
         self._password = password or ""
         self._proc: subprocess.Popen | None = None
         self._lock = threading.RLock()
+        # Bumped on every spawn. rclone numbers jobs from 1 in each process, so a job id is only
+        # meaningful together with the generation of the process that issued it.
+        self.generation = 0
 
     # ── process ──────────────────────────────────────────────────────────────
     def binary(self) -> str | None:
@@ -267,7 +271,9 @@ class Relay:
         password = _secrets.token_hex(16)
         env = dict(os.environ, RCLONE_RC_USER=self._user, RCLONE_RC_PASS=password)
         cmd = [exe, "rcd", "--rc-addr", f"127.0.0.1:{port}", "--rc-serve",
-               "--config", str(self.config_path), "--log-level", "NOTICE"]
+               "--config", str(self.config_path), "--log-level", "NOTICE",
+               "--rc-job-expire-duration", JOB_EXPIRE]
+        self.generation += 1
         with open(log_path, "ab") as log:
             proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         self._proc, self._url, self._password = proc, f"http://127.0.0.1:{port}", password
@@ -387,20 +393,48 @@ class Relay:
         return True, None
 
     # ── copies ───────────────────────────────────────────────────────────────
-    def start_copy(self, local_path: str, remote: str, remote_path: str) -> int:
+    def start_copy(self, local_path: str, remote: str, remote_path: str, group: str | None = None) -> int:
+        """Starts an async copy; ``group`` tags the job so ``job_status`` can tell it from another
+        job that got the same id in a later rclone process."""
         folder, name = _split(remote_path)
-        reply = self.rc("operations/copyfile", {
-            "srcFs": "/", "srcRemote": str(local_path).lstrip("/"),
-            "dstFs": f"{remote}:{folder}", "dstRemote": name, "_async": True})
+        params = {"srcFs": "/", "srcRemote": str(local_path).lstrip("/"),
+                  "dstFs": f"{remote}:{folder}", "dstRemote": name, "_async": True}
+        if group:
+            params["_group"] = group
+        reply = self.rc("operations/copyfile", params)
         try:
             return int(reply["jobid"])
         except (KeyError, TypeError, ValueError):
             raise RelayError("rclone did not return a job id") from None
 
-    def job_status(self, jobid: int) -> dict:
-        reply = self.rc("job/status", {"jobid": int(jobid)})
+    def job_status(self, jobid: int, group: str | None = None) -> dict:
+        """``{finished, success, error, lost}``. ``lost`` (with finished) means rclone no longer
+        knows the job - it restarted, or the job expired - or the id now names a job of another
+        group: nothing can be said about the copy, so it must be made again."""
+        try:
+            reply = self.rc("job/status", {"jobid": int(jobid)})
+        except RelayError as exc:
+            if "job not found" not in str(exc).lower():
+                raise
+            return {"finished": True, "success": False, "error": str(exc), "lost": True}
+        if group is not None and reply.get("group") != group:
+            return {"finished": True, "success": False, "lost": True,
+                    "error": f"job {jobid} now belongs to {reply.get('group')!r}"}
         return {"finished": bool(reply.get("finished")), "success": bool(reply.get("success")),
-                "error": reply.get("error") or None}
+                "error": reply.get("error") or None, "lost": False}
+
+    def stop_job(self, jobid: int, generation: int | None = None) -> bool:
+        """Best-effort ``job/stop``. Never starts or restarts rclone, and does nothing when the job
+        came from an older process: there the id may name someone else's job."""
+        if generation is not None and generation != self.generation:
+            return False
+        if not self._attached and (self._proc is None or self._proc.poll() is not None):
+            return False
+        try:
+            self._post("job/stop", {"jobid": int(jobid)})
+        except (_Down, RelayError):
+            return False
+        return True
 
     # ── streaming ────────────────────────────────────────────────────────────
     def open_stream(self, remote: str, remote_path: str, range_header: str | None
@@ -464,10 +498,25 @@ def _applicable(dest: dict, clip: dict) -> bool:
     return bool(dest.get("enabled")) and clip.get("kind") in (dest.get("kinds") or KINDS)
 
 
+class _Job(NamedTuple):
+    """One copy in flight: rclone's job id is only meaningful with the generation of the rclone
+    process that issued it and the group the copy was tagged with."""
+    jobid: int
+    generation: int
+    group: str
+    upload_id: str
+
+
+def _group(clip_id: str, dest_id: str, upload_id: str) -> str:
+    return f"dashcam/{clip_id}/{dest_id}/{upload_id}"
+
+
 class RelayWorker(threading.Thread):
     """Moves staged clips to their destinations; ``tick()`` is one pass (called every
     ``interval`` seconds by ``run``). Job ids live in memory: after a restart an ``uploading``
-    entry without a job simply starts again."""
+    entry without a job simply starts again. A job whose rclone process is gone, or whose id now
+    names another job, is *lost*: the entry goes back to pending and the copy is made again
+    without counting an attempt (copies overwrite by name)."""
 
     def __init__(self, store_factory: Callable, relay_obj=None, interval: float = WORKER_INTERVAL_S,
                  clock: Callable[[], float] = time.time):
@@ -476,7 +525,7 @@ class RelayWorker(threading.Thread):
         self.relay = relay_obj
         self.interval = interval
         self.clock = clock
-        self._jobs: dict[tuple[str, str], int] = {}
+        self._jobs: dict[tuple[str, str], _Job] = {}
         self._stop_event = threading.Event()
         self._warned_unavailable = False
 
@@ -496,6 +545,8 @@ class RelayWorker(threading.Thread):
 
     def tick(self) -> None:
         store = self.store_factory()
+        dests = {d["id"]: d for d in store.destinations()}
+        self._prune(store, dests)
         staged = store.staged_clip_ids()
         if not staged:
             return
@@ -506,7 +557,6 @@ class RelayWorker(threading.Thread):
             if clip is not None and (clip.get("upload") or {}).get("state") == "staged":
                 clips.append(clip)
         clips.sort(key=lambda c: (_PRIORITY.get(c.get("kind"), 9), -(parse_iso(c.get("start")) or 0)))
-        dests = {d["id"]: d for d in store.destinations()}
         try:
             for clip in clips:
                 self._clip(store, clip, dests)
@@ -516,6 +566,39 @@ class RelayWorker(threading.Thread):
             if not self._warned_unavailable:
                 logger.warning("dashcam relay idle: %s", exc)
                 self._warned_unavailable = True
+
+    def _prune(self, store, dests: dict) -> None:
+        """Forgets (and best-effort stops) every job nothing waits for any more: its clip's upload is
+        gone or replaced, its entry is no longer uploading, or its destination was deleted, disabled
+        or stopped taking the clip's kind. Without this the slots leak until MAX_ACTIVE_JOBS blocks
+        every copy."""
+        for key, job in list(self._jobs.items()):
+            cid, dest_id = key
+            clip = store.get_clip(cid)
+            up = (clip or {}).get("upload") or {}
+            entry = ((clip or {}).get("destinations") or {}).get(dest_id)
+            dest = dests.get(dest_id)
+            if (clip is not None and up.get("state") == "staged" and up.get("upload_id") == job.upload_id
+                    and isinstance(entry, dict) and entry.get("state") == "uploading"
+                    and dest is not None and _applicable(dest, clip)):
+                continue
+            del self._jobs[key]
+            try:
+                self._relay().stop_job(job.jobid, job.generation)
+            except (RelayError, RelayUnavailable):
+                pass
+
+    def _poll(self, job: _Job) -> dict | None:
+        """The job's status, lost when its rclone process is gone; None when rclone could not say
+        right now (ask again next tick)."""
+        relay_ = self._relay()
+        if job.generation != relay_.generation:
+            return {"finished": True, "success": False, "lost": True, "error": None}
+        try:
+            return relay_.job_status(job.jobid, group=job.group)
+        except RelayError as exc:
+            logger.info("dashcam relay: no status for job %s yet: %s", job.jobid, exc)
+            return None
 
     def _clip(self, store, clip: dict, dests: dict) -> None:
         cid = clip["id"]
@@ -528,48 +611,59 @@ class RelayWorker(threading.Thread):
             state = entry.get("state")
             attempts = int(entry.get("attempts") or 0)
             if state == "uploading":
-                jobid = self._jobs.get(key)
-                if jobid is not None:
-                    try:
-                        status = self._relay().job_status(jobid)
-                    except RelayError as exc:
-                        status = {"finished": True, "success": False, "error": str(exc)}
-                    if not status["finished"]:
+                job = self._jobs.get(key)
+                if job is not None:
+                    status = self._poll(job)
+                    if status is None or not status["finished"]:
                         continue
                     self._jobs.pop(key, None)
-                    if status["success"]:
+                    if status.get("lost"):
+                        logger.info("dashcam relay: lost the copy of %s -> %s (%s); copying again",
+                                    cid, dest_id, status.get("error") or "rclone restarted")
+                        store.set_destination_state(cid, dest_id, "pending", entry.get("error"),
+                                                    attempts=attempts, upload_id=job.upload_id)
+                    elif status["success"]:
                         store.set_destination_state(cid, dest_id, "done", remote_path=entry.get("remote_path"),
-                                                    attempts=attempts)
+                                                    attempts=attempts, upload_id=job.upload_id)
+                        continue
                     else:
-                        self._fail(store, cid, dest_id, attempts, status["error"] or "copy failed")
-                    continue
-                state = "pending"  # restarted process: the job id is gone, copy again
+                        self._fail(store, cid, dest_id, attempts, status["error"] or "copy failed", job.upload_id)
+                        continue
+                state = "pending"  # restarted process or lost job: copy again
             if state != "pending":
                 continue
             if attempts >= MAX_ATTEMPTS:
                 store.set_destination_state(cid, dest_id, "failed", entry.get("error") or "copy failed",
-                                            attempts=attempts)
+                                            attempts=attempts, upload_id=upload_id)
                 continue
             if entry.get("next_at") and self.clock() < float(entry["next_at"]):
                 continue
             if not dest.get("remote") or not upload_id or len(self._jobs) >= MAX_ACTIVE_JOBS:
                 continue
             remote_path = remote_path_for(dest, clip)
+            relay_ = self._relay()
+            relay_.ensure_running()
+            generation = relay_.generation
+            group = _group(cid, dest_id, upload_id)
             try:
-                jobid = self._relay().start_copy(str(store.staging_path(upload_id)), dest["remote"], remote_path)
+                jobid = relay_.start_copy(str(store.staging_path(upload_id)), dest["remote"], remote_path,
+                                          group=group)
             except RelayError as exc:
-                self._fail(store, cid, dest_id, attempts, str(exc))
+                self._fail(store, cid, dest_id, attempts, str(exc), upload_id)
                 continue
-            self._jobs[key] = jobid
-            store.set_destination_state(cid, dest_id, "uploading", remote_path=remote_path, attempts=attempts)
+            if relay_.generation != generation:
+                generation = -1  # rclone restarted around the call: which process owns the id is unclear
+            self._jobs[key] = _Job(jobid, generation, group, upload_id)
+            store.set_destination_state(cid, dest_id, "uploading", remote_path=remote_path, attempts=attempts,
+                                        upload_id=upload_id)
 
-    def _fail(self, store, cid: str, dest_id: str, attempts: int, error: str) -> None:
+    def _fail(self, store, cid: str, dest_id: str, attempts: int, error: str, upload_id: str) -> None:
         attempts += 1
         if attempts >= MAX_ATTEMPTS:
-            store.set_destination_state(cid, dest_id, "failed", error, attempts=attempts)
+            store.set_destination_state(cid, dest_id, "failed", error, attempts=attempts, upload_id=upload_id)
             logger.warning("dashcam relay: %s -> %s failed after %d attempts: %s", cid, dest_id, attempts, error)
         else:
-            store.set_destination_state(cid, dest_id, "pending", error, attempts=attempts,
+            store.set_destination_state(cid, dest_id, "pending", error, attempts=attempts, upload_id=upload_id,
                                         next_at=self.clock() + BACKOFF_BASE_S * 4 ** (attempts - 1))
 
 

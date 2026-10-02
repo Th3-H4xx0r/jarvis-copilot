@@ -587,12 +587,18 @@ class DashcamStore:
         return True
 
     def set_destination_state(self, clip_id: str, dest_id: str, state: str, error=None, remote_path=None,
-                              *, attempts: int | None = None, next_at: float | None = None) -> dict | None:
+                              *, attempts: int | None = None, next_at: float | None = None,
+                              upload_id: str | None = None) -> dict | None:
+        """``upload_id`` (the relay always passes it) is the upload the copy was made from: when the
+        clip has moved on to another upload since, the update is ignored and None returned - a copy
+        of the old bytes must never mark the new ones done."""
         if state not in DEST_STATES:
             raise ValueError(f"destination state must be one of {', '.join(DEST_STATES)}")
         with _LOCK:
             clip = self.get_clip(clip_id)
             if clip is None:
+                return None
+            if upload_id is not None and (clip.get("upload") or {}).get("upload_id") != upload_id:
                 return None
             entries = clip.setdefault("destinations", {})
             entry = entries.get(dest_id) if isinstance(entries.get(dest_id), dict) else {
