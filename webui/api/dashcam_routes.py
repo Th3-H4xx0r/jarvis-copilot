@@ -79,7 +79,7 @@ _UPLOAD = r"(u_[0-9a-f]{16})"
 _DEST = r"(d_[0-9a-f]{8})"
 _DRIVE = r"(dr_[0-9]+_[A-Za-z0-9_-]{0,6})"
 _RE_CLIP = re.compile(rf"^/clips/{_CLIP}$")
-_RE_CLIP_ACTION = re.compile(rf"^/clips/{_CLIP}/(gps|phone|retry)$")
+_RE_CLIP_ACTION = re.compile(rf"^/clips/{_CLIP}/(gps|phone|retry|delete_cloud)$")
 _RE_CLIP_THUMB = re.compile(rf"^/clips/{_CLIP}/thumb$")
 _RE_CLIP_STREAM = re.compile(rf"^/clips/{_CLIP}/stream$")
 _RE_UPLOAD = re.compile(rf"^/uploads/{_UPLOAD}$")
@@ -216,6 +216,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
                 return _gps(store, cid, body)
             if action == "phone":
                 return _phone(store, cid, body)
+            if action == "delete_cloud":
+                return _delete_cloud(store, cid, relay)
             n = store.retry_destinations(cid)
             return (200, {"ok": True, "requeued": n}) if n is not None else _err(404, "clip not found")
         m = _RE_UPLOAD_COMPLETE.match(p)
@@ -496,6 +498,30 @@ def _test_destination(store, did, relay):
     from api.dashcam_store import now_iso
     store.update_destination(did, {"status": "ok" if ok else "error", "error": error, "tested_at": now_iso()})
     return 200, ({"ok": True} if ok else {"ok": False, "error": error})
+
+
+def _delete_cloud(store, cid, relay):
+    """Deletes the clip's copy from every destination that has one (rclone, by its recorded path - the
+    same for copies the phone uploaded itself), then forgets the upload."""
+    clip = store.get_clip(cid)
+    if clip is None:
+        return _err(404, "clip not found")
+    dests = store.destinations_by_id()
+    errors = []
+    for did, entry in (clip.get("destinations") or {}).items():
+        dest = dests.get(did)
+        path = entry.get("remote_path") if isinstance(entry, dict) else None
+        if not dest or not dest.get("remote") or not path or entry.get("state") != "done":
+            continue
+        try:
+            _relay(relay).rc("operations/deletefile", {"fs": dest["remote"] + ":", "remote": path})
+        except (RelayError, RelayUnavailable) as exc:
+            if "not found" not in str(exc).lower():
+                errors.append(f"{dest.get('name') or did}: {exc}")
+    if errors:
+        return _err(502, "; ".join(errors)[:500])
+    store.forget_cloud(cid)
+    return 200, {"ok": True}
 
 
 def _destination_token(store, did, relay):

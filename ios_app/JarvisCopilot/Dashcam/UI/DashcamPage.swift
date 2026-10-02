@@ -36,6 +36,11 @@ struct DashcamPage: View {
             .padding(.vertical, 12)
         }
         .background(JcTheme.bg.ignoresSafeArea())
+        .overlay(alignment: .bottomTrailing) {
+            if tab == .library {
+                DashcamSelectionBar().padding(.trailing, 16).padding(.bottom, 96)   // above the tab bar
+            }
+        }
         .fullScreenCover(isPresented: $live) { DashcamLiveView() }
         .alert("Camera Wi‑Fi password", isPresented: $askPassword) {
             SecureField("Password", text: $typedPassword)

@@ -124,6 +124,10 @@ struct DashcamLibraryView: View {
     @ObservedObject private var wifi: DashcamWiFi = .shared
     @State private var confirmDelete: DashcamServerClip?
     @State private var note: String?
+    private var selecting: Bool { get { model.selecting } nonmutating set { model.selecting = newValue } }
+    private var selected: Set<String> { get { model.selected } nonmutating set { model.selected = newValue } }
+    private var bulkDelete: Set<Place>? { get { model.bulkDelete } nonmutating set { model.bulkDelete = newValue } }
+    @State private var openedID: String?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -140,13 +144,25 @@ struct DashcamLibraryView: View {
                 CardGroup(section.title) {
                     ForEach(Array(section.clips.enumerated()), id: \.element.id) { i, clip in
                         if i > 0 { RowDivider() }
-                        NavigationLink {
-                            DashcamPlayerView(clip: clip, siblings: section.clips)
-                        } label: {
-                            Row(minHeight: 64) { DashcamClipRow(clip: clip, uploadingID: sync.uploading?.clipID) }
+                        // Tap opens (or, while selecting, ticks); a long hold starts selecting.
+                        Row(minHeight: 64) {
+                            HStack(spacing: 10) {
+                                if selecting {
+                                    JcIcon(selected.contains(clip.id) ? "checkmark.circle.fill" : "circle", size: 20)
+                                        .foregroundStyle(selected.contains(clip.id) ? JcTheme.accent : JcTheme.muted)
+                                }
+                                DashcamClipRow(clip: clip, uploadingID: sync.uploading?.clipID)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .contextMenu { actions(for: clip) }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if selecting { toggle(clip) } else { openedID = clip.id }
+                        }
+                        .onLongPressGesture(minimumDuration: 0.45) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            selecting = true
+                            selected.insert(clip.id)
+                        }
                     }
                 }
             }
@@ -156,6 +172,23 @@ struct DashcamLibraryView: View {
             } else if model.loading {
                 ProgressView().padding()
             }
+        }
+        .navigationDestination(item: $openedID) { id in
+            if let section = model.sections.first(where: { $0.clips.contains { $0.id == id } }),
+               let clip = section.clips.first(where: { $0.id == id }) {
+                DashcamPlayerView(clip: clip, siblings: section.clips)
+            }
+        }
+        .alert("Delete \(selected.count) clip\(selected.count == 1 ? "" : "s")?", isPresented: Binding(get: { bulkDelete != nil }, set: { if !$0 { bulkDelete = nil } })) {
+            Button("Delete", role: .destructive) {
+                let places = bulkDelete ?? []
+                let clips = model.clips.filter { selected.contains($0.id) }
+                Task { await delete(clips, places); selecting = false; selected = [] }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("From " + [bulkDelete?.contains(.phone) == true ? "this phone" : nil, bulkDelete?.contains(.cloud) == true ? "the cloud" : nil,
+                            bulkDelete?.contains(.camera) == true ? "the dashcam" : nil].compactMap { $0 }.joined(separator: ", ") + ". This can't be undone.")
         }
         .task { await model.reload() }
         .task {
@@ -217,9 +250,66 @@ struct DashcamLibraryView: View {
                 }
             } label: { Label("Retry upload", systemImage: "arrow.clockwise") }
         }
-        if clip.onCamera {
-            Button(role: .destructive) { confirmDelete = clip } label: { Label("Delete from camera", systemImage: "trash") }
+        let places = DashcamClipPlaces.of(clip)
+        Menu {
+            if places.phone {
+                Button(role: .destructive) { Task { await delete(clip, [.phone]) } } label: { Label("From this phone", systemImage: "iphone") }
+            }
+            if places.cloud || clip.uploading {
+                Button(role: .destructive) { Task { await delete(clip, [.cloud]) } } label: { Label("From the cloud", systemImage: "icloud") }
+            }
+            if clip.onCamera {
+                Button(role: .destructive) { confirmDelete = clip } label: { Label("From the dashcam", systemImage: "sdcard") }
+            }
+            Button(role: .destructive) { Task { await delete(clip, [.phone, .cloud, .camera]) } } label: {
+                Label("Everywhere", systemImage: "trash.fill")
+            }
+        } label: { Label("Delete…", systemImage: "trash") }
+    }
+
+    typealias Place = DashcamLibraryModel.Place
+
+    private func toggle(_ clip: DashcamServerClip) {
+        if selected.contains(clip.id) { selected.remove(clip.id) } else { selected.insert(clip.id) }
+    }
+
+    private func delete(_ clips: [DashcamServerClip], _ places: Set<Place>) async {
+        var failed = 0
+        for clip in clips { if !(await delete(clip, places, reload: false)) { failed += 1 } }
+        note = failed == 0 ? "Deleted \(clips.count) clip\(clips.count == 1 ? "" : "s")."
+                           : "\(failed) of \(clips.count) couldn't be deleted everywhere."
+        await model.reload()
+    }
+
+    /// Deletes the clip from the chosen places; the row's state follows on the next reload. True when every
+    /// place worked.
+    @discardableResult
+    private func delete(_ clip: DashcamServerClip, _ places: Set<Place>, reload: Bool = true) async -> Bool {
+        var done: [String] = [], failed: [String] = []
+        if places.contains(.cloud) {
+            do { try await DashcamAPI().deleteFromCloud(clipID: clip.id); done.append("cloud") }
+            catch { failed.append("cloud: \(error.localizedDescription)") }
         }
+        if places.contains(.phone) {
+            let setup = DashcamSetupStore.load()
+            let camera = clip.cameraID.isEmpty ? (setup?.cameraID ?? "") : clip.cameraID
+            let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start, durationS: clip.durationS, size: clip.size)
+            try? FileManager.default.removeItem(at: sync.storage.localURL(camera: camera, file: f))
+            await DashcamUploader.shared.remove(clipID: clip.id)
+            try? await DashcamAPI().setPhone(clipID: clip.id, state: "deleted", error: nil)
+            done.append("phone")
+        }
+        if places.contains(.camera), clip.onCamera {
+            do {
+                _ = try await DashcamDevice.shared.invoke("dashcam_delete_file", args: ["path": clip.path, "confirm": true])
+                done.append("dashcam")
+            } catch { failed.append("dashcam: \(error.localizedDescription)") }
+        }
+        guard reload else { return failed.isEmpty }
+        note = failed.isEmpty ? "Deleted \(clip.name) from the \(done.joined(separator: ", "))."
+                              : "Couldn't delete everywhere — " + failed.joined(separator: "; ")
+        await model.reload()
+        return failed.isEmpty
     }
 
     private func deleteFromCamera(_ clip: DashcamServerClip) async {
@@ -230,5 +320,34 @@ struct DashcamLibraryView: View {
         } catch {
             note = error.localizedDescription
         }
+    }
+}
+
+/// Select / Delete / Cancel, floating at the bottom right of the dashcam page over the library.
+struct DashcamSelectionBar: View {
+    @ObservedObject private var model = DashcamLibraryModel.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if model.selecting {
+                Text("\(model.selected.count)").font(.callout.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 6)
+                Menu {
+                    Button(role: .destructive) { model.bulkDelete = [.phone] } label: { Label("From this phone", systemImage: "iphone") }
+                    Button(role: .destructive) { model.bulkDelete = [.cloud] } label: { Label("From the cloud", systemImage: "icloud") }
+                    Button(role: .destructive) { model.bulkDelete = [.camera] } label: { Label("From the dashcam", systemImage: "sdcard") }
+                    Button(role: .destructive) { model.bulkDelete = [.phone, .cloud, .camera] } label: { Label("Everywhere", systemImage: "trash.fill") }
+                } label: { Label("Delete", systemImage: "trash") }
+                .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
+                .disabled(model.selected.isEmpty)
+                Button("Cancel") { model.selecting = false; model.selected = [] }
+                    .buttonStyle(.jcGlass(compact: true))
+            } else {
+                Button { model.selecting = true } label: { Label("Select", systemImage: "checkmark.circle") }
+                    .buttonStyle(.jcGlass(compact: true))
+            }
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
     }
 }

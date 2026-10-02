@@ -135,6 +135,12 @@ struct DashcamClipStatus: Equatable {
 @MainActor
 final class DashcamLibraryModel: ObservableObject {
     static let shared = DashcamLibraryModel()
+
+    enum Place: Hashable { case phone, cloud, camera }
+    /// Multi-select (long hold a clip, or Select): the floating bar on the page reads and sets these.
+    @Published var selecting = false
+    @Published var selected: Set<String> = []
+    @Published var bulkDelete: Set<Place>?
     enum Filter: String, CaseIterable, Identifiable {
         case all, events, photos, toUpload, failed
         var id: String { rawValue }

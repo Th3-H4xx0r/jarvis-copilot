@@ -1042,6 +1042,18 @@ class DashcamStore:
             self._save_clip(clip)
         return True
 
+    def forget_cloud(self, clip_id: str) -> bool:
+        """After the clip's copies were deleted from its destinations: no upload, no entries, nothing
+        staged. False when there's no such clip."""
+        with _LOCK:
+            clip = self.get_clip(clip_id)
+            if clip is None:
+                return False
+            self._drop_upload((clip.get("upload") or {}).get("upload_id"))
+            _reset_upload(clip)
+            self._save_clip(clip)
+        return True
+
     def abandon_upload(self, clip_id: str) -> bool:
         """Drops a staged clip's bytes when no enabled destination takes it any more (its only
         destination was deleted, disabled, or stopped taking its kind). The upload goes back to
