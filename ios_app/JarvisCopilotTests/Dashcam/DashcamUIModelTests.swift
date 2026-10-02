@@ -62,3 +62,41 @@ final class DashcamUIModelTests: XCTestCase {
         XCTAssertEqual(sections.last?.title, "Yesterday")
     }
 }
+
+final class DashcamKnownNetworksTests: XCTestCase {
+    func testPrefixDropsTheUnitIdOnly() {
+        XCTAssertEqual(DashcamKnownNetworks.prefix(of: "Affver_A4_9F2C"), "Affver_A4_")
+        XCTAssertEqual(DashcamKnownNetworks.prefix(of: "PEZTIO-1A2B3C"), "PEZTIO-")
+        XCTAssertNil(DashcamKnownNetworks.prefix(of: "MyDashcam"), "no separator")
+        XCTAssertNil(DashcamKnownNetworks.prefix(of: "Home_Network"), "tail isn't an id")
+    }
+
+    func testLearningKeepsNewestFirstAndAddsThePrefixOnce() {
+        let d = UserDefaults(suiteName: "known-\(UUID().uuidString)")!
+        DashcamKnownNetworks.learn(ssid: "Affver_A4_0001", defaults: d)
+        DashcamKnownNetworks.learn(ssid: "Affver_A4_0002", defaults: d)
+        DashcamKnownNetworks.learn(ssid: "Affver_A4_0001", defaults: d)
+        XCTAssertEqual(DashcamKnownNetworks.ssids(d), ["Affver_A4_0001", "Affver_A4_0002"])
+        XCTAssertEqual(DashcamKnownNetworks.prefixes(d), ["Affver_A4_"])
+    }
+
+    @available(iOS 18.0, *)
+    @MainActor
+    func testPickerListsKnownNetworksFirstThenPrefixes() {
+        let d = UserDefaults(suiteName: "known-\(UUID().uuidString)")!
+        DashcamKnownNetworks.learn(ssid: "Affver_A4_0001", defaults: d)
+        let items = DashcamAccessoryPicker.items(defaults: d)
+        XCTAssertEqual(items.first?.descriptor.ssid, "Affver_A4_0001")
+        XCTAssertEqual(items[1].descriptor.ssidPrefix, "Affver_A4_")
+        XCTAssertEqual(items.count, 1 + 1 + DashcamKnownNetworks.commonPrefixes.count)
+    }
+
+    func testProbeAllFindsTheCameraWithEveryFamilyAskedAtOnce() async {
+        DashcamStubProtocol.reset()
+        DashcamStubProtocol.on("/app/getdeviceattr") { _ in DashcamSamples.json(["result": 0, "info": ["uuid": "X"]]) }
+        let started = Date()
+        let hit = await DashcamDetect.probeAll(host: "127.0.0.1:8099", timeout: 1, session: DashcamStubProtocol.session())
+        XCTAssertEqual(hit?.family, .viidure)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+    }
+}

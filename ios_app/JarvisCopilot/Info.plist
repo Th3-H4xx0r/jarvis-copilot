@@ -47,6 +47,10 @@
 	</array>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>JARVIS sets real alarms and timers that ring even in Silent mode.</string>
+	<key>NSAccessorySetupKitSupports</key>
+	<array>
+		<string>WiFi</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

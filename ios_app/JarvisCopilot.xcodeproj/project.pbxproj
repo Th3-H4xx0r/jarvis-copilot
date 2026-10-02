@@ -703,6 +703,7 @@
 		C9906D5F89A8BEB0190F3605 /* BottleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02DCCD3CD284FCC808A1665 /* BottleManager.swift */; };
 		C9E33D14B5DFB01F72328B66 /* SettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB31C1D5D1C17CAEA923456 /* SettingsPage.swift */; };
 		CA11E0EC541EFC5D50B47989 /* RingMeasureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3797784518854B8FB0ABD75F /* RingMeasureController.swift */; };
+		CB2215F7CA9CCB8C1CC8CCE2 /* DashcamWiFiPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */; };
 		CBCA6B57F0CFA107FD12DD05 /* TodosAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C33AE6A0497001C7C380800 /* TodosAPI.swift */; };
 		CCE9804D3DDE02FFC4036297 /* StatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6234845BBEEEB6AC9A2A571D /* StatusPill.swift */; };
 		CD661A1AEC51E10CDC61F78A /* RingHandModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0698FB78E14A24138EE3BAA4 /* RingHandModel.swift */; };
@@ -1730,6 +1731,7 @@
 		E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionStoreTests.swift; sourceTree = "<group>"; };
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
+		EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamWiFiPicker.swift; sourceTree = "<group>"; };
 		EB058DEAF58CF0670B328304 /* MarkdownText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		EBA3CE819470F07AFC7C6A21 /* LiveAsk.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveAsk.swift; sourceTree = "<group>"; };
 		EBEE8787D862FADBC3C1F542 /* JarvisOrbImage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisOrbImage.swift; sourceTree = "<group>"; };
@@ -3154,6 +3156,7 @@
 				950DA76146CD3ED5582C3A8B /* DashcamWiFi.swift */,
 				7676A5D714B05EC1504F8395 /* DashcamDevice.swift */,
 				DAB7A53508B271BF3FCB314A /* UI */,
+				EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -4562,6 +4565,7 @@
 				2C4A7F54CAF326EBAA682252 /* DashcamSettingsView.swift in Sources */,
 				571230674B0918C43A7C7241 /* DashcamSetupView.swift in Sources */,
 				F3550B116F980BB3A611CBB7 /* DashcamUIModels.swift in Sources */,
+				CB2215F7CA9CCB8C1CC8CCE2 /* DashcamWiFiPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

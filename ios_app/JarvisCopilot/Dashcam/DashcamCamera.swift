@@ -64,21 +64,42 @@ enum DashcamDetect {
     static func probe(host: String? = nil, timeout: TimeInterval = 2.5,
                       session: URLSession = DashcamHTTP.foreground) async -> (family: DashcamFamily, base: URL)? {
         for c in candidates {
-            guard let base = URL(string: "http://" + (host ?? c.host)) else { continue }
-            let http = DashcamHTTP(base: base, session: session)
-            guard let data = try? await http.get(c.path, timeout: timeout) else { continue }
-            switch c.family {
-            case .viidure:
-                guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      (obj["result"] as? NSNumber)?.intValue == 0 else { continue }
-            case .novatek:
-                guard String(decoding: data.prefix(64), as: UTF8.self).contains("<") else { continue }
-            default:
-                break
-            }
-            return (c.family, base)
+            if let hit = await probe(c, host: host, timeout: timeout, session: session) { return hit }
         }
         return nil
+    }
+
+    /// Asks every family at once — what the setup screen's live "is a dashcam here?" check uses, so a
+    /// round costs one timeout, not six. Ties go to the earlier (more common) family.
+    static func probeAll(host: String? = nil, timeout: TimeInterval = 1.5,
+                         session: URLSession = DashcamHTTP.foreground) async -> (family: DashcamFamily, base: URL)? {
+        await withTaskGroup(of: (Int, (family: DashcamFamily, base: URL)?).self) { group in
+            for (i, c) in candidates.enumerated() {
+                group.addTask { (i, await probe(c, host: host, timeout: timeout, session: session)) }
+            }
+            var best: (Int, (family: DashcamFamily, base: URL))?
+            for await (i, hit) in group {
+                if let hit, best == nil || i < best!.0 { best = (i, hit) }
+            }
+            return best?.1
+        }
+    }
+
+    private static func probe(_ c: Candidate, host: String?, timeout: TimeInterval,
+                              session: URLSession) async -> (family: DashcamFamily, base: URL)? {
+        guard let base = URL(string: "http://" + (host ?? c.host)) else { return nil }
+        let http = DashcamHTTP(base: base, session: session)
+        guard let data = try? await http.get(c.path, timeout: timeout) else { return nil }
+        switch c.family {
+        case .viidure:
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (obj["result"] as? NSNumber)?.intValue == 0 else { return nil }
+        case .novatek:
+            guard String(decoding: data.prefix(64), as: UTF8.self).contains("<") else { return nil }
+        default:
+            break
+        }
+        return (c.family, base)
     }
 
     static func camera(family: DashcamFamily, base: URL, session: URLSession = DashcamHTTP.foreground) -> DashcamCamera? {
