@@ -63,10 +63,35 @@ struct DashcamLiveSource: Equatable {
         var media: Any?
         var attr: Any?
         if let viidure = camera as? ViidureCamera {
-            media = try? await viidure.call("getmediainfo")
-            attr = try? await viidure.call("getdeviceattr")
+            // The vendor app logs on (`enterrecorder`) when its live page opens, then asks for the stream.
+            let logon = await Self.attempt { try await viidure.call("enterrecorder") }
+            DashcamLiveTrace.log("enterrecorder: \(Self.traceText(logon))")
+            let mediaReply = await Self.attempt { try await viidure.call("getmediainfo") }
+            DashcamLiveTrace.log("getmediainfo: \(Self.traceText(mediaReply))")
+            media = try? mediaReply.get()
+            let attrReply = await Self.attempt { try await viidure.call("getdeviceattr") }
+            DashcamLiveTrace.log("getdeviceattr: \(Self.traceText(attrReply))")
+            attr = try? attrReply.get()
         }
-        return (parse(media: media, attr: attr, host: host), camera)
+        let source = parse(media: media, attr: attr, host: host)
+        DashcamLiveTrace.log("stream urls \(source.urls.map(\.absoluteString)) lenses \(source.lenses) current \(source.currentLens) transport \(source.transport ?? "-")")
+        return (source, camera)
+    }
+
+    private static func attempt(_ f: () async throws -> Any?) async -> Result<Any?, Error> {
+        do { return .success(try await f()) } catch { return .failure(error) }
+    }
+
+    private static func traceText(_ r: Result<Any?, Error>) -> String {
+        switch r {
+        case .success(let v):
+            guard let v else { return "ok (no info)" }
+            if JSONSerialization.isValidJSONObject(v), let d = try? JSONSerialization.data(withJSONObject: v) {
+                return String(decoding: d.prefix(1500), as: UTF8.self)
+            }
+            return "\(v)"
+        case .failure(let e): return "ERROR \(e.localizedDescription)"
+        }
     }
 }
 
@@ -105,6 +130,7 @@ final class DashcamLiveModel: ObservableObject {
     func open() async {
         guard !isOpen else { return }
         isOpen = true
+        DashcamLiveTrace.reset("live view")
         DashcamSync.shared.pauseForLive(true)
         idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
         UIApplication.shared.isIdleTimerDisabled = true

@@ -562,27 +562,39 @@ struct RTSPFrameBuilder {
 
     mutating func waitForKeyframe() { waitingForKeyframe = true }
 
+    static let traceUnits = DashcamLiveTrace.Sampler(first: 40, every: 250)
+
     mutating func build(_ unit: RTSPAccessUnit) -> CMSampleBuffer? {
         for nal in unit.nals where DashcamRTSP.isParameterSet(nal, codec: codec) {
             if store(nal) { format = nil }
         }
         let pts = time(unit.timestamp)
+        let types = unit.nals.map { DashcamRTSP.nalType($0, codec: codec) }
+        let sizes = Array(unit.nals.map(\.count).prefix(6))
+        func trace(_ verdict: String) {
+            guard let n = Self.traceUnits.next() else { return }
+            DashcamLiveTrace.log("unit #\(n) ts=\(unit.timestamp) nals=\(types) sizes=\(sizes) damaged=\(unit.damaged) -> \(verdict)")
+        }
         if unit.damaged {
             waitingForKeyframe = true
+            trace("dropped: damaged")
             return nil
         }
         let nals = DashcamRTSP.sampleNALs(unit.nals, codec: codec)
-        guard nals.contains(where: { DashcamRTSP.isVCL($0, codec: codec) }) else { return nil }
+        guard nals.contains(where: { DashcamRTSP.isVCL($0, codec: codec) }) else { trace("no picture slice"); return nil }
         let key = DashcamRTSP.isKeyframe(unit.nals, codec: codec)
-        if waitingForKeyframe && !key { return nil }
+        if waitingForKeyframe && !key { trace("waiting for a keyframe"); return nil }
         if format == nil {
             format = DashcamRTSP.formatDescription(codec: codec, parameterSets: Array(parameterSets.values))
+            DashcamLiveTrace.log("format from parameter sets \(parameterSets.keys.sorted()) -> \(format == nil ? "FAILED" : "ok")")
         }
         guard let format, let sample = DashcamRTSP.sampleBuffer(nals: nals, format: format, pts: pts, keyframe: key) else {
             waitingForKeyframe = true
+            trace(format == nil ? "no format (parameter sets missing or bad)" : "sample buffer failed")
             return nil
         }
         waitingForKeyframe = false
+        trace(key ? "decoded keyframe" : "frame")
         return sample
     }
 
@@ -1159,6 +1171,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
             deliveredFirst = true
             lock.lock(); _activeTransport = using; lock.unlock()
             JcLog.devices.notice("Dashcam live: playing over \(self.using.rawValue, privacy: .public)")
+            DashcamLiveTrace.log("first frame delivered over \(using.rawValue)")
             emit(.playing)
         }
         callbackQueue.async { [weak self] in
@@ -1171,6 +1184,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
     /// next transport.
     private func fail(_ message: String, canFallBack: Bool = false) {
         guard !finished else { return }
+        DashcamLiveTrace.log("FAIL: \(message) (packets \(packets), connected \(connected), setup \(setupSent), playing \(playing))")
         if canFallBack, !deliveredFirst, attempt + 1 < transports.count {
             JcLog.devices.notice("Dashcam live: \(self.using.rawValue, privacy: .public) gave nothing (\(message, privacy: .public)); trying \(self.transports[self.attempt + 1].rawValue, privacy: .public)")
             endAttempt(teardown: true)
@@ -1208,6 +1222,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
         lastError = nil
         attemptStartedAt = Date()
         JcLog.devices.notice("Dashcam live: RTSP over \(self.using.rawValue, privacy: .public) to \(self.requestURL, privacy: .public)")
+        DashcamLiveTrace.log("attempt \(attempt + 1)/\(transports.count): \(using.rawValue) \(requestURL)")
         watchdog()
         guard using == .udp else { return connect() }
         let receiver = RTSPUDPReceiver(queue: queue)
@@ -1216,6 +1231,8 @@ final class DashcamRTSPClient: @unchecked Sendable {
         udp = receiver
         receiver.bind { [weak self, weak receiver] ok in
             guard let self, let receiver, receiver === self.udp, !self.finished else { return }
+            let bound = receiver.ports.map { "\($0.rtp)-\($0.rtcp)" } ?? "none"
+            DashcamLiveTrace.log("udp ports: \(ok ? bound : "FAILED to bind")")
             if ok { self.connect() } else { self.fail("Couldn't open local ports for the video", canFallBack: true) }
         }
     }
@@ -1256,6 +1273,7 @@ final class DashcamRTSPClient: @unchecked Sendable {
 
     private func connectionChanged(_ state: NWConnection.State, _ conn: NWConnection) {
         guard conn === connection, !finished else { return }
+        DashcamLiveTrace.log("rtsp tcp: \(state)")
         switch state {
         case .ready:
             connected = true
@@ -1290,6 +1308,9 @@ final class DashcamRTSPClient: @unchecked Sendable {
         while !finished, conn === connection, let message = parser.next() {
             switch message {
             case .interleaved(let channel, let payload):
+                if let n = Self.tracePackets.next() {
+                    DashcamLiveTrace.log("tcp rtp #\(n) ch=\(channel) \(payload.count) B head=" + payload.prefix(16).map { String(format: "%02x", $0) }.joined())
+                }
                 guard channel == videoChannel, pipeline != nil, let packet = RTPPacket.parse(payload) else { continue }
                 packets += 1
                 feed(packet)
@@ -1306,7 +1327,12 @@ final class DashcamRTSPClient: @unchecked Sendable {
         for frame in pipeline?.push(packet) ?? [] { deliver(frame) }
     }
 
+    static let tracePackets = DashcamLiveTrace.Sampler(first: 5, every: 1000)
+
     private func receivedUDP(_ data: Data) {
+        if let n = Self.tracePackets.next() {
+            DashcamLiveTrace.log("udp rtp #\(n) \(data.count) B head=" + data.prefix(16).map { String(format: "%02x", $0) }.joined())
+        }
         guard !finished, using == .udp, pipeline != nil, let packet = RTPPacket.parse(data),
               !(72...76).contains(packet.payloadType) else { return }
         packets += 1
@@ -1382,8 +1408,12 @@ final class DashcamRTSPClient: @unchecked Sendable {
                       then: @escaping (RTSPResponse) -> Void) {
         guard let conn = connection, !finished else { return }
         cseq += 1
+        DashcamLiveTrace.log("-> \(method) \(target) " + headers.map { "\($0.0): \($0.1)" }.joined(separator: "; "))
         pending[cseq] = { [weak self] response in
             guard let self else { return }
+            let shown = response.headers.map { "\($0.name): \($0.value)" }.joined(separator: " | ")
+            let body = response.body.isEmpty ? "" : "\n" + String(decoding: response.body.prefix(1500), as: UTF8.self)
+            DashcamLiveTrace.log("<- \(response.status) \(response.reason) | \(shown)\(body)")
             if response.status == 401 && authRetry {
                 let offered = response.headers("www-authenticate").compactMap { DashcamRTSP.Challenge(header: $0) }
                 guard self.user != nil, let challenge = offered.first(where: { $0.scheme == .digest }) ?? offered.first else {

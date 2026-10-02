@@ -163,6 +163,7 @@ struct DashcamPlayerView: View {
     @StateObject private var model: DashcamPlayerModel
     let siblings: [DashcamServerClip]
     var startOffset: Double?
+    @State private var fullscreen = false
 
     init(clip: DashcamServerClip, siblings: [DashcamServerClip] = [], startOffset: Double? = nil) {
         _model = StateObject(wrappedValue: DashcamPlayerModel(clip: clip))
@@ -190,7 +191,8 @@ struct DashcamPlayerView: View {
         .navigationTitle(model.clip.start.formatted(date: .abbreviated, time: .shortened))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(seekTo: startOffset) }
-        .onDisappear { model.stop() }
+        .onDisappear { if !fullscreen { model.stop() } }
+        .fullScreenCover(isPresented: $fullscreen) { DashcamFullscreenMedia(player: model.player, photo: model.photo) }
     }
 
     @ViewBuilder private var media: some View {
@@ -229,6 +231,16 @@ struct DashcamPlayerView: View {
         }
         .aspectRatio(16 / 9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if model.player != nil || model.photo != nil {
+                Button { fullscreen = true } label: {
+                    JcIcon("arrow.up.left.and.arrow.down.right", size: 14).foregroundStyle(.white).frame(width: 34, height: 34)
+                }
+                .buttonStyle(.jcGlass(compact: true))
+                .padding(10)
+                .accessibilityLabel("Full screen")
+            }
+        }
         .padding(.horizontal, 16)
     }
 

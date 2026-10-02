@@ -13,6 +13,8 @@ extension DashcamSync {
     func pauseForLive(_ on: Bool) {
         if on {
             Self.liveHolders.insert(ObjectIdentifier(self))
+            // A clip download would compete with the stream on the camera's Wi‑Fi: stop it (it resumes).
+            DashcamDownloader.shared.pauseAll()
         } else {
             Self.liveHolders.remove(ObjectIdentifier(self))
         }
