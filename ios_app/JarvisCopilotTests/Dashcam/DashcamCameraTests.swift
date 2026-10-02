@@ -243,8 +243,29 @@ final class DashcamCameraTests: XCTestCase {
         XCTAssertEqual(fixes.count, 3)
         XCTAssertEqual(fixes[0].t, DashcamSamples.clipStart.timeIntervalSince1970, accuracy: 0.01)
         let ranges = DashcamStubProtocol.requests().compactMap { $0.value(forHTTPHeaderField: "Range") }
-        XCTAssertEqual(ranges.count, 3, "size probe + tail + block — never the whole clip")
+        XCTAssertEqual(ranges.count, 2, "tail (with the size) + block — never the whole clip")
         XCTAssertTrue(ranges.allSatisfy { !$0.hasSuffix("-") })
+    }
+
+    func testACameraThatIgnoresRangeFailsFastInsteadOfSendingTheClip() async throws {
+        var clip = Data(repeating: 7, count: 50_000)
+        clip.append(DashcamSamples.normalBlock)
+        let body = clip
+        DashcamStubProtocol.on("/mnt/card/video_front/b.mp4") { _ in
+            .init(status: 200, headers: ["Content-Length": "\(body.count)"], body: body)
+        }
+        let http = DashcamHTTP(base: URL(string: "http://192.168.169.1")!, session: DashcamStubProtocol.session())
+        let size = try await http.size("/mnt/card/video_front/b.mp4")
+        XCTAssertEqual(size, Int64(clip.count), "from the length header, body dropped")
+        let head = try await http.range("/mnt/card/video_front/b.mp4", start: 0, length: 100)
+        XCTAssertEqual(head, clip.prefix(100), "a read from the start still works")
+        let cam = ViidureCamera(http: http)
+        let file = DashcamFile(path: "/mnt/card/video_front/b.mp4", kind: .normal, lens: .front,
+                               start: DashcamSamples.clipStart, durationS: 60, size: Int64(clip.count))
+        do {
+            _ = try await cam.gps(file, tzOffset: DashcamSamples.tz)
+            XCTFail("a tail can't be read without ranges")
+        } catch {}
     }
 
     func testDetectFindsAViidureCameraAtAPinnedHost() async {

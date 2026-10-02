@@ -62,8 +62,9 @@ enum DashcamSamples {
                 return .init(status: 200, headers: ["Content-Length": "\(data.count)"], body: data)
             }
             let parts = r.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-            let lo = Int(parts[0]) ?? 0
-            let hi = min(data.count - 1, Int(parts.count > 1 ? parts[1] : "") ?? data.count - 1)
+            var lo = Int(parts[0]) ?? 0
+            var hi = min(data.count - 1, Int(parts.count > 1 ? parts[1] : "") ?? data.count - 1)
+            if parts[0].isEmpty, let n = Int(parts.count > 1 ? parts[1] : "") { lo = max(0, data.count - n); hi = data.count - 1 }   // bytes=-N
             return .init(status: 206, headers: ["Content-Range": "bytes \(lo)-\(hi)/\(data.count)"],
                          body: data.subdata(in: lo..<(hi + 1)))
         }

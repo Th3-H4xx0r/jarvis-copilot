@@ -142,12 +142,10 @@ enum DashcamGPS {
         return fixes.map { var f = $0; f.t -= Double(tzOffset); return f }
     }
 
-    /// Reads a clip's GPS straight off the camera: size → tail → block.
+    /// Reads a clip's GPS straight off the camera: tail (with the file's size) → block.
     static func fetch(http: DashcamHTTP, file: DashcamFile, tzOffset: Int) async throws -> [DashcamFix] {
-        let total = try await http.size(file.path)
-        guard total >= 8 else { return [] }
-        let tail = try await http.range(file.path, start: total - 8, length: 8)
-        guard let (marker, size) = parseTail(tail), Int64(size) <= total else { return [] }
+        let (tail, total) = try await http.tail(file.path, count: 8)
+        guard total >= 8, let (marker, size) = parseTail(tail), Int64(size) <= total else { return [] }
         let block = try await http.range(file.path, start: total - Int64(size), length: size)
         return align(parseBlock(block, marker: marker), clipStart: file.start, duration: file.durationS, tzOffset: tzOffset)
     }
