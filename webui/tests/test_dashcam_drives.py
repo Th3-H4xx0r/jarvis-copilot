@@ -164,8 +164,8 @@ def test_polyline_is_thinned_and_keeps_both_ends():
     d = dd.build_drives([clip("a", T0, duration=5000)], {"a": fixes})[0]
     line = dd.drive_polyline(d, {"a": fixes}, limit=100)
     assert 2 <= len(line) <= 100
-    assert line[0] == [fixes[0][1], fixes[0][2], fixes[0][3]]
-    assert line[-1] == [fixes[-1][1], fixes[-1][2], fixes[-1][3]]
+    assert line[0] == [fixes[0][1], fixes[0][2], fixes[0][3], fixes[0][0]]
+    assert line[-1] == [fixes[-1][1], fixes[-1][2], fixes[-1][3], fixes[-1][0]]
     assert len(dd.drive_polyline(d, {"a": fixes[:50]}, limit=100)) == 50
 
 
@@ -204,3 +204,11 @@ def test_rebuild_writes_drives_and_sets_clip_drive_ids(tmp_path):
          "size": 1}])
     dd.rebuild(store)
     assert store.get_clip(b)["drive_id"] is None
+
+
+def test_polyline_points_carry_their_time():
+    fixes = [[1_790_000_000 + i, 41.0 + i * 1e-4, -87.0, 10.0, 90.0] for i in range(5)]
+    d = {"id": "dr", "clip_ids": ["a"], "start": "2026-09-21T13:46:40Z", "end": "2026-09-21T13:46:44Z"}
+    line = dd.drive_polyline(d, {"a": fixes}, limit=100)
+    assert [p[3] for p in line] == [f[0] for f in fixes]
+    assert line[0][:3] == [41.0, -87.0, 10.0]

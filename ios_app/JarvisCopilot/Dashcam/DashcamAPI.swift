@@ -121,8 +121,8 @@ struct DashcamDrive: Identifiable, Equatable, Sendable {
 
 struct DashcamDriveDetail: Sendable {
     var drive: DashcamDrive
-    /// `[lat, lon, speed m/s]`, thinned for the map.
-    var polyline: [(lat: Double, lon: Double, speed: Double?)]
+    /// `[lat, lon, speed m/s, t]`, thinned for the map; `t` (Unix seconds) maps a point to its clip.
+    var polyline: [(lat: Double, lon: Double, speed: Double?, t: Double?)]
     var clips: [DashcamServerClip]
 }
 
@@ -275,9 +275,9 @@ struct DashcamAPI: Sendable {
         let o = try await api.get(Self.prefix + "/drives/\(id)").object()
         let body = o["drive"] as? [String: Any] ?? o
         guard let drive = DashcamDrive(json: body) else { throw APIError.badResponse("drive \(id) missing") }
-        let poly = ((o["polyline"] ?? body["polyline"]) as? [[Any]] ?? []).compactMap { p -> (lat: Double, lon: Double, speed: Double?)? in
+        let poly = ((o["polyline"] ?? body["polyline"]) as? [[Any]] ?? []).compactMap { p -> (lat: Double, lon: Double, speed: Double?, t: Double?)? in
             guard p.count >= 2, let lat = num(p[0]), let lon = num(p[1]) else { return nil }
-            return (lat, lon, p.count > 2 ? num(p[2]) : nil)
+            return (lat, lon, p.count > 2 ? num(p[2]) : nil, p.count > 3 ? num(p[3]) : nil)
         }
         let clips = ((o["clips"] ?? body["clips"]) as? [[String: Any]] ?? []).compactMap(DashcamServerClip.init(json:))
         return DashcamDriveDetail(drive: drive, polyline: poly, clips: clips)

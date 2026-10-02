@@ -31,6 +31,7 @@ struct ScanView: View {
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
                     glassesCard(entries)
+                    DashcamEntryCard(namespace: cardNamespace)
                     emptyState
                 } else {
                     grid(entries, absent: absent)
@@ -137,6 +138,7 @@ struct ScanView: View {
                 .zoomSource(id: ring.id, in: cardNamespace)
             }
             glassesCard(entries)
+            DashcamEntryCard(namespace: cardNamespace)
             ForEach(absent) { entry in
                 AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
                     connecting = entry.deviceID

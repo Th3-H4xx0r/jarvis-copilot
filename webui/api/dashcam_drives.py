@@ -210,8 +210,9 @@ def _drive_fixes(drive: dict, fixes_by_clip: dict[str, list]) -> list:
 
 
 def drive_polyline(drive: dict, fixes_by_clip: dict[str, list], limit: int = THIN_POINTS) -> list:
-    """``[[lat, lon, speed_mps|null], ...]`` thinned to ``limit`` points by an even time stride,
-    always keeping the first and last fix."""
+    """``[[lat, lon, speed_mps|null, t], ...]`` thinned to ``limit`` points by an even time stride,
+    always keeping the first and last fix. ``t`` (Unix seconds) lets a client map a point on the
+    line back to the clip recorded there."""
     fx = _drive_fixes(drive, fixes_by_clip)
     limit = max(2, int(limit))
     if len(fx) > limit:
@@ -226,7 +227,7 @@ def drive_polyline(drive: dict, fixes_by_clip: dict[str, list], limit: int = THI
         if picked[-1] != len(fx) - 1:
             picked[-1] = len(fx) - 1
         fx = [fx[i] for i in picked]
-    return [[f[1], f[2], f[3]] for f in fx]
+    return [[f[1], f[2], f[3], f[0]] for f in fx]
 
 
 def _gpx_time(t: float) -> str:
