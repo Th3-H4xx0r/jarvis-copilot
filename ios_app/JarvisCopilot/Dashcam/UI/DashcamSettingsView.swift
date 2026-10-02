@@ -19,6 +19,7 @@ struct DashcamSettingsView: View {
             if let note {
                 Text(note).font(.footnote).foregroundStyle(JcTheme.amber).padding(.horizontal, 20)
             }
+            autoSyncCard
             rules
             if wifi.onCamera { cameraSettings; card; wifiSection } else {
                 CardGroup("Camera") {
@@ -42,6 +43,23 @@ struct DashcamSettingsView: View {
         } message: { Text("The phone stops joining its Wi‑Fi. Uploaded clips and drives stay on the server.") }
     }
 
+    // MARK: Auto sync (this phone)
+
+    private var autoSyncCard: some View {
+        CardGroup("Auto sync", footer: sync.autoSync
+                  ? "While the phone is on the camera's Wi‑Fi it looks for new clips every \(Int(DashcamSync.autoInterval)) seconds, pulls them and uploads them. No need to tap Sync."
+                  : "Clips only come off the camera when you tap Sync now or open one.") {
+            Row {
+                Toggle("Find and download new clips automatically", isOn: Binding(get: { sync.autoSync }, set: { on in
+                    sync.autoSync = on
+                    // "Download everything" needs normal footage switched on too.
+                    if on, sync.rulesLoaded, sync.rules.normal == .off { ruleBinding(\.normal).wrappedValue = .all }
+                }))
+                .tint(JcTheme.accent)
+            }
+        }
+    }
+
     // MARK: Sync rules (stored on the server)
 
     private var rules: some View {
@@ -49,13 +67,13 @@ struct DashcamSettingsView: View {
                   ? "Events, parking clips and photos are always pulled. Normal footage is 15–20 GB an hour at 4K, so it follows these rules."
                   : "Loading the rules from the server…") {
             Row {
-                Picker("Normal footage", selection: ruleBinding(\.normal)) {
+                Self.menu("Normal footage", selection: ruleBinding(\.normal)) {
                     ForEach(DashcamRules.Normal.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
             }
             RowDivider()
             Row {
-                Picker("When", selection: ruleBinding(\.normalWhen)) {
+                Self.menu("When", selection: ruleBinding(\.normalWhen)) {
                     ForEach(DashcamRules.When.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
             }
@@ -89,7 +107,7 @@ struct DashcamSettingsView: View {
             ForEach(Array(items.filter { !$0.options.isEmpty }.enumerated()), id: \.element.id) { i, item in
                 if i > 0 { RowDivider() }
                 Row {
-                    Picker(Self.title(item.name), selection: Binding(get: { item.value ?? "" }, set: { new in
+                    Self.menu(Self.title(item.name), selection: Binding(get: { item.value ?? "" }, set: { new in
                         Task { await set(item, new) }
                     })) {
                         ForEach(item.options, id: \.code) { Text($0.label).tag($0.code) }
@@ -137,6 +155,16 @@ struct DashcamSettingsView: View {
         }
     }
 
+    /// A menu picker outside a Form shows only its value, so the title goes beside it.
+    static func menu<V: Hashable, Options: View>(_ title: String, selection: Binding<V>,
+                                                 @ViewBuilder options: () -> Options) -> some View {
+        LabeledContent(title) {
+            Picker(title, selection: selection, content: options)
+                .labelsHidden()
+                .tint(JcTheme.accent)
+        }
+    }
+
     static func title(_ key: String) -> String {
         let known = ["rec_resolution": "Resolution", "rec_split_duration": "Clip length", "gsr_sensitivity": "G‑sensor",
                      "park_gsr_sensitivity": "Parking G‑sensor", "parking_monitor": "Parking monitor", "parking_mode": "Parking mode",
@@ -145,7 +173,9 @@ struct DashcamSettingsView: View {
                      "light_fre": "Light frequency", "screen_standby": "Screen saver", "auto_poweroff": "Auto power off",
                      "low_power_protect": "Low-voltage cut-off", "timelapse_rate": "Time-lapse rate", "park_record_time": "Parking recording",
                      "encodec": "Video codec", "language": "Language", "rear_mirror": "Mirror rear camera", "video_flip": "Flip video",
-                     "video_mirror": "Mirror video", "low_fps_record": "Time-lapse parking", "adas": "Driver assist alerts"]
+                     "video_mirror": "Mirror video", "low_fps_record": "Time-lapse parking", "adas": "Driver assist alerts",
+                     "rear_first": "Preview lens", "power_supply": "Power supply", "front_rotate": "Rotate front camera",
+                     "gps": "GPS", "gps_watermark": "GPS stamp", "time_watermark": "Date stamp", "speed_watermark": "Speed stamp"]
         return known[key] ?? key.replacingOccurrences(of: "_", with: " ").capitalized
     }
 

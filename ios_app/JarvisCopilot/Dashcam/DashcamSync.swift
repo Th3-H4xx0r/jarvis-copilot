@@ -194,11 +194,25 @@ final class DashcamSync: ObservableObject {
         cameraLoop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.onCameraProvider() else { return }
-                _ = await self.syncPass()
-                try? await Task.sleep(for: .seconds(60))
+                if self.autoSync { _ = await self.syncPass() }
+                try? await Task.sleep(for: .seconds(Self.autoInterval))
             }
         }
     }
+
+    /// Auto sync (Settings): new clips are found and pulled on their own every `autoInterval` while the
+    /// phone is on the camera's Wi‑Fi. Off → only Sync now and clips someone asked for.
+    static let autoSyncKey = "jc.dashcam.autoSync"
+    static let autoInterval: Double = 20
+    @Published var autoSync: Bool = UserDefaults.standard.object(forKey: DashcamSync.autoSyncKey) as? Bool ?? true {
+        didSet {
+            defaults.set(autoSync, forKey: Self.autoSyncKey)
+            if autoSync, onCameraProvider(), !passRunning { Task { await self.syncPass() } }
+        }
+    }
+
+    /// The controls changed recording by hand.
+    func noteRecording(_ on: Bool) { recording = on }
 
     /// Run a pass now (Sync now, `dashcam_sync`).
     @discardableResult
@@ -250,6 +264,7 @@ final class DashcamSync: ObservableObject {
     @discardableResult
     func syncPass() async -> Report {
         var report = Report()
+        guard !liveActive else { return report }        // the live view has the camera
         guard !passRunning else { return report }
         guard var setup = setupProvider(), let cam = cameraFactory(setup) else { phase = .notSetUp; return report }
         passRunning = true
@@ -306,6 +321,7 @@ final class DashcamSync: ObservableObject {
                 lastSync = now()
                 return report
             }
+            guard !liveActive else { return report }
             maybeInPlayback = true
             usedPlayback = true
             if (try? await cam.playback(true)) != nil {
@@ -345,7 +361,7 @@ final class DashcamSync: ObservableObject {
         func clipID(_ f: DashcamFile) -> String { rows[f.path]?.id ?? DashcamIDs.clipID(cameraID: cameraID, path: f.path) }
         /// Still on the camera's Wi‑Fi, not cancelled — and, in playback mode, still parked.
         func mayContinue() async -> Bool {
-            guard onCameraProvider(), !Task.isCancelled else { return false }
+            guard onCameraProvider(), !Task.isCancelled, !liveActive else { return false }
             return inPlayback ? await parked() : true
         }
 
@@ -379,6 +395,12 @@ final class DashcamSync: ObservableObject {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
             return isForced(f) || rules.wants(f, parked: isParked, normalBytesOnPhone: storage.normalBytes(camera: cameraID))
+        }
+
+        // 0. Clips someone is waiting on (opened in the player, asked for by the agent) before anything else.
+        for f in DashcamRules.order(files.filter { forced.contains($0.path) && wanted($0) }) {
+            guard await mayContinue() else { return report }
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
         }
 
         // 1. Events, parking clips and photos first — they matter most.
@@ -538,21 +560,44 @@ final class DashcamSync: ObservableObject {
         let matches = cameraFiles.filter { $0.end >= from && $0.start <= to }
         matches.forEach { forced.insert($0.path) }
         saveFetchRanges(fetchRanges() + [FetchRange(from: from, to: to, asked: now())])
-        if onCameraProvider() { Task { await self.syncPass() } }
+        passSoon()
         return matches.count
     }
 
     func pull(_ path: String) {
         forced.insert(path)
-        if onCameraProvider() { Task { await self.syncPass() } }
+        passSoon()
+    }
+
+    /// A pass for something just asked for. A pass already running chose its files before the ask,
+    /// so wait for it and run another.
+    private func passSoon() {
+        guard onCameraProvider() else { return }
+        Task {
+            var waited = 0
+            while passRunning && waited < 1800 { try? await Task.sleep(for: .seconds(1)); waited += 1 }
+            await self.syncPass()
+        }
     }
 
     /// True once the rules came from the server — Settings won't send edits built on defaults.
     @Published private(set) var rulesLoaded = false
 
     func refreshRules() async {
-        if let state = try? await server.state() { rules = state.rules; rulesLoaded = true }
+        guard let state = try? await server.state() else { return }
+        rules = state.rules
+        rulesLoaded = true
+        // Auto sync means everything comes down: the old "Don't pull normal footage" default is switched
+        // over once (the rule can still be changed back in Settings).
+        if autoSync, !defaults.bool(forKey: Self.autoAllKey), let api = server as? DashcamAPI {
+            defaults.set(true, forKey: Self.autoAllKey)
+            if rules.normal == .off {
+                rules.normal = .all
+                try? await api.updateRules(rules)
+            }
+        }
     }
+    static let autoAllKey = "jc.dashcam.autoSyncPullsAll"
 
     func refreshCounts() async {
         pendingUploads = await uploader.pendingCount

@@ -17,6 +17,7 @@ struct DashcamPage: View {
         ScrollView {
             VStack(spacing: 16) {
                 header
+                if wifi.onCamera { DashcamControlsCard(live: $live) }
                 Picker("", selection: $tab) {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -56,9 +57,6 @@ struct DashcamPage: View {
                         Text(subtitle).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if wifi.onCamera {
-                        Button("Live") { live = true }.buttonStyle(.jcGlass(compact: true))
-                    }
                     Button {
                         syncing = true
                         Task { await sync.syncNow(); syncing = false }
