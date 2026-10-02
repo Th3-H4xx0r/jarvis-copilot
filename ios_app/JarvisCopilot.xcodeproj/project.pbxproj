@@ -241,6 +241,7 @@
 		3F801C1F909F081F609094DF /* MoreUIAHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */; };
 		3FA02E17F7F05F025CDBAEED /* RouteFollower.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB391EB2C40AAEA96CC56A2B /* RouteFollower.swift */; };
 		400D414F4B6895FBBAB2B3F1 /* ScanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255C5915F64E76446E20AA5 /* ScanView.swift */; };
+		4038CDA3EEAA94BE13F29546 /* DashcamModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365B06F937E30A136D3FDF5B /* DashcamModel.swift */; };
 		405290DE4EA28C37F1F63604 /* VoiceReplyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9C939812877EA192CCACFD /* VoiceReplyTests.swift */; };
 		4060A5EE3A84D3AB4AB0DDAA /* StrengthExerciseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FA0FAF907B689578B9C42E6 /* StrengthExerciseCard.swift */; };
 		4118BE782BBE548F691A9EE2 /* DashcamRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89041CFEB376E8D96A524649 /* DashcamRulesTests.swift */; };
@@ -1136,6 +1137,7 @@
 		3584FB51E25BF86374E4A4A0 /* ConnectionMonitorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectionMonitorTests.swift; sourceTree = "<group>"; };
 		35FB23B2C0FCE8661BB5C251 /* HealthClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthClient.swift; sourceTree = "<group>"; };
 		36299D2CA83B8F9B8E9D033D /* ChatStreamReducer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducer.swift; sourceTree = "<group>"; };
+		365B06F937E30A136D3FDF5B /* DashcamModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamModel.swift; sourceTree = "<group>"; };
 		36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModels.swift; sourceTree = "<group>"; };
 		3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAudioInput.swift; sourceTree = "<group>"; };
 		37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceHistoryTests.swift; sourceTree = "<group>"; };
@@ -3206,6 +3208,7 @@
 				7E1F73CB9BE382EE6240CFB0 /* DashcamSettingsView.swift */,
 				4FDE6F832C56A99B29B9776A /* DashcamSetupView.swift */,
 				B8BDFA74346DDB54F51D6C1E /* DashcamUIModels.swift */,
+				365B06F937E30A136D3FDF5B /* DashcamModel.swift */,
 			);
 			name = UI;
 			path = UI;
@@ -4566,6 +4569,7 @@
 				571230674B0918C43A7C7241 /* DashcamSetupView.swift in Sources */,
 				F3550B116F980BB3A611CBB7 /* DashcamUIModels.swift in Sources */,
 				CB2215F7CA9CCB8C1CC8CCE2 /* DashcamWiFiPicker.swift in Sources */,
+				4038CDA3EEAA94BE13F29546 /* DashcamModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -25,6 +25,15 @@ final class DashcamRenderTests: XCTestCase {
         try RenderHarness.write(view, size: CGSize(width: 393, height: 640), name: "dashcam_cards")
     }
 
+    func testRenderModelCloseUp() throws {
+        let view = HStack(spacing: 0) {
+            DashcamSceneView(spin: false, lit: true, cameraDistance: 4.0, animatesAnywhere: true)
+            DashcamSceneView(spin: false, lit: true, tilt: 0.25, cameraDistance: 4.0, animatesAnywhere: true)
+                .rotationEffect(.zero)
+        }
+        try RenderHarness.write(view, size: CGSize(width: 800, height: 360), name: "dashcam_model_closeup", settle: 3)
+    }
+
     func testRenderLibraryRows() throws {
         let clips = [
             clip("a", kind: "event", minutesAgo: 5, extra: ["phone": ["state": "local"], "upload": ["state": "staged"],

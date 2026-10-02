@@ -8,9 +8,9 @@ enum DashcamKnownNetworks {
     static let ssidsKey = "jc.dashcam.knownSSIDs"
     static let prefixesKey = "jc.dashcam.learnedSSIDPrefixes"
 
-    /// Common dashcam Wi‑Fi name prefixes (the Peztio app keeps no list of its own — it remembers
-    /// whatever was picked — so these are a best guess until the camera's real name is learned).
-    static let commonPrefixes = ["Affver", "AFFVER", "PEZTIO", "Peztio", "A4_", "A4-", "Viidure", "VIIDURE",
+    /// Dashcam Wi‑Fi name prefixes. The A4 calls itself `Peztio-A4_<6 hex>` (seen in the Peztio app's
+    /// listing photo); the rest are common dashcam names, until the camera's real name is learned.
+    static let commonPrefixes = ["Peztio-A4_", "Peztio-", "Affver", "AFFVER", "PEZTIO", "Peztio", "A4_", "A4-", "Viidure", "VIIDURE",
                                  "DashCam", "Dashcam", "DASHCAM", "CARDV", "NVT_", "4K_", "WiFi_Cam"]
 
     static func ssids(_ d: UserDefaults = .standard) -> [String] { d.stringArray(forKey: ssidsKey) ?? [] }

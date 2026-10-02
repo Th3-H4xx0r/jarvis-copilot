@@ -32,14 +32,11 @@ struct DashcamCard: View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
-                ZStack {
-                    Circle().fill(JcTheme.accent.opacity(onCamera ? 0.22 : 0.08)).frame(width: 110, height: 110).blur(radius: 18)
-                    JcIcon("video.fill", size: 54, weight: .light)
-                        .foregroundStyle(onCamera ? JcTheme.accent : Color.white.opacity(0.35))
-                }
-                .frame(width: 124, height: 124)
-                .padding(.trailing, 12)
-                .allowsHitTesting(false)
+                // Turning costs a continuous render: only once a camera is set up.
+                DashcamSceneView(spin: setup != nil, lit: onCamera)
+                    .frame(width: 184, height: 136)
+                    .padding(.trailing, 4)
+                    .allowsHitTesting(false)
             }
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
