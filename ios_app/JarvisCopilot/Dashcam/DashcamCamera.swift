@@ -26,10 +26,20 @@ protocol DashcamCamera: Sendable {
     /// Playback mode (Viidure). No-op where the family has none.
     func playback(_ enter: Bool) async throws
     func gps(_ file: DashcamFile, tzOffset: Int) async throws -> [DashcamFix]
+    func thumbnail(_ file: DashcamFile) async -> Data?
 }
 
 extension DashcamCamera {
     func fileURL(_ file: DashcamFile) -> URL { http.url(file.path) }
+
+    /// The camera's JPEG preview of a file, or nil when it has none.
+    func thumbnail(_ file: DashcamFile) async -> Data? {
+        guard let url = thumbnailURL(file),
+              let (data, resp) = try? await http.session.data(for: URLRequest(url: url, timeoutInterval: 6)),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              data.count > 100, data.prefix(2) == Data([0xFF, 0xD8]) else { return nil }
+        return data
+    }
 }
 
 /// Finds the camera on the current Wi‑Fi: each family's detector at its usual address, or at
