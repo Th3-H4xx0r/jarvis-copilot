@@ -73,9 +73,10 @@ DEST_TYPES = ("drive", "sftp", "ftp", "smb")
 MPS_TO_MPH = 2.2369362920544
 M_PER_MILE = 1609.344
 NEAREST_MAX_S = 120          # a fix further than this from the asked time doesn't answer "where"
-CLIP_SEARCH_BEFORE_S = 20 * 60
-CLIP_SEARCH_AFTER_S = 2 * 60
-MAX_CLIPS_SEARCHED = 12
+CLIP_SEARCH_S = 15 * 60      # "where" looks at every clip starting within this of the asked time
+CLIP_PAGE = 500              # the server's largest page
+MAX_CLIP_PAGES = 4
+MAX_CLIPS_SEARCHED = 400     # only a runaway index gets near this
 
 # The phone answers every skill within 25 s of receiving it; the rest covers waking a
 # backgrounded app by push. Pulling a time range can take longer, but the skill only queues it.
@@ -150,8 +151,9 @@ def _failure(status: int, data: Any) -> str:
     return text or f"HTTP {status}"
 
 
-def parse_time(text: str) -> float:
-    """Unix seconds from ISO-8601 (``Z`` or an offset; no offset means this machine's local time)."""
+def parse_time(text: str, require_offset: bool = False) -> float:
+    """Unix seconds from ISO-8601 (``Z`` or an offset; no offset means this machine's local time,
+    or an error with ``require_offset`` - the server's clock zone is rarely the driver's)."""
     raw = str(text or "").strip()
     if raw.endswith(("Z", "z")):
         raw = raw[:-1] + "+00:00"
@@ -160,6 +162,9 @@ def parse_time(text: str) -> float:
     except ValueError:
         raise DashcamError(f"could not read the time {text!r}; use ISO-8601 like 2026-10-01T15:40:00-05:00") from None
     if dt.tzinfo is None:
+        if require_offset:
+            raise DashcamError(f"the time {text!r} has no UTC offset; add one, like 2026-10-01T15:40:00-05:00 "
+                               "(or Z for UTC)")
         dt = dt.astimezone()
     return dt.timestamp()
 
@@ -351,9 +356,11 @@ class Dashcam:
         }
 
     def fix_at(self, at: str, max_gap_s: float = NEAREST_MAX_S) -> dict[str, Any]:
-        """The GPS fix nearest to ``at`` (within ``max_gap_s``), searching drives around that time and
-        clips that started shortly before it."""
-        t = parse_time(at)
+        """The GPS fix nearest to ``at`` (within ``max_gap_s``; ``at`` needs a UTC offset). Every
+        clip of the drives around that time (they hold clips by GPS time, right even when the
+        camera's clock is off) and every clip starting within 15 min of it is searched - those
+        covering ``at`` first - until a fix within 2 s turns up."""
+        t = parse_time(at, require_offset=True)
         candidates: dict[str, dict] = {}
         drives = self._api("GET", "/drives", params={"from": utc_iso(t - max_gap_s), "to": utc_iso(t + max_gap_s)})
         for drive in drives.get("drives") or []:
@@ -361,18 +368,26 @@ class Dashcam:
             for clip in detail.get("clips") or []:
                 if isinstance(clip, dict) and clip.get("id"):
                     candidates.setdefault(clip["id"], clip)
-        window = self._api("GET", "/clips", params={"from": utc_iso(t - CLIP_SEARCH_BEFORE_S),
-                                                     "to": utc_iso(t + CLIP_SEARCH_AFTER_S), "limit": 100})
-        for clip in window.get("clips") or []:
-            if isinstance(clip, dict) and clip.get("id"):
-                candidates.setdefault(clip["id"], clip)
+        cursor = None
+        for _ in range(MAX_CLIP_PAGES):
+            window = self._api("GET", "/clips", params={"from": utc_iso(t - CLIP_SEARCH_S),
+                                                         "to": utc_iso(t + CLIP_SEARCH_S),
+                                                         "limit": CLIP_PAGE, "cursor": cursor})
+            for clip in window.get("clips") or []:
+                if isinstance(clip, dict) and clip.get("id"):
+                    candidates.setdefault(clip["id"], clip)
+            cursor = window.get("next")
+            if not cursor:
+                break
 
-        def distance(clip: dict) -> float:
+        def distance(clip: dict) -> tuple[float, float]:
+            """(how far ``at`` is outside the clip's window, how far from its middle)."""
             try:
                 start = parse_time(clip["start"])
             except (DashcamError, KeyError, TypeError):
-                return float("inf")
-            return abs(start + float(clip.get("duration_s") or 60) / 2 - t)
+                return float("inf"), float("inf")
+            length = float(clip.get("duration_s") or 60)
+            return max(0.0, start - t, t - (start + length)), abs(start + length / 2 - t)
 
         ordered = sorted((c for c in candidates.values() if c.get("has_gps") is not False), key=distance)
         best = None
@@ -600,7 +615,10 @@ def _run(cam: Dashcam, args: argparse.Namespace) -> Any:
         text = cam.gpx(args.drive_id)
         if not args.output:
             return text
-        Path(args.output).write_text(text, encoding="utf-8")
+        try:
+            Path(args.output).write_text(text, encoding="utf-8")
+        except OSError as exc:
+            raise DashcamError(f"could not write {args.output}: {exc.strerror or exc}") from None
         return {"ok": True, "path": args.output}
     if c == "destinations":
         return cam.destinations()

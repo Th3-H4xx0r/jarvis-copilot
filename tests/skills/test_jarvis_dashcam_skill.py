@@ -248,6 +248,31 @@ def test_where_rejects_fixes_more_than_two_minutes_away(mod):
     assert mod.Dashcam(transport=t).where(iso(T0 + 59 + 119))["offset_s"] == -119
 
 
+def test_where_searches_every_clip_around_the_time_not_just_the_first_twelve(mod):
+    t = T0 + 600
+    # Clips whose start says "right now" but whose GPS is an hour off (a wrong-clock rear camera,
+    # photos...) rank first; the clip with the fix started 100 s "late" (camera clock skew).
+    decoys = [{"id": f"c_d{i:02d}", "start": iso(t - 20 + i), "duration_s": 60, "has_gps": True} for i in range(15)]
+    real = {"id": "c_real", "start": iso(t + 100), "duration_s": 60, "has_gps": True}
+    fixes = {c["id"]: track(t - 3600, 60) for c in decoys}
+    fixes["c_real"] = track(t - 30, 60)
+    tr = FakeTransport(where_routes([], decoys + [real], fixes))
+    out = mod.Dashcam(transport=tr).where(iso(t))
+    assert out["clip_id"] == "c_real" and out["offset_s"] == 0
+    q = tr.query("/api/dashcam/clips?")
+    assert q["from"] == iso(t - 15 * 60) and q["to"] == iso(t + 15 * 60)
+
+
+def test_where_and_speed_need_a_utc_offset(mod, cli, capsys):
+    for command in ("where", "speed"):
+        code, out, err = run_cli(mod, [command, "--at", "2026-10-01T15:40:00"], capsys)
+        assert code == 1 and out == ""
+        assert "offset" in json.loads(err)["error"]
+    assert not [c for c in cli.calls if c["path"].startswith("/api/dashcam")]
+    with pytest.raises(mod.DashcamError, match="offset"):
+        mod.Dashcam(transport=FakeTransport()).speed("2026-10-01 15:40")
+
+
 def test_stats_in_miles_and_mph(mod, monkeypatch):
     drives = [{"id": "dr_1", "start": iso(T0), "end": iso(T0 + 1800), "distance_m": 16093.44, "duration_s": 1800,
                "moving_s": 1200, "avg_mps": 13.4112, "max_mps": 26.8224},
@@ -286,6 +311,8 @@ def test_gpx_to_file(mod, cli, capsys, tmp_path):
     target = tmp_path / "d.gpx"
     code, out, _ = run_cli(mod, ["gpx", "dr_1_A4", "-o", str(target)], capsys)
     assert code == 0 and target.read_text() == "<gpx></gpx>" and json.loads(out)["path"] == str(target)
+    code, out, err = run_cli(mod, ["gpx", "dr_1_A4", "-o", str(tmp_path / "missing" / "d.gpx")], capsys)
+    assert code == 1 and out == "" and "could not write" in json.loads(err)["error"]
 
 
 # ── destinations ─────────────────────────────────────────────────────────────

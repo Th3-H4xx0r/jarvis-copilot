@@ -47,8 +47,8 @@ update firmware, show live video, or reach the camera without the phone.
 ## How to Run
 
 Run `scripts/dashcam.py` with `terminal` (stdlib only, Python 3.10+). It prints JSON, or
-`{"error": ...}` on stderr with exit code 1. Always pass times with a UTC offset; a time
-without one is read in the server's local time zone.
+`{"error": ...}` on stderr with exit code 1. Always pass times with a UTC offset: `where` and
+`speed` refuse a time without one, other commands read it in the server's local time zone.
 
 ```bash
 DC="$HERMES_HOME/skills/smart-home/jarvis-dashcam/scripts/dashcam.py"
@@ -122,6 +122,8 @@ Units: the server stores metres and m/s; the CLI adds miles and mph. Times are U
   user's explicit go-ahead in this conversation, and always with `confirm`.
 - **A clip still being recorded grows** between listings; it isn't uploaded until its size is
   stable, so the newest clip lags by a minute or two.
+- **A clip uploads only while an enabled destination takes its kind.** Otherwise it stays on
+  the phone as `pending_upload` (removing a destination sends its waiting clips back there).
 - **Never put passwords or tokens on the command line.** Use `--password-stdin` or
   `--json-stdin`; the server stores them only in rclone's config and never returns them.
 - **Google Drive tokens come from a browser sign-in on a Mac**, not from the server. rclone's
