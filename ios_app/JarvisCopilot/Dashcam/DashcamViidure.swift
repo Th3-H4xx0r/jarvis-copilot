@@ -129,7 +129,10 @@ struct ViidureCamera: DashcamCamera {
     static func lens(fromPath path: String) -> DashcamLens {
         let low = path.lowercased()
         let stem = (low.split(separator: "/").last.map(String.init) ?? low).split(separator: ".").first.map(String.init) ?? low
-        if stem.hasSuffix("_r") || stem.hasSuffix("-r") || low.contains("/rear") || low.contains("video_rear") || low.contains("/r/") {
+        // The A4 writes rear clips to /mnt/card/video_back/…_b.ts; others use _R / rear folders.
+        if stem.hasSuffix("_r") || stem.hasSuffix("-r") || stem.hasSuffix("_b") || stem.hasSuffix("-b")
+            || low.contains("/rear") || low.contains("video_rear") || low.contains("video_back") || low.contains("/back")
+            || low.contains("/r/") {
             return .rear
         }
         if stem.hasSuffix("_i") || stem.hasSuffix("-i") || low.contains("/inside") || low.contains("/in/") {

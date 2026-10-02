@@ -17,12 +17,14 @@ enum DashcamGPS {
         return size > 0 && size < 1_024_000 ? (marker, size) : nil
     }
 
-    /// The block (the file's last `size` bytes) → fixes in file order, times as written.
+    /// The block (the file's last `size` bytes) → fixes in file order, times as written. MP4 clips wrap it in a
+    /// `free` box; the A4's `.ts` clips end with two `SKIP` boxes ("SKIPLIGO" "GPSINFO", `&&&&` then `####`) of the
+    /// same 132-byte records, one per second.
     static func parseBlock(_ block: Data, marker: String) -> [DashcamFix] {
         let b = [UInt8](block)
         guard b.count >= header,
               (Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])) == b.count,
-              String(decoding: b[4..<8], as: UTF8.self) == "free" else { return [] }
+              ["free", "SKIP", "skip"].contains(String(decoding: b[4..<8], as: UTF8.self)) else { return [] }
         let fh = b.count >= 10 && b[8] == UInt8(ascii: "F") && b[9] == UInt8(ascii: "H")
         var lines: [String] = []
         if fh {

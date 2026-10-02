@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import struct
 import importlib.util
 import math
 import sys
@@ -94,6 +95,29 @@ def test_parse_block_normal_and_hash_markers():
         fixes = cam_mod.parse_block(block, marker)
         assert len(fixes) == 5
         assert fixes[0].speed_mps == pytest.approx(10.0, abs=0.01)
+
+
+def _a4_skip_block(lines, marker=b"####"):
+    """The A4's .ts tail: a SKIP box ("SKIPLIGO" "GPSINFO", record count) of 132-byte records + marker/size."""
+    size = 28 + 132 * len(lines) + 8
+    out = struct.pack(">I", size) + b"SKIPLIGO" + b"GPSINFO     " + struct.pack(">I", len(lines))
+    for i, line in enumerate(lines, 1):
+        out += struct.pack(">I", i) + line.encode().ljust(128, b"\0")
+    return out + marker + struct.pack(">I", size)
+
+
+def test_parse_block_a4_ts_skip_box():
+    lines = ["2026/10/02 13:19:32 N:4152.6860 W:08737.7880 48.0 km/h x:+0.00 y:+0.00 z:+0.00 A:91.0 H:182.0 304A126B2FC86505BTRX",
+             "2026/10/02 13:19:33 N:4152.6860 W:08737.7860 49.0 km/h x:0.0 y:0.0 z:0.0 A:91 H:182 M:0.0",
+             "2026/10/02 13:19:34 N:0 E:0 0.0 km/h x:+0.00 y:+0.00 z:+0.00 A:0.0 H:0.0 304A126B2FC86505BTRX"]   # no fix yet
+    block = _a4_skip_block(lines)
+    assert cam_mod.parse_trailer(block[-8:]) == (b"####", len(block))
+    fixes = cam_mod.parse_block(block, b"####")
+    assert len(fixes) == 2
+    assert fixes[0].lat == pytest.approx(41 + 52.686 / 60, abs=1e-6)
+    assert fixes[0].lon == pytest.approx(-(87 + 37.788 / 60), abs=1e-6)
+    assert fixes[0].speed_mps == pytest.approx(48 / 3.6, abs=0.01)
+    assert fixes[0].heading == 91.0
 
 
 def test_parse_block_fh_variant():
@@ -221,6 +245,8 @@ def test_novatek_list_parsing():
     ("/mnt/card/video_rear/20261001_154000_R.mp4", "rear"),
     ("/CARDV/MOVIE/2026_1001_154000_R.MP4", "rear"),
     ("/mnt/card/photo/x.jpg", "front"),
+    ("/mnt/card/video_back/2026-10-02_13_21_09_b.ts", "rear"),    # the real A4
+    ("/mnt/card/video_front/2026-10-02_13_21_09_f.ts", "front"),
 ])
 def test_lens_from_path(path, lens):
     assert cam_mod.lens_from_path(path) == lens

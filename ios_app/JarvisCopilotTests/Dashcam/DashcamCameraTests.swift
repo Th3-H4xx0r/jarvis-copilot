@@ -8,6 +8,34 @@ final class DashcamCameraTests: XCTestCase {
 
     // MARK: GPS
 
+    /// The A4's `.ts` clips end with `SKIP` boxes ("SKIPLIGO" "GPSINFO") of the same 132-byte records.
+    static func a4SkipBlock(_ lines: [String], marker: String = "####") -> Data {
+        func be32(_ v: Int) -> [UInt8] { [UInt8(v >> 24 & 0xFF), UInt8(v >> 16 & 0xFF), UInt8(v >> 8 & 0xFF), UInt8(v & 0xFF)] }
+        let size = 28 + 132 * lines.count + 8
+        var out = be32(size) + Array("SKIPLIGO".utf8) + Array("GPSINFO     ".utf8) + be32(lines.count)
+        for (i, line) in lines.enumerated() {
+            out += be32(i + 1) + Array(line.utf8) + [UInt8](repeating: 0, count: 128 - line.utf8.count)
+        }
+        return Data(out + Array(marker.utf8) + be32(size))
+    }
+
+    func testTheA4sSkipBoxGPSParses() throws {
+        let block = Self.a4SkipBlock([
+            "2026/10/02 13:19:32 N:4152.6860 W:08737.7880 48.0 km/h x:+0.00 y:+0.00 z:+0.00 A:91.0 H:182.0 304A126B2FC86505BTRX",
+            "2026/10/02 13:19:33 N:4152.6860 W:08737.7860 49.0 km/h x:0.0 y:0.0 z:0.0 A:91 H:182 M:0.0",
+            "2026/10/02 13:19:34 N:0 E:0 0.0 km/h x:+0.00 y:+0.00 z:+0.00 A:0.0 H:0.0 304A126B2FC86505BTRX",   // no fix yet
+        ])
+        let tail = try XCTUnwrap(DashcamGPS.parseTail(block.suffix(8)))
+        XCTAssertEqual(tail.marker, "####")
+        XCTAssertEqual(tail.size, block.count)
+        let fixes = DashcamGPS.parseBlock(block, marker: tail.marker)
+        XCTAssertEqual(fixes.count, 2)
+        XCTAssertEqual(fixes[0].lat, 41 + 52.686 / 60, accuracy: 1e-6)
+        XCTAssertEqual(fixes[0].lon, -(87 + 37.788 / 60), accuracy: 1e-6)
+        XCTAssertEqual(fixes[0].speed ?? 0, 48 / 3.6, accuracy: 0.01)
+        XCTAssertEqual(fixes[0].heading, 91)
+    }
+
     func testNormalBlockMatchesThePythonParser() throws {
         let block = DashcamSamples.normalBlock
         let tail = try XCTUnwrap(DashcamGPS.parseTail(block.suffix(8)))
@@ -116,6 +144,11 @@ final class DashcamCameraTests: XCTestCase {
         XCTAssertEqual(info.lenses, 2)
         XCTAssertTrue(info.autorecord)
         XCTAssertEqual(info.brand, "PEZTIO")
+    }
+
+    func testTheA4sRearFolderIsTheRearLens() {
+        XCTAssertEqual(ViidureCamera.lens(fromPath: "/mnt/card/video_back/2026-10-02_13_21_09_b.ts"), .rear)
+        XCTAssertEqual(ViidureCamera.lens(fromPath: "/mnt/card/video_front/2026-10-02_13_21_09_f.ts"), .front)
     }
 
     // MARK: Novatek

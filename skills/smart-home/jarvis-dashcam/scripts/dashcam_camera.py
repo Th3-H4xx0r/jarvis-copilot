@@ -342,7 +342,9 @@ def parse_viidure_list(info: Any, tz_offset_s: int) -> list[CamFile]:
 def lens_from_path(path: str) -> str:
     low = path.lower()
     stem = low.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    if stem.endswith(("_r", "-r")) or "/rear" in low or "video_rear" in low or "/r/" in low:
+    # The A4 writes rear clips to /mnt/card/video_back/…_b.ts; others use _R / rear folders.
+    if (stem.endswith(("_r", "-r", "_b", "-b")) or "/rear" in low or "video_rear" in low
+            or "video_back" in low or "/back" in low or "/r/" in low):
         return "rear"
     if stem.endswith(("_i", "-i")) or "/inside" in low or "/in/" in low:
         return "inside"
@@ -501,7 +503,7 @@ def parse_trailer(last8: bytes) -> tuple[bytes, int] | None:
 
 def parse_block(block: bytes, marker: bytes) -> list[Fix]:
     """GPS block (the file's last ``size`` bytes) → fixes in file order."""
-    if len(block) < GPS_HEADER or struct.unpack(">I", block[:4])[0] != len(block) or block[4:8] != b"free":
+    if len(block) < GPS_HEADER or struct.unpack(">I", block[:4])[0] != len(block) or block[4:8] not in (b"free", b"SKIP", b"skip"):
         return []
     fh = block[8:10] == b"FH"
     lines: list[str] = []
