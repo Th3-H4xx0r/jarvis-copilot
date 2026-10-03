@@ -63,3 +63,12 @@ def test_sheet_escapes_server_text():
     js = _read("harness.js")
     assert "function esc(" in js
     assert "esc(h.name" in js and "esc(h.id)" in js
+
+
+def test_chat_turn_sends_the_chats_own_harness_not_the_default():
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "static"
+    msgs = (static / "messages.js").read_text()
+    harness = (static / "harness.js").read_text()
+    assert "Harness.turnHarnessFor('chat')" in msgs
+    assert "turnHarnessFor" in harness

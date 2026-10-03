@@ -187,6 +187,18 @@
     if (ev.key === 'Escape' && H.sheetSurface) closeSheet();
   });
 
-  window.Harness = { load, list, currentFor, select, openSheet, closeSheet, byId, label, render };
+  // What a chat turn sends as harness_id: the chat's own harness (or a pick made
+  // before the chat existed), else '' = "follow the Chat default". Sending the
+  // default itself would make the server save it onto the chat for good.
+  function turnHarnessFor(surface) {
+    if (surface !== 'chat') return currentFor(surface);
+    const s = session();
+    if (s && s.harness_id) return s.harness_id;
+    const p = H.pendingChat;
+    if (p && (!s || !p.sid || p.sid === s.session_id)) return p.id;
+    return '';
+  }
+
+  window.Harness = { load, list, currentFor, turnHarnessFor, select, openSheet, closeSheet, byId, label, render };
   document.addEventListener('DOMContentLoaded', load);
 })();

@@ -322,7 +322,7 @@ async function send(){
       profile:S.activeProfile||S.session.profile||'default',
       attachments:uploaded.length?uploaded:undefined,
       // The agent harness the chip shows (harness.js); the server runs it.
-      harness_id:(window.Harness?Harness.currentFor('chat'):undefined)
+      harness_id:(window.Harness?Harness.turnHarnessFor('chat'):undefined)
     };
     let startData;
     if(_streamStartSupported===false){
