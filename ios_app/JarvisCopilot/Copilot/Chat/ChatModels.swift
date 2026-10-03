@@ -86,6 +86,19 @@ struct ToolInvocation: Identifiable, Equatable, Sendable {
     /// The OpenAI-style `tool_calls[].id`, used to fold stored results back in.
     var callID: String?
 
+    /// A call made through the lazy-tools bridge (`tool_call {name, arguments}`)
+    /// as the tool it ran. Same rule as the server's `unwrap_bridged_call`.
+    static func unwrappingBridge(name: String, args: [String: JSONValue]) -> (String, [String: JSONValue]) {
+        guard name == "tool_call", case .string(let inner)? = args["name"], !inner.isEmpty else {
+            return (name, args)
+        }
+        switch args["arguments"] {
+        case .object(let innerArgs)?: return (inner, innerArgs)
+        case .string(let raw)?: return (inner, ChatHistory.parseJSONObject(raw))
+        default: return (inner, [:])
+        }
+    }
+
     /// Device skills read better without their routing prefix.
     var shortName: String {
         name.hasPrefix("device_") ? String(name.dropFirst("device_".count)) : name
@@ -360,9 +373,12 @@ extension ChatMessage {
                     let text = part.string("text") ?? ""
                     if !text.isEmpty { blocks.append(.text(TextBlock(text: text))) }
                 case "tool_use":
-                    blocks.append(.tool(ToolInvocation(
+                    let (name, args) = ToolInvocation.unwrappingBridge(
                         name: part.string("name") ?? "tool",
-                        args: JSONValue(part["input"]).objectValue ?? [:],
+                        args: JSONValue(part["input"]).objectValue ?? [:])
+                    blocks.append(.tool(ToolInvocation(
+                        name: name,
+                        args: args,
                         done: true,
                         callID: part.string("id"))))
                 default:
@@ -382,7 +398,8 @@ extension ChatMessage {
                 } else if let dict = function?["arguments"] as? [String: Any] {
                     args = JSONValue(dict).objectValue ?? [:]
                 }
-                blocks.append(.tool(ToolInvocation(name: name, args: args, done: true,
+                let (shown, shownArgs) = ToolInvocation.unwrappingBridge(name: name, args: args)
+                blocks.append(.tool(ToolInvocation(name: shown, args: shownArgs, done: true,
                                                    callID: call.string("id"))))
             }
         }

@@ -249,6 +249,74 @@ def clear_turn_context(task_id: Optional[str]) -> None:
         _turn_context.pop(task_id, None)
 
 
+# ── automatic hand-off ───────────────────────────────────────────────────────
+# A fast node gets this many tool calls in a turn; the next one hands the turn
+# to the bigger model instead of running. Small models rarely call handoff on
+# their own, and a turn that needs more than a few steps is not a quick answer.
+AUTO_HANDOFF_AFTER = 3
+
+# The bridge and the search are how a tool is reached, not work in themselves:
+# a bridged call is counted once, under the real tool's name.
+_UNCOUNTED = {"tool_call", "tool_search", "handoff", ESCALATION_TOOL_NAME}
+
+_AUTO_HANDED_OFF = (
+    "Not run: this needs more steps than a quick answer, so it has been handed to "
+    "the bigger model, which is doing the whole task in the background and will "
+    "report back. Tell the user that in one short line and stop. Do not call any "
+    "more tools.")
+_ALREADY_HANDED_OFF = (
+    "Not run: this turn has already been handed to the bigger model. Do not call "
+    "any more tools; tell the user in one short line that it is on it, and stop.")
+
+
+def mark_handed_off(task_id: Optional[str]) -> None:
+    """Record that this turn's work now belongs to the bigger model."""
+    with _lock:
+        ctx = _turn_context.get(task_id or "")
+        if ctx is not None:
+            ctx["handed_off"] = True
+
+
+def auto_handoff_block(tool_name: str, task_id: Optional[str]) -> Optional[str]:
+    """Count a tool call on a turn that has a hand-off budget.
+
+    Returns None to let the call run, or the message the model gets instead:
+    past the budget the turn is handed off (once) and every later call stops.
+    """
+    if not task_id:
+        return None
+    with _lock:
+        ctx = _turn_context.get(task_id)
+        if not ctx or ctx.get("auto_handoff_after") is None or not ctx.get("runner"):
+            return None
+        if ctx.get("handed_off"):
+            return _ALREADY_HANDED_OFF
+        if tool_name in _UNCOUNTED:
+            return None
+        used = ctx.setdefault("tools_used", [])
+        used.append(tool_name)
+        if len(used) <= int(ctx["auto_handoff_after"]):
+            return None
+        ctx["handed_off"] = True
+        snapshot = dict(ctx)
+    summary = (f"The user asked: {snapshot.get('question') or '(see the conversation)'}\n\n"
+               f"The fast model started on it (tools: {', '.join(snapshot['tools_used'][:-1])}) "
+               f"and it needs more than a quick answer, so do the whole task.")
+    try:
+        start_escalation(session_id=snapshot.get("session_id") or task_id,
+                         reason=f"auto: more than {snapshot['auto_handoff_after']} tool calls",
+                         summary=summary, model=snapshot.get("escalation_model"),
+                         provider=snapshot.get("escalation_provider"),
+                         runner=snapshot.get("runner"), parent=snapshot)
+    except Exception:
+        logger.warning("automatic hand-off could not start", exc_info=True)
+        with _lock:
+            if task_id in _turn_context:
+                _turn_context[task_id]["handed_off"] = False
+        return None
+    return _AUTO_HANDED_OFF
+
+
 def handle_escalate(args: dict, task_id: Optional[str] = None, **_kw: Any) -> str:
     """Tool handler: start the background escalation, return immediately.
 
@@ -281,6 +349,7 @@ def handle_escalate(args: dict, task_id: Optional[str] = None, **_kw: Any) -> st
     except Exception as exc:
         logger.warning("escalation could not be started: %s", exc, exc_info=True)
         return json.dumps({"escalated": False, "error": str(exc)})
+    mark_handed_off(task_id)
     return json.dumps({
         "escalated": True,
         "job_id": job_id,

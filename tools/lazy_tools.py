@@ -578,7 +578,18 @@ def handle_tool_search(agent, args: dict) -> str:
     query = (args or {}).get("query", "")
     all_names = [e.name for e in registry._snapshot_entries()]
     matches = resolve_query(query, all_names)
+    # Only what tool_call will dispatch counts as loaded. Searching the whole
+    # registry handed back tools outside the session's toolsets, tool_call then
+    # refused them, and a small model looped on that pair for a whole turn.
+    callable_names = _session_tool_names(agent)
+    outside = [m for m in matches if callable_names is not None and m not in callable_names]
+    if outside:
+        matches = [m for m in matches if m not in outside]
     if not matches:
+        if outside:
+            return json.dumps({"loaded": [], "unavailable": outside,
+                               "note": "Those tools are not enabled in this session, so they "
+                                       "cannot be called here. Do not search for them again."})
         return json.dumps({"loaded": [], "note": f"No tools matched {query!r}. "
                            "Check the Deferred tools list and try `select:exact_name`."})
     capped = len(matches) > _MAX_SEARCH_RESULTS
@@ -612,7 +623,7 @@ def handle_tool_search(agent, args: dict) -> str:
             "These are not in your tools list. Invoke each one with "
             'tool_call(name="<tool>", arguments={...}).'
         )
-    unavailable = [m for m in matches if m not in set(loaded)]
+    unavailable = [m for m in matches if m not in set(loaded)] + outside
     if unavailable:
         out["unavailable"] = unavailable
     if capped:
@@ -668,6 +679,39 @@ TOOL_CALL_SCHEMA = {
 }
 
 
+def _session_tool_names(agent):
+    """Every tool name this session can call (manifest + advertised), or None
+    when the agent never had a manifest built (nothing to restrict against)."""
+    manifest = getattr(agent, "_lazy_all_tool_names", None)
+    if manifest is None:
+        return None
+    names = set(manifest)
+    names |= {(t.get("function", {}) or {}).get("name") for t in (getattr(agent, "tools", None) or [])}
+    names.discard(None)
+    return names
+
+
+def unwrap_bridged_call(name, args):
+    """``(name, args)`` of the tool a bridged ``tool_call`` really invoked.
+
+    For display only — the transcript the model sees keeps the ``tool_call``.
+    A tool row reading "tool_call" hides what ran, and a client that draws a
+    card for a tool (form_ask, integration_ready) never finds it.
+    """
+    if name != "tool_call" or not isinstance(args, dict):
+        return name, args
+    inner = args.get("name")
+    if not isinstance(inner, str) or not inner:
+        return name, args
+    inner_args = args.get("arguments")
+    if isinstance(inner_args, str):
+        try:
+            inner_args = json.loads(inner_args) if inner_args.strip() else {}
+        except (ValueError, TypeError):
+            inner_args = {}
+    return inner, inner_args if isinstance(inner_args, dict) else {}
+
+
 def bridge_enabled() -> bool:
     """Whether deferred tools are invoked through ``tool_call``.
 
@@ -710,8 +754,11 @@ def handle_tool_call(agent, args: dict, task_id=None) -> str:
         return json.dumps({"error": "`arguments` must be an object."})
     if not name:
         return json.dumps({"error": "tool_call needs a `name`."})
-    if name in ("tool_call", "tool_search"):
-        return json.dumps({"error": "tool_call cannot invoke tool_call or tool_search."})
+    if name == "tool_search":
+        # A model that wraps the search in the bridge means the search.
+        return handle_tool_search(agent, call_args)
+    if name == "tool_call":
+        return json.dumps({"error": "tool_call cannot invoke tool_call."})
 
     known = set(getattr(agent, "_lazy_all_tool_names", None) or set())
     known |= {

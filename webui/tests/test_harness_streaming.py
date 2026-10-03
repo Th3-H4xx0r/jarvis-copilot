@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import api.config as cfg
@@ -81,3 +83,33 @@ def test_only_real_harness_claude_nodes_are_kept_warm():
     import api.streaming as st
     src = inspect.getsource(st._run_agent_streaming)
     assert '_harness_plan.harness_id != "single"' in src
+
+
+def test_saved_tool_rows_name_the_real_tool_behind_the_bridge():
+    from api.streaming import _extract_tool_calls_from_messages
+
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [{
+            "id": "c1", "function": {"name": "tool_call", "arguments": json.dumps(
+                {"name": "form_ask", "arguments": {"title": "Shopping"}})}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": '{"ok": true, "form_id": "f1"}'},
+    ]
+    rows = _extract_tool_calls_from_messages(msgs)
+    assert rows[0]["name"] == "form_ask"
+    assert rows[0]["args"].get("title") == "Shopping"
+
+
+def test_live_tool_events_unwrap_the_bridge():
+    src = (Path(__file__).resolve().parents[1] / "api" / "streaming.py").read_text()
+    on_tool = src[src.index("def on_tool(*cb_args"):src.index("def on_tool_start(")]
+    assert "unwrap_bridged_call" in on_tool
+    on_complete = src[src.index("def on_tool_complete("):src.index("_AIAgent = _get_ai_agent()")]
+    assert "unwrap_bridged_call" in on_complete
+
+
+def test_fast_node_turn_gets_a_handoff_budget_and_the_rule():
+    src = (Path(__file__).resolve().parents[1] / "api" / "streaming.py").read_text()
+    bind = src[src.index("_esc.bind_turn_context("):]
+    bind = bind[:bind.index(")\n")]
+    assert "auto_handoff_after" in bind and "question" in bind
+    assert "HANDOFF_RULE" in src

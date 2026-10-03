@@ -69,6 +69,11 @@ _HERMES_CORE_TOOLS = [
     "execute_code", "delegate_task",
     # Cronjob management
     "cronjob",
+    # The central registry: every integration's long-lived data. Its skills read
+    # and write through these, so they must reach every chat, not only setup.
+    "registry_catalog", "registry_get", "registry_put",
+    "registry_append", "registry_query", "registry_describe",
+    "integration_plan_propose", "integration_ready", "integration_create",
     # Cross-platform messaging (gated on gateway running via check_fn)
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)

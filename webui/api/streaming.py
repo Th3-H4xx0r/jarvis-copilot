@@ -222,6 +222,17 @@ def _plan_for_turn(s, msg_text, attachments):
     return plan
 
 
+# A fast node's hand-off rule, per turn (the handoff tool's description alone was
+# not enough: small models never called it). Past a few tool calls the server
+# hands off anyway (agent/escalation.auto_handoff_block).
+HANDOFF_RULE = (
+    "You are the quick first responder; a bigger model works behind you. Call "
+    "`handoff` straight away, before any other tool, when the request needs several "
+    "steps, creates or changes something (a schedule, an integration, a skill, a file, "
+    "code, a message to someone), needs research or a long answer, or you are not sure "
+    "how to do it. Answer yourself only quick questions and single simple actions.")
+
+
 def _collect_turn_context(*parts) -> str:
     """Join this turn's notes (node instructions, voice rules, speaking device,
     integration-setup note) for ``agent._turn_user_context``."""
@@ -2533,6 +2544,8 @@ def _extract_tool_calls_from_messages(messages, live_tool_calls=None):
                     args = json.loads(fn.get('arguments', '{}') or '{}')
                 except Exception:
                     args = {}
+                from tools.lazy_tools import unwrap_bridged_call
+                name, args = unwrap_bridged_call(name, args)
                 if tid and name:
                     pending_names[tid] = name
                     pending_args[tid] = args
@@ -3481,6 +3494,8 @@ def _run_agent_streaming(
                     'content': _result_text,
                 }])
 
+            _bridged_live = []  # real names of bridged calls awaiting tool.completed
+
             def on_tool(*cb_args, **cb_kwargs):
                 nonlocal _reasoning_text
                 event_type = None
@@ -3511,6 +3526,20 @@ def _run_agent_streaming(
                         meter().record_reasoning(stream_id, _metering_reasoning_deltas[0])
                         _emit_metering()
                     return
+
+                # A bridged call is shown as the tool it ran (display only).
+                if name == 'tool_call' and event_type in (None, 'tool.started'):
+                    from tools.lazy_tools import unwrap_bridged_call
+                    name, args = unwrap_bridged_call(name, args)
+                    if name != 'tool_call':
+                        _bridged_live.append(name)
+                        try:
+                            from agent.display import build_tool_preview as _btp
+                            preview = _btp(name, args)
+                        except Exception:
+                            preview = None
+                elif name == 'tool_call' and event_type == 'tool.completed' and _bridged_live:
+                    name = _bridged_live.pop(0)
 
                 args_snap = {}
                 if isinstance(args, dict):
@@ -3597,6 +3626,8 @@ def _run_agent_streaming(
 
             def on_tool_start(tool_call_id, name, args):
                 try:
+                    from tools.lazy_tools import unwrap_bridged_call
+                    name, args = unwrap_bridged_call(name, args)
                     _record_live_tool_start(tool_call_id, name, args)
                     _tool_stats = meter().get_stats()
                     _tool_stats['session_id'] = session_id
@@ -3607,6 +3638,8 @@ def _run_agent_streaming(
 
             def on_tool_complete(tool_call_id, name, args, function_result):
                 try:
+                    from tools.lazy_tools import unwrap_bridged_call
+                    name, args = unwrap_bridged_call(name, args)
                     _record_live_tool_complete(tool_call_id, name, function_result)
                     # The head of the result, live. tool_complete carries only a
                     # preview, which most tools leave empty, so a card that has to
@@ -4112,7 +4145,10 @@ def _run_agent_streaming(
                     _esc.bind_turn_context(
                         session_id, session_id=session_id,
                         runner=_bg_runner(_harness_plan.handoff_node, session_id),
-                        escalation_model=_harness_plan.handoff_node.get("model"))
+                        escalation_model=_harness_plan.handoff_node.get("model"),
+                        question=msg_text, auto_handoff_after=_esc.AUTO_HANDOFF_AFTER)
+                    agent._turn_user_context = _collect_turn_context(
+                        getattr(agent, "_turn_user_context", ""), HANDOFF_RULE)
                 except Exception:
                     logger.warning("harness: hand-off tool not attached", exc_info=True)
             _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list

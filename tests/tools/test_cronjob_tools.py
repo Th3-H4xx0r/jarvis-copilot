@@ -365,3 +365,32 @@ class TestUnifiedCronjobTool:
         assert updated["success"] is True
         stored = get_job(created["job_id"])
         assert stored["deliver"] == "telegram"
+
+
+class TestRegistryHandlerKeepsTheIntegration:
+    """The registered handler is what every model call goes through. It dropped
+    `integration`, so every schedule an integration setup made was filed under
+    "general" and integration_ready refused the integration forever."""
+
+    def test_create_through_the_registry_files_the_job_under_its_integration(self):
+        from tools.registry import registry
+        from cron.jobs import get_job
+
+        out = json.loads(registry.get_entry("cronjob").handler({
+            "action": "create", "name": "Shopping reminder", "schedule": "1d",
+            "prompt": "Remind me what is still unbought.", "integration": "shopping-list",
+        }))
+        assert out["success"] is True
+        assert get_job(out["job_id"])["integration"] == "shopping-list"
+
+    def test_update_through_the_registry_moves_the_job(self):
+        from tools.registry import registry
+        from cron.jobs import get_job
+
+        handler = registry.get_entry("cronjob").handler
+        created = json.loads(handler({"action": "create", "name": "r", "schedule": "1d",
+                                      "prompt": "Remind me."}))
+        out = json.loads(handler({"action": "update", "job_id": created["job_id"],
+                                  "integration": "shopping-list"}))
+        assert out["success"] is True
+        assert get_job(created["job_id"])["integration"] == "shopping-list"

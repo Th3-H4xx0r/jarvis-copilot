@@ -254,3 +254,21 @@ class TestDefaultPlatformWebSearchCoverage:
 
     def test_hermes_api_server_toolset_includes_web_search(self):
         assert "web_search" in resolve_toolset("hermes-api-server")
+
+
+def test_registry_tools_are_core_so_every_platform_has_them():
+    """The registry toolset is "always available" — an integration's skill reads
+    and writes its data through it. Toolsets outside the configurable list are only
+    switched on when their tools are in the core list, and these never were, so no
+    chat or voice turn could reach registry_get / registry_put."""
+    from toolsets import TOOLSETS, _HERMES_CORE_TOOLS
+
+    missing = [t for t in TOOLSETS["registry"]["tools"] if t not in _HERMES_CORE_TOOLS]
+    assert missing == []
+
+
+def test_an_explicit_platform_list_still_gets_the_registry():
+    from jarviscopilot_cli.tools_config import _get_platform_tools
+
+    enabled = _get_platform_tools({"platform_toolsets": {"cli": ["web", "skills", "cronjob"]}}, "cli")
+    assert "registry" in enabled

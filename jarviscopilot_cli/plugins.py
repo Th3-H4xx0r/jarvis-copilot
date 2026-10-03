@@ -1565,6 +1565,15 @@ def get_pre_tool_call_block_message(
         fmt = getattr(_thread_tool_whitelist, "fmt", "Tool '{tool_name}' denied")
         return fmt.format(tool_name=tool_name)
 
+    # A fast harness node past its tool budget hands the turn to the bigger model.
+    try:
+        from agent.escalation import auto_handoff_block
+        handed_off = auto_handoff_block(tool_name, task_id)
+        if handed_off:
+            return handed_off
+    except Exception:
+        pass
+
     hook_results = invoke_hook(
         "pre_tool_call",
         tool_name=tool_name,

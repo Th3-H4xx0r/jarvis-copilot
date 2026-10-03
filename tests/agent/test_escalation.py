@@ -262,3 +262,62 @@ def test_has_live_sink():
     assert esc.has_live_sink("sx")
     esc.unregister_stream_sink("sx", sink)
     assert not esc.has_live_sink("sx")
+
+
+class TestAutoHandoff:
+    """A fast model that will not hand off on its own is handed off by the server
+    once it has used more tool calls than a quick answer needs."""
+
+    def _bind(self, runner, after=2):
+        escalation.bind_turn_context("sess-auto", session_id="sess-auto", runner=runner,
+                                     question="set up my shopping list", auto_handoff_after=after)
+
+    def test_tool_calls_within_the_budget_run(self):
+        self._bind(lambda job: "done", after=2)
+        assert escalation.auto_handoff_block("registry_get", "sess-auto") is None
+        assert escalation.auto_handoff_block("registry_put", "sess-auto") is None
+
+    def test_the_call_past_the_budget_hands_off_once(self):
+        jobs = []
+        started = threading.Event()
+
+        def _runner(job):
+            jobs.append(job)
+            started.set()
+            return "claude's answer"
+
+        self._bind(_runner, after=2)
+        escalation.auto_handoff_block("a", "sess-auto")
+        escalation.auto_handoff_block("b", "sess-auto")
+        msg = escalation.auto_handoff_block("c", "sess-auto")
+        assert msg and "handed" in msg.lower()
+        assert started.wait(5)
+        assert "set up my shopping list" in jobs[0]["summary"]
+        # Everything after the hand-off is stopped too, without a second job.
+        assert escalation.auto_handoff_block("d", "sess-auto")
+        time.sleep(0.1)
+        assert len(jobs) == 1
+
+    def test_bridge_and_search_calls_do_not_count(self):
+        self._bind(lambda job: "done", after=1)
+        assert escalation.auto_handoff_block("tool_search", "sess-auto") is None
+        assert escalation.auto_handoff_block("tool_call", "sess-auto") is None
+        assert escalation.auto_handoff_block("registry_get", "sess-auto") is None
+        assert escalation.auto_handoff_block("tool_call", "sess-auto") is None
+
+    def test_a_handoff_the_model_made_itself_stops_the_counting(self):
+        self._bind(lambda job: "done", after=1)
+        escalation.auto_handoff_block("handoff", "sess-auto")
+        escalation.mark_handed_off("sess-auto")
+        assert escalation.auto_handoff_block("registry_get", "sess-auto")
+
+    def test_turns_without_a_budget_are_untouched(self):
+        escalation.bind_turn_context("plain", session_id="plain", runner=lambda job: "x")
+        for name in ("a", "b", "c", "d", "e"):
+            assert escalation.auto_handoff_block(name, "plain") is None
+
+    def test_the_pre_tool_gate_applies_it(self):
+        from jarviscopilot_cli.plugins import get_pre_tool_call_block_message
+
+        self._bind(lambda job: "done", after=0)
+        assert get_pre_tool_call_block_message("registry_get", {}, task_id="sess-auto")

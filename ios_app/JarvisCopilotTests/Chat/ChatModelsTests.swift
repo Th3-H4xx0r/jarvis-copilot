@@ -210,6 +210,22 @@ final class ChatModelsTests: XCTestCase {
         XCTAssertEqual(m?.tools.first?.callID, "c9")
     }
 
+    /// A call made through the lazy-tools bridge reads as the tool it ran, so the
+    /// form card and the integration sheet's Done state can find it after a reload.
+    func testFromStoredBridgedCallShowsTheRealTool() {
+        let m = ChatMessage(stored: [
+            "role": "assistant",
+            "tool_calls": [[
+                "id": "c1",
+                "function": ["name": "tool_call",
+                             "arguments": "{\"name\":\"form_ask\",\"arguments\":{\"title\":\"Shopping\"}}"],
+            ]],
+        ])
+        XCTAssertEqual(m?.tools.first?.name, "form_ask")
+        XCTAssertEqual(m?.tools.first?.args["title"], .string("Shopping"))
+        XCTAssertEqual(m?.tools.first?.callID, "c1")
+    }
+
     func testFromStoredUnparseableArgumentsDegradeToEmpty() {
         let m = ChatMessage(stored: [
             "role": "assistant",

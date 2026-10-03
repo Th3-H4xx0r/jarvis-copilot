@@ -339,3 +339,61 @@ def test_partition_does_not_add_tool_call_when_the_bridge_is_off(monkeypatch):
     a = _AgentForPartition(["tool_search", "web_search"] + [f"d{i}" for i in range(8)])
     lt.apply_lazy_partition(a)
     assert "tool_call" not in {t["function"]["name"] for t in a.tools}
+
+
+# ── tool_search and tool_call agree on what this session can call ────────────
+
+def test_tool_search_only_loads_tools_this_session_can_call(deferred_tool, monkeypatch):
+    """tool_search used to resolve against the whole registry while tool_call only
+    allows the session's own tools, so a tool outside the session's toolsets came
+    back "loaded" and then "not available" — and a small model looped on that pair
+    68 times in one turn."""
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "tool_call"})
+    agent._lazy_all_tool_names = {"tool_search", "tool_call", "web_search"}
+
+    out = json.loads(handle_tool_search(agent, {"query": f"select:{deferred_tool}"}))
+
+    assert out["loaded"] == []
+    assert deferred_tool in out.get("unavailable", [])
+
+
+def test_tool_search_still_loads_session_tools(deferred_tool, monkeypatch):
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "tool_call"})
+    agent._lazy_all_tool_names = {"tool_search", "tool_call", deferred_tool}
+
+    out = json.loads(handle_tool_search(agent, {"query": f"select:{deferred_tool}"}))
+
+    assert out["loaded"] == [deferred_tool]
+
+
+def test_tool_call_naming_tool_search_runs_the_search(deferred_tool, monkeypatch):
+    from tools.lazy_tools import handle_tool_call
+
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "tool_call"})
+    agent._lazy_all_tool_names = {"tool_search", "tool_call", deferred_tool}
+
+    out = json.loads(handle_tool_call(agent, {"name": "tool_search",
+                                              "arguments": {"query": f"select:{deferred_tool}"}}))
+
+    assert out["loaded"] == [deferred_tool]
+
+
+def test_unwrap_bridged_call_reports_the_real_tool():
+    from tools.lazy_tools import unwrap_bridged_call
+
+    assert unwrap_bridged_call("tool_call", {"name": "form_ask", "arguments": {"title": "t"}}) == (
+        "form_ask", {"title": "t"})
+    assert unwrap_bridged_call("tool_call", {"name": "form_ask", "arguments": '{"title": "t"}'}) == (
+        "form_ask", {"title": "t"})
+    assert unwrap_bridged_call("web_search", {"query": "q"}) == ("web_search", {"query": "q"})
+    assert unwrap_bridged_call("tool_call", {"arguments": {}}) == ("tool_call", {"arguments": {}})
+
+
+def test_tool_call_without_a_manifest_still_reaches_advertised_tools(deferred_tool, monkeypatch):
+    from tools.lazy_tools import handle_tool_call
+
+    agent = _FakeAgent({"tool_call", deferred_tool})
+    assert handle_tool_call(agent, {"name": deferred_tool, "arguments": {}}) == "ok"

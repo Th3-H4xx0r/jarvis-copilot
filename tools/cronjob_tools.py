@@ -777,6 +777,7 @@ registry.register(
         workdir=args.get("workdir"),
         profile=args.get("profile"),
         no_agent=args.get("no_agent"),
+        integration=args.get("integration"),
         task_id=kw.get("task_id"),
     ))(),
     check_fn=check_cronjob_requirements,
