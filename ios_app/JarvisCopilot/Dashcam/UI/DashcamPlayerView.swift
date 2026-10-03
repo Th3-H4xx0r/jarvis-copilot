@@ -88,6 +88,14 @@ final class DashcamPlayerModel: ObservableObject {
         } else if onCamera, let setup, let cam = sync.cameraFactory(setup) {
             item = AVPlayerItem(url: cam.fileURL(file))       // MP4 cameras stream as they are
             source = "Straight from the camera"
+        } else if let drive = clip.driveFile, let key = try? await DashcamAPI().driveAccess(destinationID: drive.destinationID),
+                  let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(drive.fileID)?alt=media&supportsAllDrives=true") {
+            // Straight from Google: no tunnel, no server in between, and the phone wrote the MP4 with its index
+            // first, so playback starts at once.
+            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(key.token)"]])
+            item = AVPlayerItem(asset: asset)
+            item.preferredForwardBufferDuration = 4
+            source = "Streaming from Google Drive"
         } else if clip.uploaded || clip.uploadState == "staged" || clip.uploadState == "done",
                   let asset = try? api.streamAsset(clipID: clip.id) {
             item = AVPlayerItem(asset: asset)
@@ -164,17 +172,79 @@ struct DashcamPlayerView: View {
     let siblings: [DashcamServerClip]
     var startOffset: Double?
     @State private var fullscreen = false
+    /// The other lens's clip in "Both"; loaded only then.
+    @StateObject private var second: DashcamPlayerModel
+    @State private var mode: LensMode
+
+    enum LensMode: String, CaseIterable, Identifiable {
+        case front = "Front", rear = "Rear", both = "Both"
+        var id: String { rawValue }
+    }
 
     init(clip: DashcamServerClip, siblings: [DashcamServerClip] = [], startOffset: Double? = nil) {
         _model = StateObject(wrappedValue: DashcamPlayerModel(clip: clip))
+        _second = StateObject(wrappedValue: DashcamPlayerModel(clip: clip))
+        _mode = State(initialValue: clip.lens == .rear ? .rear : .front)
         self.siblings = siblings
         self.startOffset = startOffset
+    }
+
+    /// The same moment from the other lens: front and rear clips start together (a few seconds apart at most).
+    private func partner(of clip: DashcamServerClip) -> DashcamServerClip? {
+        siblings.filter { $0.id != clip.id && $0.lens != clip.lens && $0.kind == clip.kind
+                          && abs($0.start.timeIntervalSince(clip.start)) < 10 }
+            .min { abs($0.start.timeIntervalSince(clip.start)) < abs($1.start.timeIntervalSince(clip.start)) }
+    }
+
+    private func choose(_ next: LensMode) {
+        let now = model.player?.currentTime().seconds
+        let current = model.clip
+        let other = partner(of: current)
+        switch next {
+        case .front, .rear:
+            second.stop()
+            let want: DashcamLens = next == .front ? .front : .rear
+            if current.lens != want, let other {
+                model.clip = other
+                Task { await model.load(seekTo: now) }
+            }
+        case .both:
+            // Front on top, rear below, both from the same moment.
+            guard let other else { return }
+            let front = current.lens == .rear ? other : current
+            let rear = current.lens == .rear ? current : other
+            if model.clip.id != front.id {
+                model.clip = front
+                Task { await model.load(seekTo: now) }
+            }
+            second.clip = rear
+            Task {
+                await second.load(seekTo: now)
+                second.player?.isMuted = true
+            }
+        }
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                if partner(of: model.clip) != nil {
+                    Picker("Lens", selection: Binding(get: { mode }, set: { mode = $0; choose($0) })) {
+                        ForEach(LensMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 20)
+                }
                 media
+                if mode == .both, let player = second.player {
+                    VideoPlayer(player: player)
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(.horizontal, 16)
+                } else if mode == .both, second.error == nil {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05))
+                        .aspectRatio(16 / 9, contentMode: .fit).overlay { ProgressView() }.padding(.horizontal, 16)
+                }
                 if !model.source.isEmpty {
                     Text(model.source).font(.caption).foregroundStyle(.secondary)
                 }
@@ -191,7 +261,7 @@ struct DashcamPlayerView: View {
         .navigationTitle(model.clip.start.formatted(date: .abbreviated, time: .shortened))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(seekTo: startOffset) }
-        .onDisappear { if !fullscreen { model.stop() } }
+        .onDisappear { if !fullscreen { model.stop(); second.stop() } }
         .fullScreenCover(isPresented: $fullscreen) { DashcamFullscreenMedia(player: model.player, photo: model.photo) }
     }
 
