@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- SIMULATOR ONLY. CarPlay entitlements are granted by Apple per team; a device
+	     build that claims this key without an approved profile fails to sign. The
+	     simulator does not check profiles, so CarPlay is developed here until the
+	     grant arrives — then move this key into JarvisCopilot-iOS.entitlements. -->
+	<key>com.apple.developer.carplay-voice-based-conversation</key>
+	<true/>
+</dict>
+</plist>

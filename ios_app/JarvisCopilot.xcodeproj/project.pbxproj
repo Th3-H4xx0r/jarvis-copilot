@@ -143,6 +143,7 @@
 		25350B7D3A9573372049A13F /* RenderHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09DCE2A73AC7636FCB8673D5 /* RenderHarness.swift */; };
 		255DBFED48D33A8559C60008 /* ToolRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4173328AB81A5A728A6B18 /* ToolRow.swift */; };
 		25D418A2F0DAA451C657B570 /* CodingSessionsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C3A4C75CBE91EABCDC5AC2 /* CodingSessionsAPI.swift */; };
+		263D6A3434FDD92FFC4E4030 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F73CE69C2D4FA1FF002D908 /* CarPlaySceneDelegate.swift */; };
 		26651A70BF7067AD9CAA4F7D /* GlassesNoteWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56538D9E7ADE4F6CF39B634F /* GlassesNoteWire.swift */; };
 		26A87DEE1276CE7429D29A1A /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */; };
 		2705BB8AEBCCAAA34B25AD89 /* AppleFMEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A2FA671760513674F72292 /* AppleFMEngine.swift */; };
@@ -577,6 +578,7 @@
 		9EBBF20EF739EAF216C30835 /* PodSetupCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90E1D05DBCB57D4A986B917 /* PodSetupCode.swift */; };
 		9ED2957ECDFE2C0E0C7917B1 /* LoadErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC349768DB1466D704F3107B /* LoadErrorBanner.swift */; };
 		9F72EF12CA02F6E036739E94 /* AppGroupIslandDesignCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012F7F41571ACDAAE72AA757 /* AppGroupIslandDesignCacheTests.swift */; };
+		9F84B0693B1F0A60A8C4F728 /* DashcamActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE450550EF136749F90BA80 /* DashcamActionsTests.swift */; };
 		9FAB0CF53C1466760693DCC1 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB058DEAF58CF0670B328304 /* MarkdownText.swift */; };
 		A091A4D3A67E354BDE6E312D /* JcAccent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BD547D065A4A998BAAFE07 /* JcAccent.swift */; };
 		A10000000000000000000001 /* ScaleProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* ScaleProtocol.swift */; };
@@ -897,6 +899,7 @@
 		FAB461C2B9B4BB4CCD5E1530 /* ControlButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF61F4EA6282E9423F771747 /* ControlButtons.swift */; };
 		FB39EEED51862E3465414805 /* Firmware in Resources */ = {isa = PBXBuildFile; fileRef = E8152F8F3CF43DF519045357 /* Firmware */; };
 		FB4819B08A7CB5076F2280D3 /* RingMeasureList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D616398FB14CD3B37D5E3008 /* RingMeasureList.swift */; };
+		FB799BB9C4988D8829E53FFE /* DashcamActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7771043FFA3A19CA4D53FA56 /* DashcamActions.swift */; };
 		FBDFE0B2F602639C55DE491C /* DashcamViidure.swift in Sources */ = {isa = PBXBuildFile; fileRef = E301B570A642FFE26202333A /* DashcamViidure.swift */; };
 		FC2F266FDB8D65FAA123BC96 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 671E6E8C6B7E20C4FDD46B5C /* WidgetKit.framework */; };
 		FC4507A64F24FEF1F033A638 /* JcLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5072183EC782BEB4F738CF5E /* JcLog.swift */; };
@@ -1343,6 +1346,7 @@
 		6C4B44F2A3D79015BE47204D /* DashcamPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamPage.swift; sourceTree = "<group>"; };
 		6C601845F66BEC45F2AD905F /* PodSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodSetupView.swift; sourceTree = "<group>"; };
 		6CB594669E0A8622E0201908 /* DashcamGPS.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGPS.swift; sourceTree = "<group>"; };
+		6CE450550EF136749F90BA80 /* DashcamActionsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamActionsTests.swift; sourceTree = "<group>"; };
 		6D43893111AC5290831A841D /* InmoGo3Device.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoGo3Device.swift; sourceTree = "<group>"; };
 		6D6F7E8EC75E4B09BBBE69EC /* AppServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppServices.swift; sourceTree = "<group>"; };
 		6D935919738DF180D88482DF /* VoiceOrbGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceOrbGeometry.swift; sourceTree = "<group>"; };
@@ -1377,6 +1381,7 @@
 		76E32C387D856F2FD9C6F865 /* InmoAIResponseRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAIResponseRenderer.swift; sourceTree = "<group>"; };
 		76EFFE82FA39C698D2D1520E /* ChatStoreBoundaries.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStoreBoundaries.swift; sourceTree = "<group>"; };
 		76F49FA45D26A5348A0DB282 /* OnDeviceChatBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceChatBridge.swift; sourceTree = "<group>"; };
+		7771043FFA3A19CA4D53FA56 /* DashcamActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamActions.swift; sourceTree = "<group>"; };
 		77BBE88D362C7D076BCDCBE9 /* PhotonModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotonModels.swift; sourceTree = "<group>"; };
 		7864490CBD79D96EC84DEE07 /* WearableArt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableArt.swift; sourceTree = "<group>"; };
 		78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PushHandlerTests.swift; sourceTree = "<group>"; };
@@ -1452,6 +1457,7 @@
 		8ECE6408D7EC3F2BB2575D5A /* InmoNavigationWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoNavigationWire.swift; sourceTree = "<group>"; };
 		8F4EF0043628B8C251DDD12F /* SceneCanvas.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneCanvas.swift; sourceTree = "<group>"; };
 		8F50692EE721292C11032C50 /* AppleHealthSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthSyncTests.swift; sourceTree = "<group>"; };
+		8F73CE69C2D4FA1FF002D908 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		8F966D9D92DC73A9B3C86B8F /* LiveCaptureSourceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureSourceTests.swift; sourceTree = "<group>"; };
 		8FDEAC53FA3724209C25EFA7 /* InmoTraceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoTraceView.swift; sourceTree = "<group>"; };
 		8FFB425DCB961B89CFCB9900 /* InmoDeviceTrial.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoDeviceTrial.swift; sourceTree = "<group>"; };
@@ -2188,6 +2194,7 @@
 				3A59D4AB5DF52E59B854F235 /* Glasses */,
 				10C940D4EA744A483092B365 /* Widgets */,
 				D5F5935ED178295E7615D312 /* Dashcam */,
+				3839E81FB3C3EF1EBD86DEFB /* CarPlay */,
 			);
 			path = JarvisCopilot;
 			sourceTree = "<group>";
@@ -2314,6 +2321,15 @@
 				3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */,
 			);
 			path = Photon;
+			sourceTree = "<group>";
+		};
+		3839E81FB3C3EF1EBD86DEFB /* CarPlay */ = {
+			isa = PBXGroup;
+			children = (
+				8F73CE69C2D4FA1FF002D908 /* CarPlaySceneDelegate.swift */,
+			);
+			name = CarPlay;
+			path = CarPlay;
 			sourceTree = "<group>";
 		};
 		388F4AA39815DC73FAB85907 /* VoiceUI */ = {
@@ -3159,6 +3175,7 @@
 				938BDAC7E4CAA8176A9E2E4D /* DashcamRemuxTests.swift */,
 				01DB1220478B0ABBC1553597 /* DashcamTSFixtures.swift */,
 				1C2D039B4CE9EE9BEE35FC71 /* DashcamRTSPTests.swift */,
+				6CE450550EF136749F90BA80 /* DashcamActionsTests.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -3248,6 +3265,7 @@
 				5711CDFFB2EC2E128477173B /* DashcamDriveDirect.swift */,
 				E847495AB59BCFEAF2D85F05 /* DashcamSyncBeacon.swift */,
 				D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */,
+				7771043FFA3A19CA4D53FA56 /* DashcamActions.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -4075,6 +4093,7 @@
 				BA984D79EB357583A77680CD /* HarnessFormatTests.swift in Sources */,
 				99A8BE8CF6C7FEB9417F0257 /* HarnessGraphTests.swift in Sources */,
 				837C03544FBA0DEEDA1659A6 /* HarnessRenderTests.swift in Sources */,
+				9F84B0693B1F0A60A8C4F728 /* DashcamActionsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4693,6 +4712,8 @@
 				930E8F812A95F6FCB06D3356 /* HarnessEditorView.swift in Sources */,
 				E9A5878AF115B877D7BF83F2 /* HarnessGraph.swift in Sources */,
 				9437B801A977CD771338C379 /* HarnessesPage.swift in Sources */,
+				263D6A3434FDD92FFC4E4030 /* CarPlaySceneDelegate.swift in Sources */,
+				FB799BB9C4988D8829E53FFE /* DashcamActions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4934,6 +4955,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "JarvisCopilot/JarvisCopilot-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "JarvisCopilot/JarvisCopilot-CarPlaySim.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -5042,6 +5064,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "JarvisCopilot/JarvisCopilot-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "JarvisCopilot/JarvisCopilot-CarPlaySim.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

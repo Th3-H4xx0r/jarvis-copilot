@@ -204,6 +204,47 @@ final class AppServicesTests: XCTestCase {
         XCTAssertEqual(bus.generation, 0)
     }
 
+    // MARK: CarPlay counts as foreground
+
+    func testPhoneBackgroundWhileCarPlayShowsStaysForeground() {
+        let (services, log, fakes) = makeServices()
+        services.start()
+        services.setCarPlayActive(true)
+        services.setForeground(false)
+
+        XCTAssertTrue(services.isForeground, "the car's screen is a foreground scene")
+        XCTAssertTrue(fakes.lifecycle.isForeground)
+        XCTAssertFalse(log.contains("voice.pause"), "voice keeps running for the car")
+    }
+
+    func testCarPlayConnectingWhileBackgroundedResumes() async {
+        let (services, log, fakes) = makeServices()
+        services.start()
+        services.setForeground(false)
+        await servicesWaitUntil { log.contains("voice.pause") }
+        let connectsBefore = fakes.bridge.connects
+
+        services.setCarPlayActive(true)
+        await servicesWaitUntil { log.contains("voice.resume") }
+
+        XCTAssertTrue(services.isForeground)
+        XCTAssertEqual(fakes.bridge.connects, connectsBefore + 1)
+    }
+
+    func testCarPlayDisconnectingWhileBackgroundedPauses() {
+        let (services, log, fakes) = makeServices()
+        services.start()
+        services.setCarPlayActive(true)
+        services.setForeground(false)
+        XCTAssertFalse(log.contains("voice.pause"))
+
+        services.setCarPlayActive(false)
+
+        XCTAssertTrue(log.contains("voice.pause"))
+        XCTAssertFalse(services.isForeground)
+        XCTAssertFalse(fakes.lifecycle.isForeground)
+    }
+
     // MARK: Scene phase
 
     func testGoingToBackgroundPausesVoice() async {

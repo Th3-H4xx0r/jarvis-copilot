@@ -313,12 +313,34 @@ final class AppServices {
 
     // MARK: - Scene phase
 
-    /// The scene-phase fan-out.
-    ///
+    /// The phone's own window, as `scenePhase` last reported it.
+    private var phoneForeground = true
+    /// A CarPlay screen is connected. The car's screen is a foreground scene even
+    /// with the phone locked in a pocket, so voice, the bridge and the dashcam
+    /// keep running for it.
+    private(set) var carPlayActive = false
+
+    /// The CarPlay scene connected or went away (`CarPlaySceneDelegate`).
+    func setCarPlayActive(_ active: Bool) {
+        carPlayActive = active
+        applyForeground()
+    }
+
+    /// The scene-phase fan-out: the phone window's `scenePhase` changed.
+    func setForeground(_ foreground: Bool) {
+        phoneForeground = foreground
+        applyForeground()
+    }
+
     /// `AppLifecycle.isForeground` is set FIRST: the invoke runner reads it to
     /// decide whether a foreground-required skill can run now, and the drain
     /// below would otherwise re-defer everything it just took off the queue.
-    func setForeground(_ foreground: Bool) {
+    /// With CarPlay showing, only a real change of the combined state acts — the
+    /// phone locking under the car's screen is not a trip to the background.
+    /// Phone-only, every call runs as it always has.
+    private func applyForeground() {
+        let foreground = phoneForeground || carPlayActive
+        if carPlayActive, foreground == isForeground { return }
         isForeground = foreground
         lifecycle.isForeground = foreground
         if foreground {
