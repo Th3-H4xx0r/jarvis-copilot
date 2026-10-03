@@ -263,6 +263,7 @@ def init_agent(
     agent.verbose_logging = verbose_logging
     agent.quiet_mode = quiet_mode
     agent.ephemeral_system_prompt = ephemeral_system_prompt
+    agent._turn_user_context = ""  # per-turn notes for the user message (agent/turn_context.py)
     agent.platform = platform  # "cli", "telegram", "discord", "whatsapp", etc.
     agent._user_id = user_id  # Platform user identifier (gateway sessions)
     agent._user_name = user_name

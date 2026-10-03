@@ -851,10 +851,14 @@ def run_conversation(
                         _injections.append(_fenced)
                 if _plugin_user_context:
                     _injections.append(_plugin_user_context)
-                if _injections:
-                    _base = api_msg.get("content", "")
-                    if isinstance(_base, str):
-                        api_msg["content"] = _base + "\n\n" + "\n\n".join(_injections)
+                # Per-turn notes from the caller (voice rules, interrupt note,
+                # speaking device…) ride here instead of the system prompt so
+                # the cached prefix stays byte-stable across turns.
+                from agent.turn_context import merge_injections as _merge_injections
+                api_msg["content"] = _merge_injections(
+                    api_msg.get("content", ""), _injections,
+                    getattr(agent, "_turn_user_context", "") or "",
+                )
 
             # For ALL assistant messages, pass reasoning back to the API
             # This ensures multi-turn reasoning context is preserved
@@ -4376,6 +4380,7 @@ def run_conversation(
     except Exception as exc:
         logger.warning("on_session_end hook failed: %s", exc)
 
+    agent._turn_user_context = ""
     return result
 
 

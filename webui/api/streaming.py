@@ -153,6 +153,12 @@ WebUI progress contract:
 """.strip()
 
 
+def _collect_turn_context(*parts) -> str:
+    """Join this turn's notes (node instructions, voice rules, speaking device,
+    integration-setup note) for ``agent._turn_user_context``."""
+    return "\n\n".join(str(p).strip() for p in parts if p and str(p).strip())
+
+
 def _webui_ephemeral_system_prompt(personality_prompt: Optional[str]) -> str:
     """Build WebUI-only runtime instructions that are not persisted to history."""
     parts = []
@@ -3994,6 +4000,8 @@ def _run_agent_streaming(
             _voice_prev_reasoning = None
             _voice_swap = False
             _voice_directive = None
+            _origin_directive = None
+            _setup_directive = None
             _voice_loaded_before = set()
             try:
                 from api.models import get_session as _voice_gs
@@ -4003,12 +4011,14 @@ def _run_agent_streaming(
                     _voice_prev_reasoning = getattr(agent, "reasoning_config", None)
                     agent.reasoning_config = {"enabled": False}
                     _voice_swap = True
-                # Voice reply rules for this one call, as system text — the user
-                # message (what the Chats tab shows) stays the spoken words only.
+                # Voice reply rules for this one call. They ride the API-call
+                # copy of the user message (agent._turn_user_context), never the
+                # system prompt — that stays byte-stable for the prompt cache — and
+                # the stored user message (what the Chats tab shows) stays the
+                # spoken words only.
                 _voice_directive = getattr(_voice_sess, "_voice_turn_directive", None)
                 if _voice_directive:
                     _voice_sess._voice_turn_directive = None
-                    workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_voice_directive)).strip()
                     # Voice-first: every toolset is advertised up front, so a
                     # spoken request never spends a step on tool_search.
                     try:
@@ -4026,7 +4036,6 @@ def _run_agent_streaming(
                 _origin_directive = getattr(_voice_sess, "_turn_origin_directive", None)
                 if _origin_directive:
                     _voice_sess._turn_origin_directive = None
-                    workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_origin_directive)).strip()
             except Exception:
                 _voice_swap = False
             # A session opened by the Integrations sheet is doing one job; tell it so.
@@ -4034,11 +4043,10 @@ def _run_agent_streaming(
                 from api.integration_setup import directive_for
 
                 _setup_directive = directive_for(s)
-                if _setup_directive:
-                    workspace_system_msg = ((workspace_system_msg or "").rstrip()
-                                            + "\n\n" + _setup_directive).strip()
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
+            agent._turn_user_context = _collect_turn_context(
+                _voice_directive, _origin_directive, _setup_directive)
             # The agent's token counters are running session totals; snapshot
             # them so this turn's own usage can be reported as a delta.
             # session_prompt_tokens already INCLUDES cache reads/writes (canonical
