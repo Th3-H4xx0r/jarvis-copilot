@@ -1179,6 +1179,8 @@ function syncModelChip(){
   chip.title=gatewayRouting?`${sel.value||'Conversation model'} ${_gatewayRoutingLabel(gatewayRouting)}`:(sel.value||'Conversation model');
   chip.classList.toggle('active',!!(dd&&dd.classList.contains('open')));
   if(mobileAction) mobileAction.classList.toggle('active',!!(dd&&dd.classList.contains('open')));
+  // The harness chip (harness.js) names the model when the chat runs Single.
+  if(window.Harness&&typeof Harness.render==='function') Harness.render();
 }
 
 function _positionModelDropdown(){
@@ -1188,7 +1190,11 @@ function _positionModelDropdown(){
   const footer=document.querySelector('.composer-footer');
   if(!dd||!footer) return;
   const panel=$('composerMobileConfigPanel');
-  const anchor=(panel&&panel.classList.contains('open')&&mobileAction)?mobileAction:(chip&&chip.offsetParent?chip:mobileAction);
+  // The visible footer chip is the harness chip (the model chip stays hidden
+  // in the DOM); "Single model…" opens this list under it.
+  const harnessChip=$('harnessChipChat');
+  const anchor=(panel&&panel.classList.contains('open')&&mobileAction)?mobileAction
+    :(harnessChip&&harnessChip.offsetParent?harnessChip:(chip&&chip.offsetParent?chip:mobileAction));
   if(!anchor) return;
   const chipRect=anchor.getBoundingClientRect();
   const footerRect=footer.getBoundingClientRect();

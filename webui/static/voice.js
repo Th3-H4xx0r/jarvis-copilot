@@ -1536,7 +1536,11 @@
     // reply.
     const _sid = await _ensureVoiceSession();
     if (STATE.ws !== ws) return;  // torn down during mic.start() / session create
-    ws.sendJson({ type: 'begin_turn', sample_rate: 16000, session_id: _sid });
+    ws.sendJson({
+      type: 'begin_turn', sample_rate: 16000, session_id: _sid,
+      // The Voice harness (harness.js chip); the server runs that graph.
+      harness_id: (window.Harness ? window.Harness.currentFor('voice') : undefined),
+    });
     setStatus('listening');
     _startLiveSpeech();
     // Adaptive endpointer (plan 1.1) — replaces the old fixed 1.5s silence

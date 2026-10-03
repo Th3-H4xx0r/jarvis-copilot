@@ -320,7 +320,9 @@ async function send(){
       model:S.session.model||$('modelSelect').value,workspace:S.session.workspace,
       model_provider:S.session.model_provider||null,
       profile:S.activeProfile||S.session.profile||'default',
-      attachments:uploaded.length?uploaded:undefined
+      attachments:uploaded.length?uploaded:undefined,
+      // The agent harness the chip shows (harness.js); the server runs it.
+      harness_id:(window.Harness?Harness.currentFor('chat'):undefined)
     };
     let startData;
     if(_streamStartSupported===false){

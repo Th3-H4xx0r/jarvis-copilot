@@ -659,7 +659,15 @@
               <span class="composer-mobile-ctx-badge" id="composerMobileCtxBadge" aria-hidden="true" style="display:none">0</span>
             </button>
             <div class="composer-model-wrap">
-              <button class="composer-model-chip" id="composerModelChip" type="button" onclick="toggleModelDropdown()" title="Conversation model">
+              <!-- Agent harness chip (harness.js). It replaces the model chip; the model
+                   chip, #modelSelect and #composerModelDropdown stay in the DOM so the
+                   sheet's "Single model…" can still open the model list. -->
+              <button class="composer-model-chip harness-chip" id="harnessChipChat" type="button" onclick="Harness.openSheet('chat')" title="Chat harness" aria-haspopup="dialog" aria-expanded="false">
+                <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 6.5 16.6 11"/><path d="M7.5 17.5 16.6 13"/></svg></span>
+                <span class="composer-model-label harness-chip-label">Single model</span>
+                <span class="composer-model-chevron" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              </button>
+              <button class="composer-model-chip" id="composerModelChip" type="button" onclick="toggleModelDropdown()" title="Conversation model" hidden>
                 <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span>
                 <span class="composer-model-label" id="composerModelLabel"></span>
                 <span class="composer-model-chevron" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
@@ -738,6 +746,10 @@
               <span class="composer-workspace-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
               <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker" data-i18n="composer_mobile_workspace">Workspace</span><span class="composer-mobile-config-value" id="composerMobileWorkspaceLabel"></span></span>
             </button>
+            <button class="composer-mobile-config-action" id="composerMobileHarnessAction" type="button" onclick="Harness.openSheet('chat')" title="Chat harness" aria-haspopup="dialog">
+              <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 6.5 16.6 11"/><path d="M7.5 17.5 16.6 13"/></svg></span>
+              <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker">Harness</span><span class="composer-mobile-config-value" id="harnessMobileLabel">Single model</span></span>
+            </button>
             <button class="composer-mobile-config-action" id="composerMobileModelAction" type="button" onclick="toggleModelDropdown()" title="Conversation model">
               <span class="composer-model-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span>
               <span class="composer-mobile-config-copy"><span class="composer-mobile-config-kicker" data-i18n="composer_mobile_model">Model</span><span class="composer-mobile-config-value" id="composerMobileModelLabel"></span></span>
@@ -785,6 +797,13 @@
     </div>
     </div><!-- /#mainChat -->
     <div id="mainVoice" class="main-view">
+      <div class="voice-header">
+        <button class="harness-chip harness-chip-voice" id="harnessChipVoice" type="button" onclick="Harness.openSheet('voice')" title="Voice harness" aria-haspopup="dialog" aria-expanded="false">
+          <span class="harness-chip-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 6.5 16.6 11"/><path d="M7.5 17.5 16.6 13"/></svg></span>
+          <span class="harness-chip-label">Fast + Claude</span>
+          <span class="harness-chip-chevron" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+        </button>
+      </div>
       <div class="voice-main">
         <!-- What you said — quiet, centered, unboxed line ABOVE the orb (mobile parity). -->
         <div class="voice-transcript-user" id="voiceUserLine" style="display:none"></div>
@@ -1513,6 +1532,8 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<!-- Harness picker sheet (harness.js fills it). -->
+<div class="harness-sheet" id="harnessSheet" hidden></div>
 <script src="static/i18n.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/icons.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/ui.js?v=__WEBUI_VERSION__" defer></script>
@@ -1521,6 +1542,7 @@
 <script src="static/sessions.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/commands.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/messages.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/harness.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/integrations.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/coding.js?v=__WEBUI_VERSION__" defer></script>

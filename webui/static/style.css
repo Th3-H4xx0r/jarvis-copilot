@@ -1188,6 +1188,10 @@
   .composer-model-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .composer-model-icon,.composer-model-chevron{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1;}
   .composer-model-select{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;}
+  /* The harness chip (#harnessChipChat) replaced the visible model chip; the model
+     chip stays in the DOM, hidden, so the model list can still anchor and sync. */
+  .composer-model-chip[hidden]{display:none!important;}
+  .harness-chip.warn .composer-model-icon{color:var(--warning);}
   .provider-quota-chip{display:inline-flex;align-items:center;gap:6px;height:34px;max-width:150px;padding:7px 10px;border:1px solid var(--border2);border-radius:999px;background:rgba(34,197,94,.10);color:var(--text);font-size:11px;font-weight:650;line-height:1;white-space:nowrap;cursor:pointer;transition:background .12s,border-color .12s,color .12s;}
   .provider-quota-chip[hidden]{display:none!important;}
   .provider-quota-chip:hover{background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.35);}
@@ -4684,3 +4688,37 @@ html.mini-voice main.main::before{
 .intg-choice-note{display:block;font-size:11.5px;color:var(--muted);margin-top:1px;}
 .intg-choice-summary{margin-top:12px;font-size:12px;line-height:1.5;color:var(--muted);}
 .intg-choice-summary--live{color:var(--error);}
+
+/* ── Agent harnesses (harness.js): Voice header chip + picker sheet ── */
+.voice-header{display:flex;justify-content:center;padding:10px 16px 0;flex-shrink:0;}
+.harness-chip-voice{display:inline-flex;align-items:center;gap:8px;max-width:min(320px,100%);min-height:36px;padding:7px 12px;border-radius:var(--radius-pill);border:1px solid var(--border2);background:var(--surface);color:var(--text);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color .15s,border-color .15s;}
+.harness-chip-voice:hover{background:var(--hover-bg);}
+.harness-chip-voice[aria-expanded="true"]{background:var(--accent-bg);border-color:var(--accent-bg-strong);}
+.harness-chip-voice.warn .harness-chip-icon{color:var(--warning);}
+.harness-chip-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.harness-chip-icon,.harness-chip-chevron{display:inline-flex;align-items:center;flex-shrink:0;line-height:1;}
+.harness-sheet{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);}
+.harness-sheet[hidden]{display:none;}
+.harness-sheet-card{box-sizing:border-box;width:min(420px,100%);max-height:min(80vh,640px);overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:8px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);box-shadow:0 12px 40px rgba(0,0,0,.35);}
+.harness-sheet-title{padding:8px 10px 6px;font-size:var(--font-size-xs);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+.harness-sheet-rows,.harness-sheet-actions{display:flex;flex-direction:column;gap:2px;}
+.harness-sheet-actions{margin-top:4px;padding-top:4px;border-top:1px solid var(--border);}
+.harness-sheet-empty{padding:12px 10px;font-size:13px;color:var(--muted);}
+.harness-row{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 10px;border:1px solid transparent;border-radius:var(--radius-md);background:transparent;color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer;}
+.harness-row:hover,.harness-row:focus-visible{background:var(--hover-bg);outline:none;}
+.harness-row.on{background:var(--accent-bg);border-color:var(--accent-bg-strong);}
+.harness-row-icon{flex-shrink:0;width:20px;text-align:center;}
+.harness-row-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.harness-row-warn{margin-left:6px;color:var(--warning);}
+.harness-row-check{flex-shrink:0;width:14px;color:var(--accent);}
+.harness-row-action{color:var(--muted);}
+.harness-row-action.accent{color:var(--accent-text);}
+.harness-mini{display:inline-flex;align-items:center;flex-shrink:0;}
+.harness-mini i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);}
+.harness-mini i.t-route{width:7px;height:7px;border-radius:2px;transform:rotate(45deg);}
+.harness-mini i.t-background,.harness-mini i.t-review{background:var(--info);}
+.harness-mini s{display:inline-block;width:10px;height:1px;background:var(--border2);}
+@media (max-width:640px){
+  .harness-sheet{align-items:flex-end;padding:0;}
+  .harness-sheet-card{width:100%;max-height:75vh;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:8px 8px calc(8px + env(safe-area-inset-bottom));}
+}
