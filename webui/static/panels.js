@@ -220,18 +220,20 @@ async function switchPanel(name, opts = {}) {
   }
   _currentPanel = nextPanel;
   // Update nav tabs (rail + mobile sidebar-nav share data-panel)
-  document.querySelectorAll('[data-panel]').forEach(t => t.classList.toggle('active', t.dataset.panel === nextPanel));
+  // Harnesses lives under Settings: keep the Settings rail item and menu lit.
+  const navPanel = nextPanel === 'harnesses' ? 'settings' : nextPanel;
+  document.querySelectorAll('[data-panel]').forEach(t => t.classList.toggle('active', t.dataset.panel === navPanel));
   // Refresh aria-expanded on the newly-active rail button to mirror sidebar state.
   if (typeof _syncSidebarAria === 'function') _syncSidebarAria();
   // Update panel views
   document.querySelectorAll('.panel-view').forEach(p => p.classList.remove('active'));
-  const panelEl = $('panel' + nextPanel.charAt(0).toUpperCase() + nextPanel.slice(1));
+  const panelEl = $('panel' + navPanel.charAt(0).toUpperCase() + navPanel.slice(1));
   if (panelEl) panelEl.classList.add('active');
   // Update main content view. Each entry in MAIN_VIEW_PANELS gets a matching
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory','coding','live'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory','coding','live','harnesses'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -261,6 +263,7 @@ async function switchPanel(name, opts = {}) {
   // connection and must not be left open behind another panel.
   if (prevPanel === 'live' && nextPanel !== 'live' && typeof onLivePanelLeave === 'function') onLivePanelLeave();
   if (nextPanel === 'devices' && typeof loadDevices === 'function') await loadDevices();
+  if (nextPanel === 'harnesses' && window.HarnessEditor) await HarnessEditor.load();
   if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
   if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();
   _syncLogsAutoRefresh();

@@ -414,6 +414,11 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
           <span data-i18n="settings_tab_integrations">Integrations</span>
         </button>
+        <!-- Agent harnesses: its own main view (#mainHarnesses) for the canvas. -->
+        <button type="button" class="side-menu-item" id="settingsMenuHarnesses" onclick="HarnessEditor.open()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 6.5 16.6 11"/><path d="M7.5 17.5 16.6 13"/></svg>
+          <span>Harnesses</span>
+        </button>
         <button type="button" class="side-menu-item" data-settings-section="system" onclick="switchSettingsSection('system')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
           <span data-i18n="settings_tab_system">System</span>
@@ -1029,6 +1034,13 @@
       <div class="live-status" id="liveStatus"></div>
       <div class="main-view-body" id="liveBody"></div>
     </div>
+    <div id="mainHarnesses" class="main-view">
+      <div class="main-view-header">
+        <div class="main-view-title" id="harnessViewTitle">Harnesses</div>
+        <div class="main-view-actions" id="harnessViewActions"></div>
+      </div>
+      <div class="main-view-body harness-body" id="harnessViewBody"></div>
+    </div>
     <div id="mainSettings" class="main-view">
       <div class="settings-main">
           <div class="settings-pane active" id="settingsPaneConversation">
@@ -1544,6 +1556,8 @@
 <script src="static/messages.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/harness.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/harness_format.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/harness_graph.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/harness_editor.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/integrations.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/coding.js?v=__WEBUI_VERSION__" defer></script>
