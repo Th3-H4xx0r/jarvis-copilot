@@ -35,6 +35,9 @@ struct DashcamPage: View {
             }
             .padding(.vertical, 12)
         }
+        // Pull to refresh belongs to the page's scroll view; set inside the library it attached to the
+        // filter chips' horizontal scroller instead (they dragged down, the list never refreshed).
+        .refreshable { if tab == .library { await DashcamLibraryModel.shared.reload() } }
         .background(JcTheme.bg.ignoresSafeArea())
         .overlay(alignment: .bottomTrailing) {
             if tab == .library {
@@ -107,7 +110,12 @@ struct DashcamPage: View {
                 RowDivider()
                 Row {
                     HStack {
-                        Text(sync.rules.upload ? "Cloud backup on" : "Cloud backup paused").font(.callout)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sync.rules.upload ? "Cloud backup on" : "Cloud backup paused").font(.callout)
+                            if sync.rules.upload, let why = sync.uploadNote {
+                                Text(why).font(.caption).foregroundStyle(JcTheme.amber).lineLimit(3)
+                            }
+                        }
                         Spacer()
                         Button(sync.rules.upload ? "Pause" : "Resume") { sync.setCloudBackup(!sync.rules.upload) }
                             .buttonStyle(.jcGlass(compact: true))

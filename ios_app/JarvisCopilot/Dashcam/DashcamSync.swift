@@ -663,7 +663,7 @@ final class DashcamSync: ObservableObject {
                     lastCleanUp = Date()
                 }
                 if pending == 0 && relaying == 0 { return }
-                try? await Task.sleep(for: .seconds(pending > 0 ? 8 : 30))
+                try? await Task.sleep(for: .seconds(pending > 0 ? 15 : 30))
             }
         }
     }
@@ -686,8 +686,16 @@ final class DashcamSync: ObservableObject {
         }
         uploading = nil
         pendingUploads = await uploader.pendingCount
+        if let until = await uploader.driveQuotaUntil, until > Date() {
+            uploadNote = "Google Drive's shared rclone key is out of quota — retrying by itself. Your own Google key fixes it (Destinations)."
+        } else {
+            uploadNote = nil
+        }
         if !done.isEmpty { _ = await cleanUpUploaded() }
     }
+
+    /// Why uploads are waiting, for the page header (nil when they aren't).
+    @Published private(set) var uploadNote: String?
 
     /// The Pause/Resume cloud backup button: the upload rule, and the run in flight stops at once.
     func setCloudBackup(_ on: Bool) {

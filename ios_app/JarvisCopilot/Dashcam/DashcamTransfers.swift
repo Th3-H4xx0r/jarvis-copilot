@@ -246,6 +246,16 @@ actor DashcamUploader {
     private var running = false
     let drive: DashcamDriveClient
     private var access: [String: DashcamDriveAccess] = [:]
+    /// Google's per-minute quota ran out (rclone's shared key hits it constantly): every Drive upload waits
+    /// until then, and no clip's own retry count grows for it.
+    private(set) var driveQuotaUntil: Date?
+    static let quotaCooldown: TimeInterval = 90
+
+    static func isQuota(_ error: Error) -> Bool {
+        guard case DashcamDriveError.http(let code, let message) = error, code == 403 || code == 429 else { return false }
+        let m = message.lowercased()
+        return m.contains("quota") || m.contains("ratelimit") || m.contains("rate limit") || code == 429
+    }
     static let maxBackoff: TimeInterval = 600
 
     init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared) {
@@ -274,7 +284,8 @@ actor DashcamUploader {
 
     /// Lets parked jobs (no destination, full staging) try again now — a destination was just added.
     func retryParked() {
-        for i in jobs.indices { jobs[i].notBefore = nil }
+        for i in jobs.indices { jobs[i].notBefore = nil; jobs[i].attempts = 0 }
+        driveQuotaUntil = nil
         persist()
     }
 
@@ -308,6 +319,7 @@ actor DashcamUploader {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
         // Fetched once a run; nil (server unreachable, older server) = everything through the server.
         let destinations = try? await server.uploadDestinations()
+        if let until = driveQuotaUntil, until > now() { return [] }
         guard !running else { return [] }
         running = true
         defer { running = false }
@@ -381,6 +393,14 @@ actor DashcamUploader {
                     jobs.removeAll { $0.clipID == clipID }
                     persist()
                 }
+            } catch where Self.isQuota(error) {
+                // Not this clip's fault: everything waits a moment, then carries on by itself.
+                let until = now().addingTimeInterval(Self.quotaCooldown)
+                driveQuotaUntil = until
+                job.notBefore = until
+                job.lastError = error.localizedDescription
+                update(job)
+                return done
             } catch {
                 job.attempts += 1
                 job.notBefore = now().addingTimeInterval(Self.backoff(attempts: job.attempts))

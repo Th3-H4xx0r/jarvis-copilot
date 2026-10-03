@@ -206,7 +206,6 @@ struct DashcamLibraryView: View {
                 }
             }
         }
-        .refreshable { await model.reload() }
         .onChange(of: sync.lastSync) { _, _ in
             if !model.pagedBeyondFirst { Task { await model.reload() } }
         }
@@ -238,6 +237,7 @@ struct DashcamLibraryView: View {
             }
             .padding(.horizontal, 20)
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)   // sideways only
     }
 
     @ViewBuilder private func actions(for clip: DashcamServerClip) -> some View {
