@@ -30,6 +30,7 @@ struct HarnessSheet: View {
     let onSingleModel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var editing = false
     private var store: HarnessStore { HarnessStore.shared }
 
     var body: some View {
@@ -44,7 +45,7 @@ struct HarnessSheet: View {
                             HStack(spacing: 10) {
                                 Text(harness.title).foregroundStyle(JcTheme.text)
                                 if !(harness.problems ?? []).isEmpty {
-                                    JcIcon("exclamationmark.triangle").foregroundStyle(.orange)
+                                    JcIcon("exclamationmark.triangle").foregroundStyle(JcTheme.amber)
                                 }
                                 Spacer()
                                 HarnessMiniDiagram(harness: harness)
@@ -57,6 +58,11 @@ struct HarnessSheet: View {
                 } footer: {
                     Text(surface == .chat ? "This chat runs the harness you pick."
                                           : "Voice runs the harness you pick.")
+                }
+                Section {
+                    Button { editing = true } label: {
+                        Text("Edit harnesses…").foregroundStyle(JcTheme.accent)
+                    }
                 }
                 Section {
                     Button {
@@ -82,6 +88,7 @@ struct HarnessSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
             }
+            .navigationDestination(isPresented: $editing) { HarnessesPage() }
         }
         .presentationDetents([.medium, .large])
         .task { await store.refresh() }
@@ -121,7 +128,7 @@ struct ChatHarnessChip: View {
 
     var body: some View {
         Button { picking = true } label: {
-            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "point.3.connected.trianglepath.dotted")
+            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "flowchart")
         }
         .buttonStyle(.plain)
         .foregroundStyle(JcTheme.text)
@@ -159,7 +166,7 @@ struct VoiceHarnessChip: View {
 
     var body: some View {
         Button { picking = true } label: {
-            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "point.3.connected.trianglepath.dotted")
+            HarnessChipLabel(text: label, symbol: current == "single" ? "sparkles" : "flowchart")
         }
         .accessibilityLabel("Voice harness: \(label)")
         .sheet(isPresented: $picking) {

@@ -83,6 +83,8 @@ struct MorePage: View {
             ServerLogsPage()
         case .islandDesigns:
             IslandDesignsPage()
+        case .harnesses:
+            HarnessesPage()
         case .photon:
             PhotonSetupPage()
         case .appleWatch:

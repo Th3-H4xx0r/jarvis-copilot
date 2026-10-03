@@ -12,7 +12,7 @@ final class MoreDestinationTests: XCTestCase {
         XCTAssertEqual(MoreDestination.allCases, [
             .integrations, .coding, .skills, .kanban, .memory, .codeMemory, .longTermMemory,
             .workspaces, .profiles, .todos, .insights, .selfImprovement,
-            .serverLogs, .islandDesigns, .photon, .appleWatch, .settings,
+            .serverLogs, .islandDesigns, .harnesses, .photon, .appleWatch, .settings,
         ])
     }
 
