@@ -27,6 +27,7 @@ const SHELL_ASSETS = [
   './static/ui.js' + VQ,
   './static/messages.js' + VQ,
   './static/harness.js' + VQ,
+  './static/harness_format.js' + VQ,
   './static/sessions.js' + VQ,
   './static/panels.js' + VQ,
   './static/commands.js' + VQ,

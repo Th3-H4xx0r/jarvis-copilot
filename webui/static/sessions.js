@@ -3877,6 +3877,28 @@ function startSessionEventsSSE(sid){
       }catch(e){ console.warn('[mirror] bad run_ended frame', e); }
     });
 
+    // An agent-harness background/review reply was saved into a chat (it can
+    // land long after the turn that started it). Show it if that chat is open.
+    es.addEventListener('harness_result', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        if(!d.message || !S.session || S.session.session_id !== d.session_id) return;
+        const msgs = Array.isArray(S.messages) ? S.messages : [];
+        const dup = d.message._ts != null &&
+          msgs.some(m => m && m.role === d.message.role && m._ts === d.message._ts && m.content === d.message.content);
+        if(dup) return;
+        S.messages = msgs.concat([d.message]);
+        if(Array.isArray(S.session.messages) && S.session.messages !== msgs){
+          S.session.messages = S.session.messages.concat([d.message]);
+        }
+        if(typeof S.session.message_count === 'number') S.session.message_count += 1;
+        const follow = typeof _shouldFollowMessagesOnDomReplace === 'function' && _shouldFollowMessagesOnDomReplace();
+        if(typeof _bumpMessagesGeneration === 'function') _bumpMessagesGeneration();
+        if(typeof renderMessages === 'function') renderMessages({preserveScroll:true});
+        if(follow && typeof scrollToBottom === 'function') scrollToBottom();
+      }catch(e){ console.warn('[mirror] bad harness_result frame', e); }
+    });
+
     // We fell far enough behind that the server dropped events for us. Anything
     // could have been missed, so start over rather than carry on looking healthy.
     es.addEventListener('resync', () => {

@@ -3546,6 +3546,23 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
   opacity: .95;
   font-weight: 600;
 }
+/* Agent harness: who answered this reply (harness_format.js). */
+.msg-answered-by {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: .85;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Background / review replies: their own turn with a teal side edge. */
+.assistant-turn.harness-side .assistant-turn-blocks {
+  border-left: 2px solid var(--info);
+  padding-left: 12px;
+}
 .msg-foot-with-usage .msg-time,
 .msg-foot-with-usage .msg-actions {
   opacity: 0;

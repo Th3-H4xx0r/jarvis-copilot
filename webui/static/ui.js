@@ -5733,6 +5733,11 @@ function renderMessages(options){
       continue;
     }
 
+    // An agent-harness background/review reply (it can land minutes after the
+    // turn that started it) is its own turn with a side edge, never merged
+    // into the foreground answer above it.
+    const isSideReply=!!(window.HarnessFormat&&HarnessFormat.isSideReply(m._meta));
+    if(isSideReply) currentAssistantTurn=null;
     if(!currentAssistantTurn){
       currentAssistantTurn=_createAssistantTurn(tsTitle, isTpsDisplayEnabled()?_formatTurnTps(m._turnTps):'');
       inner.appendChild(currentAssistantTurn);
@@ -5765,6 +5770,11 @@ function renderMessages(options){
     }
     _assistantTurnBlocks(currentAssistantTurn).appendChild(seg);
     assistantSegments.set(rawIdx, seg);
+    if(isSideReply){
+      currentAssistantTurn.classList.add('harness-side');
+      currentAssistantTurn.dataset.harnessKind=String(m._meta.kind);
+      currentAssistantTurn=null;
+    }
   }
 
   function _insertCompressionLikeNode(node, anchorIndex){
@@ -6045,12 +6055,32 @@ function renderMessages(options){
         (S.toolCalls||[]).some(tc=>tc&&(tc.assistant_msg_idx!==undefined?tc.assistant_msg_idx:-1)===mi)
       );
       const durationText=compactActivityForMessage?'':_formatTurnDuration(msg._turnDuration);
-      if(!hasTurnUsage&&!durationText&&!gatewayText&&!failoverText&&!modelWarningText&&!onDevice) continue;
+      // Agent harness: who answered (model · seconds · handed off / background / review).
+      const answeredText=(msg._meta&&window.HarnessFormat)?HarnessFormat.answeredBy(msg._meta):'';
+      if(!hasTurnUsage&&!durationText&&!gatewayText&&!failoverText&&!modelWarningText&&!onDevice&&!answeredText) continue;
       const seg=assistantSegments.get(mi);
       const row=seg?seg.closest('.assistant-turn'):null;
       const footerRows=row?row.querySelectorAll('.msg-foot'):[];
       const targetFoot=footerRows.length?footerRows[footerRows.length-1]:null;
-      if(!targetFoot||targetFoot.querySelector('.msg-usage-inline,.msg-duration-inline,.msg-gateway-inline,.gateway-failover-inline,.msg-model-warning-inline,.msg-on-device-inline')) continue;
+      if(!targetFoot) continue;
+      // Who answered leads the footer. Placed apart from the guard below so
+      // another message's duration/usage already in this footer cannot hide it.
+      const placeAnsweredBy=()=>{
+        if(!answeredText||targetFoot.querySelector('.msg-answered-by')) return;
+        const by=document.createElement('span');
+        by.className='msg-answered-by';
+        by.textContent=answeredText;
+        const meta=msg._meta;
+        const harnessName=meta.harness_name||meta.harness||'';
+        by.title=['Answered by '+(meta.model||''), meta.provider?'provider '+meta.provider:'',
+          meta.node?'node '+meta.node:'', harnessName?'harness '+harnessName:''].filter(Boolean).join(' · ');
+        targetFoot.classList.add('msg-foot-with-usage');
+        targetFoot.insertBefore(by, targetFoot.firstChild);
+      };
+      if(targetFoot.querySelector('.msg-usage-inline,.msg-duration-inline,.msg-gateway-inline,.gateway-failover-inline,.msg-model-warning-inline,.msg-on-device-inline')){
+        placeAnsweredBy();
+        continue;
+      }
       const fragments=[];
       if(onDevice){
         const od=document.createElement('span');
@@ -6102,6 +6132,7 @@ function renderMessages(options){
         targetFoot.classList.add('msg-foot-with-usage');
         for(let i=fragments.length-1;i>=0;i--) targetFoot.insertBefore(fragments[i], targetFoot.firstChild);
       }
+      placeAnsweredBy();
     }
   }
   // Only force-scroll when not actively streaming — mid-stream re-renders

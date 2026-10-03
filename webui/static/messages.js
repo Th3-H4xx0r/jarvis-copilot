@@ -754,6 +754,10 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   let visibleInterimSnippets=[];
   let _latestGoalStatus=null;
   let _pendingGoalContinuation=null;
+  // Agent harness: the closing turn_meta (who answered, how long, handed off).
+  // Copied onto the final assistant message as _meta when `done` lands, for a
+  // server that has not persisted it there itself.
+  let _liveTurnMeta=null;
   let assistantRow=null;
   let assistantBody=null;
   let segmentStart=0;      // char offset in assistantText where current segment begins
@@ -1765,6 +1769,13 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       }catch(_){}
     });
 
+    source.addEventListener('turn_meta',e=>{
+      try{
+        const d=JSON.parse(e.data||'{}');
+        if(d&&d.phase==='end'){ delete d.phase; _liveTurnMeta=d; }
+      }catch(_){ }
+    });
+
     source.addEventListener('done',e=>{
       _terminalStateReached=true;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
@@ -1837,6 +1848,8 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           const lastAsst=[...S.messages].reverse().find(m=>m.role==='assistant');
           // Persist reasoning trace so thinking card survives page reload
           if(reasoningText&&lastAsst&&!lastAsst.reasoning) lastAsst.reasoning=reasoningText;
+          // "Answered by" line (harness_format.js) for this turn's reply.
+          if(_liveTurnMeta&&lastAsst&&!lastAsst._meta) lastAsst._meta=_liveTurnMeta;
           // Stamp _ts on the last assistant message if it has no timestamp
           if(lastAsst&&!lastAsst._ts&&!lastAsst.timestamp) lastAsst._ts=Date.now()/1000;
           if(d.usage){
