@@ -153,6 +153,16 @@ WebUI progress contract:
 """.strip()
 
 
+def _log_ttft(stream_id, started_monotonic):
+    """Time to the first streamed token of a chat turn, as a span line in the
+    same JSON shape the voice turns log."""
+    try:
+        logger.info(json.dumps({"turn_id": stream_id, "span": "ttft_ms", "surface": "chat",
+                                "ms": round((time.monotonic() - started_monotonic) * 1000.0, 1)}))
+    except Exception:
+        pass
+
+
 def _collect_turn_context(*parts) -> str:
     """Join this turn's notes (node instructions, voice rules, speaking device,
     integration-setup note) for ``agent._turn_user_context``."""
@@ -2855,6 +2865,7 @@ def _run_agent_streaming(
     q = STREAMS.get(stream_id)
     if q is None:
         return
+    _turn_t0 = time.monotonic()
     register_active_run(
         stream_id,
         session_id=session_id,
@@ -3329,6 +3340,8 @@ def _run_agent_streaming(
                 nonlocal _token_sent
                 if text is None:
                     return  # end-of-stream sentinel
+                if not _token_sent:
+                    _log_ttft(stream_id, _turn_t0)
                 _token_sent = True
                 # Accumulate partial text so cancel_stream() can persist it (#893)
                 if stream_id in STREAM_PARTIAL_TEXT:
