@@ -1144,10 +1144,25 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
     return True
 
 
+def _voice_harness_markers(s, harness_id, explicit_override) -> bool:
+    """Mark a voice turn for the agent-harness runner (api/streaming._plan_for_turn).
+
+    New clients send ``harness_id`` (the Voice chip); a plain turn with no
+    explicit model runs the Voice default harness. Only an older client's
+    explicit model pick (no harness_id) keeps the pre-harness path. Returns
+    True when the harness path is taken."""
+    hid = (harness_id or "").strip()
+    if explicit_override and not hid:
+        return False
+    s._turn_surface = "voice"
+    s._turn_harness_id = hid or None
+    return True
+
+
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
                              lane: str = "", heard_before_interrupt=None, client: str = "",
-                             origin=None, unsure=()):
+                             origin=None, unsure=(), harness_id: str = ""):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1217,6 +1232,11 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     override_provider = (provider_override or "").strip()
     fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
     explicit_override = bool(override_model or override_provider) and lane != "fast"
+    # Agent harness: the harness (not this function) picks the model for the
+    # turn, so the fast-lane / cooldown choice below only serves older clients.
+    harness_path = _voice_harness_markers(s, harness_id, explicit_override)
+    if harness_path:
+        explicit_override = False
     if explicit_override and fast_lane and _override_on_cooldown(override_model, override_provider):
         # This pick failed (quota / rate limit / auth) a moment ago. Don't burn
         # a round trip re-proving it every turn: go straight to the fast lane,
@@ -1256,7 +1276,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # exactly what the Claude Code catalogue group lists.
             if _m.lower().startswith("@anthropic:"):
                 raw_model = _m[len("@anthropic:"):]
-    elif fast_lane:
+    elif fast_lane and not harness_path:
         # plan 2.1 — default voice model: the configured fast lane.
         raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
     else:
@@ -1296,7 +1316,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         turn_origin.note_turn(session_id, origin)
     except Exception:
         pass
-    print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)}", flush=True)
+    print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)} harness={(harness_id or 'voice-default') if harness_path else '-'}", flush=True)
     try:
         response = _start_chat_stream_for_session(
             s,
@@ -2332,6 +2352,8 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         from api import pod_voice
         pod = pod_voice.choice_for(state, (msg.get("client") or state.get("client") or "").strip().lower())
         state["voice_default_session"] = (msg.get("session_id") or "").strip()
+        # The Voice chip's agent harness (absent → the Voice default harness).
+        state["harness_id"] = (msg.get("harness_id") or "").strip()
         sid = pod.get("session_id") or (msg.get("session_id") or "").strip()
         if sid:
             state["session_id"] = sid
@@ -3392,6 +3414,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             client=state.get("client", ""),
             origin=state.get("origin"),
             unsure=state.pop("unsure_words", ()),
+            harness_id=state.get("harness_id", ""),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if not state.get("clarify_pending"):
