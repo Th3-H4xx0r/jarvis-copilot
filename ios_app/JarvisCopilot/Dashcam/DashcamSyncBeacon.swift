@@ -14,6 +14,9 @@ final class DashcamSyncBeacon {
     private var idleSince: Date?
     private var watch: Task<Void, Never>?
     static let progressEvery: TimeInterval = 8
+    /// The island holds two activities at most and picks by this score: above JARVIS's always-on one (0), so
+    /// the sync takes the island while clips move and gives it back when it ends.
+    static let relevance: Double = 100
     static let lingerAfter: TimeInterval = 20
 
     private init() {}
@@ -67,7 +70,7 @@ final class DashcamSyncBeacon {
         guard let activity else {
             let name = DashcamSetupStore.load()?.displayName ?? "Dashcam"
             activity = try? Activity.request(attributes: DashcamSyncAttributes(cameraName: Self.clamp(name)),
-                                             content: ActivityContent(state: s, staleDate: nil), pushType: nil)
+                                             content: ActivityContent(state: s, staleDate: nil, relevanceScore: Self.relevance), pushType: nil)
             sent = s
             lastPush = Date()
             return
@@ -78,7 +81,7 @@ final class DashcamSyncBeacon {
         guard event || Date().timeIntervalSince(lastPush) >= Self.progressEvery else { return }
         sent = s
         lastPush = Date()
-        Task { await activity.update(ActivityContent(state: s, staleDate: nil)) }
+        Task { await activity.update(ActivityContent(state: s, staleDate: nil, relevanceScore: Self.relevance)) }
     }
 
     private func end() {
