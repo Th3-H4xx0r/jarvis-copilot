@@ -22,6 +22,9 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
 
     private var session: ASWebAuthenticationSession?
     private var listener: NWListener?
+    /// Ends the wait for Google's reply — the sheet was closed (failed page, swiped away, Cancel).
+    private final class Abort: @unchecked Sendable { var finish: ((Error) -> Void)? }
+    private let abort = Abort()
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
@@ -42,8 +45,12 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
             .init(name: "code_challenge", value: challenge), .init(name: "code_challenge_method", value: "S256"),
             .init(name: "state", value: state),
         ]
-        // The browser sheet ends either way: the listener gets the code (we close the sheet) or the user cancels.
-        let browser = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "jarviscopilot-oauth") { _, _ in }
+        // The browser sheet ends either way: the listener gets the code (we close the sheet) or the user closes it,
+        // which must end the wait too, or the button spins forever.
+        let abort = self.abort
+        let browser = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "jarviscopilot-oauth") { _, error in
+            if error != nil { abort.finish?(Failure.cancelled) }
+        }
         browser.presentationContextProvider = self
         browser.prefersEphemeralWebBrowserSession = false
         session = browser
@@ -54,13 +61,35 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
         return try await exchange(code: code, verifier: verifier, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
     }
 
-    /// A one-request HTTP server on a free loopback port; its task finishes with Google's `code`.
+    /// A one-request HTTP server on a loopback port; its task finishes with Google's `code`. The port is
+    /// read only once the listener is READY: before that it reads 0, and Safari refuses port 0 as a
+    /// "restricted network port". rclone's own port (53682) first, any free one if that's taken.
     private func listen(state: String) async throws -> (UInt16, Task<String, Error>) {
-        let params = NWParameters.tcp
-        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
-        let l = try NWListener(using: params)
+        var (l, codeStream) = try makeListener(port: 53682, state: state)
+        var port = await ready(l)
+        if port == nil {
+            l.cancel()
+            (l, codeStream) = try makeListener(port: nil, state: state)
+            port = await ready(l)
+        }
         listener = l
+        guard let port, port != 0 else { throw Failure.noCode("couldn't open a local port") }
+        let stream = codeStream
+        let task = Task<String, Error> {
+            for try await code in stream { return code }
+            throw Failure.cancelled
+        }
+        return (port, task)
+    }
+
+    private func makeListener(port: UInt16?, state: String) throws -> (NWListener, AsyncThrowingStream<String, Error>) {
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any)
+        let l = try NWListener(using: params)
+        let abort = self.abort
         let codeStream = AsyncThrowingStream<String, Error> { cont in
+            abort.finish = { cont.finish(throwing: $0) }
             l.newConnectionHandler = { conn in
                 conn.start(queue: .main)
                 conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
@@ -77,16 +106,25 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
                     else if text.hasPrefix("GET") && !target.hasPrefix("/favicon") { cont.finish(throwing: Failure.noCode(value("error") ?? "no code")) }
                 }
             }
+        }
+        return (l, codeStream)
+    }
+
+    /// Starts the listener and waits (up to 3 s) until it is listening; nil when it couldn't.
+    private func ready(_ l: NWListener) async -> UInt16? {
+        await withCheckedContinuation { (cont: CheckedContinuation<UInt16?, Never>) in
+            var done = false
+            func finish(_ v: UInt16?) { if !done { done = true; cont.resume(returning: v) } }
+            l.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(l.port?.rawValue)
+                case .failed, .cancelled: finish(nil)
+                default: break
+                }
+            }
             l.start(queue: .main)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { finish(nil) }
         }
-        // Wait for the port.
-        for _ in 0..<50 where l.port == nil { try await Task.sleep(for: .milliseconds(20)) }
-        guard let port = l.port?.rawValue else { throw Failure.noCode("couldn't open a local port") }
-        let task = Task<String, Error> {
-            for try await code in codeStream { return code }
-            throw Failure.cancelled
-        }
-        return (port, task)
     }
 
     private func exchange(code: String, verifier: String, clientID: String, clientSecret: String, redirect: String) async throws -> String {
