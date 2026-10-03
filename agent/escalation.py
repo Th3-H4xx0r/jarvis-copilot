@@ -359,7 +359,9 @@ def _run_job(job_id: str, runner: Callable[[dict], str]) -> None:
         "turn_id": session_id, "span": "escalation_job",
         "ms": round((completed - started) * 1000.0, 1),
     }))
-    deliver(session_id, {"type": ESCALATION_EVENT, "job_id": job_id, "text": text})
+    # An empty result (a review that found nothing to fix) is not delivered.
+    if text.strip():
+        deliver(session_id, {"type": ESCALATION_EVENT, "job_id": job_id, "text": text})
 
 
 def default_runner(job: dict) -> str:
@@ -438,6 +440,12 @@ def _prune_jobs_locked() -> None:
 
 
 # ── delivery to the session's stream ─────────────────────────────────────────
+
+def has_live_sink(session_id) -> bool:
+    """True when a chat stream or voice socket is listening for this session."""
+    with _lock:
+        return bool(_sinks.get(session_id))
+
 
 def register_stream_sink(session_id: str, sink: Callable[[str, dict], None]) -> None:
     """Attach a live stream's event fan-out (``put(event, data)``) to a session.
@@ -528,6 +536,34 @@ def reset_for_tests() -> None:
 # reason ``tool_search`` lives there — so ``escalate`` reaches every platform
 # without needing a new key in ``toolsets.TOOLSETS`` (owned elsewhere). ``check_fn``
 # keeps it out of the tool list whenever no fast lane is configured.
+# Harness hand-off (webui/api/harness_runner.py): the same non-blocking job as
+# `escalate`, but the target model/runner come from the harness node the turn
+# binds, so it is offered only to Answer nodes wired to a Background node.
+HANDOFF_TOOL_NAME = "handoff"
+HANDOFF_TOOL_SCHEMA = {
+    "name": HANDOFF_TOOL_NAME,
+    "description": (
+        "Hand this task to the bigger background model when it needs deep work, "
+        "many tool calls or a long answer. Say one short line to the user first "
+        "(e.g. \"On it — Claude is digging into that\"); your reply ends there and "
+        "the full result is delivered separately when it is ready. Do NOT call "
+        "this for anything you can answer or do yourself."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": ("Everything the bigger model needs: what the user wants, "
+                                "context, and anything you already found out."),
+            },
+            "reason": {"type": "string", "description": "Why it needs the bigger model, briefly."},
+        },
+        "required": ["summary"],
+    },
+}
+
+
 def _register() -> None:
     try:
         from tools.registry import registry
@@ -538,6 +574,14 @@ def _register() -> None:
             handler=lambda args, **kw: handle_escalate(args, **kw),
             check_fn=_escalate_available,
             emoji="🚀",
+        )
+        registry.register(
+            name=HANDOFF_TOOL_NAME,
+            toolset="harness",
+            schema=HANDOFF_TOOL_SCHEMA,
+            handler=lambda args, **kw: handle_escalate(args, **kw),
+            check_fn=lambda: True,
+            emoji="🤝",
         )
     except Exception:
         logger.debug("escalate tool registration failed", exc_info=True)

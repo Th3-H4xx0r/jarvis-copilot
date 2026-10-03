@@ -238,3 +238,27 @@ class TestEscalationJob:
         assert captured["reason"] == "needs tools"
         assert captured["summary"] == "do the thing"
         assert captured["model"] == "claude-opus-5"
+
+
+def test_handoff_tool_registered_and_empty_results_not_delivered(monkeypatch):
+    from agent import escalation as esc
+    from tools.registry import registry
+    assert registry.get_definitions({"handoff"})
+    delivered = []
+    monkeypatch.setattr(esc, "deliver", lambda sid, data, **k: delivered.append(data))
+    with esc._lock:
+        esc._jobs["j1"] = {"job_id": "j1", "session_id": "s1"}
+    esc._run_job("j1", lambda job: "")
+    assert delivered == []
+
+
+def test_has_live_sink():
+    from agent import escalation as esc
+
+    def sink(event, data):
+        return None
+
+    esc.register_stream_sink("sx", sink)
+    assert esc.has_live_sink("sx")
+    esc.unregister_stream_sink("sx", sink)
+    assert not esc.has_live_sink("sx")

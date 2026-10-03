@@ -163,6 +163,15 @@ def _log_ttft(stream_id, started_monotonic):
         pass
 
 
+def _carry_late_harness_results(current_messages, previous_len, merged):
+    """Background/review results that landed in the chat while this turn ran
+    (api/harness_runner.deliver_result appends them) — the turn's writeback
+    rebuilds the transcript from its start snapshot, so re-append them."""
+    late = [m for m in list(current_messages or [])[previous_len:]
+            if isinstance(m, dict) and (m.get("_meta") or {}).get("kind") in ("background", "review")]
+    return list(merged) + late
+
+
 def _plan_for_turn(s, msg_text, attachments):
     """Which harness node answers this turn (api/harness_runner.py).
 
@@ -4069,6 +4078,25 @@ def _run_agent_streaming(
                     load_all_deferred(agent)
                 except Exception:
                     logger.debug("harness: load_all_deferred failed", exc_info=True)
+            # Harness hand-off: this node is wired to a Background node, so it gets
+            # the `handoff` tool (same list every turn → the prompt prefix holds)
+            # and the turn binds where the job goes.
+            if _harness_plan is not None and _harness_plan.handoff_node:
+                try:
+                    import agent.escalation as _esc  # registers the handoff tool
+                    from tools.registry import registry as _reg
+                    from api.harness_runner import background_runner as _bg_runner
+                    if "handoff" not in (getattr(agent, "valid_tool_names", None) or set()):
+                        _hs = _reg.get_definitions({"handoff"})
+                        if _hs:
+                            agent.tools = list(agent.tools or []) + list(_hs)
+                            agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {"handoff"}
+                    _esc.bind_turn_context(
+                        session_id, session_id=session_id,
+                        runner=_bg_runner(_harness_plan.handoff_node, session_id),
+                        escalation_model=_harness_plan.handoff_node.get("model"))
+                except Exception:
+                    logger.warning("harness: hand-off tool not attached", exc_info=True)
             agent._context_cwd = str(workspace) if workspace else None
             # Voice turn (webui/api/voice.py flags the session): no extended
             # thinking / reasoning effort for this one call — restored below.
@@ -4126,6 +4154,13 @@ def _run_agent_streaming(
                 task_id=session_id,
                 persist_user_message=msg_text,
             )
+            if _harness_plan is not None and _harness_plan.handoff_node:
+                try:
+                    from agent.escalation import get_jobs as _esc_jobs
+                    _turn_handed_off = any(float(j.get("started_at") or 0) >= _turn_started_wall
+                                           for j in _esc_jobs(session_id))
+                except Exception:
+                    _turn_handed_off = False
             _post_turn_usage = tuple(int(getattr(agent, _k, 0) or 0) for _k in (
                 'session_input_tokens', 'session_completion_tokens',
                 'session_cache_read_tokens', 'session_cache_write_tokens'))
@@ -4247,13 +4282,14 @@ def _run_agent_streaming(
                     _previous_context_messages,
                     _result_messages,
                 )
-                s.context_messages = _next_context_messages
-                s.messages = _merge_display_messages_after_agent_result(
+                s.context_messages = _carry_late_harness_results(
+                    s.context_messages, len(_previous_context_messages or []), _next_context_messages)
+                s.messages = _carry_late_harness_results(s.messages, len(_previous_messages), _merge_display_messages_after_agent_result(
                     _previous_messages,
                     _previous_context_messages,
                     _restore_reasoning_metadata(_previous_messages, _result_messages),
                     msg_text,
-                )
+                ))
                 # Strip XML tool-call blocks from assistant message content.
                 # DeepSeek and some other providers emit <function_calls>...</function_calls>
                 # in the raw response text; this must be removed before the content is
@@ -5020,11 +5056,25 @@ def _run_agent_streaming(
                 logger.debug("Goal continuation hook failed for session %s: %s", session_id, _goal_exc)
             raw_session = s.compact() | {'messages': s.messages, 'tool_calls': tool_calls}
             if _harness_plan is not None:
+                _final_text = ''
                 for _dm in reversed(s.messages or []):
                     if isinstance(_dm, dict) and _dm.get('role') == 'assistant':
                         if _dm.get('_meta'):
                             put('turn_meta', _dm['_meta'])
+                        _final_text = str(_dm.get('content') or '')
                         break
+                if _harness_plan.after and not cancel_event.is_set():
+                    try:
+                        from api.harness_runner import start_after_jobs
+                        _after_tools = sum(
+                            1 for _tm in (result.get('messages') or [])[len(_previous_context_messages):]
+                            if isinstance(_tm, dict) and _tm.get('role') == 'tool')
+                        start_after_jobs(_harness_plan, session_id=session_id, question=msg_text,
+                                         answer=_final_text,
+                                         elapsed_s=time.time() - _turn_started_wall,
+                                         tool_count=_after_tools)
+                    except Exception:
+                        logger.warning("harness: after-jobs failed to start", exc_info=True)
             put('done', {'session': redact_session_data(raw_session), 'usage': usage})
             # Emit one last metering packet for the live message-header TPS label.
             meter_stats = meter().get_stats()
@@ -5295,6 +5345,13 @@ def _run_agent_streaming(
                 _unreg_escalation_sink(_escalation_sink_session, put)
             except Exception:
                 logger.debug("escalation sink teardown failed", exc_info=True)
+        # The harness hand-off binding is for this turn only.
+        if not ephemeral:
+            try:
+                from agent.escalation import clear_turn_context as _clear_turn_ctx
+                _clear_turn_ctx(session_id)
+            except Exception:
+                logger.debug("harness hand-off context clear failed", exc_info=True)
         # Stop the periodic checkpoint thread before the final recovery path.
         # The checkpoint thread also uses the per-session lock; joining it first
         # avoids contending with checkpoint writes during stale-pending repair.

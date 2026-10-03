@@ -147,3 +147,192 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
                     instructions=answer.get("instructions", ""), max_steps=answer.get("max_steps"),
                     fallback_model=answer.get("fallback_model"), handoff_node=handoff, after=after,
                     surface=surface)
+
+
+# ── after the answer: hand-off, background and review jobs ───────────────────
+# Jobs run on agent.escalation's machinery (one daemon thread each, results
+# delivered to live stream sinks — the voice socket speaks them). Here they also
+# land in the chat as their own assistant message, are announced on the session
+# event bus, and push a notification when no device is watching.
+
+import copy as _copy
+import json as _json
+import time as _time
+
+
+def _load_session(sid):
+    from api.models import get_session
+    return get_session(sid)
+
+
+def _listener_count(sid) -> int:
+    n = 0
+    try:
+        from api.session_events import SESSION_EVENTS
+        n += SESSION_EVENTS.subscriber_count(sid)
+    except Exception:
+        pass
+    try:
+        from agent import escalation
+        n += 1 if escalation.has_live_sink(sid) else 0
+    except Exception:
+        pass
+    return n
+
+
+def _push_alert(title, body, sid) -> int:
+    from api import push as push_mod
+    from api.pairing import list_devices
+    sent = 0
+    for d in list_devices() or []:
+        token = (d.get("push_token") or "").strip()
+        if not token or (d.get("push_kind") or "").strip().lower() != "apns":
+            continue
+        if push_mod.send("apns", token, {"type": "harness_result", "session_id": sid},
+                         alert={"title": title, "body": (body or "")[:180]}):
+            sent += 1
+    return sent
+
+
+def _one_shot(model_ref, prompt, max_tokens=600):
+    from api.harness_llm import one_shot_completion
+    return one_shot_completion(model_ref, prompt, max_tokens=max_tokens)
+
+
+def _label_for(node):
+    model = str(node.get("model") or "")
+    return "Claude" if "claude" in model.lower() else (model.split(":")[-1] or "Background")
+
+
+def _session_lock(sid):
+    try:
+        from api.config import _get_session_agent_lock
+        return _get_session_agent_lock(sid)
+    except Exception:
+        return threading.Lock()
+
+
+def deliver_result(session_id, *, node, kind, text, ms, error=None):
+    """Save a background/review result into the chat and tell the devices."""
+    meta = {"kind": kind, "node": node.get("id"), "model": node.get("model"), "ms": int(ms or 0)}
+    if error:
+        meta["error"] = str(error)[:300]
+    message = {"role": "assistant", "content": text or "", "timestamp": _time.time(), "_meta": meta}
+    s = _load_session(session_id)
+    with _session_lock(session_id):
+        s.messages.append(message)
+        ctx = getattr(s, "context_messages", None)
+        if isinstance(ctx, list) and ctx:
+            ctx.append(dict(message))
+        s.save()
+    try:
+        from api.session_events import SESSION_EVENTS
+        SESSION_EVENTS.publish(session_id, "harness_result", {"session_id": session_id, "message": message})
+    except Exception:
+        logger.debug("harness_result publish failed", exc_info=True)
+    if node.get("deliver") in ("speak_or_notify", "notify") and _listener_count(session_id) == 0:
+        try:
+            _push_alert(f"{_label_for(node)} {'finished' if not error else 'could not finish'}",
+                        text or str(error or ""), session_id)
+        except Exception:
+            logger.warning("harness push failed", exc_info=True)
+    return message
+
+
+def _run_hidden_turn(node, session_id, summary):
+    """The node's model with the parent chat's full history, on a throwaway session."""
+    import uuid as _uuid
+    from api.config import (SESSION_DIR, STREAMS, STREAMS_LOCK, create_stream_channel,
+                            split_provider_qualified_model)
+    from api.models import Session, new_session
+    from api.streaming import _run_agent_streaming
+    parent = Session.load(session_id)
+    q = split_provider_qualified_model(node.get("model") or "")
+    model, provider = node.get("model"), (q[0] if q else None)
+    hidden = new_session(workspace=parent.workspace, model=model, model_provider=provider,
+                         profile=getattr(parent, "profile", None))
+    hidden.title = f"harness: {node.get('id')}"
+    hidden.messages = _copy.deepcopy(getattr(parent, "messages", None) or [])
+    stream_id = _uuid.uuid4().hex
+    hidden.active_stream_id = stream_id
+    hidden._turn_explicit_model = (model, provider)
+    hidden.save()
+    with STREAMS_LOCK:
+        STREAMS[stream_id] = create_stream_channel()
+    prompt = ("A faster model handed this over to you. Finish it fully with your tools, then reply "
+              f"with the final answer for the user.\n\nHand-off note: {summary}")
+    try:
+        _run_agent_streaming(hidden.session_id, prompt, model, parent.workspace, stream_id, None,
+                             model_provider=provider)
+        reloaded = Session.load(hidden.session_id)
+        for m in reversed((reloaded.messages if reloaded else None) or []):
+            if isinstance(m, dict) and m.get("role") == "assistant" and not m.get("_error"):
+                content = str(m.get("content") or "").strip()
+                if content:
+                    return content
+        return ""
+    finally:
+        try:
+            (SESSION_DIR / f"{hidden.session_id}.json").unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def background_runner(node, session_id):
+    def _run(job):
+        started = _time.time()
+        try:
+            text = _run_hidden_turn(node, session_id, job.get("summary") or job.get("reason") or "")
+            deliver_result(session_id, node=node, kind="background", text=text,
+                           ms=(_time.time() - started) * 1000)
+        except Exception as exc:
+            logger.warning("harness background node %s failed", node.get("id"), exc_info=True)
+            text = f"Couldn't finish: {exc}"
+            deliver_result(session_id, node=node, kind="background", text=text,
+                           ms=(_time.time() - started) * 1000, error=exc)
+        # Returned text is what an open voice socket speaks.
+        return text if node.get("deliver") == "speak_or_notify" else ""
+    return _run
+
+
+def review_runner(node, session_id, question, answer):
+    def _run(job):
+        started = _time.time()
+        prompt = ("You are reviewing an answer a faster model just gave. Reply ONLY with JSON "
+                  '{"verdict": "ok" | "fix", "text": "<corrected or fuller answer when fix>"}.\n\n'
+                  f"Question: {question}\n\nAnswer given: {answer}")
+        try:
+            raw = _one_shot(node.get("model"), prompt)
+            data = _json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+        except Exception:
+            logger.debug("harness review produced no verdict", exc_info=True)
+            return ""
+        text = str(data.get("text") or "").strip()
+        if text and (data.get("verdict") == "fix" or node.get("deliver") == "post"):
+            deliver_result(session_id, node=node, kind="review", text=text,
+                           ms=(_time.time() - started) * 1000)
+            return text
+        return ""
+    return _run
+
+
+def _start_job(session_id, node, runner):
+    from agent import escalation
+    return escalation.start_escalation(session_id=session_id, reason=f"harness:{node.get('id')}",
+                                       summary="", model=node.get("model"), runner=runner)
+
+
+def start_after_jobs(plan, *, session_id, question, answer, elapsed_s, tool_count):
+    """Start the Review/Background nodes wired after the answer whose
+    condition holds (always · slow:<s> · tools:<n>). Returns job ids."""
+    ids = []
+    for node, when in getattr(plan, "after", None) or []:
+        kind, value = parse_when(when)
+        if kind == "slow" and not elapsed_s > int(value):
+            continue
+        if kind == "tools" and not tool_count > int(value):
+            continue
+        runner = (review_runner(node, session_id, question, answer) if node["type"] == "review"
+                  else background_runner(node, session_id))
+        ids.append(_start_job(session_id, node, runner))
+    return ids
