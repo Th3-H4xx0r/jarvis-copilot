@@ -4078,6 +4078,9 @@ def _run_agent_streaming(
                     load_all_deferred(agent)
                 except Exception:
                     logger.debug("harness: load_all_deferred failed", exc_info=True)
+            # A harness Claude node keeps its claude CLI process warm across turns
+            # (agent/claude_code_structured_runtime.warm_enabled).
+            agent._harness_warm = bool(_harness_plan) and resolved_provider == "claude-code"
             # Harness hand-off: this node is wired to a Background node, so it gets
             # the `handoff` tool (same list every turn → the prompt prefix holds)
             # and the turn binds where the job goes.

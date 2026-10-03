@@ -51,3 +51,10 @@ def test_streaming_uses_plan_for_model_cache_key_and_meta():
     assert "_plan_for_turn(" in src
     assert "_harness_plan.cache_key(session_id)" in src
     assert "put('turn_meta'" in src and "_dm['_meta']" in src
+
+
+def test_harness_claude_nodes_are_marked_warm():
+    import inspect
+    import api.streaming as st
+    src = inspect.getsource(st._run_agent_streaming)
+    assert "agent._harness_warm = " in src and 'resolved_provider == "claude-code"' in src

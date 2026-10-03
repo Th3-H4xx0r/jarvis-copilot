@@ -283,7 +283,7 @@ class TestRuntimeRouting:
         return _Agent()
 
     def test_cold_path_when_warm_is_off(self, monkeypatch):
-        monkeypatch.setattr(ccsr, "warm_enabled", lambda: False)
+        monkeypatch.setattr(ccsr, "warm_enabled", lambda *a: False)
         calls = {"cold": 0, "warm": 0}
         monkeypatch.setattr(ccsr, "run_structured_turn", lambda **kw: (
             calls.__setitem__("cold", calls["cold"] + 1)
@@ -301,7 +301,7 @@ class TestRuntimeRouting:
     def test_warm_path_sends_only_the_new_user_text_after_turn_one(self, monkeypatch):
         from types import SimpleNamespace
 
-        monkeypatch.setattr(ccsr, "warm_enabled", lambda: True)
+        monkeypatch.setattr(ccsr, "warm_enabled", lambda *a: True)
         sent = []
 
         class _Warm:
@@ -330,7 +330,7 @@ class TestRuntimeRouting:
     def test_warm_failure_falls_back_to_cold(self, monkeypatch):
         from types import SimpleNamespace
 
-        monkeypatch.setattr(ccsr, "warm_enabled", lambda: True)
+        monkeypatch.setattr(ccsr, "warm_enabled", lambda *a: True)
 
         class _Warm:
             model_cli = "claude-opus-5"
@@ -348,7 +348,8 @@ class TestRuntimeRouting:
             self._agent(), {"messages": [{"role": "user", "content": "hi"}],
                             "tools": [], "model": "claude-opus-5"})
         assert resp.choices[0].message.content == "cold fallback"
-        assert closed == ["agent-sess"]
+        # warm processes are keyed per agent session AND model (harness nodes)
+        assert closed == ["agent-sess:claude-opus-5"]
 
 
 # ── the per-turn path is untouched ───────────────────────────────────────────
@@ -371,3 +372,51 @@ class TestPerTurnUnchanged:
         starts = [json.loads(s[len("start "):]) for s in _starts(fake_claude["log"])]
         assert len(starts) == 2, "per-turn mode must still boot a process per turn"
         assert all("--no-session-persistence" in a for a in starts)
+
+
+# ── harness nodes: warm on demand, capped, reaped when idle ─────────────────
+
+class _FakeWarm:
+    def __init__(self, **kw):
+        self._closed = False
+        self.kw = kw
+
+    def close(self):
+        self._closed = True
+
+
+class TestHarnessWarm:
+    def test_harness_agent_turns_warm_on(self, monkeypatch):
+        from types import SimpleNamespace
+        monkeypatch.delenv("HERMES_CLAUDE_CODE_WARM", raising=False)
+        monkeypatch.setattr(ccsr, "_load_config", lambda: {})
+        assert ccsr.warm_enabled() is False
+        assert ccsr.warm_enabled(SimpleNamespace(_harness_warm=True)) is True
+        assert ccsr.warm_enabled(SimpleNamespace(_harness_warm=False)) is False
+
+    def test_warm_cap_closes_least_recently_used(self, monkeypatch):
+        monkeypatch.setattr(ccsr._ccs, "WarmStructuredSession", _FakeWarm)
+        ccsr.close_all_warm_sessions()
+        made = [ccsr.get_warm_session(f"s{i}") for i in range(ccsr.MAX_WARM + 1)]
+        assert len(ccsr._warm_sessions) == ccsr.MAX_WARM
+        assert made[0]._closed and not made[-1]._closed
+        ccsr.close_all_warm_sessions()
+
+    def test_reuse_refreshes_recency(self, monkeypatch):
+        monkeypatch.setattr(ccsr._ccs, "WarmStructuredSession", _FakeWarm)
+        ccsr.close_all_warm_sessions()
+        first = ccsr.get_warm_session("s0")
+        for i in range(1, ccsr.MAX_WARM):
+            ccsr.get_warm_session(f"s{i}")
+        assert ccsr.get_warm_session("s0") is first     # touched → most recent
+        ccsr.get_warm_session("new")                     # evicts s1, not s0
+        assert "s0" in ccsr._warm_sessions and "s1" not in ccsr._warm_sessions
+        ccsr.close_all_warm_sessions()
+
+    def test_idle_reaper(self, monkeypatch):
+        monkeypatch.setattr(ccsr._ccs, "WarmStructuredSession", _FakeWarm)
+        ccsr.close_all_warm_sessions()
+        old = ccsr.get_warm_session("old")
+        ccsr._warm_last_used["old"] = 0
+        assert ccsr.reap_idle_warm_sessions(now=ccsr.WARM_IDLE_SECONDS + 1) == 1
+        assert "old" not in ccsr._warm_sessions and old._closed

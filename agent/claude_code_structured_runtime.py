@@ -35,6 +35,7 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -52,6 +53,11 @@ logger = logging.getLogger(__name__)
 # must also serve chat.
 _warm_sessions: dict[str, Any] = {}
 _warm_lock = threading.Lock()
+# Harness nodes keep Claude warm on demand; cap the live processes (each holds
+# a node + MCP bridge in memory on a 10 GB box) and reap idle ones.
+MAX_WARM = 4
+WARM_IDLE_SECONDS = 900
+_warm_last_used: dict[str, float] = {}
 
 
 def _load_config() -> dict:
@@ -63,9 +69,12 @@ def _load_config() -> dict:
         return {}
 
 
-def warm_enabled() -> bool:
+def warm_enabled(agent: Any = None) -> bool:
     """True when warm claude-code sessions are on (``claude_code.warm``, default
-    False). ``HERMES_CLAUDE_CODE_WARM=1`` forces it on for a single process."""
+    False). ``HERMES_CLAUDE_CODE_WARM=1`` forces it on for a single process. A
+    harness Claude node (``agent._harness_warm``) is always warm."""
+    if agent is not None and getattr(agent, "_harness_warm", False):
+        return True
     raw = (os.environ.get("HERMES_CLAUDE_CODE_WARM", "") or "").strip().lower()
     if raw in {"1", "true", "yes", "on"}:
         return True
@@ -78,24 +87,57 @@ def warm_enabled() -> bool:
         return False
 
 
+def _close_quietly(sessions) -> None:
+    for session in sessions:
+        if session is None:
+            continue
+        try:
+            session.close()
+        except Exception:
+            logger.debug("warm claude session close failed", exc_info=True)
+
+
+def reap_idle_warm_sessions(now: float | None = None) -> int:
+    """Close warm sessions unused for WARM_IDLE_SECONDS. Returns how many."""
+    now = time.time() if now is None else now
+    with _warm_lock:
+        idle = [sid for sid, t in list(_warm_last_used.items()) if now - t > WARM_IDLE_SECONDS]
+        gone = [_warm_sessions.pop(sid, None) for sid in idle]
+        for sid in idle:
+            _warm_last_used.pop(sid, None)
+    _close_quietly(gone)
+    return len(idle)
+
+
 def get_warm_session(session_id: str, **kwargs: Any):
     """Return (creating if needed) the warm CLI session for an agent session.
 
     A session whose process has died is kept: :meth:`run_turn` restarts it with
-    ``--resume``. A session that was explicitly closed is replaced.
+    ``--resume``. A session that was explicitly closed is replaced. At most
+    MAX_WARM stay alive (least recently used closes first); idle ones are reaped.
     """
+    reap_idle_warm_sessions()
+    evicted = []
     with _warm_lock:
         existing = _warm_sessions.get(session_id)
         if existing is not None and not getattr(existing, "_closed", False):
+            _warm_last_used[session_id] = time.time()
             return existing
         session = _ccs.WarmStructuredSession(**kwargs)
         _warm_sessions[session_id] = session
-        return session
+        _warm_last_used[session_id] = time.time()
+        while len(_warm_sessions) > MAX_WARM:
+            oldest = min(_warm_last_used, key=_warm_last_used.get)
+            evicted.append(_warm_sessions.pop(oldest, None))
+            _warm_last_used.pop(oldest, None)
+    _close_quietly(evicted)
+    return session
 
 
 def close_warm_session(session_id: str) -> None:
     with _warm_lock:
         session = _warm_sessions.pop(session_id, None)
+        _warm_last_used.pop(session_id, None)
     if session is not None:
         try:
             session.close()
@@ -107,6 +149,7 @@ def close_all_warm_sessions() -> None:
     with _warm_lock:
         sessions = list(_warm_sessions.values())
         _warm_sessions.clear()
+        _warm_last_used.clear()
     for session in sessions:
         try:
             session.close()
@@ -442,7 +485,10 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
     # of booting one per turn. Opt-in (`claude_code.warm`), and any failure falls
     # straight back to the per-turn path so the default behaviour can't regress.
     res = None
-    _warm_session_id = getattr(agent, "session_id", None) if warm_enabled() else None
+    # Keyed per agent session AND model: two Claude nodes in one chat (or a
+    # model switch) each get their own warm process.
+    _warm_session_id = (f"{agent.session_id}:{_model_cli}"
+                        if getattr(agent, "session_id", None) and warm_enabled(agent) else None)
     if _warm_session_id:
         try:
             warm = get_warm_session(
