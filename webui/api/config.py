@@ -1851,6 +1851,31 @@ def resolve_model_provider(model_id: str) -> tuple:
     return model_id, config_provider, config_base_url
 
 
+def _claude_cli_installed() -> bool:
+    import shutil
+
+    command = (
+        os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
+        or os.getenv("CLAUDE_CLI_PATH", "").strip()
+        or "claude"
+    )
+    return shutil.which(command) is not None
+
+
+def route_anthropic_via_claude_code(model: str, provider, base_url) -> tuple:
+    """Run Anthropic picks on the Claude Code CLI when it is installed.
+
+    A subscription account gets HTTP 400 "You're out of extra usage" from the
+    direct Anthropic API while its `claude` CLI answers fine, so an
+    ``@anthropic:<model>`` pick (chat or voice) would otherwise fail or fall
+    back to another model. Takes and returns ``resolve_model_provider``'s
+    (model, provider, base_url).
+    """
+    if str(provider or "").strip().lower() != "anthropic" or not _claude_cli_installed():
+        return model, provider, base_url
+    return model, "claude-code", _get_provider_base_url("claude-code")
+
+
 def resolve_custom_provider_connection(provider_id: str) -> tuple[str | None, str | None]:
     """Return (api_key, base_url) for a named ``custom:*`` provider.
 

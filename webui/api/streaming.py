@@ -30,6 +30,7 @@ from api.config import (
     register_active_run, update_active_run, unregister_active_run,
     SESSION_AGENT_LOCKS, SESSION_AGENT_LOCKS_LOCK,
     resolve_model_provider,
+    route_anthropic_via_claude_code,
     resolve_custom_provider_connection,
     model_with_provider_context,
     load_settings,
@@ -3547,8 +3548,8 @@ def _run_agent_streaming(
                 _session_db = SessionDB()
             except Exception as _db_err:
                 print(f"[webui] WARNING: SessionDB init failed — session_search will be unavailable: {_db_err}", flush=True)
-            resolved_model, resolved_provider, resolved_base_url = resolve_model_provider(
-                model_with_provider_context(model, provider_context)
+            resolved_model, resolved_provider, resolved_base_url = route_anthropic_via_claude_code(
+                *resolve_model_provider(model_with_provider_context(model, provider_context))
             )
 
             # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour).

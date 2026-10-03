@@ -9391,12 +9391,13 @@ def _handle_chat_sync(handler, body):
         with CHAT_LOCK:
             from api.config import (
                 resolve_model_provider,
+                route_anthropic_via_claude_code,
                 resolve_custom_provider_connection,
             )
 
-            _model, _provider, _base_url = resolve_model_provider(
+            _model, _provider, _base_url = route_anthropic_via_claude_code(*resolve_model_provider(
                 model_with_provider_context(s.model, getattr(s, "model_provider", None))
-            )
+            ))
             # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour)
             _api_key = None
             try:
@@ -10369,8 +10370,10 @@ def _handle_session_compress(handler, body):
         import jarviscopilot_cli.runtime_provider as _runtime_provider
         import run_agent as _run_agent
 
-        resolved_model, resolved_provider, resolved_base_url = _cfg.resolve_model_provider(
-            _cfg.model_with_provider_context(s.model, getattr(s, "model_provider", None))
+        resolved_model, resolved_provider, resolved_base_url = _cfg.route_anthropic_via_claude_code(
+            *_cfg.resolve_model_provider(
+                _cfg.model_with_provider_context(s.model, getattr(s, "model_provider", None))
+            )
         )
 
         resolved_api_key = None
@@ -11012,7 +11015,9 @@ def _handle_handoff_summary(handler, body):
         except Exception:
             pass
 
-        resolved_model, resolved_provider, resolved_base_url = _cfg.resolve_model_provider(resolved_model)
+        resolved_model, resolved_provider, resolved_base_url = _cfg.route_anthropic_via_claude_code(
+            *_cfg.resolve_model_provider(resolved_model)
+        )
 
         resolved_api_key = None
         try:
