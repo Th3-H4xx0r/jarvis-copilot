@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 
@@ -158,7 +159,8 @@ protocol DashcamUploadServer: Sendable {
     func uploadDestinations() async throws -> [DashcamDestination]
     func driveAccess(destinationID: String) async throws -> DashcamDriveAccess
     func clipInfo(_ clipID: String) async throws -> DashcamServerClip
-    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64,
+                      preview: (path: String, fileID: String)?) async throws
     /// `sent` reports the bytes of this chunk on their way so far.
     func sendChunk(uploadID: String, index: Int, data: Data, cellular: Bool,
                    sent: @escaping @Sendable (Int64) -> Void) async throws
@@ -181,7 +183,8 @@ extension DashcamUploadServer {
     func uploadDestinations() async throws -> [DashcamDestination] { [] }
     func driveAccess(destinationID: String) async throws -> DashcamDriveAccess { throw DashcamDriveError.unauthorized }
     func clipInfo(_ clipID: String) async throws -> DashcamServerClip { throw APIError.badResponse("no clip info") }
-    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws {}
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64,
+                      preview: (path: String, fileID: String)?) async throws {}
 }
 
 /// Destination types the phone uploads to itself.
@@ -202,9 +205,11 @@ extension DashcamAPI: DashcamUploadServer {
 
     func clipInfo(_ clipID: String) async throws -> DashcamServerClip { try await clip(clipID).clip }
 
-    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64) async throws {
-        _ = try await api.post(Self.prefix + "/clips/\(clipID)/direct",
-                               json: ["destination_id": destinationID, "remote_path": remotePath, "file_id": fileID, "size": size])
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64,
+                      preview: (path: String, fileID: String)?) async throws {
+        var body: [String: Any] = ["destination_id": destinationID, "remote_path": remotePath, "file_id": fileID, "size": size]
+        if let preview { body["preview_path"] = preview.path; body["preview_file_id"] = preview.fileID }
+        _ = try await api.post(Self.prefix + "/clips/\(clipID)/direct", json: body)
     }
 
     /// Chunks get their own session that fails fast when the network is gone — the shared one waits
@@ -453,8 +458,31 @@ actor DashcamUploader {
             saveSession(clipID, destID, nil)
             fileID = try await attempt(key, session: nil)
         }
+        // A light 720p copy for streaming (the original is ~30 Mbit/s, more than LTE carries steadily).
+        // Best effort: without it the player streams the original.
+        var preview: (path: String, fileID: String)?
+        if mime == "video/mp4" {
+            let small = DashcamPaths.uploadTemp.appendingPathComponent(job.clipID + ".preview.mp4")
+            var ready = FileManager.default.fileExists(atPath: small.path)
+            if !ready { ready = await DashcamPreview.make(from: upload, to: small) }
+            if ready {
+                let previewFolders = DashcamRemotePath.folders(base: key.basePath + "/Previews", cameraID: clip.cameraID,
+                                                               start: clip.start, kind: clip.kind, lens: clip.lens)
+                let smallSize = (try? FileManager.default.attributesOfItem(atPath: small.path)[.size] as? NSNumber)?.int64Value ?? 0
+                if let folder = try? await drive.folder(previewFolders, access: key) {
+                    var id = try? await drive.existing(name: name, size: smallSize, in: folder, access: key)
+                    if id == nil {
+                        id = try? await drive.upload(small, name: name, mime: "video/mp4", folder: folder, access: key, session: nil,
+                                                     saveSession: { _ in }, sent: { _ in })
+                    }
+                    if let id { preview = ((previewFolders + [name]).joined(separator: "/"), id) }
+                }
+                try? FileManager.default.removeItem(at: small)
+            }
+        }
         try await server.recordDirect(clipID: clipID, destinationID: destID,
-                                      remotePath: (folders + [name]).joined(separator: "/"), fileID: fileID, size: size)
+                                      remotePath: (folders + [name]).joined(separator: "/"), fileID: fileID, size: size,
+                                      preview: preview)
         if let i = jobs.firstIndex(where: { $0.clipID == clipID }) { job.directSessions = jobs[i].directSessions }
         job.directSessions?[destID] = nil
         try? FileManager.default.removeItem(at: temp)
@@ -565,5 +593,25 @@ final class DashcamThrottle: @unchecked Sendable {
         guard final || now.timeIntervalSince(last) >= every else { return false }
         last = now
         return true
+    }
+}
+
+/// The 720p streaming copy of a clip: hardware-encoded by AVAssetExportSession, index first.
+enum DashcamPreview {
+    static func make(from source: URL, to out: URL) async -> Bool {
+        try? FileManager.default.removeItem(at: out)
+        let asset = AVURLAsset(url: source)
+        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1280x720) else { return false }
+        session.outputURL = out
+        session.outputFileType = .mp4
+        session.shouldOptimizeForNetworkUse = true
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            session.exportAsynchronously { cont.resume() }
+        }
+        if session.status != .completed {
+            JcLog.devices.notice("dashcam preview failed: \(session.error?.localizedDescription ?? "?", privacy: .public)")
+            try? FileManager.default.removeItem(at: out)
+        }
+        return session.status == .completed
     }
 }

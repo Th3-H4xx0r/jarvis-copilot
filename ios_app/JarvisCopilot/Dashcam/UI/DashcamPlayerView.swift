@@ -10,6 +10,9 @@ final class DashcamPlayerModel: ObservableObject {
     @Published private(set) var source = ""
     @Published private(set) var error: String?
     @Published private(set) var progress: Double?
+    /// Full quality from Drive instead of the light 720p copy (when there is one).
+    @Published var hd = false
+    @Published private(set) var hasPreview = false
     @Published private(set) var destinations: [(name: String, state: String, error: String?)] = []
     @Published var clip: DashcamServerClip
     private var observer: Any?
@@ -89,7 +92,8 @@ final class DashcamPlayerModel: ObservableObject {
             item = AVPlayerItem(url: cam.fileURL(file))       // MP4 cameras stream as they are
             source = "Straight from the camera"
         } else if let drive = clip.driveFile, let key = await Self.driveKey(preferring: drive.destinationID),
-                  let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(drive.fileID)?alt=media&supportsAllDrives=true") {
+                  let url = URL(string: "https://www.googleapis.com/drive/v3/files/\((!hd ? drive.previewID : nil) ?? drive.fileID)?alt=media&supportsAllDrives=true") {
+            hasPreview = drive.previewID != nil
             // Straight from Google: no tunnel, no server in between, and the phone wrote the MP4 with its index
             // first, so playback starts at once.
             let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(key.token)"]])
@@ -98,7 +102,7 @@ final class DashcamPlayerModel: ObservableObject {
             if playable == true {
                 item = AVPlayerItem(asset: asset)
                 item.preferredForwardBufferDuration = 10
-                source = "Streaming from Google Drive"
+                source = hasPreview && !hd ? "Streaming a light copy from Google Drive — HD for full quality" : "Streaming from Google Drive"
             } else if let fallback = try? api.streamAsset(clipID: clip.id) {
                 item = AVPlayerItem(asset: fallback)
                 item.preferredForwardBufferDuration = 10
@@ -166,6 +170,13 @@ final class DashcamPlayerModel: ObservableObject {
         fixes = aligned.sorted { $0.t < $1.t }
         let id = clip.id
         Task { try? await DashcamAPI().putFixes(clipID: id, fixes: aligned) }
+    }
+
+    /// Switches between the light copy and the original at the same moment.
+    func setHD(_ on: Bool) {
+        let at = player?.currentTime().seconds
+        hd = on
+        Task { await load(seekTo: at) }
     }
 
     /// A Drive key for streaming: the clip's own destination's, or — when that destination was removed and
@@ -323,6 +334,15 @@ struct DashcamPlayerView: View {
         }
         .aspectRatio(16 / 9, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            if model.hasPreview, model.player != nil {
+                Button(model.hd ? "HD on" : "HD") { model.setHD(!model.hd) }
+                    .font(.caption.weight(.bold))
+                    .buttonStyle(.jcGlass(tint: model.hd ? JcTheme.accent : JcTheme.muted, compact: true))
+                    .padding(10)
+                    .padding(.bottom, 44)               // above the player's own controls
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if model.player != nil || model.photo != nil {
                 Button { fullscreen = true } label: {

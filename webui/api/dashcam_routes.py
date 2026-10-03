@@ -515,11 +515,12 @@ def _delete_cloud(store, cid, relay):
         path = entry.get("remote_path") if isinstance(entry, dict) else None
         if not dest or not dest.get("remote") or not path or entry.get("state") != "done":
             continue
-        try:
-            _relay(relay).rc("operations/deletefile", {"fs": dest["remote"] + ":", "remote": path})
-        except (RelayError, RelayUnavailable) as exc:
-            if "not found" not in str(exc).lower():
-                errors.append(f"{dest.get('name') or did}: {exc}")
+        for remote_path in [path] + ([entry["preview_path"]] if entry.get("preview_path") else []):
+            try:
+                _relay(relay).rc("operations/deletefile", {"fs": dest["remote"] + ":", "remote": remote_path})
+            except (RelayError, RelayUnavailable) as exc:
+                if "not found" not in str(exc).lower():
+                    errors.append(f"{dest.get('name') or did}: {exc}")
     if errors:
         return _err(502, "; ".join(errors)[:500])
     store.forget_cloud(cid)
@@ -550,7 +551,8 @@ def _record_direct(store, cid, body):
     did = body.get("destination_id")
     if not isinstance(did, str):
         return _err(400, "destination_id is required")
-    clip, err = store.record_direct(cid, did, body.get("remote_path"), body.get("file_id"), body.get("size"))
+    clip, err = store.record_direct(cid, did, body.get("remote_path"), body.get("file_id"), body.get("size"),
+                                    body.get("preview_path"), body.get("preview_file_id"))
     if err in ("clip_not_found", "destination_not_found"):
         return _err(404, err.replace("_", " "))
     if err:

@@ -660,3 +660,6 @@ def test_a_direct_upload_counts_as_uploaded_without_any_bytes(H, store):
     assert status == 200 and again.get("already_uploaded"), "nothing left for the server to stage"
     status, bad = H("POST", f"/clips/{cid}/direct", {"destination_id": did, "remote_path": "", "size": 18})
     assert status == 400
+    status, _ = H("POST", f"/clips/{cid}/direct", {"destination_id": did, "remote_path": "dc/a.mp4", "file_id": "1AbC",
+                                                   "size": 18, "preview_path": "dc/Previews/a.mp4", "preview_file_id": "1Pv"})
+    assert status == 200 and store.get_clip(cid)["destinations"][did]["preview_file_id"] == "1Pv"

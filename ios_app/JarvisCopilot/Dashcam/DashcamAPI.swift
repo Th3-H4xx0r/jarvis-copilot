@@ -23,12 +23,15 @@ struct DashcamDestinationState: Equatable, Sendable {
     var remotePath: String?
     /// Set on copies the phone uploaded to Drive itself: the Drive file, streamable directly.
     var fileID: String?
+    /// The 720p streaming copy, when the phone made one.
+    var previewFileID: String?
 
     init(json: [String: Any]) {
         state = str(json["state"]) ?? "pending"
         error = str(json["error"])
         remotePath = str(json["remote_path"])
         fileID = str(json["file_id"])
+        previewFileID = str(json["preview_file_id"])
     }
     init(state: String, error: String? = nil) { self.state = state; self.error = error }
 }
@@ -90,8 +93,9 @@ struct DashcamServerClip: Identifiable, Equatable, Sendable {
     var end: Date { start.addingTimeInterval(durationS) }
 
     /// A Drive copy the phone uploaded itself, to stream straight from Google (destination id, file id).
-    var driveFile: (destinationID: String, fileID: String)? {
-        destinations.first { $0.value.state == "done" && $0.value.fileID != nil }.map { ($0.key, $0.value.fileID!) }
+    var driveFile: (destinationID: String, fileID: String, previewID: String?)? {
+        destinations.first { $0.value.state == "done" && $0.value.fileID != nil }
+            .map { ($0.key, $0.value.fileID!, $0.value.previewFileID) }
     }
 
     /// Every destination the clip was sent to has it.

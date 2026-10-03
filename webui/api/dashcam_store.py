@@ -666,7 +666,8 @@ class DashcamStore:
         return clip
 
     def record_direct(self, clip_id: str, dest_id: str, remote_path: str, file_id: str | None,
-                      size: int) -> tuple[dict | None, str | None]:
+                      size: int, preview_path: str | None = None,
+                      preview_file_id: str | None = None) -> tuple[dict | None, str | None]:
         """The phone uploaded the clip to a destination itself (Drive): record where, without any bytes
         coming here. Once every destination that applies has it, the clip counts as uploaded.
         Errors: clip_not_found, destination_not_found, not_direct, bad_request."""
@@ -676,6 +677,9 @@ class DashcamStore:
             return None, "bad_request"
         if not (isinstance(size, int) and not isinstance(size, bool) and size >= 0):
             return None, "bad_request"
+        for extra in (preview_path, preview_file_id):
+            if extra is not None and (not isinstance(extra, str) or not extra.strip() or len(extra) > 1024):
+                return None, "bad_request"
         with _LOCK:
             clip = self.get_clip(clip_id)
             if clip is None:
@@ -689,7 +693,9 @@ class DashcamStore:
             entries = clip.setdefault("destinations", {})
             entries[dest_id] = {"state": "done", "error": None, "attempts": 0, "remote_path": remote_path,
                                 "next_at": None, "updated_at": now_iso(), "direct": True,
-                                "file_id": file_id, "size": size}
+                                "file_id": file_id, "size": size,
+                                # A small 720p copy the phone made for streaming (the original is ~30 Mbit/s).
+                                "preview_path": preview_path, "preview_file_id": preview_file_id}
             applicable = [d for d in dests.values() if _applicable(d, clip)]
             upload = clip.get("upload") or _empty_upload()
             if upload.get("state") in (None, "none") and applicable and all(
