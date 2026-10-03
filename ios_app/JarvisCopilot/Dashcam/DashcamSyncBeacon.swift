@@ -43,8 +43,11 @@ final class DashcamSyncBeacon {
     private func tick() {
         let sync = DashcamSync.shared
         guard Self.enabled else { end(); return }
-        // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere.
-        let moving = (DashcamWiFi.shared.onCamera && sync.downloading != nil) || sync.uploading != nil
+        // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere —
+        // or still queued to go up. The queue counts even between batches: iOS only STARTS an activity while
+        // the app is in the foreground, so one that ended in a lull couldn't come back in the background.
+        let queued = sync.rules.upload && sync.pendingUploads > 0
+        let moving = (DashcamWiFi.shared.onCamera && sync.downloading != nil) || sync.uploading != nil || queued
         if !moving {
             if idleSince == nil { idleSince = Date() }
             if let since = idleSince, Date().timeIntervalSince(since) > Self.lingerAfter { end() }
@@ -61,6 +64,9 @@ final class DashcamSyncBeacon {
             s.uploading = true
             s.uploadFraction = u.total > 0 ? Double(u.done) / Double(u.total) : 0
             s.toUpload = max(1, sync.pendingUploads)
+        } else if queued {
+            s.uploading = true                    // between clips: the bar sits at 0 with the count
+            s.toUpload = sync.pendingUploads
         }
         push(s)
     }
@@ -69,8 +75,15 @@ final class DashcamSyncBeacon {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let activity else {
             let name = DashcamSetupStore.load()?.displayName ?? "Dashcam"
-            activity = try? Activity.request(attributes: DashcamSyncAttributes(cameraName: Self.clamp(name)),
-                                             content: ActivityContent(state: s, staleDate: nil, relevanceScore: Self.relevance), pushType: nil)
+            do {
+                activity = try Activity.request(attributes: DashcamSyncAttributes(cameraName: Self.clamp(name)),
+                                                content: ActivityContent(state: s, staleDate: nil, relevanceScore: Self.relevance),
+                                                pushType: nil)
+            } catch {
+                // Typically "not visible": started from the background. It comes up the next time the app is open.
+                JcLog.devices.notice("dashcam sync activity: couldn't start (\(error.localizedDescription, privacy: .public))")
+                return
+            }
             sent = s
             lastPush = Date()
             return

@@ -88,7 +88,7 @@ final class DashcamPlayerModel: ObservableObject {
         } else if onCamera, let setup, let cam = sync.cameraFactory(setup) {
             item = AVPlayerItem(url: cam.fileURL(file))       // MP4 cameras stream as they are
             source = "Straight from the camera"
-        } else if let drive = clip.driveFile, let key = try? await DashcamAPI().driveAccess(destinationID: drive.destinationID),
+        } else if let drive = clip.driveFile, let key = await Self.driveKey(preferring: drive.destinationID),
                   let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(drive.fileID)?alt=media&supportsAllDrives=true") {
             // Straight from Google: no tunnel, no server in between, and the phone wrote the MP4 with its index
             // first, so playback starts at once.
@@ -166,6 +166,17 @@ final class DashcamPlayerModel: ObservableObject {
         fixes = aligned.sorted { $0.t < $1.t }
         let id = clip.id
         Task { try? await DashcamAPI().putFixes(clipID: id, fixes: aligned) }
+    }
+
+    /// A Drive key for streaming: the clip's own destination's, or — when that destination was removed and
+    /// added again (same Google account, same files) — any current Drive destination's.
+    static func driveKey(preferring id: String) async -> DashcamDriveAccess? {
+        if let key = try? await DashcamAPI().driveAccess(destinationID: id) { return key }
+        guard let dests = try? await DashcamAPI().destinations() else { return nil }
+        for d in dests where d.type == "drive" && d.enabled && d.id != id {
+            if let key = try? await DashcamAPI().driveAccess(destinationID: d.id) { return key }
+        }
+        return nil
     }
 
     func stop() {
