@@ -18,6 +18,13 @@ final class DashcamSyncBeacon {
 
     private init() {}
 
+    /// Settings → "Show sync progress on the Lock Screen" (on unless switched off).
+    static let enabledKey = "jc.dashcam.liveActivity"
+    static var enabled: Bool {
+        get { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
+    }
+
     func start() {
         guard watch == nil else { return }
         // A previous run's activity (killed app): nothing is syncing a moment from now.
@@ -32,6 +39,7 @@ final class DashcamSyncBeacon {
 
     private func tick() {
         let sync = DashcamSync.shared
+        guard Self.enabled else { end(); return }
         // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere.
         let moving = (DashcamWiFi.shared.onCamera && sync.downloading != nil) || sync.uploading != nil
         if !moving {

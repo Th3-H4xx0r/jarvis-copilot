@@ -12,6 +12,7 @@ struct DashcamSettingsView: View {
     @State private var confirmForget = false
     @State private var newSSID = ""
     @State private var newPassword = ""
+    @State private var liveActivity = DashcamSyncBeacon.enabled
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -50,6 +51,12 @@ struct DashcamSettingsView: View {
         CardGroup("Auto sync", footer: sync.autoSync
                   ? "While the phone is on the camera's Wi‑Fi it looks for new clips every \(Int(DashcamSync.autoInterval)) seconds, pulls them and uploads them. No need to tap Sync."
                   : "Clips only come off the camera when you tap Sync now or open one.") {
+            Row {
+                Toggle("Show sync progress on the Lock Screen", isOn: $liveActivity)
+                    .tint(JcTheme.accent)
+                    .onChange(of: liveActivity) { _, on in DashcamSyncBeacon.enabled = on }
+            }
+            RowDivider()
             Row {
                 Toggle("Find and download new clips automatically", isOn: Binding(get: { sync.autoSync }, set: { on in
                     sync.autoSync = on
