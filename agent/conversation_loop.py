@@ -1732,11 +1732,16 @@ def run_conversation(
                     _cache_pct = ""
                     if canonical_usage.cache_read_tokens and prompt_tokens:
                         _cache_pct = f" cache={canonical_usage.cache_read_tokens}/{prompt_tokens} ({100*canonical_usage.cache_read_tokens/prompt_tokens:.0f}%)"
+                    try:
+                        from agent.prefix_signature import prefix_signature as _prefix_sig
+                        _sig = _prefix_sig(api_messages, agent.tools)
+                    except Exception:
+                        _sig = ""
                     logger.info(
-                        "API call #%d: model=%s provider=%s in=%d out=%d total=%d latency=%.1fs%s",
+                        "API call #%d: model=%s provider=%s in=%d out=%d total=%d latency=%.1fs%s%s",
                         agent.session_api_calls, agent.model, agent.provider or "unknown",
                         prompt_tokens, completion_tokens, total_tokens,
-                        api_duration, _cache_pct,
+                        api_duration, _cache_pct, _sig,
                     )
 
                     cost_result = estimate_usage_cost(
