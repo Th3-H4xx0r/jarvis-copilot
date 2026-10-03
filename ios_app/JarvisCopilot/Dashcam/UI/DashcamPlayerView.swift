@@ -93,9 +93,20 @@ final class DashcamPlayerModel: ObservableObject {
             // Straight from Google: no tunnel, no server in between, and the phone wrote the MP4 with its index
             // first, so playback starts at once.
             let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(key.token)"]])
-            item = AVPlayerItem(asset: asset)
-            item.preferredForwardBufferDuration = 4
-            source = "Streaming from Google Drive"
+            // Asked before playing: Google refuses (quota on rclone's shared key) or stalls → the server stream.
+            let playable = try? await withTimeout(seconds: 6) { try await asset.load(.isPlayable) }
+            if playable == true {
+                item = AVPlayerItem(asset: asset)
+                item.preferredForwardBufferDuration = 10
+                source = "Streaming from Google Drive"
+            } else if let fallback = try? api.streamAsset(clipID: clip.id) {
+                item = AVPlayerItem(asset: fallback)
+                item.preferredForwardBufferDuration = 10
+                source = "Streaming from your uploads (Drive didn't answer)"
+            } else {
+                error = "Google Drive didn't answer. Try again in a minute."
+                return
+            }
         } else if clip.uploaded || clip.uploadState == "staged" || clip.uploadState == "done",
                   let asset = try? api.streamAsset(clipID: clip.id) {
             item = AVPlayerItem(asset: asset)
@@ -372,5 +383,16 @@ struct DashcamPlayerView: View {
     private func switchTo(_ clip: DashcamServerClip) {
         model.clip = clip
         Task { await model.load() }
+    }
+}
+
+/// Runs `body`, giving up after `seconds`.
+func withTimeout<T: Sendable>(seconds: Double, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await body() }
+        group.addTask { try await Task.sleep(for: .seconds(seconds)); throw CancellationError() }
+        let first = try await group.next()!
+        group.cancelAll()
+        return first
     }
 }

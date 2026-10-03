@@ -168,11 +168,10 @@ struct DashcamLibraryView: View {
                     }
                 }
             }
-            if model.canLoadMore {
-                Button("Load more") { Task { await model.loadMore() } }
-                    .buttonStyle(.jcGlass(compact: true))
-            } else if model.loading {
+            if model.canLoadMore || model.loading {
+                // No button: reaching the end loads the next page, and the next, as the list grows.
                 ProgressView().padding()
+                    .task(id: model.clips.count) { if model.canLoadMore && !model.loading { await model.loadMore() } }
             }
         }
         .navigationDestination(item: $openedID) { id in

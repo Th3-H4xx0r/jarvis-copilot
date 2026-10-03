@@ -314,6 +314,7 @@ actor DashcamUploader {
     /// for Wi‑Fi on mobile data. Returns the clip ids that reached the server.
     @discardableResult
     func run(server: DashcamUploadServer, cellular: Bool, allow: (@Sendable (DashcamClipKind) -> Bool)? = nil,
+             finished: (@Sendable (String, String) -> Void)? = nil,
              now: @Sendable () -> Date = { Date() },
              progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
@@ -350,6 +351,7 @@ actor DashcamUploader {
                         done.append(clipID)
                         jobs.removeAll { $0.clipID == clipID }
                         persist()
+                        finished?(clipID, job.localPath)     // every destination has it: the phone copy can go now
                         continue
                     }
                 }

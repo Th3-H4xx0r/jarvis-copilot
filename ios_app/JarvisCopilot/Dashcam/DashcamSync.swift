@@ -161,7 +161,7 @@ final class DashcamSync: ObservableObject {
     private var lastSizes: [String: Int64] = [:]
     private var cameraLoop: Task<Void, Never>?
     private var uploadLoop: Task<Void, Never>?
-    private var passRunning = false { didSet { passActive = passRunning } }
+    private var passRunning = false { didSet { passActive = passRunning; BridgeClient.shared.syncKeepalive() } }
     /// A pass is running (the Sync button shows it; tapping it then queues the next pass).
     @Published private(set) var passActive = false
     private var statusWatch: Task<Void, Never>?
@@ -647,10 +647,14 @@ final class DashcamSync: ObservableObject {
     /// Uploads run beside the camera sync, not after it: a clip goes up as soon as it's on the phone, and the
     /// phone's copy goes once every destination has it. The loop lives while there is anything to send or
     /// anything on the server still on its way to a destination.
+    /// Clips are moving (a camera pass, or uploads still to send): the app stays awake in the background.
+    var holdsKeepalive: Bool { passRunning || uploadLoop != nil }
+
     func kickUploads() {
         guard uploadLoop == nil else { return }
+        defer { BridgeClient.shared.syncKeepalive() }
         uploadLoop = Task { [weak self] in
-            defer { Task { @MainActor in self?.uploadLoop = nil } }
+            defer { Task { @MainActor in self?.uploadLoop = nil; BridgeClient.shared.syncKeepalive() } }
             var lastCleanUp = Date.distantPast
             while !Task.isCancelled {
                 guard let self else { return }
@@ -679,10 +683,21 @@ final class DashcamSync: ObservableObject {
         guard rules.upload else { return }
         let isParked = rules.uploadWhen == .parked ? await parked() : true
         let throttle = DashcamThrottle()
+        let keep = rules.keepOnPhone
+        let server = self.server
         let done = await uploader.run(server: uploadServer, cellular: cellular,
-                                      allow: { rules.mayUpload($0, metered: cellular, parked: isParked) }) { id, sent, total in
+                                      allow: { rules.mayUpload($0, metered: cellular, parked: isParked) },
+                                      finished: { id, path in
+            // In the cloud: the phone's copy goes at once, not at the next clean-up (which a long run never reached).
+            guard !keep else { return }
+            try? FileManager.default.removeItem(atPath: path)
+            Task { try? await server.setPhone(clipID: id, state: "deleted", error: nil) }
+        }) { id, sent, total in
             guard throttle.pass(final: sent >= total) else { return }
-            Task { @MainActor in self.uploading = (id, sent, total) }
+            Task { @MainActor in
+                self.uploading = (id, sent, total)
+                if sent >= total { self.pendingUploads = await self.uploader.pendingCount }
+            }
         }
         uploading = nil
         pendingUploads = await uploader.pendingCount

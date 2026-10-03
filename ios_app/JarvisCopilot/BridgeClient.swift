@@ -84,8 +84,10 @@ final class BridgeClient: NSObject, ObservableObject {
     /// on background and every invoke goes through the silent push. `AppServices`
     /// also calls this at launch, since the setters only sync on a change.
     func syncKeepalive() {
-        BackgroundKeepalive.shared.sync(active: enabled && backgroundKeepalive && isPaired
-                                        && !isInSustainedOutage)
+        BackgroundKeepalive.shared.sync(active: (enabled && backgroundKeepalive && isPaired && !isInSustainedOutage)
+                                        // Dashcam clips moving keep the app awake too: uploads and the sync Live
+                                        // Activity otherwise freeze the moment the app goes to the background.
+                                        || DashcamSync.shared.holdsKeepalive)
     }
 
     /// How long the socket may stay down before the keepalive is not worth its
