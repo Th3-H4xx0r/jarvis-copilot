@@ -1152,7 +1152,9 @@ def _voice_harness_markers(s, harness_id, explicit_override) -> bool:
     explicit model pick (no harness_id) keeps the pre-harness path. Returns
     True when the harness path is taken."""
     hid = (harness_id or "").strip()
-    if explicit_override and not hid:
+    # "Single" with a picked voice model is the classic explicit pick: keep the
+    # old path (its fast-lane fallback included).
+    if explicit_override and (not hid or hid == "single"):
         return False
     s._turn_surface = "voice"
     s._turn_harness_id = hid or None
@@ -1276,8 +1278,10 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # exactly what the Claude Code catalogue group lists.
             if _m.lower().startswith("@anthropic:"):
                 raw_model = _m[len("@anthropic:"):]
-    elif fast_lane and not harness_path:
-        # plan 2.1 — default voice model: the configured fast lane.
+    elif fast_lane:
+        # plan 2.1 — default voice model: the configured fast lane. On the
+        # harness path this is only the bridge's model (the harness node picks
+        # the one that answers); it also keeps a model-less session working.
         raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
     else:
         raw_model = getattr(s, "model", None)

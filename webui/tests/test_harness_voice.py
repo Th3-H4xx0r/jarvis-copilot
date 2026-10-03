@@ -33,3 +33,8 @@ def test_begin_turn_reads_harness_id_and_bridge_passes_it():
     assert 'state["harness_id"] = (msg.get("harness_id") or "").strip()' in src
     assert "harness_id=state.get(\"harness_id\", \"\")" in src
     assert "harness_id" in inspect.signature(voice._run_agent_turn_via_chat).parameters
+
+
+def test_single_with_a_picked_model_keeps_the_explicit_path():
+    s = SimpleNamespace()
+    assert _voice_harness_markers(s, "single", explicit_override=True) is False
