@@ -43,7 +43,9 @@ def test_streaming_persists_context_fields_on_session_before_save():
     # preventing a race that would otherwise save/emit a completed turn after Stop.
     # The context_length fallback is still a single focused resolver call with
     # arg-prep scaffold and commentary explaining the failure mode it prevents.
-    assert save_call - block_start < 9000, (
+    # 10500: agent harnesses stamp who answered (_meta) on the turn's own reply and
+    # carry background results that landed mid-turn, both before the save.
+    assert save_call - block_start < 10500, (
         "s.save() should be close to the post-merge marker — block expanded unexpectedly. "
         "If you've added a new pre-save mutation block here, bump this limit."
     )

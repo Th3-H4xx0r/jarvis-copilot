@@ -58,3 +58,26 @@ def test_harness_claude_nodes_are_marked_warm():
     import api.streaming as st
     src = inspect.getsource(st._run_agent_streaming)
     assert "agent._harness_warm = " in src and 'resolved_provider == "claude-code"' in src
+
+
+def test_node_override_runs_the_background_nodes_own_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_WEBUI_STATE_DIR", str(tmp_path))
+    node = {"id": "claude", "type": "background", "model": "@claude-code:claude-sonnet-5-5",
+            "tools": ["web"], "instructions": "Be thorough."}
+    plan = _plan_for_turn(_s(_turn_node_override=node), "x", None)
+    assert plan.model == "@claude-code:claude-sonnet-5-5" and plan.tools == ["web"]
+    assert plan.instructions == "Be thorough." and plan.harness_id != "single"
+
+
+def test_handoff_tool_is_attached_before_device_tools_refresh():
+    import inspect
+    import api.streaming as st
+    src = inspect.getsource(st._run_agent_streaming)
+    assert src.index('_reg.get_definitions({"handoff"})') < src.index("_refresh_device_tools(agent)")
+
+
+def test_only_real_harness_claude_nodes_are_kept_warm():
+    import inspect
+    import api.streaming as st
+    src = inspect.getsource(st._run_agent_streaming)
+    assert '_harness_plan.harness_id != "single"' in src

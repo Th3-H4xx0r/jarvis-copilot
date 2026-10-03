@@ -420,3 +420,35 @@ class TestHarnessWarm:
         ccsr._warm_last_used["old"] = 0
         assert ccsr.reap_idle_warm_sessions(now=ccsr.WARM_IDLE_SECONDS + 1) == 1
         assert "old" not in ccsr._warm_sessions and old._closed
+
+
+class TestWarmContinuity:
+    def test_history_must_continue_from_what_the_process_saw(self):
+        from types import SimpleNamespace
+        w = SimpleNamespace(turns=1, _seen_count=3)
+        msgs5 = [{"role": "user"}] * 5           # +assistant +user → continues
+        assert ccsr._warm_history_continues(w, msgs5) is True
+        assert ccsr._warm_history_continues(w, [{"role": "user"}] * 7) is False   # other turns happened
+        assert ccsr._warm_history_continues(w, [{"role": "user"}] * 2) is False   # history cleared
+        assert ccsr._warm_history_continues(SimpleNamespace(turns=0), msgs5) is True
+
+    def test_evicting_never_blocks_the_caller(self, monkeypatch):
+        import threading, time
+        gate = threading.Event()
+
+        class _Busy:
+            def __init__(self, **kw): self._closed = False
+            def close(self): gate.wait(5)
+
+        monkeypatch.setattr(ccsr._ccs, "WarmStructuredSession", _Busy)
+        ccsr.close_all_warm_sessions() if False else None
+        with ccsr._warm_lock:
+            ccsr._warm_sessions.clear(); ccsr._warm_last_used.clear()
+        for i in range(ccsr.MAX_WARM):
+            ccsr.get_warm_session(f"b{i}")
+        t0 = time.time()
+        ccsr.get_warm_session("new")            # evicts b0, whose close() blocks
+        assert time.time() - t0 < 1.0
+        gate.set()
+        with ccsr._warm_lock:
+            ccsr._warm_sessions.clear(); ccsr._warm_last_used.clear()

@@ -255,7 +255,7 @@ def _run_hidden_turn(node, session_id, summary):
     hidden.messages = _copy.deepcopy(getattr(parent, "messages", None) or [])
     stream_id = _uuid.uuid4().hex
     hidden.active_stream_id = stream_id
-    hidden._turn_explicit_model = (model, provider)
+    hidden._turn_node_override = node   # its own tools + instructions, not Single's
     hidden.save()
     with STREAMS_LOCK:
         STREAMS[stream_id] = create_stream_channel()
@@ -276,6 +276,17 @@ def _run_hidden_turn(node, session_id, summary):
             (SESSION_DIR / f"{hidden.session_id}.json").unlink(missing_ok=True)
         except Exception:
             pass
+        # Nothing of the throwaway session may linger: its cached agent, its
+        # in-memory row (it would show in the sidebar), its stream channel.
+        try:
+            from api.config import LOCK as _LOCK, SESSIONS as _SESSIONS, evict_session_agents
+            evict_session_agents(hidden.session_id)
+            with _LOCK:
+                _SESSIONS.pop(hidden.session_id, None)
+            with STREAMS_LOCK:
+                STREAMS.pop(stream_id, None)
+        except Exception:
+            logger.debug("hidden harness session cleanup failed", exc_info=True)
 
 
 def background_runner(node, session_id):

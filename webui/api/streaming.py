@@ -197,11 +197,22 @@ def _plan_for_turn(s, msg_text, attachments):
     requested = getattr(s, "_turn_harness_id", None)
     explicit = getattr(s, "_turn_explicit_model", None)
     surface = getattr(s, "_turn_surface", None) or "chat"
-    for attr in ("_turn_harness_id", "_turn_explicit_model", "_turn_surface"):
+    node = getattr(s, "_turn_node_override", None)
+    for attr in ("_turn_harness_id", "_turn_explicit_model", "_turn_surface", "_turn_node_override"):
         try:
             setattr(s, attr, None)
         except Exception:
             pass
+    if isinstance(node, dict) and node.get("model"):
+        # A background node's hidden turn: run that node with its own tools and
+        # instructions (api.harness_runner._run_hidden_turn).
+        from api.harness_runner import TurnPlan, _model_and_provider
+        model, provider = _model_and_provider(node.get("model"), getattr(s, "model", None),
+                                              getattr(s, "model_provider", None))
+        return TurnPlan(harness_id="node", harness_name=node.get("id") or "background",
+                        node_id=node.get("id") or "background", model=model, provider=provider,
+                        tools=node.get("tools", "all"), instructions=node.get("instructions", ""),
+                        surface=surface)
     doc, note = resolve_harness(store_for_request(), session=s, surface=surface,
                                 requested_id=requested, explicit_model=explicit)
     sess_model, sess_provider = explicit or (getattr(s, "model", None), getattr(s, "model_provider", None))
@@ -4084,17 +4095,8 @@ def _run_agent_streaming(
             if _process_notifications:
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
-            _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
-            if _harness_plan is not None and _harness_plan.tools == "all":
-                try:
-                    from tools.lazy_tools import load_all_deferred
-                    load_all_deferred(agent)
-                except Exception:
-                    logger.debug("harness: load_all_deferred failed", exc_info=True)
-            # A harness Claude node keeps its claude CLI process warm across turns
-            # (agent/claude_code_structured_runtime.warm_enabled).
-            agent._harness_warm = bool(_harness_plan) and resolved_provider == "claude-code"
-            # Harness hand-off: this node is wired to a Background node, so it gets
+            # Harness hand-off (attached BEFORE the device refresh so the tool order
+            # is the same every turn). This node is wired to a Background node, so it gets
             # the `handoff` tool (same list every turn → the prompt prefix holds)
             # and the turn binds where the job goes.
             if _harness_plan is not None and _harness_plan.handoff_node:
@@ -4113,6 +4115,17 @@ def _run_agent_streaming(
                         escalation_model=_harness_plan.handoff_node.get("model"))
                 except Exception:
                     logger.warning("harness: hand-off tool not attached", exc_info=True)
+            _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
+            if _harness_plan is not None and _harness_plan.tools == "all":
+                try:
+                    from tools.lazy_tools import load_all_deferred
+                    load_all_deferred(agent)
+                except Exception:
+                    logger.debug("harness: load_all_deferred failed", exc_info=True)
+            # A harness Claude node keeps its claude CLI process warm across turns
+            # (agent/claude_code_structured_runtime.warm_enabled).
+            agent._harness_warm = (bool(_harness_plan) and _harness_plan.harness_id != "single"
+                                   and resolved_provider == "claude-code")
             agent._context_cwd = str(workspace) if workspace else None
             # Voice turn (webui/api/voice.py flags the session): no extended
             # thinking / reasoning effort for this one call — restored below.

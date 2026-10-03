@@ -1320,6 +1320,14 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         turn_origin.note_turn(session_id, origin)
     except Exception:
         pass
+    if not harness_path:
+        # An older client's explicit voice model (or Single + a picked model):
+        # it runs as Single with exactly that model, not the chat's harness.
+        try:
+            s._turn_explicit_model = (eff_model, eff_provider)
+            s._turn_surface = "voice"
+        except Exception:
+            pass
     print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)} harness={(harness_id or 'voice-default') if harness_path else '-'}", flush=True)
     try:
         response = _start_chat_stream_for_session(

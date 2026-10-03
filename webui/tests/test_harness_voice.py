@@ -38,3 +38,8 @@ def test_begin_turn_reads_harness_id_and_bridge_passes_it():
 def test_single_with_a_picked_model_keeps_the_explicit_path():
     s = SimpleNamespace()
     assert _voice_harness_markers(s, "single", explicit_override=True) is False
+
+
+def test_old_client_explicit_pick_is_marked_as_explicit():
+    src = inspect.getsource(voice._run_agent_turn_via_chat)
+    assert "s._turn_explicit_model = (eff_model, eff_provider)" in src

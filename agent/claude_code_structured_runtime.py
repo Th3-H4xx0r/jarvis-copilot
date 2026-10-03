@@ -88,13 +88,38 @@ def warm_enabled(agent: Any = None) -> bool:
 
 
 def _close_quietly(sessions) -> None:
-    for session in sessions:
-        if session is None:
-            continue
-        try:
-            session.close()
-        except Exception:
-            logger.debug("warm claude session close failed", exc_info=True)
+    """Close evicted/idle warm sessions OFF the caller's thread: close() waits
+    for a turn in progress on that process, and the caller is usually another
+    chat's turn (or a sub-agent of that very turn — a deadlock if inline)."""
+    sessions = [s for s in sessions if s is not None]
+    if not sessions:
+        return
+
+    def _close_all():
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:
+                logger.debug("warm claude session close failed", exc_info=True)
+
+    threading.Thread(target=_close_all, daemon=True, name="jc-warm-close").start()
+
+
+def _busy(session) -> bool:
+    lock = getattr(session, "_lock", None)
+    return bool(lock is not None and hasattr(lock, "locked") and lock.locked())
+
+
+def _warm_history_continues(warm, messages) -> bool:
+    """A warm CLI holds its own transcript and is sent only the newest user
+    message. That is right only when the history is exactly what it saw plus
+    its own reply and one new user message; anything else (another model
+    answered in between, history cleared/undone) needs a fresh process seeded
+    with the full history."""
+    if getattr(warm, "turns", 0) <= 0:
+        return True
+    seen = getattr(warm, "_seen_count", None)
+    return seen is not None and len(messages or []) == seen + 2
 
 
 def reap_idle_warm_sessions(now: float | None = None) -> int:
@@ -127,7 +152,11 @@ def get_warm_session(session_id: str, **kwargs: Any):
         _warm_sessions[session_id] = session
         _warm_last_used[session_id] = time.time()
         while len(_warm_sessions) > MAX_WARM:
-            oldest = min(_warm_last_used, key=_warm_last_used.get)
+            idle = [sid for sid in _warm_last_used
+                    if sid != session_id and not _busy(_warm_sessions.get(sid))]
+            if not idle:
+                break  # every other process is mid-turn; go over the cap briefly
+            oldest = min(idle, key=_warm_last_used.get)
             evicted.append(_warm_sessions.pop(oldest, None))
             _warm_last_used.pop(oldest, None)
     _close_quietly(evicted)
@@ -507,6 +536,14 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
                     model_cli=_model_cli,
                     system_prompt=_STRUCTURED_SYSTEM,
                 )
+            if not _warm_history_continues(warm, messages):
+                close_warm_session(_warm_session_id)
+                warm = get_warm_session(
+                    _warm_session_id,
+                    command=_resolve_command(),
+                    model_cli=_model_cli,
+                    system_prompt=_STRUCTURED_SYSTEM,
+                )
             # First turn seeds the CLI with the system prompt + full history;
             # afterwards the CLI owns the transcript, so send only what is new.
             _warm_text = user_text
@@ -519,6 +556,8 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
                 on_text=_on_text if has_consumers else None,
                 should_abort=_should_abort,
             )
+            if not res.is_error:
+                warm._seen_count = len(messages or [])
             if res.is_error and not (res.text or "").strip() and not streamed["any"]:
                 logger.warning(
                     "warm claude-code turn failed (%s); retrying cold", res.error,
