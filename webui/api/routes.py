@@ -9209,6 +9209,30 @@ def _handle_goal_command(handler, body):
     return j(handler, payload)
 
 
+def _apply_turn_harness(s, body, model, model_provider):
+    """Mark which agent harness this chat turn runs (api/harness_runner.py; the
+    streaming thread consumes the markers).
+
+    * ``harness_id`` non-empty — the chat's own harness: run it, and the chat
+      keeps it.
+    * ``harness_id`` present but empty — a harness-aware client with no chat
+      harness: follow the chat's stored one, else the Chat default. Nothing is
+      saved, so a later default change still reaches this chat.
+    * no ``harness_id`` key — an older client: its model runs as Single, exactly
+      as before harnesses existed.
+    """
+    if "harness_id" in body:
+        hid = body.get("harness_id")
+        hid = hid.strip() if isinstance(hid, str) else ""
+        if hid:
+            s.harness_id = hid
+        s._turn_harness_id = hid or None
+        s._turn_explicit_model = None
+    else:
+        s._turn_harness_id = None
+        s._turn_explicit_model = (model, model_provider)
+
+
 def _handle_chat_start(handler, body, diag=None, stream=False):
     """Handle POST /api/chat/start.
 
@@ -9299,18 +9323,7 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
         except Exception:
             pass
 
-        # The agent harness for this turn (api/harness_runner.py; consumed by the
-        # streaming thread). A client that names one runs it and the chat keeps
-        # it; an older client that only sends a model runs that model as the
-        # Single harness, exactly as before harnesses existed.
-        _hid = body.get("harness_id")
-        if isinstance(_hid, str) and _hid.strip():
-            s.harness_id = _hid.strip()
-            s._turn_harness_id = s.harness_id
-            s._turn_explicit_model = None
-        else:
-            s._turn_harness_id = None
-            s._turn_explicit_model = (model, model_provider)
+        _apply_turn_harness(s, body, model, model_provider)
 
         if runtime_adapter_enabled():
             def _legacy_start_run(request: StartRunRequest) -> dict:

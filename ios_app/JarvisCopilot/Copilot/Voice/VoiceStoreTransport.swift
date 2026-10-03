@@ -73,7 +73,8 @@ extension VoiceStore {
         let fields = voiceTurnModelFields()
         return .beginTurn(sampleRate: Self.micRate, sessionID: sessionID,
                           model: fields["model"] as? String,
-                          provider: fields["model_provider"] as? String)
+                          provider: fields["model_provider"] as? String,
+                          harnessID: voiceTurnHarnessID())
     }
 
     /// Raise voice's claim on the process-wide `AVAudioSession` and make sure it

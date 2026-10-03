@@ -27,6 +27,17 @@ func voiceTurnModelFields(_ selection: ModelSelection = .shared) -> [String: Any
     return fields
 }
 
+/// UserDefaults key holding the Voice chip's agent harness (written by the
+/// phone's `HarnessStore`; the Mac voice client simply never sets it).
+let voiceHarnessDefaultsKey = "sel_voice_harness"
+
+/// The agent harness a voice turn runs, or nil to let the server use its Voice
+/// default.
+func voiceTurnHarnessID(_ defaults: UserDefaults = .standard) -> String? {
+    guard let id = defaults.string(forKey: voiceHarnessDefaultsKey), !id.isEmpty else { return nil }
+    return id
+}
+
 /// A readable short name for a model id ("anthropic/claude-opus-4.7" →
 /// "claude-opus-4.7"). Port of `_ModelChipState._label()`.
 func voiceModelShortLabel(_ model: String?) -> String {

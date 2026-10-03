@@ -39,10 +39,10 @@ enum VoiceDiagnostics {
     /// character count because it is the user's own words.
     static func describe(sent message: VoiceClientMessage) -> String {
         switch message {
-        case .beginTurn(let sampleRate, let sessionID, let model, let provider):
+        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID):
             return "ws→ begin_turn rate=\(sampleRate)"
                 + " session=\(present(sessionID))"
-                + " model=\(model ?? "-") provider=\(provider ?? "-")"
+                + " model=\(model ?? "-") provider=\(provider ?? "-") harness=\(harnessID ?? "-")"
         case .endTurn(let text, _, let speechEndTs, let turnID):
             return "ws→ end_turn text=\(text.map { "\($0.count)ch" } ?? "-")"
                 + " speech_end=\(speechEndTs != nil ? "y" : "n")"

@@ -430,15 +430,7 @@ struct VoicePage: View {
                 .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showPicker = true } label: {
-                    HStack(spacing: 6) {
-                        JcIcon("sparkles").foregroundStyle(JcTheme.accent)
-                        Text(models.chipLabel).lineLimit(1)
-                    }
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(maxWidth: 140)
-                }
-                .accessibilityLabel("Voice model: \(models.chipLabel)")
+                VoiceHarnessChip(modelLabel: models.chipLabel, showModelPicker: $showPicker)
             }
         }
     }

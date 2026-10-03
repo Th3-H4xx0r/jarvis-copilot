@@ -56,9 +56,10 @@ struct ChatAPI {
     /// — an older server answers with the ordinary start JSON, and we fall through
     /// to the classic two-step flow.
     func sendMessage(sessionID: String, text: String, model: String? = nil, provider: String? = nil,
-                     attachments: [[String: Any]]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
-        let body = startBody(sessionID: sessionID, text: text, model: model, provider: provider,
-                             attachments: attachments)
+                     attachments: [[String: Any]]? = nil,
+                     harnessID: String? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
+        let body = Self.startBody(sessionID: sessionID, text: text, model: model, provider: provider,
+                                  attachments: attachments, harnessID: harnessID)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -123,10 +124,11 @@ struct ChatAPI {
 
     /// The classic two-step start: returns the raw body, `stream_id` included.
     func startMessage(sessionID: String, text: String, model: String? = nil, provider: String? = nil,
-                      attachments: [[String: Any]]? = nil) async throws -> [String: Any] {
-        try await api.post("/api/chat/start", json: startBody(
+                      attachments: [[String: Any]]? = nil,
+                      harnessID: String? = nil) async throws -> [String: Any] {
+        try await api.post("/api/chat/start", json: Self.startBody(
             sessionID: sessionID, text: text, model: model, provider: provider,
-            attachments: attachments)).object()
+            attachments: attachments, harnessID: harnessID)).object()
     }
 
     func streamEvents(_ streamID: String) -> AsyncThrowingStream<SSEEvent, Error> {
@@ -157,12 +159,17 @@ struct ChatAPI {
 
     // MARK: Plumbing
 
-    private func startBody(sessionID: String, text: String, model: String?, provider: String?,
-                           attachments: [[String: Any]]?) -> [String: Any] {
+    /// `harness_id` is the chat's agent harness (the server runs it and the chat
+    /// remembers it); the model still rides along for the Single harness.
+    static func startBody(sessionID: String, text: String, model: String?, provider: String?,
+                          attachments: [[String: Any]]?, harnessID: String? = nil) -> [String: Any] {
         var body: [String: Any] = ["session_id": sessionID, "message": text]
         if let model, !model.isEmpty { body["model"] = model }
         if let provider, !provider.isEmpty { body["model_provider"] = provider }
         if let attachments, !attachments.isEmpty { body["attachments"] = attachments }
+        // Present-but-empty means "follow the Chat default"; a missing key is how
+        // the server recognises an app build that predates harnesses.
+        if let harnessID { body["harness_id"] = harnessID }
         return body
     }
 

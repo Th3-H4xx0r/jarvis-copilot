@@ -86,7 +86,10 @@ enum VoiceServerFrame: Equatable, Sendable {
 
 enum VoiceClientMessage: Equatable, Sendable {
     /// Opens (or resets) the server's per-turn audio buffer.
-    case beginTurn(sampleRate: Int, sessionID: String?, model: String?, provider: String?)
+    /// `harnessID` is the Voice chip's agent harness; the server picks the model
+    /// then, so model/provider ride along only for the Single harness.
+    case beginTurn(sampleRate: Int, sessionID: String?, model: String?, provider: String?,
+                   harnessID: String? = nil)
     /// Run the agent on this turn. `text` is our on-device transcript when we
     /// have one — the server then skips its own STT.
     ///
@@ -101,11 +104,15 @@ enum VoiceClientMessage: Equatable, Sendable {
 
     var payload: [String: Any] {
         switch self {
-        case .beginTurn(let sampleRate, let sessionID, let model, let provider):
+        case .beginTurn(let sampleRate, let sessionID, let model, let provider, let harnessID):
             var o: [String: Any] = ["type": "begin_turn", "sample_rate": sampleRate]
             if let sessionID, !sessionID.isEmpty { o["session_id"] = sessionID }
-            if let model, !model.isEmpty { o["model"] = model }
-            if let provider, !provider.isEmpty { o["model_provider"] = provider }
+            let harness = harnessID ?? ""
+            if !harness.isEmpty { o["harness_id"] = harness }
+            if harness.isEmpty || harness == "single" {
+                if let model, !model.isEmpty { o["model"] = model }
+                if let provider, !provider.isEmpty { o["model_provider"] = provider }
+            }
             return o
         case .endTurn(let text, let clientTs, let speechEndTs, let turnID):
             var o: [String: Any] = ["type": "end_turn", "client_ts": clientTs]

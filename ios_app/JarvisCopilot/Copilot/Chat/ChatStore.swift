@@ -47,6 +47,8 @@ final class ChatStore {
     // MARK: Active session
 
     var sessionID: String?
+    /// The open chat's own agent harness (nil = the Chat default).
+    var harnessID: String?
     var sessionTitle = "New chat"
     /// Written only through ``setMessages(_:)`` and the private mutators, so
     /// ``rows`` can never drift out of step with it.
@@ -286,6 +288,7 @@ final class ChatStore {
             let detail = try await sessionsAPI.get(id)
             if sessionID == id {
                 if !detail.title.isEmpty { sessionTitle = detail.title }
+                harnessID = detail.harnessID
                 setMessages(detail.messages)
             }
         } catch {
@@ -304,6 +307,7 @@ final class ChatStore {
     func startNewSession() {
         cancelLocally()
         sessionID = nil
+        harnessID = nil
         sessionTitle = "New chat"
         setMessages([])
         error = nil
@@ -418,7 +422,8 @@ final class ChatStore {
         var events = chatAPI.sendMessage(
             sessionID: id, text: text,
             model: selectedModelID, provider: selectedProviderID,
-            attachments: uploads.isEmpty ? nil : uploads)
+            attachments: uploads.isEmpty ? nil : uploads,
+            harnessID: harnessID ?? "")
         var reattaches = 0
 
         while true {

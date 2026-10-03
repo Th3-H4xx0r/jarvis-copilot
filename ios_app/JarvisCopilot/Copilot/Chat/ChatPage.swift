@@ -122,7 +122,7 @@ struct ChatPage: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
         }
-        ToolbarItem(placement: .topBarTrailing) { ChatModelButton(store: store) }
+        ToolbarItem(placement: .topBarTrailing) { ChatHarnessChip(store: store) }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 // The conversation view clears its own draft when the session changes.

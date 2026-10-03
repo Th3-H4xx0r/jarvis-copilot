@@ -12,6 +12,8 @@ struct ChatSessionDetail: Equatable, Sendable {
     /// commits. Ignore it and a turn started on another device renders as a reply
     /// with no question above it -- two assistant bubbles in a row.
     var pendingUserMessage: String?
+    /// The chat's own agent harness (nil = it follows the Chat default).
+    var harnessID: String?
 }
 
 /// What the server knows about a session right now: whether a turn is running (and
@@ -118,7 +120,8 @@ struct SessionsAPI {
             id: sessionID(in: session) ?? fallbackID,
             title: (session.string("title") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             messages: ChatHistory.hydrate(session["messages"] as? [[String: Any]] ?? []),
-            pendingUserMessage: session.string("pending_user_message"))
+            pendingUserMessage: session.string("pending_user_message"),
+            harnessID: session.string("harness_id"))
     }
 
     private static func sessionID(in object: [String: Any]) -> String? {

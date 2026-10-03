@@ -49,3 +49,21 @@ def test_routes_dispatch_harness_endpoints():
     assert src.count("handle_harness_request(") >= 3  # GET, POST, DELETE
     assert '"/api/session/harness"' in src
     assert "_turn_harness_id" in src and "_turn_explicit_model" in src
+
+
+def test_turn_harness_markers_from_chat_start_body():
+    from types import SimpleNamespace
+    from api.routes import _apply_turn_harness
+
+    s = SimpleNamespace(harness_id="router")
+    _apply_turn_harness(s, {"harness_id": "fast-checked"}, "m", "p")
+    assert s.harness_id == "fast-checked" and s._turn_harness_id == "fast-checked"
+    assert s._turn_explicit_model is None
+
+    s = SimpleNamespace(harness_id="router")
+    _apply_turn_harness(s, {"harness_id": ""}, "m", "p")          # new client, follow defaults
+    assert s.harness_id == "router" and s._turn_harness_id is None and s._turn_explicit_model is None
+
+    s = SimpleNamespace(harness_id=None)
+    _apply_turn_harness(s, {"model": "m"}, "m", "p")               # older client: explicit model
+    assert s._turn_harness_id is None and s._turn_explicit_model == ("m", "p")

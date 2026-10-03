@@ -26,6 +26,7 @@ final class HarnessStore {
             let snap = try await api.snapshot()
             harnesses = snap.harnesses
             assignments = HarnessStore.defaultAssignments.merging(snap.assignments) { _, new in new }
+            persistVoiceChoice()
             errorMessage = nil
         } catch {
             if !wasCancelled(error) { errorMessage = error.localizedDescription }
@@ -50,11 +51,18 @@ final class HarnessStore {
             } else {
                 assignments = HarnessStore.defaultAssignments
                     .merging(try await api.assign(surface: surface.rawValue, id: id)) { _, new in new }
+                persistVoiceChoice()
             }
             errorMessage = nil
         } catch {
             if !wasCancelled(error) { errorMessage = error.localizedDescription }
         }
+    }
+
+    /// The voice transport (shared with the Mac client) reads the Voice
+    /// harness from UserDefaults rather than this store.
+    private func persistVoiceChoice() {
+        UserDefaults.standard.set(assignments["voice"], forKey: voiceHarnessDefaultsKey)
     }
 
     func assign(_ id: String, to surface: VoiceSurface) async {

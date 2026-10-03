@@ -79,6 +79,7 @@
 		13682FFE53560B9D0C42D8A5 /* VoiceTurnMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F729A9BCD2E7FE28C7F1435 /* VoiceTurnMachine.swift */; };
 		1368531EF9614400A1844944 /* DashcamSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB3B3E4392D6A8B40329E4E /* DashcamSetup.swift */; };
 		1386B02CBF6D56B167A9DD3D /* DashcamLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF235F5545898FE39755885 /* DashcamLibraryView.swift */; };
+		1454EBFB55EEF5AD45272E6C /* HarnessTurnFieldsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */; };
 		14850FF8C4B791E67CE3CA91 /* ChatStoreBoundaries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76EFFE82FA39C698D2D1520E /* ChatStoreBoundaries.swift */; };
 		14D5CE2A7E7FF2BB4D18027F /* AmbientOpusEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6EE5F1A48C36824B95E4ED /* AmbientOpusEncoderTests.swift */; };
 		150BBFE9E62CC758680F56FD /* PhotonSetupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */; };
@@ -345,6 +346,7 @@
 		5A96DE9047BE7B593EEAD618 /* InmoNavigationWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECE6408D7EC3F2BB2575D5A /* InmoNavigationWire.swift */; };
 		5ABC913CD6B867F81E0CB355 /* JarvisShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC12F5609914381F51043A4 /* JarvisShared.swift */; };
 		5B1E7C0A9D3F4A2B8C6E1D07 /* BackgroundKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E5F17B2D4E6A9F0C8B21 /* BackgroundKeepalive.swift */; };
+		5B4860CC2B2A9F407C16A2DD /* HarnessChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D8E90823BB19C7D62C4729 /* HarnessChip.swift */; };
 		5B7D1AF12BB8AB5BB17CA63D /* WeSpeakerResNet34.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = 9962795C1818FB2FD99EE38E /* WeSpeakerResNet34.mlpackage */; };
 		5BB5208FB69FC6B497A5A7A5 /* IntegrationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15EA1BB17E5186EDBF66B78D /* IntegrationsPage.swift */; };
 		5BB5E426AE771B840764432B /* BackgroundKeepaliveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C56842DEF1D899E094B3AC5A /* BackgroundKeepaliveTests.swift */; };
@@ -1350,6 +1352,7 @@
 		737A19BDFB5239958D40F58A /* ChatEntryPointsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatEntryPointsTests.swift; sourceTree = "<group>"; };
 		737ECD2335407D3C6AA3B54A /* JarvisLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisLiveActivity.swift; path = JarvisWidget/JarvisLiveActivity.swift; sourceTree = "<group>"; };
 		737FAF43B19D4790957A9044 /* LiveSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSettings.swift; sourceTree = "<group>"; };
+		73D8E90823BB19C7D62C4729 /* HarnessChip.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessChip.swift; sourceTree = "<group>"; };
 		742A0DCF5CEC674A2CFBF1D8 /* X5ProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5ProtocolTests.swift; sourceTree = "<group>"; };
 		74475771CEE1CE221F4A86F9 /* X5MonitoringTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5MonitoringTests.swift; sourceTree = "<group>"; };
 		7541361D0B163C7747D739AC /* PodVoiceChoice.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodVoiceChoice.swift; sourceTree = "<group>"; };
@@ -1655,6 +1658,7 @@
 		C637D6A4655C2ECE2036918B /* JarvisPodAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodAPI.swift; sourceTree = "<group>"; };
 		C6480C0ADC9254A6368121AE /* VoiceModelSelectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceModelSelectionTests.swift; sourceTree = "<group>"; };
 		C64A5B0161F52695201E17FF /* InmoGo3View.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoGo3View.swift; sourceTree = "<group>"; };
+		C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessTurnFieldsTests.swift; sourceTree = "<group>"; };
 		C70D9A5B75C48F0F5001D44C /* PersonaLoader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaLoader.swift; sourceTree = "<group>"; };
 		C71A4465A83AFFBC8507DA38 /* RingHistoryStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingHistoryStoreTests.swift; sourceTree = "<group>"; };
 		C77C03A2F30202C09E79DC5B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisWidget/Info.plist; sourceTree = "<group>"; };
@@ -2410,6 +2414,7 @@
 				6E2A4A7B3E94BF71678C423F /* ChatStoreTests.swift */,
 				9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */,
 				312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */,
+				C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -3244,6 +3249,7 @@
 				96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */,
 				7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */,
 				AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */,
+				73D8E90823BB19C7D62C4729 /* HarnessChip.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -4044,6 +4050,7 @@
 				7E951338260D77148C7D49FF /* DashcamTSFixtures.swift in Sources */,
 				65716FC8DCD4D9459D7D888B /* DashcamRTSPTests.swift in Sources */,
 				2C8ABA65E84FA002D06F3070 /* HarnessModelsTests.swift in Sources */,
+				1454EBFB55EEF5AD45272E6C /* HarnessTurnFieldsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4657,6 +4664,7 @@
 				5781A62A8C3EA65CF635D673 /* HarnessAPI.swift in Sources */,
 				D1943F7CD1323AACE8BA35A4 /* HarnessModels.swift in Sources */,
 				91362FE25B4DB656B2919321 /* HarnessStore.swift in Sources */,
+				5B4860CC2B2A9F407C16A2DD /* HarnessChip.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
