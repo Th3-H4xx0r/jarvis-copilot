@@ -8,6 +8,7 @@ struct DashcamDestinationsView: View {
     @State private var adding = false
     @State private var testing: String?
     @State private var results: [String: String] = [:]
+    @State private var confirmRemove: DashcamDestination?
 
     var body: some View {
         ScrollView {
@@ -38,6 +39,13 @@ struct DashcamDestinationsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .alert("Remove \(confirmRemove?.name ?? "this destination")?",
+               isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } })) {
+            Button("Remove", role: .destructive) { if let d = confirmRemove { Task { await delete(d) } } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Clips already copied there stay there. New uploads stop going to it.")
+        }
         .sheet(isPresented: $adding) {
             NavigationStack { DashcamAddDestinationView { Task { await load() } } }
         }
@@ -60,6 +68,9 @@ struct DashcamDestinationsView: View {
                 if testing == d.id { ProgressView() } else { Text("Test") }
             }
             .buttonStyle(.jcGlass(compact: true))
+            Button { confirmRemove = d } label: { JcIcon("trash", size: 15) }
+                .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
+                .accessibilityLabel("Remove \(d.name)")
         }
     }
 
