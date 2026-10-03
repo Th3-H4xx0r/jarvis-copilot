@@ -4086,10 +4086,36 @@ SESSION_AGENT_CACHE_MAX = 50  # Maximum cached agents (each holds full conversat
 SESSION_AGENT_CACHE_LOCK = threading.Lock()
 
 
-def _evict_session_agent(session_id: str) -> None:
-    """Remove a cached agent for a session (on delete, clear, or model switch)."""
+def evict_session_agents(session_id: str) -> int:
+    """Drop a chat's cached agents: the plain key and every harness-node
+    ``<sid>#<harness>:<node>`` key. Closes their SessionDB handles."""
+    dropped = 0
     with SESSION_AGENT_CACHE_LOCK:
-        SESSION_AGENT_CACHE.pop(session_id, None)
+        for key in [k for k in SESSION_AGENT_CACHE
+                    if k == session_id or str(k).startswith(f"{session_id}#")]:
+            entry = SESSION_AGENT_CACHE.pop(key, None)
+            dropped += 1
+            agent = entry[0] if isinstance(entry, tuple) else None
+            try:
+                if agent is not None and getattr(agent, "_session_db", None) is not None:
+                    agent._session_db.close()
+            except Exception:
+                pass
+    return dropped
+
+
+def latest_session_agent(session_id: str):
+    """The most recently used cached agent entry for a chat (any harness node)."""
+    with SESSION_AGENT_CACHE_LOCK:
+        for key in reversed(list(SESSION_AGENT_CACHE)):
+            if key == session_id or str(key).startswith(f"{session_id}#"):
+                return SESSION_AGENT_CACHE[key]
+    return None
+
+
+def _evict_session_agent(session_id: str) -> None:
+    """Remove a chat's cached agents (on delete, clear, or model switch)."""
+    evict_session_agents(session_id)
 
 # ── Thread-local env context ─────────────────────────────────────────────────
 _thread_ctx = threading.local()

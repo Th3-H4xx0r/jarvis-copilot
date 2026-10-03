@@ -163,6 +163,32 @@ def _log_ttft(stream_id, started_monotonic):
         pass
 
 
+def _plan_for_turn(s, msg_text, attachments):
+    """Which harness node answers this turn (api/harness_runner.py).
+
+    Consumes the per-turn markers chat/start and the voice bridge leave on the
+    session: ``_turn_harness_id`` (a client named a harness), ``_turn_explicit_model``
+    (an older client sent only a model → Single with that model) and
+    ``_turn_surface`` ("voice" | "chat", picks the surface default)."""
+    from api.harness_runner import plan_turn, resolve_harness
+    from api.harness_store import store_for_request
+    requested = getattr(s, "_turn_harness_id", None)
+    explicit = getattr(s, "_turn_explicit_model", None)
+    surface = getattr(s, "_turn_surface", None) or "chat"
+    for attr in ("_turn_harness_id", "_turn_explicit_model", "_turn_surface"):
+        try:
+            setattr(s, attr, None)
+        except Exception:
+            pass
+    doc, note = resolve_harness(store_for_request(), session=s, surface=surface,
+                                requested_id=requested, explicit_model=explicit)
+    sess_model, sess_provider = explicit or (getattr(s, "model", None), getattr(s, "model_provider", None))
+    plan = plan_turn(doc, session_model=sess_model, session_provider=sess_provider, text=msg_text or "",
+                     surface=surface, has_attachments=bool(attachments))
+    plan.note = note or plan.note
+    return plan
+
+
 def _collect_turn_context(*parts) -> str:
     """Join this turn's notes (node instructions, voice rules, speaking device,
     integration-setup note) for ``agent._turn_user_context``."""
@@ -2624,9 +2650,9 @@ def _attempt_credential_self_heal(
             logger.debug('[webui] self-heal: auth.json empty or missing, skipping')
             return None
 
-        # 2. Evict the cached agent for this session
-        with SESSION_AGENT_CACHE_LOCK:
-            SESSION_AGENT_CACHE.pop(session_id, None)
+        # 2. Evict the cached agents for this session (every harness node)
+        from api.config import evict_session_agents
+        evict_session_agents(session_id)
 
         # 3. Invalidate the credential pool for this provider
         invalidate_credential_pool_cache(provider_id)
@@ -3126,6 +3152,15 @@ def _run_agent_streaming(
         )
         s.model_provider = provider_context or None
 
+        # Agent harness: which node (model + tools) answers this turn.
+        _harness_plan = None
+        if not ephemeral:
+            try:
+                _harness_plan = _plan_for_turn(s, msg_text, attachments)
+                put('turn_meta', {'phase': 'start', **_harness_plan.meta()})
+            except Exception:
+                logger.warning("harness planning failed; running the session model", exc_info=True)
+
         _agent_lock = _get_session_agent_lock(session_id)
         # TD1: set thread-local env context so concurrent sessions don't clobber globals
         # Check for pre-flight cancel (user cancelled before agent even started)
@@ -3567,8 +3602,10 @@ def _run_agent_streaming(
                 _session_db = SessionDB()
             except Exception as _db_err:
                 print(f"[webui] WARNING: SessionDB init failed — session_search will be unavailable: {_db_err}", flush=True)
+            _turn_model = _harness_plan.model if _harness_plan else model
+            _turn_provider = _harness_plan.provider if _harness_plan else provider_context
             resolved_model, resolved_provider, resolved_base_url = route_anthropic_via_claude_code(
-                *resolve_model_provider(model_with_provider_context(model, provider_context))
+                *resolve_model_provider(model_with_provider_context(_turn_model, _turn_provider))
             )
 
             # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour).
@@ -3720,6 +3757,23 @@ def _run_agent_streaming(
             except Exception:
                 _reasoning_config = None
 
+            # The harness node's own tools / step budget / fallback model.
+            if _harness_plan is not None:
+                if isinstance(_harness_plan.tools, list):
+                    _toolsets = list(_harness_plan.tools) + ["devices"]
+                elif _harness_plan.tools == "none":
+                    _toolsets = []
+                if _harness_plan.max_steps:
+                    _max_iterations_cfg = int(_harness_plan.max_steps)
+                if _harness_plan.fallback_model:
+                    from api.config import split_provider_qualified_model as _spq
+                    _fbq = _spq(_harness_plan.fallback_model)
+                    _fallback_resolved = {
+                        'model': _fbq[1] if _fbq else _harness_plan.fallback_model,
+                        'provider': _fbq[0] if _fbq else '',
+                        'base_url': None, 'api_key': None, 'key_env': None,
+                    }
+
             _agent_kwargs = dict(
                 model=resolved_model,
                 provider=resolved_provider,
@@ -3777,6 +3831,8 @@ def _run_agent_streaming(
             # ── Agent cache: reuse across messages in the same session ──
             # Mirrors gateway _agent_cache.  Keeps _user_turn_count alive so
             # injectionFrequency: "first-turn" actually suppresses after turn 1.
+            # Each harness node keeps its own warm agent (and prompt cache).
+            _agent_cache_key = _harness_plan.cache_key(session_id) if _harness_plan else session_id
             if ephemeral:
                 agent = _AIAgent(**_agent_kwargs)
                 logger.debug('[webui] Created ephemeral agent for session %s', session_id)
@@ -3811,10 +3867,10 @@ def _run_agent_streaming(
 
                 agent = None
                 with SESSION_AGENT_CACHE_LOCK:
-                    _cached = SESSION_AGENT_CACHE.get(session_id)
+                    _cached = SESSION_AGENT_CACHE.get(_agent_cache_key)
                     if _cached and _cached[1] == _agent_sig:
                         agent = _cached[0]
-                        SESSION_AGENT_CACHE.move_to_end(session_id)  # LRU: mark as recently used
+                        SESSION_AGENT_CACHE.move_to_end(_agent_cache_key)  # LRU: mark as recently used
                         logger.debug('[webui] Reusing cached agent for session %s', session_id)
 
                 if agent is not None:
@@ -3831,7 +3887,7 @@ def _run_agent_streaming(
                         except Exception:
                             pass
                         with SESSION_AGENT_CACHE_LOCK:
-                            SESSION_AGENT_CACHE.pop(session_id, None)
+                            SESSION_AGENT_CACHE.pop(_agent_cache_key, None)
                         agent = None
 
                 if agent is not None:
@@ -3873,8 +3929,8 @@ def _run_agent_streaming(
                 else:
                     agent = _AIAgent(**_agent_kwargs)
                     with SESSION_AGENT_CACHE_LOCK:
-                        SESSION_AGENT_CACHE[session_id] = (agent, _agent_sig)
-                        SESSION_AGENT_CACHE.move_to_end(session_id)  # LRU: mark as recently used
+                        SESSION_AGENT_CACHE[_agent_cache_key] = (agent, _agent_sig)
+                        SESSION_AGENT_CACHE.move_to_end(_agent_cache_key)  # LRU: mark as recently used
                         from api.config import SESSION_AGENT_CACHE_MAX
                         while len(SESSION_AGENT_CACHE) > SESSION_AGENT_CACHE_MAX:
                             evicted_sid, evicted_entry = SESSION_AGENT_CACHE.popitem(last=False)
@@ -4007,6 +4063,12 @@ def _run_agent_streaming(
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
             _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
+            if _harness_plan is not None and _harness_plan.tools == "all":
+                try:
+                    from tools.lazy_tools import load_all_deferred
+                    load_all_deferred(agent)
+                except Exception:
+                    logger.debug("harness: load_all_deferred failed", exc_info=True)
             agent._context_cwd = str(workspace) if workspace else None
             # Voice turn (webui/api/voice.py flags the session): no extended
             # thinking / reasoning effort for this one call — restored below.
@@ -4045,7 +4107,10 @@ def _run_agent_streaming(
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
             agent._turn_user_context = _collect_turn_context(
+                _harness_plan.instructions if _harness_plan else "",
                 _voice_directive, _origin_directive, _setup_directive)
+            _turn_started_wall = time.time()
+            _turn_handed_off = False
             # The agent's token counters are running session totals; snapshot
             # them so this turn's own usage can be reported as a delta.
             # session_prompt_tokens already INCLUDES cache reads/writes (canonical
@@ -4292,8 +4357,8 @@ def _run_agent_streaming(
                                 AGENT_INSTANCES[stream_id] = agent
                             from api.config import SESSION_AGENT_CACHE as _SAC, SESSION_AGENT_CACHE_LOCK as _SAC_L
                             with _SAC_L:
-                                _SAC[session_id] = (agent, _agent_sig)
-                                _SAC.move_to_end(session_id)
+                                _SAC[_agent_cache_key] = (agent, _agent_sig)
+                                _SAC.move_to_end(_agent_cache_key)
                             # Retry the conversation once with fresh credentials
                             _self_healed = True
                             _token_sent = False
@@ -4480,9 +4545,11 @@ def _run_agent_streaming(
                     # count survives context compression.
                     from api.config import SESSION_AGENT_CACHE, SESSION_AGENT_CACHE_LOCK
                     with SESSION_AGENT_CACHE_LOCK:
-                        _cached_entry = SESSION_AGENT_CACHE.pop(old_sid, None)
-                        if _cached_entry:
-                            SESSION_AGENT_CACHE[new_sid] = _cached_entry
+                        for _old_key in [k for k in SESSION_AGENT_CACHE
+                                         if k == old_sid or str(k).startswith(f"{old_sid}#")]:
+                            _cached_entry = SESSION_AGENT_CACHE.pop(_old_key, None)
+                            if _cached_entry:
+                                SESSION_AGENT_CACHE[new_sid + _old_key[len(old_sid):]] = _cached_entry
                     _compressed = True
                 # Also detect compression via the result dict or compressor state
                 if not _compressed:
@@ -4612,6 +4679,14 @@ def _run_agent_streaming(
                             # reloading the session shows the same stats line it
                             # saw while streaming (the SSE usage is not persisted).
                             _dm['_turnUsage'] = dict(_turn_usage)
+                            if _harness_plan is not None:
+                                _turn_tool_count = sum(
+                                    1 for _tm in (result.get('messages') or [])[len(_previous_context_messages):]
+                                    if isinstance(_tm, dict) and _tm.get('role') == 'tool')
+                                _dm['_meta'] = {**_harness_plan.meta(), 'phase': 'end',
+                                                'ms': int(_turn_duration_seconds * 1000),
+                                                'tools': _turn_tool_count,
+                                                'handed_off': bool(_turn_handed_off)}
                             if _gateway_routing:
                                 _dm['_gatewayRouting'] = _gateway_routing
                             break
@@ -4944,6 +5019,12 @@ def _run_agent_streaming(
             except Exception as _goal_exc:
                 logger.debug("Goal continuation hook failed for session %s: %s", session_id, _goal_exc)
             raw_session = s.compact() | {'messages': s.messages, 'tool_calls': tool_calls}
+            if _harness_plan is not None:
+                for _dm in reversed(s.messages or []):
+                    if isinstance(_dm, dict) and _dm.get('role') == 'assistant':
+                        if _dm.get('_meta'):
+                            put('turn_meta', _dm['_meta'])
+                        break
             put('done', {'session': redact_session_data(raw_session), 'usage': usage})
             # Emit one last metering packet for the live message-header TPS label.
             meter_stats = meter().get_stats()
@@ -5087,8 +5168,8 @@ def _run_agent_streaming(
                         AGENT_INSTANCES[stream_id] = _heal_agent
                     from api.config import SESSION_AGENT_CACHE as _SAC2, SESSION_AGENT_CACHE_LOCK as _SAC2_L
                     with _SAC2_L:
-                        _SAC2[session_id] = (_heal_agent, _agent_sig)
-                        _SAC2.move_to_end(session_id)
+                        _SAC2[_agent_cache_key] = (_heal_agent, _agent_sig)
+                        _SAC2.move_to_end(_agent_cache_key)
                     # Retry the conversation
                     _token_sent = False
                     try:
@@ -5307,8 +5388,7 @@ def _handle_chat_steer(handler, body: dict) -> bool:
     if not text:
         return bad(handler, "text required")
 
-    with _cfg.SESSION_AGENT_CACHE_LOCK:
-        cached = _cfg.SESSION_AGENT_CACHE.get(sid)
+    cached = _cfg.latest_session_agent(sid)
     if not cached:
         # No active agent for this session — caller falls back to interrupt
         return j(handler, {"accepted": False, "fallback": "no_cached_agent",
