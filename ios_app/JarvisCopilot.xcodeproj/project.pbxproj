@@ -379,6 +379,7 @@
 		663FE54FA63E24D73E9969DB /* ShortcutRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF4CBC5DA334CC6E8F34BC4 /* ShortcutRunner.swift */; };
 		667BF2AD15E3B196AAC7A70B /* WidgetTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = F700006BBFDD0E51BA01D241 /* WidgetTemplates.swift */; };
 		66B209556C166D9CF414F994 /* ChatDashboardStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A7E5C33D8FD6554C56055B5 /* ChatDashboardStore.swift */; };
+		672D1C6EF2E620F4816C8E1B /* DashcamGoogleSignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */; };
 		675C3FB00E187EEEDE4DEE5E /* IntegrationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0085102BFC2EB8AB8FC68B /* IntegrationsTests.swift */; };
 		6766548F00B140768AD4E35B /* WearablesAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BDEA66F2705401B86302035 /* WearablesAvailabilityTests.swift */; };
 		676DE5AE96CF5217DEE4CC38 /* RingWearPromptRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BBBF3B6079D27880A45E4B /* RingWearPromptRenderTests.swift */; };
@@ -1694,6 +1695,7 @@
 		D423EA754D6A22D606D52198 /* MediaSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaSkills.swift; sourceTree = "<group>"; };
 		D47DA26B598740E34C2CB21A /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
 		D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelPickerSheet.swift; sourceTree = "<group>"; };
+		D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamGoogleSignIn.swift; sourceTree = "<group>"; };
 		D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceTurnMachineTests.swift; sourceTree = "<group>"; };
 		D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesNoteWireTests.swift; sourceTree = "<group>"; };
 		D5A0E386FACED19A19EF79EA /* RouteDetailView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteDetailView.swift; sourceTree = "<group>"; };
@@ -3198,6 +3200,7 @@
 				1149A90FF4FCDA8183EBD619 /* DashcamLiveTrace.swift */,
 				5711CDFFB2EC2E128477173B /* DashcamDriveDirect.swift */,
 				E847495AB59BCFEAF2D85F05 /* DashcamSyncBeacon.swift */,
+				D537EC19112FCFAA45FCE86D /* DashcamGoogleSignIn.swift */,
 			);
 			name = Dashcam;
 			path = Dashcam;
@@ -4628,6 +4631,7 @@
 				6CB995282E8453B31B97ABAF /* DashcamDriveDirect.swift in Sources */,
 				5CCAE536BF3E0C5DF43817F7 /* DashcamSyncAttributes.swift in Sources */,
 				3F484B5749A00F5F37C5340C /* DashcamSyncBeacon.swift in Sources */,
+				672D1C6EF2E620F4816C8E1B /* DashcamGoogleSignIn.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

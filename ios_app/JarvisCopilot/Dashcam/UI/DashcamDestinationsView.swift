@@ -115,6 +115,8 @@ struct DashcamAddDestinationView: View {
     @State private var token = ""
     @State private var clientID = ""
     @State private var clientSecret = ""
+    @State private var signingIn = false
+    @State private var google = DashcamGoogleSignIn()
     @State private var kinds: Set<DashcamClipKind> = Set(DashcamClipKind.allCases)
     @State private var busy = false
     @State private var error: String?
@@ -130,12 +132,24 @@ struct DashcamAddDestinationView: View {
                     field("Folder", text: $path, placeholder: "Dashcam")
                 }
                 if kind == .drive {
-                    CardGroup("Google sign-in", footer: "On the Mac, run skills/smart-home/jarvis-dashcam/scripts/connect_drive.sh — it signs in to Google in your browser and adds the destination itself. Or paste the token it prints here. A Google Cloud client id/secret of your own is optional (rclone's shared one is being retired).") {
+                    CardGroup("Google sign-in", footer: "Enter your own Google Cloud OAuth client (type Desktop app — rclone's shared one runs out of quota) and tap Sign in with Google: the token fills in by itself. Or paste the JSON `rclone authorize drive <id> <secret>` prints.") {
+                        field("Client id", text: $clientID, placeholder: "….apps.googleusercontent.com")
+                        RowDivider()
+                        Row { SecureField("Client secret", text: $clientSecret) }
+                        RowDivider()
+                        Row {
+                            Button {
+                                Task { await signInWithGoogle() }
+                            } label: {
+                                HStack { if signingIn { ProgressView() }; Text(token.isEmpty ? "Sign in with Google" : "Signed in — sign in again") }
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.jcGlass(compact: true))
+                            .disabled(signingIn || clientID.trimmingCharacters(in: .whitespaces).isEmpty
+                                      || clientSecret.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                        RowDivider()
                         Row { TextField("Token JSON", text: $token, axis: .vertical).lineLimit(2...5).font(.caption.monospaced()) }
-                        RowDivider()
-                        field("Client id", text: $clientID, placeholder: "optional")
-                        RowDivider()
-                        Row { SecureField("Client secret (optional)", text: $clientSecret) }
                     }
                 } else {
                     CardGroup("Server") {
@@ -191,6 +205,18 @@ struct DashcamAddDestinationView: View {
                 TextField(placeholder, text: text).multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
+        }
+    }
+
+    private func signInWithGoogle() async {
+        signingIn = true
+        defer { signingIn = false }
+        do {
+            token = try await google.signIn(clientID: clientID.trimmingCharacters(in: .whitespaces),
+                                            clientSecret: clientSecret.trimmingCharacters(in: .whitespaces))
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
