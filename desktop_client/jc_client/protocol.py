@@ -89,15 +89,63 @@ def cert_fingerprint(sock: ssl.SSLSocket) -> str:
     return hashlib.sha256(der).hexdigest()
 
 
+# Certs a public CA vouched for after the pin stopped matching, keyed by
+# hostname → fingerprint, so the extra verifying handshake runs once.
+_CA_ACCEPTED: dict[str, str] = {}
+
+
+def _is_ip_literal(host: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address((host or "").strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _ca_trusts(host: str, port: int, fingerprint: str) -> bool:
+    """True when a normal, fully verified TLS handshake to host:port succeeds
+    and presents the cert with this fingerprint."""
+    try:
+        ctx = ssl.create_default_context()
+        with socket.create_connection((host, port), timeout=10) as raw:
+            with ctx.wrap_socket(raw, server_hostname=host) as s:
+                return cert_fingerprint(s).lower() == fingerprint.lower()
+    except (OSError, ssl.SSLError, ValueError):
+        return False
+
+
 def _verify_fingerprint(sock: ssl.SSLSocket, expected: str) -> None:
-    """Raise ssl.SSLError if the peer cert doesn't match expected SHA-256."""
+    """Raise ssl.SSLError if the peer cert doesn't match expected SHA-256.
+
+    A mismatch on a public hostname is still accepted when the system CA
+    store verifies that same cert for that hostname: the server sits behind
+    Cloudflare, whose edge cert renews every few months and broke every
+    pinned client each time. Self-signed, LAN and IP-literal servers stay
+    strictly pinned (no public CA can vouch for them)."""
     if not expected:
         return  # caller chose not to pin (first-pair only)
     actual = cert_fingerprint(sock)
-    if actual.lower() != expected.lower():
-        raise ssl.SSLError(
-            f"TLS cert fingerprint mismatch: expected {expected}, got {actual}"
-        )
+    if actual.lower() == expected.lower():
+        return
+    host = getattr(sock, "server_hostname", None) or ""
+    if host and not _is_ip_literal(host):
+        if _CA_ACCEPTED.get(host) == actual.lower():
+            return
+        try:
+            port = int(sock.getpeername()[1])
+        except (OSError, IndexError, TypeError, ValueError):
+            port = 443
+        if _ca_trusts(host, port, actual):
+            _CA_ACCEPTED[host] = actual.lower()
+            logging.getLogger(__name__).warning(
+                "TLS pin for %s no longer matches (expected %s, got %s); accepted "
+                "because the public CA store verifies this cert for the hostname",
+                host, expected, actual)
+            return
+    raise ssl.SSLError(
+        f"TLS cert fingerprint mismatch: expected {expected}, got {actual}"
+    )
 
 
 # ── HTTP ───────────────────────────────────────────────────────────────────
