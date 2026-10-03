@@ -4002,7 +4002,6 @@ def _run_agent_streaming(
             _voice_directive = None
             _origin_directive = None
             _setup_directive = None
-            _voice_loaded_before = set()
             try:
                 from api.models import get_session as _voice_gs
                 _voice_sess = _voice_gs(session_id)
@@ -4019,19 +4018,6 @@ def _run_agent_streaming(
                 _voice_directive = getattr(_voice_sess, "_voice_turn_directive", None)
                 if _voice_directive:
                     _voice_sess._voice_turn_directive = None
-                    # Voice-first: every toolset is advertised up front, so a
-                    # spoken request never spends a step on tool_search.
-                    try:
-                        from tools.lazy_tools import load_all_deferred
-                        _voice_loaded_before = set(getattr(agent, "_lazy_loaded_tools", None) or set())
-                        _added = load_all_deferred(agent)
-                        if _added:
-                            print(f"[webui] voice: advertised all tools (+{_added}) for this turn", flush=True)
-                        # With everything advertised the deferred-tools manifest
-                        # and its "call tool_search first" guidance only mislead.
-                        agent._lazy_tools_manifest = ""
-                    except Exception:
-                        logger.debug("voice: load_all_deferred failed", exc_info=True)
                 # A chat turn's sender device (voice turns carry it in their directive).
                 _origin_directive = getattr(_voice_sess, "_turn_origin_directive", None)
                 if _origin_directive:
@@ -4081,14 +4067,6 @@ def _run_agent_streaming(
                     strip_end_tags((result or {}).get("messages"))
                 except Exception:
                     logger.debug("voice: could not strip [end] tags", exc_info=True)
-                # Put the lean manifest back so later CHAT turns on this
-                # warm agent don't keep paying for every tool schema.
-                try:
-                    from tools.lazy_tools import apply_lazy_partition
-                    agent._lazy_loaded_tools = _voice_loaded_before
-                    apply_lazy_partition(agent)
-                except Exception:
-                    logger.debug("voice: re-partition after turn failed", exc_info=True)
             if cancel_event.is_set():
                 if _checkpoint_stop is not None:
                     _checkpoint_stop.set()
