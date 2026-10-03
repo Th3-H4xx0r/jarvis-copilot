@@ -72,3 +72,12 @@ def test_chat_turn_sends_the_chats_own_harness_not_the_default():
     harness = (static / "harness.js").read_text()
     assert "Harness.turnHarnessFor('chat')" in msgs
     assert "turnHarnessFor" in harness
+
+
+def test_pending_pick_and_voice_fallbacks():
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "static"
+    harness = (static / "harness.js").read_text()
+    voice = (static / "voice.js").read_text()
+    assert "function isFreshChat" in harness          # a pre-chat pick never binds to an existing chat
+    assert "Harness.turnHarnessFor('voice')" in voice  # '' until loaded → server's Voice default

@@ -163,6 +163,19 @@ def _log_ttft(stream_id, started_monotonic):
         pass
 
 
+def _is_harness_side_reply(message) -> bool:
+    return isinstance(message, dict) and (message.get("_meta") or {}).get("kind") in ("background", "review")
+
+
+def _last_turn_assistant(messages):
+    """The turn's own last reply — skipping background/review replies that were
+    carried in after it, which must keep their own stamp."""
+    for m in reversed(messages or []):
+        if isinstance(m, dict) and m.get("role") == "assistant" and not _is_harness_side_reply(m):
+            return m
+    return None
+
+
 def _carry_late_harness_results(current_messages, previous_len, merged):
     """Background/review results that landed in the chat while this turn ran
     (api/harness_runner.deliver_result appends them) — the turn's writeback
@@ -4710,7 +4723,7 @@ def _run_agent_streaming(
                     s.gateway_routing_history = _history[-50:]
                 if s.messages:
                     for _dm in reversed(s.messages):
-                        if isinstance(_dm, dict) and _dm.get('role') == 'assistant':
+                        if isinstance(_dm, dict) and _dm.get('role') == 'assistant' and not _is_harness_side_reply(_dm):
                             _dm['_turnDuration'] = round(_turn_duration_seconds, 3)
                             if _turn_tps is not None:
                                 _dm['_turnTps'] = _turn_tps
@@ -5060,12 +5073,11 @@ def _run_agent_streaming(
             raw_session = s.compact() | {'messages': s.messages, 'tool_calls': tool_calls}
             if _harness_plan is not None:
                 _final_text = ''
-                for _dm in reversed(s.messages or []):
-                    if isinstance(_dm, dict) and _dm.get('role') == 'assistant':
-                        if _dm.get('_meta'):
-                            put('turn_meta', _dm['_meta'])
-                        _final_text = str(_dm.get('content') or '')
-                        break
+                _dm = _last_turn_assistant(s.messages)
+                if _dm is not None:
+                    if _dm.get('_meta'):
+                        put('turn_meta', _dm['_meta'])
+                    _final_text = str(_dm.get('content') or '')
                 if _harness_plan.after and not cancel_event.is_set():
                     try:
                         from api.harness_runner import start_after_jobs

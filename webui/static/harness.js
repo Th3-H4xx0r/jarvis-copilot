@@ -38,16 +38,32 @@
   const list = () => H.data.harnesses || [];
   const byId = id => list().find(h => h.id === id) || null;
 
+  // A chat nothing has been said in yet (or no chat at all).
+  function isFreshChat(s) {
+    return !s || !((s.messages && s.messages.length) || s.message_count);
+  }
+
+  // The pick made before a chat existed, if it belongs to the open chat. It
+  // binds only to a fresh chat (the one its first send creates) — opening an
+  // existing chat from the sidebar drops it instead of pinning it there.
+  function pendingPick() {
+    const p = H.pendingChat;
+    if (!p) return null;
+    const s = session();
+    if (p.sid && s && p.sid === s.session_id) return p.id;
+    if (!p.sid && isFreshChat(s)) {
+      if (s && s.session_id) p.sid = s.session_id;  // bind to the chat it created
+      return p.id;
+    }
+    if (!p.sid) H.pendingChat = null;
+    return null;
+  }
+
   function currentFor(surface) {
     if (surface === 'chat') {
       const s = session();
       if (s && s.harness_id) return s.harness_id;
-      const p = H.pendingChat;
-      if (p && (!s || !p.sid || p.sid === s.session_id)) {
-        if (s && s.session_id) p.sid = s.session_id;  // bind to the chat it created
-        return p.id;
-      }
-      return H.data.assignments.chat || DEFAULTS.chat;
+      return pendingPick() || H.data.assignments.chat || DEFAULTS.chat;
     }
     return H.data.assignments.voice || DEFAULTS.voice;
   }
@@ -191,13 +207,14 @@
   // before the chat existed), else '' = "follow the Chat default". Sending the
   // default itself would make the server save it onto the chat for good.
   function turnHarnessFor(surface) {
-    if (surface !== 'chat') return currentFor(surface);
-    const s = session();
-    if (s && s.harness_id) return s.harness_id;
-    const p = H.pendingChat;
-    if (p && (!s || !p.sid || p.sid === s.session_id)) return p.id;
-    return '';
+    // Voice: '' until the list has loaded, so the server's Voice default wins.
+    if (surface !== 'chat') return H.loaded ? currentFor(surface) : '';
+    // Chat: only a pick made before the chat existed. A pick on an existing
+    // chat is already saved (api/session/harness); re-sending a possibly stale
+    // copy every turn would overwrite a newer pick made on another device.
+    return pendingPick() || '';
   }
+
 
   window.Harness = { load, list, currentFor, turnHarnessFor, select, openSheet, closeSheet, byId, label, render };
   document.addEventListener('DOMContentLoaded', load);

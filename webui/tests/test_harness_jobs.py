@@ -92,3 +92,12 @@ def test_late_harness_results_survive_the_turn_writeback():
     merged = prev + [{"role": "user", "content": "q2"}, {"role": "assistant", "content": "a2"}]
     assert _carry_late_harness_results(current, len(prev), merged) == merged + [bg]
     assert _carry_late_harness_results(prev, len(prev), merged) == merged
+
+
+def test_turn_stamp_skips_carried_background_replies():
+    from api.streaming import _last_turn_assistant
+    answer = {"role": "assistant", "content": "turn 2 answer"}
+    bg = {"role": "assistant", "content": "claude", "_meta": {"kind": "background"}}
+    msgs = [{"role": "user", "content": "q"}, answer, bg]
+    assert _last_turn_assistant(msgs) is answer
+    assert _last_turn_assistant([{"role": "user", "content": "q"}]) is None

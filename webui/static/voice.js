@@ -1539,7 +1539,7 @@
     ws.sendJson({
       type: 'begin_turn', sample_rate: 16000, session_id: _sid,
       // The Voice harness (harness.js chip); the server runs that graph.
-      harness_id: (window.Harness ? window.Harness.currentFor('voice') : undefined),
+      harness_id: (window.Harness ? window.Harness.turnHarnessFor('voice') : undefined),
     });
     setStatus('listening');
     _startLiveSpeech();
