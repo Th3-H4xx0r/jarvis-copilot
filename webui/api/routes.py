@@ -3487,6 +3487,13 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, store_for_request())
         return j(handler, payload, status=status)
 
+    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
+        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
+        from api.harness_store import store_for_request as harness_store
+        status, payload = handle_harness_request(
+            "GET", parsed.path[len(HARNESS_PATH_PREFIX):], None, harness_store())
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/widgets/"):
         from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
         from api.widget_store import store_for_request as widget_store
@@ -4860,6 +4867,13 @@ def handle_post(handler, parsed) -> bool:
             "POST", sub, body, store_for_request(), token_store=token_store)
         return j(handler, payload, status=status)
 
+    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
+        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
+        from api.harness_store import store_for_request as harness_store
+        status, payload = handle_harness_request(
+            "POST", parsed.path[len(HARNESS_PATH_PREFIX):], body, harness_store())
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/widgets/"):
         from api.widget_routes import WIDGETS_PATH_PREFIX, handle_widgets_request
         from api.widget_store import store_for_request as widget_store
@@ -5190,6 +5204,26 @@ def handle_post(handler, parsed) -> bool:
             if appended:
                 s.save()
         return j(handler, {"ok": True, "appended": appended})
+
+    if parsed.path == "/api/session/harness":
+        """Set or clear a chat's harness. POST {session_id, harness_id | null}."""
+        try:
+            require(body, "session_id")
+        except ValueError as e:
+            return bad(handler, str(e))
+        _hid = body.get("harness_id")
+        if _hid is not None:
+            from api.harness_store import store_for_request as harness_store
+            if not isinstance(_hid, str) or harness_store().get(_hid) is None:
+                return bad(handler, "unknown harness")
+        try:
+            s = get_session(body["session_id"])
+        except KeyError:
+            return bad(handler, "Session not found", 404)
+        with _get_session_agent_lock(body["session_id"]):
+            s.harness_id = _hid or None
+            s.save()
+        return j(handler, {"ok": True, "harness_id": s.harness_id})
 
     if parsed.path == "/api/session/toolsets":
         """Set or clear per-session toolset override (#493).
@@ -6859,6 +6893,13 @@ def handle_delete(handler, parsed) -> bool:
             sub += "?" + parsed.query
         status, payload = handle_island_request(
             "DELETE", sub, body, store_for_request())
+        return j(handler, payload, status=status)
+
+    if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):
+        from api.harness_routes import HARNESS_PATH_PREFIX, handle_harness_request
+        from api.harness_store import store_for_request as harness_store
+        status, payload = handle_harness_request(
+            "DELETE", parsed.path[len(HARNESS_PATH_PREFIX):], body, harness_store())
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/widgets/"):
@@ -9257,6 +9298,19 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             turn_origin.note_turn(s.session_id, _origin)
         except Exception:
             pass
+
+        # The agent harness for this turn (api/harness_runner.py; consumed by the
+        # streaming thread). A client that names one runs it and the chat keeps
+        # it; an older client that only sends a model runs that model as the
+        # Single harness, exactly as before harnesses existed.
+        _hid = body.get("harness_id")
+        if isinstance(_hid, str) and _hid.strip():
+            s.harness_id = _hid.strip()
+            s._turn_harness_id = s.harness_id
+            s._turn_explicit_model = None
+        else:
+            s._turn_harness_id = None
+            s._turn_explicit_model = (model, model_provider)
 
         if runtime_adapter_enabled():
             def _legacy_start_run(request: StartRunRequest) -> dict:
