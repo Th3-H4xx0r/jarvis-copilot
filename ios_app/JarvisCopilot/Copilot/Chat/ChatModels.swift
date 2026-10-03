@@ -206,6 +206,8 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     /// This turn was answered on-device (shows the "on-device" badge).
     var onDevice = false
     var stats: ChatTurnStats?
+    /// Who answered (agent harness): model, time, hand-off / background / review.
+    var meta: HarnessMeta?
     /// Epoch seconds, from a stored record.
     var timestamp: Int?
 
@@ -414,6 +416,7 @@ extension ChatMessage {
         }
         if let seconds = j.double("_turnDuration") { stats.durationMs = Int(seconds * 1_000) }
         if !stats.isEmpty { self.stats = stats }
+        meta = HarnessMeta(json: j["_meta"] as? [String: Any])
     }
 }
 

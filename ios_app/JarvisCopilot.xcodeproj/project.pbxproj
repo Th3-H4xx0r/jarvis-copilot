@@ -390,6 +390,7 @@
 		677391D62784EE2E761560E5 /* TemplatesRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E90CCD8298956A5C5ADE7EB /* TemplatesRow.swift */; };
 		67E5D07257C3B152084C6456 /* WidgetDesignStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4470617425A5653F88F3892E /* WidgetDesignStore.swift */; };
 		689A792CAE9E330F4353949F /* PendingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BFBB82CA0EF423335E59D1 /* PendingActions.swift */; };
+		690B8053A1E0D4AF0B80D469 /* HarnessFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */; };
 		6997ECAF515028D839242519 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F573A48CA3121C4DED2FC /* TerminalBuffer.swift */; };
 		69EB6F91D5084C3029B5A40D /* RingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BFA5645662596C18A8F7236 /* RingModel.swift */; };
 		69FF32055C236FCA6D2E138D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D94764B8E07BA3B6CDB7B6FB /* WidgetKit.framework */; };
@@ -661,6 +662,7 @@
 		B946EE6519E9E3E9CE523832 /* WidgetBlockInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0858B1378CF509408FC17B /* WidgetBlockInspector.swift */; };
 		B94EC411423C14B47481E208 /* HealthHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C42C38B892C02081FA69717 /* HealthHistoryView.swift */; };
 		BA7E80BC03D6E64F07A3AD81 /* PcmChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99007A8FDBB3E8969C37916F /* PcmChunker.swift */; };
+		BA984D79EB357583A77680CD /* HarnessFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65FFE8F8C6367591BE8252F6 /* HarnessFormatTests.swift */; };
 		BAB05975ED8195CC9079091B /* RingWorkoutActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCD94F5FA43F6F95B97B676 /* RingWorkoutActivity.swift */; };
 		BAB225A15F143AE73C24BDC9 /* JarvisPodAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BD0A95997264D8485F52BC0 /* JarvisPodAPITests.swift */; };
 		BAD1D44AEE137DF747B79EC6 /* PushHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2496152FD251C830018FA2B9 /* PushHandler.swift */; };
@@ -1096,6 +1098,7 @@
 		20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepDebtCard.swift; sourceTree = "<group>"; };
 		2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesAPI.swift; sourceTree = "<group>"; };
 		2178BAB61B6E8581D0A37620 /* IslandModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandModels.swift; sourceTree = "<group>"; };
+		21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessFormat.swift; sourceTree = "<group>"; };
 		220197378345D1B7372B1837 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		226F61510C3CC2718C33EA61 /* BackgroundKeepaliveArbiterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundKeepaliveArbiterTests.swift; sourceTree = "<group>"; };
 		229DB1F0276D51562C58631D /* X5MeasureController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5MeasureController.swift; sourceTree = "<group>"; };
@@ -1311,6 +1314,7 @@
 		655BCCC67E4543F1C0AA7E01 /* LiveView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
 		65A58A48AEC3E6A49DA9FF47 /* PhoneCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneCommand.swift; sourceTree = "<group>"; };
 		65A6B5B3A323B798A544D40A /* RoutePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoutePicker.swift; sourceTree = "<group>"; };
+		65FFE8F8C6367591BE8252F6 /* HarnessFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessFormatTests.swift; sourceTree = "<group>"; };
 		6611A0ADA73D7B6A70ADAB63 /* AppServicesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppServicesTests.swift; sourceTree = "<group>"; };
 		66380555B64440FBD1EBC697 /* ChatAttachments.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatAttachments.swift; sourceTree = "<group>"; };
 		671E6E8C6B7E20C4FDD46B5C /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -1939,6 +1943,7 @@
 				B8DE89424B4C397AFD23F9A7 /* ChatImageCache.swift */,
 				A5FE4EA7B8C34DDDB922C004 /* ChatMarkdownCache.swift */,
 				E62A2763B2AE775BDE6655BF /* Dashboard */,
+				21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -2415,6 +2420,7 @@
 				9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */,
 				312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */,
 				C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */,
+				65FFE8F8C6367591BE8252F6 /* HarnessFormatTests.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -4051,6 +4057,7 @@
 				65716FC8DCD4D9459D7D888B /* DashcamRTSPTests.swift in Sources */,
 				2C8ABA65E84FA002D06F3070 /* HarnessModelsTests.swift in Sources */,
 				1454EBFB55EEF5AD45272E6C /* HarnessTurnFieldsTests.swift in Sources */,
+				BA984D79EB357583A77680CD /* HarnessFormatTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4665,6 +4672,7 @@
 				D1943F7CD1323AACE8BA35A4 /* HarnessModels.swift in Sources */,
 				91362FE25B4DB656B2919321 /* HarnessStore.swift in Sources */,
 				5B4860CC2B2A9F407C16A2DD /* HarnessChip.swift in Sources */,
+				690B8053A1E0D4AF0B80D469 /* HarnessFormat.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

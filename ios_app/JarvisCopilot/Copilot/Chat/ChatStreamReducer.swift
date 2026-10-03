@@ -58,6 +58,12 @@ enum ChatStreamReducer {
             state.streamID = object.string("stream_id") ?? state.streamID
             return true
 
+        case "turn_meta":
+            // Only the closing frame carries the final numbers (time, tools, hand-off).
+            guard object.string("phase") == "end", let meta = HarnessMeta(json: object) else { return false }
+            state.message.meta = meta
+            return true
+
         case "token", "delta", "text":
             let text = object.string("text") ?? object.string("delta") ?? object.string("content") ?? ""
             guard !text.isEmpty else { return false }

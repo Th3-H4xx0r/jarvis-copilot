@@ -47,7 +47,16 @@ struct ChatAssistantTurnCard: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(JcTheme.text.opacity(0.8))
             }
-            card
+            if message.meta?.isBackground == true {
+                // A background / review step's reply: a thin accent edge sets it apart.
+                card
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(JcTheme.accent).frame(width: 2)
+                    }
+            } else {
+                card
+            }
 
             if hasText, !message.streaming, !message.isError {
                 actions
@@ -173,7 +182,9 @@ struct ChatAssistantTurnCard: View {
     /// as it does in Flutter.
     private var footer: String {
         guard !message.streaming else { return "" }
-        let stats = message.stats?.line ?? ""
+        var stats = message.stats?.line ?? ""
+        let answeredBy = HarnessFormat.answeredBy(message.meta)
+        if !answeredBy.isEmpty { stats = stats.isEmpty ? answeredBy : "\(answeredBy) · \(stats)" }
         if message.onDevice { return stats.isEmpty ? "On-device" : "On-device · \(stats)" }
         return stats
     }

@@ -822,6 +822,15 @@ extension ChatStore {
             if let streamID = event.string("stream_id"), !streamID.isEmpty {
                 await adoptForeignRun(streamID: streamID, on: id)
             }
+        case "harness_result":
+            // A harness background / review step posted a reply to this chat.
+            if !streaming, sessionID == id,
+               let stored = event.object["message"] as? [String: Any],
+               let message = ChatMessage(stored: stored) {
+                setMessages(messages + [message])
+            } else {
+                await loadSessions(quiet: true)
+            }
         case "session_changed":
             if let title = event.string("title"), !title.isEmpty, !streaming {
                 sessionTitle = title
