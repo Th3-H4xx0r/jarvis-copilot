@@ -184,6 +184,7 @@ final class DashcamSync: ObservableObject {
         }
         pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
+        DashcamSyncBeacon.shared.start()
     }
 
     func cameraChanged(_ on: Bool) {
