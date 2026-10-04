@@ -127,10 +127,7 @@ struct DashcamSettingsView: View {
     private func ruleBinding<T>(_ key: WritableKeyPath<DashcamRules, T>) -> Binding<T> {
         Binding(get: { sync.rules[keyPath: key] }, set: { value in
             sync.rules[keyPath: key] = value
-            let rules = sync.rules
-            Task {
-                do { try await DashcamAPI().updateRules(rules) } catch { note = "Couldn't save the rules: \(error.localizedDescription)" }
-            }
+            Task { if let failure = await sync.saveRules() { note = failure } }
         })
     }
 
@@ -200,33 +197,13 @@ struct DashcamSettingsView: View {
         }
     }
 
-    static func title(_ key: String) -> String {
-        let known = ["rec_resolution": "Resolution", "rec_split_duration": "Clip length", "gsr_sensitivity": "G‑sensor",
-                     "park_gsr_sensitivity": "Parking G‑sensor", "parking_monitor": "Parking monitor", "parking_mode": "Parking mode",
-                     "mic": "Microphone", "speed_unit": "Speed unit", "osd": "Date & speed stamp", "wdr": "WDR", "ev": "Exposure",
-                     "speaker": "Volume", "voice_control": "Voice control", "boot_sound": "Start-up sound", "key_tone": "Key tone",
-                     "light_fre": "Light frequency", "screen_standby": "Screen saver", "auto_poweroff": "Auto power off",
-                     "low_power_protect": "Low-voltage cut-off", "timelapse_rate": "Time-lapse rate", "park_record_time": "Parking recording",
-                     "encodec": "Video codec", "language": "Language", "rear_mirror": "Mirror rear camera", "video_flip": "Flip video",
-                     "video_mirror": "Mirror video", "low_fps_record": "Time-lapse parking", "adas": "Driver assist alerts",
-                     "rear_first": "Preview lens", "power_supply": "Power supply", "front_rotate": "Rotate front camera",
-                     "gps": "GPS", "gps_watermark": "GPS stamp", "time_watermark": "Date stamp", "speed_watermark": "Speed stamp"]
-        return known[key] ?? key.replacingOccurrences(of: "_", with: " ").capitalized
-    }
+    static func title(_ key: String) -> String { DashcamCameraSettings.title(key) }
 
     private func loadSettings() async {
         loading = true
         defer { loading = false }
         do {
-            let result = try await DashcamDevice.shared.invoke("dashcam_get_settings", args: [:])
-            items = (result["settings"] as? [[String: Any]] ?? []).compactMap { row in
-                guard let key = row["key"] as? String else { return nil }
-                let options = (row["options"] as? [[String: Any]] ?? []).compactMap { o -> DashcamSettingItem.Option? in
-                    guard let c = o["code"] as? String, let l = o["label"] as? String else { return nil }
-                    return .init(code: c, label: l)
-                }
-                return DashcamSettingItem(name: key, value: row["value"] as? String, options: options, range: row["range"] as? String)
-            }
+            items = try await DashcamCameraSettings.load()
         } catch {
             note = error.localizedDescription
         }

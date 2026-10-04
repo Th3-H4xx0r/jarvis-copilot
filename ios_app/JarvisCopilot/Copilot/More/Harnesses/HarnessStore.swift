@@ -43,6 +43,12 @@ final class HarnessStore {
 
     func title(for id: String) -> String { harness(id)?.title ?? id }
 
+    /// What a chip names: the model when the surface runs "Single model", else the harness.
+    func label(for surface: VoiceSurface, sessionHarnessID: String?, singleModelLabel: String) -> String {
+        let id = current(for: surface, sessionHarnessID: sessionHarnessID)
+        return id == "single" ? singleModelLabel : title(for: id)
+    }
+
     /// Chat: the chat's own harness. Voice: the Voice default.
     func select(_ id: String, surface: VoiceSurface, sessionID: String?) async {
         do {

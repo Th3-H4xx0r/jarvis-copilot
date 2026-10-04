@@ -120,10 +120,8 @@ struct ChatHarnessChip: View {
     private var current: String { harnesses.current(for: .chat, sessionHarnessID: store.harnessID) }
 
     private var label: String {
-        if current == "single" {
-            return ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? "")
-        }
-        return harnesses.title(for: current)
+        harnesses.label(for: .chat, sessionHarnessID: store.harnessID,
+                        singleModelLabel: ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? ""))
     }
 
     var body: some View {
@@ -162,7 +160,7 @@ struct VoiceHarnessChip: View {
     private var harnesses: HarnessStore { HarnessStore.shared }
 
     private var current: String { harnesses.current(for: .voice, sessionHarnessID: nil) }
-    private var label: String { current == "single" ? modelLabel : harnesses.title(for: current) }
+    private var label: String { harnesses.label(for: .voice, sessionHarnessID: nil, singleModelLabel: modelLabel) }
 
     var body: some View {
         Button { picking = true } label: {

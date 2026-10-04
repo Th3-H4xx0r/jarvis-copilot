@@ -47,4 +47,16 @@ final class HarnessModelsTests: XCTestCase {
         XCTAssertEqual(store.current(for: .chat, sessionHarnessID: nil), "single")
         XCTAssertEqual(store.current(for: .voice, sessionHarnessID: nil), "fast-claude")
     }
+
+    /// The chip (phone) and the Jarvis tab (CarPlay) name a surface the same way.
+    @MainActor func testLabelNamesTheModelForSingleElseTheHarness() throws {
+        let store = HarnessStore()
+        store.harnesses = try JSONDecoder().decode(HarnessSnapshot.self, from: json).harnesses
+        let named = store.harnesses[0]
+        store.assignments = ["voice": named.id, "chat": "single"]
+        XCTAssertEqual(store.label(for: .voice, sessionHarnessID: nil, singleModelLabel: "Opus"), named.title)
+        XCTAssertEqual(store.label(for: .chat, sessionHarnessID: nil, singleModelLabel: "Opus"), "Opus")
+        XCTAssertEqual(store.label(for: .chat, sessionHarnessID: "gone", singleModelLabel: "Opus"), "gone",
+                       "an unknown harness shows its id rather than nothing")
+    }
 }

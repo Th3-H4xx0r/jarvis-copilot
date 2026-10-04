@@ -242,15 +242,13 @@ struct DashcamLibraryView: View {
     @ViewBuilder private func actions(for clip: DashcamServerClip) -> some View {
         if clip.onCamera && clip.phoneState != "local" && !clip.uploaded {
             Button {
-                sync.pull(clip.path)
-                note = wifi.onCamera ? "Pulling \(clip.name)…" : "\(clip.name) will be pulled next time the phone is on the camera's Wi‑Fi."
+                note = DashcamClipActions.pull(clip, sync: sync, onCamera: wifi.onCamera)
             } label: { Label("Pull from camera", systemImage: "arrow.down.circle") }
         }
         if clip.failed {
             Button {
                 Task {
-                    try? await DashcamAPI().retry(clipID: clip.id)
-                    sync.kickUploads()
+                    await DashcamClipActions.retryUpload(clip, sync: sync)
                     await model.reload()
                 }
             } label: { Label("Retry upload", systemImage: "arrow.clockwise") }
@@ -298,27 +296,7 @@ struct DashcamLibraryView: View {
     /// place worked.
     @discardableResult
     private func delete(_ clip: DashcamServerClip, _ places: Set<Place>, reload: Bool = true) async -> Bool {
-        var done: [String] = [], failed: [String] = []
-        if places.contains(.cloud) {
-            do { try await DashcamAPI().deleteFromCloud(clipID: clip.id); done.append("cloud") }
-            catch { failed.append("cloud: \(error.localizedDescription)") }
-        }
-        if places.contains(.phone) {
-            let setup = DashcamSetupStore.load()
-            let camera = clip.cameraID.isEmpty ? (setup?.cameraID ?? "") : clip.cameraID
-            let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start, durationS: clip.durationS, size: clip.size)
-            try? FileManager.default.removeItem(at: sync.storage.localURL(camera: camera, file: f))
-            await DashcamUploader.shared.remove(clipID: clip.id)
-            try? await DashcamAPI().setPhone(clipID: clip.id, state: "deleted", error: nil)
-            done.append("phone")
-        }
-        if places.contains(.camera), clip.onCamera {
-            // Now when on the camera's Wi‑Fi, otherwise queued for the next connection — never lost.
-            done.append(await sync.deleteFromCamera(clip.path) ? "dashcam" : "dashcam (when next connected)")
-        }
-        if places == [.phone, .cloud, .camera], failed.isEmpty {
-            try? await DashcamAPI().forgetClip(clip.id)          // gone from the library too
-        }
+        let (done, failed) = await DashcamClipActions.delete(clip, places, sync: sync)
         guard reload else { return failed.isEmpty }
         note = failed.isEmpty ? "Deleted \(clip.name) from the \(done.joined(separator: ", "))."
                               : "Couldn't delete everywhere — " + failed.joined(separator: "; ")

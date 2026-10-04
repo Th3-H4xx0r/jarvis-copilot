@@ -46,25 +46,19 @@ struct DashcamDrivesView: View {
     }
 
     private var groupedByDay: [(String, [DashcamDrive])] {
-        let cal = Calendar.current
-        let groups = Dictionary(grouping: drives) { cal.startOfDay(for: $0.start) }
-        return groups.keys.sorted(by: >).map { day in
-            let title = cal.isDateInToday(day) ? "Today" : cal.isDateInYesterday(day) ? "Yesterday"
-                : day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
-            return (title, groups[day, default: []].sorted { $0.start > $1.start })
-        }
+        DashcamDriveStats.byDay(drives, calendar: .current, now: Date())
     }
 
     private var weekSummary: some View {
-        let week = drives.filter { $0.start > Date().addingTimeInterval(-7 * 86400) }
+        let week = DashcamDriveStats.week(drives, now: Date())
         return CardGroup("Last 7 days") {
             Row {
                 HStack(spacing: 8) {
                     MetricPill(icon: "car.fill", label: "Drives", value: "\(week.count)", tint: JcTheme.accent)
-                    MetricPill(icon: "road.lanes", label: "Distance", value: DashcamSpeed.miles(week.reduce(0) { $0 + $1.distanceM }),
+                    MetricPill(icon: "road.lanes", label: "Distance", value: DashcamSpeed.miles(week.distanceM),
                                tint: JcTheme.accent)
                     MetricPill(icon: "gauge.with.dots.needle.67percent", label: "Top",
-                               value: "\(DashcamSpeed.text(week.map(\.maxMps).max())) mph", tint: JcTheme.amber)
+                               value: "\(DashcamSpeed.text(week.topMps)) mph", tint: JcTheme.amber)
                 }
             }
         }
@@ -74,9 +68,9 @@ struct DashcamDrivesView: View {
         HStack(spacing: 12) {
             JcIcon("point.topleft.down.to.point.bottomright.curvepath", size: 20).foregroundStyle(JcTheme.accent)
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(d.start.formatted(date: .omitted, time: .shortened)) – \(d.end.formatted(date: .omitted, time: .shortened))")
+                Text(DashcamDriveStats.title(d))
                     .font(.subheadline.weight(.semibold))
-                Text("\(DashcamSpeed.miles(d.distanceM)) · \(DashcamSpeed.duration(d.durationS)) · top \(DashcamSpeed.text(d.maxMps)) mph")
+                Text(DashcamDriveStats.detail(d))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)

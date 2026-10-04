@@ -154,11 +154,8 @@ struct DashcamPage: View {
 
     private var subtitle: String {
         if let reconnectNote, !wifi.onCamera { return reconnectNote }
-        var parts: [String] = []
-        if let last = sync.lastSync { parts.append("Synced \(last.formatted(.relative(presentation: .named)))") }
-        if sync.pendingUploads > 0 { parts.append("\(sync.pendingUploads) to upload") }
-        if sync.queuedDownloads > 0 { parts.append("\(sync.queuedDownloads) to download") }
-        return parts.isEmpty ? "Joins on its own when the camera is on" : parts.joined(separator: " · ")
+        return DashcamStatusText.subtitle(lastSync: sync.lastSync, pendingUploads: sync.pendingUploads,
+                                          queuedDownloads: sync.queuedDownloads)
     }
 
     private func progress(_ title: String, _ done: Int64, _ total: Int64) -> some View {

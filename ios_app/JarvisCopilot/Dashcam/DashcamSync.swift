@@ -809,6 +809,17 @@ final class DashcamSync: ObservableObject {
     }
     static let autoAllKey = "jc.dashcam.autoSyncPullsAll"
 
+    /// Send the rules as they stand now (Settings edits `rules` first). Nil when saved,
+    /// else the line to show.
+    func saveRules() async -> String? {
+        do {
+            try await DashcamAPI().updateRules(rules)
+            return nil
+        } catch {
+            return "Couldn't save the rules: \(error.localizedDescription)"
+        }
+    }
+
     func refreshCounts() async {
         pendingUploads = await uploader.pendingCount
     }
