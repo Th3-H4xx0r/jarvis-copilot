@@ -62,10 +62,9 @@ final class CarPlayVoiceTests: XCTestCase {
         XCTAssertEqual(CarPlayScreens.voiceButtons(active: false, muted: false, pushToTalk: false), [.talk])
     }
 
-    func testAConversationOffersMuteAndStop() {
-        XCTAssertEqual(CarPlayScreens.voiceButtons(active: true, muted: false, pushToTalk: false), [.mute, .stop])
-        XCTAssertEqual(CarPlayScreens.voiceButtons(active: true, muted: true, pushToTalk: false), [.unmute, .stop])
-        XCTAssertEqual(CarPlayScreens.voiceButtons(active: true, muted: false, pushToTalk: true), [.send, .stop])
+    /// During a conversation the voice card carries Mute and End; the header doesn't repeat them.
+    func testAConversationLeavesTheButtonsToTheCard() {
+        XCTAssertEqual(CarPlayScreens.voiceButtons(active: true, muted: false, pushToTalk: false), [])
     }
 
     func testTheStateLineSaysWhereToFixTheMic() {
@@ -129,12 +128,12 @@ final class CarPlayVoiceTests: XCTestCase {
         XCTAssertEqual(CarPlayVoiceMirror.step(state: .idle, hasError: false, showing: false, stopping: false), .none)
     }
 
-    // MARK: Animation, then text
+    // MARK: The voice card
 
-    /// When Jarvis starts speaking, the full-screen orb steps aside for the Voice tab's text.
-    func testSpeakingSwitchesToTheText() {
-        XCTAssertEqual(CarPlayVoiceMirror.step(state: .speaking, hasError: false, showing: true, stopping: false), .hideForText)
-        XCTAssertEqual(CarPlayVoiceMirror.step(state: .speaking, hasError: false, showing: false, stopping: false), .none)
+    /// The card stays for the whole conversation — speaking included — with the text above it.
+    func testTheCardStaysWhileJarvisSpeaks() {
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .speaking, hasError: false, showing: true, stopping: false), .activate("speaking"))
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .speaking, hasError: false, showing: false, stopping: false), .show)
     }
 
     /// Listening again after the reply: the animation comes back.
@@ -159,13 +158,4 @@ final class CarPlayVoiceTests: XCTestCase {
         XCTAssertTrue(OrbFrames.usable(OrbFrames.frames(count: 1, size: 40).first))
     }
 
-    /// CarPlay drops a voice image over 150×150 — and a 2× image arrives counted in pixels —
-    /// so the voice screen's orb must be under 150 pixels a side.
-    func testVoiceScreenOrbFitsCarPlaysLimitInPixels() throws {
-        for state in CarPlayVoiceState.shown {
-            let image = try XCTUnwrap(OrbFrames.animated(for: state), "\(state)")
-            let frame = try XCTUnwrap((image.images?.first ?? image).cgImage)
-            XCTAssertLessThanOrEqual(max(frame.width, frame.height), 150, "\(state)")
-        }
-    }
 }

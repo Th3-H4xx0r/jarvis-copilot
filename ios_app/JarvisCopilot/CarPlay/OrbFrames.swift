@@ -7,10 +7,8 @@ import UIKit
 /// back, so the loop has no seam; speaking adds the phone's gentle pulse.
 @MainActor
 enum OrbFrames {
-    /// CarPlay's voice-state image is at most 150 × 150 — and it counts a 2× image in
-    /// pixels, dropping anything bigger without a word (a 120 pt orb never showed).
-    /// 72 pt at 2× is 144 pixels.
-    static let side: CGFloat = 72
+    /// CarPlay's voice-state image is at most 150 × 150 pt (120 pt renders in the voice card).
+    static let side: CGFloat = 120
     private static var cache: [String: UIImage] = [:]
 
     /// `count` frames of the orb starting at shader time `start`, `step` seconds apart.

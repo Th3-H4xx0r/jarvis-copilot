@@ -39,10 +39,9 @@ enum CarPlayScreens {
         return "…" + tail[start...]
     }
 
-    /// Talk when idle; during a conversation Mute (or Send, push-to-talk) and Stop.
+    /// Talk when idle; during a conversation the voice card has Mute and End, so none here.
     static func voiceButtons(active: Bool, muted: Bool, pushToTalk: Bool) -> [CarPlayVoiceButton] {
-        guard active else { return [.talk] }
-        return [pushToTalk ? .send : (muted ? .unmute : .mute), .stop]
+        active ? [] : [.talk]
     }
 
     /// The line under "Jarvis": what it's doing, or what's in the way.

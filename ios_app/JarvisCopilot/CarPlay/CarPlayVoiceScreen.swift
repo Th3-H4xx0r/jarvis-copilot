@@ -39,29 +39,27 @@ enum CarPlayVoiceState {
 /// screen — however it started (Talk, the widget, a restart between turns).
 @MainActor
 enum CarPlayVoiceMirror {
-    enum Step: Equatable { case none, show, activate(String), hideSoon, hideForText }
+    enum Step: Equatable { case none, show, activate(String), hideSoon }
 
-    /// Animation, then text: the full-screen orb while you talk and Jarvis thinks; when
-    /// Jarvis speaks it steps aside so the Voice tab's text can be read.
     static func step(state: VoiceState, hasError: Bool, showing: Bool, stopping: Bool) -> Step {
-        guard showing else { return state.isActive && state != .speaking && !stopping ? .show : .none }
-        if state == .speaking { return .hideForText }
+        guard showing else { return state.isActive && !stopping ? .show : .none }
         if let id = CarPlayVoiceState.id(for: state) { return .activate(id) }
         return hasError ? .activate(VoiceState.error.rawValue) : .hideSoon
     }
 }
 
-/// The voice screen on the car — Apple's full-screen voice template, as Claude's
-/// CarPlay app uses it: the phone's orb animating per state, a big status title, and
-/// Mute and End. The Voice tab underneath keeps the conversation as text. End (or Done)
-/// stops the session and releases the audio session; a session that goes quiet for a
-/// moment closes it.
+/// The voice card on the car: Apple's voice template as an iOS 27 overlay at the bottom
+/// of the Voice tab — the phone's orb animating per state (it only renders in the overlay,
+/// never in the full-screen presentation), the status, Mute and End — with the
+/// conversation text readable above it. End (or Done) stops the session and releases the
+/// audio session; a session that goes quiet for a moment closes it.
 @available(iOS 26.4, *)
 @MainActor
 final class CarPlayVoiceScreen {
     private let ui: CPInterfaceController
     private var template: CPVoiceControlTemplate?
     private(set) var isShowing = false
+    private var isOverlay = false
     private var watching = false
     /// The driver stopped it: the session winding down mustn't bring the screen back.
     private var stopping = false
@@ -133,6 +131,12 @@ final class CarPlayVoiceScreen {
             }
             self.follow()
         }
+        if #available(iOS 27.0, *) {
+            isOverlay = true
+            ui.showOverlayTemplate(template, animated: true) { presented, _ in shown(presented) }
+            return
+        }
+        isOverlay = false
         let present = { [weak self] in
             self?.ui.presentTemplate(template, animated: true) { presented, _ in shown(presented) }
         }
@@ -174,10 +178,6 @@ final class CarPlayVoiceScreen {
             hideTask = nil
             activate(id)
             updateButtons()
-        case .hideForText:
-            hideTask?.cancel()
-            hideTask = nil
-            close(stopVoice: false)
         case .hideSoon:
             guard !pinned, hideTask == nil else { break }
             hideTask = Task { [weak self] in
@@ -234,6 +234,10 @@ final class CarPlayVoiceScreen {
         guard isShowing else { return }
         isShowing = false
         template = nil
-        ui.dismissTemplate(animated: true, completion: nil)
+        if #available(iOS 27.0, *), isOverlay {
+            ui.hideOverlayTemplate(animated: true, completion: nil)
+        } else {
+            ui.dismissTemplate(animated: true, completion: nil)
+        }
     }
 }
