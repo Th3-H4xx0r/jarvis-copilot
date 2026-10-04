@@ -97,7 +97,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     private func refresh() {
         guard running else { return }
-        show(paired ? CarPlayScreens.voiceTab() : CarPlayScreens.notPaired, in: voiceTab)
+        show(paired ? CarPlayScreens.voiceTab(conversation, speaking: VoiceStore.shared.state == .speaking)
+                    : CarPlayScreens.notPaired, in: voiceTab)
         updateVoiceHeader()
         show(paired ? CarPlayScreens.wearablesTab(carDevices.map(\.row)) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
@@ -178,10 +179,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         let v = VoiceStore.shared
         let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
         if header.subtitle != subtitle { header.subtitle = subtitle }
-        let text = paired ? CarPlayScreens.voiceText(heard: v.userTranscript.isEmpty ? v.livePartial : v.userTranscript,
-                                                     reply: voicePlainSpeech(v.assistantText), spokenWords: v.spokenWords) : nil
-        let body = text.map { [Self.attributed($0)] } ?? []
-        if header.bodyVariants != body { header.bodyVariants = body }
 
         let buttons = paired ? CarPlayScreens.voiceButtons(active: v.isActive, muted: v.muted,
                                                            pushToTalk: v.mode == .quality && v.state == .listening) : []
@@ -220,14 +217,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         Task { await VoiceStore.shared.stopAll() }
     }
 
-    private static func attributed(_ text: CarPlayVoiceText) -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        let dim: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
-        let lit: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.label]
-        if let heard = text.heard { out.append(NSAttributedString(string: heard + "\n", attributes: dim)) }
-        out.append(NSAttributedString(string: text.spoken, attributes: lit))
-        out.append(NSAttributedString(string: text.unspoken, attributes: dim))
-        return out
+    /// The conversation as the phone shows it (what you said, Jarvis's reply).
+    private var conversation: CarPlayVoiceText? {
+        let v = VoiceStore.shared
+        return CarPlayScreens.voiceText(heard: v.userTranscript.isEmpty ? v.livePartial : v.userTranscript,
+                                        reply: voicePlainSpeech(v.assistantText), spokenWords: v.spokenWords)
     }
 
     /// Every device Jarvis knows whose type opted into the car (`carEnabled`).

@@ -42,9 +42,29 @@ final class CarPlayScreensTests: XCTestCase {
 
     // MARK: Voice tab
 
-    /// The Voice tab is its header (orb, state, Talk) — no rows repeating it.
-    func testVoiceTabHasNoRowsBesideItsHeader() {
-        XCTAssertTrue(rows(CarPlayScreens.voiceTab()).isEmpty)
+    /// Before anything is said the Voice tab is just its header (orb, state, Talk).
+    func testVoiceTabIsJustItsHeaderBeforeAConversation() {
+        XCTAssertTrue(rows(CarPlayScreens.voiceTab(nil, speaking: false)).isEmpty)
+    }
+
+    /// Like the phone: what you said, then the reply filling in word by word as it's spoken.
+    func testVoiceTabShowsTheConversationAsItIsSpoken() {
+        let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
+        let r = rows(CarPlayScreens.voiceTab(text, speaking: true))
+        XCTAssertEqual(r.map(\.title), ["Are you there?", "Here, sir. The"])
+        XCTAssertTrue(r.allSatisfy(\.multiline))
+        XCTAssertTrue(r.allSatisfy { $0.action == .none })
+    }
+
+    /// Done speaking (or a text-only reply): the whole reply shows.
+    func testTheWholeReplyShowsOnceSpoken() {
+        let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir.", spokenWords: 0)
+        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).map(\.title), ["Are you there?", "Here, sir."])
+    }
+
+    func testOnlyWhatYouSaidWhileJarvisThinks() {
+        let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "", spokenWords: 0)
+        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).map(\.title), ["Are you there?"])
     }
 
     /// Like the phone: what you said, then Jarvis's reply with the spoken words lit.

@@ -16,9 +16,17 @@ enum CarPlayScreens {
 
     // MARK: Voice tab
 
-    /// The Voice tab is its header (the orb, Jarvis's state, the conversation, Talk);
-    /// it has no rows of its own.
-    static func voiceTab() -> [CarPlaySection] { [] }
+    /// Under the header (orb, state, Talk / Mute / Stop): the conversation, as on the
+    /// phone — what you said, then the reply filling in word by word while it's spoken,
+    /// whole once it has been. Nothing before a conversation.
+    static func voiceTab(_ text: CarPlayVoiceText?, speaking: Bool) -> [CarPlaySection] {
+        guard let text else { return [] }
+        var rows: [CarPlayRow] = []
+        if let heard = text.heard { rows.append(CarPlayRow(id: "heard", title: heard, multiline: true)) }
+        let reply = speaking ? text.spoken : (text.spoken + text.unspoken).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !reply.isEmpty { rows.append(CarPlayRow(id: "reply", title: reply, multiline: true)) }
+        return rows.isEmpty ? [] : [CarPlaySection(title: nil, rows: rows)]
+    }
 
     /// Talk when idle; during a conversation Mute (or Send, push-to-talk) and Stop.
     static func voiceButtons(active: Bool, muted: Bool, pushToTalk: Bool) -> [CarPlayVoiceButton] {
