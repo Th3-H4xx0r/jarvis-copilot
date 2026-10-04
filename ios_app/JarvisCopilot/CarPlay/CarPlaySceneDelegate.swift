@@ -33,6 +33,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// Back to Jarvis from another car app (its icon, or the widget): voice again.
     func sceneWillEnterForeground(_ scene: UIScene) {
+        coordinator?.voice.attach()
         coordinator?.handle(.startVoice)
     }
 

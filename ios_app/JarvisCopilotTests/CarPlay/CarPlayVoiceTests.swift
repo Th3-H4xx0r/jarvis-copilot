@@ -80,4 +80,28 @@ final class CarPlayVoiceTests: XCTestCase {
         XCTAssertEqual(still.size, CGSize(width: 100, height: 100))
         XCTAssertGreaterThan(try XCTUnwrap(alphaAtCentre(still)), 0.5)
     }
+
+    // MARK: The car's voice screen follows the voice session
+
+    /// CarPlay: recording only while the voice screen shows — so an active session always gets it.
+    func testAnActiveSessionAlwaysGetsTheScreen() {
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .listening, hasError: false, showing: false, stopping: false), .show)
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .connecting, hasError: false, showing: false, stopping: false), .show)
+    }
+
+    /// After Stop, the session winding down must not bring the screen back.
+    func testStoppingDoesNotReopenTheScreen() {
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .speaking, hasError: false, showing: false, stopping: true), .none)
+    }
+
+    func testTheScreenTracksTheState() {
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .thinking, hasError: false, showing: true, stopping: false), .activate("thinking"))
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .idle, hasError: true, showing: true, stopping: false), .activate("error"))
+    }
+
+    /// A blip through idle (a restart between turns) is not the end: hide only if idle lasts.
+    func testIdleHidesOnlyAfterAPause() {
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .idle, hasError: false, showing: true, stopping: false), .hideSoon)
+        XCTAssertEqual(CarPlayVoiceMirror.step(state: .idle, hasError: false, showing: false, stopping: false), .none)
+    }
 }

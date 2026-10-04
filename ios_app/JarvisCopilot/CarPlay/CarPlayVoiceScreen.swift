@@ -34,30 +34,75 @@ enum CarPlayVoiceState {
     }
 }
 
-/// The voice screen on the car: the orb, what Jarvis is doing, Mute and Stop.
-/// Recording only ever runs while this template is showing (CarPlay's rule for
-/// voice-based conversational apps); Done, Stop or the end of the conversation
-/// stops the session and releases the audio session.
+/// How the car's voice screen follows the voice session. CarPlay lets a voice app
+/// record only while its voice screen shows, so an active session always gets the
+/// screen — however it started (Talk, the widget, a restart between turns).
+@MainActor
+enum CarPlayVoiceMirror {
+    enum Step: Equatable { case none, show, activate(String), hideSoon }
+
+    static func step(state: VoiceState, hasError: Bool, showing: Bool, stopping: Bool) -> Step {
+        guard showing else { return state.isActive && !stopping ? .show : .none }
+        if let id = CarPlayVoiceState.id(for: state) { return .activate(id) }
+        return hasError ? .activate(VoiceState.error.rawValue) : .hideSoon
+    }
+}
+
+/// The voice screen on the car: the orb, what Jarvis is doing, Mute and Stop. Shown
+/// over the Voice tab (iOS 27) so the conversation stays readable behind it. Done or
+/// Stop ends the session and releases the audio session; a session that goes quiet
+/// for a moment closes it.
 @available(iOS 26.4, *)
 @MainActor
 final class CarPlayVoiceScreen {
     private let ui: CPInterfaceController
     private var template: CPVoiceControlTemplate?
-    private var sawActive = false
     private(set) var isShowing = false
-    /// Shown over the Voice tab (iOS 27), so the conversation stays readable behind it.
     private var isOverlay = false
+    private var watching = false
+    /// The driver stopped it: the session winding down mustn't bring the screen back.
+    private var stopping = false
+    /// Showing the microphone message: it stays until Stop, not a timed hide.
+    private var pinned = false
+    private var hideTask: Task<Void, Never>?
 
     private var store: VoiceStore { .shared }
 
     init(ui: CPInterfaceController) { self.ui = ui }
 
-    /// Open the screen and start listening (or just start, when it's already open).
+    /// Follow the voice session from now on (the car connected).
+    func attach() {
+        guard !watching else { return }
+        watching = true
+        observe()
+        follow()
+    }
+
+    /// The car disconnected or Jarvis left the screen: stop following, end any session.
+    func stop() {
+        watching = false
+        close()
+    }
+
+    /// Talk: open the screen and start listening (or just start, when it's already open).
     func start() {
-        if isShowing {
-            begin()
-            return
-        }
+        stopping = false
+        if isShowing { begin() } else { show(talk: true) }
+    }
+
+    /// Whether `template` is this screen's (the coordinator asks when a template disappears).
+    func owns(_ other: CPTemplate) -> Bool { template === other }
+
+    /// The system took the screen away: recording can't go on without it.
+    func templateGone() {
+        guard isShowing else { return }
+        isShowing = false
+        template = nil
+        stopping = true
+        Task { await store.stopAll() }
+    }
+
+    private func show(talk: Bool) {
         let micAllowed = CarPlayVoiceState.micAllowed(AVAudioApplication.shared.recordPermission)
         let template = CPVoiceControlTemplate(voiceControlStates: CarPlayVoiceState.shown.compactMap { state in
             guard let id = CarPlayVoiceState.id(for: state) else { return nil }
@@ -67,22 +112,23 @@ final class CarPlayVoiceScreen {
         template.leadingNavigationBarButtons = [CPBarButton(title: "Done") { [weak self] _ in self?.close() }]
         self.template = template
         isShowing = true
-        sawActive = false
+        pinned = !micAllowed
         buttonsKey = nil
         updateButtons()
         let shown: (Bool) -> Void = { [weak self] presented in
             guard let self, self.template === template else { return }
-            guard presented else {                       // CarPlay refused it: nothing is showing, so don't record
+            guard presented else {                       // CarPlay refused it: nothing shows, so nothing may record
                 self.isShowing = false
                 self.template = nil
+                if self.store.isActive { self.stopping = true; Task { await self.store.stopAll() } }
                 return
             }
-            if micAllowed {
-                self.begin()
-            } else {
+            if !micAllowed {
                 self.activate(VoiceState.error.rawValue)
+            } else if talk {
+                self.begin()
             }
-            self.observe()
+            self.follow()
         }
         if #available(iOS 27.0, *) {
             isOverlay = true
@@ -90,41 +136,15 @@ final class CarPlayVoiceScreen {
             return
         }
         isOverlay = false
-        let show = { [weak self] in
-            self?.ui.presentTemplate(template, animated: true) { [weak self] presented, _ in
-                guard let self, self.template === template else { return }
-                guard presented else {                       // CarPlay refused it: nothing is showing, so don't record
-                    self.isShowing = false
-                    self.template = nil
-                    return
-                }
-                if micAllowed {
-                    self.begin()
-                } else {
-                    self.activate(VoiceState.error.rawValue)
-                }
-                self.observe()
-            }
+        let present = { [weak self] in
+            self?.ui.presentTemplate(template, animated: true) { presented, _ in shown(presented) }
         }
         // An alert or choice sheet is already up (a widget tap mid-alert): it goes first.
         if ui.presentedTemplate != nil {
-            ui.dismissTemplate(animated: false) { _, _ in show() }
+            ui.dismissTemplate(animated: false) { _, _ in present() }
         } else {
-            show()
+            present()
         }
-    }
-
-    func stop() { close() }
-
-    /// Whether `template` is this screen's (the coordinator asks when a template disappears).
-    func owns(_ other: CPTemplate) -> Bool { template === other }
-
-    /// The system took the screen away (or the car switched apps): stop listening.
-    func templateGone() {
-        guard isShowing else { return }
-        isShowing = false
-        template = nil
-        Task { await store.stopAll() }
     }
 
     private func begin() {
@@ -135,7 +155,7 @@ final class CarPlayVoiceScreen {
     }
 
     private func observe() {
-        guard isShowing else { return }
+        guard watching else { return }
         withObservationTracking {
             _ = store.state; _ = store.muted; _ = store.error
         } onChange: { [weak self] in
@@ -146,19 +166,27 @@ final class CarPlayVoiceScreen {
         }
     }
 
-    /// Mirror the store onto the template.
+    /// Mirror the session onto the screen.
     private func follow() {
-        guard isShowing, template != nil else { return }
-        if store.state.isActive { sawActive = true }
-        if let id = CarPlayVoiceState.id(for: store.state) {
+        guard watching else { return }
+        switch CarPlayVoiceMirror.step(state: store.state, hasError: store.error != nil, showing: isShowing, stopping: stopping) {
+        case .none: break
+        case .show: show(talk: false)
+        case .activate(let id):
+            hideTask?.cancel()
+            hideTask = nil
             activate(id)
-        } else if store.error != nil {
-            activate(VoiceState.error.rawValue)                  // idle with a reason
-        } else if sawActive {
-            close(stopVoice: false)                              // it ended on its own
-            return
+            updateButtons()
+        case .hideSoon:
+            guard !pinned, hideTask == nil else { break }
+            hideTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1.5))
+                guard let self, !Task.isCancelled, !self.store.isActive, self.store.error == nil else { return }
+                self.hideTask = nil
+                self.close(stopVoice: false)
+            }
         }
-        updateButtons()
+        if !store.state.isActive { stopping = false }
     }
 
     private func activate(_ id: String) {
@@ -195,10 +223,16 @@ final class CarPlayVoiceScreen {
     }
 
     private func close(stopVoice: Bool = true) {
+        hideTask?.cancel()
+        hideTask = nil
+        pinned = false
+        if stopVoice, store.isActive {
+            stopping = true
+            Task { await store.stopAll() }
+        }
         guard isShowing else { return }
         isShowing = false
         template = nil
-        if stopVoice { Task { await store.stopAll() } }
         if #available(iOS 27.0, *), isOverlay {
             ui.hideOverlayTemplate(animated: true, completion: nil)
         } else {

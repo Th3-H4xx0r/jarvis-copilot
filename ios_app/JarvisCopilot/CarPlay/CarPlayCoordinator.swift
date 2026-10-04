@@ -61,6 +61,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         refresh()
         observeStores()
         subscribeToDevices()
+        voice.attach()
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
