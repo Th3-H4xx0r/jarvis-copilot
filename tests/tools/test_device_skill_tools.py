@@ -390,3 +390,46 @@ def test_an_invented_device_tool_lists_the_real_ones(monkeypatch):
 def test_non_device_unknown_tool_error_is_unchanged():
     assert json.loads(registry.dispatch("no_such_tool_xyz", {})) == {
         "error": "Unknown tool: no_such_tool_xyz"}
+
+
+# ── wearable targets ──────────────────────────────────────────────────────────
+# The phone stamps a `device_id` enum on every wearable skill. With one wearable
+# of a kind it is a single value the model can only copy (~4.7k tokens across
+# the phone's skills), and the phone routes a call without it to that device.
+
+def _wearable_skill(name, ids, required=False):
+    schema = {"type": "object", "properties": {
+        "date": {"type": "string"},
+        "device_id": {"type": "string", "enum": ids, "description": "Target wearable."}}}
+    if required:
+        schema["required"] = ["device_id"]
+    return {"device_id": "phone", "device_name": "iPhone", "name": name,
+            "description": f"{name} on the ring.", "input_schema": schema}
+
+
+def test_a_lone_wearable_target_is_not_advertised(monkeypatch):
+    _reset(monkeypatch, [_wearable_skill("x5_get_day", ["ring-1"])])
+    [tool] = device_skill_tools.get_device_tools()
+    assert set(tool["schema"]["parameters"]["properties"]) == {"date"}
+
+
+def test_two_wearables_of_a_kind_keep_the_choice(monkeypatch):
+    _reset(monkeypatch, [_wearable_skill("bottle_get_status", ["b-1", "b-2"], required=True)])
+    [tool] = device_skill_tools.get_device_tools()
+    params = tool["schema"]["parameters"]
+    assert params["properties"]["device_id"]["enum"] == ["b-1", "b-2"]
+    assert params["required"] == ["device_id"]
+
+
+def test_a_call_without_the_lone_target_still_reaches_the_phone(monkeypatch):
+    _reset(monkeypatch, [_wearable_skill("x5_get_day", ["ring-1"])])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    calls = []
+    monkeypatch.setattr(device_bridge, "invoke_skill",
+                        lambda device_id, skill, args, timeout=30.0:
+                        calls.append((device_id, skill, args)) or {"ok": True})
+
+    [tool] = device_skill_tools.get_device_tools()
+    tool["handler"](args={"date": "2026-10-04"})
+
+    assert calls == [("phone", "x5_get_day", {"date": "2026-10-04"})]

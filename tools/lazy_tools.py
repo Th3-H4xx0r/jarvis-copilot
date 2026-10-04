@@ -474,15 +474,29 @@ def available_tool_names(agent) -> set:
 
 # ── query resolution ─────────────────────────────────────────────────────────
 
+def device_alias(name: str, known) -> str:
+    """A device skill by its bare name → its agent tool.
+
+    The phone, ``wearables_list`` and the skills docs name a command
+    ``x5_get_status``; the agent tool is ``device_x5_get_status``. Taking the
+    bare name too saves the model a failed lookup per device call (observed:
+    seven calls to read one ring's battery)."""
+    if name and name not in known and f"device_{name}" in known:
+        return f"device_{name}"
+    return name
+
+
 def resolve_query(query: str, candidate_names: List[str]) -> List[str]:
-    """``select:a,b`` → those exact names (in the order given, dropping unknown).
+    """``select:a,b`` → those exact names (in the order given, dropping unknown;
+    a device skill's bare name resolves to its ``device_`` tool).
     Otherwise a keyword match over names (case-insensitive, ranked by hit count)."""
     q = (query or "").strip()
     candidates = list(candidate_names)
     if q.lower().startswith("select:"):
         wanted = [n.strip() for n in q[len("select:"):].split(",") if n.strip()]
         cset = set(candidates)
-        return [n for n in wanted if n in cset]
+        resolved = [device_alias(n, cset) for n in wanted]
+        return list(dict.fromkeys(n for n in resolved if n in cset))
     terms = [t for t in q.lower().replace("_", " ").split() if t]
     if not terms:
         return []
@@ -508,9 +522,11 @@ LAZY_TOOLS_GUIDANCE = (
     "tool_search to load it, THEN call it. Pass `select:tool_a,tool_b` for exact "
     "tools you already know the name of, or a few keywords to find the right one. "
     "Loaded tools stay available for the rest of the session. tool_search only "
-    "loads AGENT tools (the ones in the Deferred tools list). A paired "
-    "phone/tablet's device skills (e.g. send_sms, run_shortcut) are NOT agent "
-    "tools — invoke those through the devices skill, not tool_search."
+    "loads AGENT tools (the ones in the Deferred tools list). Paired devices — "
+    "the phone, its wearables (rings, bottle, glasses, dashcam, scale), the Mac, "
+    "the pod and boards — are already in your tools list as device_<skill> "
+    "(e.g. device_x5_get_status); call them directly, never through "
+    "tool_search or tool_call."
 )
 
 TOOL_SEARCH_SCHEMA = {
@@ -617,8 +633,17 @@ def handle_tool_search(agent, args: dict) -> str:
     if getattr(agent, "_lazy_loaded_tools", None) is None:
         agent._lazy_loaded_tools = set()
     agent._lazy_loaded_tools.update(loaded)
+    # Device tools are never deferred: a hit on one means it was in the tools
+    # list all along, and routing it through tool_call is a wasted hop.
+    advertised = {(t.get("function", {}) or {}).get("name") for t in (getattr(agent, "tools", None) or [])}
+    always = _tool_names_for_toolsets(NATIVE_ALWAYS_LOADED_TOOLSETS)
+    direct = [n for n in loaded if n in always and n in advertised]
+    bridged = [n for n in loaded if n not in set(direct)]
     out: Dict[str, Any] = {"loaded": loaded, "schemas": [d["function"] for d in defs]}
-    if bridge_enabled() and loaded:
+    if direct:
+        out["already_in_your_tools"] = direct
+        out["call_directly"] = "These are already in your tools list. Call them by name now."
+    if bridge_enabled() and bridged:
         out["how_to_call"] = (
             "These are not in your tools list. Invoke each one with "
             'tool_call(name="<tool>", arguments={...}).'
@@ -766,6 +791,7 @@ def handle_tool_call(agent, args: dict, task_id=None) -> str:
         for t in (getattr(agent, "tools", None) or [])
     }
     known.discard(None)
+    name = device_alias(name, known)
     if name not in known:
         return json.dumps({
             "error": f"{name!r} is not available in this session.",

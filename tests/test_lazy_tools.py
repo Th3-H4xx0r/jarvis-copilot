@@ -397,3 +397,62 @@ def test_tool_call_without_a_manifest_still_reaches_advertised_tools(deferred_to
 
     agent = _FakeAgent({"tool_call", deferred_tool})
     assert handle_tool_call(agent, {"name": deferred_tool, "arguments": {}}) == "ok"
+
+
+# ── device skills by their bare names ────────────────────────────────────────
+# The phone and wearables_list name a command `x5_get_status`; the tool is
+# `device_x5_get_status`. Both names must reach it (the X5's battery once took
+# seven calls: select:x5_get_status → no match, then a tool_call refusal).
+
+@pytest.fixture
+def device_tool():
+    name = "device__lazytest_ring_status"
+    registry.register(
+        name=name, toolset="devices",
+        schema={"name": name, "description": "Ring status.",
+                "parameters": {"type": "object", "properties": {}}},
+        handler=lambda args, **kw: "ring ok",
+    )
+    try:
+        yield name
+    finally:
+        registry.deregister(name)
+
+
+def test_resolve_query_select_takes_a_device_skills_bare_name():
+    names = ["device_x5_get_status", "device_x5_get_day", "x5_other"]
+    assert resolve_query("select:x5_get_status,x5_other", names) == [
+        "device_x5_get_status", "x5_other"]
+    # The same tool named both ways is loaded once.
+    assert resolve_query("select:x5_get_status,device_x5_get_status", names) == [
+        "device_x5_get_status"]
+
+
+def test_tool_call_takes_a_device_skills_bare_name(device_tool, monkeypatch):
+    from tools.lazy_tools import handle_tool_call
+
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "tool_call", device_tool})
+    agent._lazy_all_tool_names = {"tool_search", "tool_call", device_tool}
+
+    bare = device_tool[len("device_"):]
+    assert handle_tool_call(agent, {"name": bare, "arguments": {}}) == "ring ok"
+
+
+def test_tool_search_says_a_device_tool_is_already_callable(device_tool, monkeypatch):
+    monkeypatch.setattr("tools.lazy_tools.bridge_enabled", lambda: True)
+    agent = _FakeAgent({"tool_search", "tool_call", device_tool})
+
+    out = json.loads(handle_tool_search(agent, {"query": f"select:{device_tool[len('device_'):]}"}))
+
+    assert out["already_in_your_tools"] == [device_tool]
+    assert "how_to_call" not in out
+
+
+def test_repair_tool_call_maps_a_bare_device_skill_to_its_tool():
+    from agent.agent_runtime_helpers import repair_tool_call
+
+    agent = _FakeAgent({"device_x5_find", "device_x5_get_status", "web_search"})
+    # Short names score under the fuzzy cutoff, so this used to come back None.
+    assert repair_tool_call(agent, "x5_find") == "device_x5_find"
+    assert repair_tool_call(agent, "X5_Get_Status") == "device_x5_get_status"

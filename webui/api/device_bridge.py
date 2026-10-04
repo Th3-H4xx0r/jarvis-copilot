@@ -1229,6 +1229,22 @@ def _pump(conn: _DeviceConn) -> None:
                 return
 
 
+# Per-device skill cap, so a misbehaving device can't bloat the registry. It was
+# 128 until the iPhone (phone actions + every wearable it carries) passed it:
+# the phone sends its skills sorted by name, so the cut silently dropped the
+# tail — x5_get_status, the X5's battery, among them.
+_MAX_SKILLS_PER_DEVICE = 512
+
+
+def _capped_skills(conn: _DeviceConn, skills: list[dict]) -> list[dict]:
+    if len(skills) > _MAX_SKILLS_PER_DEVICE:
+        logger.warning(
+            "device bridge: %s (%s) offers %d skills; keeping the first %d",
+            conn.name, conn.device_id[:8], len(skills), _MAX_SKILLS_PER_DEVICE,
+        )
+    return skills[:_MAX_SKILLS_PER_DEVICE]
+
+
 def _handle_message(conn: _DeviceConn, msg: dict) -> None:
     t = msg.get("type")
     if t == "register":
@@ -1270,14 +1286,14 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
             merged: dict[str, dict] = {s["name"]: s for s in conn.skills}
             for s in clean:
                 merged[s["name"]] = s
-            conn.skills = list(merged.values())[:128]
+            conn.skills = _capped_skills(conn, list(merged.values()))
             if clean_channels:
                 existing = {c["key"]: c for c in conn.notification_channels}
                 for c in clean_channels:
                     existing[c["key"]] = c
                 conn.notification_channels = list(existing.values())[:16]
         else:
-            conn.skills = clean[:128]  # cap so a misbehaving device can't bloat the registry
+            conn.skills = _capped_skills(conn, clean)
             conn.notification_channels = clean_channels[:16]
         _remember_skills(conn.device_id, conn.skills, conn.notification_channels or None)
         try:

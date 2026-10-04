@@ -1688,6 +1688,11 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
     normalized = _norm(tool_name)
     if normalized in agent.valid_tool_names:
         return normalized
+    # A device skill named the way the phone and wearables_list name it
+    # (x5_get_status) is the agent tool device_x5_get_status. Exact, so it
+    # wins before the fuzzy match can pick a sibling (device_x5_get_day).
+    if f"device_{normalized}" in agent.valid_tool_names:
+        return f"device_{normalized}"
 
     # Build the full candidate set for class-like emissions.
     cands: set[str] = {tool_name, lowered, normalized, _camel_snake(tool_name)}

@@ -169,3 +169,34 @@ def test_close_relay_sends_mcp_close_and_drops_session(monkeypatch):
         assert db.relay_send_frame("d-cl2", sid, "{}") is False
     finally:
         _cleanup("d-cl2")
+
+
+def test_a_phone_with_more_than_128_skills_keeps_them_all(monkeypatch):
+    """The cap was 128 and the iPhone sends ~140 sorted by name, so the X5's
+    tail (x5_get_status — its battery — onwards) silently never registered."""
+    sent = _capture_sends(monkeypatch)
+    monkeypatch.setattr(db, "_remember_skills", lambda *a, **k: None)
+    monkeypatch.setattr(db, "_notify_registry_change", lambda: None)
+    conn = _make_conn("phone-cap")
+    skills = [{"name": f"skill_{i:03d}", "description": "", "input_schema": {"type": "object"}}
+              for i in range(140)] + [{"name": "x5_get_status", "description": "battery"}]
+    try:
+        db._handle_message(conn, {"type": "register", "skills": skills})
+        assert len(conn.skills) == 141
+        assert conn.skills[-1]["name"] == "x5_get_status"
+        assert sent[-1][1] == {"type": "registered", "count": 141}
+    finally:
+        _cleanup("phone-cap")
+
+
+def test_skill_cap_still_bounds_a_runaway_device(monkeypatch):
+    _capture_sends(monkeypatch)
+    monkeypatch.setattr(db, "_remember_skills", lambda *a, **k: None)
+    monkeypatch.setattr(db, "_notify_registry_change", lambda: None)
+    conn = _make_conn("runaway")
+    skills = [{"name": f"s{i}"} for i in range(db._MAX_SKILLS_PER_DEVICE + 50)]
+    try:
+        db._handle_message(conn, {"type": "register", "skills": skills})
+        assert len(conn.skills) == db._MAX_SKILLS_PER_DEVICE
+    finally:
+        _cleanup("runaway")

@@ -455,12 +455,29 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     return _handler
 
 
+def _without_lone_target(properties: dict, required: list) -> dict:
+    """Drop an optional ``device_id`` that offers exactly one choice.
+
+    The phone stamps a ``device_id`` enum on every wearable skill (which ring,
+    which bottle). With one wearable of a kind it is a single value the model
+    can only copy, the phone already routes a call without it to the only
+    device offering the skill, and across ~140 phone skills it cost ~4.7k
+    tokens of every request. Two of a kind keep the choice.
+    """
+    target = properties.get("device_id")
+    if (not isinstance(target, dict) or "device_id" in required
+            or not isinstance(target.get("enum"), list) or len(target["enum"]) != 1):
+        return properties
+    return {k: v for k, v in properties.items() if k != "device_id"}
+
+
 def _build_schema(skill_name: str, candidates: list[dict]) -> tuple[dict, str]:
     base_schema = candidates[0].get("input_schema")
     if not isinstance(base_schema, dict):
         base_schema = {}
-    properties = _with_page_shape(skill_name, dict(base_schema.get("properties") or {}))
     required = list(base_schema.get("required") or [])
+    properties = _with_page_shape(skill_name, dict(base_schema.get("properties") or {}))
+    properties = _without_lone_target(properties, required)
     schema_type = base_schema.get("type") or "object"
 
     multi = len(candidates) > 1
