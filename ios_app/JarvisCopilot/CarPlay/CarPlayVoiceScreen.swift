@@ -12,6 +12,12 @@ enum CarPlayVoiceState {
 
     static func id(for state: VoiceState) -> String? { shown.contains(state) ? state.rawValue : nil }
 
+    /// The car can't answer a permission prompt, so only a mic already granted counts.
+    static func micAllowed(_ permission: AVAudioApplication.recordPermission) -> Bool { permission == .granted }
+
+    /// CarPlay rate-limits state changes; re-sending the shown state could swallow the next real one.
+    static func needsActivation(active: String?, next: String) -> Bool { active != next }
+
     /// Longest first: CarPlay picks the first variant that fits the car's screen.
     static func titles(for state: VoiceState, micAllowed: Bool) -> [String] {
         switch state {
@@ -50,7 +56,7 @@ final class CarPlayVoiceScreen {
             begin()
             return
         }
-        let micAllowed = AVAudioApplication.shared.recordPermission != .denied
+        let micAllowed = CarPlayVoiceState.micAllowed(AVAudioApplication.shared.recordPermission)
         let template = CPVoiceControlTemplate(voiceControlStates: CarPlayVoiceState.shown.compactMap { state in
             guard let id = CarPlayVoiceState.id(for: state) else { return nil }
             return CPVoiceControlState(identifier: id, titleVariants: CarPlayVoiceState.titles(for: state, micAllowed: micAllowed),
@@ -60,15 +66,44 @@ final class CarPlayVoiceScreen {
         self.template = template
         isShowing = true
         sawActive = false
+        buttonsKey = nil
         updateButtons()
-        ui.presentTemplate(template, animated: true) { [weak self] _, _ in
-            guard let self, self.isShowing else { return }
-            if micAllowed { self.begin() } else { template.activateVoiceControlState(withIdentifier: VoiceState.error.rawValue) }
-            self.observe()
+        let show = { [weak self] in
+            self?.ui.presentTemplate(template, animated: true) { [weak self] presented, _ in
+                guard let self, self.template === template else { return }
+                guard presented else {                       // CarPlay refused it: nothing is showing, so don't record
+                    self.isShowing = false
+                    self.template = nil
+                    return
+                }
+                if micAllowed {
+                    self.begin()
+                } else {
+                    self.activate(VoiceState.error.rawValue)
+                }
+                self.observe()
+            }
+        }
+        // An alert or choice sheet is already up (a widget tap mid-alert): it goes first.
+        if ui.presentedTemplate != nil {
+            ui.dismissTemplate(animated: false) { _, _ in show() }
+        } else {
+            show()
         }
     }
 
     func stop() { close() }
+
+    /// Whether `template` is this screen's (the coordinator asks when a template disappears).
+    func owns(_ other: CPTemplate) -> Bool { template === other }
+
+    /// The system took the screen away (or the car switched apps): stop listening.
+    func templateGone() {
+        guard isShowing else { return }
+        isShowing = false
+        template = nil
+        Task { await store.stopAll() }
+    }
 
     private func begin() {
         Task {
@@ -91,23 +126,34 @@ final class CarPlayVoiceScreen {
 
     /// Mirror the store onto the template.
     private func follow() {
-        guard isShowing, let template else { return }
+        guard isShowing, template != nil else { return }
         if store.state.isActive { sawActive = true }
         if let id = CarPlayVoiceState.id(for: store.state) {
-            template.activateVoiceControlState(withIdentifier: id)
+            activate(id)
         } else if store.error != nil {
-            template.activateVoiceControlState(withIdentifier: VoiceState.error.rawValue)   // idle with a reason
+            activate(VoiceState.error.rawValue)                  // idle with a reason
         } else if sawActive {
-            close(stopVoice: false)                                                         // it ended on its own
+            close(stopVoice: false)                              // it ended on its own
             return
         }
         updateButtons()
     }
 
+    private func activate(_ id: String) {
+        guard let template, CarPlayVoiceState.needsActivation(active: template.activeStateIdentifier, next: id) else { return }
+        template.activateVoiceControlState(withIdentifier: id)
+    }
+
     /// Realtime: Mute / Unmute. Push-to-talk: Send ends the turn. Stop always.
-    /// CarPlay keeps the buttons on each state, so every state gets the same pair.
+    /// CarPlay keeps the buttons on each state, so every state gets the same pair;
+    /// they are only rebuilt when what they say changes.
+    private var buttonsKey: String?
+
     private func updateButtons() {
         guard let template else { return }
+        let key = "\(store.mode.rawValue)-\(store.muted)"
+        guard key != buttonsKey else { return }
+        buttonsKey = key
         let primary: CPButton
         if store.mode == .quality {
             primary = CPButton(image: UIImage(systemName: "arrow.up.circle.fill") ?? UIImage()) { [weak self] _ in
@@ -124,7 +170,6 @@ final class CarPlayVoiceScreen {
         let stop = CPButton(image: UIImage(systemName: "stop.fill") ?? UIImage()) { [weak self] _ in self?.close() }
         stop.title = "Stop"
         for state in template.voiceControlStates { state.actionButtons = [primary, stop] }
-        if let active = template.activeStateIdentifier { template.activateVoiceControlState(withIdentifier: active) }
     }
 
     private func close(stopVoice: Bool = true) {

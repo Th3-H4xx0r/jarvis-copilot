@@ -35,6 +35,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         AppServices.shared.setCarPlayActive(false)
     }
 
+    /// The car switched to another app (Maps, Music): CarPlay allows recording only
+    /// while Jarvis's voice screen shows, so the conversation ends here.
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        coordinator?.voice.stop()
+    }
+
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         for context in URLContexts { open(context.url) }
     }
@@ -43,7 +49,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     /// else goes through the phone's usual router.
     private func open(_ url: URL) {
         if CarPlayLinks.isVoice(url) {
-            coordinator?.voice.start()
+            coordinator?.handle(.startVoice)
         } else {
             AppServices.shared.open(url: url)
         }

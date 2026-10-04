@@ -98,4 +98,9 @@ final class DashcamActionsTests: XCTestCase {
         XCTAssertEqual(DashcamCameraSettings.title("gsr_sensitivity"), "G‑sensor")
         XCTAssertEqual(DashcamCameraSettings.title("some_new_key"), "Some New Key")
     }
+
+    /// As before the extraction: a mic state the camera doesn't report as on/off hides the button.
+    func testUnreadableMicStateHidesTheButton() {
+        XCTAssertNil(DashcamMic.from([DashcamSettingItem(name: "mic", value: "auto", options: [])]))
+    }
 }

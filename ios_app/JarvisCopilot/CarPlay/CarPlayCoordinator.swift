@@ -27,6 +27,15 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
     private var mic: DashcamMic?
     private var clipDetails: [String: (clip: DashcamServerClip, topMps: Double?)] = [:]
     private var reconnectNote: String?
+    /// Why the last load of each list failed (shown instead of an empty list).
+    private var sessionsError: String?
+    private var devicesError: String?
+    private var drivesError: String?
+    private var messageErrors: [String: String] = [:]
+    /// A camera Wi‑Fi password is saved (read once per dashcam visit, not per refresh: it's a Keychain read).
+    private var hasWifiPassword = false
+    private var sectionsCache = CarPlaySectionsCache()
+    private var infoCache: [ObjectIdentifier: CarPlayInfo] = [:]
     private var watchingDashcam = false
     private var refreshPending = false
     private var running = false
@@ -62,6 +71,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         }
         Task { await loadSessions() }
         Task { await loadServerDevices() }
+        // Render the voice orb's frames now, not on the first Talk tap.
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if running { await OrbFrames.prewarm() }
+        }
     }
 
     func stop() {
@@ -69,6 +83,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         cancellables.removeAll()
         if watchingDashcam { sync.watchStatus(false); watchingDashcam = false }
         voice.stop()
+        OrbFrames.clear()
     }
 
     // MARK: Refresh
@@ -88,10 +103,16 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     private func refresh() {
         guard running else { return }
-        jarvisTab.updateSections(render(paired ? CarPlayScreens.jarvisTab(voiceSummary) : CarPlayScreens.notPaired))
-        chatsTab.updateSections(render(paired ? CarPlayScreens.chats(sessions) : CarPlayScreens.notPaired))
-        devicesTab.updateSections(render(paired ? CarPlayScreens.devices(devicesInput) : CarPlayScreens.notPaired))
+        show(paired ? CarPlayScreens.jarvisTab(voiceSummary) : CarPlayScreens.notPaired, in: jarvisTab)
+        show(paired ? CarPlayScreens.chats(sessions, error: sessionsError) : CarPlayScreens.notPaired, in: chatsTab)
+        show(paired ? CarPlayScreens.devices(devicesInput) : CarPlayScreens.notPaired, in: devicesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
+    }
+
+    /// Rebuild a list only when what it shows changed.
+    private func show(_ sections: [CarPlaySection], in list: CPListTemplate) {
+        guard sectionsCache.changed(ObjectIdentifier(list), sections) else { return }
+        list.updateSections(render(sections))
     }
 
     private func render(_ sections: [CarPlaySection]) -> [CPListSection] {
@@ -185,7 +206,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         return CarPlayDevicesInput(
             dashcam: CarPlayDashcamRow(setUp: setup != nil, name: setup?.displayName ?? "Dashcam",
                                        status: status.joined(separator: " · ")),
-            wearables: wearables, server: serverDevices)
+            wearables: wearables, server: serverDevices, serverError: devicesError)
     }
 
     private var dashcamInput: CarPlayDashcamInput {
@@ -197,7 +218,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
                                               queuedDownloads: sync.queuedDownloads),
             downloading: sync.downloading, uploading: sync.uploading,
             cloudBackupOn: sync.rules.upload, uploadNote: sync.rules.upload ? sync.uploadNote : nil,
-            passActive: sync.passActive, mic: mic, canReconnect: DashcamSetupStore.password != nil,
+            passActive: sync.passActive, mic: mic, canReconnect: hasWifiPassword,
             filter: library.filter, clips: library.clips, canLoadMore: library.canLoadMore,
             libraryError: library.error, pendingUploads: sync.pendingUploads)
     }
@@ -250,9 +271,9 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             guard let msgs = messages[id] else {
                 return [CarPlaySection(title: nil, rows: [CarPlayRow(id: "loading", title: "Loading…")])]
             }
-            return CarPlayScreens.chat(id: id, title: title, messages: msgs)
+            return CarPlayScreens.chat(id: id, title: title, messages: msgs, error: messageErrors[id])
         case .dashcam: return CarPlayScreens.dashcam(dashcamInput)
-        case .drives: return CarPlayScreens.drives(drives)
+        case .drives: return CarPlayScreens.drives(drives, error: drivesError)
         case .dashcamSettings: return CarPlayScreens.dashcamSettings(settingsInput)
         case .message, .clip, .device, .serverDevice: return nil
         }
@@ -286,14 +307,17 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     private func update(_ template: CPTemplate, for screen: CarPlayScreen) {
         if let list = template as? CPListTemplate, let sections = sections(screen) {
-            list.updateSections(render(sections))
-        } else if let infoTemplate = template as? CPInformationTemplate, let info = info(screen) {
+            show(sections, in: list)
+        } else if let infoTemplate = template as? CPInformationTemplate, let info = info(screen),
+                  infoCache[ObjectIdentifier(infoTemplate)] != info {
+            infoCache[ObjectIdentifier(infoTemplate)] = info
             CarPlayRenderer.update(infoTemplate, with: info) { [weak self] action in self?.handle(action) }
         }
     }
 
     private func push(_ screen: CarPlayScreen) {
         // Root is depth 1; the next push is always exactly one deeper, never past 3.
+        pruneStack()
         guard screen.depth <= CarPlayScreen.maxDepth, screen.depth == stack.count + 2 else { return }
         let template = makeTemplate(screen)
         stack.append((screen, template))
@@ -309,11 +333,18 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         case .voiceChats: Task { await loadSessions() }
         case .chat(let id, _):
             Task {
-                messages[id] = (try? await SessionsAPI().get(id).messages) ?? []
+                do {
+                    messages[id] = try await SessionsAPI().get(id).messages
+                    messageErrors[id] = nil
+                } catch {
+                    messages[id] = []
+                    messageErrors[id] = apiErrorMessage(error)
+                }
                 refresh()
             }
         case .dashcam:
             watchingDashcam = true
+            hasWifiPassword = DashcamSetupStore.password != nil
             sync.watchStatus(wifi.onCamera)
             Task { await library.reload() }
             if !sync.rulesLoaded { Task { await sync.refreshRules() } }
@@ -326,7 +357,12 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             }
         case .drives:
             Task {
-                drives = ((try? await DashcamAPI().drives()) ?? []).sorted { $0.start > $1.start }
+                do {
+                    drives = try await DashcamAPI().drives().sorted { $0.start > $1.start }
+                    drivesError = nil
+                } catch {
+                    drivesError = error.localizedDescription
+                }
                 refresh()
             }
         case .dashcamSettings:
@@ -340,15 +376,26 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
     }
 
     private func loadSessions() async {
-        guard paired, let list = try? await SessionsAPI().list() else { return }
-        sessions = list
-        VoiceSessionSelection.shared.reconcile(with: list)
+        guard paired else { return }
+        do {
+            let list = try await SessionsAPI().list()
+            sessions = list
+            sessionsError = nil
+            VoiceSessionSelection.shared.reconcile(with: list)
+        } catch {
+            if !wasCancelled(error) { sessionsError = apiErrorMessage(error) }
+        }
         refresh()
     }
 
     private func loadServerDevices() async {
-        guard paired, let list = try? await DevicesAPI().list() else { return }
-        serverDevices = list
+        guard paired else { return }
+        do {
+            serverDevices = try await DevicesAPI().list()
+            devicesError = nil
+        } catch {
+            if !wasCancelled(error) { devicesError = apiErrorMessage(error) }
+        }
         refresh()
     }
 
@@ -358,7 +405,9 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         switch action {
         case .none: break
         case .push(let screen): push(screen)
-        case .startVoice: voice.start()
+        case .startVoice:
+            guard paired else { alert("Pair Jarvis on your iPhone first."); return }
+            voice.start()
         case .selectHarness(let id):
             Task { await HarnessStore.shared.assign(id, to: .voice) }
             ui.popToRootTemplate(animated: true, completion: nil)
@@ -412,6 +461,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             Task {
                 do { try await wifi.reconnect(password: nil); reconnectNote = nil }
                 catch { reconnectNote = error.localizedDescription }
+                hasWifiPassword = DashcamSetupStore.password != nil
                 refresh()
             }
         case .cloudBackup(let on): sync.setCloudBackup(on)
@@ -470,7 +520,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
                 Task {
                     let (done, failed) = await DashcamClipActions.delete(clip, options[choice].places)
                     await self.library.reload()
-                    self.ui.popTemplate(animated: true, completion: nil)
+                    // Back off the clip's screen — unless the driver already left it.
+                    if let clipScreen = self.stack.last(where: { $0.screen == .clip(id: clipID) })?.template,
+                       self.ui.topTemplate === clipScreen {
+                        self.ui.popTemplate(animated: true, completion: nil)
+                    }
                     self.alert(failed.isEmpty ? "Deleted from the \(done.joined(separator: ", "))."
                                               : "Couldn't delete everywhere — " + failed.joined(separator: "; "))
                 }
@@ -540,18 +594,28 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         }
     }
 
+    /// Forget every pushed screen CarPlay no longer shows (Back, pop-to-root), and stop
+    /// polling the camera once the dashcam page is gone.
+    private func pruneStack() {
+        let before = stack
+        stack = CarPlayStack.kept(stack, template: { $0.template }, visible: ui.templates)
+        for gone in before where !stack.contains(where: { $0.template === gone.template }) {
+            sectionsCache.forget(ObjectIdentifier(gone.template))
+            infoCache[ObjectIdentifier(gone.template)] = nil
+        }
+        if watchingDashcam, !stack.contains(where: { $0.screen == .dashcam }) {
+            watchingDashcam = false
+            sync.watchStatus(false)
+        }
+    }
+
     // MARK: CPInterfaceControllerDelegate
 
     nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
         MainActor.assumeIsolated {
-            // A screen popped off the stack (Back): forget it, and stop polling the camera with the dashcam page.
-            guard let index = stack.firstIndex(where: { $0.template === aTemplate }),
-                  !ui.templates.contains(where: { $0 === aTemplate }) else { return }
-            stack.removeSubrange(index...)
-            if watchingDashcam, !stack.contains(where: { $0.screen == .dashcam }) {
-                watchingDashcam = false
-                sync.watchStatus(false)
-            }
+            // The voice screen went away without Done/Stop (the system took it): stop recording.
+            if voice.owns(aTemplate) { voice.templateGone() }
+            pruneStack()
         }
     }
 

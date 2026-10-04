@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - Boundaries
 //
@@ -171,6 +172,9 @@ final class AppServices {
     private let deepLinks: AppDeepLinkRouter
     private let chatLaunch: ChatLaunchBus
     private let shortcuts: ShortcutResultBus
+    /// Whether the phone's own window is on screen — asked only before its
+    /// `scenePhase` has ever reported (the car launched the app).
+    private let phoneWindowActive: () -> Bool
 
     private(set) var didStart = false
     /// True while the app is in the foreground, as this object last saw it.
@@ -196,7 +200,8 @@ final class AppServices {
          router: AppRouter = .shared,
          deepLinks: AppDeepLinkRouter? = nil,
          chatLaunch: ChatLaunchBus = .shared,
-         shortcuts: ShortcutResultBus = .shared) {
+         shortcuts: ShortcutResultBus = .shared,
+         phoneWindowActive: (() -> Bool)? = nil) {
         self.skills = skills ?? DefaultPhoneSkillInstaller()
         self.registry = registry ?? .shared
         self.bridge = bridge ?? BridgeClient.shared
@@ -216,6 +221,11 @@ final class AppServices {
         self.deepLinks = deepLinks ?? AppDeepLinkRouter(router: router)
         self.chatLaunch = chatLaunch
         self.shortcuts = shortcuts
+        self.phoneWindowActive = phoneWindowActive ?? {
+            UIApplication.shared.connectedScenes.contains {
+                ($0 as? UIWindowScene)?.activationState == .foregroundActive
+            }
+        }
     }
 
     // MARK: - Startup
@@ -313,8 +323,9 @@ final class AppServices {
 
     // MARK: - Scene phase
 
-    /// The phone's own window, as `scenePhase` last reported it.
-    private var phoneForeground = true
+    /// The phone's own window, as `scenePhase` last reported it. Nil until it has
+    /// reported at all — the car launched the app — and then the probe answers.
+    private var phoneForeground: Bool?
     /// A CarPlay screen is connected. The car's screen is a foreground scene even
     /// with the phone locked in a pocket, so voice, the bridge and the dashcam
     /// keep running for it.
@@ -339,10 +350,13 @@ final class AppServices {
     /// phone locking under the car's screen is not a trip to the background.
     /// Phone-only, every call runs as it always has.
     private func applyForeground() {
-        let foreground = phoneForeground || carPlayActive
+        let phone = phoneForeground ?? phoneWindowActive()
+        let foreground = phone || carPlayActive
+        // Skills that need the phone's own screen (open a URL, run a Shortcut) still
+        // wait for the phone, car or no car — they get the tap-to-run notification.
+        lifecycle.isForeground = phone
         if carPlayActive, foreground == isForeground { return }
         isForeground = foreground
-        lifecycle.isForeground = foreground
         if foreground {
             // Coming back: re-open the live bridge immediately rather than
             // waiting out its reconnect backoff, and flush whatever the server

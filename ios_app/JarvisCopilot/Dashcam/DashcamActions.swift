@@ -21,7 +21,9 @@ struct DashcamMic: Equatable {
             case nil: break
             }
         }
-        mic.on = DashcamControls.isOn(row.currentLabel) ?? DashcamControls.isOn(row.value) ?? false
+        // A state the camera doesn't report as on or off hides the control (as the card always did).
+        guard let on = DashcamControls.isOn(row.currentLabel) ?? DashcamControls.isOn(row.value) else { return nil }
+        mic.on = on
         return mic
     }
 }

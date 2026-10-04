@@ -70,10 +70,13 @@ enum CarPlayScreens {
 
     // MARK: Chats
 
-    static func chats(_ sessions: [ChatSessionSummary], now: Date = Date(), calendar: Calendar = .current) -> [CarPlaySection] {
+    static func chats(_ sessions: [ChatSessionSummary], error: String? = nil,
+                      now: Date = Date(), calendar: Calendar = .current) -> [CarPlaySection] {
         let groups = ChatSessionGroup.group(sessions, now: now, calendar: calendar)
         guard !groups.isEmpty else {
-            return [CarPlaySection(title: nil, rows: [CarPlayRow(id: "nochats", title: "No chats yet")])]
+            let row = error.map { CarPlayRow(id: "chatsError", title: "Couldn't load chats", detail: $0, symbol: "exclamationmark.triangle", tint: .amber) }
+                ?? CarPlayRow(id: "nochats", title: "No chats yet")
+            return [CarPlaySection(title: nil, rows: [row])]
         }
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
@@ -90,7 +93,7 @@ enum CarPlayScreens {
     static let chatRowLimit = 30
     static let previewLength = 120
 
-    static func chat(id: String, title: String, messages: [ChatMessage]) -> [CarPlaySection] {
+    static func chat(id: String, title: String, messages: [ChatMessage], error: String? = nil) -> [CarPlaySection] {
         let texts = messages.compactMap { m -> (who: String, text: String)? in
             let text = m.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty, m.role != .system else { return nil }
@@ -102,7 +105,12 @@ enum CarPlayScreens {
             CarPlayRow(id: "msg:\(i)", title: m.who, detail: preview(m.text),
                        action: .push(.message(title: m.who, text: m.text)))
         }
-        if texts.isEmpty { rows.append(CarPlayRow(id: "empty", title: "No messages yet")) }
+        if let error {
+            rows.append(CarPlayRow(id: "msgError", title: "Couldn't load the messages", detail: error,
+                                   symbol: "exclamationmark.triangle", tint: .amber))
+        } else if texts.isEmpty {
+            rows.append(CarPlayRow(id: "empty", title: "No messages yet"))
+        }
         return [CarPlaySection(title: nil, rows: rows)]
     }
 
@@ -133,6 +141,12 @@ enum CarPlayScreens {
                            symbol: symbol(forKind: w.kind), tint: w.connected ? .success : .muted,
                            action: .push(.device(id: w.id)))
             }))
+        }
+        if let error = input.serverError, input.server.isEmpty {
+            sections.append(CarPlaySection(title: "Server devices", rows: [
+                CarPlayRow(id: "serverError", title: "Couldn't load server devices", detail: error,
+                           symbol: "exclamationmark.triangle", tint: .amber),
+            ]))
         }
         if !input.server.isEmpty {
             sections.append(CarPlaySection(title: "Server devices", rows: input.server.map { d in

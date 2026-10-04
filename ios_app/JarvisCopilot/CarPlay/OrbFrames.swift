@@ -39,6 +39,17 @@ enum OrbFrames {
         return result
     }
 
+    /// Render every state's loop ahead of the first Talk tap, a state at a time.
+    static func prewarm() async {
+        for state in CarPlayVoiceState.shown {
+            _ = animated(for: state)
+            await Task.yield()
+        }
+    }
+
+    /// Drop the frames (~9 MB) when the car disconnects.
+    static func clear() { cache.removeAll() }
+
     /// Forwards then back, so the last frame meets the first.
     private static func loop(_ frames: [UIImage], duration: TimeInterval) -> UIImage? {
         guard frames.count > 1 else { return frames.first }

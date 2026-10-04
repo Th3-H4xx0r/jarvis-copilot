@@ -25,6 +25,9 @@ struct JarvisWidgetProvider: TimelineProvider {
 
 struct JarvisWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    /// False where the gradient is dropped (CarPlay, tinted/clear Home Screens):
+    /// the label then takes the system's colour instead of white-on-nothing.
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
     var entry: JarvisWidgetProvider.Entry
 
     var body: some View {
@@ -41,21 +44,32 @@ struct JarvisWidgetView: View {
             .containerBackground(Color.clear, for: .widget)
             .widgetURL(URL(string: "jarviscopilot://voice"))
         default:
-            // Home Screen systemSmall: gradient tile with the mic, on-brand.
-            ZStack {
-                LinearGradient(
-                    colors: [JcAccent.color, JcAccent.deep],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                VStack(spacing: 8) {
+            // Home Screen and CarPlay Dashboard systemSmall: the voice orb as a
+            // bubble. The gradient is a removable container background, so on
+            // CarPlay (which drops removable backgrounds) the orb sits on the
+            // car's own surface. A tap opens voice — on the phone's Voice tab,
+            // or Jarvis's CarPlay voice screen when tapped in the car.
+            VStack(spacing: 8) {
+                if let orb = jarvisOrbUIImage {
+                    Image(uiImage: orb)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 68, height: 68)
+                        .clipShape(Circle())
+                        .shadow(color: JcAccent.color.opacity(0.55), radius: 10)
+                } else {
                     Image(systemName: "atom")
                         .font(.system(size: 34, weight: .bold))
                         .foregroundStyle(.white)
-                    Text("Talk to JARVIS")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.95))
                 }
+                Text("Talk to JARVIS")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(showsBackground ? AnyShapeStyle(.white.opacity(0.95)) : AnyShapeStyle(.primary))
             }
-            .containerBackground(Color.black, for: .widget)
+            .containerBackground(for: .widget) {
+                LinearGradient(colors: [JcAccent.color, JcAccent.deep],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
             .widgetURL(URL(string: "jarviscopilot://voice"))
         }
     }

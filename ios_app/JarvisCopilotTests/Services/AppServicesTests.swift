@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class AppServicesTests: XCTestCase {
 
-    private func makeServices(paired: Bool = true, bridgeEnabled: Bool = true)
+    private func makeServices(paired: Bool = true, bridgeEnabled: Bool = true, phoneWindowActive: Bool = true)
     -> (AppServices, ServiceRecorder, Fakes) {
         let log = ServiceRecorder()
         let fakes = Fakes(log: log, paired: paired, bridgeEnabled: bridgeEnabled)
@@ -22,7 +22,8 @@ final class AppServicesTests: XCTestCase {
             runner: fakes.runner, voice: fakes.voice, metrics: fakes.metrics,
             lifecycle: fakes.lifecycle, pending: fakes.pending, router: fakes.router,
             deepLinks: AppDeepLinkRouter(router: fakes.router, targets: fakes.targets),
-            chatLaunch: fakes.chatLaunch, shortcuts: fakes.shortcuts)
+            chatLaunch: fakes.chatLaunch, shortcuts: fakes.shortcuts,
+            phoneWindowActive: { phoneWindowActive })
         return (services, log, fakes)
     }
 
@@ -213,8 +214,24 @@ final class AppServicesTests: XCTestCase {
         services.setForeground(false)
 
         XCTAssertTrue(services.isForeground, "the car's screen is a foreground scene")
-        XCTAssertTrue(fakes.lifecycle.isForeground)
+        XCTAssertFalse(fakes.lifecycle.isForeground,
+                       "skills that need the phone's screen still wait for the phone (tap-to-run)")
         XCTAssertFalse(log.contains("voice.pause"), "voice keeps running for the car")
+    }
+
+    /// The car launched the app (killed before): the phone's window never reported
+    /// a phase, so the probe answers for it when the car goes away.
+    func testCarPlayOnlyLaunchGoesToBackgroundWhenTheCarDisconnects() {
+        let (services, log, fakes) = makeServices(phoneWindowActive: false)
+        services.start()
+        services.setCarPlayActive(true)
+        XCTAssertTrue(services.isForeground)
+
+        services.setCarPlayActive(false)
+
+        XCTAssertTrue(log.contains("voice.pause"))
+        XCTAssertFalse(services.isForeground)
+        XCTAssertFalse(fakes.lifecycle.isForeground)
     }
 
     func testCarPlayConnectingWhileBackgroundedResumes() async {
@@ -228,6 +245,7 @@ final class AppServicesTests: XCTestCase {
         await servicesWaitUntil { log.contains("voice.resume") }
 
         XCTAssertTrue(services.isForeground)
+        XCTAssertFalse(fakes.lifecycle.isForeground, "the phone itself is still in the background")
         XCTAssertEqual(fakes.bridge.connects, connectsBefore + 1)
     }
 

@@ -272,4 +272,34 @@ final class CarPlayScreensTests: XCTestCase {
         let pushedFromDashcam = pushedScreens(CarPlayScreens.dashcam(dashcamInput(clips: [clip("c")])))
         XCTAssertTrue(pushedFromDashcam.allSatisfy { $0.depth == 3 }, "\(pushedFromDashcam)")
     }
+
+    // MARK: Review fixes
+
+    /// Popping to the root (a model pick) drops every screen under it, not just the top one.
+    func testStackKeepsOnlyTheScreensStillShowing() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        let entries = [("providers", a), ("models", b)]
+        XCTAssertEqual(CarPlayStack.kept(entries, template: { $0.1 }, visible: [c]).map(\.0), [])
+        XCTAssertEqual(CarPlayStack.kept(entries, template: { $0.1 }, visible: [c, a]).map(\.0), ["providers"])
+    }
+
+    /// Store changes that don't change what a screen shows don't rebuild it.
+    func testUnchangedSectionsAreNotRebuilt() {
+        var cache = CarPlaySectionsCache()
+        let key = ObjectIdentifier(NSObject.self)
+        let sections = CarPlayScreens.notPaired
+        XCTAssertTrue(cache.changed(key, sections))
+        XCTAssertFalse(cache.changed(key, sections))
+        XCTAssertTrue(cache.changed(key, CarPlayScreens.chats([], error: nil)))
+    }
+
+    func testLoadFailuresSaySoInsteadOfLookingEmpty() {
+        XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline")).map(\.title), ["Couldn't load chats"])
+        XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline"))[0].detail, "offline")
+        XCTAssertEqual(rows(CarPlayScreens.chat(id: "c", title: "t", messages: [], error: "timed out")).last?.title,
+                       "Couldn't load the messages")
+        XCTAssertEqual(rows(CarPlayScreens.drives([], error: "500")).map(\.title), ["Couldn't load drives"])
+        let s = CarPlayScreens.devices(CarPlayDevicesInput(dashcam: nil, wearables: [], server: [], serverError: "offline"))
+        XCTAssertEqual(row(s, "Couldn't load server devices")?.detail, "offline")
+    }
 }

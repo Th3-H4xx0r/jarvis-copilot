@@ -59,4 +59,18 @@ final class CarPlayVoiceTests: XCTestCase {
                                 width: CGFloat(cg.width), height: CGFloat(cg.height)))
         return CGFloat(pixel[3]) / 255
     }
+
+    /// The car can't answer a permission prompt: only a granted mic counts.
+    func testOnlyAGrantedMicCounts() {
+        XCTAssertTrue(CarPlayVoiceState.micAllowed(.granted))
+        XCTAssertFalse(CarPlayVoiceState.micAllowed(.undetermined))
+        XCTAssertFalse(CarPlayVoiceState.micAllowed(.denied))
+    }
+
+    /// CarPlay rate-limits state changes: re-sending the same state could drop the next real one.
+    func testActivateOnlyWhenTheStateChanges() {
+        XCTAssertFalse(CarPlayVoiceState.needsActivation(active: "listening", next: "listening"))
+        XCTAssertTrue(CarPlayVoiceState.needsActivation(active: "listening", next: "thinking"))
+        XCTAssertTrue(CarPlayVoiceState.needsActivation(active: nil, next: "connecting"))
+    }
 }

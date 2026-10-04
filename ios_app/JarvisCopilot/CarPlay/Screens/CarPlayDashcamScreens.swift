@@ -125,7 +125,12 @@ extension CarPlayScreens {
 
     // MARK: Drives
 
-    static func drives(_ drives: [DashcamDrive], now: Date = Date(), calendar: Calendar = .current) -> [CarPlaySection] {
+    static func drives(_ drives: [DashcamDrive], error: String? = nil,
+                       now: Date = Date(), calendar: Calendar = .current) -> [CarPlaySection] {
+        if drives.isEmpty, let error {
+            return [CarPlaySection(title: nil, rows: [CarPlayRow(id: "drivesError", title: "Couldn't load drives", detail: error,
+                                                                 symbol: "exclamationmark.triangle", tint: .amber)])]
+        }
         guard !drives.isEmpty else {
             return [CarPlaySection(title: nil, rows: [CarPlayRow(id: "nodrives", title: "No drives yet",
                                                                  detail: "Each sync reads the GPS in every clip and joins them into drives.")])]

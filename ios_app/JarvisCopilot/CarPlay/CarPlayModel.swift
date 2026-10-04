@@ -85,6 +85,29 @@ enum CarPlayClipCommand: Equatable { case download, retryUpload, delete }
 /// The dashcam's sync and upload rules, as the settings screen edits them.
 enum CarPlayRuleKey: Equatable { case normal, normalWhen, phoneCap, keepOnPhone, upload, uploadData, uploadWhen }
 
+/// The coordinator's record of pushed screens, kept in step with CarPlay's own
+/// navigation stack (a pop-to-root reports only the screen that was on top).
+enum CarPlayStack {
+    static func kept<Entry>(_ entries: [Entry], template: (Entry) -> AnyObject, visible: [AnyObject]) -> [Entry] {
+        entries.filter { entry in visible.contains { $0 === template(entry) } }
+    }
+}
+
+/// The sections each list last showed, so a store change that alters nothing on
+/// screen doesn't rebuild it (new items reload thumbnails and flicker).
+struct CarPlaySectionsCache {
+    private var last: [ObjectIdentifier: [CarPlaySection]] = [:]
+
+    /// True when `sections` differ from what `key` last showed (and records them).
+    mutating func changed(_ key: ObjectIdentifier, _ sections: [CarPlaySection]) -> Bool {
+        guard last[key] != sections else { return false }
+        last[key] = sections
+        return true
+    }
+
+    mutating func forget(_ key: ObjectIdentifier) { last[key] = nil }
+}
+
 // MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
 
 struct CarPlayVoiceSummary: Equatable {
@@ -116,6 +139,8 @@ struct CarPlayDevicesInput {
     var dashcam: CarPlayDashcamRow?
     var wearables: [CarPlayWearable]
     var server: [Device]
+    /// Why the server's device list couldn't be read, if it couldn't.
+    var serverError: String? = nil
 }
 
 struct CarPlayDashcamInput {
