@@ -16,10 +16,28 @@ enum CarPlayScreens {
 
     // MARK: Voice tab
 
-    static func voiceTab(stateText: String) -> [CarPlaySection] {
-        [CarPlaySection(title: nil, rows: [
-            CarPlayRow(id: "talk", title: "Talk to Jarvis", detail: stateText, orb: true, action: .startVoice),
-        ])]
+    /// The Voice tab is its header (the orb, Jarvis's state, the conversation, Talk);
+    /// it has no rows of its own.
+    static func voiceTab() -> [CarPlaySection] { [] }
+
+    /// The conversation as the phone shows it: what you said, then Jarvis's reply with
+    /// the words already spoken lit and the rest dimmed. Nil before anything was said.
+    static func voiceText(heard: String, reply: String, spokenWords: Int) -> CarPlayVoiceText? {
+        let heard = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reply = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !heard.isEmpty || !reply.isEmpty else { return nil }
+        var cut = reply.startIndex
+        var words = 0
+        var index = reply.startIndex
+        while index < reply.endIndex, words < spokenWords {
+            while index < reply.endIndex, reply[index].isWhitespace { index = reply.index(after: index) }
+            guard index < reply.endIndex else { break }
+            while index < reply.endIndex, !reply[index].isWhitespace { index = reply.index(after: index) }
+            words += 1
+            cut = index
+        }
+        return CarPlayVoiceText(heard: heard.isEmpty ? nil : heard,
+                                spoken: String(reply[..<cut]), unspoken: String(reply[cut...]))
     }
 
     // MARK: Wearables tab

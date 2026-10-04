@@ -110,6 +110,9 @@ final class DashcamLiveModel: ObservableObject {
     @Published private(set) var switching = false
 
     let video = DashcamLiveVideoView()
+    /// Where frames go instead of `video` (CarPlay decodes them into stills). Returns false
+    /// when the frame couldn't be used, and the camera is asked for a keyframe.
+    var frameSink: ((CMSampleBuffer) -> Bool)?
     private var client: DashcamRTSPClient?
     private var camera: DashcamCamera?
     private var isOpen = false
@@ -210,7 +213,8 @@ final class DashcamLiveModel: ObservableObject {
         c.onFrame = { [weak self, weak c] frame in
             MainActor.assumeIsolated {
                 guard let self, let c, self.client === c else { return }
-                if !self.video.enqueue(frame) { c.requestKeyframe() }
+                let used = self.frameSink?(frame) ?? self.video.enqueue(frame)
+                if !used { c.requestKeyframe() }
             }
         }
         client = c

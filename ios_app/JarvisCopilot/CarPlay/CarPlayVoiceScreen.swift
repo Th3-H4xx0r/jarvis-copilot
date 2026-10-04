@@ -45,6 +45,8 @@ final class CarPlayVoiceScreen {
     private var template: CPVoiceControlTemplate?
     private var sawActive = false
     private(set) var isShowing = false
+    /// Shown over the Voice tab (iOS 27), so the conversation stays readable behind it.
+    private var isOverlay = false
 
     private var store: VoiceStore { .shared }
 
@@ -68,6 +70,26 @@ final class CarPlayVoiceScreen {
         sawActive = false
         buttonsKey = nil
         updateButtons()
+        let shown: (Bool) -> Void = { [weak self] presented in
+            guard let self, self.template === template else { return }
+            guard presented else {                       // CarPlay refused it: nothing is showing, so don't record
+                self.isShowing = false
+                self.template = nil
+                return
+            }
+            if micAllowed {
+                self.begin()
+            } else {
+                self.activate(VoiceState.error.rawValue)
+            }
+            self.observe()
+        }
+        if #available(iOS 27.0, *) {
+            isOverlay = true
+            ui.showOverlayTemplate(template, animated: true) { presented, _ in shown(presented) }
+            return
+        }
+        isOverlay = false
         let show = { [weak self] in
             self?.ui.presentTemplate(template, animated: true) { [weak self] presented, _ in
                 guard let self, self.template === template else { return }
@@ -177,6 +199,10 @@ final class CarPlayVoiceScreen {
         isShowing = false
         template = nil
         if stopVoice { Task { await store.stopAll() } }
-        ui.dismissTemplate(animated: true, completion: nil)
+        if #available(iOS 27.0, *), isOverlay {
+            ui.hideOverlayTemplate(animated: true, completion: nil)
+        } else {
+            ui.dismissTemplate(animated: true, completion: nil)
+        }
     }
 }

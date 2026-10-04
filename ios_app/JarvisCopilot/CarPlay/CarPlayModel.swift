@@ -15,8 +15,6 @@ struct CarPlayRow: Equatable, Identifiable {
     var tint: CarPlayTint? = nil
     /// A dashcam clip whose thumbnail the renderer loads into the row.
     var clipThumbID: String? = nil
-    /// The Jarvis orb as the row's image.
-    var orb = false
     var enabled = true
     /// The current pick in a list of choices.
     var checked = false
@@ -43,15 +41,15 @@ struct CarPlayInfoItem: Equatable {
 /// Every screen pushed over a tab. CarPlay's voice-based conversational apps
 /// may stack at most three templates, the tab's own list included.
 enum CarPlayScreen: Hashable {
-    /// The dashcam and its sub-screens.
-    case dashcam, clip(id: String), drives, dashcamSettings
+    /// The dashcam and its sub-screens (live = still pictures, parked only).
+    case dashcam, clip(id: String), drives, dashcamSettings, live
     /// A car-enabled wearable without a screen of its own: its status.
     case device(id: String)
 
     var depth: Int {
         switch self {
         case .dashcam, .device: return 2
-        case .clip, .drives, .dashcamSettings: return 3
+        case .clip, .drives, .dashcamSettings, .live: return 3
         }
     }
 
@@ -72,6 +70,7 @@ enum CarPlayDashcamCommand: Equatable {
     case liveActivity(Bool), autoSync(Bool)
     case chooseRule(CarPlayRuleKey), toggleRule(CarPlayRuleKey)
     case chooseSetting(String), syncClock
+    case switchLens
 }
 
 enum CarPlayClipCommand: Equatable { case download, retryUpload, delete }
@@ -104,6 +103,13 @@ struct CarPlaySectionsCache {
 
 // MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
 
+/// What the Voice tab shows of the conversation.
+struct CarPlayVoiceText: Equatable {
+    var heard: String?
+    var spoken: String
+    var unspoken: String
+}
+
 /// A car-enabled wearable as the Wearables tab lists it.
 struct CarPlayCarDevice: Equatable {
     var id: String
@@ -133,6 +139,8 @@ struct CarPlayDashcamInput {
     var canLoadMore: Bool
     var libraryError: String?
     var pendingUploads = 0
+    /// Parked (not driving for 3+ minutes): live view only then.
+    var parked = false
 }
 
 struct CarPlayDashcamSettingsInput {

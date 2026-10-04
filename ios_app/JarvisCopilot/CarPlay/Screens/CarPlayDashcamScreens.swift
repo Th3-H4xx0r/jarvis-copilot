@@ -37,6 +37,9 @@ extension CarPlayScreens {
                 CarPlayRow(id: "lock", title: "Lock this clip", detail: "Keeps it from being recorded over",
                            symbol: "lock", tint: .amber, action: .dashcam(.lock)),
             ]
+            controls.append(CarPlayRow(id: "live", title: "Live view",
+                                       detail: d.parked ? "The camera's picture, every 2 seconds" : "Only while parked",
+                                       symbol: "video", tint: .accent, enabled: d.parked, action: .push(.live)))
             if let mic = d.mic {
                 controls.append(CarPlayRow(id: "mic", title: mic.on ? "Mic on" : "Mic off", detail: mic.on ? "Tap to mute" : "Tap to record sound",
                                            symbol: mic.on ? "mic" : "mic.slash", tint: mic.on ? .accent : .muted,
@@ -81,6 +84,18 @@ extension CarPlayScreens {
                           detail: [status.label, transfer?.label].compactMap { $0 }.joined(separator: " · "),
                           symbol: status.symbol, tint: tint(status.tint),
                           clipThumbID: clip.hasThumb ? clip.id : nil, action: .push(.clip(id: clip.id)))
+    }
+
+    // MARK: Live view
+
+    /// The live screen's rows (its picture is the header): status, and the other lens.
+    static func live(status: String, otherLens: String, canSwitch: Bool) -> [CarPlaySection] {
+        var rows = [CarPlayRow(id: "liveStatus", title: status, symbol: "video", tint: .accent)]
+        if canSwitch {
+            rows.append(CarPlayRow(id: "switchLens", title: "Switch to the \(otherLens.lowercased()) camera",
+                                   symbol: "camera.rotate", action: .dashcam(.switchLens)))
+        }
+        return [CarPlaySection(title: nil, rows: rows)]
     }
 
     // MARK: Clip

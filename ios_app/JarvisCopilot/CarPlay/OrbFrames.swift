@@ -73,15 +73,15 @@ enum OrbFrames {
     }
 }
 
-/// One frame: the shader surface is the sphere / 0.53 (as `VoiceOrb` sizes it),
-/// cropped to the sphere.
+/// One frame: the shader surface is the sphere / 0.53 (as `VoiceOrb` sizes it). The
+/// sphere fills 86% of the picture so its glass rim and glow aren't cut off.
 private struct OrbFrameView: View {
     let size: CGFloat
     let t: Double
     var scale: CGFloat = 1
 
     var body: some View {
-        let surface = size / 0.53
+        let surface = size * 0.86 / 0.53
         Rectangle()
             .fill(.white)
             .colorEffect(ShaderLibrary.default.setupOrb(.float2(surface, surface), .float(t)))

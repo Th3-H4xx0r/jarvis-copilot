@@ -13,6 +13,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private let ui: CPInterfaceController
     private let voiceTab = CPListTemplate(title: "Voice", sections: [])
     private let wearablesTab = CPListTemplate(title: "Wearables", sections: [])
+    private var tabBar: CPTabBarTemplate?
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
     private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
 
@@ -30,6 +31,9 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private var sectionsCache = CarPlaySectionsCache()
     private var infoCache: [ObjectIdentifier: CarPlayInfo] = [:]
     private var watchingDashcam = false
+    /// The live view while its screen is open: the phone's live session, its frames
+    /// decoded into stills, and the 2-second refresh.
+    private var live: (model: DashcamLiveModel, decoder: DashcamStillDecoder, ticker: Task<Void, Never>)?
     private var refreshPending = false
     private var running = false
     private var cancellables: Set<AnyCancellable> = []
@@ -51,7 +55,9 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         voiceTab.tabImage = UIImage(systemName: "waveform")
         voiceTab.listHeader = voiceHeader()
         wearablesTab.tabImage = UIImage(systemName: "car")
-        ui.setRootTemplate(CPTabBarTemplate(templates: [voiceTab, wearablesTab]), animated: false, completion: nil)
+        let tabs = CPTabBarTemplate(templates: [voiceTab, wearablesTab])
+        tabBar = tabs
+        ui.setRootTemplate(tabs, animated: false, completion: nil)
         refresh()
         observeStores()
         subscribeToDevices()
@@ -66,6 +72,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         running = false
         cancellables.removeAll()
         if watchingDashcam { sync.watchStatus(false); watchingDashcam = false }
+        stopLive()
         voice.stop()
         OrbFrames.clear()
     }
@@ -87,11 +94,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     private func refresh() {
         guard running else { return }
-        show(paired ? CarPlayScreens.voiceTab(stateText: voiceStateText) : CarPlayScreens.notPaired, in: voiceTab)
-        if let header = voiceTab.listHeader {
-            let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
-            if header.subtitle != subtitle { header.subtitle = subtitle }
-        }
+        show(paired ? CarPlayScreens.voiceTab() : CarPlayScreens.notPaired, in: voiceTab)
+        updateVoiceHeader()
         show(paired ? CarPlayScreens.wearablesTab(carDevices.map(\.row)) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
     }
@@ -112,6 +116,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         withObservationTracking {
             let v = VoiceStore.shared
             _ = v.state; _ = v.error
+            _ = v.userTranscript; _ = v.livePartial; _ = v.assistantText; _ = v.spokenWords
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.scheduleRefresh()
@@ -169,7 +174,30 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         let talk = CPButton(image: UIImage(systemName: "mic.fill") ?? UIImage()) { [weak self] _ in self?.handle(.startVoice) }
         talk.title = "Talk"
         return CPListTemplateDetailsHeader(thumbnail: CPThumbnailImage(image: orb), title: "Jarvis",
-                                           subtitle: voiceStateText, actionButtons: [talk])
+                                           subtitle: voiceStateText, bodyVariants: [], actionButtons: [talk])
+    }
+
+    /// The header follows the conversation: Jarvis's state, then what you said (dim) and
+    /// the reply with its spoken words lit — the phone's Voice screen, in CarPlay's text.
+    private func updateVoiceHeader() {
+        guard let header = voiceTab.listHeader else { return }
+        let v = VoiceStore.shared
+        let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
+        if header.subtitle != subtitle { header.subtitle = subtitle }
+        let text = paired ? CarPlayScreens.voiceText(heard: v.userTranscript.isEmpty ? v.livePartial : v.userTranscript,
+                                                     reply: voicePlainSpeech(v.assistantText), spokenWords: v.spokenWords) : nil
+        let body = text.map { [Self.attributed($0)] } ?? []
+        if header.bodyVariants != body { header.bodyVariants = body }
+    }
+
+    private static func attributed(_ text: CarPlayVoiceText) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        let dim: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
+        let lit: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.label]
+        if let heard = text.heard { out.append(NSAttributedString(string: heard + "\n", attributes: dim)) }
+        out.append(NSAttributedString(string: text.spoken, attributes: lit))
+        out.append(NSAttributedString(string: text.unspoken, attributes: dim))
+        return out
     }
 
     /// Every device Jarvis knows whose type opted into the car (`carEnabled`).
@@ -200,7 +228,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             cloudBackupOn: sync.rules.upload, uploadNote: sync.rules.upload ? sync.uploadNote : nil,
             passActive: sync.passActive, mic: mic, canReconnect: hasWifiPassword,
             filter: library.filter, clips: library.clips, canLoadMore: library.canLoadMore,
-            libraryError: library.error, pendingUploads: sync.pendingUploads)
+            libraryError: library.error, pendingUploads: sync.pendingUploads,
+            parked: DashcamMotion.shared.isParked())
     }
 
     private var settingsInput: CarPlayDashcamSettingsInput {
@@ -221,6 +250,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .clip: return "Clip"
         case .drives: return "Drives"
         case .dashcamSettings: return "Dashcam settings"
+        case .live: return "Live view"
         case .device(let id): return carDevices.first { $0.row.id == id }?.row.name ?? "Device"
         }
     }
@@ -230,6 +260,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .dashcam: return CarPlayScreens.dashcam(dashcamInput)
         case .drives: return CarPlayScreens.drives(drives, error: drivesError)
         case .dashcamSettings: return CarPlayScreens.dashcamSettings(settingsInput)
+        case .live: return CarPlayScreens.live(status: liveStatus, otherLens: live?.model.otherLensName ?? "Rear",
+                                               canSwitch: live?.model.source?.canSwitch ?? false)
         case .clip, .device: return nil
         }
     }
@@ -254,6 +286,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         let list = CPListTemplate(title: title(screen), sections: render(sections(screen) ?? []))
         if screen == .dashcam {
             list.trailingNavigationBarButtons = [CPBarButton(title: "Filter") { [weak self] _ in self?.chooseFilter() }]
+        }
+        if screen == .live, let placeholder = UIImage(systemName: "video") {
+            list.listHeader = CPListTemplateDetailsHeader(thumbnail: CPThumbnailImage(image: placeholder), title: "Live",
+                                                          subtitle: "Connecting to the camera…", actionButtons: [])
         }
         return list
     }
@@ -310,8 +346,70 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
                 if wifi.onCamera { cameraItems = (try? await DashcamCameraSettings.load()) ?? [] }
                 refresh()
             }
+        case .live: startLive()
         case .device: break
         }
+    }
+
+    // MARK: Live view (still pictures, parked only)
+
+    private var liveStatus: String {
+        guard let model = live?.model else { return "Stopped" }
+        switch model.status {
+        case .connecting: return "Connecting to the camera…"
+        case .playing: return "Live · \(model.lensName)"
+        case .failed(let message): return message
+        }
+    }
+
+    private func startLive() {
+        guard live == nil else { return }
+        guard DashcamMotion.shared.isParked() else {
+            alert("Live view works while you're parked.")
+            return
+        }
+        let model = DashcamLiveModel()
+        let decoder = DashcamStillDecoder()
+        model.frameSink = { decoder.decode($0) }
+        let ticker = Task { @MainActor [weak self] in
+            await model.open()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !Task.isCancelled else { return }
+                self.liveTick()
+            }
+        }
+        live = (model, decoder, ticker)
+    }
+
+    /// Every 2 s: a fresh picture — or stop, if the car started moving.
+    private func liveTick() {
+        guard let live else { return }
+        guard DashcamMotion.shared.isParked() else {
+            stopLive()
+            if let screen = stack.last(where: { $0.screen == .live })?.template, ui.topTemplate === screen {
+                ui.popTemplate(animated: true, completion: nil)
+            }
+            alert("Live view stopped — you're driving.")
+            return
+        }
+        guard let header = (stack.last(where: { $0.screen == .live })?.template as? CPListTemplate)?.listHeader else { return }
+        let side: CGFloat
+        if #available(iOS 27.0, *) {
+            side = CPThumbnailImage.maximumImageSize(forAspectRatio: 16.0 / 9.0).width
+        } else {
+            side = 480
+        }
+        if let picture = live.decoder.image(maxSide: side) { header.thumbnail = CPThumbnailImage(image: picture) }
+        header.subtitle = liveStatus
+        refresh()
+    }
+
+    private func stopLive() {
+        guard let live else { return }
+        live.ticker.cancel()
+        live.model.close()            // also lets syncing carry on
+        self.live = nil
     }
 
     // MARK: Actions
@@ -322,6 +420,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .push(let screen): push(screen)
         case .startVoice:
             guard paired else { alert("Pair Jarvis on your iPhone first."); return }
+            // Back to the Voice tab, so the conversation shows behind the voice overlay.
+            if tabBar?.selectedTemplate !== voiceTab || !stack.isEmpty {
+                ui.popToRootTemplate(animated: false, completion: nil)
+                tabBar?.select(voiceTab)
+            }
             voice.start()
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
@@ -380,6 +483,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
                     self.refresh()
                 }
             }
+        case .switchLens:
+            if let model = live?.model { Task { await model.switchLens(); refresh() } }
         case .syncClock:
             Task {
                 _ = await sync.syncNow()
@@ -492,6 +597,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             watchingDashcam = false
             sync.watchStatus(false)
         }
+        if live != nil, !stack.contains(where: { $0.screen == .live }) { stopLive() }
     }
 
     // MARK: CPInterfaceControllerDelegate

@@ -23,11 +23,12 @@ final class CarPlayScreensTests: XCTestCase {
                                  "phone": ["state": phone], "destinations": destinations])!
     }
     private func dashcamInput(onCamera: Bool = true, recording: Bool? = true, clips: [DashcamServerClip] = [],
-                              mic: DashcamMic? = nil, canReconnect: Bool = true, passActive: Bool = false) -> CarPlayDashcamInput {
+                              mic: DashcamMic? = nil, canReconnect: Bool = true, passActive: Bool = false,
+                              parked: Bool = true) -> CarPlayDashcamInput {
         CarPlayDashcamInput(onCamera: onCamera, phaseLabel: "Up to date", recording: recording, sdFreeBytes: 12_300_000_000,
                             subtitle: "Synced 2 min ago", downloading: nil, uploading: nil, cloudBackupOn: true,
                             uploadNote: nil, passActive: passActive, mic: mic, canReconnect: canReconnect,
-                            filter: .all, clips: clips, canLoadMore: false, libraryError: nil)
+                            filter: .all, clips: clips, canLoadMore: false, libraryError: nil, parked: parked)
     }
 
     // MARK: Not paired
@@ -41,12 +42,25 @@ final class CarPlayScreensTests: XCTestCase {
 
     // MARK: Voice tab
 
-    func testVoiceTabIsOneTalkRow() {
-        let r = rows(CarPlayScreens.voiceTab(stateText: "Tap to talk"))
-        XCTAssertEqual(r.map(\.title), ["Talk to Jarvis"])
-        XCTAssertTrue(r[0].orb)
-        XCTAssertEqual(r[0].detail, "Tap to talk")
-        XCTAssertEqual(r[0].action, .startVoice)
+    /// The Voice tab is its header (orb, state, Talk) — no rows repeating it.
+    func testVoiceTabHasNoRowsBesideItsHeader() {
+        XCTAssertTrue(rows(CarPlayScreens.voiceTab()).isEmpty)
+    }
+
+    /// Like the phone: what you said, then Jarvis's reply with the spoken words lit.
+    func testVoiceTextSplitsTheReplyAtTheSpokenWord() {
+        let t = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
+        XCTAssertEqual(t?.heard, "Are you there?")
+        XCTAssertEqual(t?.spoken, "Here, sir. The")
+        XCTAssertEqual(t?.unspoken, " worker is waiting.")
+    }
+
+    func testVoiceTextBeforeAndAfterSpeaking() {
+        XCTAssertEqual(CarPlayScreens.voiceText(heard: "", reply: "Two words", spokenWords: 0)?.unspoken, "Two words")
+        XCTAssertEqual(CarPlayScreens.voiceText(heard: "", reply: "Two words", spokenWords: 0)?.spoken, "")
+        XCTAssertEqual(CarPlayScreens.voiceText(heard: "", reply: "Two words", spokenWords: 9)?.spoken, "Two words")
+        XCTAssertNil(CarPlayScreens.voiceText(heard: "  ", reply: "", spokenWords: 0), "nothing said yet: no text")
+        XCTAssertNil(CarPlayScreens.voiceText(heard: "Hi", reply: "", spokenWords: 0)?.spoken.nilIfEmpty)
     }
 
     // MARK: Wearables tab (car-enabled only)
@@ -109,6 +123,24 @@ final class CarPlayScreensTests: XCTestCase {
         let stopped = CarPlayScreens.dashcam(dashcamInput(recording: false))
         XCTAssertNotNil(row(stopped, "Record"))
         XCTAssertNil(row(stopped, "Mic on"), "no mic row until the camera reports one")
+    }
+
+    /// Live view is still pictures, and only while parked on the camera's Wi‑Fi.
+    func testLiveViewOnlyWhileParkedOnTheCamera() {
+        let parked = CarPlayScreens.dashcam(dashcamInput(parked: true))
+        XCTAssertEqual(row(parked, "Live view")?.action, .push(.live))
+        XCTAssertEqual(row(parked, "Live view")?.enabled, true)
+        let driving = CarPlayScreens.dashcam(dashcamInput(parked: false))
+        XCTAssertEqual(row(driving, "Live view")?.enabled, false)
+        XCTAssertEqual(row(driving, "Live view")?.detail, "Only while parked")
+        XCTAssertNil(row(CarPlayScreens.dashcam(dashcamInput(onCamera: false, recording: nil)), "Live view"))
+    }
+
+    func testLiveScreenOffersTheOtherLens() {
+        let s = CarPlayScreens.live(status: "Live · Front", otherLens: "Rear", canSwitch: true)
+        XCTAssertEqual(rows(s).first?.title, "Live · Front")
+        XCTAssertEqual(row(s, "Switch to the rear camera")?.action, .dashcam(.switchLens))
+        XCTAssertNil(row(CarPlayScreens.live(status: "Live", otherLens: "Rear", canSwitch: false), "Switch to the rear camera"))
     }
 
     func testClipsShowStatusThumbnailAndOpenTheClip() {
@@ -182,11 +214,12 @@ final class CarPlayScreensTests: XCTestCase {
         for screen in [CarPlayScreen.dashcam, .device(id: "d")] {
             XCTAssertEqual(screen.depth, 2, "\(screen)")
         }
-        for screen in [CarPlayScreen.clip(id: "c"), .drives, .dashcamSettings] {
+        for screen in [CarPlayScreen.clip(id: "c"), .drives, .dashcamSettings, .live] {
             XCTAssertEqual(screen.depth, 3, "\(screen)")
         }
         // Depth-3 screens built from lists never push.
         XCTAssertTrue(pushedScreens(CarPlayScreens.drives([], now: Date(), calendar: .current)).isEmpty)
+        XCTAssertTrue(pushedScreens(CarPlayScreens.live(status: "Live", otherLens: "Rear", canSwitch: true)).isEmpty)
         XCTAssertTrue(pushedScreens(CarPlayScreens.dashcamSettings(CarPlayDashcamSettingsInput(
             liveActivity: false, autoSync: true, rules: DashcamRules(), rulesLoaded: true, onCamera: false,
             cameraItems: [], sd: nil))).isEmpty)
@@ -212,10 +245,14 @@ final class CarPlayScreensTests: XCTestCase {
         let sections = CarPlayScreens.notPaired
         XCTAssertTrue(cache.changed(key, sections))
         XCTAssertFalse(cache.changed(key, sections))
-        XCTAssertTrue(cache.changed(key, CarPlayScreens.voiceTab(stateText: "Listening…")))
+        XCTAssertTrue(cache.changed(key, CarPlayScreens.wearablesTab([])))
     }
 
     func testLoadFailuresSaySoInsteadOfLookingEmpty() {
         XCTAssertEqual(rows(CarPlayScreens.drives([], error: "500")).map(\.title), ["Couldn't load drives"])
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
