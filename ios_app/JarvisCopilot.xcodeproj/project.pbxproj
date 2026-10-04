@@ -258,6 +258,7 @@
 		4280C98253227B7412E5C2AC /* InmoBluetoothFrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE084463952C282DCF39416 /* InmoBluetoothFrameCodec.swift */; };
 		43102216468ABD49BA332553 /* PushHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78DB5CCBF0044B47377488AB /* PushHandlerTests.swift */; };
 		4381EAA07560C50D0F2D53B2 /* RingWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF5F74C647846E28AFC5ECB /* RingWorkoutAttributes.swift */; };
+		4398C4F63E084ACED4232ED1 /* WorkoutWearable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */; };
 		43DC344013DB784114E907B8 /* RouteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB51502D6B32282610806346 /* RouteStoreTests.swift */; };
 		440EC6A6C9849819AF0D6209 /* TrainingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695DF5E83265D57DABAD99BB /* TrainingStore.swift */; };
 		44100161EFA4BC399696C1C9 /* X5Manager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F639C80D373289F6AB6A8862 /* X5Manager.swift */; };
@@ -279,6 +280,7 @@
 		479CBC19AEF9985CDFD7EF56 /* IOSSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A4E3847E7B8475E457549C /* IOSSkills.swift */; };
 		47F2CB1D9E0845EE10135C18 /* DevicePairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A64105452F0FDB1A7CBAF0 /* DevicePairSheet.swift */; };
 		480D684FA17855E767923E58 /* TrainingModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65670FF1B2044809C63AE8F /* TrainingModelsTests.swift */; };
+		481809D9F287A69D6A32D505 /* X5WorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05154151B520AA9B4155DBDC /* X5WorkoutTests.swift */; };
 		482DBBB8BB3D299E233E8B00 /* GlassesScreenRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE005B9FC27E7A101BF66255 /* GlassesScreenRenderTests.swift */; };
 		4837DA4DC2117A662C8B50AF /* IntegrationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B172AD0305445589AF5BDF95 /* IntegrationDetailView.swift */; };
 		48470BA5050232D0890D5601 /* SkillArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B5A7079298755592C4A14CE /* SkillArgsTests.swift */; };
@@ -1012,6 +1014,7 @@
 		044FE3473B389F40EB81E9F3 /* ContactLookup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContactLookup.swift; sourceTree = "<group>"; };
 		04A3A19FD77D7466DE72F90D /* X5Sync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Sync.swift; sourceTree = "<group>"; };
 		05020FDF91A61E75B981519B /* RingWorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingWorkoutTests.swift; sourceTree = "<group>"; };
+		05154151B520AA9B4155DBDC /* X5WorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5WorkoutTests.swift; sourceTree = "<group>"; };
 		05250CBA76D02E2482C6DFA5 /* ExerciseLibraryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseLibraryTests.swift; sourceTree = "<group>"; };
 		056DD31ABA27162A9A80A666 /* ProfilesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesStore.swift; sourceTree = "<group>"; };
 		0582398E98A03D27A37224D5 /* ExerciseLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseLibrary.swift; sourceTree = "<group>"; };
@@ -1314,6 +1317,7 @@
 		5BAE6306B13C898FA86964CE /* GlassesTranslateView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslateView.swift; sourceTree = "<group>"; };
 		5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranscript.swift; sourceTree = "<group>"; };
 		5D01C409D24FB62BBB311997 /* RouteThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteThumbnail.swift; sourceTree = "<group>"; };
+		5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutWearable.swift; sourceTree = "<group>"; };
 		5E1327731224D0A859E94FE2 /* CronsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronsStore.swift; sourceTree = "<group>"; };
 		5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsSections.swift; sourceTree = "<group>"; };
 		5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceChatBridgeTests.swift; sourceTree = "<group>"; };
@@ -3454,6 +3458,7 @@
 				023E8AC81A3284533BDE57D2 /* X5ModelRenderTests.swift */,
 				147D758171AF421660BBF6DD /* HealthRingTests.swift */,
 				74475771CEE1CE221F4A86F9 /* X5MonitoringTests.swift */,
+				05154151B520AA9B4155DBDC /* X5WorkoutTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3603,6 +3608,7 @@
 				E3871C7B134E97874F25B1E9 /* X5 */,
 				41DCD577ADAA3427809FECC3 /* RingDayJSON.swift */,
 				1C617671C9D1004D791BE0EA /* HealthRing.swift */,
+				5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -4148,6 +4154,7 @@
 				C1706FF86FF3571038B430B2 /* CarPlayScreensTests.swift in Sources */,
 				700EABC756567BF24B2B1905 /* CarPlayVoiceTests.swift in Sources */,
 				6E594F5F037AE6ACFC5C1B1F /* DashcamStillDecoderTests.swift in Sources */,
+				481809D9F287A69D6A32D505 /* X5WorkoutTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4776,6 +4783,7 @@
 				FAF1DDCF607FE1998A28197B /* CarPlayVoiceScreen.swift in Sources */,
 				CC78D507DE434BF8663AEF84 /* OrbFrames.swift in Sources */,
 				22A86E16D92ACC08AE32300A /* DashcamStillDecoder.swift in Sources */,
+				4398C4F63E084ACED4232ED1 /* WorkoutWearable.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -42,20 +42,26 @@ final class RingManager: NSObject, ObservableObject {
     private(set) lazy var measure = RingMeasureController(manager: self)
     /// Workouts on the ring, started from the Health tab, the ring screen or by voice.
     private(set) lazy var workout: RingWorkoutController = {
-        let controller = RingWorkoutController(
+        let r12 = R12WorkoutWearable(
             session: session,
-            ensureConnected: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
+            connect: { [weak self] in await self?.ensureConnected(timeout: 12) ?? false },
+            disconnect: { [weak self] in self?.disconnect() },
+            deviceID: { [weak self] in self?.deviceID },
+            state: $state.eraseToAnyPublisher())
+        let controller = RingWorkoutController(
+            wearable: r12,
             age: { [weak self] in self?.session.settings.profile?.age ?? 30 },
             location: WorkoutLocation(),
             liveActivity: WorkoutLiveActivity(),
             training: .shared, library: .shared, alerts: RestAlerts(), pedometer: PhonePedometer(),
             profile: { [weak self] in VitalsProfile(ring: self?.session.settings.profile, restingHR: HealthRestingHR.last) })
         controller.onEnded = { [weak self] in self?.workoutEnded() }
-        controller.onSaveRoute = { [weak self] route, workout in
-            RouteStore.shared.save(route, for: workout, deviceID: self?.deviceID)
+        // Saved under the wearable that tracked it (the X5's own id for an X5 workout).
+        controller.onSaveRoute = { [weak self, weak controller] route, workout in
+            RouteStore.shared.save(route, for: workout, deviceID: controller?.deviceIDForSave ?? self?.deviceID)
         }
-        controller.onSave = { [weak self] workout in
-            let deviceID = self?.deviceID
+        controller.onSave = { [weak self, weak controller] workout in
+            let deviceID = controller?.deviceIDForSave ?? self?.deviceID
             Task {
                 await WorkoutUploader.save(workout, deviceID: deviceID)
                 await RouteStore.shared.flush()
@@ -74,7 +80,7 @@ final class RingManager: NSObject, ObservableObject {
 
     /// A workout needs the link the whole time, in the background too: let
     /// go and the ring loses the phone and pauses its session.
-    var holdsLinkForWorkout: Bool { workout.isActive && !workout.phoneOnly }
+    var holdsLinkForWorkout: Bool { workout.holdsLink(for: WearableKeepAlive.ring) }
 
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.

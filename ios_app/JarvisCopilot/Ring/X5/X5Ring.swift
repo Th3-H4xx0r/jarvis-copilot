@@ -18,6 +18,12 @@ protocol X5Backend: AnyObject {
     func ensureConnected(timeout: TimeInterval) async -> Bool
     func waitForSetup(timeout: TimeInterval) async
     func releaseIfIdle()
+    /// The workout controller, when the app runs one (the live sheet, Jarvis Health).
+    var workouts: RingWorkoutController? { get }
+}
+
+extension X5Backend {
+    var workouts: RingWorkoutController? { nil }
 }
 
 extension X5Manager: X5Backend {
@@ -97,7 +103,8 @@ final class X5Ring: WearableDevice {
                                                      required: ["type"])),
             DeviceCapability(
                 name: "x5_workout",
-                description: "Run a workout on the X5: start (with sport), pause, resume, end, status.",
+                description: "Run a workout on the X5: start (with sport), pause, resume, end, status. Opens the "
+                    + "live workout screen on the phone and saves it to Jarvis Health.",
                 inputSchema: DeviceCapability.schema([
                     "action": ["type": "string", "enum": ["start", "pause", "resume", "end", "status"]],
                     "sport": ["type": "string", "enum": X5Sport.allCases.map(\.name)],
@@ -357,6 +364,7 @@ final class X5Ring: WearableDevice {
         if action == 1, args["sport"] != nil, X5Sport.named(args["sport"] as? String ?? "") == nil {
             throw DeviceError.badArgument("unknown sport. Use: " + X5Sport.allCases.map(\.name).joined(separator: ", "))
         }
+        if let controller = backend.workouts { return workout(name, sport: sport, controller) }
         return try await live { _ in
             let reply = try await self.session.workout(action, sport: sport)
             var out: [String: Any] = ["ok": reply.ok, "action": name]
@@ -365,6 +373,43 @@ final class X5Ring: WearableDevice {
             if !reply.ok, action == 1 { out["detail"] = "the ring is busy — a measurement or another workout is running" }
             return out
         }
+    }
+
+    /// Through the workout controller, as `ring_workout` does: a 3-second countdown, the live
+    /// sheet on the phone, and the workout saved to Jarvis Health at the end.
+    private func workout(_ action: String, sport: X5Sport, _ controller: RingWorkoutController) -> [String: Any] {
+        if action == "start" {
+            if controller.isActive { return Self.status(controller, note: "a workout is already running") }
+            controller.nextStartWearable = WearableKeepAlive.x5ring
+            controller.nextStartUsesRing = true
+            controller.start(X5WorkoutWearable.sport(for: sport))
+            return ["ok": true, "action": action, "status": "starting", "sport": sport.name,
+                    "note": "3-second countdown, then the X5 starts; the live workout screen opens on the phone"]
+        }
+        if controller.isActive, controller.wearable.kind != WearableKeepAlive.x5ring {
+            return Self.status(controller, note: "the workout running is not on the X5")
+        }
+        switch action {
+        case "pause": controller.pause()
+        case "resume": controller.resume()
+        case "end": controller.end()
+        default: break
+        }
+        return Self.status(controller)
+    }
+
+    private static func status(_ controller: RingWorkoutController, note: String? = nil) -> [String: Any] {
+        var out: [String: Any] = ["ok": true, "phase": "\(controller.phase)".components(separatedBy: "(").first ?? "idle"]
+        if let sport = controller.sport { out["sport"] = sport.name }
+        if let tick = controller.tick {
+            out["elapsed_seconds"] = tick.elapsed
+            out["steps"] = tick.steps
+            out["kilocalories"] = tick.kilocalories
+            out["distance_m"] = controller.gpsDistance ?? Double(tick.distanceMeters)
+            if let hr = tick.heartRate { out["heart_rate"] = hr }
+        }
+        if let note { out["note"] = note }
+        return out
     }
 
     private func setMonitoring(_ args: [String: Any]) async throws -> [String: Any] {

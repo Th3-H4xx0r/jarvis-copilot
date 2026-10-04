@@ -38,10 +38,22 @@ enum WorkoutChoice: Hashable, Identifiable {
 enum WorkoutMonitorPreference {
     private static let key = "jc.workout.monitor"
 
-    /// The ring, unless "No wearable" was chosen.
+    /// A wearable, unless "No wearable" was chosen.
     static var usesRing: Bool {
         get { UserDefaults.standard.string(forKey: key) != "none" }
-        set { UserDefaults.standard.set(newValue ? "ring" : "none", forKey: key) }
+        set {
+            if !newValue {
+                UserDefaults.standard.set("none", forKey: key)
+            } else if !usesRing {
+                UserDefaults.standard.set(WearableKeepAlive.ring, forKey: key)
+            }
+        }
+    }
+
+    /// The workout wearable last chosen (a roster kind: "ring", "x5ring"), nil before one was.
+    static var wearable: String? {
+        get { UserDefaults.standard.string(forKey: key).flatMap { $0 == "none" ? nil : $0 } }
+        set { UserDefaults.standard.set(newValue ?? "none", forKey: key) }
     }
 }
 
@@ -187,11 +199,14 @@ struct WorkoutConfirmView: View {
     var monitors: [WorkoutMonitor]? = nil
     let onStart: (WorkoutChoice) -> Void
     @ObservedObject private var ring: RingManager
-    @ObservedObject private var ringSession: RingSession
+    /// Republishes its wearables' links and batteries.
+    @ObservedObject private var workout: RingWorkoutController
     @ObservedObject private var appleHealth = AppleHealthWriter.shared
     @State private var editing = false
     @State private var choosingMonitor = false
     @State private var ringChosen = WorkoutMonitorPreference.usesRing
+    /// Which workout wearable (a roster kind) tracks it.
+    @State private var wearableKind: String
     /// Outdoors: a past route to follow.
     @State private var guide: RouteGuide?
     @State private var choosingRoute = false
@@ -200,7 +215,7 @@ struct WorkoutConfirmView: View {
 
     init(choice: WorkoutChoice, store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
          monitors: [WorkoutMonitor]? = nil, ring: RingManager = WearablesHub.shared.ring, guide: RouteGuide? = nil,
-         onStart: @escaping (WorkoutChoice) -> Void) {
+         wearable: String? = nil, onStart: @escaping (WorkoutChoice) -> Void) {
         self.choice = choice
         _guide = State(initialValue: guide)
         self.store = store
@@ -208,9 +223,15 @@ struct WorkoutConfirmView: View {
         self.monitors = monitors
         self.onStart = onStart
         _ring = ObservedObject(wrappedValue: ring)
-        _ringSession = ObservedObject(wrappedValue: ring.session)
-        // Outside with no ring paired, the phone records it: nothing to choose.
-        let paired = WearableIdentity.remembered(WearableKeepAlive.ring) != nil
+        _workout = ObservedObject(wrappedValue: ring.workout)
+        let wearables = ring.workout.wearables
+        let isPaired = { (kind: String) in wearables.first { $0.kind == kind }?.isPaired ?? false }
+        // A device's own page opens on that device; otherwise the last choice.
+        _wearableKind = State(initialValue: wearable.flatMap { isPaired($0) ? $0 : nil } ?? WorkoutWearables.preferred(
+            stored: WorkoutMonitorPreference.wearable, health: HealthRing.current.kind, kinds: wearables.map(\.kind),
+            isPaired: isPaired))
+        // Outside with no wearable paired, the phone records it: nothing to choose.
+        let paired = wearables.contains { $0.isPaired }
         _ringChosen = State(initialValue: WorkoutMonitorPreference.usesRing && (paired || !choice.isOutdoor))
     }
 
@@ -220,13 +241,15 @@ struct WorkoutConfirmView: View {
         return store.templates.first { $0.id == t.id } ?? t
     }
 
-    private var ringPaired: Bool { WearableIdentity.remembered(WearableKeepAlive.ring) != nil }
+    /// The wearable the workout will use.
+    private var chosen: WorkoutWearable? { workout.wearables.first { $0.kind == wearableKind } }
+    private var ringPaired: Bool { chosen?.isPaired ?? false }
 
     private var liveMonitors: [WorkoutMonitor] {
         monitors ?? WorkoutMonitor.list(
             for: choice,
-            ring: .init(paired: ringPaired, name: WearableNames.shared.name(WearableKeepAlive.ring, fallback: "Colmi R12"),
-                        state: ring.state, battery: ringSession.battery, connecting: false),
+            ring: .init(paired: ringPaired, name: chosen?.name ?? "Ring",
+                        state: chosen?.state ?? .idle, battery: chosen?.battery, connecting: false),
             ringChosen: ringChosen,
             appleHealth: appleHealth.enabled && appleHealth.isAuthorized)
     }
@@ -275,13 +298,22 @@ struct WorkoutConfirmView: View {
             if let template { TemplateEditor(template: template, store: store, library: library) }
         }
         .sheet(isPresented: $choosingMonitor) {
-            MonitorPicker(choice: choice, ring: ring, ringChosen: $ringChosen)
+            MonitorPicker(choice: choice, ring: ring, ringChosen: $ringChosen, wearableKind: $wearableKind)
         }
         .sheet(isPresented: $choosingRoute) { RoutePicker(guide: $guide) }
         .onChange(of: ringChosen) { _, chosen in
             choseMonitor = true
-            WorkoutMonitorPreference.usesRing = chosen
+            savePreference()
         }
+        .onChange(of: wearableKind) { _, _ in
+            choseMonitor = true
+            savePreference()
+        }
+    }
+
+    /// "No wearable", or the wearable picked — one key holds both.
+    private func savePreference() {
+        if ringChosen { WorkoutMonitorPreference.wearable = wearableKind } else { WorkoutMonitorPreference.usesRing = false }
     }
 
     // MARK: Header
@@ -369,7 +401,7 @@ struct WorkoutConfirmView: View {
         Row(minHeight: 64) {
             HStack(spacing: 12) {
                 if ringChosen && ringPaired {
-                    WearableModelView(kind: WearableKeepAlive.ring, size: 44)
+                    WearableModelView(kind: wearableKind, size: 44)
                 } else {
                     Image(systemName: monitor.symbol)
                         .font(.system(size: 17))
@@ -450,8 +482,9 @@ struct WorkoutConfirmView: View {
         Button {
             // What the screen shows is what starts — saved as the preference
             // only when the person chose it (not when no ring forced it).
-            if choseMonitor { WorkoutMonitorPreference.usesRing = ringChosen }
+            if choseMonitor { savePreference() }
             ring.workout.nextStartUsesRing = ringChosen
+            ring.workout.nextStartWearable = wearableKind
             ring.workout.guide = choice.isOutdoor ? guide : nil
             onStart(choice)
         } label: {
@@ -610,31 +643,38 @@ struct MonitorPicker: View {
     let choice: WorkoutChoice
     @ObservedObject var ring: RingManager
     @Binding var ringChosen: Bool
-    @ObservedObject private var ringSession: RingSession
+    @Binding var wearableKind: String
+    /// Republishes its wearables' links and batteries.
+    @ObservedObject private var workout: RingWorkoutController
     @Environment(\.dismiss) private var dismiss
-    @State private var working = false
+    /// The wearable being connected from here.
+    @State private var working: String?
 
     /// `connecting`: shown mid-connection (render tests).
-    init(choice: WorkoutChoice, ring: RingManager, ringChosen: Binding<Bool>, connecting: Bool = false) {
+    init(choice: WorkoutChoice, ring: RingManager, ringChosen: Binding<Bool>,
+         wearableKind: Binding<String> = .constant(WearableKeepAlive.ring), connecting: Bool = false) {
         self.choice = choice
         self.ring = ring
         _ringChosen = ringChosen
-        _working = State(initialValue: connecting)
-        _ringSession = ObservedObject(wrappedValue: ring.session)
+        _wearableKind = wearableKind
+        _workout = ObservedObject(wrappedValue: ring.workout)
+        _working = State(initialValue: connecting ? wearableKind.wrappedValue : nil)
     }
 
-    private var paired: Bool { WearableIdentity.remembered(WearableKeepAlive.ring) != nil }
-    private var name: String { WearableNames.shared.name(WearableKeepAlive.ring, fallback: "Colmi R12") }
+    private var paired: [WorkoutWearable] { workout.wearables.filter(\.isPaired) }
     /// Every other paired wearable, shown so the list is complete.
     @State private var others: [WearableEntry] = []
-    private var busy: Bool { working || [.scanning, .connecting, .discovering].contains(ring.state) }
+
+    private func busy(_ wearable: WorkoutWearable) -> Bool {
+        working == wearable.kind || [.scanning, .connecting, .discovering].contains(wearable.state)
+    }
 
     /// "Connected · 82% battery", "Not connected", "Not in range".
-    private var status: (text: String, warning: Bool) {
-        switch ring.state {
+    private func status(_ wearable: WorkoutWearable) -> (text: String, warning: Bool) {
+        switch wearable.state {
         case .ready:
-            if ringSession.battery?.charging == true { return ("On its charger", true) }
-            return (ringSession.battery.map { "Connected · \($0.percent)% battery" } ?? "Connected", false)
+            if wearable.battery?.charging == true { return ("On its charger", true) }
+            return (wearable.battery.map { "Connected · \($0.percent)% battery" } ?? "Connected", false)
         case .scanning, .connecting, .discovering: return ("Connecting…", false)
         case .failed: return ("Not in range", true)
         case .idle: return ("Not connected", false)
@@ -646,10 +686,19 @@ struct MonitorPicker: View {
             ScrollView {
                 VStack(spacing: 22) {
                     CardGroup("Tracks workouts", footer: "Pair more wearables in Devices.") {
-                        if paired {
-                            ringRow
-                        } else {
+                        if paired.isEmpty {
                             Row(minHeight: 56) { Text("No ring paired").foregroundStyle(.secondary) }
+                        } else {
+                            ForEach(Array(paired.enumerated()), id: \.element.id) { index, wearable in
+                                if index > 0 { RowDivider() }
+                                WorkoutWearableRow(wearable: wearable, selected: ringChosen && wearableKind == wearable.kind,
+                                                   status: status(wearable), busy: busy(wearable),
+                                                   select: {
+                                                       wearableKind = wearable.kind
+                                                       ringChosen = true
+                                                   },
+                                                   connect: { connect(wearable) })
+                            }
                         }
                     }
                     if !others.isEmpty {
@@ -709,55 +758,65 @@ struct MonitorPicker: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(JcTheme.bg)
-        .onAppear { others = WearablesHub.shared.roster().filter { $0.kind != WearableKeepAlive.ring } }
+        .onAppear {
+            let kinds = Set(workout.wearables.map(\.kind))
+            others = WearablesHub.shared.roster().filter { !kinds.contains($0.kind) }
+        }
     }
 
-    private var ringRow: some View {
+    /// Reconnect starts the link afresh; Connect reopens the known device.
+    private func connect(_ wearable: WorkoutWearable) {
+        working = wearable.kind
+        let connected = wearable.state == .ready
+        Task {
+            if connected { wearable.disconnect() }
+            _ = await wearable.ensureConnected()
+            working = nil
+        }
+    }
+}
+
+/// One workout wearable in the picker: its model, name and state, a checkmark when chosen, and
+/// Connect or Reconnect.
+private struct WorkoutWearableRow: View {
+    @ObservedObject var wearable: WorkoutWearable
+    let selected: Bool
+    let status: (text: String, warning: Bool)
+    let busy: Bool
+    let select: () -> Void
+    let connect: () -> Void
+
+    var body: some View {
         Row(minHeight: 76) {
             HStack(spacing: 12) {
-                Button {
-                    ringChosen = true
-                } label: {
+                Button(action: select) {
                     HStack(spacing: 12) {
-                        WearableModelView(kind: WearableKeepAlive.ring, size: 56)
+                        WearableModelView(kind: wearable.kind, size: 56)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(name).foregroundStyle(.primary)
+                            Text(wearable.name).foregroundStyle(.primary)
                             Text(status.text)
                                 .font(.subheadline)
                                 .foregroundStyle(status.warning ? JcTheme.amber : .secondary)
                                 .monospacedDigit()
                         }
                         Spacer(minLength: 8)
-                        if ringChosen { Image(systemName: "checkmark").foregroundStyle(JcTheme.accent) }
+                        if selected { Image(systemName: "checkmark").foregroundStyle(JcTheme.accent) }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(ringChosen ? [.isButton, .isSelected] : .isButton)
-                connectButton
-            }
-        }
-    }
-
-    @ViewBuilder private var connectButton: some View {
-        if busy {
-            // In the button's place, at the row's end like the button's edge.
-            ProgressView()
-                .controlSize(.small)
-                .padding(.trailing, 12)
-                .frame(width: 96, alignment: .trailing)
-        } else {
-            let connected = ring.state == .ready
-            Button(connected ? "Reconnect" : "Connect") {
-                working = true
-                Task {
-                    // Reconnect starts the link afresh; Connect reopens the known ring.
-                    if connected { ring.disconnect() }
-                    _ = await ring.ensureConnected(timeout: 12)
-                    working = false
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                if busy {
+                    // In the button's place, at the row's end like the button's edge.
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.trailing, 12)
+                        .frame(width: 96, alignment: .trailing)
+                } else {
+                    Button(wearable.state == .ready ? "Reconnect" : "Connect", action: connect)
+                        .buttonStyle(.jcGlass(compact: true))
                 }
             }
-            .buttonStyle(.jcGlass(compact: true))
         }
     }
 }

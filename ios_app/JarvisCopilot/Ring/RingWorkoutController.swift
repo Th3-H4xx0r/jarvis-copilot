@@ -60,6 +60,8 @@ final class RingWorkoutController: ObservableObject {
     /// The start screen's wearable choice for the next `start`, without
     /// making it the saved preference.
     var nextStartUsesRing: Bool?
+    /// Which workout wearable (a roster kind) the next `start` uses, likewise.
+    var nextStartWearable: String?
     private var guidedRevision = -1
     /// How far along the guide, and how far off it, the newest point is.
     @Published private(set) var guideAlong: Double?
@@ -97,8 +99,12 @@ final class RingWorkoutController: ObservableObject {
     /// go back to the usual rules.
     var onEnded: (() -> Void)?
 
-    private let session: RingSession
-    private let ensureConnected: () async -> Bool
+    /// Every wearable that can track a workout, the R12 first (`add(_:)` brings the rest).
+    private(set) var wearables: [WorkoutWearable] = []
+    /// The one the current (or last) workout runs on.
+    private(set) var wearable: WorkoutWearable
+    /// The workout runs with a wearable (not on the phone alone, not "No wearable").
+    private var usesWearable = true
     private let age: () -> Int
     private let location: WorkoutLocationTracking?
     /// Indoors: the phone's own step count beside the ring's.
@@ -130,6 +136,14 @@ final class RingWorkoutController: ObservableObject {
     private var autosave: Task<Void, Never>?
     /// When the ring was last told to stop a session nobody is logging.
     private var lastStrayStop = Date.distantPast
+    /// When a wearable that ended its own session mid-strength was last asked to start again.
+    private var lastVitalsRestart = Date.distantPast
+    /// Heart-rate ticks a strength workout has had (to tell whether a restart came back).
+    private var strengthTicks = 0
+    /// A workout restored at launch ran on this wearable, which registers after the R12.
+    private var pendingWearable: String?
+    /// The wearable the workout on screen runs on, kept across a relaunch.
+    static let wearableKey = "jc.workout.wearable"
     /// Heart rate every 5 s so far (0 where there was no reading).
     @Published private(set) var heartRates: [Int] = []
     private var stepMarks: [(elapsed: Int, steps: Int)] = []
@@ -147,14 +161,25 @@ final class RingWorkoutController: ObservableObject {
     private var commandAt: Date?
     private var watching: Set<AnyCancellable> = []
 
-    init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
+    /// On the R12 alone (tests, previews); the app adds the other wearables with `add(_:)`.
+    convenience init(session: RingSession, ensureConnected: @escaping () async -> Bool, age: @escaping () -> Int = { 30 },
+                     location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil,
+                     training: TrainingStore? = nil, library: ExerciseLibrary? = nil, alerts: RestAlerting? = nil,
+                     pedometer: WorkoutStepCounting? = nil,
+                     profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init,
+                     defaults: UserDefaults = .standard) {
+        self.init(wearable: R12WorkoutWearable(session: session, connect: ensureConnected), age: age,
+                  location: location, liveActivity: liveActivity, training: training, library: library,
+                  alerts: alerts, pedometer: pedometer, profile: profile, clock: clock, defaults: defaults)
+    }
+
+    init(wearable: WorkoutWearable, age: @escaping () -> Int = { 30 },
          location: WorkoutLocationTracking? = nil, liveActivity: WorkoutLiveActivity? = nil,
          training: TrainingStore? = nil, library: ExerciseLibrary? = nil, alerts: RestAlerting? = nil,
          pedometer: WorkoutStepCounting? = nil,
          profile: @escaping () -> VitalsProfile = { .fallback }, clock: @escaping () -> Date = Date.init,
          defaults: UserDefaults = .standard) {
-        self.session = session
-        self.ensureConnected = ensureConnected
+        self.wearable = wearable
         self.age = age
         self.location = location
         self.pedometer = pedometer
@@ -174,7 +199,7 @@ final class RingWorkoutController: ObservableObject {
             defaults.set(name, forKey: "jc.workout.finishedFile")
             finishedURL = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         }
-        session.onSportTick = { [weak self] tick in self?.receive(tick) }
+        add(wearable)
         // Coming forward is when iOS allows the Live Activity a background
         // request was refused; and one left by a crash with no workout to
         // follow is cleared once the ring has had time to report.
@@ -193,13 +218,16 @@ final class RingWorkoutController: ObservableObject {
         // A strength workout finished but not saved comes back as its summary;
         // one the app was closed (or crashed) in the middle of, running.
         if let finished = training?.finishedWorkout {
+            restoreWearable()
             sport = RingSport.withID(RingSport.strengthID)
             showsLive = true
             phase = .finished(finished)
         } else if let log = training?.activeLog {
-            begin(log)
+            restoreWearable()
+            begin(log, restoring: true)
         } else if let finished = FinishedOutdoor.load(finishedURL) {
             // An outdoor workout ended but not saved: its summary again.
+            restoreWearable()
             sport = RingSport.withID(finished.workout.sport)
             finishedRoute = finished.route
             endedAt = Date()
@@ -287,9 +315,8 @@ final class RingWorkoutController: ObservableObject {
         ringDayPoll = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if let reply = try? await self.session.transport.perform(.todayActivity, until: .single).first,
-                   let totals = RingDecode.activity(reply.payload), !Task.isCancelled {
-                    self.ringDay.read(steps: totals.steps, meters: totals.distanceMeters, at: Date())
+                if let totals = await self.wearable.todayActivity(), !Task.isCancelled {
+                    self.ringDay.read(steps: totals.steps, meters: totals.meters, at: Date())
                 }
                 try? await Task.sleep(for: .seconds(self.ringDayInterval))
             }
@@ -350,6 +377,9 @@ final class RingWorkoutController: ObservableObject {
         // Outdoors with no wearable chosen, the phone records it alone.
         phoneOnly = sport.outdoor && !(nextStartUsesRing ?? WorkoutMonitorPreference.usesRing)
         nextStartUsesRing = nil
+        usesWearable = !phoneOnly
+        wearable = chosenWearable()
+        rememberWearable()
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
@@ -362,11 +392,17 @@ final class RingWorkoutController: ObservableObject {
             }
             if self.phoneOnly { return self.beginPhoneOnly() }
             self.phase = .starting
-            guard await self.ensureConnected() else {
+            let wearable = self.wearable
+            guard await wearable.ensureConnected() else {
                 return self.fail("Can't reach the ring — bring it closer and try again.")
             }
             guard self.phase == .starting else { return }
-            _ = try? await self.session.transport.perform(.phoneSport(.start, sport: sport.id), until: .none)
+            let accepted = await wearable.send(.start, sport: sport.id)
+            if !accepted, self.phase == .starting {
+                return self.fail("The ring is busy — try again in a moment.")
+            }
+            // Cancelled or failed while the ring was being told: nothing more to start.
+            guard [.starting, .running, .paused].contains(self.phase) else { return }
             if sport.outdoor {
                 self.startLocation()
             } else {
@@ -443,6 +479,7 @@ final class RingWorkoutController: ObservableObject {
             onSave?(workout)
         }
         FinishedOutdoor.clear(finishedURL)
+        defaults.removeObject(forKey: Self.wearableKey)
         if endedAt == nil || strength != nil, sport != nil { endedAt = Date() }
         training?.saveFinished(nil)
         clearStrength()
@@ -454,6 +491,18 @@ final class RingWorkoutController: ObservableObject {
 
     // MARK: Ticks
 
+    /// A tick from `source`. One from a wearable other than this workout's is picked up only
+    /// while nothing is on screen (a workout that device kept running while the app was
+    /// away); otherwise it is not this workout's.
+    func receive(_ tick: RingSportTick, from source: WorkoutWearable) {
+        if source !== wearable {
+            guard phase == .idle, !phoneOnly, strength == nil else { return }
+            wearable = source
+        }
+        receive(tick)
+    }
+
+    /// A tick from this workout's wearable.
     func receive(_ tick: RingSportTick) {
         if strength != nil { return receiveDuringStrength(tick) }
         // The ring wasn't started for a phone-only workout: its ticks aren't this one's.
@@ -483,6 +532,8 @@ final class RingWorkoutController: ObservableObject {
                     return
                 }
                 // A workout the ring kept running while the app was away.
+                usesWearable = true
+                rememberWearable()
                 if tick.sport == RingSport.strengthID, let training {
                     // Only a workout the phone was logging comes back; a
                     // strength session with nothing logged is a leftover.
@@ -496,7 +547,8 @@ final class RingWorkoutController: ObservableObject {
                 }
                 let resumed = RingSport.withID(tick.sport)
                 sport = resumed
-                phase = .running
+                // A device whose ticks carry no pause says whether it was left paused.
+                phase = wearable.resumesPaused ? .paused : .running
                 startedAt = Date().addingTimeInterval(-Double(tick.elapsed))
                 if resumed.outdoor {
                     startLocation(resuming: true)
@@ -522,7 +574,7 @@ final class RingWorkoutController: ObservableObject {
             let settled = commandAt.map { Date().timeIntervalSince($0) > 2.5 } ?? true
             if phase == .starting {
                 phase = .running
-            } else if settled, phase == .running || phase == .paused {
+            } else if settled, wearable.pauseFromTicks, phase == .running || phase == .paused {
                 if moved { phase = .running } else if stillTicks >= 3 { phase = .paused }
             }
             // The route pauses with the ring, however the pause came about.
@@ -677,7 +729,7 @@ final class RingWorkoutController: ObservableObject {
         pending?.cancel()
         phoneTicker?.cancel()
         showsLive = true
-        defer { onEnded?() }
+        defer { workoutEnded() }
         let note = sport?.outdoor == true ? location?.noRouteReason : nil
         // Counted before the sensors stop.
         let steps = stepCount ?? 0
@@ -714,7 +766,7 @@ final class RingWorkoutController: ObservableObject {
         pending?.cancel()
         phoneTicker?.cancel()
         showsLive = true
-        defer { onEnded?() }
+        defer { workoutEnded() }
         location?.stop()
         pedometer?.stop()
         stopRingDaySteps()
@@ -724,7 +776,61 @@ final class RingWorkoutController: ObservableObject {
     }
 
     private func send(_ command: RingSportCommand, _ sport: RingSport) {
-        Task { [session] in _ = try? await session.transport.perform(.phoneSport(command, sport: sport.id), until: .none) }
+        Task { [wearable] in await wearable.send(command, sport: sport.id) }
+    }
+
+    /// The workout is over: the R12's manager and the wearable's own link go back to the usual rules.
+    private func workoutEnded() {
+        onEnded?()
+        wearable.released()
+    }
+
+    // MARK: Wearables
+
+    /// Adds a wearable the start screen can pick and whose ticks this hears.
+    func add(_ other: WorkoutWearable) {
+        guard !wearables.contains(where: { $0 === other }) else { return }
+        wearables.append(other)
+        if other.kind == pendingWearable {
+            wearable = other
+            pendingWearable = nil
+        }
+        // The start screen observes this: a wearable's link or battery changing redraws it.
+        other.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watching)
+        other.onTick = { [weak self, weak other] tick in
+            guard let self, let other else { return }
+            self.receive(tick, from: other)
+        }
+    }
+
+    /// A workout under way on `kind`'s wearable holds that device's link, in the background too.
+    func holdsLink(for kind: String) -> Bool {
+        isActive && !phoneOnly && usesWearable && wearable.kind == kind
+    }
+
+    /// The id the current (or just finished) workout is saved under.
+    var deviceIDForSave: String? { wearable.deviceID }
+
+    /// Kept so a relaunch puts the workout back on the same wearable.
+    fileprivate func rememberWearable() {
+        if usesWearable { defaults.set(wearable.kind, forKey: Self.wearableKey) }
+        else { defaults.removeObject(forKey: Self.wearableKey) }
+    }
+
+    /// The wearable a restored workout ran on; one not registered yet is switched to in `add(_:)`.
+    private func restoreWearable() {
+        guard let kind = defaults.string(forKey: Self.wearableKey) else { return }
+        if let match = wearables.first(where: { $0.kind == kind }) { wearable = match } else { pendingWearable = kind }
+    }
+
+    /// The start screen's pick, else the one last chosen (see `WorkoutWearables.preferred`).
+    fileprivate func chosenWearable() -> WorkoutWearable {
+        let kind = nextStartWearable ?? WorkoutWearables.preferred(
+            stored: WorkoutMonitorPreference.wearable, health: HealthRing.current.kind,
+            kinds: wearables.map(\.kind),
+            isPaired: { [wearables] kind in wearables.first { $0.kind == kind }?.isPaired ?? false })
+        nextStartWearable = nil
+        return wearables.first { $0.kind == kind } ?? wearables.first ?? wearable
     }
 
     private func reset(to next: Phase? = nil) {
@@ -797,7 +903,7 @@ extension RingWorkoutController {
         begin(template.map { StrengthSession.log(from: $0, at: now) } ?? .empty(at: now))
     }
 
-    fileprivate func begin(_ log: StrengthLog, ringRunning: Bool = false) {
+    fileprivate func begin(_ log: StrengthLog, ringRunning: Bool = false, restoring: Bool = false) {
         guard let training, let library else { return }
         let strength = StrengthSession(log: log, mode: .live, store: training, library: library, alerts: alerts, now: clock)
         strength.onChange = { [weak self, weak strength] in
@@ -815,6 +921,13 @@ extension RingWorkoutController {
             // The start screen's choice: no wearable means no ring session at all.
             let usesRing = nextStartUsesRing ?? WorkoutMonitorPreference.usesRing
             nextStartUsesRing = nil
+            usesWearable = usesRing
+            // A restored workout keeps its wearable (`restoreWearable`, finished by `add(_:)`
+            // when it registers later); a new one is picked and kept for a relaunch.
+            if !restoring {
+                wearable = chosenWearable()
+                rememberWearable()
+            }
             if usesRing {
                 startRingVitals()
             } else {
@@ -830,14 +943,15 @@ extension RingWorkoutController {
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
-            guard await self.ensureConnected() else {
+            let wearable = self.wearable
+            guard await wearable.ensureConnected() else {
                 if self.strength != nil { self.vitalsNote = "No ring — logging sets only." }
                 return
             }
             try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled, self.strength != nil else { return }
             if self.lastTickAt == nil {
-                _ = try? await self.session.transport.perform(.phoneSport(.start, sport: RingSport.strengthID), until: .none)
+                await wearable.send(.start, sport: RingSport.strengthID)
             }
             self.ringStarted = true
             try? await Task.sleep(for: .seconds(self.startTimeout))
@@ -869,8 +983,8 @@ extension RingWorkoutController {
     fileprivate func stopStraySession() {
         guard clock().timeIntervalSince(lastStrayStop) > 5 else { return }
         lastStrayStop = clock()
-        let session = self.session
-        Task { _ = try? await session.transport.perform(.phoneSport(.stop, sport: RingSport.strengthID), until: .none) }
+        let wearable = self.wearable
+        Task { await wearable.send(.stop, sport: RingSport.strengthID) }
     }
 
     fileprivate func receiveDuringStrength(_ tick: RingSportTick) {
@@ -878,12 +992,31 @@ extension RingWorkoutController {
         guard phase == .running, tick.sport == RingSport.strengthID else { return }
         switch tick.state {
         case .ended:
+            // A wearable that ends its own session for want of steps is asked to start again:
+            // the sets go on, and so should the heart rate (at most every 30 s).
+            if wearable.endsWhenStill, ringStarted, lastTickAt != nil,
+               clock().timeIntervalSince(lastVitalsRestart) > 30 {
+                lastVitalsRestart = clock()
+                let wearable = self.wearable
+                let ticks = strengthTicks
+                let wait = startTimeout + 1
+                Task { [weak self] in
+                    await wearable.send(.start, sport: RingSport.strengthID)
+                    try? await Task.sleep(for: .seconds(wait))
+                    // It did not come back: say so, as for any other stop.
+                    guard let self, self.strength != nil, self.phase == .running, self.strengthTicks == ticks else { return }
+                    self.ringStarted = false
+                    self.vitalsNote = "The ring stopped — logging sets only."
+                }
+                return
+            }
             ringStarted = false
             vitalsNote = lastTickAt == nil ? "The ring didn't start — take it off its charger for heart rate."
                 : "The ring stopped — logging sets only."
         case .running, .paused:
             self.tick = tick
             lastTickAt = clock()
+            strengthTicks += 1
             vitalsNote = nil
             // Sending, whoever started it: it gets its stop at the end.
             ringStarted = true
@@ -946,7 +1079,7 @@ extension RingWorkoutController {
         training?.saveFinished(workout)
         showsLive = true
         phase = .finished(workout)
-        onEnded?()
+        workoutEnded()
     }
 
     /// Throw the workout in progress away.
@@ -956,17 +1089,18 @@ extension RingWorkoutController {
         if ringStarted { stopRing() }
         endedAt = clock()
         liveActivity?.end()
+        defaults.removeObject(forKey: Self.wearableKey)
         clearStrength()
         reset()
         showsLive = false
         phase = .idle
-        onEnded?()
+        workoutEnded()
     }
 
     private func stopRing() {
         ringStarted = false
-        let session = self.session
-        Task { _ = try? await session.transport.perform(.phoneSport(.stop, sport: RingSport.strengthID), until: .none) }
+        let wearable = self.wearable
+        Task { await wearable.send(.stop, sport: RingSport.strengthID) }
     }
 
     fileprivate func clearStrength() {
@@ -979,6 +1113,7 @@ extension RingWorkoutController {
         vitalsNote = nil
         heartSamples = []
         ringStarted = false
+        strengthTicks = 0
     }
 }
 

@@ -71,7 +71,7 @@ phone's message.
 | `x5_get_history` | `days` (1–30), `metrics` | Per-day summaries, today first. Never waits on the ring. |
 | `x5_sync` | `days` (0 = today) | Pulls from the ring now. |
 | `x5_measure` | `type`: `heart_rate` \| `spo2` \| `temperature` | Spot reading; may answer `status: "measuring"`. |
-| `x5_workout` | `action`: `start` \| `pause` \| `resume` \| `end` \| `status`; `sport` (start only) | Runs a workout on the ring; `sport` is a name such as `run`, `walk`, `cycling`. |
+| `x5_workout` | `action`: `start` \| `pause` \| `resume` \| `end` \| `status`; `sport` (start only) | Runs a workout on the ring through the phone's workout screen (3-second countdown, live sheet, saved to Jarvis Health at the end); `sport` is a name such as `run`, `walk`, `cycling`. `status` returns `phase`, `elapsed_seconds`, `heart_rate`, `steps`, `distance_m`. |
 | `x5_set_monitoring` | `metric`: `heart_rate` \| `hrv` \| `spo2`; `enabled`; `interval_minutes` | Automatic background readings (`hrv` brings stress with it). |
 | `x5_set_gesture_mode` | `mode`: `jarvis` \| `short_videos` \| `music` \| `camera` \| `off`; `touch_awake`: `1` \| `5` \| `30` \| `always` | What the touch panel does and how many minutes it stays awake. |
 | `x5_set_gesture_action` | `gesture`; one of `prompt`, `skill` + `arguments`, or `none: true` | What one gesture runs in `jarvis` mode. |

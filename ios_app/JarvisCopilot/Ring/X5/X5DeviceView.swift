@@ -13,6 +13,7 @@ struct X5DeviceView: View {
     @State private var findToken = 0
     @State private var touchToken = 0
     @State private var actionError: String?
+    @State private var choosingWorkout = false
 
     init(manager: X5Manager, ring: DiscoveredRing) {
         self.manager = manager
@@ -47,6 +48,7 @@ struct X5DeviceView: View {
                 })
                 liveFromRing
                 gestures
+                workoutLink
                 healthLink
                 settingsLink
             }
@@ -86,6 +88,39 @@ struct X5DeviceView: View {
                     measure.start(.heartRate, from: .ring)
                 }
             })
+        }
+    }
+
+    // MARK: Workout
+
+    /// Start a workout on the X5 — the same picker, start screen and live sheet as the R12's.
+    private var workoutLink: some View {
+        CardGroup {
+            Button { choosingWorkout = true } label: {
+                Row(minHeight: 56) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(JcTheme.accent)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Start a workout").font(.body.weight(.medium))
+                            Text("Heart rate every second, steps and distance")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .sheet(isPresented: $choosingWorkout) {
+            let workout = WearablesHub.shared.ring.workout
+            WorkoutPicker(wearable: WearableKeepAlive.x5ring,
+                          onTemplate: { workout.startStrength(template: $0) }) { sport in workout.start(sport) }
         }
     }
 

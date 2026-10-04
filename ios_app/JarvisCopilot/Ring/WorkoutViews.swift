@@ -12,6 +12,8 @@ struct WorkoutPicker: View {
     var onTemplate: ((WorkoutTemplate) -> Void)?
     @ObservedObject var store: TrainingStore
     let library: ExerciseLibrary
+    /// The wearable the start screen picks first (a device's own page opens on itself).
+    var wearable: String?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("jc.workout.lastSport") private var lastSport = 7
     @State private var sheet: TemplateSheet?
@@ -29,10 +31,11 @@ struct WorkoutPicker: View {
         }
     }
 
-    init(store: TrainingStore = .shared, library: ExerciseLibrary = .shared,
+    init(store: TrainingStore = .shared, library: ExerciseLibrary = .shared, wearable: String? = nil,
          onTemplate: ((WorkoutTemplate) -> Void)? = nil, onPick: @escaping (RingSport) -> Void) {
         self.store = store
         self.library = library
+        self.wearable = wearable
         self.onTemplate = onTemplate
         self.onPick = onPick
     }
@@ -87,7 +90,7 @@ struct WorkoutPicker: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
             .navigationDestination(item: $choice) { picked in
-                WorkoutConfirmView(choice: picked, store: store, library: library) { start($0) }
+                WorkoutConfirmView(choice: picked, store: store, library: library, wearable: wearable) { start($0) }
             }
             .sheet(item: $sheet) { which in
                 switch which {

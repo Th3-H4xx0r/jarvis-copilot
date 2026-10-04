@@ -412,11 +412,18 @@ final class ColmiR12: WearableDevice {
                 throw DeviceError.badArgument("no sport called \(asked); try " + RingSport.common.map(\.name).joined(separator: ", "))
             }
             if controller.isActive { return workoutStatus(controller, note: "a workout is already running") }
+            controller.nextStartWearable = WearableKeepAlive.ring
             controller.start(sport)
             return ["status": "starting", "sport": sport.name, "note": "3-second countdown, then the ring starts"]
-        case "pause": controller.pause()
-        case "resume": controller.resume()
-        case "end": controller.end()
+        case "pause", "resume", "end":
+            guard !controller.isActive || controller.wearable.kind == WearableKeepAlive.ring else {
+                return workoutStatus(controller, note: "the workout running is not on the R12")
+            }
+            switch args["action"] as? String {
+            case "pause": controller.pause()
+            case "resume": controller.resume()
+            default: controller.end()
+            }
         default: break
         }
         return workoutStatus(controller)

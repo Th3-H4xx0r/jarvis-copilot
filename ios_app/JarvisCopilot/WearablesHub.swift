@@ -172,7 +172,25 @@ final class WearablesHub: ObservableObject {
 
     private var reconnectTask: Task<Void, Never>?
 
-    private init() {}
+    private init() {
+        // The X5 tracks workouts through the same controller as the R12: one live sheet,
+        // Health card and Live Activity, whichever ring the start screen picks.
+        let x5 = self.x5
+        ring.workout.add(X5WorkoutWearable(
+            session: x5.session,
+            connect: { [weak x5] in
+                guard let x5, await x5.ensureConnected(timeout: 12) else { return false }
+                await x5.waitForSetup(timeout: 8)
+                return true
+            },
+            disconnect: { [weak x5] in x5?.disconnect() },
+            release: { [weak x5] in x5?.releaseIfIdle() },
+            deviceID: { [weak x5] in x5?.deviceID },
+            state: x5.$state.eraseToAnyPublisher()))
+        let workout = ring.workout
+        x5.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.x5ring) ?? false }
+        x5.workouts = workout
+    }
 
     /// Foreground: resume links, reconnect the remembered bottle, re-register.
     func appDidBecomeActive() {

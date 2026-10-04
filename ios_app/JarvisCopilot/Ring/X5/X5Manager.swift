@@ -38,8 +38,12 @@ final class X5Manager: NSObject, ObservableObject {
 
     /// Days the sync changed — Jarvis Health pushes them when this is its ring.
     var onDaysChanged: ((Set<String>) -> Void)?
+    /// Whether a workout on the X5 is under way (the workout controller answers).
+    var workoutHold: (() -> Bool)?
+    /// The workout controller, for `x5_workout`.
+    weak var workouts: RingWorkoutController?
     /// A workout the X5 is driving holds the link, in the background too.
-    var workoutRunning = false
+    var workoutRunning: Bool { workoutHold?() ?? false }
 
     var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.x5ring) }
     var holdsLinkForWorkout: Bool { workoutRunning }
