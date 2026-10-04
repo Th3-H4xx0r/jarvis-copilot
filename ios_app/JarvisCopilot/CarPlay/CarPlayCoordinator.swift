@@ -18,6 +18,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
     /// What the Voice tab's orb and buttons last showed (rebuilt only when it changes).
     private var voiceHeaderKey: String?
+    /// Apple's full-screen voice screen while talking (the Voice tab keeps the text).
+    private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
 
     /// The car's own library page (filter, paging), apart from the phone's.
     private let library = DashcamLibraryModel()
@@ -64,6 +66,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         observeStores()
         subscribeToDevices()
         WidgetModelSnapshots.refreshIfNeeded()    // the dashboard widget's orb picture
+        voice.attach()
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -76,7 +79,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         cancellables.removeAll()
         if watchingDashcam { sync.watchStatus(false); watchingDashcam = false }
         stopLive()
-        stopVoice()
+        voice.stop()
         OrbFrames.clear()
     }
 
@@ -449,11 +452,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
                 ui.popToRootTemplate(animated: false, completion: nil)
                 tabBar?.select(voiceTab)
             }
-            guard AVAudioApplication.shared.recordPermission != .denied else { refresh(); return }
-            Task {
-                if !VoiceStore.shared.isActive { await VoiceStore.shared.primaryAction() }
-                refresh()
-            }
+            voice.start()
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
         }
@@ -583,7 +582,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     /// One line and OK. Never over the voice screen — it owns the car's screen while talking.
     func alert(_ text: String) {
-        guard running else { return }
+        guard running, !voice.isShowing else { return }
         let alert = CPAlertTemplate(titleVariants: [text], actions: [
             CPAlertAction(title: "OK", style: .cancel) { [weak self] _ in self?.ui.dismissTemplate(animated: true, completion: nil) },
         ])
@@ -632,6 +631,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
         MainActor.assumeIsolated {
+            // The voice screen went away without End/Done (the system took it): stop listening.
+            if voice.owns(aTemplate) { voice.templateGone() }
             pruneStack()
         }
     }

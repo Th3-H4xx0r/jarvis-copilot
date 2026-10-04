@@ -16,16 +16,27 @@ enum CarPlayScreens {
 
     // MARK: Voice tab
 
-    /// Under the header (orb, state, Talk / Mute / Stop): the conversation, as on the
-    /// phone — what you said, then the reply filling in word by word while it's spoken,
-    /// whole once it has been. Nothing before a conversation.
+    /// Under the header (orb, state, Talk): the conversation in CarPlay's big row text —
+    /// Jarvis's reply as it's spoken (its newest words) with what you said under it in
+    /// grey. CarPlay left-aligns list text; this is as close to the phone as it allows.
     static func voiceTab(_ text: CarPlayVoiceText?, speaking: Bool) -> [CarPlaySection] {
         guard let text else { return [] }
-        var rows: [CarPlayRow] = []
-        if let heard = text.heard { rows.append(CarPlayRow(id: "heard", title: heard, multiline: true)) }
         let reply = speaking ? text.spoken : (text.spoken + text.unspoken).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !reply.isEmpty { rows.append(CarPlayRow(id: "reply", title: reply, multiline: true)) }
-        return rows.isEmpty ? [] : [CarPlaySection(title: nil, rows: rows)]
+        let row = reply.isEmpty
+            ? text.heard.map { CarPlayRow(id: "conversation", title: $0) }
+            : CarPlayRow(id: "conversation", title: newestWords(reply), detail: text.heard)
+        return row.map { [CarPlaySection(title: nil, rows: [$0])] } ?? []
+    }
+
+    /// How much of a reply the row shows: about a car-screen line and a half.
+    static let replyLength = 90
+
+    /// The last `replyLength` characters, starting at a word ("…" when cut).
+    static func newestWords(_ text: String) -> String {
+        guard text.count > replyLength else { return text }
+        let tail = text.suffix(replyLength)
+        let start = tail.firstIndex(where: \.isWhitespace).map { tail.index(after: $0) } ?? tail.startIndex
+        return "…" + tail[start...]
     }
 
     /// Talk when idle; during a conversation Mute (or Send, push-to-talk) and Stop.

@@ -18,8 +18,6 @@ struct CarPlayRow: Equatable, Identifiable {
     var enabled = true
     /// The current pick in a list of choices.
     var checked = false
-    /// Plain text over several lines (the conversation), not a tappable row.
-    var multiline = false
     var action: CarPlayAction = .none
 }
 

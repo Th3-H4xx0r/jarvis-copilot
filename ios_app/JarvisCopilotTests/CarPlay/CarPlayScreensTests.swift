@@ -47,24 +47,38 @@ final class CarPlayScreensTests: XCTestCase {
         XCTAssertTrue(rows(CarPlayScreens.voiceTab(nil, speaking: false)).isEmpty)
     }
 
-    /// Like the phone: what you said, then the reply filling in word by word as it's spoken.
-    func testVoiceTabShowsTheConversationAsItIsSpoken() {
+    /// The reply in the big row text as it's spoken (the newest words), what you said under it.
+    func testVoiceTabShowsTheReplyAsItIsSpoken() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
         let r = rows(CarPlayScreens.voiceTab(text, speaking: true))
-        XCTAssertEqual(r.map(\.title), ["Are you there?", "Here, sir. The"])
-        XCTAssertTrue(r.allSatisfy(\.multiline))
-        XCTAssertTrue(r.allSatisfy { $0.action == .none })
+        XCTAssertEqual(r.count, 1)
+        XCTAssertEqual(r[0].title, "Here, sir. The")
+        XCTAssertEqual(r[0].detail, "Are you there?")
+        XCTAssertEqual(r[0].action, .none)
     }
 
-    /// Done speaking (or a text-only reply): the whole reply shows.
+    /// Done speaking (or a text-only reply): the whole reply.
     func testTheWholeReplyShowsOnceSpoken() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir.", spokenWords: 0)
-        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).map(\.title), ["Are you there?", "Here, sir."])
+        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).first?.title, "Here, sir.")
     }
 
+    /// While Jarvis thinks there's no reply yet: what you said is the line.
     func testOnlyWhatYouSaidWhileJarvisThinks() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "", spokenWords: 0)
-        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).map(\.title), ["Are you there?"])
+        let r = rows(CarPlayScreens.voiceTab(text, speaking: false))
+        XCTAssertEqual(r.first?.title, "Are you there?")
+        XCTAssertNil(r.first?.detail)
+    }
+
+    /// A long reply shows its newest words, cut at a word, so the line keeps up with the voice.
+    func testALongReplyShowsItsNewestWords() {
+        let long = (1...40).map { "word\($0)" }.joined(separator: " ")
+        let title = rows(CarPlayScreens.voiceTab(CarPlayScreens.voiceText(heard: "", reply: long, spokenWords: 40), speaking: true))[0].title
+        XCTAssertTrue(title.hasPrefix("…"), title)
+        XCTAssertTrue(title.hasSuffix("word40"), title)
+        XCTAssertLessThanOrEqual(title.count, CarPlayScreens.replyLength + 1)
+        XCTAssertFalse(title.dropFirst().hasPrefix(" "))
     }
 
     /// Like the phone: what you said, then Jarvis's reply with the spoken words lit.

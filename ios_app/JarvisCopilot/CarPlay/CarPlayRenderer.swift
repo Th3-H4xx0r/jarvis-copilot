@@ -18,17 +18,9 @@ enum CarPlayRenderer {
         for section in sections.prefix(Int(CPListTemplate.maximumSectionCount)) where budget > 0 {
             let rows = Array(section.rows.prefix(budget))
             budget -= rows.count
-            let items: [any CPListTemplateItem] = rows.map { row -> any CPListTemplateItem in
-                row.multiline ? text(row) : item(row, handler: handler)
-            }
-            out.append(CPListSection(items: items, header: section.title, sectionIndexTitle: nil))
+            out.append(CPListSection(items: rows.map { item($0, handler: handler) }, header: section.title, sectionIndexTitle: nil))
         }
         return out
-    }
-
-    /// A conversation line: wrapped text, nothing to tap.
-    static func text(_ row: CarPlayRow) -> CPListImageRowItem {
-        CPListImageRowItem(text: row.title, elements: [], allowsMultipleLines: true)
     }
 
     static func item(_ row: CarPlayRow, handler: @escaping Handler) -> CPListItem {
