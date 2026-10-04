@@ -39,125 +39,50 @@ final class CarPlayScreensTests: XCTestCase {
         XCTAssertEqual(r[0].action, .none)
     }
 
-    // MARK: Jarvis tab + pickers
+    // MARK: Voice tab
 
-    func testJarvisTabTalksAndOpensThePickers() {
-        let s = CarPlayScreens.jarvisTab(CarPlayVoiceSummary(stateText: "Ready", chatLabel: "Voice",
-                                                             harnessLabel: "⚡ Fast + Claude", modelLabel: "Auto"))
-        let talk = rows(s).first!
-        XCTAssertEqual(talk.title, "Talk to Jarvis")
-        XCTAssertTrue(talk.orb)
-        XCTAssertEqual(talk.action, .startVoice)
-        XCTAssertEqual(row(s, "Chat")?.detail, "Voice")
-        XCTAssertEqual(row(s, "Chat")?.action, .push(.voiceChats))
-        XCTAssertEqual(row(s, "Harness")?.detail, "⚡ Fast + Claude")
-        XCTAssertEqual(row(s, "Harness")?.action, .push(.harnesses))
-        XCTAssertEqual(row(s, "Model")?.action, .push(.modelProviders))
+    func testVoiceTabIsOneTalkRow() {
+        let r = rows(CarPlayScreens.voiceTab(stateText: "Tap to talk"))
+        XCTAssertEqual(r.map(\.title), ["Talk to Jarvis"])
+        XCTAssertTrue(r[0].orb)
+        XCTAssertEqual(r[0].detail, "Tap to talk")
+        XCTAssertEqual(r[0].action, .startVoice)
     }
 
-    func testHarnessListTicksTheCurrentOneAndOffersSingleModel() {
-        let s = CarPlayScreens.harnesses([("fast-claude", "⚡ Fast + Claude"), ("router", "Router"), ("single", "Single")],
-                                         current: "router")
-        XCTAssertEqual(rows(s).map(\.title), ["⚡ Fast + Claude", "Router", "Single model"])
-        XCTAssertEqual(row(s, "Router")?.checked, true)
-        XCTAssertEqual(row(s, "Single model")?.action, .selectHarness("single"))
-    }
+    // MARK: Wearables tab (car-enabled only)
 
-    func testProvidersStartWithAuto() {
-        let s = CarPlayScreens.modelProviders(["Claude Code", "Ollama"], selectedProvider: nil)
-        XCTAssertEqual(rows(s).map(\.title), ["Auto", "Claude Code", "Ollama"])
-        XCTAssertEqual(rows(s)[0].checked, true)
-        XCTAssertEqual(rows(s)[0].action, .selectModel(id: nil, provider: nil))
-        XCTAssertEqual(row(s, "Ollama")?.action, .push(.models(provider: "Ollama")))
-    }
-
-    func testModelsSelectByCanonicalProviderID() {
-        let m = ChatModel(id: "gemma4:31b", label: "Gemma 4 31B", provider: "Ollama Cloud", providerID: "ollama-cloud")
-        let s = CarPlayScreens.models([m], selectedID: "gemma4:31b")
-        XCTAssertEqual(rows(s)[0].checked, true)
-        XCTAssertEqual(rows(s)[0].action, .selectModel(id: "gemma4:31b", provider: "ollama-cloud"))
-    }
-
-    func testVoiceChatsOfferNewDefaultAndRecent() {
-        let sessions = [ChatSessionSummary(id: "a", title: "Groceries", updatedAt: 1_790_000_000)]
-        let s = CarPlayScreens.voiceChats(sessions, target: .session(id: "a", title: "Groceries"))
-        XCTAssertEqual(rows(s).map(\.title), ["New chat", "Voice", "Groceries"])
-        XCTAssertEqual(row(s, "Groceries")?.checked, true)
-        XCTAssertEqual(row(s, "Voice")?.action, .selectVoiceChat(id: nil, title: "Voice"))
-        XCTAssertEqual(row(s, "New chat")?.action, .newVoiceChat)
-    }
-
-    // MARK: Chats
-
-    func testChatsAreGroupedAndOpenTheChat() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "UTC")!
-        let now = Date(timeIntervalSince1970: 1_790_000_000)
-        let sessions = [ChatSessionSummary(id: "p", title: "Pinned", updatedAt: 1_000, pinned: true),
-                        ChatSessionSummary(id: "t", title: "", updatedAt: Int(now.timeIntervalSince1970) - 60)]
-        let s = CarPlayScreens.chats(sessions, now: now, calendar: cal)
-        XCTAssertEqual(s.map(\.title), ["Pinned", "Today"])
-        XCTAssertEqual(row(s, "New chat")?.action, .push(.chat(id: "t", title: "New chat")))
-    }
-
-    /// Apple: voice apps don't show text answers while driving — a chat is continued
-    /// by voice, or its last reply is read aloud; its messages never show as text.
-    func testChatIsContinuedOrReadAloudNeverShownAsText() {
-        let s = CarPlayScreens.chat(id: "c1", title: "Groceries", lastReply: "Milk and eggs.")
-        XCTAssertEqual(rows(s).map(\.title), ["Continue by voice", "Read the last reply aloud"])
-        XCTAssertEqual(rows(s)[0].action, .continueByVoice(id: "c1", title: "Groceries"))
-        XCTAssertEqual(rows(s)[1].action, .readAloud("Milk and eggs."))
-        XCTAssertFalse(rows(s).contains { ($0.detail ?? "").contains("Milk") }, "no reply text on screen")
-    }
-
-    func testNothingToReadUntilJarvisHasReplied() {
-        let s = CarPlayScreens.chat(id: "c1", title: "t", lastReply: nil)
-        XCTAssertEqual(row(s, "Read the last reply aloud")?.enabled, false)
-    }
-
-    func testTheLastReplyIsJarvissNewestTextTurn() {
-        let msgs = [ChatMessage(role: .assistant, blocks: [.text(TextBlock(text: "Old reply."))]),
-                    ChatMessage.user("And?"),
-                    ChatMessage(role: .assistant, blocks: [.text(TextBlock(text: "**Milk** and eggs."))]),
-                    ChatMessage(role: .assistant, blocks: [])]            // a tool-only turn after it
-        XCTAssertEqual(CarPlayScreens.lastReply(msgs), "**Milk** and eggs.")
-        XCTAssertNil(CarPlayScreens.lastReply([.user("hi")]))
-    }
-
-    // MARK: Devices
-
-    func testDevicesListDashcamWearablesAndServer() {
-        let ring = CarPlayWearable(id: "r1", kind: WearableKeepAlive.ring, name: "Ring", model: "R12", statusText: "Connected",
-                                   connected: true, batteryPercent: 80, lastSeen: nil, rssi: nil)
-        let server = Device(json: ["id": "m1", "online": false, "platform": "desktop", "label": "MacBook Pro"])
-        let s = CarPlayScreens.devices(CarPlayDevicesInput(
-            dashcam: CarPlayDashcamRow(setUp: true, name: "A4", status: "Up to date · Recording"),
-            wearables: [ring], server: [server]))
-        XCTAssertEqual(s.map(\.title), ["Dashcam", "Wearables", "Server devices"])
+    func testWearablesTabListsCarDevicesAndOpensTheDashcamScreens() {
+        let s = CarPlayScreens.wearablesTab([
+            CarPlayCarDevice(id: "cam1", name: "A4", status: "Up to date · Recording", connected: true, isDashcam: true),
+            CarPlayCarDevice(id: "x", name: "Future thing", status: "Not connected", connected: false, isDashcam: false),
+        ])
+        XCTAssertEqual(rows(s).map(\.title), ["A4", "Future thing"])
         XCTAssertEqual(row(s, "A4")?.action, .push(.dashcam))
-        XCTAssertEqual(row(s, "Ring")?.detail, "Connected · 80%")
-        XCTAssertEqual(row(s, "Ring")?.action, .push(.device(id: "r1")))
-        XCTAssertEqual(row(s, "MacBook Pro")?.detail, "Offline")
+        XCTAssertEqual(row(s, "A4")?.detail, "Up to date · Recording")
+        XCTAssertEqual(row(s, "Future thing")?.action, .push(.device(id: "x")))
     }
 
-    func testDashcamNotSetUpSaysWhereToDoIt() {
-        let s = CarPlayScreens.devices(CarPlayDevicesInput(
-            dashcam: CarPlayDashcamRow(setUp: false, name: "Dashcam", status: ""), wearables: [], server: []))
-        XCTAssertEqual(row(s, "Dashcam")?.detail, "Set up on your iPhone")
-        XCTAssertEqual(row(s, "Dashcam")?.enabled, false)
+    func testNoCarDevicesSaysHowToAddOne() {
+        let r = rows(CarPlayScreens.wearablesTab([]))
+        XCTAssertEqual(r.map(\.title), ["No car wearables yet"])
+        XCTAssertEqual(r[0].action, .none)
     }
 
-    func testNoDevicesAtAll() {
-        let s = CarPlayScreens.devices(CarPlayDevicesInput(dashcam: nil, wearables: [], server: []))
-        XCTAssertEqual(rows(s).map(\.title), ["No devices yet"])
+    /// Only device types that opt in with `carEnabled` reach the car.
+    func testOnlyCarEnabledDeviceTypesQualify() {
+        XCTAssertTrue(DashcamDevice.shared.carEnabled)
+        XCTAssertFalse(PhoneDevice().carEnabled)
     }
 
-    func testWearableInfoOffersConnectOnlyWhenAway() {
-        let away = CarPlayWearable(id: "b", kind: WearableKeepAlive.bottle, name: "Bottle", model: "S1 Pro",
-                                   statusText: "Not found", connected: false, batteryPercent: nil, lastSeen: nil, rssi: nil)
-        XCTAssertEqual(CarPlayScreens.device(away).actions.map(\.action), [.connectWearable("b")])
-        var near = away; near.connected = true; near.statusText = "Connected"
-        XCTAssertTrue(CarPlayScreens.device(near).actions.isEmpty)
+    /// A car device without its own screen shows its status and the scalar state it reports.
+    func testGenericCarDeviceShowsItsState() {
+        let info = CarPlayScreens.carDevice(name: "Thing", connected: true,
+                                            snapshot: ["battery_pct": 80, "mode": "eco", "nested": ["a": 1], "on": true])
+        XCTAssertEqual(info.title, "Thing")
+        XCTAssertEqual(info.items, [CarPlayInfoItem(title: "Status", detail: "Connected"),
+                                    CarPlayInfoItem(title: "Battery Pct", detail: "80"),
+                                    CarPlayInfoItem(title: "Mode", detail: "eco"),
+                                    CarPlayInfoItem(title: "On", detail: "Yes")])
     }
 
     // MARK: Dashcam
@@ -254,16 +179,13 @@ final class CarPlayScreensTests: XCTestCase {
     // MARK: Depth
 
     func testNothingPushesPastDepthThree() {
-        for screen in [CarPlayScreen.harnesses, .modelProviders, .voiceChats, .chat(id: "c", title: "t"), .dashcam,
-                       .device(id: "d"), .serverDevice(id: "s")] {
+        for screen in [CarPlayScreen.dashcam, .device(id: "d")] {
             XCTAssertEqual(screen.depth, 2, "\(screen)")
         }
-        for screen in [CarPlayScreen.models(provider: "p"), .clip(id: "c"), .drives, .dashcamSettings] {
+        for screen in [CarPlayScreen.clip(id: "c"), .drives, .dashcamSettings] {
             XCTAssertEqual(screen.depth, 3, "\(screen)")
         }
         // Depth-3 screens built from lists never push.
-        let m = ChatModel(id: "x", label: "X", provider: "P", providerID: "p")
-        XCTAssertTrue(pushedScreens(CarPlayScreens.models([m], selectedID: nil)).isEmpty)
         XCTAssertTrue(pushedScreens(CarPlayScreens.drives([], now: Date(), calendar: .current)).isEmpty)
         XCTAssertTrue(pushedScreens(CarPlayScreens.dashcamSettings(CarPlayDashcamSettingsInput(
             liveActivity: false, autoSync: true, rules: DashcamRules(), rulesLoaded: true, onCamera: false,
@@ -290,16 +212,10 @@ final class CarPlayScreensTests: XCTestCase {
         let sections = CarPlayScreens.notPaired
         XCTAssertTrue(cache.changed(key, sections))
         XCTAssertFalse(cache.changed(key, sections))
-        XCTAssertTrue(cache.changed(key, CarPlayScreens.chats([], error: nil)))
+        XCTAssertTrue(cache.changed(key, CarPlayScreens.voiceTab(stateText: "Listening…")))
     }
 
     func testLoadFailuresSaySoInsteadOfLookingEmpty() {
-        XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline")).map(\.title), ["Couldn't load chats"])
-        XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline"))[0].detail, "offline")
-        XCTAssertEqual(rows(CarPlayScreens.chat(id: "c", title: "t", lastReply: nil, error: "timed out")).last?.title,
-                       "Couldn't load the chat")
         XCTAssertEqual(rows(CarPlayScreens.drives([], error: "500")).map(\.title), ["Couldn't load drives"])
-        let s = CarPlayScreens.devices(CarPlayDevicesInput(dashcam: nil, wearables: [], server: [], serverError: "offline"))
-        XCTAssertEqual(row(s, "Couldn't load server devices")?.detail, "offline")
     }
 }

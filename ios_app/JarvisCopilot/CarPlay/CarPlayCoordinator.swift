@@ -3,35 +3,28 @@ import Combine
 import Foundation
 import Observation
 
-/// Owns the car's screen: the Jarvis / Chats / Devices tabs, the screens pushed
-/// over them (never deeper than three), and what every row does. State comes
+/// Owns the car's screen: the Voice and Wearables tabs, the screens pushed over
+/// them (never deeper than three), and what every row does. State comes
 /// from the same stores the phone uses; the screens themselves are the pure
 /// builders in `CarPlayScreens`.
 @available(iOS 26.4, *)
 @MainActor
-final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBarTemplateDelegate {
+final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private let ui: CPInterfaceController
-    private let jarvisTab = CPListTemplate(title: "Jarvis", sections: [])
-    private let chatsTab = CPListTemplate(title: "Chats", sections: [])
-    private let devicesTab = CPListTemplate(title: "Devices", sections: [])
+    private let voiceTab = CPListTemplate(title: "Voice", sections: [])
+    private let wearablesTab = CPListTemplate(title: "Wearables", sections: [])
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
     private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
 
     /// The car's own library page (filter, paging), apart from the phone's.
     private let library = DashcamLibraryModel()
-    private var sessions: [ChatSessionSummary] = []
-    private var messages: [String: [ChatMessage]] = [:]
-    private var serverDevices: [Device] = []
     private var drives: [DashcamDrive] = []
     private var cameraItems: [DashcamSettingItem] = []
     private var mic: DashcamMic?
     private var clipDetails: [String: (clip: DashcamServerClip, topMps: Double?)] = [:]
     private var reconnectNote: String?
-    /// Why the last load of each list failed (shown instead of an empty list).
-    private var sessionsError: String?
-    private var devicesError: String?
+    /// Why the drives list couldn't load (shown instead of an empty list).
     private var drivesError: String?
-    private var messageErrors: [String: String] = [:]
     /// A camera Wi‑Fi password is saved (read once per dashcam visit, not per refresh: it's a Keychain read).
     private var hasWifiPassword = false
     private var sectionsCache = CarPlaySectionsCache()
@@ -55,22 +48,12 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     func start() {
         running = true
-        jarvisTab.tabImage = UIImage(systemName: "atom")
-        chatsTab.tabImage = UIImage(systemName: "bubble.left.and.bubble.right")
-        devicesTab.tabImage = UIImage(systemName: "dot.radiowaves.left.and.right")
-        let tabs = CPTabBarTemplate(templates: [jarvisTab, chatsTab, devicesTab])
-        tabs.delegate = self
-        ui.setRootTemplate(tabs, animated: false, completion: nil)
+        voiceTab.tabImage = UIImage(systemName: "waveform")
+        wearablesTab.tabImage = UIImage(systemName: "car")
+        ui.setRootTemplate(CPTabBarTemplate(templates: [voiceTab, wearablesTab]), animated: false, completion: nil)
         refresh()
         observeStores()
         subscribeToDevices()
-        Task {
-            async let harnesses: Void = HarnessStore.shared.refresh()
-            async let models: Void = VoiceModelStore.shared.load()
-            _ = await (harnesses, models)
-        }
-        Task { await loadSessions() }
-        Task { await loadServerDevices() }
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -103,9 +86,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     private func refresh() {
         guard running else { return }
-        show(paired ? CarPlayScreens.jarvisTab(voiceSummary) : CarPlayScreens.notPaired, in: jarvisTab)
-        show(paired ? CarPlayScreens.chats(sessions, error: sessionsError) : CarPlayScreens.notPaired, in: chatsTab)
-        show(paired ? CarPlayScreens.devices(devicesInput) : CarPlayScreens.notPaired, in: devicesTab)
+        show(paired ? CarPlayScreens.voiceTab(stateText: voiceStateText) : CarPlayScreens.notPaired, in: voiceTab)
+        show(paired ? CarPlayScreens.wearablesTab(carDevices.map(\.row)) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
     }
 
@@ -125,12 +107,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         withObservationTracking {
             let v = VoiceStore.shared
             _ = v.state; _ = v.error
-            let h = HarnessStore.shared
-            _ = h.assignments; _ = h.harnesses
-            let m = VoiceModelStore.shared
-            _ = m.selectedModelID; _ = m.catalog
-            _ = VoiceSessionSelection.shared.target
-            _ = JarvisPodStore.shared.rosterEntries
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.scheduleRefresh()
@@ -139,18 +115,13 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         }
     }
 
-    /// `ObservableObject` stores: the dashcam, the car's library page, the wearables.
+    /// `ObservableObject` stores: which devices exist, the dashcam, the car's library page.
     private func subscribeToDevices() {
-        let hub = WearablesHub.shared
         let feeds: [AnyPublisher<Void, Never>] = [
+            DeviceRegistry.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             sync.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             wifi.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             library.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            hub.ring.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            hub.x5.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            hub.bottle.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            hub.scale.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            hub.esp32.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
         ]
         Publishers.MergeMany(feeds)
             .sink { [weak self] in self?.scheduleRefresh() }
@@ -168,45 +139,33 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     // MARK: Snapshots of the stores
 
-    private var voiceSummary: CarPlayVoiceSummary {
+    private var voiceStateText: String {
         let v = VoiceStore.shared
-        let harnesses = HarnessStore.shared
-        let current = harnesses.current(for: .voice, sessionHarnessID: nil)
-        let state: String
         switch v.state {
-        case .idle: state = v.error ?? "Tap to talk"
-        case .error: state = v.error ?? "Something went wrong — tap to try again"
-        case .connecting: state = "Connecting…"
-        case .listening: state = "Listening…"
-        case .thinking: state = "Thinking…"
-        case .speaking: state = "Speaking"
-        }
-        return CarPlayVoiceSummary(stateText: state, chatLabel: VoiceSessionSelection.shared.chipLabel,
-                                   harnessLabel: current == "single" ? "Single model" : harnesses.title(for: current),
-                                   modelLabel: VoiceModelStore.shared.chipLabel)
-    }
-
-    private var wearables: [CarPlayWearable] {
-        let hub = WearablesHub.shared
-        return (hub.roster() + JarvisPodStore.shared.rosterEntries).map { e in
-            var battery: Int?
-            if e.connected, e.kind == WearableKeepAlive.ring { battery = hub.ring.session.battery?.percent }
-            if e.connected, e.kind == WearableKeepAlive.x5ring { battery = hub.x5.session.battery?.percent }
-            return CarPlayWearable(id: e.deviceID, kind: e.kind, name: e.name, model: e.model, statusText: e.statusText,
-                                   connected: e.connected, batteryPercent: battery, lastSeen: e.lastSeen,
-                                   rssi: e.rssi ?? e.lastRSSI)
+        case .idle: return v.error ?? "Tap to talk"
+        case .error: return v.error ?? "Something went wrong — tap to try again"
+        case .connecting: return "Connecting…"
+        case .listening: return "Listening…"
+        case .thinking: return "Thinking…"
+        case .speaking: return "Speaking"
         }
     }
 
-    private var devicesInput: CarPlayDevicesInput {
-        let setup = DashcamSetupStore.load()
-        let status = [wifi.onCamera ? sync.phase.label : "Away",
-                      wifi.onCamera && sync.recording == true ? "Recording" : nil,
-                      sync.pendingUploads > 0 ? "\(sync.pendingUploads) to upload" : nil].compactMap { $0 }
-        return CarPlayDevicesInput(
-            dashcam: CarPlayDashcamRow(setUp: setup != nil, name: setup?.displayName ?? "Dashcam",
-                                       status: status.joined(separator: " · ")),
-            wearables: wearables, server: serverDevices, serverError: devicesError)
+    /// Every device Jarvis knows whose type opted into the car (`carEnabled`).
+    private var carDevices: [(row: CarPlayCarDevice, device: any WearableDevice)] {
+        DeviceRegistry.shared.devices.filter(\.carEnabled).map { device in
+            if device is DashcamDevice {
+                let status = [wifi.onCamera ? sync.phase.label : "Away",
+                              wifi.onCamera && sync.recording == true ? "Recording" : nil,
+                              sync.pendingUploads > 0 ? "\(sync.pendingUploads) to upload" : nil].compactMap { $0 }
+                return (CarPlayCarDevice(id: device.deviceID, name: DashcamSetupStore.load()?.displayName ?? "Dashcam",
+                                         status: status.joined(separator: " · "), connected: device.isConnected, isDashcam: true),
+                        device)
+            }
+            let name = (device.snapshot()["name"] as? String) ?? type(of: device).model
+            return (CarPlayCarDevice(id: device.deviceID, name: name, status: device.isConnected ? "Connected" : "Not connected",
+                                     connected: device.isConnected, isDashcam: false), device)
+        }
     }
 
     private var dashcamInput: CarPlayDashcamInput {
@@ -237,42 +196,20 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
 
     private func title(_ screen: CarPlayScreen) -> String {
         switch screen {
-        case .harnesses: return "Voice harness"
-        case .modelProviders: return "Model"
-        case .models(let provider): return provider
-        case .voiceChats: return "Voice chat"
-        case .chat(_, let title): return title
         case .dashcam: return DashcamSetupStore.load()?.displayName ?? "Dashcam"
         case .clip: return "Clip"
         case .drives: return "Drives"
         case .dashcamSettings: return "Dashcam settings"
-        case .device(let id): return wearables.first { $0.id == id }?.name ?? "Device"
-        case .serverDevice(let id): return serverDevices.first { $0.id == id }?.displayName ?? "Device"
+        case .device(let id): return carDevices.first { $0.row.id == id }?.row.name ?? "Device"
         }
     }
 
     private func sections(_ screen: CarPlayScreen) -> [CarPlaySection]? {
         switch screen {
-        case .harnesses:
-            let h = HarnessStore.shared
-            return CarPlayScreens.harnesses(h.harnesses.map { ($0.id, $0.title) }, current: h.current(for: .voice, sessionHarnessID: nil))
-        case .modelProviders:
-            let m = VoiceModelStore.shared
-            let providers = m.catalog?.providers ?? []
-            return CarPlayScreens.modelProviders(providers, selectedProvider: m.selectedModel?.provider)
-                + (m.loadError.map { [CarPlaySection(title: nil, rows: [CarPlayRow(id: "err", title: $0)])] } ?? [])
-        case .models(let provider):
-            let m = VoiceModelStore.shared
-            return CarPlayScreens.models(m.catalog?.models(for: provider) ?? [], selectedID: m.selectedModelID)
-        case .voiceChats:
-            return CarPlayScreens.voiceChats(sessions, target: VoiceSessionSelection.shared.target)
-        case .chat(let id, let title):
-            return CarPlayScreens.chat(id: id, title: title, lastReply: messages[id].flatMap(CarPlayScreens.lastReply),
-                                       error: messageErrors[id])
         case .dashcam: return CarPlayScreens.dashcam(dashcamInput)
         case .drives: return CarPlayScreens.drives(drives, error: drivesError)
         case .dashcamSettings: return CarPlayScreens.dashcamSettings(settingsInput)
-        case .clip, .device, .serverDevice: return nil
+        case .clip, .device: return nil
         }
     }
 
@@ -282,11 +219,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             guard let c = clip(id) else { return CarPlayInfo(title: "Clip", items: [CarPlayInfoItem(title: "Clip", detail: "Gone from the library")]) }
             return CarPlayScreens.clip(c, topMps: clipDetails[id]?.topMps)
         case .device(let id):
-            guard let w = wearables.first(where: { $0.id == id }) else { return nil }
-            return CarPlayScreens.device(w)
-        case .serverDevice(let id):
-            guard let d = serverDevices.first(where: { $0.id == id }) else { return nil }
-            return CarPlayScreens.serverDevice(d)
+            guard let entry = carDevices.first(where: { $0.row.id == id }) else {
+                return CarPlayInfo(title: "Device", items: [CarPlayInfoItem(title: "Status", detail: "No longer shared with Jarvis")])
+            }
+            return CarPlayScreens.carDevice(name: entry.row.name, connected: entry.row.connected, snapshot: entry.device.snapshot())
         default: return nil
         }
     }
@@ -324,20 +260,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
     /// What a screen fetches when it opens; the store observers refresh it after.
     private func load(_ screen: CarPlayScreen) {
         switch screen {
-        case .harnesses: Task { await HarnessStore.shared.refresh() }
-        case .modelProviders, .models: Task { await VoiceModelStore.shared.load() }
-        case .voiceChats: Task { await loadSessions() }
-        case .chat(let id, _):
-            Task {
-                do {
-                    messages[id] = try await SessionsAPI().get(id).messages
-                    messageErrors[id] = nil
-                } catch {
-                    messages[id] = []
-                    messageErrors[id] = apiErrorMessage(error)
-                }
-                refresh()
-            }
         case .dashcam:
             watchingDashcam = true
             hasWifiPassword = DashcamSetupStore.password != nil
@@ -367,32 +289,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
                 if wifi.onCamera { cameraItems = (try? await DashcamCameraSettings.load()) ?? [] }
                 refresh()
             }
-        case .device, .serverDevice: break
+        case .device: break
         }
-    }
-
-    private func loadSessions() async {
-        guard paired else { return }
-        do {
-            let list = try await SessionsAPI().list()
-            sessions = list
-            sessionsError = nil
-            VoiceSessionSelection.shared.reconcile(with: list)
-        } catch {
-            if !wasCancelled(error) { sessionsError = apiErrorMessage(error) }
-        }
-        refresh()
-    }
-
-    private func loadServerDevices() async {
-        guard paired else { return }
-        do {
-            serverDevices = try await DevicesAPI().list()
-            devicesError = nil
-        } catch {
-            if !wasCancelled(error) { devicesError = apiErrorMessage(error) }
-        }
-        refresh()
     }
 
     // MARK: Actions
@@ -404,40 +302,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         case .startVoice:
             guard paired else { alert("Pair Jarvis on your iPhone first."); return }
             voice.start()
-        case .selectHarness(let id):
-            Task { await HarnessStore.shared.assign(id, to: .voice) }
-            ui.popToRootTemplate(animated: true, completion: nil)
-        case .selectModel(let id, _):
-            // As on the phone, a picked model means Voice runs "Single model".
-            let store = VoiceModelStore.shared
-            store.select(id.flatMap { id in store.catalog?.models.first { $0.id == id } })
-            Task { await HarnessStore.shared.assign("single", to: .voice) }
-            ui.popToRootTemplate(animated: true, completion: nil)
-        case .selectVoiceChat(let id, let title):
-            VoiceSessionSelection.shared.select(id.map { .session(id: $0, title: title) } ?? .defaultVoice)
-            VoiceStore.shared.sessionTargetChanged()
-            ui.popTemplate(animated: true, completion: nil)
-        case .newVoiceChat:
-            Task {
-                do {
-                    try await VoiceSessionSelection.shared.startNewSession()
-                    VoiceStore.shared.sessionTargetChanged()
-                } catch { alert(apiErrorMessage(error)) }
-            }
-            ui.popTemplate(animated: true, completion: nil)
-        case .continueByVoice(let id, let title):
-            VoiceSessionSelection.shared.select(.session(id: id, title: title))
-            VoiceStore.shared.sessionTargetChanged()
-            voice.start()
-        case .readAloud(let text):
-            Task { await VoiceStore.shared.synthesizer.speak(voicePlainSpeech(text), rate: DefaultVoiceSynthesizing.defaultRate) }
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
-        case .connectWearable(let id):
-            Task {
-                let ok = await WearablesHub.shared.connect(deviceID: id)
-                alert(ok ? "Connected." : "Couldn't reach it — is it nearby and awake?")
-            }
         }
     }
 
@@ -614,15 +480,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             // The voice screen went away without Done/Stop (the system took it): stop recording.
             if voice.owns(aTemplate) { voice.templateGone() }
             pruneStack()
-        }
-    }
-
-    // MARK: CPTabBarTemplateDelegate
-
-    nonisolated func tabBarTemplate(_ tabBarTemplate: CPTabBarTemplate, didSelect selectedTemplate: CPTemplate) {
-        MainActor.assumeIsolated {
-            if selectedTemplate === chatsTab { Task { await loadSessions() } }
-            if selectedTemplate === devicesTab { Task { await loadServerDevices() } }
         }
     }
 }

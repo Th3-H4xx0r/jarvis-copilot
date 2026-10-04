@@ -16,6 +16,8 @@ final class DashcamDevice: WearableDevice {
 
     var deviceID: String { setup()?.deviceID ?? "dashcam" }
     var isConnected: Bool { wifi() }
+    /// The dashcam lives in the car: it's on Jarvis's CarPlay Wearables tab.
+    var carEnabled: Bool { true }
 
     /// Adds or removes the dashcam from Jarvis to match setup + "Share with Jarvis".
     func refreshMembership() {

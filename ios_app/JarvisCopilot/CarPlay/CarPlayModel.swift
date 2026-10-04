@@ -43,15 +43,15 @@ struct CarPlayInfoItem: Equatable {
 /// Every screen pushed over a tab. CarPlay's voice-based conversational apps
 /// may stack at most three templates, the tab's own list included.
 enum CarPlayScreen: Hashable {
-    case harnesses, modelProviders, models(provider: String), voiceChats
-    case chat(id: String, title: String)
+    /// The dashcam and its sub-screens.
     case dashcam, clip(id: String), drives, dashcamSettings
-    case device(id: String), serverDevice(id: String)
+    /// A car-enabled wearable without a screen of its own: its status.
+    case device(id: String)
 
     var depth: Int {
         switch self {
-        case .harnesses, .modelProviders, .voiceChats, .chat, .dashcam, .device, .serverDevice: return 2
-        case .models, .clip, .drives, .dashcamSettings: return 3
+        case .dashcam, .device: return 2
+        case .clip, .drives, .dashcamSettings: return 3
         }
     }
 
@@ -62,16 +62,8 @@ enum CarPlayAction: Equatable {
     case none
     case push(CarPlayScreen)
     case startVoice
-    case selectHarness(String)
-    case selectModel(id: String?, provider: String?)
-    case selectVoiceChat(id: String?, title: String)
-    case newVoiceChat
-    case continueByVoice(id: String, title: String)
-    /// Say a chat's last reply out loud (CarPlay voice apps don't show answers as text).
-    case readAloud(String)
     case dashcam(CarPlayDashcamCommand)
     case clip(id: String, CarPlayClipCommand)
-    case connectWearable(String)
 }
 
 enum CarPlayDashcamCommand: Equatable {
@@ -112,37 +104,14 @@ struct CarPlaySectionsCache {
 
 // MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
 
-struct CarPlayVoiceSummary: Equatable {
-    var stateText: String
-    var chatLabel: String
-    var harnessLabel: String
-    var modelLabel: String
-}
-
-struct CarPlayWearable: Equatable {
+/// A car-enabled wearable as the Wearables tab lists it.
+struct CarPlayCarDevice: Equatable {
     var id: String
-    var kind: String
-    var name: String
-    var model: String
-    var statusText: String
-    var connected: Bool
-    var batteryPercent: Int?
-    var lastSeen: Date?
-    var rssi: Int?
-}
-
-struct CarPlayDashcamRow: Equatable {
-    var setUp: Bool
     var name: String
     var status: String
-}
-
-struct CarPlayDevicesInput {
-    var dashcam: CarPlayDashcamRow?
-    var wearables: [CarPlayWearable]
-    var server: [Device]
-    /// Why the server's device list couldn't be read, if it couldn't.
-    var serverError: String? = nil
+    var connected: Bool
+    /// The dashcam opens its own screens; anything else opens its status.
+    var isDashcam: Bool
 }
 
 struct CarPlayDashcamInput {

@@ -71,6 +71,9 @@ protocol WearableDevice: AnyObject {
     var notificationChannel: NotificationChannelInfo? { get }
     /// Forward a notification card to this device (title + body text).
     func forwardNotification(title: String, body: String)
+    /// Shown in Jarvis's CarPlay Wearables tab. Off unless a device type opts in —
+    /// only things worth reaching from the driver's seat (the dashcam).
+    var carEnabled: Bool { get }
     /// Current state as JSON-encodable values.
     func snapshot() -> [String: Any]
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any]
@@ -79,6 +82,7 @@ protocol WearableDevice: AnyObject {
 extension WearableDevice {
     var notificationChannel: NotificationChannelInfo? { nil }
     func forwardNotification(title: String, body: String) {}
+    var carEnabled: Bool { false }
 }
 
 /// Everything the app can currently drive. The bridge asks this for skills and state;
