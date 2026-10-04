@@ -8,11 +8,12 @@ import WidgetKit
 /// `model` block reads it.
 @MainActor
 enum WidgetModelSnapshots {
-    /// The wearables that have a 3D model, by the key a design names them with.
-    static let devices = ["ring", "x5ring", "glasses"]
+    /// The wearables that have a 3D model, by the key a design names them with — and
+    /// the voice orb, for the JARVIS Voice widget (its Metal shader can't run in a widget either).
+    static let devices = ["ring", "x5ring", "glasses", "orb"]
 
     /// Bumped when a model's look changes, so phones render it again.
-    static let version = 1
+    static let version = 2
     private static let versionKey = "jc.widgets.modelsVersion"
 
     /// Renders whatever is missing or out of date, off the launch path.
@@ -57,6 +58,7 @@ enum WidgetModelSnapshots {
 
     /// One model, front three-quarter view, on a transparent background.
     static func render(_ device: String, size: CGFloat = 400) -> UIImage? {
+        if device == "orb" { return OrbFrames.still(size: size, scale: 1) }   // `size` pixels, like the models
         let scene: SCNScene
         let camera: SCNNode
         switch device {

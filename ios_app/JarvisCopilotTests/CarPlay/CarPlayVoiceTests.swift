@@ -73,4 +73,11 @@ final class CarPlayVoiceTests: XCTestCase {
         XCTAssertTrue(CarPlayVoiceState.needsActivation(active: "listening", next: "thinking"))
         XCTAssertTrue(CarPlayVoiceState.needsActivation(active: nil, next: "connecting"))
     }
+
+    /// One still frame of the real orb, for the Voice tab's header and row.
+    func testStillOrbIsDrawnAtTheAskedSize() throws {
+        let still = try XCTUnwrap(OrbFrames.still(size: 100))
+        XCTAssertEqual(still.size, CGSize(width: 100, height: 100))
+        XCTAssertGreaterThan(try XCTUnwrap(alphaAtCentre(still)), 0.5)
+    }
 }

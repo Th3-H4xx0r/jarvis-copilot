@@ -9,35 +9,48 @@ import UIKit
 enum OrbFrames {
     /// CarPlay's voice-state image is at most 150 × 150 pt.
     static let side: CGFloat = 120
-    private static var cache: [VoiceState: UIImage] = [:]
+    private static var cache: [String: UIImage] = [:]
 
     /// `count` frames of the orb starting at shader time `start`, `step` seconds apart.
-    static func frames(count: Int, size: CGFloat = side, start: Double = 0, step: Double = 0.1,
+    static func frames(count: Int, size: CGFloat = side, start: Double = 0, step: Double = 0.1, scale: CGFloat = 2,
                        pulse: (Int) -> CGFloat = { _ in 1 }) -> [UIImage] {
         (0..<count).compactMap { i in
             let renderer = ImageRenderer(content: OrbFrameView(size: size, t: start + Double(i) * step, scale: pulse(i)))
-            renderer.scale = 2
+            renderer.scale = scale
             renderer.isOpaque = false
             return renderer.uiImage
         }
     }
 
     /// The looping orb for one voice state (cached — rendering costs ~a frame each).
-    static func animated(for state: VoiceState) -> UIImage? {
-        if let cached = cache[state] { return cached }
+    static func animated(for state: VoiceState, size: CGFloat = side) -> UIImage? {
+        let key = "\(state.rawValue)@\(size)"
+        if let cached = cache[key] { return cached }
         let image: UIImage?
         switch state {
-        case .listening: image = loop(frames(count: 12, step: 0.12), duration: 2.4)
-        case .thinking: image = loop(frames(count: 12, step: 0.3), duration: 1.2)
+        case .listening: image = loop(frames(count: 12, size: size, step: 0.12), duration: 2.4)
+        case .thinking: image = loop(frames(count: 12, size: size, step: 0.3), duration: 1.2)
         case .speaking:
-            image = loop(frames(count: 12, step: 0.12, pulse: { 1 + 0.06 * CGFloat(sin(Double($0) / 11 * .pi)) }), duration: 1.2)
+            image = loop(frames(count: 12, size: size, step: 0.12, pulse: { 1 + 0.06 * CGFloat(sin(Double($0) / 11 * .pi)) }),
+                         duration: 1.2)
         case .connecting, .error, .idle:
-            image = frames(count: 1).first
+            image = frames(count: 1, size: size).first
         }
         let result = image ?? jarvisOrbUIImage
-        cache[state] = result
+        cache[key] = result
         return result
     }
+
+    /// One still of the orb (the Voice tab's header and row, the widget's picture).
+    /// The shader at a moment where the colour sweep sits across the sphere.
+    static func still(size: CGFloat, scale: CGFloat = 2) -> UIImage? {
+        let key = "\(size)@\(scale)"
+        if let cached = stills[key] { return cached }
+        let image = frames(count: 1, size: size, start: 2.4, scale: scale).first
+        stills[key] = image
+        return image
+    }
+    private static var stills: [String: UIImage] = [:]
 
     /// Render every state's loop ahead of the first Talk tap, a state at a time.
     static func prewarm() async {
@@ -48,7 +61,10 @@ enum OrbFrames {
     }
 
     /// Drop the frames (~9 MB) when the car disconnects.
-    static func clear() { cache.removeAll() }
+    static func clear() {
+        cache.removeAll()
+        stills.removeAll()
+    }
 
     /// Forwards then back, so the last frame meets the first.
     private static func loop(_ frames: [UIImage], duration: TimeInterval) -> UIImage? {

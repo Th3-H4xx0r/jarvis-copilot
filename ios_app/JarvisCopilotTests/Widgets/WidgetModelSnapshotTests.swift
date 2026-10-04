@@ -38,4 +38,12 @@ final class WidgetModelSnapshotTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(device).png").path), device)
         }
     }
+
+    /// The JARVIS Voice widget shows the phone's real voice orb, not the app icon:
+    /// a widget can't run the orb's Metal shader, so the app renders it like the models.
+    func testTheVoiceOrbIsRenderedForTheWidget() throws {
+        XCTAssertTrue(WidgetModelSnapshots.devices.contains("orb"))
+        let image = try XCTUnwrap(WidgetModelSnapshots.render("orb", size: 160))
+        XCTAssertFalse(WidgetModelSnapshots.isBlank(image))
+    }
 }

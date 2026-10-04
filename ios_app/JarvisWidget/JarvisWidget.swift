@@ -50,7 +50,9 @@ struct JarvisWidgetView: View {
             // car's own surface. A tap opens voice — on the phone's Voice tab,
             // or Jarvis's CarPlay voice screen when tapped in the car.
             VStack(spacing: 8) {
-                if let orb = jarvisOrbUIImage {
+                // The phone's real voice orb, rendered by the app into the App Group
+                // (WidgetModelSnapshots); the app icon until the first render lands.
+                if let orb = WidgetImages.model("orb") ?? jarvisOrbUIImage {
                     Image(uiImage: orb)
                         .resizable()
                         .scaledToFit()

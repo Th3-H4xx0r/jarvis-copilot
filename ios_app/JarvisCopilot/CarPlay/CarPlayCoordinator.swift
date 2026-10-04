@@ -49,6 +49,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     func start() {
         running = true
         voiceTab.tabImage = UIImage(systemName: "waveform")
+        voiceTab.listHeader = voiceHeader()
         wearablesTab.tabImage = UIImage(systemName: "car")
         ui.setRootTemplate(CPTabBarTemplate(templates: [voiceTab, wearablesTab]), animated: false, completion: nil)
         refresh()
@@ -87,6 +88,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private func refresh() {
         guard running else { return }
         show(paired ? CarPlayScreens.voiceTab(stateText: voiceStateText) : CarPlayScreens.notPaired, in: voiceTab)
+        if let header = voiceTab.listHeader {
+            let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
+            if header.subtitle != subtitle { header.subtitle = subtitle }
+        }
         show(paired ? CarPlayScreens.wearablesTab(carDevices.map(\.row)) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
     }
@@ -149,6 +154,22 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .thinking: return "Thinking…"
         case .speaking: return "Speaking"
         }
+    }
+
+    /// The Voice tab's big header: the phone's orb, what Jarvis is doing, and Talk.
+    private func voiceHeader() -> CPListTemplateDetailsHeader? {
+        let side: CGFloat
+        if #available(iOS 27.0, *) {
+            side = CPThumbnailImage.maximumImageSize(forAspectRatio: 1).height
+        } else {
+            side = 240
+        }
+        // The listening loop when CarPlay animates thumbnails; the still otherwise.
+        guard let orb = OrbFrames.animated(for: .listening, size: side) ?? OrbFrames.still(size: side) else { return nil }
+        let talk = CPButton(image: UIImage(systemName: "mic.fill") ?? UIImage()) { [weak self] _ in self?.handle(.startVoice) }
+        talk.title = "Talk"
+        return CPListTemplateDetailsHeader(thumbnail: CPThumbnailImage(image: orb), title: "Jarvis",
+                                           subtitle: voiceStateText, actionButtons: [talk])
     }
 
     /// Every device Jarvis knows whose type opted into the car (`carEnabled`).
