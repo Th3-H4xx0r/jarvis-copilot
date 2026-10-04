@@ -58,7 +58,11 @@ enum CarPlayVoiceMirror {
 final class CarPlayVoiceScreen {
     private let ui: CPInterfaceController
     private var template: CPVoiceControlTemplate?
-    private(set) var isShowing = false
+    private(set) var isShowing = false {
+        didSet { if isShowing != oldValue { onShowingChange?() } }
+    }
+    /// The card opened or closed (the Voice tab moves its header out of the way).
+    var onShowingChange: (() -> Void)?
     private var isOverlay = false
     private var watching = false
     /// The driver stopped it: the session winding down mustn't bring the screen back.

@@ -16,9 +16,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private let wearablesTab = CPListTemplate(title: "Wearables", sections: [])
     private var tabBar: CPTabBarTemplate?
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
+    /// The Voice tab's orb, state and Talk; off the tab while the voice card is open.
+    private var voiceHeaderView: CPListTemplateDetailsHeader?
     /// What the Voice tab's orb and buttons last showed (rebuilt only when it changes).
     private var voiceHeaderKey: String?
-    /// Apple's full-screen voice screen while talking (the Voice tab keeps the text).
+    /// Apple's voice card over the bottom of the screen while talking (the Voice tab keeps the text above it).
     private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
 
     /// The car's own library page (filter, paging), apart from the phone's.
@@ -57,7 +59,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     func start() {
         running = true
         voiceTab.tabImage = UIImage(systemName: "waveform")
-        voiceTab.listHeader = voiceHeader()
+        voiceHeaderView = voiceHeader()
+        voiceTab.listHeader = voiceHeaderView
         wearablesTab.tabImage = UIImage(systemName: "car")
         let tabs = CPTabBarTemplate(templates: [voiceTab, wearablesTab])
         tabBar = tabs
@@ -66,6 +69,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         observeStores()
         subscribeToDevices()
         WidgetModelSnapshots.refreshIfNeeded()    // the dashboard widget's orb picture
+        voice.onShowingChange = { [weak self] in self?.refresh() }
         voice.attach()
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
@@ -179,7 +183,9 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     /// The header follows the session: the orb for its state, Jarvis's state, what you
     /// said (dim) and the reply with its spoken words lit, and the buttons that fit now.
     private func updateVoiceHeader() {
-        guard let header = voiceTab.listHeader else { return }
+        let attached = CarPlayScreens.showsVoiceHeader(cardOpen: voice.isShowing) ? voiceHeaderView : nil
+        if voiceTab.listHeader !== attached { voiceTab.listHeader = attached }
+        guard let header = voiceHeaderView else { return }
         let v = VoiceStore.shared
         let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
         if header.subtitle != subtitle { header.subtitle = subtitle }

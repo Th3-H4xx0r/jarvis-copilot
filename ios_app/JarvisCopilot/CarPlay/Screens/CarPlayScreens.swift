@@ -39,6 +39,10 @@ enum CarPlayScreens {
         return "…" + tail[start...]
     }
 
+    /// The voice card covers the bottom of the tab and shows the orb and the state
+    /// itself: while it's open the header steps aside so the text sits above the card.
+    static func showsVoiceHeader(cardOpen: Bool) -> Bool { !cardOpen }
+
     /// Talk when idle; during a conversation the voice card has Mute and End, so none here.
     static func voiceButtons(active: Bool, muted: Bool, pushToTalk: Bool) -> [CarPlayVoiceButton] {
         active ? [] : [.talk]

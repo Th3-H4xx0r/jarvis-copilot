@@ -47,6 +47,13 @@ final class CarPlayScreensTests: XCTestCase {
         XCTAssertTrue(rows(CarPlayScreens.voiceTab(nil, speaking: false)).isEmpty)
     }
 
+    /// The voice card covers the bottom of the tab and already shows the orb and the
+    /// state: while it's open the header steps aside so the text sits above the card.
+    func testTheHeaderStepsAsideWhileTheVoiceCardIsOpen() {
+        XCTAssertTrue(CarPlayScreens.showsVoiceHeader(cardOpen: false))
+        XCTAssertFalse(CarPlayScreens.showsVoiceHeader(cardOpen: true))
+    }
+
     /// The reply in the big row text as it's spoken (the newest words), what you said under it.
     func testVoiceTabShowsTheReplyAsItIsSpoken() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
