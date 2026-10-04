@@ -3,24 +3,56 @@ import UIKit
 
 /// Jarvis on the car's screen: a second scene of this app (Info.plist
 /// `CPTemplateApplicationSceneSessionRoleApplication`), built only from Apple's
-/// CarPlay templates. CarPlay apps are voice-based conversational apps here
-/// (iOS 26.4+), which is the one category besides navigation allowed to record.
+/// CarPlay templates. Jarvis is a voice-based conversational CarPlay app
+/// (iOS 26.4+), the one category besides navigation allowed to record.
 @available(iOS 26.4, *)
 @MainActor
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
-    private var interfaceController: CPInterfaceController?
+    private var coordinator: CarPlayCoordinator?
+    /// A URL the scene was opened with (the JARVIS Voice widget), handled once the screen is up.
+    private var pendingURL: URL?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        pendingURL = connectionOptions.urlContexts.first?.url
+    }
 
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                   didConnect interfaceController: CPInterfaceController) {
-        self.interfaceController = interfaceController
-        let tabs = ["Jarvis", "Chats", "Devices"].map { title in
-            CPListTemplate(title: title, sections: [CPListSection(items: [CPListItem(text: title, detailText: nil)])])
+        AppServices.shared.setCarPlayActive(true)
+        let coordinator = CarPlayCoordinator(interfaceController: interfaceController)
+        self.coordinator = coordinator
+        coordinator.start()
+        if let url = pendingURL {
+            pendingURL = nil
+            open(url)
         }
-        interfaceController.setRootTemplate(CPTabBarTemplate(templates: tabs), animated: false, completion: nil)
     }
 
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                   didDisconnectInterfaceController interfaceController: CPInterfaceController) {
-        self.interfaceController = nil
+        coordinator?.stop()
+        coordinator = nil
+        AppServices.shared.setCarPlayActive(false)
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts { open(context.url) }
+    }
+
+    /// The widget's `jarviscopilot://voice` starts talking on the car; anything
+    /// else goes through the phone's usual router.
+    private func open(_ url: URL) {
+        if CarPlayLinks.isVoice(url) {
+            coordinator?.voice.start()
+        } else {
+            AppServices.shared.open(url: url)
+        }
+    }
+}
+
+/// The deep links the car's scene answers itself.
+enum CarPlayLinks {
+    static func isVoice(_ url: URL) -> Bool {
+        url.scheme == "jarviscopilot" && (url.host == "voice" || url.path == "/voice")
     }
 }
