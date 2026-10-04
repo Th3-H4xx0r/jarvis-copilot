@@ -70,7 +70,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
-            if running { await OrbFrames.prewarm(size: voiceHeaderSide) }
+            // The voice screen's loops (CarPlay's 150 pt limit) and the Voice tab header's.
+            if running { await OrbFrames.prewarm(sizes: [OrbFrames.side, voiceHeaderSide]) }
         }
     }
 

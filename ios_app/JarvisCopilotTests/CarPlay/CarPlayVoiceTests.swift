@@ -141,4 +141,31 @@ final class CarPlayVoiceTests: XCTestCase {
     func testListeningAgainBringsTheAnimationBack() {
         XCTAssertEqual(CarPlayVoiceMirror.step(state: .listening, hasError: false, showing: false, stopping: false), .show)
     }
+
+    // MARK: Orb frames CarPlay can show
+
+    /// CarPlay's voice screen drops images it can't encode: frames are plain 8-bit sRGB.
+    func testOrbFramesAreDisplayReady() throws {
+        let frame = try XCTUnwrap(OrbFrames.frames(count: 1, size: 60).first)
+        let cg = try XCTUnwrap(frame.cgImage)
+        XCTAssertEqual(cg.bitsPerComponent, 8)
+        XCTAssertEqual(cg.colorSpace?.name, CGColorSpace.sRGB)
+    }
+
+    /// A blank render (no GPU, e.g. the phone locked) is never shown or kept.
+    func testABlankRenderIsNotUsable() {
+        let blank = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        XCTAssertFalse(OrbFrames.usable(blank))
+        XCTAssertTrue(OrbFrames.usable(OrbFrames.frames(count: 1, size: 40).first))
+    }
+
+    /// CarPlay drops a voice image over 150×150 — and a 2× image arrives counted in pixels —
+    /// so the voice screen's orb must be under 150 pixels a side.
+    func testVoiceScreenOrbFitsCarPlaysLimitInPixels() throws {
+        for state in CarPlayVoiceState.shown {
+            let image = try XCTUnwrap(OrbFrames.animated(for: state), "\(state)")
+            let frame = try XCTUnwrap((image.images?.first ?? image).cgImage)
+            XCTAssertLessThanOrEqual(max(frame.width, frame.height), 150, "\(state)")
+        }
+    }
 }
