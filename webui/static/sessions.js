@@ -667,7 +667,10 @@ async function loadSession(sid){
     if (_loadingSessionId !== sid) return;
 
     // Restore any queued message that survived page refresh via sessionStorage.
-    if(typeof queueSessionMessage==='function'){
+    // Only after a refresh: while the in-memory queue still holds the entries
+    // they drain on their own, and copying one into the composer as well left
+    // a second copy of the message waiting to be sent.
+    if(typeof queueSessionMessage==='function'&&!(typeof getQueuedSessionCount==='function'&&getQueuedSessionCount(sid))){
       try{
         const _storedQ=sessionStorage.getItem('hermes-queue-'+sid);
         if(_storedQ){

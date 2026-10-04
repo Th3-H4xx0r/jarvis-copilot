@@ -137,3 +137,94 @@ def test_stream_registered_survives_post_disconnect_for_get_fallback():
         assert STREAMS.get(stream_id) is channel
     finally:
         STREAMS.pop(stream_id, None)
+
+
+# ── the web client against the real first frame ───────────────────────────
+#
+# The server named its opening event `chat_start` while the web client only
+# accepted `start`, so every page's first send was treated as "this server
+# doesn't stream", posted a second time (409), queued, and then ran again after
+# the reply. These run the client's own functions from messages.js in node on
+# the bytes the server actually writes.
+
+_MESSAGES_JS = Path(__file__).resolve().parents[2] / "webui" / "static" / "messages.js"
+
+
+def _top_level_function(src: str, name: str) -> str:
+    """A top-level function's source: from its declaration to the first
+    column-0 closing brace (the style every top-level function here uses)."""
+    start = src.index(f"function {name}(")
+    if src[max(0, start - 6):start] == "async ":
+        start -= 6
+    end = src.index("\n}\n", start) + 2
+    return src[start:end]
+
+
+def _run_client(responses: list[tuple[int, str, str]]) -> list[dict]:
+    """Call ``_tryStreamingChatStart`` once per fake (status, content-type, body)
+    response and return what it decided each time."""
+    import json
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    src = _MESSAGES_JS.read_text(encoding="utf-8")
+    program = "\n".join([
+        "globalThis.window = {}; globalThis.document = {baseURI: 'https://jarvis.test/'};",
+        "globalThis.location = {href: 'https://jarvis.test/', pathname: '/', search: ''};",
+        "const queue = %s;" % json.dumps(responses),
+        "globalThis.fetch = async () => {",
+        "  const [status, ctype, text] = queue.shift(); let sent = false;",
+        "  return {status, ok: status < 400,",
+        "    headers: {get: k => k.toLowerCase() === 'content-type' ? ctype : null},",
+        "    json: async () => JSON.parse(text),",
+        "    body: {getReader: () => ({",
+        "      read: async () => sent ? {done: true} : (sent = true, {done: false, value: new TextEncoder().encode(text)}),",
+        "      cancel() {}})}};",
+        "};",
+        _top_level_function(src, "_makeFetchSSESource"),
+        _top_level_function(src, "_tryStreamingChatStart"),
+        "(async () => { const out = [];",
+        "  for (let i = 0, n = queue.length; i < n; i++) {",
+        "    const r = await _tryStreamingChatStart({});",
+        "    out.push({mode: r.mode, reason: r.reason || null, data: r.data || null}); }",
+        "  console.log(JSON.stringify(out)); })();",
+    ])
+    result = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def _server_first_frame(response: dict) -> str:
+    handler = FakeHandler()
+    routes._stream_chat_start_response(handler, response)  # no channel: just the opening frame
+    return handler.wfile.getvalue().decode("utf-8")
+
+
+def test_web_client_accepts_the_servers_opening_frame():
+    frame = _server_first_frame({"stream_id": "stream-web", "session_id": "sess-web", "title": "Hi"})
+
+    [decision] = _run_client([(200, "text/event-stream", frame)])
+
+    assert decision["mode"] == "stream"
+    assert decision["data"]["stream_id"] == "stream-web"
+
+
+def test_web_client_never_reposts_a_turn_the_server_took():
+    """A 2xx event-stream with no usable opening frame still means the server
+    started the turn: the client must not fall back to a second POST."""
+    decisions = _run_client([
+        (200, "text/event-stream", ": keepalive\n\n"),
+        (200, "text/event-stream", "event: token\ndata: {\"text\": \"hi\"}\n\n"),
+    ])
+
+    assert [d["mode"] for d in decisions] == ["committed", "committed"]
+
+
+def test_web_client_still_falls_back_when_the_server_cannot_stream():
+    [decision] = _run_client([(404, "application/json", "{}")])
+
+    assert decision == {"mode": "unsupported", "reason": "not_found", "data": None}

@@ -339,6 +339,12 @@ async function send(){
         // already ran, replying with the normal JSON shape.
         _streamStartSupported=false;
         startData=attempt.data;
+      }else if(attempt.mode==='committed'){
+        // The server started this turn but its stream carried no start frame.
+        // Never post it again; reattach to the running turn instead.
+        _streamStartSupported=false;
+        await _resumeRunningTurn(activeSid);
+        return;
       }else{
         // unsupported - that probe request had no side effect, so make the
         // real call now. Whether we ever try streaming again depends on
@@ -404,17 +410,16 @@ async function send(){
     const errMsg=String((e&&e.message)||'');
     const conflictActiveStream=/session already has an active stream/i.test(errMsg);
     if(conflictActiveStream){
-      delete INFLIGHT[activeSid];
-      if(typeof clearInflightState==='function') clearInflightState(activeSid);
-      stopApprovalPolling();
-      stopClarifyPolling();
-      // Keep the user's attempted turn by queueing it for after the current run.
-      queueSessionMessage(activeSid,{text:msgText,files:[],model:S.session&&S.session.model||($('modelSelect')&&$('modelSelect').value)||'',model_provider:S.session&&S.session.model_provider||null,profile:S.activeProfile||'default'});
+      // Keep the user's attempted turn by queueing it for after the current
+      // run — once. The same text already waiting is this message again.
+      const _alreadyQueued=_getSessionQueue(activeSid,false).some(e=>e&&e.text===msgText);
+      if(!_alreadyQueued){
+        queueSessionMessage(activeSid,{text:msgText,files:[],model:S.session&&S.session.model||($('modelSelect')&&$('modelSelect').value)||'',model_provider:S.session&&S.session.model_provider||null,profile:S.activeProfile||'default'});
+      }
       updateQueueBadge(activeSid);
       showToast('Current session is still running. Reconnected and queued your message.',2600);
       try{
-        await loadSession(activeSid);
-        setComposerStatus('');
+        await _resumeRunningTurn(activeSid);
         return;
       }catch(_){
         // Fall through to standard error handling if session reload fails.
@@ -697,15 +702,32 @@ async function _tryStreamingChatStart(payload){
   }
   const source=_makeFetchSSESource(resp);
   const first=await source._readFirstEvent();
-  if(!first||first.type!=='start'){
-    // Contract mismatch — the server answered with a 2xx SSE stream but not
-    // the shape this client expects. That's a real (if unexpected) protocol
-    // answer from this server, not a transient network blip, so fall back
-    // permanently rather than re-probing every turn.
-    try{ source.close(); }catch(_){ }
-    return {mode:'unsupported', reason:'not_found'};
+  // The server opens with `chat_start` (routes._stream_chat_start_response);
+  // `start` was this client's original name for it. Accepting only `start`
+  // meant the first send of every page load posted the turn a second time,
+  // which 409'd and was queued — the same message then ran again after the
+  // reply.
+  const data=first&&first.parsed;
+  if(first&&(first.type==='chat_start'||first.type==='start'||(data&&data.stream_id))){
+    return {mode:'stream', source, data:data||{}};
   }
-  return {mode:'stream', source, data:first.parsed||{}};
+  // A 2xx event-stream means the server already took this turn, whatever the
+  // body then said. Posting again would only 409 (or run it twice), so the
+  // caller picks the running turn up from the session instead.
+  try{ source.close(); }catch(_){ }
+  return {mode:'committed'};
+}
+
+// The server already has this session's turn running: drop the local in-flight
+// bookkeeping and reattach to it from the session snapshot (loadSession picks
+// up active_stream_id and resumes the live stream).
+async function _resumeRunningTurn(sid){
+  delete INFLIGHT[sid];
+  if(typeof clearInflightState==='function') clearInflightState(sid);
+  stopApprovalPolling();
+  stopClarifyPolling();
+  await loadSession(sid);
+  setComposerStatus('');
 }
 
 const LIVE_STREAMS={};
