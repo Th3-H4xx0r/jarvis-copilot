@@ -103,6 +103,9 @@ struct CarPlaySectionsCache {
 
 // MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
 
+/// The Voice tab's buttons.
+enum CarPlayVoiceButton: Equatable { case talk, mute, unmute, send, stop }
+
 /// What the Voice tab shows of the conversation.
 struct CarPlayVoiceText: Equatable {
     var heard: String?

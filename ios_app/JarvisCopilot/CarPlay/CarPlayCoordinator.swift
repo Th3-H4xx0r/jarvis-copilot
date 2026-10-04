@@ -1,3 +1,4 @@
+import AVFAudio
 import CarPlay
 import Combine
 import Foundation
@@ -15,7 +16,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private let wearablesTab = CPListTemplate(title: "Wearables", sections: [])
     private var tabBar: CPTabBarTemplate?
     private var stack: [(screen: CarPlayScreen, template: CPTemplate)] = []
-    private(set) lazy var voice = CarPlayVoiceScreen(ui: ui)
+    /// What the Voice tab's orb and buttons last showed (rebuilt only when it changes).
+    private var voiceHeaderKey: String?
 
     /// The car's own library page (filter, paging), apart from the phone's.
     private let library = DashcamLibraryModel()
@@ -61,11 +63,11 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         refresh()
         observeStores()
         subscribeToDevices()
-        voice.attach()
+        WidgetModelSnapshots.refreshIfNeeded()    // the dashboard widget's orb picture
         // Render the voice orb's frames now, not on the first Talk tap.
         Task {
             try? await Task.sleep(for: .seconds(2))
-            if running { await OrbFrames.prewarm() }
+            if running { await OrbFrames.prewarm(size: voiceHeaderSide) }
         }
     }
 
@@ -74,7 +76,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         cancellables.removeAll()
         if watchingDashcam { sync.watchStatus(false); watchingDashcam = false }
         stopLive()
-        voice.stop()
+        stopVoice()
         OrbFrames.clear()
     }
 
@@ -152,34 +154,25 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     private var voiceStateText: String {
         let v = VoiceStore.shared
-        switch v.state {
-        case .idle: return v.error ?? "Tap to talk"
-        case .error: return v.error ?? "Something went wrong — tap to try again"
-        case .connecting: return "Connecting…"
-        case .listening: return "Listening…"
-        case .thinking: return "Thinking…"
-        case .speaking: return "Speaking"
-        }
+        return CarPlayScreens.voiceStateText(state: v.state, error: v.error,
+                                             micAllowed: AVAudioApplication.shared.recordPermission != .denied)
     }
 
-    /// The Voice tab's big header: the phone's orb, what Jarvis is doing, and Talk.
+    private var voiceHeaderSide: CGFloat {
+        if #available(iOS 27.0, *) { return CPThumbnailImage.maximumImageSize(forAspectRatio: 1).height }
+        return 240
+    }
+
+    /// The Voice tab IS the voice screen (no pop-up): the phone's orb, Jarvis's state,
+    /// the conversation, and Talk / Mute / Stop.
     private func voiceHeader() -> CPListTemplateDetailsHeader? {
-        let side: CGFloat
-        if #available(iOS 27.0, *) {
-            side = CPThumbnailImage.maximumImageSize(forAspectRatio: 1).height
-        } else {
-            side = 240
-        }
-        // The listening loop when CarPlay animates thumbnails; the still otherwise.
-        guard let orb = OrbFrames.animated(for: .listening, size: side) ?? OrbFrames.still(size: side) else { return nil }
-        let talk = CPButton(image: UIImage(systemName: "mic.fill") ?? UIImage()) { [weak self] _ in self?.handle(.startVoice) }
-        talk.title = "Talk"
+        guard let orb = OrbFrames.animated(for: .listening, size: voiceHeaderSide) ?? OrbFrames.still(size: voiceHeaderSide) else { return nil }
         return CPListTemplateDetailsHeader(thumbnail: CPThumbnailImage(image: orb), title: "Jarvis",
-                                           subtitle: voiceStateText, bodyVariants: [], actionButtons: [talk])
+                                           subtitle: voiceStateText, bodyVariants: [], actionButtons: [])
     }
 
-    /// The header follows the conversation: Jarvis's state, then what you said (dim) and
-    /// the reply with its spoken words lit — the phone's Voice screen, in CarPlay's text.
+    /// The header follows the session: the orb for its state, Jarvis's state, what you
+    /// said (dim) and the reply with its spoken words lit, and the buttons that fit now.
     private func updateVoiceHeader() {
         guard let header = voiceTab.listHeader else { return }
         let v = VoiceStore.shared
@@ -189,6 +182,42 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
                                                      reply: voicePlainSpeech(v.assistantText), spokenWords: v.spokenWords) : nil
         let body = text.map { [Self.attributed($0)] } ?? []
         if header.bodyVariants != body { header.bodyVariants = body }
+
+        let buttons = paired ? CarPlayScreens.voiceButtons(active: v.isActive, muted: v.muted,
+                                                           pushToTalk: v.mode == .quality && v.state == .listening) : []
+        let key = "\(v.state.rawValue)|\(buttons)"
+        guard key != voiceHeaderKey else { return }
+        voiceHeaderKey = key
+        if let orb = OrbFrames.animated(for: v.state, size: voiceHeaderSide) { header.thumbnail = CPThumbnailImage(image: orb) }
+        header.actionButtons = buttons.map(voiceButton)
+    }
+
+    private func voiceButton(_ kind: CarPlayVoiceButton) -> CPButton {
+        let store = VoiceStore.shared
+        let (symbol, title): (String, String)
+        switch kind {
+        case .talk: (symbol, title) = ("mic.fill", "Talk")
+        case .mute: (symbol, title) = ("mic.slash.fill", "Mute")
+        case .unmute: (symbol, title) = ("mic.fill", "Unmute")
+        case .send: (symbol, title) = ("arrow.up.circle.fill", "Send")
+        case .stop: (symbol, title) = ("stop.fill", "Stop")
+        }
+        let button = CPButton(image: UIImage(systemName: symbol) ?? UIImage()) { [weak self] _ in
+            switch kind {
+            case .talk: self?.handle(.startVoice)
+            case .mute, .unmute: store.toggleMute(); self?.refresh()
+            case .send: store.finishSpeaking()
+            case .stop: self?.stopVoice()
+            }
+        }
+        button.title = title
+        return button
+    }
+
+    /// End the conversation (Stop, the car left Jarvis, or disconnected).
+    func stopVoice() {
+        guard VoiceStore.shared.isActive else { return }
+        Task { await VoiceStore.shared.stopAll() }
     }
 
     private static func attributed(_ text: CarPlayVoiceText) -> NSAttributedString {
@@ -421,12 +450,16 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .push(let screen): push(screen)
         case .startVoice:
             guard paired else { alert("Pair Jarvis on your iPhone first."); return }
-            // Back to the Voice tab, so the conversation shows behind the voice overlay.
+            // The Voice tab is the voice screen: go there, then start listening.
             if tabBar?.selectedTemplate !== voiceTab || !stack.isEmpty {
                 ui.popToRootTemplate(animated: false, completion: nil)
                 tabBar?.select(voiceTab)
             }
-            voice.start()
+            guard AVAudioApplication.shared.recordPermission != .denied else { refresh(); return }
+            Task {
+                if !VoiceStore.shared.isActive { await VoiceStore.shared.primaryAction() }
+                refresh()
+            }
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
         }
@@ -556,7 +589,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     /// One line and OK. Never over the voice screen — it owns the car's screen while talking.
     func alert(_ text: String) {
-        guard running, !voice.isShowing else { return }
+        guard running else { return }
         let alert = CPAlertTemplate(titleVariants: [text], actions: [
             CPAlertAction(title: "OK", style: .cancel) { [weak self] _ in self?.ui.dismissTemplate(animated: true, completion: nil) },
         ])
@@ -605,8 +638,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
         MainActor.assumeIsolated {
-            // The voice screen went away without Done/Stop (the system took it): stop recording.
-            if voice.owns(aTemplate) { voice.templateGone() }
             pruneStack()
         }
     }

@@ -53,9 +53,9 @@ enum OrbFrames {
     private static var stills: [String: UIImage] = [:]
 
     /// Render every state's loop ahead of the first Talk tap, a state at a time.
-    static func prewarm() async {
-        for state in CarPlayVoiceState.shown {
-            _ = animated(for: state)
+    static func prewarm(size: CGFloat = side) async {
+        for state in [VoiceState.listening, .thinking, .speaking, .connecting] {
+            _ = animated(for: state, size: size)
             await Task.yield()
         }
     }

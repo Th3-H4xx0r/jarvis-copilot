@@ -33,7 +33,6 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// Back to Jarvis from another car app (its icon, or the widget): voice again.
     func sceneWillEnterForeground(_ scene: UIScene) {
-        coordinator?.voice.attach()
         coordinator?.handle(.startVoice)
     }
 
@@ -44,10 +43,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         AppServices.shared.setCarPlayActive(false)
     }
 
-    /// The car switched to another app (Maps, Music): CarPlay allows recording only
-    /// while Jarvis's voice screen shows, so the conversation ends here.
+    /// The car switched to another app (Maps, Music): the conversation ends here.
     func sceneDidEnterBackground(_ scene: UIScene) {
-        coordinator?.voice.stop()
+        coordinator?.stopVoice()
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

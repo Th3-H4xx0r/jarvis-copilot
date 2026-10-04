@@ -20,6 +20,25 @@ enum CarPlayScreens {
     /// it has no rows of its own.
     static func voiceTab() -> [CarPlaySection] { [] }
 
+    /// Talk when idle; during a conversation Mute (or Send, push-to-talk) and Stop.
+    static func voiceButtons(active: Bool, muted: Bool, pushToTalk: Bool) -> [CarPlayVoiceButton] {
+        guard active else { return [.talk] }
+        return [pushToTalk ? .send : (muted ? .unmute : .mute), .stop]
+    }
+
+    /// The line under "Jarvis": what it's doing, or what's in the way.
+    static func voiceStateText(state: VoiceState, error: String?, micAllowed: Bool) -> String {
+        switch state {
+        case .connecting: return "Connecting…"
+        case .listening: return "Listening…"
+        case .thinking: return "Thinking…"
+        case .speaking: return "Speaking"
+        case .idle, .error:
+            if let error { return error }
+            return micAllowed ? "Tap Talk to start" : "Allow the microphone on your iPhone"
+        }
+    }
+
     /// The conversation as the phone shows it: what you said, then Jarvis's reply with
     /// the words already spoken lit and the rest dimmed. Nil before anything was said.
     static func voiceText(heard: String, reply: String, spokenWords: Int) -> CarPlayVoiceText? {
