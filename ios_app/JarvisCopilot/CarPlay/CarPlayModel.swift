@@ -1,0 +1,150 @@
+import Foundation
+
+// What a CarPlay screen shows, as plain values. The screen builders
+// (`CarPlayScreens`) turn store state into these; `CarPlayRenderer` turns them
+// into Apple's templates; `CarPlayCoordinator` runs the actions. Keeping the
+// middle layer free of CarPlay types is what lets every screen be unit-tested.
+
+enum CarPlayTint: Equatable { case accent, success, amber, danger, muted }
+
+struct CarPlayRow: Equatable, Identifiable {
+    var id: String
+    var title: String
+    var detail: String? = nil
+    var symbol: String? = nil
+    var tint: CarPlayTint? = nil
+    /// A dashcam clip whose thumbnail the renderer loads into the row.
+    var clipThumbID: String? = nil
+    /// The Jarvis orb as the row's image.
+    var orb = false
+    var enabled = true
+    /// The current pick in a list of choices.
+    var checked = false
+    var action: CarPlayAction = .none
+}
+
+struct CarPlaySection: Equatable {
+    var title: String?
+    var rows: [CarPlayRow]
+}
+
+/// An information screen: label/value pairs and up to three buttons.
+struct CarPlayInfo: Equatable {
+    var title: String
+    var items: [CarPlayInfoItem]
+    var actions: [CarPlayRow] = []
+}
+
+struct CarPlayInfoItem: Equatable {
+    var title: String
+    var detail: String
+}
+
+/// Every screen pushed over a tab. CarPlay's voice-based conversational apps
+/// may stack at most three templates, the tab's own list included.
+enum CarPlayScreen: Hashable {
+    case harnesses, modelProviders, models(provider: String), voiceChats
+    case chat(id: String, title: String), message(title: String, text: String)
+    case dashcam, clip(id: String), drives, dashcamSettings
+    case device(id: String), serverDevice(id: String)
+
+    var depth: Int {
+        switch self {
+        case .harnesses, .modelProviders, .voiceChats, .chat, .dashcam, .device, .serverDevice: return 2
+        case .models, .message, .clip, .drives, .dashcamSettings: return 3
+        }
+    }
+
+    static let maxDepth = 3
+}
+
+enum CarPlayAction: Equatable {
+    case none
+    case push(CarPlayScreen)
+    case startVoice
+    case selectHarness(String)
+    case selectModel(id: String?, provider: String?)
+    case selectVoiceChat(id: String?, title: String)
+    case newVoiceChat
+    case continueByVoice(id: String, title: String)
+    case dashcam(CarPlayDashcamCommand)
+    case clip(id: String, CarPlayClipCommand)
+    case connectWearable(String)
+}
+
+enum CarPlayDashcamCommand: Equatable {
+    case record, photo, lock, mic(Bool)
+    case syncNow, reconnect, cloudBackup(Bool), loadMore
+    case liveActivity(Bool), autoSync(Bool)
+    case chooseRule(CarPlayRuleKey), toggleRule(CarPlayRuleKey)
+    case chooseSetting(String), syncClock
+}
+
+enum CarPlayClipCommand: Equatable { case download, retryUpload, delete }
+
+/// The dashcam's sync and upload rules, as the settings screen edits them.
+enum CarPlayRuleKey: Equatable { case normal, normalWhen, phoneCap, keepOnPhone, upload, uploadData, uploadWhen }
+
+// MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
+
+struct CarPlayVoiceSummary: Equatable {
+    var stateText: String
+    var chatLabel: String
+    var harnessLabel: String
+    var modelLabel: String
+}
+
+struct CarPlayWearable: Equatable {
+    var id: String
+    var kind: String
+    var name: String
+    var model: String
+    var statusText: String
+    var connected: Bool
+    var batteryPercent: Int?
+    var lastSeen: Date?
+    var rssi: Int?
+}
+
+struct CarPlayDashcamRow: Equatable {
+    var setUp: Bool
+    var name: String
+    var status: String
+}
+
+struct CarPlayDevicesInput {
+    var dashcam: CarPlayDashcamRow?
+    var wearables: [CarPlayWearable]
+    var server: [Device]
+}
+
+struct CarPlayDashcamInput {
+    var onCamera: Bool
+    var phaseLabel: String
+    var recording: Bool?
+    var sdFreeBytes: Int64?
+    var subtitle: String
+    var downloading: (name: String, done: Int64, total: Int64)?
+    var uploading: (clipID: String, done: Int64, total: Int64)?
+    var cloudBackupOn: Bool
+    var uploadNote: String?
+    var passActive: Bool
+    var mic: DashcamMic?
+    /// A Wi‑Fi password is saved, so Reconnect can join without typing.
+    var canReconnect: Bool
+    var filter: DashcamLibraryModel.Filter
+    var clips: [DashcamServerClip]
+    var canLoadMore: Bool
+    var libraryError: String?
+    var pendingUploads = 0
+}
+
+struct CarPlayDashcamSettingsInput {
+    var liveActivity: Bool
+    var autoSync: Bool
+    var rules: DashcamRules
+    var rulesLoaded: Bool
+    var onCamera: Bool
+    var cameraItems: [DashcamSettingItem]
+    var sd: DashcamSDInfo?
+}
