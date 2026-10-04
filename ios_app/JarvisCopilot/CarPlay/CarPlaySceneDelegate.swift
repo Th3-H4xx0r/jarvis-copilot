@@ -22,10 +22,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let coordinator = CarPlayCoordinator(interfaceController: interfaceController)
         self.coordinator = coordinator
         coordinator.start()
+        // Voice first: opening Jarvis on the car starts a conversation (Apple's rule
+        // for voice-based conversational apps). Done or Stop leaves the tabs.
+        coordinator.handle(.startVoice)
         if let url = pendingURL {
             pendingURL = nil
             open(url)
         }
+    }
+
+    /// Back to Jarvis from another car app (its icon, or the widget): voice again.
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        coordinator?.handle(.startVoice)
     }
 
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,

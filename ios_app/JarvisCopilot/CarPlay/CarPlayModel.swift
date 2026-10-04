@@ -44,14 +44,14 @@ struct CarPlayInfoItem: Equatable {
 /// may stack at most three templates, the tab's own list included.
 enum CarPlayScreen: Hashable {
     case harnesses, modelProviders, models(provider: String), voiceChats
-    case chat(id: String, title: String), message(title: String, text: String)
+    case chat(id: String, title: String)
     case dashcam, clip(id: String), drives, dashcamSettings
     case device(id: String), serverDevice(id: String)
 
     var depth: Int {
         switch self {
         case .harnesses, .modelProviders, .voiceChats, .chat, .dashcam, .device, .serverDevice: return 2
-        case .models, .message, .clip, .drives, .dashcamSettings: return 3
+        case .models, .clip, .drives, .dashcamSettings: return 3
         }
     }
 
@@ -67,6 +67,8 @@ enum CarPlayAction: Equatable {
     case selectVoiceChat(id: String?, title: String)
     case newVoiceChat
     case continueByVoice(id: String, title: String)
+    /// Say a chat's last reply out loud (CarPlay voice apps don't show answers as text).
+    case readAloud(String)
     case dashcam(CarPlayDashcamCommand)
     case clip(id: String, CarPlayClipCommand)
     case connectWearable(String)

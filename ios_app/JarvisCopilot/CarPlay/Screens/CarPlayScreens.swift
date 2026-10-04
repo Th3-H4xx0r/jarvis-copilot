@@ -89,39 +89,26 @@ enum CarPlayScreens {
         }
     }
 
-    /// The messages a list row shows (the newest ones), oldest first.
-    static let chatRowLimit = 30
-    static let previewLength = 120
-
-    static func chat(id: String, title: String, messages: [ChatMessage], error: String? = nil) -> [CarPlaySection] {
-        let texts = messages.compactMap { m -> (who: String, text: String)? in
-            let text = m.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, m.role != .system else { return nil }
-            return (m.isUser ? "You" : "Jarvis", text)
-        }.suffix(chatRowLimit)
-        var rows = [CarPlayRow(id: "continue", title: "Continue by voice", symbol: "waveform",
-                               action: .continueByVoice(id: id, title: title))]
-        rows += texts.enumerated().map { i, m in
-            CarPlayRow(id: "msg:\(i)", title: m.who, detail: preview(m.text),
-                       action: .push(.message(title: m.who, text: m.text)))
-        }
+    /// A chat on the car: continue it by voice, or hear its last reply. Its messages
+    /// are never shown as text — Apple's rule for voice-based conversational apps.
+    static func chat(id: String, title: String, lastReply: String?, error: String? = nil) -> [CarPlaySection] {
+        var rows = [
+            CarPlayRow(id: "continue", title: "Continue by voice", symbol: "waveform",
+                       action: .continueByVoice(id: id, title: title)),
+            CarPlayRow(id: "read", title: "Read the last reply aloud", symbol: "speaker.wave.2",
+                       enabled: lastReply != nil, action: lastReply.map { .readAloud($0) } ?? .none),
+        ]
         if let error {
-            rows.append(CarPlayRow(id: "msgError", title: "Couldn't load the messages", detail: error,
+            rows.append(CarPlayRow(id: "chatError", title: "Couldn't load the chat", detail: error,
                                    symbol: "exclamationmark.triangle", tint: .amber))
-        } else if texts.isEmpty {
-            rows.append(CarPlayRow(id: "empty", title: "No messages yet"))
         }
         return [CarPlaySection(title: nil, rows: rows)]
     }
 
-    static func message(title: String, text: String) -> CarPlayInfo {
-        CarPlayInfo(title: title, items: [CarPlayInfoItem(title: title, detail: text)])
-    }
-
-    static func preview(_ text: String) -> String {
-        let flat = text.replacingOccurrences(of: "\n", with: " ")
-        guard flat.count > previewLength else { return flat }
-        return flat.prefix(previewLength - 1).trimmingCharacters(in: .whitespaces) + "…"
+    /// Jarvis's newest reply that has words in it (tool-only turns have none).
+    static func lastReply(_ messages: [ChatMessage]) -> String? {
+        messages.last { !$0.isUser && $0.role != .system && !$0.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
+            .plainText
     }
 
     // MARK: Devices

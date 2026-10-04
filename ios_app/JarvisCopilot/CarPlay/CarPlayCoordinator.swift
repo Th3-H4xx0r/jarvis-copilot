@@ -242,7 +242,6 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         case .models(let provider): return provider
         case .voiceChats: return "Voice chat"
         case .chat(_, let title): return title
-        case .message(let title, _): return title
         case .dashcam: return DashcamSetupStore.load()?.displayName ?? "Dashcam"
         case .clip: return "Clip"
         case .drives: return "Drives"
@@ -268,20 +267,17 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
         case .voiceChats:
             return CarPlayScreens.voiceChats(sessions, target: VoiceSessionSelection.shared.target)
         case .chat(let id, let title):
-            guard let msgs = messages[id] else {
-                return [CarPlaySection(title: nil, rows: [CarPlayRow(id: "loading", title: "Loading…")])]
-            }
-            return CarPlayScreens.chat(id: id, title: title, messages: msgs, error: messageErrors[id])
+            return CarPlayScreens.chat(id: id, title: title, lastReply: messages[id].flatMap(CarPlayScreens.lastReply),
+                                       error: messageErrors[id])
         case .dashcam: return CarPlayScreens.dashcam(dashcamInput)
         case .drives: return CarPlayScreens.drives(drives, error: drivesError)
         case .dashcamSettings: return CarPlayScreens.dashcamSettings(settingsInput)
-        case .message, .clip, .device, .serverDevice: return nil
+        case .clip, .device, .serverDevice: return nil
         }
     }
 
     private func info(_ screen: CarPlayScreen) -> CarPlayInfo? {
         switch screen {
-        case .message(let title, let text): return CarPlayScreens.message(title: title, text: text)
         case .clip(let id):
             guard let c = clip(id) else { return CarPlayInfo(title: "Clip", items: [CarPlayInfoItem(title: "Clip", detail: "Gone from the library")]) }
             return CarPlayScreens.clip(c, topMps: clipDetails[id]?.topMps)
@@ -371,7 +367,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
                 if wifi.onCamera { cameraItems = (try? await DashcamCameraSettings.load()) ?? [] }
                 refresh()
             }
-        case .message, .device, .serverDevice: break
+        case .device, .serverDevice: break
         }
     }
 
@@ -433,6 +429,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate, CPTabBa
             VoiceSessionSelection.shared.select(.session(id: id, title: title))
             VoiceStore.shared.sessionTargetChanged()
             voice.start()
+        case .readAloud(let text):
+            Task { await VoiceStore.shared.synthesizer.speak(voicePlainSpeech(text), rate: DefaultVoiceSynthesizing.defaultRate) }
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
         case .connectWearable(let id):

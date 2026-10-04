@@ -100,27 +100,28 @@ final class CarPlayScreensTests: XCTestCase {
         XCTAssertEqual(row(s, "New chat")?.action, .push(.chat(id: "t", title: "New chat")))
     }
 
-    func testChatStartsWithContinueByVoiceThenMessagesOldestFirst() {
-        let msgs = [ChatMessage.user("What's on my list?"),
-                    ChatMessage(role: .assistant, blocks: [.text(TextBlock(text: "Milk and eggs."))]),
-                    ChatMessage(role: .assistant, blocks: [])]           // a tool-only turn: no text, no row
-        let s = CarPlayScreens.chat(id: "c1", title: "Groceries", messages: msgs)
-        let r = rows(s)
-        XCTAssertEqual(r[0].title, "Continue by voice")
-        XCTAssertEqual(r[0].action, .continueByVoice(id: "c1", title: "Groceries"))
-        XCTAssertEqual(r.dropFirst().map(\.title), ["You", "Jarvis"])
-        XCTAssertEqual(r[2].detail, "Milk and eggs.")
-        XCTAssertEqual(r[2].action, .push(.message(title: "Jarvis", text: "Milk and eggs.")))
+    /// Apple: voice apps don't show text answers while driving — a chat is continued
+    /// by voice, or its last reply is read aloud; its messages never show as text.
+    func testChatIsContinuedOrReadAloudNeverShownAsText() {
+        let s = CarPlayScreens.chat(id: "c1", title: "Groceries", lastReply: "Milk and eggs.")
+        XCTAssertEqual(rows(s).map(\.title), ["Continue by voice", "Read the last reply aloud"])
+        XCTAssertEqual(rows(s)[0].action, .continueByVoice(id: "c1", title: "Groceries"))
+        XCTAssertEqual(rows(s)[1].action, .readAloud("Milk and eggs."))
+        XCTAssertFalse(rows(s).contains { ($0.detail ?? "").contains("Milk") }, "no reply text on screen")
     }
 
-    func testLongMessagesAreShortenedInTheListButWholeOnTheirScreen() {
-        let long = String(repeating: "word ", count: 100)
-        let s = CarPlayScreens.chat(id: "c", title: "t", messages: [.user(long)])
-        let detail = rows(s)[1].detail ?? ""
-        XCTAssertLessThanOrEqual(detail.count, 121)
-        XCTAssertTrue(detail.hasSuffix("…"))
-        XCTAssertEqual(rows(s)[1].action, .push(.message(title: "You", text: long.trimmingCharacters(in: .whitespacesAndNewlines))))
-        XCTAssertEqual(CarPlayScreens.message(title: "You", text: "hi").items, [CarPlayInfoItem(title: "You", detail: "hi")])
+    func testNothingToReadUntilJarvisHasReplied() {
+        let s = CarPlayScreens.chat(id: "c1", title: "t", lastReply: nil)
+        XCTAssertEqual(row(s, "Read the last reply aloud")?.enabled, false)
+    }
+
+    func testTheLastReplyIsJarvissNewestTextTurn() {
+        let msgs = [ChatMessage(role: .assistant, blocks: [.text(TextBlock(text: "Old reply."))]),
+                    ChatMessage.user("And?"),
+                    ChatMessage(role: .assistant, blocks: [.text(TextBlock(text: "**Milk** and eggs."))]),
+                    ChatMessage(role: .assistant, blocks: [])]            // a tool-only turn after it
+        XCTAssertEqual(CarPlayScreens.lastReply(msgs), "**Milk** and eggs.")
+        XCTAssertNil(CarPlayScreens.lastReply([.user("hi")]))
     }
 
     // MARK: Devices
@@ -257,8 +258,7 @@ final class CarPlayScreensTests: XCTestCase {
                        .device(id: "d"), .serverDevice(id: "s")] {
             XCTAssertEqual(screen.depth, 2, "\(screen)")
         }
-        for screen in [CarPlayScreen.models(provider: "p"), .message(title: "t", text: "x"), .clip(id: "c"), .drives,
-                       .dashcamSettings] {
+        for screen in [CarPlayScreen.models(provider: "p"), .clip(id: "c"), .drives, .dashcamSettings] {
             XCTAssertEqual(screen.depth, 3, "\(screen)")
         }
         // Depth-3 screens built from lists never push.
@@ -296,8 +296,8 @@ final class CarPlayScreensTests: XCTestCase {
     func testLoadFailuresSaySoInsteadOfLookingEmpty() {
         XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline")).map(\.title), ["Couldn't load chats"])
         XCTAssertEqual(rows(CarPlayScreens.chats([], error: "offline"))[0].detail, "offline")
-        XCTAssertEqual(rows(CarPlayScreens.chat(id: "c", title: "t", messages: [], error: "timed out")).last?.title,
-                       "Couldn't load the messages")
+        XCTAssertEqual(rows(CarPlayScreens.chat(id: "c", title: "t", lastReply: nil, error: "timed out")).last?.title,
+                       "Couldn't load the chat")
         XCTAssertEqual(rows(CarPlayScreens.drives([], error: "500")).map(\.title), ["Couldn't load drives"])
         let s = CarPlayScreens.devices(CarPlayDevicesInput(dashcam: nil, wearables: [], server: [], serverError: "offline"))
         XCTAssertEqual(row(s, "Couldn't load server devices")?.detail, "offline")
