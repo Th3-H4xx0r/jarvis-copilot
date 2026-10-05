@@ -537,7 +537,7 @@ def _send_coding_photon(text: str) -> bool:
         return False
 
 
-def _send_coding_device_notify(channel_key: str, title: str, body: str) -> bool:
+def _send_coding_device_notify(channel_key: str, title: str, body: str, app: str = "") -> bool:
     """Send a notification card to a device channel (glasses, ring, etc.) via the
     mobile device bridge. The phone receives a push with ``type: device_notify``
     and routes by ``channel`` to the right wearable. No-ops to False when no
@@ -562,7 +562,8 @@ def _send_coding_device_notify(channel_key: str, title: str, body: str) -> bool:
                 continue
             res = push_mod.send(kind, token,
                                 {"type": "device_notify", "channel": channel_key,
-                                 "notify_title": title, "notify_body": body},
+                                 "notify_title": title, "notify_body": body,
+                                 **({"notify_app": app} if app else {})},
                                 alert={"title": title, "body": body})
             if res.get("ok"):
                 sent += 1

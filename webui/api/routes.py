@@ -6651,12 +6651,19 @@ def handle_post(handler, parsed) -> bool:
     # POST /api/devices/notify — a visible banner on every registered phone.
     # Used by paired devices (the JarvisWearables app, ESP32 boards) and by the
     # `notify_phone` tool so an automation can reach the user even when the
-    # app is closed. Body: {title, body}.
+    # app is closed. Body: {title, body}, optionally {channel, app}: a device
+    # channel ("glasses") routes the card to that wearable, labelled with `app`
+    # (the Mac's iMessage relay sends channel=glasses, app=Messages).
     if parsed.path == "/api/devices/notify":
         title = (body.get("title") or "").strip()[:80]
         text = (body.get("body") or "").strip()[:400]
         if not title and not text:
             return bad(handler, "title or body is required")
+        channel = (body.get("channel") or "").strip()[:32]
+        if channel:
+            from api.coding_routes import _send_coding_device_notify
+            app = (body.get("app") or "").strip()[:40]
+            return j(handler, {"ok": _send_coding_device_notify(channel, title or "Jarvis", text, app=app)})
         try:
             from api.coding_routes import _push_device_alert
             sent = _push_device_alert(title or "Jarvis", text)

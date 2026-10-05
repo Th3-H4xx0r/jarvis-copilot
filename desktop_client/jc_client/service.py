@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import threading
 import time
 import traceback
@@ -50,6 +51,26 @@ _MAX_CONCURRENT_INVOKES = 8
 # so the bot gets our error before timing out itself.
 _SKILL_TIMEOUT_S = 20.0
 _SKILL_SLOW_S = 3.0
+
+
+
+_imessage_origin: str | None = None
+
+
+def _imessage_api_origin() -> str | None:
+    """Origin of a loopback proxy that adds this client's session to API calls."""
+    global _imessage_origin
+    if _imessage_origin is None:
+        from jc_client import credentials
+        from jc_client._proxy import PinnedProxy
+        creds = credentials.load()
+        if not creds.paired:
+            return None
+        proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie,
+                            cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
+                            lan_url=creds.lan_url)
+        _imessage_origin = f"http://127.0.0.1:{proxy.start()}"
+    return _imessage_origin
 
 
 class Service:
@@ -293,6 +314,17 @@ class Service:
             self._coding_term = None
             self._coding_sync = None
             self._coding_discover = None
+
+        # iMessages → glasses: iOS keeps Messages from Bluetooth accessories, so the Mac
+        # watches its own Messages database and posts new ones to the server. Once per
+        # process; needs Full Disk Access (logs a hint and idles without it).
+        if sys.platform == "darwin" and not getattr(self, "_imessage_relay", None):
+            try:
+                from jc_client.imessage_relay import IMessageRelay
+                self._imessage_relay = IMessageRelay(_imessage_api_origin)
+                self._imessage_relay.start()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("iMessage relay unavailable: %s", exc)
 
         # Warm up the browser MCP (chrome_* skills) so the first browser action
         # isn't a cold `npx @playwright/mcp` start + extension attach. Best-effort,

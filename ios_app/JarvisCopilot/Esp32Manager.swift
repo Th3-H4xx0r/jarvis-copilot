@@ -853,8 +853,25 @@ final class Esp32Manager: NSObject, ObservableObject {
     private func relayToGlasses(_ n: Esp32Protocol.IosNotification) {
         if let r = relay { relay = Esp32Protocol.RelayStatus(on: r.on, state: .receiving, forwarded: r.forwarded + 1) }
         guard n.appID != Bundle.main.bundleIdentifier, n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
-        let title = n.title.isEmpty ? (n.appID.split(separator: ".").last.map(String.init) ?? "") : n.title
-        InmoSession.shared.forwardNotification(title: title, body: n.message)
+        let app = Self.appName(forBundleID: n.appID)
+        InmoSession.shared.forwardNotification(title: n.title.isEmpty ? app : n.title, body: n.message, app: app)
+    }
+
+    /// A display name for the app that posted a notification. iOS doesn't give one app
+    /// another's name, so: Apple's own apps by table, others from the bundle id's last
+    /// part ("com.burbn.instagram" → "Instagram", "com.google.Gmail" → "Gmail").
+    static func appName(forBundleID id: String) -> String {
+        let known = ["com.apple.MobileSMS": "Messages", "com.apple.mobilephone": "Phone",
+                     "com.apple.facetime": "FaceTime", "com.apple.mobilemail": "Mail",
+                     "com.apple.mobilecal": "Calendar", "com.apple.reminders": "Reminders",
+                     "com.apple.Health": "Health", "com.apple.mobileslideshow": "Photos",
+                     "com.apple.momentsd.MOUserNotifications": "Journal",
+                     "com.microsoft.skype.teams": "Teams", "net.whatsapp.WhatsApp": "WhatsApp",
+                     "ph.telegra.Telegraph": "Telegram", "com.toyopagroup.picaboo": "Snapchat",
+                     "com.facebook.Messenger": "Messenger", "com.tinyspeck.chatlyio": "Slack"]
+        if let name = known[id] { return name }
+        guard let last = id.split(separator: ".").last, !last.isEmpty else { return "App" }
+        return last.prefix(1).uppercased() + last.dropFirst()
     }
 
     // MARK: - Direct Jarvis link

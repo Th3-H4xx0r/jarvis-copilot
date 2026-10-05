@@ -59,7 +59,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                let channel = info["channel"] as? String {
                 let title = info["notify_title"] as? String ?? ""
                 let body = info["notify_body"] as? String ?? ""
-                if !title.isEmpty || !body.isEmpty {
+                if let app = info["notify_app"] as? String, !app.isEmpty, channel == "glasses" {
+                    // A card from another app (the Mac's iMessage relay): labelled with it.
+                    InmoSession.shared.forwardNotification(title: title, body: body, app: app)
+                } else if !title.isEmpty || !body.isEmpty {
                     DeviceRegistry.shared.forwardNotification(channel: channel, title: title, body: body)
                 }
             } else if (info["type"] as? String) == "glasses_notify" {

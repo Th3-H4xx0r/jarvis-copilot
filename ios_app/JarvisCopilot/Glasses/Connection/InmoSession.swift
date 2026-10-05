@@ -67,13 +67,13 @@ struct InmoCardDeduper {
 /// reconnect in progress): the newest few, delivered once the link is ready and
 /// dropped once stale.
 struct InmoPendingCards {
-    struct Card { let title: String; let body: String; let at: Date }
+    struct Card { let title: String; let body: String; let at: Date; var app: String? = nil }
     var limit = 3
     var lifetime: TimeInterval = 60
     private var cards: [Card] = []
     init(limit: Int = 3, lifetime: TimeInterval = 60) { self.limit = limit; self.lifetime = lifetime }
-    mutating func add(title: String, body: String, now: Date = Date()) {
-        cards.append(Card(title: title, body: body, at: now))
+    mutating func add(title: String, body: String, app: String? = nil, now: Date = Date()) {
+        cards.append(Card(title: title, body: body, at: now, app: app))
         if cards.count > limit { cards.removeFirst(cards.count - limit) }
     }
     mutating func drain(now: Date = Date()) -> [Card] {
@@ -193,7 +193,9 @@ struct InmoPendingCards {
     /// Forward a notification the app received onto the lens, when the user has
     /// glasses notifications enabled and the glasses are connected. Best-effort:
     /// silently does nothing when disabled or disconnected.
-    func forwardNotification(title: String, body: String) {
+    /// `app` names the source app ("Instagram", "Messages"); the lens labels the card
+    /// with it instead of JARVIS. nil = Jarvis's own card.
+    func forwardNotification(title: String, body: String, app: String? = nil) {
         guard Self.notificationsEnabled else { return }
         let cardTitle = title.isEmpty ? "Jarvis" : title
         let cardBody = body.isEmpty ? title : body
@@ -201,12 +203,28 @@ struct InmoPendingCards {
         guard isReady else {
             // A push that woke the app usually lands before the link is back: hold the
             // card and reconnect; it goes out when the link reaches ready.
-            pendingCards.add(title: cardTitle, body: cardBody)
+            pendingCards.add(title: cardTitle, body: cardBody, app: app)
             InmoRuntimeDiagnostics.note("card held until the glasses reconnect")
             Task { try? await ensureConnected() }
             return
         }
-        Task { try? await send(InmoCommand.appNotification(title: cardTitle, content: cardBody)) }
+        Task { try? await sendCard(title: cardTitle, body: cardBody, app: app) }
+    }
+    /// Apps already put on the glasses' notification list this connection.
+    private var listedCardApps: Set<String> = []
+    /// The glasses label a card by matching its package name against their notification
+    /// app list (that's how "com.jarviscopilot" came out as "JARVIS"), so a card from
+    /// another app carries the app's name as its package and the name joins the list.
+    private func sendCard(title: String, body: String, app: String?) async throws {
+        guard let app, !app.isEmpty else {
+            try await send(InmoCommand.appNotification(title: title, content: body))
+            return
+        }
+        if !listedCardApps.contains(app) {
+            try await send(InmoCommand.notificationApp(app, enabled: true))
+            listedCardApps.insert(app)
+        }
+        try await send(InmoCommand.appNotification(title: title, content: body, packageName: app))
     }
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -491,7 +509,7 @@ struct InmoPendingCards {
                                     try await send(InmoCommand.control(query))
                                 }
                                 for card in pendingCards.drain() where generation == current {
-                                    try await send(InmoCommand.appNotification(title: card.title, content: card.body))
+                                    try await sendCard(title: card.title, body: card.body, app: card.app)
                                 }
                                 if Self.notificationsEnabled, generation == current { await sendNotificationSetup(true) }
                             } catch { if generation == current { lastError = error.localizedDescription } }
