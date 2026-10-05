@@ -235,9 +235,15 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // A rest ending with the app open is a tap and a chime from the
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
+        let content = notification.request.content
+        // A device-channel push was already routed to its wearable by PushService;
+        // mirroring its banner too put every card on the lens twice. One relayed from
+        // another app (the Mac's iMessages) also needs no Jarvis banner over the app's own.
+        if (content.userInfo["type"] as? String) == "device_notify" {
+            return (content.userInfo["notify_app"] as? String).map { $0.isEmpty } ?? true ? [.banner, .sound, .list] : []
+        }
         // Mirror the notification onto the GO3 lens (no-op unless the user turned
         // glasses notifications on and the glasses are connected).
-        let content = notification.request.content
         await InmoSession.shared.forwardNotification(title: content.title, body: content.body)
         return [.banner, .sound, .list]
     }
