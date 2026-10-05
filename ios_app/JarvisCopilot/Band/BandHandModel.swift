@@ -2,8 +2,9 @@ import SceneKit
 import simd
 import UIKit
 
-/// The hand in "put the band on": the ring sheet's hand (`RingHandModel`, baked with a forearm),
-/// and the real band coming in past the fingertip — held open, as an elastic
+/// The hand in "put the band on": the ring sheet's hand closed into a fist (`BandHand.bin`, baked
+/// by `bake_hand.py --fist` in the same hand space, forearm and all), and the real band coming in
+/// past the knuckles — held open, as an elastic
 /// loop is, its weave stretched and its pod as rigid as ever — to slide over the hand and close
 /// round the wrist.
 ///
@@ -11,6 +12,9 @@ import UIKit
 /// the back of the hand faces +Y, so the arm runs down −X. Where the band goes and how far it
 /// must open to clear the hand are measured off the mesh, so a re-baked hand still fits.
 enum BandHandModel {
+    /// The fist shipped with the app.
+    static let bundled: RingHandModel.Mesh? = RingHandModel.bundled("BandHand")
+
     /// The wrist: the arm's narrowest section, just before the palm widens.
     static let wristX: Float = -7.7
     /// The strap's width on the wrist, as a scale of the band's own (24 mm) strap.
@@ -173,8 +177,8 @@ enum BandHandModel {
         // The loop's inside on the wrist, in hand space: through the wrist (y) and across it (z).
         let insideY = insideHalfDepth * seat.z, insideZ = insideHalfHeight * seat.y
 
-        // Just past the fingertip: the band comes into the frame there, already open.
-        let start = mesh.tip.x + 0.8
+        // Just past the knuckles: the band comes into the frame there, already open.
+        let start = (points.map(\.x).max() ?? mesh.tip.x) + 0.8
         let count = 56
         let xs = (0..<count).map { start + (wristX - start) * Float($0) / Float(count - 1) }
         // Sections along the way; past the fingertip there is no hand.
@@ -222,14 +226,64 @@ enum BandHandModel {
         // Open enough for everything still ahead, never less than the seat.
         var needs = slices.indices.map { i in slices[i].map { need($0, at: centres[i]) * 1.03 } ?? 1 }
         needs[count - 1] = 1
-        var stretch = [Float](repeating: 1, count: count)
+        var floor = [Float](repeating: 1, count: count)
         var ahead: Float = 1
         for i in stride(from: count - 1, through: 0, by: -1) {
             ahead = max(ahead, needs[i])
-            stretch[i] = ahead
+            floor[i] = ahead
         }
+        let stretch = closing(floor)
         let stops = (0..<count).map { Path.Stop(x: xs[$0], centre: centres[$0], stretch: stretch[$0]) }
         return Path(stops: stops, seat: seat)
+    }
+
+    /// How the loop closes on the way in: smoothly, never tighter than `floor` (what the hand
+    /// still ahead needs), and exactly its seat at the end. The hand's own profile drops at the
+    /// knuckles and again into the wrist; followed as it is, the strap snapped shut. Held open a
+    /// little longer (each value pushed `lag` stops toward the wrist, where it is never less than
+    /// the floor) and blurred over about as many, it eases closed instead; the last stops close
+    /// the rest of the way.
+    static func closing(_ floor: [Float], lag: Int = 6) -> [Float] {
+        let count = floor.count
+        let held = (0..<count).map { floor[max(0, $0 - lag)] }
+        let sigma = Float(lag) / 2
+        let reach = lag
+        var smooth = (0..<count).map { i -> Float in
+            var sum: Float = 0, weight: Float = 0
+            for j in max(0, i - reach)...min(count - 1, i + reach) {
+                let w = exp(-Float((j - i) * (j - i)) / (2 * sigma * sigma))
+                sum += held[j] * w
+                weight += w
+            }
+            return max(floor[i], sum / weight)
+        }
+        // Into the seat: the last `lag` stops ease what is left of the opening to nothing.
+        for i in (count - lag)..<count {
+            let t = Float(i - (count - lag - 1)) / Float(lag)
+            let ease = t * t * (3 - 2 * t)
+            smooth[i] = max(floor[i], 1 + (smooth[i] - 1) * (1 - ease))
+        }
+        smooth[count - 1] = 1
+        // Only ever closing: the blur's window is cut short at the ends. Still never under the
+        // floor — the floor only falls, and each value stays at or above its own.
+        for i in 1..<count { smooth[i] = min(smooth[i], smooth[i - 1]) }
+        return smooth
+    }
+
+    /// The slide's pace: it picks up gently, travels, and takes its time arriving — the loop
+    /// closes during that long arrival. A cubic Bézier through (0.45, 0) and (0.15, 1).
+    static func slideEase(_ t: Float) -> Float {
+        func bezier(_ u: Float, _ a: Float, _ b: Float) -> Float {
+            let v = 1 - u
+            return 3 * v * v * u * a + 3 * v * u * u * b + u * u * u
+        }
+        // x(u) = t, solved by halving: x rises with u for these control points.
+        var lo: Float = 0, hi: Float = 1
+        for _ in 0..<24 {
+            let mid = (lo + hi) / 2
+            if bezier(mid, 0.45, 0.15) < min(max(t, 0), 1) { lo = mid } else { hi = mid }
+        }
+        return bezier((lo + hi) / 2, 0, 1)
     }
 
     // MARK: The stage
@@ -251,8 +305,8 @@ enum BandHandModel {
         /// ring sheet's pose, turned a little so the forearm leaves the frame on the left.
         static let handEuler = SCNVector3(0.9, -0.2, 0.0)
         /// The point of the hand the camera centres on, and how far back it stands.
-        static let lookAt = SIMD3<Float>(-3.2, -0.9, 1.0)
-        static let distance: Float = 25
+        static let lookAt = SIMD3<Float>(-4.6, -0.9, 1.0)
+        static let distance: Float = 23
 
         init?(band: BandModel.Parts, hand mesh: RingHandModel.Mesh, accent: CGColor,
               pose: SCNVector3 = Stage.handEuler, lookAt: SIMD3<Float> = Stage.lookAt,
@@ -332,37 +386,35 @@ enum BandHandModel {
             halo.opacity = ghost && s < 1 ? 0.85 : 0
         }
 
-        /// The gesture, on a loop: the ghost marks the wrist, the band comes in past the fingertip
+        /// The gesture, on a loop: the ghost marks the wrist, the band comes in past the knuckles
         /// held open, slides over the hand and closes round the wrist, holds, and fades to come
-        /// round again. The hand never moves. Both loops run 4.65 s.
+        /// round again. The hand never moves. Both loops run 4.95 s.
         func play() {
             holder.removeAllActions()
             halo.removeAllActions()
 
-            let slideTime: TimeInterval = 1.9
+            let slideTime: TimeInterval = 2.4
             let slide = SCNAction.customAction(duration: slideTime) { [weak self] _, elapsed in
-                let t = Float(min(1, elapsed / CGFloat(slideTime)))
-                // Ease in and out, like a hand guiding it.
-                self?.place(t * t * (3 - 2 * t))
+                self?.place(BandHandModel.slideEase(Float(min(1, elapsed / CGFloat(slideTime)))))
             }
             let band = SCNAction.sequence([
                 .run { [weak self] node in node.opacity = 0; self?.place(0) },
                 .wait(duration: 0.5),
                 .group([.fadeIn(duration: 0.35), slide]),
-                .wait(duration: 1.6),
+                .wait(duration: 1.4),
                 .fadeOut(duration: 0.4),
                 .wait(duration: 0.25),
             ])
             holder.runAction(.repeatForever(band), forKey: "gesture")
 
-            // The ghost breathes while the wrist is bare and goes out as the band arrives.
+            // The ghost breathes while the wrist is bare and goes out as the band closes on it.
             let glow = SCNAction.sequence([
                 .run { node in node.opacity = 0 },
                 .fadeOpacity(to: 0.85, duration: 0.35),
                 .fadeOpacity(to: 0.5, duration: 0.6),
-                .wait(duration: 0.8),
+                .wait(duration: 1.0),
                 .fadeOut(duration: 0.6),
-                .wait(duration: 2.3),
+                .wait(duration: 2.4),
             ])
             halo.runAction(.repeatForever(glow), forKey: "gesture")
         }

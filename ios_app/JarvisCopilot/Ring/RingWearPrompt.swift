@@ -17,7 +17,7 @@ enum WearPromptKind {
     }
 
     /// Where on the stage it settles, as a fraction of the stage: the accent breathes behind it.
-    var settles: UnitPoint { self == .ring ? UnitPoint(x: 0.53, y: 0.42) : UnitPoint(x: 0.22, y: 0.52) }
+    var settles: UnitPoint { self == .ring ? UnitPoint(x: 0.53, y: 0.42) : UnitPoint(x: 0.27, y: 0.52) }
 }
 
 /// "Put the ring on" (or the band) — the sheet a measurement asks for when the
@@ -145,14 +145,17 @@ private struct WearStage: View {
         .opacity(shown || pinnedSeated != nil ? 1 : 0)
         .animation(.easeOut(duration: 0.35), value: shown)
         .onAppear {
-            guard stage == nil, let hand = RingHandModel.bundled else { return }
+            guard stage == nil else { return }
             let accent = UIColor(JcTheme.accent).cgColor
             let built: any WearScene
             switch kind {
             case .ring:
+                guard let hand = RingHandModel.bundled else { return }
                 built = RingHandModel.Stage(ring: RingModel.makeNode().pivot, hand: hand, accent: accent)
             case .band:
-                guard let band = BandHandModel.Stage(band: BandModel.makeNode(), hand: hand, accent: accent)
+                // The band goes on over a fist.
+                guard let fist = BandHandModel.bundled,
+                      let band = BandHandModel.Stage(band: BandModel.makeNode(), hand: fist, accent: accent)
                 else { return }
                 built = band
             }

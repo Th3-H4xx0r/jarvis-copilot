@@ -59,9 +59,14 @@ enum RingHandModel {
 
     #if canImport(UIKit)
     /// The hand shipped with the app.
-    static let bundled: Mesh? = Bundle.main.url(forResource: "RingHand", withExtension: "bin")
-        .flatMap { try? Data(contentsOf: $0) }
-        .flatMap(mesh(from:))
+    static let bundled: Mesh? = bundled("RingHand")
+
+    /// A baked hand shipped with the app by name: `RingHand`, or the band's fist `BandHand`.
+    static func bundled(_ name: String) -> Mesh? {
+        Bundle.main.url(forResource: name, withExtension: "bin")
+            .flatMap { try? Data(contentsOf: $0) }
+            .flatMap(mesh(from:))
+    }
     #endif
 
     /// The ring's size, from `RingModel`: kept here too so the harness, which

@@ -108,9 +108,10 @@ struct BandDeviceView: View {
             if manager.connected?.id != band.id || !manager.linkIsUp { manager.connect(band) }
         }
         .onDisappear {
+            // Into the band's settings is not leaving: a reading keeps running.
+            guard !showingSettings else { return }
             // Leaving the page is "Not now": no reading keeps asking for the band unseen.
             wearAsk.dismiss()
-            guard !showingSettings else { return }
             manager.screenIsOpen = false
         }
         .navigationDestination(isPresented: $showingSettings) { BandSettingsView(manager: manager) }

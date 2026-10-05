@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Bake the "put the ring on" hand: pose a rigged hand and write RingHand.bin.
+"""Bake the "put the ring on" hand: pose a rigged hand and write RingHand.bin
+(or, with --fist, the "put the band on" fist: BandHand.bin).
 
 Source: the WebXR generic hand (right.glb) from @webxr-input-profiles/assets,
 MIT licensed, Copyright (c) 2019 Amazon — see RingHand-LICENSE.md. It is a
@@ -10,6 +11,10 @@ the origin, the finger running down +X, the back of the hand toward +Y, and
 the finger's widest cross-section at the seat just inside the ring's bore.
 
     python3 scripts/hand/bake_hand.py right.glb JarvisCopilot/Ring/RingHand.bin
+    python3 scripts/hand/bake_hand.py right.glb JarvisCopilot/Band/BandHand.bin --fist
+
+The fist is measured in the pointing hand's frame (the seat on the extended
+index finger), so the two share hand space: the same wrist, the same forearm.
 
 Format (little-endian): "JCHD", u32 version=1, u32 vertexCount, u32 indexCount,
 f32×3 fingertip, then f32×3 positions, f32×3 normals, u16 indices.
@@ -32,6 +37,11 @@ POSE = {
     "pinky-finger-phalanx-proximal": 90, "pinky-finger-phalanx-intermediate": 100,
     "pinky-finger-phalanx-distal": 50,
 }
+# A closed fist: the index folds with the others.
+FIST = dict(POSE, **{
+    "index-finger-phalanx-proximal": 80, "index-finger-phalanx-intermediate": 98,
+    "index-finger-phalanx-distal": 52,
+})
 # The thumb folds on its own axes: (joint, degrees about local X, about local Y).
 THUMB = [("thumb-metacarpal", 18, 22), ("thumb-phalanx-proximal", 22, 0), ("thumb-phalanx-distal", 28, 0)]
 
@@ -214,7 +224,7 @@ def smooth_normals(p, idx):
     return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
 
 
-def main(src, out, flex_sign=None):
+def main(src, out, flex_sign=None, fist=False):
     gltf, blob = load(src)
     nodes = gltf["nodes"]
     names = {n.get("name"): i for i, n in enumerate(nodes)}
@@ -234,14 +244,14 @@ def main(src, out, flex_sign=None):
 
     rest = {nodes[j]["name"]: global_rest(j) for j in joints}
 
-    def flex_for(sign):
+    def flex_for(sign, pose=POSE):
         posed = {"wrist": rest["wrist"]}
         for chain in CHAINS:
             for parent_name, name in zip(chain, chain[1:]):
                 local = np.linalg.inv(rest[parent_name]) @ rest[name]
                 bend = np.eye(4)
-                if name in POSE:
-                    bend = rot("x", sign * POSE[name])
+                if name in pose:
+                    bend = rot("x", sign * pose[name])
                 for joint, bx, by in THUMB:
                     if joint == name:
                         bend = rot("x", sign * bx) @ rot("y", by)
@@ -254,8 +264,10 @@ def main(src, out, flex_sign=None):
         return np.linalg.norm(posed["middle-finger-tip"][:3, 3] - posed["wrist"][:3, 3])
     if flex_sign is None:
         flex_sign = min((1, -1), key=lambda s: tip_to_wrist(flex_for(s)))
+    # The frame always comes from the pointing hand; the mesh from the pose asked for.
     posed = flex_for(flex_sign)
-    print("flex sign", flex_sign)
+    shaped = flex_for(flex_sign, FIST if fist else POSE)
+    print("flex sign", flex_sign, "fist" if fist else "pointing")
 
     prim = gltf["meshes"][0]["primitives"][0]
     pos = accessor(gltf, blob, prim["attributes"]["POSITION"]).astype(float)
@@ -264,14 +276,18 @@ def main(src, out, flex_sign=None):
     wts = accessor(gltf, blob, prim["attributes"]["WEIGHTS_0"]).astype(float)
     idx = accessor(gltf, blob, prim["indices"]).reshape(-1).astype(np.uint32)
 
-    skin_m = np.array([posed[nodes[j]["name"]] @ ibm[k] for k, j in enumerate(joints)])
     rest_m = np.array([rest[nodes[j]["name"]] @ ibm[k] for k, j in enumerate(joints)])
     print("rest skin ≈ identity:", np.allclose(rest_m, np.eye(4), atol=1e-4))
 
-    blend = np.einsum("vk,vkij->vij", wts / wts.sum(1, keepdims=True), skin_m[jnt])
-    p = np.einsum("vij,vj->vi", blend[:, :3, :3], pos) + blend[:, :3, 3]
-    n = np.einsum("vij,vj->vi", blend[:, :3, :3], nrm)
-    n /= np.linalg.norm(n, axis=1, keepdims=True)
+    def skin(pose):
+        skin_m = np.array([pose[nodes[j]["name"]] @ ibm[k] for k, j in enumerate(joints)])
+        blend = np.einsum("vk,vkij->vij", wts / wts.sum(1, keepdims=True), skin_m[jnt])
+        p = np.einsum("vij,vj->vi", blend[:, :3, :3], pos) + blend[:, :3, 3]
+        n = np.einsum("vij,vj->vi", blend[:, :3, :3], nrm)
+        return p, n / np.linalg.norm(n, axis=1, keepdims=True)
+
+    p, n = skin(shaped)
+    pointing, _ = skin(posed)
 
     # The ring's frame: seat at the origin, finger down +X, back of hand +Y.
     knuckle = posed["index-finger-phalanx-proximal"][:3, 3]
@@ -287,16 +303,17 @@ def main(src, out, flex_sign=None):
     basis = np.stack([x, y, z])
     p = (p - seat) @ basis.T
     n = n @ basis.T
+    pointing = (pointing - seat) @ basis.T
 
     # Scale so the finger's widest point at the seat sits just inside the bore.
     # Only skin that belongs to that bone: its heaviest joint is the proximal
     # phalanx, so webbing and the neighbouring finger stay out of the sample.
     owner = jnt[np.arange(len(jnt)), wts.argmax(1)]
     bone = joints.index(names["index-finger-phalanx-proximal"])
-    near = (np.abs(p[:, 0]) < 0.004) & (owner == bone)
+    near = (np.abs(pointing[:, 0]) < 0.004) & (owner == bone)
     # The bone runs nearer the palm than the middle of the finger: centre the
     # ring on the flesh, not the joint axis.
-    section = p[near][:, 1:]
+    section = pointing[near][:, 1:]
     centre = (section.min(0) + section.max(0)) / 2
     p[:, 1:] -= centre
     ring_dist = np.linalg.norm(section - centre, axis=1)
@@ -313,7 +330,7 @@ def main(src, out, flex_sign=None):
     p, idx = loop_subdivide(p, idx)
     n = smooth_normals(p, idx)
 
-    tip = ((posed["index-finger-tip"][:3, 3] - seat) @ basis.T)
+    tip = ((shaped["index-finger-tip"][:3, 3] - seat) @ basis.T)
     tip[1:] -= centre
     tip *= scale
     with open(out, "wb") as f:
@@ -328,4 +345,4 @@ def main(src, out, flex_sign=None):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], fist="--fist" in sys.argv[3:])

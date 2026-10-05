@@ -359,6 +359,7 @@
 		59F66083B56BC68E01C254E1 /* LiveLensBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F9594BFFBCE73E692561D9 /* LiveLensBridge.swift */; };
 		5A18B7C8F74BA13D677C9D3E /* KanbanForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = F472BD206B2180B7F507D7EC /* KanbanForms.swift */; };
 		5A682E95A25E0D57F83F1404 /* BandSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65CD119229EBC485E6DF632 /* BandSession.swift */; };
+		5A9225FCA5F1AD9523EE666D /* BandHand.bin in Resources */ = {isa = PBXBuildFile; fileRef = 8248CC504A7FEB554DA503DE /* BandHand.bin */; };
 		5A96DE9047BE7B593EEAD618 /* InmoNavigationWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECE6408D7EC3F2BB2575D5A /* InmoNavigationWire.swift */; };
 		5ABC913CD6B867F81E0CB355 /* JarvisShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC12F5609914381F51043A4 /* JarvisShared.swift */; };
 		5B1E7C0A9D3F4A2B8C6E1D07 /* BackgroundKeepalive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3C9E5F17B2D4E6A9F0C8B21 /* BackgroundKeepalive.swift */; };
@@ -1465,6 +1466,7 @@
 		81976A30CF7430EFBDBF1967 /* VoiceKaraoke.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceKaraoke.swift; sourceTree = "<group>"; };
 		81AC40B9491E22F76D6C1880 /* MarkdownBlocksTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownBlocksTests.swift; sourceTree = "<group>"; };
 		81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RestingHeartRate.swift; sourceTree = "<group>"; };
+		8248CC504A7FEB554DA503DE /* BandHand.bin */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.macbinary; path = BandHand.bin; sourceTree = "<group>"; };
 		824F94160F0A771B6E1CFA66 /* RouteRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRenderTests.swift; sourceTree = "<group>"; };
 		8255C5915F64E76446E20AA5 /* ScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanView.swift; sourceTree = "<group>"; };
 		8255E22F98CF91A5B288D04E /* VoiceSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSession.swift; sourceTree = "<group>"; };
@@ -3711,6 +3713,7 @@
 				4C8E5EBABB866C48D60C48AA /* BandWorkout.swift */,
 				EB5FF67E8522F08547878377 /* BandHandModel.swift */,
 				FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */,
+				8248CC504A7FEB554DA503DE /* BandHand.bin */,
 			);
 			name = Band;
 			path = Band;
@@ -3904,6 +3907,7 @@
 				B0209E955CF01B7D1994DEC6 /* RingHand.bin in Resources */,
 				6C8DE4E75195F77BDE5C2716 /* RingHand-LICENSE.md in Resources */,
 				828383B511CFFD900792B1DB /* exercises.json in Resources */,
+				5A9225FCA5F1AD9523EE666D /* BandHand.bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

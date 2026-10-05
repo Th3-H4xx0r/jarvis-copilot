@@ -13,7 +13,7 @@ final class BandWearPromptRenderTests: XCTestCase {
     private let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["RING_SNAPSHOT_DIR"] ?? "/tmp/ringshots")
 
     private func stage() throws -> BandHandModel.Stage {
-        let hand = try XCTUnwrap(RingHandModel.bundled, "RingHand.bin ships in the app bundle")
+        let hand = try XCTUnwrap(BandHandModel.bundled, "BandHand.bin (the fist) ships in the app bundle")
         var pose = BandHandModel.Stage.handEuler, lookAt = BandHandModel.Stage.lookAt
         var distance = BandHandModel.Stage.distance
         if let data = try? Data(contentsOf: out.appendingPathComponent("band-stage.json")),
@@ -66,12 +66,24 @@ final class BandWearPromptRenderTests: XCTestCase {
             throw XCTSkip("touch /tmp/ringshots/band-sequence to render the frames")
         }
         let stage = try stage()
-        let count = 48
+        let count = 58
         for i in 0..<count {
             let t = Float(i) / Float(count - 1)
-            stage.pose(along: t * t * (3 - 2 * t), ghost: i < count * 3 / 4)
+            stage.pose(along: BandHandModel.slideEase(t), ghost: i < count * 3 / 4)
             try write(try snapshot(stage), name: String(format: "band-seq-%02d", i))
         }
+    }
+
+    /// Building the stage (measuring the fist, the strap's morph target) happens as the sheet
+    /// opens, on the main thread: it must stay quick.
+    func testTheStageBuildsQuickly() throws {
+        let fist = try XCTUnwrap(BandHandModel.bundled)
+        let started = Date()
+        _ = try XCTUnwrap(BandHandModel.Stage(band: BandModel.makeNode(), hand: fist,
+                                             accent: UIColor(JcTheme.accent).cgColor))
+        let took = Date().timeIntervalSince(started)
+        print("BAND STAGE BUILD \(took)s")
+        XCTAssertLessThan(took, 1.0)
     }
 
     /// The loop never closes tighter than its seat on the way, and opens to clear the palm.
