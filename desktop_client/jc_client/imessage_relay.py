@@ -167,7 +167,9 @@ class IMessageRelay:
         payload = json.dumps({"title": sender[:80], "body": message[:400],
                               "channel": "glasses", "app": "Messages"}).encode()
         req = urllib.request.Request(origin + "/api/devices/notify", data=payload,
-                                     headers={"Content-Type": "application/json"}, method="POST")
+                                     # Cloudflare refuses Python's default User-Agent (error 1010).
+                                     headers={"Content-Type": "application/json",
+                                              "User-Agent": "jc-client/0.1"}, method="POST")
         try:
             urllib.request.urlopen(req, timeout=10).read()
         except Exception as exc:  # noqa: BLE001

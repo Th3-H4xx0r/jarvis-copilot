@@ -197,7 +197,10 @@ struct InmoPendingCards {
     /// with it instead of JARVIS. nil = Jarvis's own card.
     func forwardNotification(title: String, body: String, app: String? = nil) {
         guard Self.notificationsEnabled else { return }
-        let cardTitle = title.isEmpty ? "Jarvis" : title
+        // The lens shows only the title and the text, so another app's name goes in the
+        // title: "Gmail · Pranav", "Messages · Mom".
+        let named = app.map { title.isEmpty || title == $0 ? $0 : "\($0) · \(title)" } ?? title
+        let cardTitle = named.isEmpty ? "Jarvis" : named
         let cardBody = body.isEmpty ? title : body
         guard !cardBody.isEmpty, cardDeduper.shouldSend(title: cardTitle, body: cardBody) else { return }
         guard isReady else {
