@@ -69,8 +69,12 @@ struct HealthTab: View {
                                       measure: { type in
                                           // A reading taken now belongs to today, not a day gone.
                                           guard selection == .today else { return nil }
-                                          return HealthRing.current == .x5 ? x5Measure.card(type, from: .health)
-                                                                           : measure.card(type, from: .health)
+                                          switch HealthRing.current {
+                                          case .x5: return x5Measure.card(type, from: .health)
+                                          case .r12: return measure.card(type, from: .health)
+                                          // The band's spot checks live on its own page.
+                                          case .band: return nil
+                                          }
                                       })
                 }
                 .padding(.top, 8)
@@ -136,6 +140,7 @@ struct HealthTab: View {
         let hold = on && HealthScreenHold.isOn
         WearablesHub.shared.ring.screenIsOpen = hold
         WearablesHub.shared.x5.healthIsOpen = hold
+        WearablesHub.shared.band.healthIsOpen = hold
         WearablesHub.shared.bottle.screenIsOpen = hold
     }
 

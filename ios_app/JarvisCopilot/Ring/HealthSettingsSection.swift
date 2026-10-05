@@ -47,7 +47,7 @@ struct HealthSettingsSection: View {
                             healthRing = ring
                             HealthRing.choose(ring)
                         })) {
-                        ForEach(HealthRing.allCases) { Text($0.label).tag($0) }
+                        ForEach(HealthRing.allCases.filter { WearableIdentity.remembered($0.kind) != nil }) { Text($0.label).tag($0) }
                     }
                 }
             }

@@ -7,6 +7,7 @@ struct ScanView: View {
     @ObservedObject private var esp32Manager = WearablesHub.shared.esp32
     @ObservedObject private var ringManager = WearablesHub.shared.ring
     @ObservedObject private var x5Manager = WearablesHub.shared.x5
+    @ObservedObject private var bandManager = WearablesHub.shared.band
     @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
@@ -28,7 +29,7 @@ struct ScanView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
-                    && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && absent.isEmpty
+                    && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && bandManager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
                     glassesCard(entries)
                     DashcamEntryCard(namespace: cardNamespace)
@@ -136,6 +137,19 @@ struct ScanView: View {
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: ring.id, in: cardNamespace)
+            }
+            ForEach(bandManager.discovered) { band in
+                NavigationLink {
+                    BandDeviceView(manager: bandManager, band: band)
+                        .zoomTransition(id: band.id, in: cardNamespace)
+                } label: {
+                    BandCard(band: band,
+                             battery: bandManager.connected?.id == band.id ? bandManager.session.battery : nil,
+                             connected: bandManager.connected?.id == band.id && bandManager.state == .ready,
+                             lastSeen: lastSeen(WearableKeepAlive.band, in: entries))
+                }
+                .buttonStyle(.plain)
+                .zoomSource(id: band.id, in: cardNamespace)
             }
             glassesCard(entries)
             DashcamEntryCard(namespace: cardNamespace)

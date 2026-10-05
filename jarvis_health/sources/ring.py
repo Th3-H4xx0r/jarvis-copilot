@@ -1,10 +1,11 @@
-"""A smart ring as a health source: the Colmi R12, and the X5 by another prefix.
+"""A smart ring as a health source: the Colmi R12, and the X5 and the HBand
+smart band by other prefixes.
 
-It speaks the ring's device skills (`ring_*` for the R12, `x5_*` for the X5 —
-the same names after the prefix and the same JSON), which run on the phone the
-ring is paired to — the phone is the radio, so an unreachable phone means an
-unreachable ring, and that is reported as such rather than as a day with
-nothing in it.
+It speaks the wearable's device skills (`ring_*` for the R12, `x5_*` for the X5,
+`band_*` for the band — the same names after the prefix and the same JSON),
+which run on the phone the wearable is paired to — the phone is the radio, so an
+unreachable phone means an unreachable wearable, and that is reported as such
+rather than as a day with nothing in it.
 """
 from __future__ import annotations
 
@@ -47,21 +48,23 @@ class RingSource:
     the ring's own BLE identifier, which is what `wearables_connect` needs and
     what the integration's space id is derived from.
 
-    `prefix` names the ring's skills (`ring_` for the R12, `x5_` for the X5)
-    and `kind` is what its days are filed under; both rings answer the same
-    shapes, so nothing else differs.
+    `prefix` names the wearable's skills (`ring_` for the R12, `x5_` for the X5,
+    `band_` for the band) and `kind` is what its days are filed under; all three
+    answer the same shapes, so nothing else differs. `name` is what it is called
+    when its status gives neither a name nor a model.
     """
 
     kind = "ring"
 
     def __init__(self, bridge_device_id: str, wearable_id: str = "",
                  invoke: Optional[Callable[..., dict]] = None,
-                 prefix: str = "ring_", kind: str = "ring") -> None:
+                 prefix: str = "ring_", kind: str = "ring", name: str = "Ring") -> None:
         self.bridge_device_id = bridge_device_id
         self.wearable_id = wearable_id or bridge_device_id
         self._invoke = invoke or bridge_invoke
         self.prefix = prefix
         self.kind = kind
+        self.default_name = name
 
     def _skill(self, name: str) -> str:
         """This ring's name for a skill: `get_status` → `ring_get_status`."""
@@ -89,7 +92,7 @@ class RingSource:
             "kind": self.kind,
             "device_id": self.wearable_id,
             "bridge_device_id": self.bridge_device_id,
-            "name": status.get("name") or status.get("model") or "Ring",
+            "name": status.get("name") or status.get("model") or self.default_name,
             "model": status.get("model") or "",
             "firmware": status.get("firmware_version") or "",
         }
@@ -147,8 +150,8 @@ def day_from_ring_json(raw: dict, date: str, tz: str, source: str = "ring") -> H
     """The ring skills' day JSON as a HealthDay, labelled with the ring's kind.
 
     Module-level because the phone pushes this exact shape straight to the
-    server, and both paths must agree on what it means. Both rings send it,
-    with the same stage codes; `source` says which one did.
+    server, and both paths must agree on what it means. Both rings and the band
+    send it, with the same stage codes; `source` says which one did.
     """
     midnight = local_midnight_utc(date, tz)
 

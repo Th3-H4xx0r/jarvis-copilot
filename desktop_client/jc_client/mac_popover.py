@@ -325,8 +325,10 @@ class MenuBarVoicePopover:
 
         path = Path(__file__).with_name("assets") / f"icon-{wearable}.png"
         if not path.exists():
-            # The ESP32 has no 3D model — it is a board, so a board glyph.
-            return self._symbol("cpu")
+            # No picture rendered from a 3D model (the ESP32, the band): a symbol.
+            from jc_client.device_roster import wearable_symbol
+
+            return self._symbol(wearable_symbol(wearable))
         image = AppKit.NSImage.alloc().initWithContentsOfFile_(str(path))
         if image is None:
             return None

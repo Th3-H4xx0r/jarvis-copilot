@@ -21,6 +21,8 @@ enum WearableKeepAlive {
     static let ring = "ring"
     /// The X5 touch ring — a second ring with its own card, link and history.
     static let x5ring = "x5ring"
+    /// The HBand (Veepoo) smart band — screenless, a workout wearable like the rings.
+    static let band = "band"
     /// The roster kind for the INMO GO3. There is no link of ours to keep alive —
     /// iOS holds its Bluetooth audio — so it never has a toggle.
     static let glasses = "glasses"
@@ -29,7 +31,7 @@ enum WearableKeepAlive {
 
     /// The wearables with a "Connection Keep Alive" switch, by key, as a button or Jarvis names them.
     static let switchable: [(key: String, name: String)] = [
-        (ring, "R12 ring"), (x5ring, "X5 ring"), (bottle, "bottle"), (scale, "scale"), (esp32, "ESP32 board"),
+        (ring, "R12 ring"), (x5ring, "X5 ring"), (band, "smart band"), (bottle, "bottle"), (scale, "scale"), (esp32, "ESP32 board"),
     ]
 
     /// Defaults to OFF, because holding a BLE link for a device nobody is using

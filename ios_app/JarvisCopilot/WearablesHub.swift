@@ -168,6 +168,7 @@ final class WearablesHub: ObservableObject {
     let esp32 = Esp32Manager()
     let ring = RingManager()
     let x5 = X5Manager()
+    let band = BandManager()
     let glasses = InmoGo3Device.shared
 
     private var reconnectTask: Task<Void, Never>?
@@ -190,6 +191,21 @@ final class WearablesHub: ObservableObject {
         let workout = ring.workout
         x5.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.x5ring) ?? false }
         x5.workouts = workout
+        // The band too: its own adapter makes the ticks (it has no per-second workout packet).
+        let band = self.band
+        workout.add(BandWorkoutWearable(
+            session: band.session,
+            connect: { [weak band] in
+                guard let band, await band.ensureConnected(timeout: 12) else { return false }
+                await band.waitForSetup(timeout: 8)
+                return true
+            },
+            disconnect: { [weak band] in band?.disconnect() },
+            release: { [weak band] in band?.releaseIfIdle() },
+            deviceID: { [weak band] in band?.deviceID },
+            state: band.$state.eraseToAnyPublisher()))
+        band.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.band) ?? false }
+        band.workouts = workout
     }
 
     /// Foreground: resume links, reconnect the remembered bottle, re-register.
@@ -198,6 +214,7 @@ final class WearablesHub: ObservableObject {
         bottle.enterForeground()
         ring.enterForeground()
         x5.enterForeground()
+        band.enterForeground()
         if WearableKeepAlive.isOn(WearableKeepAlive.glasses) { Task { try? await glasses.session.ensureConnected() } }
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
@@ -210,6 +227,7 @@ final class WearablesHub: ObservableObject {
         bottle.enterBackground()
         ring.enterBackground()
         x5.enterBackground()
+        band.enterBackground()
     }
 
     /// Bring the last-used bottle back without anyone opening the Devices tab,
@@ -255,6 +273,17 @@ final class WearablesHub: ObservableObject {
                 }
                 if await self.x5.ensureConnected(timeout: 15) == false {
                     JcLog.services.notice("wearables: X5 ring not reachable at launch")
+                }
+            }
+            // And the band.
+            if WearableIdentity.remembered(WearableKeepAlive.band) != nil,
+               WearableKeepAlive.isOn(WearableKeepAlive.band) {
+                for _ in 0..<20 where !self.band.bluetoothReady {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if Task.isCancelled { return }
+                }
+                if await self.band.ensureConnected(timeout: 15) == false {
+                    JcLog.services.notice("wearables: band not reachable at launch")
                 }
             }
         }
@@ -337,6 +366,19 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.x5ring),
                                      listed: live != nil))
         }
+        if let id = WearableIdentity.remembered(WearableKeepAlive.band) {
+            let live = band.discovered.first { $0.id == band.connected?.id } ?? band.discovered.first
+            out.append(WearableEntry(kind: WearableKeepAlive.band,
+                                     deviceID: id,
+                                     model: BandDevice.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.band,
+                                                                     fallback: live?.name ?? band.connected?.name ?? BandDevice.fallbackName),
+                                     connected: band.state == .ready,
+                                     rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
+                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.band),
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.band),
+                                     listed: live != nil))
+        }
         // Control identity stays stable independently of the remembered audio port.
         // The glasses always have their own card (`listed`).
         if WearableIdentity.remembered(WearableKeepAlive.glasses) != nil || WearableIdentity.remembered("inmoGo3Control") != nil {
@@ -369,6 +411,8 @@ final class WearablesHub: ObservableObject {
              rssi: ring.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.x5ring, connected: x5.state == .ready,
              rssi: x5.discovered.first(where: { $0.rssi != 0 })?.rssi)
+        note(WearableKeepAlive.band, connected: band.state == .ready,
+             rssi: band.discovered.first(where: { $0.rssi != 0 })?.rssi)
         note(WearableKeepAlive.glasses, connected: glasses.isConnected, rssi: nil)
     }
 
@@ -401,6 +445,7 @@ final class WearablesHub: ObservableObject {
         esp32.publishRemembered()
         ring.publishRemembered()
         x5.publishRemembered()
+        band.publishRemembered()
         InmoTeleprompter.shared.install(on: glasses)
         InmoAIChannel.shared.install(on: glasses)
         GlassesNoteRecorder.shared.install()
@@ -432,7 +477,7 @@ final class WearablesHub: ObservableObject {
         // Both rings paired: both stay linked, and the chosen one is primary.
         let choosing = HealthRing.bothPaired()
         let chosen = HealthRing.current
-        let rings: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring]
+        let rings: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring, WearableKeepAlive.band]
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
         // Without the phone's own id the server has nothing to invoke through,
         // so there is no point registering yet; the next launch tries again.
@@ -478,6 +523,8 @@ final class WearablesHub: ObservableObject {
             if value { Task { _ = await ring.ensureConnected(timeout: 10) } } else { ring.releaseIfIdle() }
         case WearableKeepAlive.x5ring:
             if value { Task { _ = await x5.ensureConnected(timeout: 10) } } else { x5.releaseIfIdle() }
+        case WearableKeepAlive.band:
+            if value { Task { _ = await band.ensureConnected(timeout: 10) } } else { band.releaseIfIdle() }
         case WearableKeepAlive.bottle:
             if value { Task { _ = await bottle.ensureConnected(timeout: 10) } } else { bottle.releaseIfIdle() }
         default:
@@ -518,6 +565,14 @@ final class WearablesHub: ObservableObject {
             }) else { return false }
             if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
             return await waitUntil(timeout: timeout) { self.ring.state == .ready }
+        case WearableKeepAlive.band:
+            if await band.ensureConnected(timeout: 3) { return true }
+            band.startScan()
+            guard let found = await waitFor(timeout: timeout, {
+                self.band.discovered.first { $0.id.uuidString == deviceID }
+            }) else { return false }
+            if band.connected?.id != found.id || !band.linkIsUp { band.connect(found) }
+            return await waitUntil(timeout: timeout) { self.band.state == .ready }
         case WearableKeepAlive.x5ring:
             if await x5.ensureConnected(timeout: 3) { return true }
             x5.startScan()
@@ -561,5 +616,6 @@ final class WearablesHub: ObservableObject {
         esp32.startScan()
         ring.startScan()
         x5.startScan()
+        band.startScan()
     }
 }

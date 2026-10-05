@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from .sources import ELIGIBLE_KINDS
+from .sources import DEFAULT_NAMES, ELIGIBLE_KINDS
 from .store import SHARED_NAME, SHARED_SPACE, HealthStore
 
 logger = logging.getLogger(__name__)
@@ -56,12 +56,13 @@ def ensure_health_integration(roster: list[dict[str, Any]]) -> dict:
         saved = store.upsert_device({
             "kind": kind,
             "device_id": device_id,
-            "name": entry.get("name") or kind.title(),
+            "name": entry.get("name") or DEFAULT_NAMES.get(kind) or kind.title(),
             "bridge_device_id": entry.get("bridge_device_id") or entry.get("phone_id") or "",
             "timezone": entry.get("timezone") or "",
         })
-        # With two rings paired the phone says which one Jarvis Health reads: that one is
-        # linked and primary, the other unlinked. Older phones send neither; nothing changes.
+        # With more than one ring or band paired the phone says which one Jarvis Health reads:
+        # that one is linked and primary, the others unlinked. Older phones send neither;
+        # nothing changes.
         if isinstance(entry.get("linked"), bool):
             store.set_linked(saved["key"], entry["linked"])
         if entry.get("primary") is True:

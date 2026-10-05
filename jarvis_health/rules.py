@@ -52,6 +52,12 @@ class Alert:
         }
 
 
+def _wearable_word(day: HealthDay) -> str:
+    """What the battery alert calls the device: a merged day's source is its
+    primary's key (`band-c0ffee00`), a single device's day its kind (`band`)."""
+    return "Band" if str(day.source or "").startswith("band") else "Ring"
+
+
 def _local(now_utc: str, day: HealthDay) -> tuple[int, int]:
     """The wearer's wall clock at `now_utc`, as (hour, minute)."""
     moment = parse_instant(now_utc) + timedelta(seconds=day.utc_offset)
@@ -230,6 +236,6 @@ def evaluate(
     if percent is not None and not day.battery.get("charging"):
         limit = threshold_for("battery_low", 15)
         if float(percent) < limit:
-            fire("battery_low", f"Ring battery at {int(percent)}%.", float(percent), limit)
+            fire("battery_low", f"{_wearable_word(day)} battery at {int(percent)}%.", float(percent), limit)
 
     return out

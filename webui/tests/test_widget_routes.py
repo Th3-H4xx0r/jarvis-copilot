@@ -117,7 +117,7 @@ def test_new_widget_nodes_are_accepted(node):
     assert _errors(node, "large") == []
 
 
-@pytest.mark.parametrize("device", ["ring", "x5ring", "glasses", "bottle", "scale", "esp32", "pod"])
+@pytest.mark.parametrize("device", ["ring", "x5ring", "band", "glasses", "bottle", "scale", "esp32", "pod"])
 def test_every_model_device(device):
     assert _errors({"type": "model", "device": device}) == []
 

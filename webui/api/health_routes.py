@@ -271,7 +271,8 @@ def handle_post(handler, parsed, body) -> bool:
             from jarvis_health.sources.ring import day_from_ring_json
             from jarvis_health.store import device_key_for
 
-            # Either ring's day: the R12 says "ring", the X5 "x5ring".
+            # Any day-synced wearable's day: the R12 says "ring", the X5 "x5ring",
+            # the HBand smart band "band".
             kind = raw.get("source") or "ring"
             device_id = raw.get("device_id") or body.get("device_id") or ""
             day = day_from_ring_json(raw, raw["date"], raw.get("timezone") or "UTC", source=kind)

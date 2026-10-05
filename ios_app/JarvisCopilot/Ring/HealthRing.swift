@@ -8,6 +8,7 @@ import Foundation
 enum HealthRing: String, CaseIterable, Identifiable {
     case r12 = "ring"
     case x5 = "x5ring"
+    case band = "band"
 
     static let key = "jc.health.ring"
 
@@ -19,6 +20,7 @@ enum HealthRing: String, CaseIterable, Identifiable {
         switch self {
         case .r12: return ColmiR12.model
         case .x5: return X5Ring.model
+        case .band: return BandDevice.model
         }
     }
 
@@ -27,6 +29,7 @@ enum HealthRing: String, CaseIterable, Identifiable {
         if let raw = defaults.string(forKey: key), let chosen = HealthRing(rawValue: raw) { return chosen }
         if WearableIdentity.remembered(WearableKeepAlive.ring, defaults: defaults) != nil { return .r12 }
         if WearableIdentity.remembered(WearableKeepAlive.x5ring, defaults: defaults) != nil { return .x5 }
+        if WearableIdentity.remembered(WearableKeepAlive.band, defaults: defaults) != nil { return .band }
         return .r12
     }
 
@@ -42,10 +45,9 @@ enum HealthRing: String, CaseIterable, Identifiable {
     /// then on, so the two rings never both write a day.
     static func since(defaults: UserDefaults = .standard) -> String? { defaults.string(forKey: sinceKey) }
 
-    /// Whether there is a choice to make.
+    /// Whether there is a choice to make: two or more of the R12, the X5 and the band are paired.
     static func bothPaired(defaults: UserDefaults = .standard) -> Bool {
-        WearableIdentity.remembered(WearableKeepAlive.ring, defaults: defaults) != nil
-            && WearableIdentity.remembered(WearableKeepAlive.x5ring, defaults: defaults) != nil
+        allCases.filter { WearableIdentity.remembered($0.kind, defaults: defaults) != nil }.count >= 2
     }
 
     /// What registration tells the server about a ring once both are paired: every ring stays
@@ -59,6 +61,7 @@ enum HealthRing: String, CaseIterable, Identifiable {
         switch current {
         case .r12: return WearablesHub.shared.ring.store
         case .x5: return WearablesHub.shared.x5.store
+        case .band: return WearablesHub.shared.band.store
         }
     }
 
@@ -71,6 +74,9 @@ enum HealthRing: String, CaseIterable, Identifiable {
         WearablesHub.shared.registerHealthIntegrations()
         if let store = WearablesHub.shared.x5.store {
             Task { await X5HealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.x5) }
+        }
+        if let store = WearablesHub.shared.band.store {
+            Task { await BandHealthPush.push(Set(store.allKeys().suffix(14)), manager: WearablesHub.shared.band) }
         }
         NotificationCenter.default.post(name: .jcHealthRingChanged, object: nil)
     }
@@ -110,10 +116,10 @@ extension AppleHealthPlan {
     /// The R12's sample ids stay exactly as they always were — changing them would write its whole
     /// history again — and the X5's carry their own prefix, so the two never overwrite each other.
     static func tagged(_ samples: [AppleHealthSample], ring: HealthRing) -> [AppleHealthSample] {
-        guard ring == .x5 else { return samples }
+        guard ring != .r12 else { return samples }
         return samples.map { sample in
             var tagged = sample
-            tagged.syncID = "x5-" + sample.syncID
+            tagged.syncID = (ring == .band ? "band-" : "x5-") + sample.syncID
             return tagged
         }
     }

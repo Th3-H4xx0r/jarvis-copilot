@@ -16,6 +16,7 @@ list in place rather than an empty menu.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -39,7 +40,7 @@ class DeviceRow:
     kind: str
     online: bool
     detail: str = ""
-    #: "ring" / "bottle" / "scale" / "esp32" when this is a wearable.
+    #: "ring" / "x5ring" / "band" / "bottle" / "scale" / "esp32" when this is a wearable.
     wearable: str = ""
     #: A section heading rather than a device ("Devices", "Wearables").
     header: bool = False
@@ -225,6 +226,10 @@ def wearable_kind(model: str, name: str) -> str:
     # Before "ring": the X5 is a ring too, with its own picture.
     if "x5" in blob:
         return "x5ring"
+    # The HBand (Veepoo) band reports "HBand smart band"; "band" as a word, so
+    # nothing that merely contains the letters is taken for it.
+    if "hband" in blob or "veepoo" in blob or re.search(r"\bband\b", blob):
+        return "band"
     if "r12" in blob or "ring" in blob:
         return "ring"
     if "vsitoo" in blob or "bottle" in blob:
@@ -234,3 +239,13 @@ def wearable_kind(model: str, name: str) -> str:
     if "esp32" in blob:
         return "esp32"
     return ""
+
+
+#: SF Symbols for wearables that have no rendered picture in ``assets/``.
+_WEARABLE_SYMBOLS = {"band": "applewatch.side.right"}
+
+
+def wearable_symbol(wearable: str) -> str:
+    """The symbol drawn when a wearable has no ``icon-<kind>.png``: the band's
+    own, else a board glyph (the ESP32 has no 3D model — it is a board)."""
+    return _WEARABLE_SYMBOLS.get(wearable, "cpu")

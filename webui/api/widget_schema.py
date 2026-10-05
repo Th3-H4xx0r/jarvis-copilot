@@ -38,7 +38,7 @@ from api.island_schema import (
 
 SIZES = ("small", "medium", "large", "extraLarge", "circular", "rectangular", "inline")
 # Wearables whose 3D model the app renders to widgets/models/<device>.png.
-MODEL_DEVICES = ("ring", "x5ring", "glasses", "bottle", "scale", "esp32", "pod")
+MODEL_DEVICES = ("ring", "x5ring", "band", "glasses", "bottle", "scale", "esp32", "pod")
 CHART_STYLES = ("line", "bar", "area")
 
 WIDGET_NODE_TYPES = frozenset(

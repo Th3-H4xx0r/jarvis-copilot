@@ -102,7 +102,7 @@ width, height}, "when"?: <condition>}`. At most 160 nodes per size, 12 deep.
 | `iconStrip` | `items` (SF Symbol names), `max?` |
 | `waveform` | `active?` |
 | `chart` | `series` (series binding or list of numbers / `{x, y}`), `style?`: `line` \| `bar` \| `area`, `color?`, `min?`, `max?` |
-| `model` | `device`: `ring` \| `x5ring` \| `glasses` \| `bottle` \| `scale` \| `esp32` \| `pod` — the wearable's 3D model as a picture |
+| `model` | `device`: `ring` \| `x5ring` \| `band` \| `glasses` \| `bottle` \| `scale` \| `esp32` \| `pod` — the wearable's 3D model as a picture |
 | `button` | `button` (Control Center button id), `label?`, `symbol?` — runs that button's action |
 | `toggle` | `button` (id of a button that keeps state), `label?` — flips it |
 
