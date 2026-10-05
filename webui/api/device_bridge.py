@@ -1093,6 +1093,13 @@ def _resolve_device_for_handler(handler) -> Optional[dict]:
         return None
     # Newest match wins if multiple devices ever shared a prefix.
     matches.sort(key=lambda d: d.get("paired_at", 0), reverse=True)
+    # A device that only holds the bridge (the Mac client, the Pod) never makes
+    # the HTTP requests that renew a session, so connecting renews it too.
+    try:
+        from api.auth import renew_session
+        renew_session(morsel.value)
+    except Exception:
+        pass
     return matches[0]
 
 

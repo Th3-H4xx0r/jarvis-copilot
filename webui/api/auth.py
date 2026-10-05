@@ -364,6 +364,24 @@ def create_session() -> str:
     return f"{token}.{sig}"
 
 
+# A paired device keeps its session for as long as it keeps talking to the
+# server. Without this every device (the iPhone, the Mac client, the Pod) fell
+# off the bridge 30 days after pairing, with nothing on screen saying why.
+_RENEW_AFTER = 86400  # rewrite a renewed expiry at most once a day
+
+
+def renew_session(cookie_value: str) -> bool:
+    """Slide a valid session's expiry to a full TTL from now. Returns whether it was valid."""
+    if not verify_session(cookie_value):
+        return False
+    token = cookie_value.rsplit('.', 1)[0]
+    target = time.time() + _resolve_session_ttl()
+    if target - _sessions.get(token, 0) >= _RENEW_AFTER:
+        _sessions[token] = target
+        _save_sessions(_sessions)
+    return True
+
+
 def _prune_expired_sessions():
     """Remove all expired session entries to prevent unbounded memory growth."""
     now = time.time()
@@ -432,10 +450,12 @@ def check_auth(handler, parsed) -> bool:
     if cookie_val and verify_session(cookie_val):
         # Bump the device's last_seen so browser-paired devices (which
         # don't hold a WS bridge) still show as "online" in the Devices
-        # tab. The pairing module debounces writes so this is cheap.
+        # tab. The pairing module debounces writes so this is cheap. A paired
+        # device's session is renewed while it is in use.
         try:
             from api.pairing import touch_device_by_session
-            touch_device_by_session(cookie_val)
+            if touch_device_by_session(cookie_val):
+                renew_session(cookie_val)
         except Exception:
             pass
         return True
