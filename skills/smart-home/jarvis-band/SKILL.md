@@ -74,7 +74,7 @@ phone's message.
 | `band_get_health_day` | `date` | One day in the Jarvis Health wire shape, `source: "band"`. |
 | `band_get_history` | `days` (1–30), `metrics` | Per-day summaries, today first. Never waits on the band. |
 | `band_sync` | `days` (0 = today) | Pulls from the band now. |
-| `band_measure` | `type`: `heart_rate` \| `spo2` \| `blood_pressure` \| `temperature` \| `stress` \| `blood_glucose` \| `blood_component` \| `body_composition` \| `ecg` | Spot reading; may answer `status: "measuring"`. Blood pressure answers `systolic` and `diastolic` in mmHg. The E910 has no HRV or MET spot command (HRV comes from history). |
+| `band_measure` | `type`: `heart_rate` \| `spo2` \| `blood_pressure` \| `temperature` \| `stress` \| `blood_glucose` \| `blood_component` \| `body_composition` \| `ecg` | Spot reading. Ends `done` with the value(s), or `failed` / `busy` / `not_worn` with `failure` (why); a reading longer than the phone's answer comes back `still_measuring` with `check_again_in_seconds`. Blood pressure answers `systolic` and `diastolic` in mmHg; ECG `heart_rate`, `hrv`, `respiratory_rate`; body composition `bmi`, `body_fat_percent` and the rest; `lead_off` while no finger is on the electrode. The E910 has no HRV or MET spot command (HRV comes from history). |
 | `band_set_heart_rate_alarm` | `enabled`, `high`, `low` (bpm) | Vibrate when heart rate leaves the range. |
 | `band_set_raise_to_wake` | `enabled` | Raise-the-wrist wake. |
 | `band_set_skin_tone` | `level` 1–6 | Calibrates the optical sensor. |
@@ -103,8 +103,11 @@ kcal; timestamps in UTC.
 3. **Blood pressure:** a trend is `band_get_day` / `band_get_history` with
    `metrics: ["blood_pressure"]`; a reading now is `band_measure` with `type: "blood_pressure"`.
 4. **Spot reading:** `band_measure` with `type`. `done` → report the value (`systolic` /
-   `diastolic` for blood pressure); `not_worn` → ask the user to wear it snugly and keep still;
-   `measuring` → wait 30–60 s and read `band_get_status.last_measurement`.
+   `diastolic` for blood pressure); `failed` / `busy` / `not_worn` → tell the user `failure`
+   (it says why: not on a wrist, charging, finger off the electrode, keep still…);
+   `still_measuring: true` → wait `check_again_in_seconds`, then read
+   `band_get_status.last_measurement` (`band_get_status.measuring` names one still running).
+   ECG and body composition need a finger on the band's metal top for the whole reading.
 5. **Workouts:** `band_workout` `start` with a `sport` opens the live workout screen on the
    phone; `status` reads the running one; `pause`, `resume` and `end` act on it, and `end` saves
    it to Jarvis Health.
@@ -117,9 +120,11 @@ kcal; timestamps in UTC.
 
 ## Pitfalls
 
-- **`band_measure` often answers `{"status": "measuring"}`.** A reading takes 30–60 s (blood
-  pressure the longest) and the phone answers within 25 s; the result lands later in
-  `band_get_status.last_measurement`. Don't start a second measurement meanwhile.
+- **Long readings outlast the phone's answer.** Heart rate and SpO₂ take 10–30 s, blood
+  pressure about 55 s, temperature / stress / glucose up to 90 s, ECG and body composition up
+  to 2 min. `band_measure` then answers `still_measuring`; the reading carries on and lands in
+  `band_get_status.last_measurement` (`scripts/band.py measure` waits for it). Don't start a
+  second measurement meanwhile — the band answers `busy`.
 - **Blood pressure from a wrist band is an optical estimate, not a cuff reading**, and it is only
   as good as the body profile — set `band_set_profile` first. Readings are wellness estimates.
   Don't diagnose.

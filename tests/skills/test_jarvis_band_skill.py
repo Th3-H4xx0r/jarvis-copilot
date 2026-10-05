@@ -385,6 +385,29 @@ def test_cli_measure_and_workout(mod, cli):
     ]
 
 
+def test_a_long_reading_is_followed_until_it_ends(mod, cli, monkeypatch):
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    cli.replies["band_measure"] = (200, {"ok": True, "result": {
+        "ok": True, "still_measuring": True, "check_again_in_seconds": 30,
+        "measurement": {"type": "blood_pressure", "status": "measuring", "progress": 40,
+                        "time": "2026-10-05T02:14:34Z"}}})
+    cli.replies["band_get_status"] = (200, {"ok": True, "result": {
+        "measuring": None, "last_measurement": {"type": "blood_pressure", "status": "done",
+                                                "systolic": 118, "diastolic": 76,
+                                                "time": "2026-10-05T02:15:29Z"}}})
+    out = mod.Band(transport=cli).measure("blood_pressure")
+    assert out["measurement"]["systolic"] == 118
+    assert [b["skill"] for b in cli.invokes] == ["band_measure", "band_get_status"]
+
+
+def test_a_reading_that_ends_in_time_is_returned_as_is(mod, cli):
+    cli.replies["band_measure"] = (200, {"ok": True, "result": {
+        "ok": True, "measurement": {"type": "heart_rate", "status": "done", "heart_rate": 72}}})
+    out = mod.Band(transport=cli).measure("heart_rate")
+    assert out["measurement"]["heart_rate"] == 72
+    assert [b["skill"] for b in cli.invokes] == ["band_measure"]
+
+
 def test_cli_find_starts_and_stops(mod, cli):
     assert mod.main(["find"]) == 0
     assert mod.main(["find", "--stop"]) == 0

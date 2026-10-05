@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import time
 import types
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -287,10 +288,26 @@ class Band:
         """Pulls from the band now: 0 = today only."""
         return self.invoke("band_sync", {"days": days})
 
-    def measure(self, type: str) -> dict[str, Any]:
+    def measure(self, type: str, wait: float = 150.0, poll: float = 5.0) -> dict[str, Any]:
         """Spot reading: heart_rate, spo2, blood_pressure, temperature, stress, blood_glucose,
-        blood_component, body_composition or ecg. May answer ``status: measuring``."""
-        return self.invoke("band_measure", {"type": type}, timeout=max(self.timeout, DEFAULT_TIMEOUT))
+        blood_component, body_composition or ecg. A reading longer than the phone's answer
+        (blood pressure ~55 s, ECG up to 2 min) comes back ``still_measuring``; this then
+        follows ``band_get_status`` until it ends, up to ``wait`` seconds."""
+        result = self.invoke("band_measure", {"type": type}, timeout=max(self.timeout, DEFAULT_TIMEOUT))
+        if not result.get("still_measuring"):
+            return result
+        started = (result.get("measurement") or {}).get("time")
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(min(poll, float(result.get("check_again_in_seconds") or poll)))
+            status = self.status()
+            last = status.get("last_measurement") or {}
+            if (last.get("type") == type and last.get("status") != "measuring"
+                    and (started is None or str(last.get("time", "")) >= started)):
+                return {"ok": True, "measurement": last}
+            if status.get("measuring") != type:
+                break
+        return result
 
     def workout(self, action: str, sport: str | None = None) -> dict[str, Any]:
         """start (with ``sport``), pause, resume, end or status of a workout, run on the phone's workout screen."""

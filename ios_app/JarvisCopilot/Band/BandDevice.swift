@@ -81,8 +81,11 @@ final class BandDevice: WearableDevice {
                 inputSchema: DeviceCapability.schema(["days": ["type": "integer", "minimum": 1, "maximum": 3]])),
             DeviceCapability(
                 name: "band_measure",
-                description: "Take a spot reading on the band (about 30-60 s): " + BandMeasure.allCases.map(\.name).joined(separator: ", ")
-                    + ". Returns status done, measuring, failed or not_worn.",
+                description: "Take a spot reading on the band: " + BandMeasure.allCases.map(\.name).joined(separator: ", ")
+                    + ". Heart rate and SpO2 take 10-30 s, blood pressure about 55 s, ECG and body composition up to 2 min "
+                    + "(a finger on the band's electrode). Answers the result (status done, failed, busy or not_worn, with "
+                    + "failure saying why), or still_measuring with check_again_in_seconds: then band_get_status's "
+                    + "last_measurement has it.",
                 inputSchema: DeviceCapability.schema(["type": ["type": "string", "enum": BandMeasure.allCases.map(\.name)]],
                                                      required: ["type"])),
             DeviceCapability(
@@ -284,6 +287,7 @@ final class BandDevice: WearableDevice {
         if let settings = session.settings { out["settings"] = settings.json }
         if let alerts = session.alerts { out["alerts"] = alerts.json }
         if let reading = session.lastReading { out["last_measurement"] = reading.json }
+        if let running = session.measuring { out["measuring"] = running.name }
         if let hr = session.liveHeartRate { out["live_heart_rate"] = hr }
         if session.finding { out["finding"] = true }
         if let last = backend.sync.lastSync { out["last_sync"] = iso(last) }
@@ -383,10 +387,32 @@ final class BandDevice: WearableDevice {
             throw DeviceError.badArgument("a workout is using the band's sensor — readings wait until it ends")
         }
         return try await live { secondsLeft in
-            let reading = try await self.session.measure(type, seconds: max(5, secondsLeft - 2))
-            return ["ok": true, "measurement": reading.json]
+            // The reading runs on the phone for as long as it takes (blood pressure ~55 s, ECG up
+            // to 2 min — longer than a skill may wait), holding the link while it does; the skill
+            // answers with it if it ends in time, else says it's still going.
+            let started = Date()
+            let outcome = MeasureOutcome()
+            Task { @MainActor in
+                do { outcome.result = .success(try await self.session.measure(type)) } catch { outcome.result = .failure(error) }
+            }
+            let wait = max(3, secondsLeft - 2)
+            while outcome.result == nil, Date().timeIntervalSince(started) < wait {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            switch outcome.result {
+            case .success(let reading): return ["ok": true, "measurement": reading.json]
+            case .failure(let error): throw error
+            case nil:
+                var out: [String: Any] = ["ok": true, "still_measuring": true,
+                                          "check_again_in_seconds": max(5, min(30, Int(type.timeout - Date().timeIntervalSince(started))))]
+                if let now = self.session.lastReading, now.measure == type, now.date >= started { out["measurement"] = now.json }
+                return out
+            }
         }
     }
+
+    /// What a reading the skill started ended as, once it has.
+    private final class MeasureOutcome { var result: Result<BandReading, Error>? }
 
     // MARK: Workout
 

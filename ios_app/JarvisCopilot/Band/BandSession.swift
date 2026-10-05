@@ -148,28 +148,46 @@ final class BandSession: ObservableObject {
 
     // MARK: Measurements
 
-    /// A spot reading. Streams until the band says it's done, it isn't worn, or `seconds` pass;
-    /// the latest reading comes back either way.
-    func measure(_ type: BandMeasure, seconds: TimeInterval = 40) async throws -> BandReading {
+    /// A spot reading, followed until it ends: a value, the band's refusal (busy, not worn,
+    /// charging, low battery) or failure, or — when the band leaves it unfinished — `failed`
+    /// with a reason: quiet for a while, the electrode lead off too long, or past the deadline
+    /// (`type.timeout`, or `seconds` when the caller has less). What it ended as comes back and
+    /// stays as `lastReading`. Cancelled, it throws and puts the previous reading back.
+    func measure(_ type: BandMeasure, seconds: TimeInterval? = nil) async throws -> BandReading {
         guard measuring == nil else { throw BandError.refused("The band is already measuring.") }
         measuring = type
         defer { measuring = nil }
+        let before = lastReading
         let start = BandRequest.measure(type, on: true)
-        let deadline = now().addingTimeInterval(seconds)
-        var latest: BandReading?
+        var run = BandMeasureRun(type, from: now(), seconds: seconds)
+        // Every frame's reading from now on, in order — a poll would miss the parts of a result.
+        // (`dropFirst`: the publisher replays the current one, maybe the last try's.)
+        let watch = $lastReading.dropFirst().sink { [weak self] r in
+            guard let self, let r else { return }
+            run.add(r, at: self.now())
+        }
         // Whatever happens, the band is told to stop — a test left running drains it.
-        defer { transport.send(BandRequest.measure(type, on: false)) }
+        defer {
+            watch.cancel()
+            transport.send(BandRequest.measure(type, on: false))
+        }
         // The first reply comes back to the request; the rest of the stream is unsolicited.
         let first = try await transport.perform(start, accepts: BandOp.measurementReplies, timeout: 6)
-        for frame in first { if let r = BandDecode.measurement(frame) { latest = r } }
-        // A cancelled reading (the wear sheet's "Not now") stops here too; the defer stops the band.
-        while now() < deadline, !Task.isCancelled, latest.map({ !$0.finished && !$0.notWorn && !$0.busy }) ?? true {
-            try? await Task.sleep(for: .milliseconds(500))
-            if let r = lastReading, r.measure == type, r.date > (latest?.date ?? .distantPast) { latest = r }
+        for frame in first { if let r = BandDecode.measurement(frame, at: now()) { run.add(r, at: now()) } }
+        while !run.ended {
+            // The wear sheet's "Not now": no half-finished reading is left showing.
+            if Task.isCancelled {
+                watch.cancel()
+                lastReading = before
+                throw CancellationError()
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+            run.tick(at: now())
         }
-        guard let latest else { throw BandError.timeout(start.first ?? 0) }
-        lastReading = latest
-        return latest
+        watch.cancel()
+        guard let result = run.reading else { throw BandError.timeout(start.first ?? 0) }
+        lastReading = result
+        return result
     }
 
     // MARK: Control
@@ -327,6 +345,8 @@ final class BandSession: ObservableObject {
 
     private func unsolicited(_ frame: [UInt8]) {
         if let reading = BandDecode.measurement(frame) {
+            // A late frame (the stop's own reply) must not replace the reading that ended.
+            guard measuring == reading.measure else { return }
             lastReading = reading
             if reading.measure == .heartRate { liveHeartRate = reading.heartRate }
             return

@@ -32,7 +32,8 @@ final class BandWearAsk: ObservableObject {
     /// A reading with a number in it, not a refusal.
     static func sensed(_ r: BandReading) -> Bool {
         !r.notWorn && !r.busy
-            && (r.heartRate != nil || r.spo2 != nil || r.systolic != nil || r.temperatureC != nil || r.stress != nil)
+            && (r.heartRate != nil || r.spo2 != nil || r.systolic != nil || r.temperatureC != nil || r.stress != nil
+                || r.bloodGlucose != nil || r.bloodComponent != nil || r.bodyComposition != nil || r.hrv != nil)
     }
 
     /// Takes the reading, asking for the band for as long as it says it isn't worn. Throws what

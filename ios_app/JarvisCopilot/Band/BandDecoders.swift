@@ -65,12 +65,22 @@ struct BandFeatures: Equatable, Codable {
         ("clear_data", "clearDataBitsType"), ("daily_data", "dailyDataReadDayType"), ("precise_sleep", "sleepFlagBitType"),
     ]
 
-    /// A capability name ("ecg") or an SDK field ("ECGFunction"). Heart rate is the one inverted
-    /// field: its type 1 means "no heart rate", every other value is a sensor variant.
+    /// A capability name ("ecg") or an SDK field ("ECGFunction"). Most fields: any type but 0.
+    /// The exceptions are the Android SDK's (its A7 parser): heart rate's type 1 means "none";
+    /// stress and MET exist only as types 2–3; glucose type 3 is calibration only; body
+    /// composition is type 1; HRV type 5 is none; SpO₂ is the listed sensor types.
     func supports(_ name: String) -> Bool {
         let key = Self.capabilities.first(where: { $0.name == name.lowercased() })?.key ?? name
         guard let value = types[key] else { return false }
-        return key == "heartRateFunctionType" ? value != 1 : value != 0
+        switch key {
+        case "heartRateFunctionType": return value != 1
+        case "pressureFunctionType", "metaFunctionType": return value == 2 || value == 3
+        case "bloodGlucoseFunction": return value != 0 && value != 3
+        case "bodyCompositionType": return value == 1
+        case "HRVType": return value != 0 && value != 5
+        case "bloodOxygenType": return (1...9).contains(value) || [0xFD, 0xFE, 0xE0].contains(value)
+        default: return value != 0
+        }
     }
 
     var supported: [String] { Self.capabilities.map(\.name).filter(supports) }
@@ -128,12 +138,74 @@ struct BandBloodComponent: Equatable, Codable {
     }
 }
 
-/// One frame of an on-demand measurement.
+/// The body-composition result: 14 figures, each sent ×10, little-endian, after two header
+/// bytes (`A0 1C`) of the joined result parts. Units as the SDK docs give them.
+struct BandBodyComposition: Equatable, Codable {
+    var bmi: Double
+    var bodyFatPercent: Double
+    var fatMassKg: Double
+    var leanMassKg: Double
+    var musclePercent: Double
+    var muscleMassKg: Double
+    var subcutaneousFatPercent: Double
+    var bodyWaterPercent: Double
+    var waterKg: Double
+    var skeletalMusclePercent: Double
+    var boneMassKg: Double
+    var proteinPercent: Double
+    var proteinKg: Double
+    var basalMetabolismKcal: Double
+
+    /// nil when the parts are too short or carry no BMI (no result).
+    init?(_ data: [UInt8]) {
+        guard data.count >= 30 else { return nil }
+        let v = (0..<14).map { Double(BandDecode.le16(data, 2 + $0 * 2)) / 10 }
+        guard v[0] > 0 else { return nil }
+        bmi = v[0]; bodyFatPercent = v[1]; fatMassKg = v[2]; leanMassKg = v[3]; musclePercent = v[4]
+        muscleMassKg = v[5]; subcutaneousFatPercent = v[6]; bodyWaterPercent = v[7]; waterKg = v[8]
+        skeletalMusclePercent = v[9]; boneMassKg = v[10]; proteinPercent = v[11]; proteinKg = v[12]
+        basalMetabolismKcal = v[13]
+    }
+
+    var json: [String: Any] {
+        ["bmi": bmi, "body_fat_percent": bodyFatPercent, "fat_mass_kg": fatMassKg, "lean_mass_kg": leanMassKg,
+         "muscle_percent": musclePercent, "muscle_mass_kg": muscleMassKg, "subcutaneous_fat_percent": subcutaneousFatPercent,
+         "body_water_percent": bodyWaterPercent, "water_kg": waterKg, "skeletal_muscle_percent": skeletalMusclePercent,
+         "bone_mass_kg": boneMassKg, "protein_percent": proteinPercent, "protein_kg": proteinKg,
+         "basal_metabolism_kcal": basalMetabolismKcal]
+    }
+}
+
+/// One frame of a result the band sends over several: part `index` of `total` and its 14 bytes.
+struct BandResultPart: Equatable {
+    var index: Int
+    var total: Int
+    var data: [UInt8]
+}
+
+/// One frame of an on-demand measurement, or (from `BandMeasureRun`) the reading it ended as.
 struct BandReading: Equatable {
     enum Status: String, Codable {
         case done, measuring, failed
         case notWorn = "not_worn"
         case busy
+    }
+
+    /// Why a reading ended without a value, for people to read.
+    enum Reason {
+        static let busy = "The band is busy (another reading or a sync) — try again in a minute."
+        static let notWorn = "The band isn't on a wrist."
+        static let charging = "The band is charging."
+        static let lowBattery = "The band's battery is too low."
+        static let failed = "The band couldn't get a reading — keep still and try again."
+        static let noReading = "No reading — keep still and try again."
+        static let unsupported = "This band can't take that reading."
+        static let sensor = "The band's sensor reported a fault."
+        static let leadOff = "Keep the band on and a finger on its electrode until the reading ends."
+        static let silent = "The band stopped answering."
+        static func outOfTime(_ seconds: TimeInterval) -> String {
+            "Out of time — this reading takes up to \(Int(seconds)) s."
+        }
     }
 
     var measure: BandMeasure
@@ -149,14 +221,31 @@ struct BandReading: Equatable {
     var surfaceTemperatureC: Double?
     var stress: Int?
     var hrv: Int?
+    /// Breaths per minute (ECG).
+    var respiratoryRate: Int?
     var bloodGlucose: Double?
     var bloodComponent: BandBloodComponent?
+    var bodyComposition: BandBodyComposition?
+    /// Why it ended without a value (failed, busy, not worn).
+    var failure: String?
+    /// ECG / body composition: no finger on the electrode right now (the reading carries on).
+    var leadOff = false
+    /// A frame that is one part of a result sent over several; `BandMeasureRun` joins them.
+    var part: BandResultPart?
     /// The band's own state byte, for logs.
     var state: Int?
 
     var finished: Bool { status == .done }
     var notWorn: Bool { status == .notWorn }
     var busy: Bool { status == .busy }
+    /// Done, failed, busy or not worn: nothing more is coming.
+    var ended: Bool { status != .measuring }
+
+    /// Ends the reading as `status`, saying why.
+    mutating func end(_ status: Status, _ why: String) {
+        self.status = status
+        failure = why
+    }
 
     var json: [String: Any] {
         var out: [String: Any] = ["type": measure.name, "status": status.rawValue,
@@ -170,9 +259,125 @@ struct BandReading: Equatable {
         if let surfaceTemperatureC { out["surface_temperature_c"] = surfaceTemperatureC }
         if let stress { out["stress"] = stress }
         if let hrv { out["hrv"] = hrv }
+        if let respiratoryRate { out["respiratory_rate"] = respiratoryRate }
         if let bloodGlucose { out["blood_glucose_mmol_l"] = bloodGlucose }
         if let bloodComponent { out.merge(bloodComponent.json) { a, _ in a } }
+        if let bodyComposition { out.merge(bodyComposition.json) { a, _ in a } }
+        if let failure { out["failure"] = failure }
+        if leadOff { out["lead_off"] = true }
         return out
+    }
+}
+
+/// One spot reading as it streams in, joined into the reading it ends as: a result the band
+/// splits over several frames (body composition, the ECG diagnosis) put back together, the
+/// ECG's figures carried to its end frame, and the endings the band leaves to the app — the
+/// SDK docs say to end an electrode reading once its lead is lost more than four times, and a
+/// reading that goes quiet, keeps its lead off or runs past its deadline ends as `failed`.
+struct BandMeasureRun {
+    let measure: BandMeasure
+    let started: Date
+    let deadline: Date
+    /// The caller's time is shorter than the reading's own.
+    let shortened: Bool
+    var stallAfter: TimeInterval = 25
+    var leadOffLimit: TimeInterval = 20
+    static let leadLossLimit = 4
+
+    /// The reading so far; the one it ended as once `ended`.
+    private(set) var reading: BandReading?
+    private(set) var lastFrame: Date?
+    private(set) var leadOffSince: Date?
+    private(set) var leadLosses = 0
+    private var parts: [Int: [UInt8]] = [:]
+
+    var ended: Bool { reading?.ended ?? false }
+
+    /// `seconds` caps the reading's own `timeout`.
+    init(_ measure: BandMeasure, from start: Date, seconds: TimeInterval? = nil) {
+        self.measure = measure
+        started = start
+        let budget = min(seconds ?? measure.timeout, measure.timeout)
+        deadline = start.addingTimeInterval(budget)
+        shortened = budget < measure.timeout
+    }
+
+    /// One frame's reading (others' and anything after the end are ignored).
+    mutating func add(_ frame: BandReading, at now: Date) {
+        guard frame.measure == measure, !ended else { return }
+        lastFrame = now
+        var r = frame
+        if r.progress == nil { r.progress = reading?.progress }
+        if measure.usesElectrode, !r.ended, r.part == nil {
+            if r.leadOff {
+                if leadOffSince == nil { leadOffSince = now; leadLosses += 1 }
+            } else {
+                leadOffSince = nil
+            }
+            if leadLosses > Self.leadLossLimit { r.end(.failed, BandReading.Reason.leadOff) }
+        }
+        if let part = r.part { join(part, into: &r) }
+        if measure == .ecg, !r.ended || r.finished {
+            // The live figures, then the averages, then the diagnosis: the latest carries on.
+            r.heartRate = r.heartRate ?? reading?.heartRate
+            r.hrv = r.hrv ?? reading?.hrv
+            r.respiratoryRate = r.respiratoryRate ?? reading?.respiratoryRate
+        }
+        // The band's own "failed" right after the lead came off: that was why.
+        if measure.usesElectrode, r.status == .failed, r.failure == BandReading.Reason.failed, reading?.leadOff == true {
+            r.failure = BandReading.Reason.leadOff
+        }
+        reading = r
+    }
+
+    /// The time-based endings, checked as the reading runs.
+    mutating func tick(at now: Date) {
+        guard !ended else { return }
+        if now >= deadline {
+            let why = reading?.leadOff == true ? BandReading.Reason.leadOff
+                : shortened ? BandReading.Reason.outOfTime(measure.timeout) : BandReading.Reason.noReading
+            end(.failed, why, at: now)
+        } else if now.timeIntervalSince(lastFrame ?? started) > stallAfter {
+            end(.failed, BandReading.Reason.silent, at: now)
+        } else if let off = leadOffSince, now.timeIntervalSince(off) > leadOffLimit {
+            end(.failed, BandReading.Reason.leadOff, at: now)
+        }
+    }
+
+    /// Ends it now, keeping the progress but no values.
+    mutating func end(_ status: BandReading.Status, _ why: String, at now: Date) {
+        guard !ended else { return }
+        var r = BandReading(measure: measure, date: now, status: status, progress: reading?.progress,
+                            state: reading?.state)
+        r.leadOff = reading?.leadOff ?? false
+        r.failure = why
+        reading = r
+    }
+
+    /// The last part completes a result; a gap in the parts fails it.
+    private mutating func join(_ part: BandResultPart, into r: inout BandReading) {
+        parts[part.index] = part.data
+        guard part.index >= part.total else { return }
+        let all = (1...max(1, part.total)).compactMap { parts[$0] }
+        parts = [:]
+        guard all.count == part.total else { r.end(.failed, BandReading.Reason.failed); return }
+        let data = all.flatMap { $0 }
+        switch measure {
+        case .bodyComposition:
+            if let result = BandBodyComposition(data) {
+                r.bodyComposition = result
+                r.status = .done
+            } else {
+                r.end(.failed, BandReading.Reason.failed)
+            }
+        case .ecg:
+            // The diagnosis: lead-off type, eight diagnosis bytes, heart rate, breathing, HRV, QT.
+            if (30...250).contains(BandDecode.at(data, 9)) { r.heartRate = BandDecode.at(data, 9) }
+            if BandDecode.at(data, 10) > 0 { r.respiratoryRate = BandDecode.at(data, 10) }
+            if (1...254).contains(BandDecode.at(data, 11)) { r.hrv = BandDecode.at(data, 11) }
+        default:
+            break
+        }
     }
 }
 
@@ -402,133 +607,271 @@ enum BandDecode {
 
     // MARK: Measurements
 
-    /// The band's busy / not-worn state byte shared by blood pressure (byte 4): 0 idle, 1–5 a
-    /// test running (1 BP, 2 HR, 3 the 5-minute auto test, 4 SpO₂, 5 fatigue), FC not worn,
-    /// FD charging, FE low battery, FF busy.
-    private static func pressureState(_ b: UInt8) -> Int {
+    private typealias Refusal = (status: BandReading.Status, why: String)
+
+    /// The state byte blood pressure (byte 4) and SpO₂ (byte 2) carry, as the SDK docs list it:
+    /// 0 idle, 1 a blood-pressure test, 2 heart rate, 3 the five-minute auto test, 4 SpO₂,
+    /// 5 fatigue, FC not worn, FD charging, FE low battery, FF busy. `free` = carry on.
+    private static func bandState(_ b: Int, free: Set<Int>) -> Refusal? {
+        if free.contains(b) { return nil }
         switch b {
-        case 0...5: return Int(b)
-        case 0xFC: return 6
-        case 0xFD: return 7
-        case 0xFE: return 8
-        case 0xFF: return 9
-        default: return Int(b)
+        case 0xFC: return (.notWorn, BandReading.Reason.notWorn)
+        case 0xFD: return (.failed, BandReading.Reason.charging)
+        case 0xFE: return (.failed, BandReading.Reason.lowBattery)
+        default: return (.busy, BandReading.Reason.busy)
         }
     }
 
-    /// Glucose / blood component / stress ack byte: 0 usable, 1 and 3 busy, 2 low battery, 4 not worn.
-    private static func measureAck(_ b: Int) -> BandReading.Status? {
+    /// The ack byte stress, glucose and blood components share: 0 usable, 1 a test of the same
+    /// kind already running (for glucose: its own test, which is fine), 2 low battery, 3 another
+    /// test, 4 not worn. Unknown codes fail glucose and blood components (the Android SDK) and
+    /// are ignored for stress.
+    private static func measureAck(_ b: Int, sameTestIsFine: Bool = false, unknownFails: Bool = true) -> Refusal? {
         switch b {
-        case 1, 2, 3: return .busy
-        case 4: return .notWorn
+        case 0: return nil
+        case 1: return sameTestIsFine ? nil : (.busy, BandReading.Reason.busy)
+        case 2: return (.failed, BandReading.Reason.lowBattery)
+        case 3: return (.busy, BandReading.Reason.busy)
+        case 4: return (.notWorn, BandReading.Reason.notWorn)
+        default: return unknownFails ? (.failed, BandReading.Reason.failed) : nil
+        }
+    }
+
+    /// One frame of a measurement stream. Heart rate and SpO₂ stream until stopped and end at
+    /// their first value; the rest end on the band's own result or refusal. A reading the band
+    /// ends without a value carries `failure`. Rules from the Android SDK's parsers (JADX,
+    /// vpprotocol 2.3.86) checked against the WeChat SDK's; where they differ it says so.
+    static func measurement(_ f: [UInt8], at date: Date = Date()) -> BandReading? {
+        guard let op = f.first, f.count >= 2 else { return nil }
+        switch op {
+        case BandOp.heartRate: return heartRate(f, date)
+        case BandOp.bloodOxygen: return bloodOxygen(f, date)
+        case BandOp.bloodPressure: return bloodPressure(f, date)
+        case BandOp.temperature: return temperature(f, date)
+        case BandOp.glucoseStress where at(f, 1) == 6: return stress(f, date)
+        case BandOp.glucoseStress where at(f, 1) == 1: return bloodGlucose(f, date)
+        case BandOp.bloodComponent where at(f, 1) == 1: return bloodComponent(f, date)
+        case BandOp.ecgBody where at(f, 1) == 1: return ecg(f, date)
+        case BandOp.ecgBody where at(f, 1) == 4: return bodyComposition(f, date)
         default: return nil
         }
     }
 
-    /// One frame of a measurement stream. Heart rate and SpO₂ stream until stopped; a value in
-    /// range makes the frame `done`. The others report progress and finish at 100.
-    static func measurement(_ f: [UInt8], at date: Date = Date()) -> BandReading? {
-        guard let op = f.first, f.count >= 2 else { return nil }
-        switch op {
-        case BandOp.heartRate:
-            // d0 <hr> <heart state> .. .. <watch state>: busy first, then not worn (hr 1), then
-            // a value only in 30…250 (the SDK's rule; 0 is "no value yet").
-            let hr = at(f, 1), watch = at(f, 5)
-            var r = BandReading(measure: .heartRate, date: date, status: .measuring, state: watch)
-            if watch != 0 && watch != 2 { r.status = .busy } else if hr == 1 { r.status = .notWorn } else if (30...250).contains(hr) {
-                r.heartRate = hr
-                r.status = .done
-            }
+    /// `d0 <hr> <heart state> .. .. <watch state>` about once a second until stopped. Busy first
+    /// (watch state other than 0, 2 or 3 — the WeChat SDK counts 3 busy too), then not worn (hr
+    /// 1, or 2 in Android), then a value in 30…250; 0 is "no value yet".
+    private static func heartRate(_ f: [UInt8], _ date: Date) -> BandReading {
+        let hr = at(f, 1), watch = at(f, 5)
+        var r = BandReading(measure: .heartRate, date: date, status: .measuring, state: watch)
+        if ![0, 2, 3].contains(watch) {
+            r.end(.busy, BandReading.Reason.busy)
+        } else if hr == 1 || hr == 2 {
+            r.end(.notWorn, BandReading.Reason.notWorn)
+        } else if (30...250).contains(hr) {
+            r.heartRate = hr
+            r.status = .done
+        }
+        return r
+    }
+
+    /// `80 <0 none | 1 on | 2 off> <state> <value> <checking 1|2> <progress>` until stopped.
+    /// State 0 or 4 is free, anything else busy (FC/FD/FE read as the blood-pressure table has
+    /// them); value 1 is not worn, 70…100 a reading.
+    private static func bloodOxygen(_ f: [UInt8], _ date: Date) -> BandReading {
+        let state = at(f, 2), value = at(f, 3)
+        var r = BandReading(measure: .bloodOxygen, date: date, status: .measuring, state: state)
+        if at(f, 4) == 1 || at(f, 4) == 2 { r.progress = at(f, 5) }
+        if at(f, 1) == 0 {
+            r.end(.failed, BandReading.Reason.unsupported)
+        } else if at(f, 1) == 2 {
+            return r   // the stop ack
+        } else if let refusal = bandState(state, free: [0, 4]) {
+            r.end(refusal.status, refusal.why)
+        } else if value == 1 {
+            r.end(.notWorn, BandReading.Reason.notWorn)
+        } else if (70...100).contains(value) {
+            r.spo2 = value
+            r.status = .done
+        }
+        return r
+    }
+
+    /// `90 <sys> <dia> <progress> <state> <has progress>`, 50–55 s to 100 %. The state byte
+    /// refuses (1, 2, 4, 5, FF another test — 3, the auto test, is fine). At 100 % 30/20 is the
+    /// band's "measurement failed" and 0 no reading. A band without progress (byte 5 = 0) sends
+    /// its values once, at the end.
+    private static func bloodPressure(_ f: [UInt8], _ date: Date) -> BandReading {
+        let sys = at(f, 1), dia = at(f, 2), state = at(f, 4)
+        var r = BandReading(measure: .bloodPressure, date: date, status: .measuring, state: state)
+        if let refusal = bandState(state, free: [0, 3]) {
+            r.end(refusal.status, refusal.why)
             return r
-        case BandOp.bloodOxygen:
-            // 80 01 <state> <value>: state 0 or 4 is fine, anything else busy; value 1 = not worn.
-            let state = at(f, 2), value = at(f, 3)
-            var r = BandReading(measure: .bloodOxygen, date: date, status: .measuring, state: state)
-            if state != 0 && state != 4 { r.status = .busy } else if value == 1 { r.status = .notWorn } else if (70...100).contains(value) {
-                r.spo2 = value
-                r.status = .done
-            }
-            return r
-        case BandOp.bloodPressure:
-            // 90 sys dia progress state hasProgress. 30/20 at 100 % is the band's failure value.
-            let state = pressureState(UInt8(at(f, 4)))
-            var r = BandReading(measure: .bloodPressure, date: date, status: .measuring, state: state)
-            switch state {
-            case 6: r.status = .notWorn; return r
-            case 7, 8, 9: r.status = .busy; return r
-            case 2...5: r.status = .busy; return r
-            default: break
-            }
-            guard at(f, 5) != 0 else { return r }
+        }
+        if at(f, 5) == 1 {
             r.progress = at(f, 3)
-            if r.progress == 100 {
-                if at(f, 1) == 30 && at(f, 2) == 20 { r.status = .failed } else {
-                    r.systolic = at(f, 1)
-                    r.diastolic = at(f, 2)
-                    r.status = .done
-                }
+            guard at(f, 3) >= 100 else { return r }
+        } else if sys == 0 && dia == 0 {
+            return r
+        }
+        if (sys == 30 && dia == 20) || sys == 0 || dia == 0 {
+            r.end(.failed, BandReading.Reason.failed)
+        } else {
+            r.systolic = sys
+            r.diastolic = dia
+            r.progress = 100
+            r.status = .done
+        }
+        return r
+    }
+
+    /// `87 01 <0 none | 1 on | 2 off> <state> <progress> <body LE> <surface LE>` in 0.1 °C. State
+    /// 0 or 7 (the band's own auto test) is fine, 1–6 another test, 8 low battery, 9 a sensor
+    /// fault. The values come at 100 %; a body temperature of 0 is no reading.
+    private static func temperature(_ f: [UInt8], _ date: Date) -> BandReading {
+        let state = at(f, 3)
+        var r = BandReading(measure: .temperature, date: date, status: .measuring, state: state)
+        switch at(f, 2) {
+        case 0: r.end(.failed, BandReading.Reason.unsupported); return r
+        case 2: return r   // the stop ack
+        default: break
+        }
+        switch state {
+        case 0, 7: break
+        case 8: r.end(.failed, BandReading.Reason.lowBattery); return r
+        case 9: r.end(.failed, BandReading.Reason.sensor); return r
+        default: r.end(.busy, BandReading.Reason.busy); return r
+        }
+        r.progress = at(f, 4)
+        guard at(f, 4) >= 100 else { return r }
+        let body = Double(le16(f, 5)) / 10
+        if body > 0 {
+            r.temperatureC = body
+            r.surfaceTemperatureC = Double(le16(f, 7)) / 10
+            r.status = .done
+        } else {
+            r.end(.failed, BandReading.Reason.failed)
+        }
+        return r
+    }
+
+    /// `89 06 <0 none | 1 on | 2 off> <ack> <progress> <stress>`. Done at 100 % with a value
+    /// above 0 — the Android SDK reports no success without one.
+    private static func stress(_ f: [UInt8], _ date: Date) -> BandReading {
+        var r = BandReading(measure: .stress, date: date, status: .measuring, state: at(f, 3))
+        switch at(f, 2) {
+        case 0: r.end(.failed, BandReading.Reason.unsupported); return r
+        case 2: return r   // the stop ack
+        default: break
+        }
+        if let refusal = measureAck(at(f, 3), unknownFails: false) { r.end(refusal.status, refusal.why); return r }
+        r.progress = at(f, 4)
+        guard at(f, 4) >= 100 else { return r }
+        if at(f, 5) > 0 { r.stress = at(f, 5); r.status = .done } else { r.end(.failed, BandReading.Reason.failed) }
+        return r
+    }
+
+    /// `89 01 <0 none | 1 on | 2 off> <ack> <progress> <value LE>`: the low 13 bits are mmol/L ×
+    /// 100 (the top 3 a risk level on some bands). Ack 1 is its own test running (Android; the
+    /// WeChat SDK calls it busy).
+    private static func bloodGlucose(_ f: [UInt8], _ date: Date) -> BandReading {
+        var r = BandReading(measure: .bloodGlucose, date: date, status: .measuring, state: at(f, 3))
+        switch at(f, 2) {
+        case 0: r.end(.failed, BandReading.Reason.unsupported); return r
+        case 2: return r   // the stop ack
+        default: break
+        }
+        if let refusal = measureAck(at(f, 3), sameTestIsFine: true) { r.end(refusal.status, refusal.why); return r }
+        r.progress = at(f, 4)
+        guard at(f, 4) >= 100 else { return r }
+        let value = le16(f, 5) & 0x1FFF
+        if value > 0 { r.bloodGlucose = Double(value) / 100; r.status = .done } else { r.end(.failed, BandReading.Reason.failed) }
+        return r
+    }
+
+    /// `8a 01 <1 on | 0 or 2 off> <ack> <progress> <uric acid, cholesterol, triglycerides, HDL,
+    /// LDL LE>`: uric acid in 0.1 µmol/L, the rest in 0.01 mmol/L. All zero at 100 % is no reading.
+    private static func bloodComponent(_ f: [UInt8], _ date: Date) -> BandReading {
+        var r = BandReading(measure: .bloodComponent, date: date, status: .measuring, state: at(f, 3))
+        guard at(f, 2) == 1 else { return r }   // the stop ack: 00 (WeChat SDK) or 02 (Android)
+        if let refusal = measureAck(at(f, 3)) { r.end(refusal.status, refusal.why); return r }
+        r.progress = at(f, 4)
+        guard at(f, 4) >= 100 else { return r }
+        let blood = BandBloodComponent(uricAcid: Double(le16(f, 5)) / 10, cholesterol: Double(le16(f, 7)) / 100,
+                                       triglycerides: Double(le16(f, 9)) / 100, hdl: Double(le16(f, 11)) / 100,
+                                       ldl: Double(le16(f, 13)) / 100)
+        if (5..<15).contains(where: { at(f, $0) != 0 }) {
+            r.bloodComponent = blood
+            r.status = .done
+        } else {
+            r.end(.failed, BandReading.Reason.failed)
+        }
+        return r
+    }
+
+    /// `93 01 <1 on | 2 off> <type> …`. Type 0: the sampling rate. Type 1, each second: band
+    /// state (byte 4), heart rate per minute (6), HRV (7, FF none), lead (12: 1 = not touching —
+    /// the SDKs call it wear; iOS "lead off"), progress (19). Type 2: averages (heart rate 13,
+    /// breathing 14, HRV 15). Type 5: part of the diagnosis (byte 4 of byte 5, 14 bytes from
+    /// byte 6). Type 4: done — the figures are the ones before it; type 3: failed.
+    private static func ecg(_ f: [UInt8], _ date: Date) -> BandReading? {
+        // Neither SDK reads byte 2 here (the stop's reply is gated off by the session).
+        var r = BandReading(measure: .ecg, date: date, status: .measuring, state: at(f, 4))
+        switch at(f, 3) {
+        case 0:
+            r.progress = at(f, 19)
+        case 1:
+            r.progress = at(f, 19)
+            // Band state: 0 free, 1 a PPG test, 2 / FD charging, 3 / EF low battery, FC not worn.
+            switch at(f, 4) {
+            case 0: break
+            case 2, 0xFD: r.end(.failed, BandReading.Reason.charging); return r
+            case 3, 0xEF: r.end(.failed, BandReading.Reason.lowBattery); return r
+            case 0xFC: r.end(.notWorn, BandReading.Reason.notWorn); return r
+            default: r.end(.busy, BandReading.Reason.busy); return r
             }
-            return r
-        case BandOp.temperature:
-            // 87 01 <on> <status> <progress> body(LE, 0.1 °C) surface(LE): status 0 or 7 is
-            // measuring; otherwise the band is busy with another test (8 low battery).
-            let status = at(f, 3)
-            var r = BandReading(measure: .temperature, date: date, status: .measuring, state: status)
-            guard status == 0 || status == 7 else { r.status = .busy; return r }
-            r.progress = at(f, 4)
-            if r.progress == 100 {
-                r.temperatureC = Double(le16(f, 5)) / 10
-                r.surfaceTemperatureC = Double(le16(f, 7)) / 10
-                r.status = .done
-            }
-            return r
-        case BandOp.glucoseStress where at(f, 1) == 6:
-            // 89 06 <control> <ack> <progress> <stress>.
-            var r = BandReading(measure: .stress, date: date, status: .measuring, progress: at(f, 4), state: at(f, 3))
-            if let s = measureAck(at(f, 3)) { r.status = s; return r }
-            if r.progress == 100 { r.stress = at(f, 5); r.status = .done }
-            return r
-        case BandOp.glucoseStress where at(f, 1) == 1:
-            // 89 01 <1 on | 2 off> <ack> <progress> <glucose LE / 100>.
-            var r = BandReading(measure: .bloodGlucose, date: date, status: .measuring, state: at(f, 3))
-            if at(f, 2) == 2 { return r }   // the stop ack
-            if let s = measureAck(at(f, 3)) { r.status = s; return r }
-            r.progress = at(f, 4)
-            if r.progress == 100 { r.bloodGlucose = Double(le16(f, 5)) / 100; r.status = .done }
-            return r
-        case BandOp.bloodComponent where at(f, 1) == 1:
-            var r = BandReading(measure: .bloodComponent, date: date, status: .measuring, state: at(f, 3))
-            if at(f, 2) == 0 { r.status = measureAck(at(f, 3)) ?? .measuring; return r }   // the stop ack
-            if let s = measureAck(at(f, 3)) { r.status = s; return r }
-            r.progress = at(f, 4)
-            if r.progress == 100 {
-                r.bloodComponent = BandBloodComponent(uricAcid: Double(le16(f, 5)) / 10, cholesterol: Double(le16(f, 7)) / 100,
-                                                      triglycerides: Double(le16(f, 9)) / 100, hdl: Double(le16(f, 11)) / 100,
-                                                      ldl: Double(le16(f, 13)) / 100)
-                r.status = .done
-            }
-            return r
-        case BandOp.ecgBody where at(f, 1) == 1:
-            // ECG data type 1 (byte 3): per-second figures — heart rate per minute (byte 6), HRV
-            // (byte 7, FF none), wear (byte 12, 1 not worn), band state (byte 4: 2 charging,
-            // 3 low battery), progress (byte 19).
-            guard at(f, 3) == 1 || at(f, 3) == 0 else { return nil }
-            var r = BandReading(measure: .ecg, date: date, status: .measuring, progress: at(f, 19), state: at(f, 4))
-            guard at(f, 3) == 1 else { return r }
-            if at(f, 4) == 2 || at(f, 4) == 3 { r.status = .busy; return r }
-            if at(f, 12) == 1 { r.status = .notWorn; return r }
+            r.leadOff = at(f, 12) == 1
             if (30...250).contains(at(f, 6)) { r.heartRate = at(f, 6) }
-            if at(f, 7) != 0xFF, at(f, 7) > 0 { r.hrv = at(f, 7) }
-            if r.progress == 100 { r.status = .done }
-            return r
-        case BandOp.ecgBody where at(f, 1) == 4:
-            // Body composition progress frame (data type 0); the result frames are not decoded.
-            guard at(f, 3) == 0 else { return nil }
-            return BandReading(measure: .bodyComposition, date: date, status: at(f, 4) >= 100 ? .done : .measuring,
-                               progress: at(f, 4), state: at(f, 5))
+            if (1...254).contains(at(f, 7)) { r.hrv = at(f, 7) }
+        case 2:
+            r.progress = at(f, 19)
+            if (30...250).contains(at(f, 13)) { r.heartRate = at(f, 13) }
+            if at(f, 14) > 0 { r.respiratoryRate = at(f, 14) }
+            if (1...254).contains(at(f, 15)) { r.hrv = at(f, 15) }
+        case 3:
+            r.end(.failed, BandReading.Reason.failed)
+        case 4:
+            r.progress = 100
+            r.status = .done
+        case 5:
+            r.part = part(f)
         default:
             return nil
         }
+        return r
+    }
+
+    /// `93 04 <1 on | 2 off> <state> …`: state 0 progress (byte 4) and the electrode lead (byte
+    /// 5: 0 a finger on it, 1 off); 1 a result part (byte 4 of byte 5, 14 bytes from byte 6);
+    /// 2 failed (no result), 3 busy, 4 low battery.
+    private static func bodyComposition(_ f: [UInt8], _ date: Date) -> BandReading {
+        var r = BandReading(measure: .bodyComposition, date: date, status: .measuring, state: at(f, 3))
+        if at(f, 2) == 2 { return r }   // the stop ack
+        switch at(f, 3) {
+        case 0:
+            r.progress = at(f, 4)
+            r.leadOff = at(f, 5) == 1
+        case 1: r.part = part(f)
+        case 2: r.end(.failed, at(f, 5) == 1 ? BandReading.Reason.leadOff : BandReading.Reason.failed)
+        case 3: r.end(.busy, BandReading.Reason.busy)
+        case 4: r.end(.failed, BandReading.Reason.lowBattery)
+        default: r.end(.failed, BandReading.Reason.failed)
+        }
+        return r
+    }
+
+    /// A result part: index (byte 4) of total (byte 5), then 14 data bytes.
+    private static func part(_ f: [UInt8]) -> BandResultPart {
+        BandResultPart(index: at(f, 4), total: at(f, 5), data: (6..<20).map { UInt8(at(f, $0)) })
     }
 
     // MARK: Steps

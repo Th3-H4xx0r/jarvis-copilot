@@ -83,6 +83,13 @@ struct BandDeviceView: View {
                 hero
                 if session.finding { findingBar }
                 statusLine
+                if let hint = electrodeHint {
+                    Text(hint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let actionError {
                     Text(actionError)
                         .font(.footnote)
@@ -202,11 +209,24 @@ struct BandDeviceView: View {
                         Text(type.label)
                         Spacer()
                         if session.measuring == type {
+                            if let reading = session.lastReading, reading.measure == type, let progress = reading.progress,
+                               progress > 0 {
+                                Text("\(progress)%").foregroundStyle(.secondary).monospacedDigit()
+                            }
                             ProgressView().controlSize(.small)
                         } else if let reading = session.lastReading, reading.measure == type {
                             Text(Self.summary(reading)).foregroundStyle(.secondary).monospacedDigit()
                         }
-                        Button("Measure") { run { try await wearAsk.measure(type) } }
+                        Button("Measure") {
+                            run {
+                                try await wearAsk.measure(type)
+                                // Ended without a value: say why, under the card.
+                                if let reading = session.lastReading, reading.measure == type, !reading.finished,
+                                   let why = reading.failure {
+                                    throw BandError.refused(why)
+                                }
+                            }
+                        }
                             .buttonStyle(.jcGlass(compact: true))
                             // A workout has the sensor; readings wait until it ends.
                             .disabled(!ready || session.measuring != nil
@@ -217,14 +237,31 @@ struct BandDeviceView: View {
         }
     }
 
-    static func summary(_ reading: BandReading) -> String {
-        let json = reading.json
-        if let s = json["systolic"] as? Int, let d = json["diastolic"] as? Int { return "\(s)/\(d)" }
-        for key in ["heart_rate", "spo2", "temperature_c", "value"] {
-            if let v = json[key] { return "\(v)" }
+    /// What a row shows for its last reading: the value, or a word for how it ended.
+    static func summary(_ r: BandReading) -> String {
+        switch r.status {
+        case .notWorn: return "Not worn"
+        case .busy: return "Busy"
+        case .failed: return "No reading"
+        case .measuring: return ""
+        case .done: break
         }
-        if reading.notWorn { return "Not worn" }
-        return (json["status"] as? String)?.replacingOccurrences(of: "_", with: " ") ?? ""
+        if let s = r.systolic, let d = r.diastolic { return "\(s)/\(d)" }
+        if let hr = r.heartRate { return "\(hr) bpm" }
+        if let v = r.spo2 { return "\(v)%" }
+        if let t = r.temperatureC { return String(format: "%.1f °C", t) }
+        if let v = r.stress { return "\(v)" }
+        if let g = r.bloodGlucose { return String(format: "%.1f mmol/L", g) }
+        if let c = r.bloodComponent { return String(format: "Uric acid %.0f", c.uricAcid) }
+        if let b = r.bodyComposition { return String(format: "BMI %.1f · %.0f%% fat", b.bmi, b.bodyFatPercent) }
+        return "Done"
+    }
+
+    /// ECG and body composition read through the electrode: say so while one runs.
+    private var electrodeHint: String? {
+        guard let type = session.measuring, type.usesElectrode else { return nil }
+        let off = session.lastReading.map { $0.measure == type && $0.leadOff } ?? false
+        return off ? "Put a finger on the band's metal top and hold it there." : "Keep your finger on the band's metal top until the reading ends."
     }
 
     // MARK: Links

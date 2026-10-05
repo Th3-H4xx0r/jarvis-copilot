@@ -68,7 +68,8 @@ enum BandOp {
     static let glucoseStress: UInt8 = 0x89
     static let bloodComponent: UInt8 = 0x8A
     static let bloodPressure: UInt8 = 0x90
-    /// ECG (`93 01`) and body composition (`93 04`) share the opcode.
+    /// ECG (`93 01`) and body composition (`93 04`) share the opcode. The ECG waveform itself
+    /// comes on `88` (byte 1 ≠ 1), four frames a second; nothing here reads it.
     static let ecgBody: UInt8 = 0x93
 
     /// What the band sends between the `A1` write and its `A1` reply, the reply included.
@@ -95,6 +96,23 @@ enum BandMeasure: String, CaseIterable, Codable {
 
     /// The name skills and JSON use.
     var name: String { rawValue }
+
+    /// The longest a reading runs before it ends as "no reading". Heart rate and SpO₂ stream
+    /// until stopped (the SDK docs: stop them after about a minute; a value comes in 10–20 s);
+    /// blood pressure takes 50–55 s (iOS SDK doc); the rest count progress to 100 and then send
+    /// their result. Generous on purpose: the band's own end frame normally comes first.
+    var timeout: TimeInterval {
+        switch self {
+        case .heartRate: return 45
+        case .bloodOxygen: return 60
+        case .bloodPressure: return 80
+        case .temperature, .stress, .bloodGlucose: return 90
+        case .bloodComponent, .bodyComposition, .ecg: return 120
+        }
+    }
+
+    /// ECG and body composition need a finger on the band's electrode for the whole reading.
+    var usesElectrode: Bool { self == .ecg || self == .bodyComposition }
 
     init?(name: String) {
         let key = name.lowercased()

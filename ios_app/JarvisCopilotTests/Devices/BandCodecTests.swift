@@ -256,6 +256,13 @@ final class BandCodecTests: XCTestCase {
         XCTAssertFalse(f.supports("microCheckType"))
         XCTAssertTrue(f.supports("ECGFunction"))
         XCTAssertTrue((f.json["supported"] as? [String])?.contains("ecg") ?? false)
+        // The E910 has every spot reading by the Android SDK's rules (stress type 2, glucose 4,
+        // body composition 1, blood components 2, temperature 5, ECG 11, SpO₂ 6).
+        for m in BandMeasure.allCases { XCTAssertTrue(f.supports(m.name), m.name) }
+        // Those rules: stress type 1, glucose type 3 (calibration only), body composition 2 lack it.
+        XCTAssertFalse(BandFeatures(types: ["pressureFunctionType": 1], packages: [:]).supports("stress"))
+        XCTAssertFalse(BandFeatures(types: ["bloodGlucoseFunction": 3], packages: [:]).supports("blood_glucose"))
+        XCTAssertFalse(BandFeatures(types: ["bodyCompositionType": 2], packages: [:]).supports("body_composition"))
     }
 
     func testBattery() {
@@ -402,6 +409,329 @@ final class BandCodecTests: XCTestCase {
         // 1.21, lowDensity 0.84}.
         let blood = BandDecode.measurement(bytes("8a01010064f40116010c0179005400"))!.bloodComponent!
         XCTAssertEqual(blood, BandBloodComponent(uricAcid: 50, cholesterol: 2.78, triglycerides: 2.68, hdl: 1.21, ldl: 0.84))
+    }
+
+    // MARK: Measurements: how each one ends
+    //
+    // Rules from the Android SDK's parsers (vpprotocol 2.3.86 via JADX — vp_az heart rate, vp_ck
+    // SpO₂, vp_f blood pressure, vp_ct temperature, vp_bu stress, vp_j glucose, vp_i blood
+    // components, vp_m body composition, vp_ah ECG), each frame also run through the WeChat SDK
+    // (parse.js) — its result is quoted beside the assertion. "Inferred" marks what neither says.
+
+    private typealias Why = BandReading.Reason
+
+    private func reading(_ hex: String) -> BandReading { BandDecode.measurement(bytes(hex))! }
+
+    private func assertEnds(_ hex: String, _ status: BandReading.Status, _ why: String,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        let r = reading(hex)
+        XCTAssertEqual(r.status, status, hex, file: file, line: line)
+        XCTAssertEqual(r.failure, why, hex, file: file, line: line)
+        XCTAssertTrue(r.ended, hex, file: file, line: line)
+        XCTAssertEqual(r.json["failure"] as? String, why, file: file, line: line)
+    }
+
+    private func assertCarriesOn(_ hex: String, progress: Int? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        let r = reading(hex)
+        XCTAssertEqual(r.status, .measuring, hex, file: file, line: line)
+        XCTAssertNil(r.failure, hex, file: file, line: line)
+        if let progress { XCTAssertEqual(r.progress, progress, hex, file: file, line: line) }
+    }
+
+    func testHeartRateEndings() {
+        // Real, 14 s in: SDK {heartRate 90, notWear false} — the first value ends the reading.
+        XCTAssertEqual(reading("d05a").heartRate, 90)
+        XCTAssertTrue(reading("d05a").finished)
+        // Real, ~8 s in: SDK {heartRate 1, notWear true}.
+        assertEnds("d001", .notWorn, Why.notWorn)
+        // Android: 1 or 2 is STATE_HEART_WEAR_ERROR (the WeChat SDK flags only 1).
+        assertEnds("d002", .notWorn, Why.notWorn)
+        // SDK {watchState 253, deviceBusy true}.
+        assertEnds("d05a000000fd", .busy, Why.busy)
+        // Android: watch state 0, 2 and 3 are free (WeChat: 3 deviceBusy) — the value counts.
+        XCTAssertEqual(reading("d05a00000003").heartRate, 90)
+        XCTAssertEqual(reading("d05a00000002").heartRate, 90)
+        // The SDK docs' valid range is [30, 250]; 0 (the real stream's first ~14 s) is no value yet.
+        assertCarriesOn("d0")
+        assertCarriesOn("d01d")
+        XCTAssertEqual(reading("d0fa").heartRate, 250)
+    }
+
+    func testBloodPressureEndings() {
+        // The real stream: SDK {Progress 0, state 0} … {Progress 40, state 0}.
+        assertCarriesOn("900000000001", progress: 0)
+        assertCarriesOn("900000280001", progress: 40)
+        // Real: SDK {error 测量失败} — it ends there, not at the deadline.
+        assertEnds("901e14640001", .failed, Why.failed)
+        // SDK {bloodPressureLow 0, bloodPressureHigh 0} at 100 %: no reading (inferred).
+        assertEnds("900000640001", .failed, Why.failed)
+        // SDK {bloodPressureLow 82, bloodPressureHigh 118}.
+        let bp = reading("907652640001")
+        XCTAssertEqual([bp.systolic, bp.diastolic], [118, 82])
+        XCTAssertTrue(bp.finished)
+        // State byte: SDK state 6 佩戴不通过 / 7 charging / 8 low battery / 9 busy, and 1 / 2 a BP /
+        // heart-rate test (Android STATE_BP_WEAR_OFF, _CHARGING, _LOW_BATTERY, _BUSY).
+        assertEnds("90000000fc01", .notWorn, Why.notWorn)
+        assertEnds("90000000fd01", .failed, Why.charging)
+        assertEnds("90000000fe01", .failed, Why.lowBattery)
+        assertEnds("90000000ff01", .busy, Why.busy)
+        assertEnds("900000000201", .busy, Why.busy)
+        assertEnds("900000000101", .busy, Why.busy)
+        // Android: 3 (the five-minute auto test) is STATE_BP_NORMAL.
+        assertCarriesOn("900000280301", progress: 40)
+        // The real reply to the stop: SDK {Progress 0, state 0} — nothing ended.
+        assertCarriesOn("900100000001", progress: 0)
+        // A band without progress (byte 5 = 0): Android takes the values as the result.
+        XCTAssertEqual(reading("907652000000").systolic, 118)
+        assertCarriesOn("900000000000")
+    }
+
+    func testBloodOxygenEndings() {
+        // SDK {bloodOxygen 98, deviceBusy false} (state 4 is free).
+        XCTAssertEqual(reading("80010462").spo2, 98)
+        // Real start reply (band on the charger): SDK {deviceBusy true}.
+        assertEnds("8001ff", .busy, Why.busy)
+        // SDK {deviceBusy true}; the reason is the blood-pressure state table's FD (inferred).
+        XCTAssertEqual(reading("8001fd").failure, Why.charging)
+        XCTAssertTrue(reading("8001fd").ended)
+        // SDK {bloodOxygen 1, notWear true}.
+        assertEnds("80010001", .notWorn, Why.notWorn)
+        // Android ESPO2HStatus: byte 1 = 0 NOT_SUPPORT, 2 CLOSE (the stop's reply).
+        assertEnds("8000", .failed, Why.unsupported)
+        assertCarriesOn("8002")
+        // Android: checking (byte 4 = 1) with progress in byte 5; 69 is outside the docs' [70, 100].
+        assertCarriesOn("800100000132", progress: 50)
+        assertCarriesOn("80010045")
+    }
+
+    func testTemperatureEndings() {
+        // SDK state 7 is "measuring temperature (auto) — usable": the same parse as state 0.
+        XCTAssertEqual(reading("870101076469016301").temperatureC ?? 0, 36.1, accuracy: 0.001)
+        // SDK {bodyTemperature "0.0"} at 100 %: no reading (inferred).
+        assertEnds("8701010764", .failed, Why.failed)
+        // SDK deviceDetectionInfo atLowVoltage / wrongfulValue / beMeasuringBloodPressure / …ECG.
+        assertEnds("8701010864", .failed, Why.lowBattery)
+        assertEnds("8701010964", .failed, Why.sensor)
+        assertEnds("8701010164", .busy, Why.busy)
+        assertEnds("8701010664", .busy, Why.busy)
+        // Android demo: oprate 0 不支持此功能, 2 测量已停止 (SDK switch false).
+        assertEnds("8701000000", .failed, Why.unsupported)
+        assertCarriesOn("8701020000")
+    }
+
+    func testStressEndings() {
+        // SDK {ack 0, progress 100, pressure 0}: Android reports success only when pressure > 0.
+        assertEnds("890601006400", .failed, Why.failed)
+        // SDK ack 2 低电 / 3 measuring other data / 4 wear not passed / control 0 不支持.
+        assertEnds("89060102", .failed, Why.lowBattery)
+        assertEnds("89060103", .busy, Why.busy)
+        assertEnds("89060104", .notWorn, Why.notWorn)
+        assertEnds("890600", .failed, Why.unsupported)
+        // SDK {control 2}: the stop's reply.
+        assertCarriesOn("890602")
+    }
+
+    func testBloodGlucoseEndings() {
+        // Android EBloodGlucoseStatus 1 = DETECTING and carries on (WeChat calls it deviceBusy).
+        assertCarriesOn("8901010132", progress: 50)
+        // SDK deviceLowVoltage / deviceBusy / notPassTheWearing.
+        assertEnds("8901010232", .failed, Why.lowBattery)
+        assertEnds("8901010300", .busy, Why.busy)
+        // Android: control 0 → onDetectError NONSUPPORT; 2 → onBloodGlucoseStopDetect.
+        assertEnds("8901000000", .failed, Why.unsupported)
+        assertCarriesOn("89010200")
+        // Android masks the low 13 bits (the top 3 are a risk level): 0x221E → 5.42.
+        XCTAssertEqual(reading("89010100641e22").bloodGlucose ?? 0, 5.42, accuracy: 0.0001)
+        // SDK {Progress 100, bloodGlucose 0}: no reading (inferred).
+        assertEnds("8901010064", .failed, Why.failed)
+    }
+
+    func testBloodComponentEndings() {
+        // SDK deviceAck deviceBusy (Android DETECTING → onDetectFailed) / deviceLowVoltage /
+        // notPassTheWearing.
+        assertEnds("8a010101", .busy, Why.busy)
+        assertEnds("8a010102", .failed, Why.lowBattery)
+        assertEnds("8a010104", .notWorn, Why.notWorn)
+        // The stop's reply: SDK 关闭血液单项测量 (byte 2 = 0); Android onDetectStop (byte 2 = 2).
+        assertCarriesOn("8a010000")
+        assertCarriesOn("8a010200")
+        assertCarriesOn("8a01010032", progress: 50)
+        // SDK all five 0 at 100 %: no reading (inferred).
+        assertEnds("8a01010064", .failed, Why.failed)
+    }
+
+    /// The real body-composition frames, then the result as three parts (SDK
+    /// bodyCompositionContentDataParses of exactly these three: BMI 22.5, body fat 18.6 %, fat
+    /// 14.0 kg, lean 61.0 kg, muscle 75.0 % / 58.0 kg, subcutaneous fat 15.0 %, water 55.0 % /
+    /// 42.0 kg, skeletal muscle 32.0 %, bone 3.1 kg, protein 16.0 % / 12.0 kg, BMR 1650.0).
+    private let bodyResult = ["930401010103a01ce100ba008c006202ee024402", "93040101020396002602a40140011f00a0007800",
+                              "9304010103037440000000000000000000000000"]
+
+    func testBodyCompositionEndings() {
+        // Real: the ack (SDK no progress), then SDK {progress 6, lead leadThrough} …
+        assertCarriesOn("930401", progress: 0)
+        assertCarriesOn("9304010006", progress: 6)
+        XCTAssertFalse(reading("9304010006").leadOff)
+        // … {progress 100, leadThrough} is not the end — the result follows …
+        assertCarriesOn("9304010064", progress: 100)
+        // … {progress 100, lead leadShedding}: the finger came off …
+        XCTAssertTrue(reading("930401006401").leadOff)
+        XCTAssertEqual(reading("930401006401").json["lead_off"] as? Bool, true)
+        // … and Android DetectState 2 FAILED (the WeChat parser throws on it), lead still off.
+        assertEnds("930401026401", .failed, Why.leadOff)
+        // Android DetectState 3 BUSY, 4 LOW_POWER; byte 2 = 2 onDetectStop.
+        assertEnds("930401030000", .busy, Why.busy)
+        assertEnds("930401040000", .failed, Why.lowBattery)
+        assertCarriesOn("930402")
+
+        let t = date(2026, 10, 4, 12, 0)
+        var run = BandMeasureRun(.bodyComposition, from: t)
+        for hex in ["930401", "9304010006", "9304010064"] + bodyResult { run.add(reading(hex), at: t) }
+        let result = run.reading!
+        XCTAssertTrue(result.finished)
+        let body = result.bodyComposition!
+        XCTAssertEqual(body.bmi, 22.5, accuracy: 0.001)
+        XCTAssertEqual(body.bodyFatPercent, 18.6, accuracy: 0.001)
+        XCTAssertEqual(body.fatMassKg, 14.0, accuracy: 0.001)
+        XCTAssertEqual(body.leanMassKg, 61.0, accuracy: 0.001)
+        XCTAssertEqual(body.musclePercent, 75.0, accuracy: 0.001)
+        XCTAssertEqual(body.muscleMassKg, 58.0, accuracy: 0.001)
+        XCTAssertEqual(body.subcutaneousFatPercent, 15.0, accuracy: 0.001)
+        XCTAssertEqual(body.bodyWaterPercent, 55.0, accuracy: 0.001)
+        XCTAssertEqual(body.waterKg, 42.0, accuracy: 0.001)
+        XCTAssertEqual(body.skeletalMusclePercent, 32.0, accuracy: 0.001)
+        XCTAssertEqual(body.boneMassKg, 3.1, accuracy: 0.001)
+        XCTAssertEqual(body.proteinPercent, 16.0, accuracy: 0.001)
+        XCTAssertEqual(body.proteinKg, 12.0, accuracy: 0.001)
+        XCTAssertEqual(body.basalMetabolismKcal, 1650, accuracy: 0.001)
+        XCTAssertEqual(result.json["bmi"] as? Double, 22.5)
+        XCTAssertNil(result.json["failure"])
+
+        // The real ending: the lead came off at 100 % and the band failed it.
+        var real = BandMeasureRun(.bodyComposition, from: t)
+        for hex in ["930401", "9304010006", "9304010064", "930401006401", "930401026401"] { real.add(reading(hex), at: t) }
+        XCTAssertEqual(real.reading?.status, .failed)
+        XCTAssertEqual(real.reading?.failure, Why.leadOff)
+
+        // A part missing: the last one ends it as failed instead of waiting.
+        var gap = BandMeasureRun(.bodyComposition, from: t)
+        for hex in [bodyResult[0], bodyResult[2]] { gap.add(reading(hex), at: t) }
+        XCTAssertEqual(gap.reading?.status, .failed)
+    }
+
+    // ECG frames (SDK parses quoted): info {samplingFreq 250}; state {HR2PerMinute 72, Hrv 45,
+    // wearPass, progress 30}; the same with {wearNotPass}; averages ecgTestType2Parses
+    // {heartRate 71, respiratoryRate 16, hrv 42, QTC 390}; five diagnosis parts then type 4,
+    // ecgTestSuccessfulParses {heartRate 73, respiratoryRate 15, hrv 48, QTC 400}.
+    private let ecgInfo = "93010100fa00fa00000000000000000000000000"
+    private let ecgState = "930101010046482d00000000000000000000001e"
+    private let ecgLeadOff = "930101010046482d00000000010000000000001e"
+    private let ecgAverages = "9301010200000000000000000047102a86010064"
+    private let ecgDiagnosis = ["930101050105000000000000000000490f309001", "9301010502050000000000000000000000000000",
+                                "9301010503050000000000000000000000000000", "9301010504050000000000000000000000000000",
+                                "9301010505050000000000000000000000000000"]
+    private let ecgDone = "9301010400000000000000000000000000000000"
+
+    func testECGEndings() {
+        assertCarriesOn(ecgInfo)
+        let state = reading(ecgState)
+        XCTAssertEqual([state.heartRate, state.hrv, state.progress], [72, 45, 30])
+        XCTAssertFalse(state.leadOff)
+        // wearNotPass (iOS: "lead off") carries on: the finger may not be on the electrode yet.
+        XCTAssertTrue(reading(ecgLeadOff).leadOff)
+        assertCarriesOn(ecgLeadOff)
+        let averages = reading(ecgAverages)
+        XCTAssertEqual([averages.heartRate, averages.respiratoryRate, averages.hrv], [71, 16, 42])
+        XCTAssertEqual(averages.status, .measuring, "the end is type 4, after the averages")
+        // Type 3: Android onEcgDetectResultChange(success false); the WeChat SDK returns nothing.
+        assertEnds("9301010300", .failed, Why.failed)
+        // Band state: SDK wristbandStatus charging / lowVoltage / testPPG; Android FC UNPASS_WEAR.
+        assertEnds("9301010102", .failed, Why.charging)
+        assertEnds("9301010103", .failed, Why.lowBattery)
+        assertEnds("9301010101", .busy, Why.busy)
+        assertEnds("93010101fc", .notWorn, Why.notWorn)
+
+        let t = date(2026, 10, 4, 12, 0)
+        var run = BandMeasureRun(.ecg, from: t)
+        for hex in [ecgInfo, ecgState, ecgState, ecgAverages] + ecgDiagnosis + [ecgDone] { run.add(reading(hex), at: t) }
+        let result = run.reading!
+        XCTAssertTrue(result.finished)
+        XCTAssertEqual([result.heartRate, result.respiratoryRate, result.hrv], [73, 15, 48], "the diagnosis wins")
+        XCTAssertEqual(result.progress, 100)
+
+        // Without a diagnosis, the end keeps the averages.
+        var plain = BandMeasureRun(.ecg, from: t)
+        for hex in [ecgState, ecgAverages, ecgDone] { plain.add(reading(hex), at: t) }
+        XCTAssertEqual([plain.reading?.heartRate, plain.reading?.hrv], [71, 42])
+        XCTAssertTrue(plain.reading?.finished ?? false)
+
+        // The band's failure right after the lead came off says so.
+        var off = BandMeasureRun(.ecg, from: t)
+        for hex in [ecgState, ecgLeadOff, "9301010300"] { off.add(reading(hex), at: t) }
+        XCTAssertEqual(off.reading?.failure, Why.leadOff)
+        XCTAssertNil(off.reading?.heartRate, "a failed reading carries no figures")
+    }
+
+    func testAReadingTheBandLeavesUnfinishedEndsWithAReason() {
+        let t = date(2026, 10, 4, 12, 0)
+        // The SDK docs: a lead lost more than four times ends the reading.
+        var lost = BandMeasureRun(.ecg, from: t)
+        for i in 0..<5 {
+            lost.add(reading(ecgState), at: t.addingTimeInterval(Double(i)))
+            XCTAssertFalse(lost.ended)
+            lost.add(reading(ecgLeadOff), at: t.addingTimeInterval(Double(i) + 0.5))
+        }
+        XCTAssertEqual(lost.leadLosses, 5)
+        XCTAssertEqual(lost.reading?.failure, Why.leadOff)
+
+        // A lead that stays off.
+        var off = BandMeasureRun(.bodyComposition, from: t)
+        off.add(reading("930401000001"), at: t)
+        off.tick(at: t.addingTimeInterval(off.leadOffLimit - 1))
+        XCTAssertFalse(off.ended)
+        off.add(reading("930401000001"), at: t.addingTimeInterval(off.leadOffLimit))
+        off.tick(at: t.addingTimeInterval(off.leadOffLimit + 1))
+        XCTAssertEqual(off.reading?.status, .failed)
+        XCTAssertEqual(off.reading?.failure, Why.leadOff)
+
+        // Zeros until the deadline (the real heart-rate stream before its first value).
+        var zeros = BandMeasureRun(.heartRate, from: t)
+        for s in 0..<45 { zeros.add(reading("d0"), at: t.addingTimeInterval(Double(s))) }
+        zeros.tick(at: t.addingTimeInterval(44.9))
+        XCTAssertFalse(zeros.ended)
+        zeros.tick(at: t.addingTimeInterval(BandMeasure.heartRate.timeout))
+        XCTAssertEqual(zeros.reading?.status, .failed)
+        XCTAssertEqual(zeros.reading?.failure, Why.noReading)
+        XCTAssertEqual(zeros.reading?.json["status"] as? String, "failed")
+
+        // A caller with less time than the reading needs.
+        var short = BandMeasureRun(.bloodPressure, from: t, seconds: 20)
+        short.add(reading("900000280001"), at: t.addingTimeInterval(19))
+        short.tick(at: t.addingTimeInterval(20))
+        XCTAssertEqual(short.reading?.failure, Why.outOfTime(BandMeasure.bloodPressure.timeout))
+        XCTAssertEqual(short.reading?.progress, 40, "the progress so far stays")
+
+        // Quiet: no frame for a while.
+        var quiet = BandMeasureRun(.temperature, from: t)
+        quiet.add(reading("870101000a"), at: t)
+        quiet.tick(at: t.addingTimeInterval(quiet.stallAfter + 1))
+        XCTAssertEqual(quiet.reading?.failure, Why.silent)
+
+        // After the end, nothing changes it.
+        var done = BandMeasureRun(.heartRate, from: t)
+        done.add(reading("d05a"), at: t)
+        done.add(reading("d001"), at: t)
+        done.tick(at: t.addingTimeInterval(100))
+        XCTAssertEqual(done.reading?.heartRate, 90)
+        XCTAssertTrue(done.reading?.finished ?? false)
+    }
+
+    func testEachDeadlineFitsItsReading() {
+        // Blood pressure takes 50–55 s (iOS SDK doc); every reading outlasts the quiet limit.
+        XCTAssertGreaterThan(BandMeasure.bloodPressure.timeout, 55)
+        let run = BandMeasureRun(.heartRate, from: Date())
+        for m in BandMeasure.allCases { XCTAssertGreaterThan(m.timeout, run.stallAfter, m.name) }
+        XCTAssertEqual(BandMeasure.allCases.filter(\.usesElectrode), [.bodyComposition, .ecg])
     }
 
     func testSteps() {

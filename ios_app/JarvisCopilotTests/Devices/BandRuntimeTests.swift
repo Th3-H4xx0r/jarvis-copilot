@@ -249,6 +249,89 @@ final class BandRuntimeTests: XCTestCase {
         XCTAssertEqual(starts.count, 1, "no second try after Not now")
     }
 
+    // MARK: Measurements
+
+    /// The real blood-pressure run that sat at "measuring" until the deadline: progress, then
+    /// the band's 30/20 "measurement failed". It ends there, and the stop's late reply
+    /// (`90 01 00 00 00 01`, also real) doesn't put "measuring" back.
+    func testABloodPressureFailureEndsTheReadingAtOnce() async throws {
+        link.script(BandOp.bloodPressure, [Self.frame("900000000001")])
+        link.script(BandOp.bloodPressure, [Self.frame("900100000001")])   // the stop's reply
+        let began = Date()
+        let attempt = Task { try await session.measure(.bloodPressure) }
+        try await Task.sleep(for: .milliseconds(100))
+        link.push(Self.frame("900000040001"))
+        link.push(Self.frame("900000280001"))
+        XCTAssertEqual(session.lastReading?.progress, 40)
+        link.push(Self.frame("901e14640001"))
+        let reading = try await attempt.value
+        // Ended on the band's own frame, not a timer: the reason says so, and it came before the
+        // earliest timer (silence, 25 s). Wall time is loose — the test host can hold the main
+        // thread for seconds as it starts (its audio session), which is not the band's doing.
+        XCTAssertLessThan(Date().timeIntervalSince(began), 20)
+        XCTAssertEqual(reading.status, .failed)
+        XCTAssertEqual(reading.failure, BandReading.Reason.failed)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(session.lastReading?.status, .failed, "the stop's reply came after the end")
+        XCTAssertNil(session.measuring)
+        XCTAssertEqual(link.sent.last, BandRequest.measure(.bloodPressure, on: false))
+    }
+
+    /// The real heart-rate stream before its first value: zeros. Past the deadline it ends as
+    /// failed with a reason — never as a "measuring" reading left behind.
+    func testAReadingThatNeverGetsAValueEndsAsFailed() async throws {
+        var clock = Date()
+        session.now = { clock }
+        link.script(BandOp.heartRate, [Self.frame("d0")])
+        let attempt = Task { try await session.measure(.heartRate) }
+        try await Task.sleep(for: .milliseconds(100))
+        link.push(Self.frame("d0"))
+        clock = clock.addingTimeInterval(BandMeasure.heartRate.timeout)
+        let reading = try await attempt.value
+        XCTAssertEqual(reading.status, .failed)
+        XCTAssertEqual(reading.failure, BandReading.Reason.noReading)
+        XCTAssertEqual(session.lastReading?.status, .failed)
+    }
+
+    /// "Not now" mid-reading: it stops, throws, and the last real reading is what shows.
+    func testACancelledReadingLeavesNoMeasuringBehind() async throws {
+        link.script(BandOp.heartRate, [Self.frame("d048")])
+        link.script(BandOp.heartRate, [])
+        _ = try await session.measure(.heartRate)
+        XCTAssertEqual(session.lastReading?.heartRate, 72)
+        link.script(BandOp.heartRate, [Self.frame("d0")])
+        let attempt = Task { try await session.measure(.heartRate) }
+        try await Task.sleep(for: .milliseconds(100))
+        link.push(Self.frame("d0"))
+        XCTAssertEqual(session.lastReading?.status, .measuring)
+        attempt.cancel()
+        do {
+            _ = try await attempt.value
+            XCTFail("a cancelled reading throws")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(session.lastReading?.heartRate, 72)
+        XCTAssertNil(session.measuring)
+        XCTAssertEqual(link.sent.last, BandRequest.measure(.heartRate, on: false))
+    }
+
+    /// Body composition: progress with the lead on, then the result in three parts — the
+    /// session joins them into one finished reading.
+    func testBodyCompositionJoinsItsResult() async throws {
+        link.script(BandOp.ecgBody, [Self.frame("930401")])
+        let attempt = Task { try await session.measure(.bodyComposition) }
+        try await Task.sleep(for: .milliseconds(100))
+        for hex in ["9304010006", "9304010064", "930401010103a01ce100ba008c006202ee024402",
+                    "93040101020396002602a40140011f00a0007800", "9304010103037440000000000000000000000000"] {
+            link.push(Self.frame(hex))
+        }
+        let reading = try await attempt.value
+        XCTAssertTrue(reading.finished)
+        XCTAssertEqual(reading.bodyComposition?.bmi, 22.5)
+        XCTAssertEqual(session.lastReading?.bodyComposition?.basalMetabolismKcal, 1650)
+    }
+
     // MARK: Review fixes
 
     func testARefusedSettingIsAnErrorNotASilentSuccess() async {
@@ -278,6 +361,27 @@ final class BandRuntimeTests: XCTestCase {
     }
 
     // MARK: Skills
+
+    func testBandMeasureAnswersTheReadingWhenItEndsInTime() async throws {
+        let backend = FakeBandBackend(session: session)   // BandDevice holds it unowned
+        let device = BandDevice(backend: backend)
+        link.script(BandOp.heartRate, [Self.frame("d000"), Self.frame("d05a")])   // the real 90 bpm
+        let out = try await device.invoke("band_measure", args: ["type": "heart_rate"])
+        let reading = try XCTUnwrap(out["measurement"] as? [String: Any])
+        XCTAssertEqual(reading["heart_rate"] as? Int, 90)
+        XCTAssertNil(out["still_measuring"])
+    }
+
+    func testBandMeasureSaysWhyAFailedReadingFailed() async throws {
+        let backend = FakeBandBackend(session: session)   // BandDevice holds it unowned
+        let device = BandDevice(backend: backend)
+        // The band's own "measurement failed" (30/20 at progress 100), from the real log.
+        link.script(BandOp.bloodPressure, [Self.frame("900000000001"), Self.frame("901e14640001")])
+        let out = try await device.invoke("band_measure", args: ["type": "blood_pressure"])
+        let reading = try XCTUnwrap(out["measurement"] as? [String: Any])
+        XCTAssertEqual(reading["status"] as? String, "failed")
+        XCTAssertNotNil(reading["failure"] as? String)
+    }
 
     func testEverySkillIsABandSkillAndClearDataNeedsConfirmation() async {
         let backend = FakeBandBackend(session: session)

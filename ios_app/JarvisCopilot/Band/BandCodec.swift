@@ -111,6 +111,11 @@ enum BandRequest {
 
     // MARK: Measurements
 
+    /// Start (`on`) or stop a spot reading — the WeChat SDK's bytes, which the Android SDK and
+    /// its demo agree with: blood pressure in the normal (not "private") mode, glucose and blood
+    /// components without calibration, ECG asking for its waveform (byte 3 = 1, as both demos
+    /// do). One difference: Android writes SpO₂ as `80 01 02` / `80 02 02`, the WeChat SDK
+    /// `80 01 00` / `80 02 00` — which the E910 prefers is not yet seen on the band.
     static func measure(_ type: BandMeasure, on: Bool) -> [UInt8] {
         switch type {
         case .heartRate: return frame([BandOp.heartRate, on ? 1 : 0])
