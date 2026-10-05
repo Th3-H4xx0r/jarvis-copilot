@@ -96,8 +96,9 @@ final class BandDevice: WearableDevice {
                 ], required: ["action"])),
             DeviceCapability(
                 name: "band_find",
-                description: "Make the band easy to find: it vibrates and flashes.",
-                inputSchema: DeviceCapability.schema()),
+                description: "Make the band easy to find: it vibrates until found (pressed), stopped or "
+                    + "timed out. stop: true stops it.",
+                inputSchema: DeviceCapability.schema(["stop": ["type": "boolean"]])),
             DeviceCapability(
                 name: "band_set_alerts",
                 description: "Which phone alerts vibrate the band: calls, messages, and apps by name "
@@ -191,9 +192,10 @@ final class BandDevice: WearableDevice {
         case "band_measure": return try await measure(args)
         case "band_workout": return try await workout(args)
         case "band_find":
+            let stop = args["stop"] as? Bool ?? false
             return try await live { _ in
-                try await self.session.find(true)
-                return ["ok": true]
+                try await self.session.find(!stop)
+                return ["ok": true, "finding": self.session.finding]
             }
         case "band_set_alerts": return try await setAlerts(args)
         case "band_set_alarm": return try await alarm(args)
@@ -283,6 +285,7 @@ final class BandDevice: WearableDevice {
         if let alerts = session.alerts { out["alerts"] = alerts.json }
         if let reading = session.lastReading { out["last_measurement"] = reading.json }
         if let hr = session.liveHeartRate { out["live_heart_rate"] = hr }
+        if session.finding { out["finding"] = true }
         if let last = backend.sync.lastSync { out["last_sync"] = iso(last) }
         if backend.sync.isSyncing { out["syncing"] = true }
         if let store = backend.store {

@@ -44,6 +44,13 @@ CHAINS.append(["wrist", "thumb-metacarpal", "thumb-phalanx-proximal", "thumb-pha
 FIT_RADIUS = 0.77
 SEAT_ALONG = 0.42   # of the way from the knuckle to the middle joint
 
+# The forearm, in the ring's units: the hand's capped wrist is cut off here and
+# a forearm grown out of the cut, a little fuller toward the elbow, long enough
+# to leave any frame (the band's sheet seats a band on this wrist).
+WRIST_CUT = -7.5
+FOREARM_END = -26.0
+FOREARM_RING = 0.5   # spacing of its rings, about the hand's own edge length there
+
 
 def load(path):
     data = open(path, "rb").read()
@@ -152,6 +159,52 @@ def loop_subdivide(p, idx):
     return points, new.reshape(-1)
 
 
+def grow_forearm(p, idx):
+    """Cut the wrist's cap off and extrude a forearm from the cut, before
+    subdivision, so the subdivided surface runs from the hand into the arm
+    without a seam."""
+    tris = idx.reshape(-1, 3)
+    keep = ~(p[tris][:, :, 0] < WRIST_CUT).any(1)
+    tris = tris[keep]
+    # The cut's edge: edges used by one kept triangle, in that triangle's winding.
+    directed = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    key = np.sort(directed, axis=1)
+    _, inverse, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    border = directed[counts[inverse.reshape(-1)] == 1]
+    following = {a: b for a, b in border}
+    assert len(following) == len(border), "the cut is one simple loop"
+    loop = [border[0][0]]
+    while following[loop[-1]] != loop[0]:
+        loop.append(following[loop[-1]])
+    assert len(loop) == len(border), "the cut is one loop"
+    loop = np.array(loop)
+
+    edge = p[loop]
+    centre = np.array([edge[:, 0].mean(), (edge[:, 1].min() + edge[:, 1].max()) / 2,
+                       (edge[:, 2].min() + edge[:, 2].max()) / 2])
+    rings = int(np.ceil((centre[0] - FOREARM_END) / FOREARM_RING))
+    points = [p]
+    previous = loop
+    new_tris = [tris]
+    for k in range(1, rings + 1):
+        x = centre[0] - k * FOREARM_RING
+        grow = 1 + 0.16 * np.clip((centre[0] - x) / 9, 0, 1) ** 2 * (3 - 2 * np.clip((centre[0] - x) / 9, 0, 1))
+        ring = edge.copy()
+        # The cut's own unevenness along x fades out over the first two rings.
+        ring[:, 0] = x + (edge[:, 0] - centre[0]) * max(0.0, 1 - k / 2)
+        ring[:, 1:] = centre[1:] + (edge[:, 1:] - centre[1:]) * grow
+        start = sum(len(q) for q in points)
+        points.append(ring)
+        current = np.arange(start, start + len(loop))
+        a, b = previous, np.roll(previous, -1)
+        a2, b2 = current, np.roll(current, -1)
+        # Each border edge runs a→b in its kept triangle; the new strip runs b→a.
+        new_tris.append(np.stack([b, a, a2], 1))
+        new_tris.append(np.stack([b, a2, b2], 1))
+        previous = current
+    return np.concatenate(points), np.concatenate(new_tris).reshape(-1)
+
+
 def smooth_normals(p, idx):
     tris = idx.reshape(-1, 3)
     face = np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]])
@@ -256,6 +309,7 @@ def main(src, out, flex_sign=None):
     # Game-weight mesh: weld its UV seams, subdivide once (Loop) and light it
     # with fresh smooth normals, so the finger reads as skin, not facets.
     p, idx = weld(p, idx)
+    p, idx = grow_forearm(p, idx)
     p, idx = loop_subdivide(p, idx)
     n = smooth_normals(p, idx)
 

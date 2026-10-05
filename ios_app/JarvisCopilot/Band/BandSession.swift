@@ -70,6 +70,9 @@ final class BandSession: ObservableObject {
     @Published private(set) var raiseToWake: BandRaiseToWake?
     @Published private(set) var oxygenSchedule: BandOxygenSchedule?
     @Published private(set) var log: [BandLogEntry] = []
+    /// True while the band buzzes to be found. It stops on `find(false)`, when the wearer
+    /// presses it, or on its own timeout — the band says which (`B5`).
+    @Published private(set) var finding = false
 
     /// The band's own workout reports (`DA 03`), between the adapter's polls.
     var onSportStatus: ((BandSportStatus) -> Void)?
@@ -97,6 +100,7 @@ final class BandSession: ObservableObject {
         isSetUp = false
         measuring = nil
         liveHeartRate = nil
+        finding = false
     }
 
     // MARK: Setup
@@ -158,7 +162,8 @@ final class BandSession: ObservableObject {
         // The first reply comes back to the request; the rest of the stream is unsolicited.
         let first = try await transport.perform(start, accepts: BandOp.measurementReplies, timeout: 6)
         for frame in first { if let r = BandDecode.measurement(frame) { latest = r } }
-        while now() < deadline, latest.map({ !$0.finished && !$0.notWorn && !$0.busy }) ?? true {
+        // A cancelled reading (the wear sheet's "Not now") stops here too; the defer stops the band.
+        while now() < deadline, !Task.isCancelled, latest.map({ !$0.finished && !$0.notWorn && !$0.busy }) ?? true {
             try? await Task.sleep(for: .milliseconds(500))
             if let r = lastReading, r.measure == type, r.date > (latest?.date ?? .distantPast) { latest = r }
         }
@@ -190,8 +195,10 @@ final class BandSession: ObservableObject {
         return BandDecode.sportStatus(frames.filter(isPoll))
     }
 
+    /// Starts (`B5 0A`) or stops (`B5 0B`) the band buzzing to be found.
     func find(_ on: Bool) async throws {
-        _ = try await transport.perform(BandRequest.find(on: on), timeout: 3)
+        let reply = try await transport.perform(BandRequest.find(on: on), timeout: 3).first
+        finding = reply.flatMap(BandDecode.find) ?? on
     }
 
     func readSteps() async -> BandSteps? {
@@ -326,6 +333,11 @@ final class BandSession: ObservableObject {
         }
         if frame.first == BandOp.sportControl, let status = BandDecode.sportStatus([frame]) {
             onSportStatus?(status)
+            return
+        }
+        // Found (the wearer pressed the band) or timed out.
+        if let searching = BandDecode.find(frame) {
+            finding = searching
             return
         }
         if let level = BandDecode.battery(frame) {

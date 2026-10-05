@@ -64,9 +64,10 @@ enum BandModel {
     /// The centreline, evenly spaced, from the bottom up the front, over the top and down the
     /// back. The back is a superellipse; the front runs flat under the pod and the buckle, then
     /// turns over in quarter-ellipses tangent to the flat and to the back, so the strap has no
-    /// crease anywhere.
-    private static func centreline(count: Int) -> (stations: [Station], length: Double) {
-        let a = Double(loopHalfHeight), b = Double(loopHalfDepth)
+    /// crease anywhere. `open` stretches the loop as elastic stretches: it grows round its curves
+    /// while the front stays flat under the rigid pod.
+    private static func centreline(count: Int, open: Double = 1) -> (stations: [Station], length: Double) {
+        let a = Double(loopHalfHeight) * open, b = Double(loopHalfDepth) * open
         let top = Double(flatTop), bottom = Double(flatBottom)
         let back = 2 / 2.15
         let steps = 400
@@ -138,8 +139,9 @@ enum BandModel {
 
     /// The section swept round the centreline. u runs round the loop, v across the strap; the
     /// tangents follow u so the weave's normal map lies along the strap.
-    private static func strapGeometry() -> (geometry: SCNGeometry, length: Double) {
-        let (stations, length) = centreline(count: 480)
+    private static func strapGeometry(open: Double = 1) -> (geometry: SCNGeometry, length: Double) {
+        // A fixed station count whatever the size, so a stretched strap can morph from this one.
+        let (stations, length) = centreline(count: 480, open: open)
         let section = strapSection
         let w = Double(strapWidth) / 2
         var positions: [SCNVector3] = []
@@ -433,6 +435,10 @@ enum BandModel {
     struct Parts {
         let pivot: SCNNode
         let spinner: SCNNode
+        /// The strap alone, and everything rigid on it (pod, buckle, sensor) — kept apart so the
+        /// strap can stretch while the hardware rides on its front (`stretch(_:by:)`).
+        let strap: SCNNode
+        let hardware: SCNNode
         let leds: [SCNNode]
         let glow: SCNNode
         let mark: SCNMaterial
@@ -444,7 +450,10 @@ enum BandModel {
 
         let (strap, length) = strapGeometry()
         strap.materials = [fabricMaterial(length: length)]
-        band.addChildNode(SCNNode(geometry: strap))
+        let strapNode = SCNNode(geometry: strap)
+        band.addChildNode(strapNode)
+        let hardware = SCNNode()
+        band.addChildNode(hardware)
 
         // The pod: a body under the strap, and two rails the full depth either side of it whose
         // tops stand just proud of the weave.
@@ -452,12 +461,12 @@ enum BandModel {
         let pod = rect(z: (strapInner - podDepth)...(strapOuter + 0.35), y: podBottom...podTop)
         let railX = Float(podWidth / 2 - railWidth / 2)
         for side: Float in [-1, 1] {
-            band.addChildNode(sidePiece(roundedRect(pod, radius: podCorner), width: railWidth, chamfer: 0.42,
+            hardware.addChildNode(sidePiece(roundedRect(pod, radius: podCorner), width: railWidth, chamfer: 0.42,
                                         x: side * railX, material: metal))
         }
         let body = rect(z: (strapInner - podDepth + 0.15)...(strapInner + 0.1),
                         y: (podBottom + 0.15)...(podTop - 0.15))
-        band.addChildNode(sidePiece(roundedRect(body, radius: podCorner - 0.15), width: strapWidth + 0.4,
+        hardware.addChildNode(sidePiece(roundedRect(body, radius: podCorner - 0.15), width: strapWidth + 0.4,
                                     chamfer: 0.6, material: metal))
         // The seam along each side where the housing's halves meet.
         let seamMaterial = gunmetal(0.12, roughness: 0.5)
@@ -467,9 +476,9 @@ enum BandModel {
             let node = SCNNode(geometry: seam)
             node.position = SCNVector3(side * Float(podWidth / 2 + 0.02), Float(podTop - podLength / 2),
                                        Float(strapInner + 0.5))
-            band.addChildNode(node)
+            hardware.addChildNode(node)
         }
-        band.addChildNode(sidePiece(plateOutline, width: strapWidth + 0.6, chamfer: 0.22, material: gunmetal(0.85, roughness: 0.3)))
+        hardware.addChildNode(sidePiece(plateOutline, width: strapWidth + 0.6, chamfer: 0.22, material: gunmetal(0.85, roughness: 0.3)))
 
         // The buckle: a bar across the strap a little below the pod, its tabs running back round
         // the strap's edges to a bar inside.
@@ -477,10 +486,10 @@ enum BandModel {
         let barTop = podBottom - 0.7, barBottom = barTop - 3.2
         let buckleWidth: CGFloat = podWidth, tab: CGFloat = 1.5, drop: CGFloat = 1.6
         let insideFace = strapInner - 0.5, insideBack = insideFace - 1.4
-        band.addChildNode(sidePiece(roundedRect(rect(z: (strapOuter + 0.1)...(strapOuter + 1.05), y: barBottom...barTop),
+        hardware.addChildNode(sidePiece(roundedRect(rect(z: (strapOuter + 0.1)...(strapOuter + 1.05), y: barBottom...barTop),
                                                 radius: 0.4),
                                     width: buckleWidth, chamfer: 0.25, material: buckle))
-        band.addChildNode(sidePiece(roundedRect(rect(z: insideBack...insideFace, y: (barBottom - drop)...(barTop - drop)),
+        hardware.addChildNode(sidePiece(roundedRect(rect(z: insideBack...insideFace, y: (barBottom - drop)...(barTop - drop)),
                                                 radius: 0.5),
                                     width: buckleWidth, chamfer: 0.3, material: buckle))
         for side: Float in [-1, 1] {
@@ -490,12 +499,12 @@ enum BandModel {
             outline.addLine(to: CGPoint(x: insideBack, y: barBottom - drop))
             outline.addLine(to: CGPoint(x: insideBack, y: barTop - drop))
             outline.close()
-            band.addChildNode(sidePiece(outline, width: tab, chamfer: 0.25,
+            hardware.addChildNode(sidePiece(outline, width: tab, chamfer: 0.25,
                                         x: side * Float(buckleWidth / 2 - tab / 2), material: buckle))
         }
 
         let mark = markMaterial()
-        band.addChildNode(pulseMark(mark))
+        hardware.addChildNode(pulseMark(mark))
 
         // Inside, against the wrist: the sensor window, with the optical sensor's LEDs in it.
         let podBack = strapInner - podDepth + 0.15
@@ -506,7 +515,7 @@ enum BandModel {
         lens.materials = [lensMaterial()]
         let window = SCNNode(geometry: lens)
         window.position.z = Float(podBack - 0.2)
-        band.addChildNode(window)
+        hardware.addChildNode(window)
         let green = UIColor(red: 0.25, green: 1, blue: 0.4, alpha: 1)
         var leds: [SCNNode] = []
         for (x, y, color) in [(-2.2, podMiddle + 3, green), (2.2, podMiddle + 3, green),
@@ -515,7 +524,7 @@ enum BandModel {
             die.materials = [ledMaterial(color)]
             let node = SCNNode(geometry: die)
             node.position = SCNVector3(Float(x), Float(y), Float(podBack - 0.55))
-            band.addChildNode(node)
+            hardware.addChildNode(node)
             leds.append(node)
         }
 
@@ -534,7 +543,20 @@ enum BandModel {
         spinner.addChildNode(glow)
         let pivot = SCNNode()
         pivot.addChildNode(spinner)
-        return Parts(pivot: pivot, spinner: spinner, leds: leds, glow: glow, mark: mark)
+        return Parts(pivot: pivot, spinner: spinner, strap: strapNode, hardware: hardware,
+                     leds: leds, glow: glow, mark: mark)
+    }
+
+    /// The loop opened `open` times its size, for `stretch`: give it to the strap's morpher once.
+    static func stretchedStrap(open: Double) -> SCNGeometry { strapGeometry(open: open).geometry }
+
+    /// Opens the strap toward its morph target (`open` = 1 is as worn, `target` the morph's own
+    /// size) and moves the hardware out with the strap's flat front.
+    static func stretch(_ parts: Parts, open: Double, target: Double) {
+        let w = target > 1 ? max(0, min(1, (open - 1) / (target - 1))) : 0
+        parts.strap.morpher?.setWeight(CGFloat(w), forTargetAt: 0)
+        let reached = 1 + (target - 1) * w
+        parts.hardware.position.z = Float((reached - 1) * Double(loopHalfDepth))
     }
 
     // MARK: Scene

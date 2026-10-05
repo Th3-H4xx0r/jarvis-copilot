@@ -153,11 +153,13 @@
 		2705BB8AEBCCAAA34B25AD89 /* AppleFMEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A2FA671760513674F72292 /* AppleFMEngine.swift */; };
 		2745DE46AB58EF90B08F0241 /* JarvisWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		27C476A6C1AB62D5BB1D99D9 /* DeviceDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */; };
+		27C8030A44A9CD18C8B27B0A /* BandWearAsk.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */; };
 		282A9291D4315EEB3EBF66EA /* VoiceOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE132EB6D237CEF1D190BA1E /* VoiceOrb.swift */; };
 		2844A6A9BEE8AA6F3A134504 /* HealthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F941B5EAA9C62201055E85 /* HealthTab.swift */; };
 		28E4C79541F41CBA5C89AB30 /* MoreGapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA8341C7336CAEB461139EA /* MoreGapTests.swift */; };
 		2914B085CC2E03CFFC362080 /* IntegrationSkillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9791DF02C1C81A5474A190D1 /* IntegrationSkillView.swift */; };
 		2925241893EFAB10621386B6 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A2101217A4D1C9AC81A28B7C /* Fonts */; };
+		29323DCF55A1456ED25F4521 /* BandWearPromptRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51371DC0E9F6CB5093C5760B /* BandWearPromptRenderTests.swift */; };
 		2978E3A3EC4690B7582597B2 /* PhoneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65A58A48AEC3E6A49DA9FF47 /* PhoneCommand.swift */; };
 		29818DC37B8DAF5BCEE25605 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AC7565B5245A07F935338195 /* SwiftUI.framework */; };
 		29BF6A075E91F2C95CA81998 /* ChatFormCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */; };
@@ -293,6 +295,7 @@
 		492B882D24A6C4F2725B093A /* LiveRoomMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9503EBCCB186D559A6C1A138 /* LiveRoomMeter.swift */; };
 		49326CF148F4B41C2D00294A /* DashcamAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A709DD60E60C1D6F93F561 /* DashcamAPI.swift */; };
 		4955B0954EB14C95944FCC4B /* RingFirmwareUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE029576C3EECD8DD6F9EC4A /* RingFirmwareUpdate.swift */; };
+		49A787FB213EF4697F68FDCE /* BandHandModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5FF67E8522F08547878377 /* BandHandModel.swift */; };
 		4A0B3B63E8C947CF07138CC5 /* VoiceLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF5836BFF32185E7E51741C /* VoiceLiveActivity.swift */; };
 		4A530EFE0BE2E6977B483B50 /* BandSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839501072D2A279527117F51 /* BandSceneView.swift */; };
 		4A896AABBF3808C8639793C2 /* TodosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50286C204C30CC4F88E81AE1 /* TodosStore.swift */; };
@@ -1306,6 +1309,7 @@
 		50DBF31FAD4DAF34B9F011DD /* WidgetModelSnapshots.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetModelSnapshots.swift; sourceTree = "<group>"; };
 		50F9594BFFBCE73E692561D9 /* LiveLensBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveLensBridge.swift; sourceTree = "<group>"; };
 		511AEFA506655EE9813D0062 /* ProfilesUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesUITests.swift; sourceTree = "<group>"; };
+		51371DC0E9F6CB5093C5760B /* BandWearPromptRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandWearPromptRenderTests.swift; sourceTree = "<group>"; };
 		51A2E59166941A5C6D9A70EE /* LiveActivityCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityCoordinator.swift; sourceTree = "<group>"; };
 		51EF7F153081587C4D1E1074 /* X5RingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5RingTests.swift; sourceTree = "<group>"; };
 		529A16D4063F970F9DA3F1F3 /* ReasoningCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReasoningCard.swift; sourceTree = "<group>"; };
@@ -1858,6 +1862,7 @@
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
 		EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamWiFiPicker.swift; sourceTree = "<group>"; };
 		EB058DEAF58CF0670B328304 /* MarkdownText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
+		EB5FF67E8522F08547878377 /* BandHandModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandHandModel.swift; sourceTree = "<group>"; };
 		EB9846406F52B64E7BE07FBB /* BandDeviceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandDeviceView.swift; sourceTree = "<group>"; };
 		EBA3CE819470F07AFC7C6A21 /* LiveAsk.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveAsk.swift; sourceTree = "<group>"; };
 		EBEE8787D862FADBC3C1F542 /* JarvisOrbImage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisOrbImage.swift; sourceTree = "<group>"; };
@@ -1915,6 +1920,7 @@
 		FA0085102BFC2EB8AB8FC68B /* IntegrationsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsTests.swift; sourceTree = "<group>"; };
 		FA6F8D16290937BE3DB979AA /* CodingAttachments.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingAttachments.swift; sourceTree = "<group>"; };
 		FAD8A1EDEAC1B1071D820CEC /* LocalRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalRouter.swift; sourceTree = "<group>"; };
+		FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandWearAsk.swift; sourceTree = "<group>"; };
 		FBFFB5AA3D0B8B2F2CED14D7 /* X5SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SettingsView.swift; sourceTree = "<group>"; };
 		FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingRenderTests.swift; sourceTree = "<group>"; };
 		FC1A737C3A59A38264516752 /* MoreDestinationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreDestinationTests.swift; sourceTree = "<group>"; };
@@ -3500,6 +3506,7 @@
 				3D34ACFD0E564771CAEDB7FA /* BandDayMapperTests.swift */,
 				0E317FA9A99E25DE51040FD7 /* BandModelRenderTests.swift */,
 				C37E581B3F19FE64C22BCDB7 /* BandRuntimeTests.swift */,
+				51371DC0E9F6CB5093C5760B /* BandWearPromptRenderTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3702,6 +3709,8 @@
 				2F6F58D2A73AD00B96144243 /* BandSync.swift */,
 				2B95871CA93FF456CB5A4E83 /* BandTransport.swift */,
 				4C8E5EBABB866C48D60C48AA /* BandWorkout.swift */,
+				EB5FF67E8522F08547878377 /* BandHandModel.swift */,
+				FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */,
 			);
 			name = Band;
 			path = Band;
@@ -4222,6 +4231,7 @@
 				BA438BE0437BF3DCF028E391 /* BandDayMapperTests.swift in Sources */,
 				38DD67B924AF6AB6090276B7 /* BandModelRenderTests.swift in Sources */,
 				75D771A34F1F5BDA4DFCFBF8 /* BandRuntimeTests.swift in Sources */,
+				29323DCF55A1456ED25F4521 /* BandWearPromptRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4865,6 +4875,8 @@
 				78A0E1E9C0A83B6797F28DFA /* BandSync.swift in Sources */,
 				DEC2FDC52FB7B31E11FEC74F /* BandTransport.swift in Sources */,
 				7631B4122F331F2C477A154B /* BandWorkout.swift in Sources */,
+				49A787FB213EF4697F68FDCE /* BandHandModel.swift in Sources */,
+				27C8030A44A9CD18C8B27B0A /* BandWearAsk.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -62,12 +62,15 @@ struct BandDeviceView: View {
     @State private var choosingWorkout = false
     @State private var actionError: String?
     @State private var findToken = 0
+    /// "Put the band on" for this page's readings.
+    @StateObject private var wearAsk: BandWearAsk
 
     init(manager: BandManager, band: DiscoveredRing) {
         self.manager = manager
         self.band = band
         _session = ObservedObject(wrappedValue: manager.session)
         _sync = ObservedObject(wrappedValue: manager.sync)
+        _wearAsk = StateObject(wrappedValue: BandWearAsk(session: manager.session))
     }
 
     private var ready: Bool { manager.state == .ready }
@@ -78,6 +81,7 @@ struct BandDeviceView: View {
         ScrollView {
             VStack(spacing: 20) {
                 hero
+                if session.finding { findingBar }
                 statusLine
                 if let actionError {
                     Text(actionError)
@@ -104,10 +108,13 @@ struct BandDeviceView: View {
             if manager.connected?.id != band.id || !manager.linkIsUp { manager.connect(band) }
         }
         .onDisappear {
+            // Leaving the page is "Not now": no reading keeps asking for the band unseen.
+            wearAsk.dismiss()
             guard !showingSettings else { return }
             manager.screenIsOpen = false
         }
         .navigationDestination(isPresented: $showingSettings) { BandSettingsView(manager: manager) }
+        .bandWearSheet(wearAsk)
         .sheet(isPresented: $choosingWorkout) {
             let workout = WearablesHub.shared.ring.workout
             WorkoutPicker(wearable: WearableKeepAlive.band,
@@ -118,9 +125,13 @@ struct BandDeviceView: View {
                 Task { _ = await sync.sync() }
             }
             WearableMoreMenu(onRename: { renaming = true }, extra: {
-                Button("Find band", jcIcon: "dot.radiowaves.left.and.right") {
-                    findToken += 1
-                    run { try await session.find(true) }
+                if session.finding {
+                    Button("Stop finding", jcIcon: "stop.circle") { run { try await session.find(false) } }
+                } else {
+                    Button("Find band", jcIcon: "dot.radiowaves.left.and.right") {
+                        findToken += 1
+                        run { try await session.find(true) }
+                    }
                 }
             })
         }
@@ -145,6 +156,20 @@ struct BandDeviceView: View {
                            value: today?.steps.map { "\($0)" } ?? "—", tint: JcTheme.accent)
             }
         }
+    }
+
+    /// While the band buzzes to be found: say so, and stop it from here.
+    private var findingBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .foregroundStyle(JcTheme.accent)
+                .symbolEffect(.variableColor.iterative, options: .repeating)
+            Text("The band is buzzing").font(.subheadline.weight(.medium))
+            Spacer()
+            Button("Stop") { run { try await session.find(false) } }
+                .buttonStyle(.jcGlass(compact: true))
+        }
+        .padding(.horizontal, 24)
     }
 
     private var statusLine: some View {
@@ -173,14 +198,14 @@ struct BandDeviceView: View {
                 if index > 0 { RowDivider() }
                 Row(minHeight: 50) {
                     HStack {
-                        Text(type.name.replacingOccurrences(of: "_", with: " ").capitalized)
+                        Text(type.label)
                         Spacer()
                         if session.measuring == type {
                             ProgressView().controlSize(.small)
                         } else if let reading = session.lastReading, reading.measure == type {
                             Text(Self.summary(reading)).foregroundStyle(.secondary).monospacedDigit()
                         }
-                        Button("Measure") { run { _ = try await session.measure(type) } }
+                        Button("Measure") { run { try await wearAsk.measure(type) } }
                             .buttonStyle(.jcGlass(compact: true))
                             // A workout has the sensor; readings wait until it ends.
                             .disabled(!ready || session.measuring != nil
@@ -197,7 +222,8 @@ struct BandDeviceView: View {
         for key in ["heart_rate", "spo2", "temperature_c", "value"] {
             if let v = json[key] { return "\(v)" }
         }
-        return (json["status"] as? String) ?? ""
+        if reading.notWorn { return "Not worn" }
+        return (json["status"] as? String)?.replacingOccurrences(of: "_", with: " ") ?? ""
     }
 
     // MARK: Links

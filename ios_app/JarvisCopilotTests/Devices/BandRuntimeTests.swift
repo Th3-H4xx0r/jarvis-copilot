@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import JarvisCopilot
 
@@ -195,6 +196,57 @@ final class BandRuntimeTests: XCTestCase {
         let ops = link.sent.filter { $0.first == BandOp.sportControl }.map { $0.count > 4 && $0[1] == 0x01 ? $0[4] : 0 }
         XCTAssertEqual(ops.prefix(3), [BandSportOp.start.rawValue, BandSportOp.stop.rawValue, BandSportOp.start.rawValue])
         _ = await wearable.send(.stop, sport: 4)
+    }
+
+    // MARK: Find and wear
+
+    private static func frame(_ hex: String) -> String { hex.padding(toLength: 40, withPad: "0", startingAt: 0) }
+
+    func testFindStartsAndStopsAndTheBandSaysWhenItIsFound() async throws {
+        link.script(BandOp.find, [Self.frame("b50a01")])   // the real reply: searching
+        try await session.find(true)
+        XCTAssertTrue(session.finding)
+        link.script(BandOp.find, [Self.frame("b50b02")])   // the real reply to a stop
+        try await session.find(false)
+        XCTAssertFalse(session.finding)
+        XCTAssertEqual(link.sent.filter { $0.first == BandOp.find }.map { $0[1] }, [0x0A, 0x0B])
+
+        // Pressed on the wrist, the band ends the search itself and says so.
+        link.script(BandOp.find, [Self.frame("b50a01")])
+        try await session.find(true)
+        link.push(Self.frame("b50a02"))
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(session.finding)
+    }
+
+    func testANotWornReadingAsksForTheBandAndCarriesOnOnceItIsOn() async throws {
+        let ask = BandWearAsk(session: session)
+        ask.retryAfter = 0.05
+        link.script(BandOp.heartRate, [Self.frame("d001")])   // not worn
+        link.script(BandOp.heartRate, [])                     // its stop
+        link.script(BandOp.heartRate, [Self.frame("d048")])   // on a wrist: 72 bpm
+        var asked = false
+        let watch = ask.$prompt.sink { if $0 == .heartRate { asked = true } }
+        try await ask.measure(.heartRate)
+        watch.cancel()
+        XCTAssertTrue(asked, "the sheet went up while the band was off")
+        XCTAssertNil(ask.prompt, "and came down once it was on")
+        XCTAssertEqual(session.lastReading?.heartRate, 72)
+    }
+
+    func testNotNowStopsAsking() async throws {
+        let ask = BandWearAsk(session: session)
+        ask.retryAfter = 0.3
+        link.script(BandOp.heartRate, [Self.frame("d001")])
+        let attempt = Task { try await ask.measure(.heartRate) }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(ask.prompt, .heartRate)
+        ask.dismiss()
+        try await attempt.value
+        XCTAssertNil(ask.prompt)
+        try await Task.sleep(for: .milliseconds(400))
+        let starts = link.sent.filter { $0.first == BandOp.heartRate && $0.count > 1 && $0[1] == 1 }
+        XCTAssertEqual(starts.count, 1, "no second try after Not now")
     }
 
     // MARK: Review fixes

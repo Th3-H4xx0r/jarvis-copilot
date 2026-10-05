@@ -81,7 +81,7 @@ phone's message.
 | `band_camera` | `on` | Camera-remote mode. |
 | `band_clear_data` | `confirm: true` | **Factory reset** — erases the band's history and settings. Only on an explicit request. |
 | `band_workout` | `action`: `start` \| `pause` \| `resume` \| `end` \| `status`; `sport` (start only) | Opens the phone's live workout screen with the band as its sensor (3-second countdown, live sheet) and saves the workout to Jarvis Health at the end; `sport` is a name such as `run`, `walk`, `cycling`. `status` returns `phase`, `elapsed_seconds`, `heart_rate`, `steps`, `distance_m`. |
-| `band_find` | — | The band vibrates. |
+| `band_find` | `stop` (boolean) | The band vibrates until it is found (pressed), stopped (`stop: true`) or times out; answers `finding`. |
 | `band_set_alerts` | `calls`, `messages` (booleans), `apps` (names) | Which notifications vibrate the band; `apps: []` turns every app alert off. Unspecified fields keep their values. |
 | `band_set_alarm` | `action`: `list` \| `add` \| `delete`; `time` (`HH:MM`), `days` (`mon`…`sun`), `id`, `enabled` | Vibrating alarms on the band: `list` returns each with its `id`; `add` needs `time` (no `days` = once); `delete` needs `id`. |
 | `band_set_sedentary` | `enabled`; `interval_minutes`, `start`, `end` (`HH:MM`) | The sit-too-long reminder and the hours it covers. |

@@ -235,6 +235,7 @@ def test_explicit_device_name_is_matched_case_insensitively(mod):
                      {"action": "start", "sport": "walk"}, id="workout-start"),
         pytest.param(lambda b: b.workout("end"), "band_workout", {"action": "end"}, id="workout-end"),
         pytest.param(lambda b: b.find(), "band_find", {}, id="find"),
+        pytest.param(lambda b: b.find(stop=True), "band_find", {"stop": True}, id="find-stop"),
         pytest.param(lambda b: b.set_alerts(calls=True, messages=False), "band_set_alerts",
                      {"calls": True, "messages": False}, id="alerts"),
         pytest.param(lambda b: b.set_alerts(apps="WhatsApp, Telegram"), "band_set_alerts",
@@ -382,6 +383,12 @@ def test_cli_measure_and_workout(mod, cli):
         ("band_measure", {"type": "blood_pressure"}),
         ("band_workout", {"action": "start", "sport": "walk"}),
     ]
+
+
+def test_cli_find_starts_and_stops(mod, cli):
+    assert mod.main(["find"]) == 0
+    assert mod.main(["find", "--stop"]) == 0
+    assert [(b["skill"], b["args"]) for b in cli.invokes] == [("band_find", {}), ("band_find", {"stop": True})]
 
 
 def test_cli_alerts_take_on_off_and_an_app_list(mod, cli):

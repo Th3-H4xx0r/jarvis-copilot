@@ -298,9 +298,9 @@ class Band:
             raise BandError("sport only goes with action start")
         return self.invoke("band_workout", {"action": action, "sport": sport})
 
-    def find(self) -> dict[str, Any]:
-        """Makes the band vibrate."""
-        return self.invoke("band_find")
+    def find(self, stop: bool = False) -> dict[str, Any]:
+        """Makes the band vibrate until it is found (pressed) or times out; ``stop`` stops it."""
+        return self.invoke("band_find", {"stop": True} if stop else {})
 
     def heart_rate_alarm(self, enabled: bool, high: int | None = None, low: int | None = None) -> dict[str, Any]:
         """Vibrate when heart rate goes above ``high`` or below ``low`` (bpm)."""
@@ -442,7 +442,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=WORKOUT_ACTIONS)
     p.add_argument("--sport", help="for start: run, walk, cycling, hiking, yoga, ... (default run)")
 
-    sub.add_parser("find", help="make the band vibrate")
+    p = sub.add_parser("find", help="make the band vibrate until found; --stop stops it")
+    p.add_argument("--stop", action="store_true", help="stop the band vibrating")
 
     p = sub.add_parser("hr-alarm", help="vibrate when heart rate leaves a range")
     p.add_argument("state", choices=("on", "off"))
@@ -508,7 +509,7 @@ def _run(band: Band, args: argparse.Namespace) -> dict[str, Any]:
     if command == "workout":
         return band.workout(args.action, sport=args.sport)
     if command == "find":
-        return band.find()
+        return band.find(stop=args.stop)
     if command == "hr-alarm":
         return band.heart_rate_alarm(args.state == "on", high=args.high, low=args.low)
     if command == "raise-to-wake":

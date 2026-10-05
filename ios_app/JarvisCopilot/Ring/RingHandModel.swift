@@ -25,6 +25,8 @@ enum RingHandModel {
         let geometry: SCNGeometry
         /// The index fingertip, where the ring comes on from.
         let tip: SIMD3<Float>
+        /// The vertices, for measuring the hand (the band's stage fits itself to the wrist).
+        let positions: [SIMD3<Float>]
     }
 
     /// Reads `RingHand.bin`: "JCHD", version, vertex and index counts, the
@@ -45,11 +47,14 @@ enum RingHandModel {
         func vectors(_ at: Int) -> [SCNVector3] {
             (0..<vertices).map { i in SCNVector3(f32(at + i * 12), f32(at + i * 12 + 4), f32(at + i * 12 + 8)) }
         }
+        let positions = (0..<vertices).map { i in
+            SIMD3(f32(positionsAt + i * 12), f32(positionsAt + i * 12 + 4), f32(positionsAt + i * 12 + 8))
+        }
         let triangles = (0..<indices).map { i in UInt16(bytes[indicesAt + i * 2]) | UInt16(bytes[indicesAt + i * 2 + 1]) << 8 }
         let geometry = SCNGeometry(
             sources: [SCNGeometrySource(vertices: vectors(positionsAt)), SCNGeometrySource(normals: vectors(normalsAt))],
             elements: [SCNGeometryElement(indices: triangles, primitiveType: .triangles)])
-        return Mesh(geometry: geometry, tip: tip)
+        return Mesh(geometry: geometry, tip: tip, positions: positions)
     }
 
     #if canImport(UIKit)
@@ -219,7 +224,7 @@ enum RingHandModel {
 
     // MARK: Light
 
-    private static func lights() -> [SCNNode] {
+    static func lights() -> [SCNNode] {
         let placements: [(SCNLight.LightType, CGFloat, SIMD3<Float>, SCNVector3)] = [
             // Key, high and to the left, so the top of the finger catches it.
             (.directional, 780, SIMD3(1, 1, 1), SCNVector3(-0.55, 0.50, 0)),
@@ -247,7 +252,7 @@ enum RingHandModel {
 
     /// A plain studio gradient for the skin to reflect. Drawn with Core Graphics
     /// so the same code builds it on the phone and in the render harness.
-    private static let environment: CGImage? = {
+    static let environment: CGImage? = {
         let width = 256, height = 128
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
