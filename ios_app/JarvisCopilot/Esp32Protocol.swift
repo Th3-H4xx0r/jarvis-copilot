@@ -33,6 +33,7 @@ enum Esp32Protocol {
         case allOff = 0x2F
         case wifiSet = 0x40, wifiStatus = 0x41, wifiForget = 0x42, auth = 0x44, claim = 0x45, wifiScan = 0x46, resetOwner = 0x47
         case cloudSet = 0x48, cloudStatus = 0x49, cloudForget = 0x4A, cloudPause = 0x4B
+        case notifyRelay = 0x4C
         case scriptBegin = 0x50, scriptChunk = 0x51, scriptCommit = 0x52, scriptStop = 0x53, scriptStart = 0x54
         case scriptStatus = 0x55, scriptDelete = 0x56, jarvisResult = 0x57
     }
@@ -40,6 +41,39 @@ enum Esp32Protocol {
     enum Event: UInt8 {
         case inputChanged = 0xE1, pulseDone = 0xE2, blinkDone = 0xE3, wifiChanged = 0xE4
         case scriptOutput = 0xE5, jarvisCall = 0xE6, scriptState = 0xE7, cloudChanged = 0xE8
+        case iosNotification = 0xE9
+    }
+
+    /// The board's iPhone-notification relay (ANCS) for the glasses.
+    enum RelayState: UInt8 {
+        case off = 0, waiting, receiving, notShared
+
+        var label: String {
+            switch self {
+            case .off:       return "Off"
+            case .waiting:   return "Waiting for the phone…"
+            case .receiving: return "Receiving notifications"
+            case .notShared: return "iPhone isn't sharing notifications"
+            }
+        }
+    }
+
+    struct RelayStatus: Hashable {
+        let on: Bool
+        let state: RelayState
+        /// Notifications forwarded since the board booted.
+        let forwarded: Int
+    }
+
+    /// One iPhone notification the board read over ANCS.
+    struct IosNotification: Hashable {
+        /// ANCS CategoryID: 1 incoming call, 2 missed call, 4 social, 6 email, …
+        let category: UInt8
+        let appID: String
+        let title: String
+        let message: String
+
+        static let incomingCallCategory: UInt8 = 1
     }
 
     enum CloudState: UInt8 {
@@ -415,6 +449,22 @@ enum Esp32Protocol {
         var cursor = 2
         guard let name = lengthPrefixed(p, from: &cursor) else { return nil }
         return (UInt16(p[0]) << 8 | UInt16(p[1]), name, String(decoding: p[cursor...], as: UTF8.self))
+    }
+
+    /// NOTIFY_RELAY response: on, state, forwarded (u16).
+    static func parseRelayStatus(_ p: [UInt8]) -> RelayStatus? {
+        guard p.count >= 4, let state = RelayState(rawValue: p[1]) else { return nil }
+        return RelayStatus(on: p[0] != 0, state: state, forwarded: Int(p[2]) << 8 | Int(p[3]))
+    }
+
+    /// `ios_notification` event: category, app_len, app…, title_len, title…, msg_len, msg…
+    static func parseIosNotification(_ p: [UInt8]) -> IosNotification? {
+        guard let category = p.first else { return nil }
+        var cursor = 1
+        guard let app = lengthPrefixed(p, from: &cursor),
+              let title = lengthPrefixed(p, from: &cursor),
+              let message = lengthPrefixed(p, from: &cursor) else { return nil }
+        return IosNotification(category: category, appID: app, title: title, message: message)
     }
 
     /// `wifi_changed` event: state, ip[4].

@@ -522,7 +522,35 @@ struct Esp32DeviceView: View {
 
     // MARK: Sharing
 
+    private var relayFooter: String {
+        guard ready else { return "Connect to the board to change this." }
+        guard let relay = manager.relay else { return "Flash firmware 1.1 or later to relay notifications." }
+        if relay.state == .notShared {
+            return "In Settings › Bluetooth, tap ⓘ next to the board and turn on Share System Notifications."
+        }
+        return "The board reads this iPhone's notifications over Bluetooth and Jarvis shows them on the glasses, "
+            + "instead of the glasses reading them directly. Switching restarts the board; iOS then asks to pair "
+            + "and to share notifications."
+    }
+
     @ViewBuilder private var sharing: some View {
+        CardGroup("Glasses notifications", footer: relayFooter) {
+            Row {
+                Toggle("iPhone notifications → glasses", isOn: Binding(
+                    get: { manager.relay?.on ?? false },
+                    set: { on in manager.perform { try await manager.setRelay(on) } }))
+            }
+            .disabled(!ready || manager.relay == nil)
+            if let relay = manager.relay, relay.on {
+                Row {
+                    HStack {
+                        Text(relay.state.label)
+                        Spacer()
+                        Text("\(relay.forwarded) sent").foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
         CardGroup("Sharing", footer: bridge.isPaired ? nil : "Pair with Jarvis in Settings first.") {
             Row {
                 Toggle("Share with Jarvis", isOn: Binding(

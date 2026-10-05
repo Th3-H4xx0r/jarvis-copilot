@@ -16,6 +16,18 @@ enum Esp32LinkPreference: String, CaseIterable, Identifiable {
     }
 }
 
+/// The board's iPhone-notification relay for the glasses, as last reported by the board.
+/// Per board; `isOnAnyBoard` tells InmoSession to stop the glasses reading ANCS themselves
+/// (the relay's cards would otherwise arrive twice).
+enum Esp32NotificationRelay {
+    private static let prefix = "esp32NotifyRelay."
+    static func isOn(for deviceID: String) -> Bool { UserDefaults.standard.bool(forKey: prefix + deviceID) }
+    static func set(_ on: Bool, for deviceID: String) { UserDefaults.standard.set(on, forKey: prefix + deviceID) }
+    static var isOnAnyBoard: Bool {
+        UserDefaults.standard.dictionaryRepresentation().contains { $0.key.hasPrefix(prefix) && ($0.value as? Bool) == true }
+    }
+}
+
 enum Esp32Link: String {
     case bluetooth, wifi
     var label: String { self == .wifi ? "Wi‑Fi" : "Bluetooth" }
@@ -98,6 +110,8 @@ final class Esp32Manager: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var script: Esp32Protocol.ScriptStatus?
     @Published private(set) var cloud: Esp32Protocol.CloudStatus?
+    /// nil until the board answers NOTIFY_RELAY (older firmware never does).
+    @Published private(set) var relay: Esp32Protocol.RelayStatus?
     /// What the app knows about the script it (or Jarvis, through it) last installed.
     @Published private(set) var scriptInfo: Esp32ScriptInfo?
     /// print() lines, errors and relayed Jarvis calls from the running script, newest last.
@@ -331,6 +345,13 @@ final class Esp32Manager: NSObject, ObservableObject {
             return
         }
 
+        // The notification relay rides the phone's Bluetooth link (ANCS), so hold it.
+        if Esp32NotificationRelay.isOn(for: board.id), board.peripheral != nil {
+            connectBluetooth(board)
+            linkHint = nil
+            return
+        }
+
         switch preference {
         case .bluetooth:
             connectBluetooth(board)
@@ -363,7 +384,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         teardownLinks()
         unpublish()
         connected = nil
-        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false
+        info = nil; pins = []; pinStates = [:]; wifi = nil; ledBlinking = false; relay = nil
         activeLink = nil
         state = .idle
         startScan()
@@ -422,10 +443,13 @@ final class Esp32Manager: NSObject, ObservableObject {
         JcLog.devices.debug("esp32 BLE connecting \(board.name)")
         // No timeout on purpose: iOS keeps this pending and completes it whenever the
         // board comes back into range, which is exactly the "retain the link" behaviour.
-        central.connect(p)
+        // With the notification relay on, RequiresANCS makes iOS bond and ask (once) to
+        // share notifications with the board.
+        let relayOn = Esp32NotificationRelay.isOn(for: board.id)
+        central.connect(p, options: relayOn ? [CBConnectPeripheralOptionRequiresANCS: true] : nil)
 
         let record = board.record ?? Self.knownBoards.first { $0.deviceID == board.id }
-        if Self.linkPreference(for: board.id) == .auto,
+        if !relayOn, Self.linkPreference(for: board.id) == .auto,
            let record, record.hostname != nil || record.ip != nil, Self.token(for: record.deviceID) != nil {
             startWifiProbe(record)
         }
@@ -601,6 +625,7 @@ final class Esp32Manager: NSObject, ObservableObject {
             try await refreshWifi()
             try? await refreshScript()
             try? await refreshCloud()
+            try? await refreshRelay()
             scriptInfo = Esp32ScriptInfo.load(for: info.deviceID)
             let name = connected?.name ?? info.deviceID
             let peripheralID = peripheral?.identifier.uuidString
@@ -767,7 +792,48 @@ final class Esp32Manager: NSObject, ObservableObject {
             handleJarvisCall(id: call.id, name: call.name, json: call.json)
         case .cloudChanged:
             Task { try? await refreshCloud() }
+        case .iosNotification:
+            guard let n = Esp32Protocol.parseIosNotification(p) else { return }
+            relayToGlasses(n)
         }
+    }
+
+    // MARK: - iPhone notifications → glasses
+
+    func refreshRelay() async throws {
+        do {
+            applyRelay(try await request(.notifyRelay))
+        } catch Esp32Error.status(.unknownOp) {
+            relay = nil  // firmware before 1.1
+        }
+    }
+
+    /// Switches the relay on the board. The board saves it and reboots (bonding changes
+    /// only at boot); the session reconnects by itself, over Bluetooth with RequiresANCS.
+    func setRelay(_ on: Bool) async throws {
+        guard state == .ready else { throw Esp32Error.notConnected }
+        if on, activeLink == .wifi, connected?.peripheral == nil { throw Esp32Error.bluetoothOnly }
+        applyRelay(try await request(.notifyRelay, payload: [on ? 1 : 0]))
+        // The relay feeds the glasses' card route, which only runs with their
+        // notifications on; either way the glasses' own ANCS follows the relay.
+        if on, !InmoSession.notificationsEnabled { InmoSession.shared.setNotificationsEnabled(true) }
+        else { InmoSession.shared.refreshNotificationSetup() }
+    }
+
+    private func applyRelay(_ payload: [UInt8]) {
+        guard let status = Esp32Protocol.parseRelayStatus(payload) else { return }
+        relay = status
+        if let id = info?.deviceID { Esp32NotificationRelay.set(status.on, for: id) }
+    }
+
+    /// One notification the board read from this iPhone, onto the glasses' lens through
+    /// the same card route Jarvis's own notifications use. Jarvis's own are already sent
+    /// by PushService, and the glasses show calls themselves, so both are skipped.
+    private func relayToGlasses(_ n: Esp32Protocol.IosNotification) {
+        if let r = relay { relay = Esp32Protocol.RelayStatus(on: r.on, state: .receiving, forwarded: r.forwarded + 1) }
+        guard n.appID != Bundle.main.bundleIdentifier, n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
+        let title = n.title.isEmpty ? (n.appID.split(separator: ".").last.map(String.init) ?? "") : n.title
+        InmoSession.shared.forwardNotification(title: title, body: n.message)
     }
 
     // MARK: - Direct Jarvis link

@@ -30,6 +30,7 @@
 #include "WifiLink.h"
 #include "ScriptRuntime.h"
 #include "CloudLink.h"
+#include "Ancs.h"
 
 namespace cfg = jarvis::config;
 namespace pins = jarvis::pins;
@@ -73,6 +74,8 @@ jarvis::WifiLink g_wifi;
 jarvis::ScriptRuntime g_script;
 jarvis::CloudLink g_cloud;
 bool g_cloud_boot = false;   // booted without Bluetooth, holding the bridge instead
+jarvis::AncsClient g_ancs;
+bool g_relay_enabled = false;  // iPhone-notification relay for the glasses (NVS, read at boot)
 
 // Reply capture for commands the cloud bridge runs through dispatch().
 struct CapturedFrame { uint8_t len; uint8_t bytes[proto::max_frame]; };
@@ -118,6 +121,7 @@ constexpr uint32_t link_blink_period_ms = 1000;
 constexpr const char* prefs_namespace = "jarvis";
 constexpr const char* key_owner = "owner";
 constexpr const char* key_build = "build";
+constexpr const char* key_relay = "relay";
 // Changes with every compile, so a reflash — from this script or the IDE — wipes the
 // claim and the Wi‑Fi credentials. Same-binary reboots keep them.
 constexpr const char* build_stamp = __DATE__ " " __TIME__;
@@ -248,6 +252,30 @@ void broadcast_event(proto::FrameBuilder& fb) {
   const size_t n = fb.finish();
   if (n == 0) return;
   broadcast_raw(fb.data(), n);
+}
+
+/// A notification the relay read from the phone. Owner sessions only: never a script,
+/// never a link that hasn't presented the owner key.
+void send_ios_notification(const jarvis::AncsNotification& n) {
+  namespace ancs = jarvis::ancs;
+  const ancs::Attributes& a = n.attrs;
+  // One frame: op + category + three length bytes + the strings; the message gets the rest.
+  const size_t app_len = ancs::utf8_fit(a.app, strlen(a.app), 40);
+  const size_t title_len = ancs::utf8_fit(a.title, strlen(a.title), ancs::max_title);
+  const size_t msg_len = ancs::utf8_fit(a.message, strlen(a.message), proto::max_body - 5 - app_len - title_len);
+  proto::FrameBuilder fb;
+  fb.begin_event(proto::Event::ios_notification);
+  fb.push(n.category);
+  fb.push(static_cast<uint8_t>(app_len));
+  fb.push_bytes(reinterpret_cast<const uint8_t*>(a.app), app_len);
+  fb.push(static_cast<uint8_t>(title_len));
+  fb.push_bytes(reinterpret_cast<const uint8_t*>(a.title), title_len);
+  fb.push(static_cast<uint8_t>(msg_len));
+  fb.push_bytes(reinterpret_cast<const uint8_t*>(a.message), msg_len);
+  const size_t len = fb.finish();
+  if (len == 0) return;
+  if (g_ble_authorized) send_ble(fb.data(), len);
+  if (g_wifi.client_authenticated()) g_wifi.send(fb.data(), len);
 }
 
 void send_status(proto::Op op, proto::Status st) {
@@ -862,11 +890,39 @@ void handle_cloud_pause(const proto::Request&) {
   }
 }
 
+// The iPhone-notification relay for the glasses. Switching it also switches BLE bonding,
+// which only applies at boot, so a change saves the setting and reboots the board (the app
+// reconnects by itself). The relay needs Bluetooth, so switching it on leaves cloud mode.
+void handle_notify_relay(const proto::Request& r) {
+  constexpr proto::Op op = proto::Op::notify_relay;
+  if (r.payload_len > 1 || (r.payload_len == 1 && r.payload[0] > 1)) { send_status(op, proto::Status::bad_arg); return; }
+  const bool want = r.payload_len == 1 ? r.payload[0] == 1 : g_relay_enabled;
+  const bool changed = want != g_relay_enabled;
+  if (changed) {
+    Preferences prefs;
+    if (prefs.begin(prefs_namespace, /*readOnly=*/false)) { prefs.putBool(key_relay, want); prefs.end(); }
+  }
+  const jarvis::AncsState state = !changed ? g_ancs.state()
+                                : want ? jarvis::AncsState::waiting : jarvis::AncsState::off;
+  proto::FrameBuilder fb;
+  fb.begin_response(op, proto::Status::ok);
+  fb.push(want ? 1 : 0);
+  fb.push(static_cast<uint8_t>(state));
+  fb.push_u16(g_ancs.forwarded());
+  send_frame(fb);
+  if (changed) {
+    Serial.printf("[ancs] relay switched %s, rebooting to apply\n", want ? "on" : "off");
+    if (want && g_cloud_boot) g_cloud.disarm();
+    g_cloud.request_reboot(600);
+  }
+}
+
 // A set-up board runs on its own: if it is linked to Jarvis, on Wi‑Fi, and no phone has
 // been connected for a while, switch into cloud mode. After an automatic fallback the
 // wait is longer so a flaky server doesn't make the board flap between modes.
 void service_auto_cloud(uint32_t now) {
-  if (g_cloud_boot || g_pairing_boot || !g_cloud.paired()) return;
+  // The notification relay needs the phone's Bluetooth link, which cloud mode turns off.
+  if (g_cloud_boot || g_pairing_boot || g_relay_enabled || !g_cloud.paired()) return;
   const bool phone = g_ble_connected || g_wifi.client_connected();
   if (phone || g_wifi.state() != proto::WifiState::connected) { g_unattended_since_ms = 0; return; }
   if (g_unattended_since_ms == 0) { g_unattended_since_ms = now; return; }
@@ -1051,6 +1107,7 @@ void dispatch(const uint8_t* bytes, size_t len, Link link) {
     case proto::Op::cloud_status:  handle_cloud_status(req); break;
     case proto::Op::cloud_forget:  handle_cloud_forget(req); break;
     case proto::Op::cloud_pause:   handle_cloud_pause(req); break;
+    case proto::Op::notify_relay:  handle_notify_relay(req); break;
     default: {
       proto::FrameBuilder fb;
       fb.begin(req.op | proto::response_bit);
@@ -1178,6 +1235,7 @@ class SecurityCallbacks : public BLESecurityCallbacks {
   void onAuthenticationComplete(esp_ble_auth_cmpl_t desc) override {
     if (desc.success) {
       g_ble_authenticated = true;
+      g_ancs.on_encrypted();
       Serial.println("[ble] paired and encrypted");
     } else {
       Serial.printf("[ble] pairing failed (0x%02x), dropping link\n", desc.fail_reason);
@@ -1207,6 +1265,13 @@ void reset_if_reflashed() {
   prefs.end();
 }
 
+void load_relay_setting() {
+  Preferences prefs;
+  if (!prefs.begin(prefs_namespace, /*readOnly=*/true)) return;
+  g_relay_enabled = prefs.getBool(key_relay, false);
+  prefs.end();
+}
+
 void load_owner_key() {
   Preferences prefs;
   if (!prefs.begin(prefs_namespace, /*readOnly=*/true)) return;
@@ -1230,9 +1295,12 @@ void setup_ble(const String& name) {
   // none on the board (after a reflash or NVS loss) makes iOS refuse to reconnect with
   // "peer removed pairing information"; without bonds that mismatch cannot happen. The
   // board's real access control is the owner key, not the bond.
+  // Exception: iOS only shares its notifications (ANCS) with a bonded accessory, so the
+  // notification relay turns bonding on. Bonds live in NVS, which reflashing keeps, and
+  // switching the relay off later keeps them too, so the two sides never disagree.
   BLESecurity* security = new BLESecurity();
   security->setCapability(ESP_IO_CAP_NONE);
-  security->setAuthenticationMode(/*bonding=*/false, /*mitm=*/false, /*sc=*/true);
+  security->setAuthenticationMode(/*bonding=*/g_relay_enabled, /*mitm=*/false, /*sc=*/true);
   BLEDevice::setSecurityCallbacks(new SecurityCallbacks());
 
   g_server = BLEDevice::createServer();
@@ -1265,6 +1333,7 @@ void setup_ble(const String& name) {
   adv->setMinPreferred(0x06);  // recommended connection-interval hints for iOS
   adv->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
+  if (g_relay_enabled) g_ancs.begin();
 
   Serial.printf("[ble] advertising as %s\n", name.c_str());
 }
@@ -1289,6 +1358,7 @@ void setup() {
   esp_read_mac(g_mac, ESP_MAC_BT);
   reset_if_reflashed();
   load_owner_key();
+  load_relay_setting();
   Serial.printf("[mem] free heap before radios: %u bytes\n", ESP.getFreeHeap());
 
   const String name = device_name();
@@ -1334,6 +1404,9 @@ void loop() {
   service_auto_cloud(now);
   if (g_cloud.take_state_changed()) send_cloud_changed();
   if (!g_pairing_boot) g_script.service(now);
+  g_ancs.service(now);
+  static jarvis::AncsNotification relayed;  // ~300 bytes; kept off loop()'s stack
+  while (g_ancs.take(relayed)) send_ios_notification(relayed);
 
   // BOOT button held: leave cloud mode so a phone can reach the board over Bluetooth.
   if (g_cloud_boot) {

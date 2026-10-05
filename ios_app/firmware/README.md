@@ -11,6 +11,8 @@ firmware/
     JarvisEsp32.ino        BLE server, command dispatch, GPIO state machine
     WifiLink.h/.cpp        Wi‑Fi station, TCP server, mDNS, stored credentials
     ScriptRuntime.h/.cpp   sandboxed Lua runtime for app/Jarvis-written scripts
+    Ancs.h/.cpp            iPhone-notification relay for the glasses (ANCS client)
+    AncsParser.h           ANCS wire format, host-tested by tests/ancs_parser_test.cpp
     src/lua/               Lua 5.4.7 (io, os, debug, package libs removed)
     Protocol.h             frame format, opcodes, CRC — mirrored in Esp32Protocol.swift
     Pins.h                 which GPIOs are exposed and what each can do
@@ -99,11 +101,12 @@ byte. Full opcode table in `Protocol.h`.
 | `45` | CLAIM | owner key (BLE only, unclaimed board) |
 | `46` | WIFI_SCAN | page → total, page, (rssi, secure, ssid)… or `scanning`, retry |
 | `48`–`4A` | CLOUD_SET / STATUS / FORGET | see *Direct link to Jarvis* below |
+| `4C` | NOTIFY_RELAY | `[]` query, `[on]` set → on, state, forwarded (u16). See *Notification relay* |
 | `50`–`57` | SCRIPT_* / JARVIS_RESULT | see *Scripting runtime* below |
 
 Events (`E1` input changed, `E2` pulse done, `E3` blink done, `E4` Wi‑Fi changed, `E5`
 script output, `E6` jarvis call, `E7` script state, `E8` cloud link changed) are pushed
-to every live link.
+to every live link. `E9` ios notification goes to authenticated owner sessions only.
 Frames are up to 243 bytes (`max_body` 240), sized to the BLE MTU the app negotiates.
 
 ## Exposed pins
@@ -119,6 +122,32 @@ fine at runtime, but don't leave them held by external hardware at reset.
 - Input edges are debounced 40 ms before an event is sent.
 - Outputs keep their state when the phone disconnects. `ALL_OFF` is the safe stop.
 - Frames that fail CRC get a status-only reply with opcode `80` and are otherwise ignored.
+
+## Notification relay (iPhone → glasses)
+
+The INMO glasses don't render iPhone notifications they read from iOS themselves, so
+the board reads them instead and hands them to the app, which draws each one on the lens
+through the glasses' own card route. The switch is on the board page ("Glasses
+notifications") and on the glasses page ("Relay through ESP32").
+
+- The board runs an **ANCS client** (Apple Notification Center Service) on the phone's
+  existing BLE link: once the link is encrypted it subscribes to the phone's Notification
+  Source and Data Source and asks for each new notification's app id, title and message.
+  Notifications iOS replays on connect, and removals, are ignored.
+- iOS only shares ANCS with a **bonded** accessory the user allowed, so the relay also
+  turns BLE bonding on. Bonding mode applies at boot, so `NOTIFY_RELAY` saves the setting
+  (NVS key `relay`) and reboots the board; the app reconnects with
+  `CBConnectPeripheralOptionRequiresANCS`, and iOS asks once to pair and to share
+  notifications. If it was declined: Settings › Bluetooth › ⓘ › Share System Notifications.
+- Each notification goes out as event `E9`: category, app id, title, message
+  (length-prefixed UTF-8, clipped on a character boundary to fit one frame).
+- While the relay is on the app holds the Bluetooth link (no Wi‑Fi switch), the board
+  never drops into cloud mode (cloud mode turns Bluetooth off), and the glasses' own ANCS
+  is switched off so nothing shows twice. The app skips Jarvis's own notifications and
+  incoming calls (the glasses show calls already).
+
+Parser test, no board needed:
+`c++ -std=c++17 -I JarvisEsp32 tests/ancs_parser_test.cpp -o /tmp/ancs && /tmp/ancs`
 
 ## Direct link to Jarvis (cloud mode)
 

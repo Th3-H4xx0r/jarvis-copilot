@@ -72,6 +72,9 @@ enum class Op : uint8_t {
   cloud_status = 0x49, // → status, state, mode, url_len, url…, err_len, err…
   cloud_forget = 0x4A, // → status. Drops the session and reboots into Bluetooth mode.
   cloud_pause  = 0x4B, // → status. Keeps the session, reboots into Bluetooth mode for now.
+  notify_relay = 0x4C, // [] → query, [on] → set. → status, on, state (AncsState), forwarded (u16 BE).
+                       //   The iPhone-notification relay for the glasses (Ancs.h). Changing it
+                       //   reboots the board, because it also switches BLE bonding on or off.
   reset_owner = 0x47,  // → status. Forgets the owner key so the next phone can claim the
                        //   board — ONLY while the BOOT button is held (physical presence),
                        //   so a stranger over BLE cannot steal a board. Any link may send it.
@@ -105,6 +108,8 @@ enum class Event : uint8_t {
   jarvis_call   = 0xE6,  // call_id (u16 BE), name_len, name…, json args…
   script_state  = 0xE7,  // state (ScriptState)
   cloud_changed = 0xE8,  // state (CloudState)
+  ios_notification = 0xE9,  // category, app_len, app…, title_len, title…, msg_len, msg… (UTF-8,
+                            //   clipped to one frame). Owner sessions only; never to scripts.
 };
 
 enum class CloudState : uint8_t {

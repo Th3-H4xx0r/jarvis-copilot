@@ -120,10 +120,12 @@ struct InmoPendingCards {
     var ancsAuthorized: Bool? { peripheral?.ancsAuthorized }
     // Require ANCS on the CoreBluetooth link when notifications are enabled (or
     // when the debug flag forces it) so iOS exposes its notification service to
-    // the glasses and prompts, one time, to authorise it.
+    // the glasses and prompts, one time, to authorise it. Not while the ESP32 relays
+    // the phone's notifications instead: the relay's cards would arrive twice.
     private static let requiresANCSFlag = ProcessInfo.processInfo.arguments.contains("--inmo-ancs-require")
     private var connectOptions: [String: Any]? {
-        (Self.requiresANCSFlag || Self.notificationsEnabled) ? [CBConnectPeripheralOptionRequiresANCS: true] : nil
+        (Self.requiresANCSFlag || (Self.notificationsEnabled && !Esp32NotificationRelay.isOnAnyBoard))
+            ? [CBConnectPeripheralOptionRequiresANCS: true] : nil
     }
     #else
     private var connectOptions: [String: Any]? { nil }
@@ -161,12 +163,19 @@ struct InmoPendingCards {
         }
         #endif
     }
+    /// Re-send the notification setup after the ESP32 relay is switched, so the
+    /// glasses stop (or resume) reading ANCS themselves straight away.
+    func refreshNotificationSetup() {
+        guard isReady else { return }
+        Task { await sendNotificationSetup(Self.notificationsEnabled) }
+    }
     /// Tell the firmware to consume iOS ANCS (IOS_ANCS_ENABLE) and, when on, list
     /// the apps it may show. The official app refuses this on iOS 27, so whether the
-    /// lens then shows iPhone notifications is what the diagnostics are for.
+    /// lens then shows iPhone notifications is what the diagnostics are for. While the
+    /// ESP32 relay is on, the glasses' own ANCS stays off and only the app list goes.
     private func sendNotificationSetup(_ on: Bool) async {
         do {
-            try await send(InmoCommand.iosAncsEnable(on))
+            try await send(InmoCommand.iosAncsEnable(on && !Esp32NotificationRelay.isOnAnyBoard))
             if on { for name in Self.notificationApps { try await send(InmoCommand.notificationApp(name, enabled: true)) } }
             #if os(iOS)
             InmoRuntimeDiagnostics.note("ANCS setup sent enabled=\(on) apps=\(on ? Self.notificationApps.count : 0) authorized=\(ancsAuthorized.map(String.init) ?? "nil")")

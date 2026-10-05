@@ -70,6 +70,7 @@ struct InmoGo3View: View {
     @State private var renaming = false
     @State private var confirmForget = false
     @State private var notificationsOn = InmoSession.notificationsEnabled
+    @ObservedObject private var esp32 = WearablesHub.shared.esp32
     /// Optional so previews and tests without the shell still build the screen.
     @Environment(AppRouter.self) private var router: AppRouter?
 
@@ -362,12 +363,30 @@ struct InmoGo3View: View {
                        "bell.badge",
                        isOn: Binding(get: { notificationsOn },
                                      set: { on in notificationsOn = on; InmoSession.shared.setNotificationsEnabled(on) }))
+                divider
+                toggle("Relay through ESP32", esp32RelaySubtitle, "cpu",
+                       isOn: Binding(get: { esp32.relay?.on ?? false },
+                                     set: { on in
+                                         if on { notificationsOn = true }  // setRelay turns them on too
+                                         esp32.perform { try await esp32.setRelay(on) }
+                                     }))
+                    .disabled(esp32.state != .ready || esp32.relay == nil)
             }
             Button { InmoSession.shared.sendTestNotification() } label: {
                 Label("Send test notification", jcIcon: "bell.badge.fill")
             }
             .buttonStyle(.jcGlass(full: true))
         }
+    }
+
+    /// The paired ESP32 reads the iPhone's notifications instead of the glasses, and
+    /// Jarvis puts each one on the lens (Esp32Manager.relayToGlasses).
+    private var esp32RelaySubtitle: String {
+        guard esp32.state == .ready else { return "Connect your ESP32 board in Wearables first." }
+        guard let relay = esp32.relay else { return "Flash ESP32 firmware 1.1 or later." }
+        if !relay.on { return "Your ESP32 reads iPhone notifications and Jarvis shows them here." }
+        if relay.state == .notShared { return "Settings › Bluetooth › ⓘ on the board › Share System Notifications." }
+        return "\(relay.state.label) · \(relay.forwarded) sent"
     }
 
     // MARK: Device
