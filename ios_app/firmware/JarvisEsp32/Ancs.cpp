@@ -12,7 +12,7 @@ constexpr uint16_t gattc_app_id = 0x4A43;
 constexpr uint32_t rediscover_ms = 15000;
 // iOS answers a Get Notification Attributes in milliseconds; past this it never will.
 constexpr uint32_t request_timeout_ms = 3000;
-constexpr uint8_t queue_depth = 4;
+constexpr uint8_t queue_depth = 8;  // also covers the seconds a reconnecting phone takes to re-auth
 
 AncsClient* g_self = nullptr;
 
@@ -128,6 +128,7 @@ void AncsClient::handle(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_
       break;
     case ESP_GATTC_WRITE_DESCR_EVT:
       if (phase_ != Phase::subscribing) break;
+      Serial.printf("[ancs] subscribe write handle=%u status=0x%02x\n", p->write.handle, p->write.status);
       if (p->write.status != ESP_GATT_OK) { not_shared("phone refused the subscription", p->write.status); break; }
       if (++cccd_done_ == 2) {
         phase_ = Phase::receiving;
@@ -136,6 +137,7 @@ void AncsClient::handle(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_
       break;
     case ESP_GATTC_WRITE_CHAR_EVT:
       // A refused request means the notification was gone before we asked; move on.
+      if (p->write.handle == cp_) Serial.printf("[ancs] request written status=0x%02x\n", p->write.status);
       if (p->write.handle == cp_ && p->write.status != ESP_GATT_OK) {
         outstanding_ = false;
         request_next();
@@ -171,6 +173,7 @@ void AncsClient::subscribe() {
   ns_ = char_handle(ancs::notification_source_uuid);
   cp_ = char_handle(ancs::control_point_uuid);
   ds_ = char_handle(ancs::data_source_uuid);
+  Serial.printf("[ancs] handles source=%u control=%u data=%u\n", ns_, cp_, ds_);
   if (ns_ == 0 || cp_ == 0 || ds_ == 0) { not_shared("ANCS characteristics missing", 0); return; }
   phase_ = Phase::subscribing;
   cccd_done_ = 0;
@@ -197,7 +200,10 @@ void AncsClient::enable_cccd(uint16_t char_handle) {
 
 void AncsClient::on_source(const uint8_t* v, size_t n) {
   ancs::SourceEvent e;
-  if (!ancs::parse_source(v, n, e) || !ancs::wants(e)) return;
+  if (!ancs::parse_source(v, n, e)) return;
+  Serial.printf("[ancs] source event=%u flags=0x%02x category=%u uid=%lu%s\n", e.event_id, e.flags, e.category,
+                static_cast<unsigned long>(e.uid), ancs::wants(e) ? "" : " (skipped)");
+  if (!ancs::wants(e)) return;
   if (count_ < pending_cap) {  // a burst bigger than the backlog drops the newest
     pending_[(head_ + count_) % pending_cap] = Pending{e.uid, e.category};
     ++count_;
@@ -215,7 +221,9 @@ void AncsClient::request_next() {
     const size_t n = ancs::build_request(next.uid, req);
     assembler_.begin(next.uid);
     outstanding_category_ = next.category;
-    if (esp_ble_gattc_write_char(if_, conn_id_, cp_, n, req, ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE) == ESP_OK) {
+    const esp_err_t err = esp_ble_gattc_write_char(if_, conn_id_, cp_, n, req, ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+    Serial.printf("[ancs] asking for uid=%lu (err=%d)\n", static_cast<unsigned long>(next.uid), err);
+    if (err == ESP_OK) {
       outstanding_ = true;
       sent_at_ms_ = millis();
     }
@@ -228,6 +236,9 @@ void AncsClient::on_data(const uint8_t* v, size_t n) {
     case ancs::Assembler::Result::more:
       return;
     case ancs::Assembler::Result::done:
+      Serial.printf("[ancs] got cat=%u app=%s title=%uB message=%uB\n", outstanding_category_, assembler_.attributes().app,
+                    static_cast<unsigned>(strlen(assembler_.attributes().title)),
+                    static_cast<unsigned>(strlen(assembler_.attributes().message)));
       scratch_.category = outstanding_category_;
       scratch_.attrs = assembler_.attributes();
       // loop() is behind: drop rather than block the Bluetooth task.

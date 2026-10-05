@@ -443,6 +443,7 @@ final class WearablesHub: ObservableObject {
         bottle.publishRemembered()
         scale.publishRemembered()
         esp32.publishRemembered()
+        esp32.holdRelayLink()
         ring.publishRemembered()
         x5.publishRemembered()
         band.publishRemembered()

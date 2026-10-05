@@ -40,7 +40,8 @@ class AncsClient {
   void on_encrypted() { encrypted_ = true; }
   /// loop(): (re)starts discovery while ANCS isn't subscribed yet.
   void service(uint32_t now);
-  /// loop(): next finished notification, if any.
+  /// loop(): next finished notification, if any. Call only with an owner session to
+  /// hand it to: until then notifications wait in the queue (newest dropped when full).
   bool take(AncsNotification& out);
 
   AncsState state() const;
@@ -78,7 +79,7 @@ class AncsClient {
 
   // Request pipeline: one Get Notification Attributes in flight at a time, because
   // Data Source replies are not tagged by request. Bluetooth task only.
-  static constexpr uint8_t pending_cap = 8;
+  static constexpr uint8_t pending_cap = 16;
   Pending pending_[pending_cap] = {};
   uint8_t head_ = 0, count_ = 0;
   bool outstanding_ = false;

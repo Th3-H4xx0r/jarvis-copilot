@@ -276,6 +276,8 @@ void send_ios_notification(const jarvis::AncsNotification& n) {
   if (len == 0) return;
   if (g_ble_authorized) send_ble(fb.data(), len);
   if (g_wifi.client_authenticated()) g_wifi.send(fb.data(), len);
+  Serial.printf("[ancs] forwarded %u bytes (ble %s, wifi %s)\n", static_cast<unsigned>(len),
+                g_ble_authorized ? "yes" : "no", g_wifi.client_authenticated() ? "yes" : "no");
 }
 
 void send_status(proto::Op op, proto::Status st) {
@@ -1405,8 +1407,10 @@ void loop() {
   if (g_cloud.take_state_changed()) send_cloud_changed();
   if (!g_pairing_boot) g_script.service(now);
   g_ancs.service(now);
+  // Held in the queue until the owner's session is back: a phone that reconnects on its
+  // own (iOS keeps bonded ANCS accessories linked) re-authenticates a few seconds later.
   static jarvis::AncsNotification relayed;  // ~300 bytes; kept off loop()'s stack
-  while (g_ancs.take(relayed)) send_ios_notification(relayed);
+  while ((g_ble_authorized || g_wifi.client_authenticated()) && g_ancs.take(relayed)) send_ios_notification(relayed);
 
   // BOOT button held: leave cloud mode so a phone can reach the board over Bluetooth.
   if (g_cloud_boot) {

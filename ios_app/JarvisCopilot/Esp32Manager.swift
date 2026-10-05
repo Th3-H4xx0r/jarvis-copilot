@@ -390,6 +390,20 @@ final class Esp32Manager: NSObject, ObservableObject {
         startScan()
     }
 
+    /// The notification relay has to run without anyone opening the board page: on every
+    /// launch (a background relaunch too) and foreground, a board whose relay is on gets a
+    /// connect. A pending BLE connect never times out, so iOS completes it whenever the
+    /// board is in range — app suspended or not — and state restoration relaunches the app
+    /// for it if iOS had ended it. (A force-quit app is not relaunched; iOS rule.)
+    func holdRelayLink() {
+        guard !sessionWanted, bluetoothReady,
+              let record = Self.knownBoards.first(where: { Esp32NotificationRelay.isOn(for: $0.deviceID) }),
+              let uuid = record.peripheralID.flatMap(UUID.init(uuidString:)),
+              let p = central.retrievePeripherals(withIdentifiers: [uuid]).first else { return }
+        JcLog.devices.debug("esp32 holding the notification relay link to \(record.name)")
+        connect(DiscoveredEsp32(id: record.deviceID, name: record.name, rssi: 0, peripheral: p, record: record))
+    }
+
     /// Called when the app returns to the foreground: iOS may have torn the socket down
     /// while we were suspended, and a reconnect scheduled then never got to run.
     func resumeIfNeeded() {
@@ -579,6 +593,13 @@ final class Esp32Manager: NSObject, ObservableObject {
         guard sessionWanted, connected != nil else { return }
         let dropped = activeLink
         teardownLinks()
+        // The notification relay can't wait on a timer: a suspended app's timers don't run,
+        // but a pending BLE connect does — iOS completes it and wakes the app to re-auth.
+        if dropped == .bluetooth, let board = connected, Esp32NotificationRelay.isOn(for: board.id) {
+            connect(board)
+            lastError = message
+            return
+        }
         linkHint = dropped == .bluetooth ? .wifi : .bluetooth
         scheduleReconnect(message + ", reconnecting…")
     }
@@ -1204,6 +1225,8 @@ extension Esp32Manager: CBCentralManagerDelegate {
         let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
         Task { @MainActor in
             guard let p = restored.first(where: { $0.state == .connected || $0.state == .connecting }) else { return }
+            // iOS relaunched us for this link, so the session is wanted: a drop must reconnect.
+            sessionWanted = true
             peripheral = p
             p.delegate = self
             activeLink = .bluetooth
@@ -1219,7 +1242,7 @@ extension Esp32Manager: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor in
             bluetoothReady = central.state == .poweredOn
-            if bluetoothReady { startScan() }
+            if bluetoothReady { startScan(); holdRelayLink() }
         }
     }
 
