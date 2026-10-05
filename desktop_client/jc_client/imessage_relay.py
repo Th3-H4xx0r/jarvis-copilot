@@ -61,38 +61,63 @@ def decode_attributed_body(blob: bytes | None) -> str:
     return blob[start:start + n].decode("utf-8", "replace")
 
 
-def _contact_name(handle: str, cache: dict[str, str]) -> str:
-    """The contact's name for a phone number or email, when Contacts allows it."""
-    if handle in cache:
-        return cache[handle]
-    name = handle
-    try:
-        import Contacts  # pyobjc; present in the tray's environment
+AB_SOURCES = Path.home() / "Library" / "Application Support" / "AddressBook"
+_book: dict[str, str] = {}
+_book_loaded_at = 0.0
 
-        store = Contacts.CNContactStore.alloc().init()
-        keys = [Contacts.CNContactGivenNameKey, Contacts.CNContactFamilyNameKey]
-        if "@" in handle:
-            pred = Contacts.CNContact.predicateForContactsMatchingEmailAddress_(handle)
-        else:
-            number = Contacts.CNPhoneNumber.phoneNumberWithStringValue_(handle)
-            pred = Contacts.CNContact.predicateForContactsMatchingPhoneNumber_(number)
-        found, _err = store.unifiedContactsMatchingPredicate_keysToFetch_error_(pred, keys, None)
-        if found:
-            c = found[0]
-            full = f"{c.givenName()} {c.familyName()}".strip()
-            if full:
-                name = full
-    except Exception:  # noqa: BLE001 - Contacts is a nicety, never a failure
-        pass
-    cache[handle] = name
-    return name
+
+def _digits(number: str) -> str:
+    """Last 10 digits — matches "+1 (510) 777-3312" against "5107773312"."""
+    d = "".join(ch for ch in number if ch.isdigit())
+    return d[-10:]
+
+
+def _load_book() -> None:
+    """Read every name/phone/email from the Contacts databases. Full Disk Access
+    (already needed for chat.db) covers them, so no Contacts permission prompt."""
+    global _book, _book_loaded_at
+    book: dict[str, str] = {}
+    for db_path in AB_SOURCES.rglob("AddressBook-v22.abcddb"):
+        try:
+            db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2)
+        except sqlite3.Error:
+            continue
+        try:
+            names = {}
+            for pk, first, last, org in db.execute(
+                    "SELECT Z_PK, ZFIRSTNAME, ZLASTNAME, ZORGANIZATION FROM ZABCDRECORD"):
+                full = " ".join(x for x in (first, last) if x) or (org or "")
+                if full:
+                    names[pk] = full
+            for owner, number in db.execute("SELECT ZOWNER, ZFULLNUMBER FROM ZABCDPHONENUMBER"):
+                if owner in names and number and _digits(number):
+                    book[_digits(number)] = names[owner]
+            for owner, address in db.execute("SELECT ZOWNER, ZADDRESS FROM ZABCDEMAILADDRESS"):
+                if owner in names and address:
+                    book[address.strip().lower()] = names[owner]
+        except sqlite3.Error:
+            pass
+        finally:
+            db.close()
+    _book, _book_loaded_at = book, time.time()
+    log.info("iMessage relay: %d contact numbers/emails loaded", len(book))
+
+
+def _sender_label(handle: str) -> str:
+    """ "Jarvis (+15107773312)" when the number or email is a contact, else the handle."""
+    if not handle:
+        return "iMessage"
+    if time.time() - _book_loaded_at > 600:  # pick up new contacts every 10 minutes
+        _load_book()
+    key = handle.strip().lower() if "@" in handle else _digits(handle)
+    name = _book.get(key)
+    return f"{name} ({handle})" if name else handle
 
 
 class IMessageRelay:
     def __init__(self, api_origin) -> None:
         # Called lazily: the loopback proxy may not be up yet when the relay starts.
         self._api_origin = api_origin
-        self._names: dict[str, str] = {}
         self._warned = False
 
     def start(self) -> None:
@@ -121,7 +146,7 @@ class IMessageRelay:
                         last = rowid
                         message = (text or decode_attributed_body(body)).strip()
                         if message:
-                            self._send(_contact_name(handle or "", self._names) or "iMessage", message)
+                            self._send(_sender_label(handle or ""), message)
                 except sqlite3.Error as exc:
                     if not self._warned:
                         log.warning("iMessage relay can't query Messages: %s", exc)
