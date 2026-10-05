@@ -213,21 +213,11 @@ struct InmoPendingCards {
         }
         Task { try? await sendCard(title: cardTitle, body: cardBody, app: app) }
     }
-    /// Apps already put on the glasses' notification list this connection.
-    private var listedCardApps: Set<String> = []
-    /// The glasses label a card by matching its package name against their notification
-    /// app list (that's how "com.jarviscopilot" came out as "JARVIS"), so a card from
-    /// another app carries the app's name as its package and the name joins the list.
+    /// Every card goes out exactly as Jarvis's own (package com.jarviscopilot): those are
+    /// the ones the lens wakes for — cards carrying another app's name as the package
+    /// arrived without waking it. The app's name rides in the title instead.
     private func sendCard(title: String, body: String, app: String?) async throws {
-        guard let app, !app.isEmpty else {
-            try await send(InmoCommand.appNotification(title: title, content: body))
-            return
-        }
-        if !listedCardApps.contains(app) {
-            try await send(InmoCommand.notificationApp(app, enabled: true))
-            listedCardApps.insert(app)
-        }
-        try await send(InmoCommand.appNotification(title: title, content: body, packageName: app))
+        try await send(InmoCommand.appNotification(title: title, content: body))
     }
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
