@@ -86,7 +86,7 @@ phone's message.
 | `band_set_alarm` | `action`: `list` \| `add` \| `delete`; `time` (`HH:MM`), `days` (`mon`…`sun`), `id`, `enabled` | Vibrating alarms on the band: `list` returns each with its `id`; `add` needs `time` (no `days` = once); `delete` needs `id`. |
 | `band_set_sedentary` | `enabled`; `interval_minutes`, `start`, `end` (`HH:MM`) | The sit-too-long reminder and the hours it covers. |
 | `band_set_profile` | `sex`, `age`, `height_cm`, `weight_kg` | Body profile for calories, distance and blood pressure; unspecified fields keep their values. |
-| `band_set_monitoring` | `metric`: `heart_rate` \| `spo2` \| `blood_pressure` \| `temperature`; `enabled`; `interval_minutes` | Automatic background readings. |
+| `band_set_monitoring` | `metric`: `heart_rate` \| `hrv` \| `ppg` \| `blood_pressure` \| `spo2` \| `low_spo2_alert` \| `blood_glucose` \| `blood_component` \| `temperature` \| `stress` \| `met`; `enabled`; `start`/`end` (SpO2) | Automatic background readings (the E910 picks its own ~10-min interval; it has no interval or vibration-length setting). |
 | `band_get_log` | `limit` | Recent commands and replies, decoded, newest first. |
 
 Units and codes match the R12: sleep stages `2` light, `3` deep, `4` REM, `5` awake, a night

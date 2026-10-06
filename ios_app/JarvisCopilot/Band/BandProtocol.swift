@@ -38,6 +38,8 @@ enum BandOp {
     static let alerts: UInt8 = 0xAD
     static let disconnect: UInt8 = 0xAF
     static let bloodOxygenAuto: UInt8 = 0xB3
+    /// The personal blood-pressure reference (the SDK's "private mode").
+    static let bloodPressureCalibration: UInt8 = 0x91
     static let screenTime: UInt8 = 0xB4
     static let find: UInt8 = 0xB5
     static let camera: UInt8 = 0xB6

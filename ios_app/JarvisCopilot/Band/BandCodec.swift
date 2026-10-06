@@ -233,7 +233,61 @@ enum BandRequest {
                enabled ? 1 : 0])
     }
 
-    static func readBloodOxygenAuto() -> [UInt8] { frame([BandOp.bloodOxygenAuto, 0x02]) }
+    /// `B3 00 01 16 00 08 00 00`: type 0 (night SpO₂), operation 1 = read, as the Android SDK's
+    /// `readSpo2hAutoDetect` sends it. (`B3 02` was a write of an unknown type 2: the band
+    /// answered it with zeros, so the switch always read back off.)
+    static func readBloodOxygenAuto() -> [UInt8] { frame([BandOp.bloodOxygenAuto, 0x00, 0x01, 22, 0, 8, 0, 0]) }
+
+    // MARK: Calibration (the Android SDK's BpSetting, blood component and glucose adjusting)
+
+    /// `91 02`.
+    static func readBloodPressureCalibration() -> [UInt8] { frame([BandOp.bloodPressureCalibration, 0x02]) }
+
+    /// `91 on sys dia 00`: measured against a cuff's reading, or not.
+    static func bloodPressureCalibration(_ c: BandBPCalibration) -> [UInt8] {
+        frame([BandOp.bloodPressureCalibration, c.enabled ? 1 : 0, byte(c.systolic), byte(c.diastolic), 0])
+    }
+
+    /// `8A 02 02`.
+    static func readBloodComponentCalibration() -> [UInt8] { frame([BandOp.bloodComponent, 0x02, 0x02]) }
+
+    /// `8A 02 01 on` + uric acid ×10, then total cholesterol, triglycerides, HDL and LDL ×100,
+    /// each little-endian.
+    static func bloodComponentCalibration(_ c: BandBloodComponentCalibration) -> [UInt8] {
+        func scaled(_ v: Double, _ by: Double) -> [UInt8] { le16(Int((v * by).rounded())) }
+        return frame([BandOp.bloodComponent, 0x02, 0x01, c.enabled ? 1 : 0] + scaled(c.uricAcid, 10)
+                     + scaled(c.cholesterol, 100) + scaled(c.triglycerides, 100) + scaled(c.hdl, 100) + scaled(c.ldl, 100))
+    }
+
+    /// `89 02 02`: one glucose reference.
+    static func readGlucoseCalibration() -> [UInt8] { frame([BandOp.glucoseStress, 0x02, 0x02]) }
+
+    /// `89 02 01 mmol×100 (LE) on`.
+    static func glucoseCalibration(_ c: BandGlucoseCalibration) -> [UInt8] {
+        let value = c.meals.first?.before ?? 0
+        return frame([BandOp.glucoseStress, 0x02, 0x01] + le16(Int((value * 100).rounded())) + [c.enabled ? 1 : 0])
+    }
+
+    /// `89 03 02 01 01`: the meal references.
+    static func readGlucoseMealCalibration() -> [UInt8] { frame([BandOp.glucoseStress, 0x03, 0x02, 0x01, 0x01]) }
+
+    /// The meal references in two frames, `89 03 01 n 02` + 15 then 10 bytes of: on, then per meal
+    /// the time before it (h m), its value ×100 (LE), the time after (h m) and that value. A time
+    /// not given is `00 FF`, as the SDK writes its −1.
+    static func glucoseMealCalibrationFrames(_ c: BandGlucoseCalibration) -> [[UInt8]] {
+        func clock(_ minute: Int?, _ value: Double?) -> [UInt8] {
+            guard let minute, let value, value > 0 else { return [0x00, 0xFF] }
+            return [byte(minute / 60), byte(minute % 60)]
+        }
+        var payload: [UInt8] = [c.enabled ? 1 : 0]
+        for i in 0..<3 {
+            let m = i < c.meals.count ? c.meals[i] : BandGlucoseCalibration.Meal()
+            payload += clock(m.beforeMinute, m.before) + le16(Int(((m.before ?? 0) * 100).rounded()))
+            payload += clock(m.afterMinute, m.after) + le16(Int(((m.after ?? 0) * 100).rounded()))
+        }
+        return [frame([BandOp.glucoseStress, 0x03, 0x01, 0x01, 0x02] + payload[0..<15]),
+                frame([BandOp.glucoseStress, 0x03, 0x01, 0x02, 0x02] + payload[15..<25])]
+    }
 
     // MARK: Phone alerts
 

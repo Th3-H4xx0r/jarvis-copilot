@@ -69,6 +69,9 @@ final class BandSession: ObservableObject {
     @Published private(set) var heartRateAlarm: BandHeartRateAlarm?
     @Published private(set) var raiseToWake: BandRaiseToWake?
     @Published private(set) var oxygenSchedule: BandOxygenSchedule?
+    @Published private(set) var bpCalibration: BandBPCalibration?
+    @Published private(set) var componentCalibration: BandBloodComponentCalibration?
+    @Published private(set) var glucoseCalibration: BandGlucoseCalibration?
     @Published private(set) var log: [BandLogEntry] = []
     /// True while the band buzzes to be found. It stops on `find(false)`, when the wearer
     /// presses it, or on its own timeout — the band says which (`B5`).
@@ -355,6 +358,95 @@ final class BandSession: ObservableObject {
     func setBloodOxygenAuto(enabled: Bool, start: (h: Int, m: Int), end: (h: Int, m: Int)) async throws {
         try await write(BandRequest.bloodOxygenAuto(enabled: enabled, start: start, end: end), timeout: 3)
         oxygenSchedule?.enabled = enabled
+    }
+
+    // MARK: Calibration
+
+    /// What the band's glucose estimate takes (its A7 glucose tag, as the Android SDK reads it):
+    /// one reference (2, 3, 6), a reference per meal (4, 5, 7, 8, 9), or none.
+    var glucoseCalibrationKind: BandGlucoseCalibration.Kind {
+        switch features?.types["bloodGlucoseFunction"] ?? 0 {
+        case 2, 3, 6: return .single
+        case 4, 5, 7, 8, 9: return .meals
+        default: return .none
+        }
+    }
+
+    /// Blood pressure always; blood components when its tag is 2 (single calibration).
+    var calibratesBloodPressure: Bool { features?.supports("blood_pressure") ?? false }
+    var calibratesBloodComponents: Bool { features?.types["bloodComponentType"] == 2 }
+
+    /// The three references, read back (each only where the band has it).
+    func refreshCalibrations() async {
+        if calibratesBloodPressure,
+           let f = try? await transport.perform(BandRequest.readBloodPressureCalibration(), timeout: 3,
+                                                until: { $0.contains { BandDecode.bloodPressureCalibration($0) != nil } }) {
+            bpCalibration = f.compactMap(BandDecode.bloodPressureCalibration).last
+        }
+        if calibratesBloodComponents,
+           let f = try? await transport.perform(BandRequest.readBloodComponentCalibration(), timeout: 3,
+                                                until: { $0.contains { BandDecode.bloodComponentCalibration($0) != nil } }) {
+            componentCalibration = f.compactMap(BandDecode.bloodComponentCalibration).last
+        }
+        switch glucoseCalibrationKind {
+        case .meals:
+            if let f = try? await transport.perform(BandRequest.readGlucoseMealCalibration(), timeout: 4,
+                                                    until: { BandDecode.glucoseMealCalibration($0) != nil }) {
+                glucoseCalibration = BandDecode.glucoseMealCalibration(f)
+            }
+        case .single:
+            if let f = try? await transport.perform(BandRequest.readGlucoseCalibration(), timeout: 3,
+                                                    until: { $0.contains { BandDecode.glucoseCalibration($0) != nil } }) {
+                glucoseCalibration = f.compactMap(BandDecode.glucoseCalibration).last
+            }
+        case .none:
+            break
+        }
+    }
+
+    func setBloodPressureCalibration(_ c: BandBPCalibration) async throws {
+        let replies = try await transport.perform(BandRequest.bloodPressureCalibration(c), timeout: 4) { frames in
+            frames.contains { $0.first == BandOp.bloodPressureCalibration }
+        }
+        guard replies.contains(where: { $0.count > 1 && $0[0] == BandOp.bloodPressureCalibration && $0[1] == 1 }) else {
+            throw BandError.refused("The band refused the blood-pressure reference.")
+        }
+        bpCalibration = c
+    }
+
+    func setBloodComponentCalibration(_ c: BandBloodComponentCalibration) async throws {
+        let replies = try await transport.perform(BandRequest.bloodComponentCalibration(c), timeout: 4) { frames in
+            frames.contains { $0.count > 3 && $0[0] == BandOp.bloodComponent && $0[1] == 2 }
+        }
+        guard let saved = replies.compactMap(BandDecode.bloodComponentCalibration).last else {
+            throw BandError.refused("The band refused the blood-test reference.")
+        }
+        componentCalibration = saved
+    }
+
+    func setGlucoseCalibration(_ c: BandGlucoseCalibration) async throws {
+        switch glucoseCalibrationKind {
+        case .meals:
+            // Two frames; the band answers each, `89 03 01 ok n total`, and is done at n = total.
+            for frame in BandRequest.glucoseMealCalibrationFrames(c) {
+                let replies = try await transport.perform(frame, timeout: 4) { frames in
+                    frames.contains { $0.count > 3 && $0[0] == BandOp.glucoseStress && $0[1] == 3 && $0[2] == 1 }
+                }
+                guard replies.contains(where: { $0.count > 3 && $0[1] == 3 && $0[2] == 1 && $0[3] == 1 }) else {
+                    throw BandError.refused("The band refused the glucose references.")
+                }
+            }
+        case .single:
+            let replies = try await transport.perform(BandRequest.glucoseCalibration(c), timeout: 4) { frames in
+                frames.contains { $0.count > 3 && $0[0] == BandOp.glucoseStress && $0[1] == 2 }
+            }
+            guard replies.contains(where: { BandDecode.glucoseCalibration($0) != nil }) else {
+                throw BandError.refused("The band refused the glucose reference.")
+            }
+        case .none:
+            throw BandError.refused("This band takes no glucose reference.")
+        }
+        glucoseCalibration = c
     }
 
     func setSkinTone(_ level: Int) async throws {

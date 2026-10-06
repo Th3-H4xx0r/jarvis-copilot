@@ -364,7 +364,8 @@ struct BandSettingsView: View {
                 }
                 alertsCard
                 alarmsCard
-                healthCard
+                BandMonitorSettings(session: session) { name, args in invoke(name, args) }
+                remindersCard
                 unitsCard
                 connectionCard
                 logCard
@@ -382,6 +383,7 @@ struct BandSettingsView: View {
         .task {
             guard manager.state == .ready else { return }
             await session.refreshReminders()
+            await session.refreshCalibrations()
             await loadAlarms()
         }
         .onAppear { keepAlive = manager.keepAliveEnabled }
@@ -461,33 +463,34 @@ struct BandSettingsView: View {
         alarms = (try? await session.readAlarms()) ?? []
     }
 
-    // MARK: Health
+    // MARK: Reminders
 
-    private var healthCard: some View {
-        CardGroup("Health", footer: "Automatic measuring runs on the band through the day; SpO2 overnight.") {
-            let settings = session.settings?.json ?? [:]
+    private static let sittingIntervals = [30, 45, 60, 90, 120]
+
+    /// The reminder as the band has it, with `changes` over it (its hours are kept).
+    private func sittingArgs(_ changes: [String: Any]) -> [String: Any] {
+        (session.sedentary?.json ?? [:]).merging(changes) { _, new in new }
+    }
+
+    private var remindersCard: some View {
+        CardGroup("Reminders") {
             toggleRow("Sitting reminder", on: session.sedentary?.enabled ?? false) {
-                invoke("band_set_sedentary", ["enabled": $0, "interval_minutes": 60])
+                invoke("band_set_sedentary", sittingArgs(["enabled": $0]))
             }
-            RowDivider()
-            toggleRow("Auto heart rate", on: settings["auto_heart_rate"] as? Bool ?? false) {
-                invoke("band_set_monitoring", ["metric": "heart_rate", "enabled": $0])
-            }
-            RowDivider()
-            toggleRow("Auto blood pressure", on: settings["auto_blood_pressure"] as? Bool ?? false) {
-                invoke("band_set_monitoring", ["metric": "blood_pressure", "enabled": $0])
-            }
-            RowDivider()
-            toggleRow("Auto temperature", on: settings["auto_temperature"] as? Bool ?? false) {
-                invoke("band_set_monitoring", ["metric": "temperature", "enabled": $0])
-            }
-            RowDivider()
-            toggleRow("Overnight SpO2", on: session.oxygenSchedule?.enabled ?? false) {
-                invoke("band_set_monitoring", ["metric": "spo2", "enabled": $0])
-            }
-            RowDivider()
-            toggleRow("Heart-rate alarm", on: session.heartRateAlarm?.enabled ?? false) {
-                invoke("band_set_heart_rate_alarm", ["enabled": $0])
+            if session.sedentary?.enabled == true {
+                RowDivider()
+                Row(minHeight: 50) {
+                    HStack {
+                        Text("Every")
+                        Spacer()
+                        Picker("Every", selection: Binding(get: { session.sedentary?.intervalMinutes ?? 60 }, set: { minutes in
+                            invoke("band_set_sedentary", sittingArgs(["enabled": true, "interval_minutes": minutes]))
+                        })) {
+                            ForEach(Self.sittingIntervals, id: \.self) { Text("\($0) min").tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
             }
             RowDivider()
             toggleRow("Raise to wake", on: session.raiseToWake?.enabled ?? session.handshake?.raiseToWake ?? false) {

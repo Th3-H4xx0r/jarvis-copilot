@@ -133,10 +133,12 @@ final class BandCodecTests: XCTestCase {
         XCTAssertEqual(hex(BandRequest.raiseToWake(true)), "aa01080016000500000000000000000000000000")
         XCTAssertEqual(hex(BandRequest.raiseToWake(false)), "aa00080016000500000000000000000000000000")
         XCTAssertEqual(hex(BandRequest.readRaiseToWake()), "aa02000000000000000000000000000000000000")
-        // veepooSendBloodOxygenAutoTestDataManager start setup 22:00–07:00; ReadB3AutoTestFeatureData.
+        // veepooSendBloodOxygenAutoTestDataManager start setup 22:00–07:00. The read is the Android
+        // SDK's readSpo2hAutoDetect (operation 1); the WeChat SDK's `B3 02` is the newer B3
+        // auto-test read, which the E910 (no B3 auto-test feature) takes as a write.
         XCTAssertEqual(hex(BandRequest.bloodOxygenAuto(enabled: true, start: (22, 0), end: (7, 0))),
                        "b300001600070001000000000000000000000000")
-        XCTAssertEqual(hex(BandRequest.readBloodOxygenAuto()), "b302000000000000000000000000000000000000")
+        XCTAssertEqual(hex(BandRequest.readBloodOxygenAuto()), "b300011600080000000000000000000000000000")
     }
 
     func testAlarmRequestsCarryTheSDKsCRC() {

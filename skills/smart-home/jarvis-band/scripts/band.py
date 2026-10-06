@@ -44,7 +44,8 @@ STATUS_SKILL = "band_get_status"
 METRICS = ("activity", "sleep", "heart_rate", "spo2", "hrv", "temperature", "blood_pressure")
 MEASUREMENTS = ("heart_rate", "spo2", "blood_pressure", "temperature", "stress", "blood_glucose",
                 "blood_component", "body_composition", "ecg")
-MONITORED_METRICS = ("heart_rate", "spo2", "blood_pressure", "temperature")
+MONITORED_METRICS = ("heart_rate", "hrv", "ppg", "blood_pressure", "spo2", "low_spo2_alert", "blood_glucose",
+                     "blood_component", "temperature", "stress", "met")
 WORKOUT_ACTIONS = ("start", "pause", "resume", "end", "status")
 ALARM_ACTIONS = ("list", "add", "delete")
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")

@@ -137,10 +137,11 @@ final class BandDevice: WearableDevice {
                 ])),
             DeviceCapability(
                 name: "band_set_monitoring",
-                description: "Turn the band's automatic heart-rate, blood-pressure, temperature or SpO2 measuring on/off "
-                    + "(SpO2 takes a start/end window, overnight by default).",
+                description: "Turn one of the band's automatic measurements on/off: heart rate, HRV, PPG, blood "
+                    + "pressure, SpO2 (a start/end window, overnight by default), the low-SpO2 alert, blood glucose, "
+                    + "blood components, temperature, stress or MET. The band picks its own interval (about 10 minutes).",
                 inputSchema: DeviceCapability.schema([
-                    "metric": ["type": "string", "enum": ["heart_rate", "blood_pressure", "temperature", "spo2"]],
+                    "metric": ["type": "string", "enum": ["spo2"] + BandDevice.monitorSwitches.keys.sorted()],
                     "enabled": ["type": "boolean"], "interval_minutes": ["type": "integer"],
                     "start": clock, "end": clock,
                 ], required: ["metric", "enabled"])),
@@ -560,12 +561,12 @@ final class BandDevice: WearableDevice {
                 return ["ok": true, "metric": metric, "enabled": enabled]
             }
         }
-        guard ["heart_rate", "blood_pressure", "temperature"].contains(metric) else {
-            throw DeviceError.badArgument("'metric' must be heart_rate, blood_pressure, temperature or spo2")
+        guard let name = Self.monitorSwitches[metric] else {
+            throw DeviceError.badArgument("'metric' is one of spo2, \(Self.monitorSwitches.keys.sorted().joined(separator: ", "))")
         }
         return try await live { _ in
             guard let current = self.session.settings else { throw DeviceError.notConnected }
-            var json: [String: Any] = ["auto_\(metric)": enabled]
+            var json: [String: Any] = [name: enabled]
             if let interval = args["interval_minutes"] as? Int { json["interval_minutes"] = interval }
             guard let updated = BandSettings(json: json, base: current) else {
                 throw DeviceError.badArgument("the band has no automatic \(metric.replacingOccurrences(of: "_", with: " "))")
@@ -574,6 +575,14 @@ final class BandDevice: WearableDevice {
             return ["ok": true, "metric": metric, "enabled": enabled, "settings": updated.json]
         }
     }
+
+    /// `band_set_monitoring`'s metrics → the `B8` switch each one is.
+    static let monitorSwitches: [String: String] = [
+        "heart_rate": "auto_heart_rate", "hrv": "auto_hrv", "ppg": "auto_ppg", "blood_pressure": "auto_blood_pressure",
+        "low_spo2_alert": "low_spo2_alert", "blood_glucose": "auto_blood_glucose",
+        "blood_component": "auto_blood_component", "temperature": "auto_temperature", "stress": "auto_stress",
+        "met": "met",
+    ]
 
     private func recentLog(_ args: [String: Any]) -> [String: Any] {
         let limit = max(1, min(200, args["limit"] as? Int ?? 60))

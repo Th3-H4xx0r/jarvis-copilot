@@ -480,6 +480,45 @@ struct BandOxygenSchedule: Equatable, Codable {
     var endMinute: Int
 }
 
+/// The personal blood-pressure reference (`91`, the SDK's private mode): with it on, the band
+/// reads blood pressure against the cuff reading given here.
+struct BandBPCalibration: Equatable, Codable {
+    var enabled: Bool
+    var systolic: Int
+    var diastolic: Int
+}
+
+/// A lab blood test the band's blood-component estimate follows (`8A 02`): uric acid in µmol/L,
+/// the fats in mmol/L.
+struct BandBloodComponentCalibration: Equatable, Codable {
+    var enabled: Bool
+    var uricAcid: Double
+    var cholesterol: Double
+    var triglycerides: Double
+    var hdl: Double
+    var ldl: Double
+}
+
+/// Meter readings the band's glucose estimate follows (`89`): before and after each of three
+/// meals (the E910's kind, `89 03`), or one value (`89 02`, the first meal's `before`). mmol/L.
+struct BandGlucoseCalibration: Equatable, Codable {
+    struct Meal: Equatable, Codable {
+        /// Minutes after midnight.
+        var beforeMinute: Int?
+        var before: Double?
+        var afterMinute: Int?
+        var after: Double?
+    }
+
+    enum Kind: String, Codable {
+        case none, single, meals
+    }
+
+    var enabled: Bool
+    /// Breakfast, lunch, dinner.
+    var meals: [Meal]
+}
+
 /// What a `B5` frame says.
 enum BandFindEvent: String, Codable {
     /// The band is buzzing.
@@ -1032,6 +1071,43 @@ enum BandDecode {
     }
 
     /// `B3 ack .. .. sh sm eh em on`.
+    /// `91 ok sys dia mode op`: ok 1; mode 1 = measured against the reference.
+    static func bloodPressureCalibration(_ f: [UInt8]) -> BandBPCalibration? {
+        guard f.count >= 6, f[0] == BandOp.bloodPressureCalibration, f[1] == 1 else { return nil }
+        return BandBPCalibration(enabled: f[4] == 1, systolic: Int(f[2]), diastolic: Int(f[3]))
+    }
+
+    /// `8A 02 op ok on` + uric acid ×10 and the four fats ×100 (LE), for a read (op 2) or a write (1).
+    static func bloodComponentCalibration(_ f: [UInt8]) -> BandBloodComponentCalibration? {
+        guard f.count >= 15, f[0] == BandOp.bloodComponent, f[1] == 2, f[3] == 1 else { return nil }
+        return BandBloodComponentCalibration(enabled: f[4] == 1, uricAcid: Double(le16(f, 5)) / 10,
+                                             cholesterol: Double(le16(f, 7)) / 100, triglycerides: Double(le16(f, 9)) / 100,
+                                             hdl: Double(le16(f, 11)) / 100, ldl: Double(le16(f, 13)) / 100)
+    }
+
+    /// `89 02 op ok value×100 (LE) on`.
+    static func glucoseCalibration(_ f: [UInt8]) -> BandGlucoseCalibration? {
+        guard f.count >= 7, f[0] == BandOp.glucoseStress, f[1] == 2, f[3] == 1 else { return nil }
+        let value = Double(le16(f, 4)) / 100
+        return BandGlucoseCalibration(enabled: f[6] == 1, meals: [.init(before: value > 0 ? value : nil)])
+    }
+
+    /// The two `89 03 02 01 n 02` frames of a meal read: the first whole, the second from byte 6
+    /// (31 bytes), on at 6, then three 8-byte meals.
+    static func glucoseMealCalibration(_ frames: [[UInt8]]) -> BandGlucoseCalibration? {
+        let parts = frames.filter { $0.count >= 17 && $0[0] == BandOp.glucoseStress && $0[1] == 3 && $0[2] == 2 && $0[3] == 1 }
+        guard let first = parts.first(where: { $0[4] == 1 }), let second = parts.first(where: { $0[4] == 2 }) else { return nil }
+        let joined = Array(first.prefix(20)) + Array(second[6..<17])
+        func meal(_ at: Int) -> BandGlucoseCalibration.Meal {
+            let before = Double(le16(joined, at + 2)) / 100, after = Double(le16(joined, at + 6)) / 100
+            return .init(beforeMinute: before > 0 ? Int(joined[at]) * 60 + Int(joined[at + 1]) : nil,
+                         before: before > 0 ? before : nil,
+                         afterMinute: after > 0 ? Int(joined[at + 4]) * 60 + Int(joined[at + 5]) : nil,
+                         after: after > 0 ? after : nil)
+        }
+        return BandGlucoseCalibration(enabled: joined[6] == 1, meals: [meal(7), meal(15), meal(23)])
+    }
+
     static func bloodOxygenAuto(_ f: [UInt8]) -> BandOxygenSchedule? {
         guard f.count >= 9, f[0] == BandOp.bloodOxygenAuto, f[1] == 1 else { return nil }
         return BandOxygenSchedule(enabled: f[8] == 1, startHour: Int(f[4]), startMinute: Int(f[5]), endHour: Int(f[6]),

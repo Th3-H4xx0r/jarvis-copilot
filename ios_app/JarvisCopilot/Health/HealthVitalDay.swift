@@ -27,13 +27,69 @@ struct HealthChartScale: ViewModifier {
     }
 }
 
+/// A day's readings as the chart draws them: each half hour's average (the band records every
+/// ten minutes; the band's own app draws the half hours).
+struct HealthVitalDay: Equatable {
+    struct Slot: Equatable, Identifiable {
+        var start: Date
+        var value: Double
+        var low: Double?
+        var count: Int
+
+        var id: Date { start }
+        var middle: Date { start.addingTimeInterval(900) }
+    }
+
+    /// Every reading, oldest first.
+    var points: [HealthVitalReading]
+    var slots: [Slot]
+    /// Runs of half hours with no gap: the line breaks where one is missing.
+    var runs: [[Slot]]
+
+    init(_ history: HealthHistory, metric: HealthMetric) {
+        points = (history.readings ?? []).filter { $0.metric == metric.rawValue }.sorted { $0.date < $1.date }
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: points) { p -> Date in
+            let parts = calendar.dateComponents([.hour, .minute], from: p.date)
+            return calendar.startOfDay(for: p.date)
+                .addingTimeInterval(TimeInterval((parts.hour ?? 0) * 3600 + (parts.minute ?? 0) / 30 * 1800))
+        }
+        slots = grouped.keys.sorted().map { start in
+            let inside = grouped[start]!
+            let lows = inside.compactMap(\.diastolic)
+            return Slot(start: start, value: inside.map(\.value).reduce(0, +) / Double(inside.count),
+                        low: lows.isEmpty ? nil : lows.reduce(0, +) / Double(lows.count), count: inside.count)
+        }
+        var runs: [[Slot]] = []
+        for slot in slots {
+            if let last = runs.last?.last, slot.start.timeIntervalSince(last.start) <= 1800 {
+                runs[runs.count - 1].append(slot)
+            } else {
+                runs.append([slot])
+            }
+        }
+        self.runs = runs
+    }
+
+    /// The half hour nearest `date` (within two hours), else nil.
+    func slot(near date: Date) -> Slot? {
+        guard let nearest = slots.min(by: { abs($0.middle.timeIntervalSince(date)) < abs($1.middle.timeIntervalSince(date)) }),
+              abs(nearest.middle.timeIntervalSince(date)) <= 7200 else { return nil }
+        return nearest
+    }
+}
+
 /// One vital's day from the server (`/health/history?range=D&end=`), each day kept once
 /// loaded so stepping back and forth doesn't wait.
 @MainActor
 final class HealthVitalDayModel: ObservableObject {
     let metric: HealthMetric
     @Published private(set) var day: Date
-    @Published private(set) var history: HealthHistory?
+    @Published private(set) var history: HealthHistory? {
+        didSet { readings = history.map { HealthVitalDay($0, metric: metric) } }
+    }
+    /// The day worked out once per load, not on every frame of a scrub.
+    @Published private(set) var readings: HealthVitalDay?
     @Published private(set) var error: String?
     private var loaded: [String: HealthHistory] = [:]
     private let client: HealthClient
@@ -61,7 +117,7 @@ final class HealthVitalDayModel: ObservableObject {
             let fresh = try await client.history(metric: metric.rawValue, range: HealthRange.day.rawValue, end: key,
                                                  unit: TrainingUnit.current.rawValue)
             loaded[key] = fresh
-            guard key == self.key else { return }
+            guard key == self.key, fresh != history else { return }
             history = fresh
             error = nil
         } catch {
@@ -80,7 +136,9 @@ final class HealthVitalDayModel: ObservableObject {
 struct HealthVitalDayView: View {
     let metric: HealthMetric
     @StateObject private var model: HealthVitalDayModel
-    @State private var scrubbed: Date?
+    /// The half hour under the finger. Only a new half hour is a change: the drag moves every
+    /// frame, and redrawing the page that often made scrubbing crawl.
+    @State private var picked: Date?
     // A unit picked below redraws the page.
     @AppStorage(GlucoseUnit.key) private var glucoseUnit: GlucoseUnit = .mmolL
     @AppStorage(BloodFatUnit.key) private var bloodFatUnit: BloodFatUnit = .mmolL
@@ -94,8 +152,8 @@ struct HealthVitalDayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             stepper
-            if let history = model.history {
-                content(history)
+            if let history = model.history, let day = model.readings {
+                content(history, day)
             } else if let error = model.error {
                 CardGroup {
                     Row { Text(error).font(.subheadline).foregroundStyle(.orange) }
@@ -107,10 +165,10 @@ struct HealthVitalDayView: View {
             }
         }
         .task(id: model.key) {
-            scrubbed = nil
+            picked = nil
             await model.load()
         }
-        .sensoryFeedback(.selection, trigger: slot(points)?.start)
+        .sensoryFeedback(.selection, trigger: picked)
     }
 
     // MARK: Day
@@ -133,42 +191,46 @@ struct HealthVitalDayView: View {
         .padding(.horizontal, 28)
     }
 
-    /// The day's readings, oldest first.
-    private var points: [HealthVitalReading] {
-        (model.history?.readings ?? []).filter { $0.metric == metric.rawValue }.sorted { $0.date < $1.date }
-    }
-
     private var kind: String { model.history?.kind ?? "" }
 
-    private func content(_ history: HealthHistory) -> some View {
-        let points = self.points
+    /// The scrubbed half hour, else the latest.
+    private func slot(_ day: HealthVitalDay) -> HealthVitalDay.Slot? {
+        if let picked { return day.slots.first { $0.start == picked } }
+        return day.slots.last
+    }
+
+    private func content(_ history: HealthHistory, _ day: HealthVitalDay) -> some View {
+        let slot = slot(day)
         return VStack(alignment: .leading, spacing: 20) {
+            headline(slot, day: day)
+                .padding(.horizontal, 24)
             CardGroup {
-                VStack(spacing: 6) {
-                    headline(points)
-                    if points.isEmpty {
-                        Text("No \(metric.inSentence) on this day.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 200)
-                    } else {
-                        chart(points)
+                if day.points.isEmpty {
+                    Row(minHeight: 180) {
+                        Text("No \(metric.inSentence) on this day.").font(.subheadline).foregroundStyle(.secondary)
                     }
+                } else {
+                    HealthVitalDayChart(day: day, kind: kind, tint: metric.tint, title: metric.title,
+                                        start: model.day, picked: picked == nil ? nil : slot?.middle,
+                                        selection: selection(day))
+                        .equatable()
+                        .padding(14)
                 }
-                .padding(14)
-                if let average = history.headline.value, !points.isEmpty {
+                if let average = history.headline.value, !day.points.isEmpty {
                     RowDivider()
                     Row {
                         HStack {
                             Text("Average for the whole day").font(.subheadline)
                             Spacer()
-                            Text(averageText(average, history.headline.low))
-                                .font(.system(.title3, design: .rounded).weight(.semibold))
+                            Text(text(average, history.headline.low))
+                                .font(.system(.body, design: .rounded).weight(.semibold))
                                 .monospacedDigit()
                         }
                     }
                 }
             }
-            if let lowest = points.min(by: { $0.value < $1.value }), let highest = points.max(by: { $0.value < $1.value }) {
+            if let lowest = day.points.min(by: { $0.value < $1.value }),
+               let highest = day.points.max(by: { $0.value < $1.value }) {
                 CardGroup {
                     HStack(spacing: 0) {
                         extreme("Min.", lowest, symbol: "arrow.down")
@@ -179,79 +241,60 @@ struct HealthVitalDayView: View {
                 }
             }
             if let bars = history.reference, !bars.isEmpty {
-                HealthReferenceCard(bars: bars, value: { marker($0, points) }, caption: slotLabel(points))
+                HealthReferenceCard(bars: bars, value: { bar in bar.field == "low" ? slot?.low : slot?.value },
+                                    caption: slot.map(span) ?? model.day.formatted(.dateTime.month(.abbreviated).day()))
             }
-            if !points.isEmpty {
+            if !day.points.isEmpty {
                 CardGroup("Highlights") {
                     Row {
                         Text(history.highlight).font(.subheadline).fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 4)
                     }
                 }
-                HealthReadingsCard(readings: points.reversed(), kind: kind, bars: history.reference ?? [],
+                HealthReadingsCard(readings: day.points.reversed(), kind: kind, bars: history.reference ?? [],
                                    timesOnly: true)
             }
             HealthUnitCard(kind: kind)
         }
     }
 
-    // MARK: Headline: the half hour under the finger (the latest one before a touch)
-
-    struct Slot: Equatable {
-        var start: Date
-        var value: Double
-        var low: Double?
-        var count: Int
+    /// The chart's selection, kept as the half hour it falls in.
+    private func selection(_ day: HealthVitalDay) -> Binding<Date?> {
+        Binding(get: { picked }, set: { date in
+            let start = date.flatMap { day.slot(near: $0)?.start }
+            if start != picked { picked = start }
+        })
     }
 
-    private func slot(_ points: [HealthVitalReading]) -> Slot? {
-        let anchor: HealthVitalReading?
-        if let scrubbed {
-            anchor = points.min { abs($0.date.timeIntervalSince(scrubbed)) < abs($1.date.timeIntervalSince(scrubbed)) }
-        } else {
-            anchor = points.last
+    // MARK: Headline, as the other ranges write theirs
+
+    /// "4:30–4:59 PM".
+    private func span(_ slot: HealthVitalDay.Slot) -> String {
+        let end = slot.start.addingTimeInterval(1740)
+        return "\(slot.start.formatted(.dateTime.hour().minute()))–\(end.formatted(.dateTime.hour().minute()))"
+    }
+
+    private func headline(_ slot: HealthVitalDay.Slot?, day: HealthVitalDay) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text((slot.map { "\($0.count > 1 ? "Average" : "Reading") · \(span($0))" } ?? "Average").uppercased())
+                .font(.caption.weight(.semibold))
+                .kerning(0.4)
+                .foregroundStyle(picked == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+            Text(slot.map { text($0.value, $0.low) } ?? "—")
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.2), value: slot?.value)
+            Text(picked == nil ? "\(day.points.count) reading\(day.points.count == 1 ? "" : "s") · latest half hour"
+                 : "\(slot?.count ?? 0) reading\(slot?.count == 1 ? "" : "s") in this half hour")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        guard let anchor else { return nil }
-        let calendar = Calendar.current
-        let parts = calendar.dateComponents([.hour, .minute], from: anchor.date)
-        let start = calendar.startOfDay(for: anchor.date)
-            .addingTimeInterval(TimeInterval((parts.hour ?? 0) * 3600 + (parts.minute ?? 0) / 30 * 1800))
-        let inside = points.filter { $0.date >= start && $0.date < start.addingTimeInterval(1800) }
-        guard !inside.isEmpty else { return nil }
-        let lows = inside.compactMap(\.diastolic)
-        return Slot(start: start, value: inside.map(\.value).reduce(0, +) / Double(inside.count),
-                    low: lows.isEmpty ? nil : lows.reduce(0, +) / Double(lows.count), count: inside.count)
     }
 
-    /// "07:30 AM–07:59 AM".
-    private func slotLabel(_ points: [HealthVitalReading]) -> String {
-        guard let slot = slot(points) else { return model.day.formatted(.dateTime.month(.abbreviated).day()) }
-        let style = Date.FormatStyle.dateTime.hour(.twoDigits(amPM: .abbreviated)).minute()
-        return "\(slot.start.formatted(style))–\(slot.start.addingTimeInterval(1740).formatted(style))"
-    }
-
-    private func headline(_ points: [HealthVitalReading]) -> some View {
-        let slot = slot(points)
-        return VStack(spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(slot.map { $0.count > 1 ? "Average" : "Reading" } ?? "Average")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Text(slot.map { averageText($0.value, $0.low) } ?? "—")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .animation(.snappy(duration: 0.2), value: slot?.value)
-            }
-            Text(slotLabel(points))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(scrubbed == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
-        }
-        .frame(maxWidth: .infinity)
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
-    }
-
-    private func averageText(_ value: Double, _ low: Double?) -> String {
+    private func text(_ value: Double, _ low: Double?) -> String {
         if kind == "mmhg", let low { return "\(Int(value.rounded()))/\(Int(low.rounded())) mmHg" }
         return HealthFormat.string(value, kind: kind)
     }
@@ -270,73 +313,78 @@ struct HealthVitalDayView: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
 
-    // MARK: Reference
+/// The day's line, redrawn only when the day, the unit or the picked half hour changes.
+struct HealthVitalDayChart: View, Equatable {
+    let day: HealthVitalDay
+    let kind: String
+    let tint: Color
+    let title: String
+    let start: Date
+    let picked: Date?
+    let selection: Binding<Date?>
+    /// The shown unit, so a new one redraws.
+    private let unitScale = HealthFormat.shown(1, kind: "glucose") + HealthFormat.shown(1, kind: "cholesterol")
+        + HealthFormat.shown(1, kind: "uric_acid")
 
-    private func marker(_ bar: HealthReferenceBar, _ points: [HealthVitalReading]) -> Double? {
-        guard let slot = slot(points) else { return nil }
-        return bar.field == "low" ? slot.low : slot.value
+    init(day: HealthVitalDay, kind: String, tint: Color, title: String, start: Date, picked: Date?,
+         selection: Binding<Date?>) {
+        self.day = day
+        self.kind = kind
+        self.tint = tint
+        self.title = title
+        self.start = start
+        self.picked = picked
+        self.selection = selection
     }
 
-    // MARK: Chart
-
-    /// The band records every half hour: a missed one breaks the line over the gap.
-    private func runs(_ points: [HealthVitalReading]) -> [[HealthVitalReading]] {
-        var out: [[HealthVitalReading]] = []
-        for p in points {
-            if let last = out.last?.last, p.date.timeIntervalSince(last.date) <= 2400 {
-                out[out.count - 1].append(p)
-            } else {
-                out.append([p])
-            }
-        }
-        return out
+    static func == (a: Self, b: Self) -> Bool {
+        a.day == b.day && a.kind == b.kind && a.start == b.start && a.picked == b.picked && a.unitScale == b.unitScale
     }
 
     private func shown(_ v: Double) -> Double { HealthFormat.shown(v, kind: kind) }
 
-    private func chart(_ points: [HealthVitalReading]) -> some View {
-        let start = model.day
+    var body: some View {
         let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
-        let values = points.flatMap { [$0.value, $0.diastolic].compactMap { $0 } }.map(shown)
+        let values = day.slots.flatMap { [$0.value, $0.low].compactMap { $0 } }.map(shown)
         let domain = HealthChartScale.padded(values) ?? 0...1
-        let picked = scrubbed == nil ? nil : slot(points)
-        let runs = Array(runs(points).enumerated())
+        let runs = Array(day.runs.enumerated())
         return Chart {
             ForEach(runs, id: \.offset) { index, run in
-                ForEach(run) { p in
+                ForEach(run) { slot in
                     if kind != "mmhg" {
-                        AreaMark(x: .value("Time", p.date), yStart: .value("Floor", domain.lowerBound),
-                                 yEnd: .value(metric.title, shown(p.value)), series: .value("Run", "a\(index)"))
-                            .foregroundStyle(LinearGradient(colors: [metric.tint.opacity(0.28), metric.tint.opacity(0.02)],
+                        AreaMark(x: .value("Time", slot.middle), yStart: .value("Floor", domain.lowerBound),
+                                 yEnd: .value(title, shown(slot.value)), series: .value("Run", "a\(index)"))
+                            .foregroundStyle(LinearGradient(colors: [tint.opacity(0.28), tint.opacity(0.02)],
                                                             startPoint: .top, endPoint: .bottom))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.monotone)
                     }
-                    LineMark(x: .value("Time", p.date), y: .value(metric.title, shown(p.value)),
+                    LineMark(x: .value("Time", slot.middle), y: .value(title, shown(slot.value)),
                              series: .value("Run", "v\(index)"))
-                        .foregroundStyle(metric.tint)
+                        .foregroundStyle(tint)
                         .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round))
-                        .interpolationMethod(.catmullRom)
-                    if let low = p.diastolic {
-                        LineMark(x: .value("Time", p.date), y: .value("Diastolic", low), series: .value("Run", "d\(index)"))
-                            .foregroundStyle(metric.tint.opacity(0.55))
+                        .interpolationMethod(.monotone)
+                    if let low = slot.low {
+                        LineMark(x: .value("Time", slot.middle), y: .value("Diastolic", low), series: .value("Run", "d\(index)"))
+                            .foregroundStyle(tint.opacity(0.55))
                             .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.monotone)
                     }
                     if run.count < 3 {
-                        PointMark(x: .value("Time", p.date), y: .value(metric.title, shown(p.value)))
-                            .foregroundStyle(metric.tint)
+                        PointMark(x: .value("Time", slot.middle), y: .value(title, shown(slot.value)))
+                            .foregroundStyle(tint)
                             .symbolSize(30)
-                        if let low = p.diastolic {
-                            PointMark(x: .value("Time", p.date), y: .value("Diastolic", low))
-                                .foregroundStyle(metric.tint.opacity(0.55))
+                        if let low = slot.low {
+                            PointMark(x: .value("Time", slot.middle), y: .value("Diastolic", low))
+                                .foregroundStyle(tint.opacity(0.55))
                                 .symbolSize(30)
                         }
                     }
                 }
             }
             if let picked {
-                RuleMark(x: .value("When", picked.start.addingTimeInterval(900)))
+                RuleMark(x: .value("When", picked))
                     .lineStyle(StrokeStyle(lineWidth: 1))
                     .foregroundStyle(.white.opacity(0.55))
             }
@@ -355,7 +403,7 @@ struct HealthVitalDayView: View {
                 AxisValueLabel { Text(Self.axisLabel(value.as(Double.self) ?? 0)) }
             }
         }
-        .chartXSelection(value: $scrubbed)
+        .chartXSelection(value: selection)
         .frame(height: 220)
     }
 

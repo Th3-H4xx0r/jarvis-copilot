@@ -12,7 +12,13 @@ struct HealthHistoryView: View {
 
     @StateObject private var model: HealthHistoryModel
     @State private var range: HealthRange = .week
-    @State private var scrubbed: Date?
+    /// The bar under the finger. Only a new bar is a change: the drag moves every frame, and
+    /// redrawing the page that often made scrubbing crawl.
+    @State private var scrubbedID: String?
+    // A unit picked below redraws the page.
+    @AppStorage(GlucoseUnit.key) private var glucoseUnit: GlucoseUnit = .mmolL
+    @AppStorage(BloodFatUnit.key) private var bloodFatUnit: BloodFatUnit = .mmolL
+    @AppStorage(UricAcidUnit.key) private var uricAcidUnit: UricAcidUnit = .umolL
     /// Seen once: the headline has rolled up from zero.
     @State private var revealed = false
 
@@ -60,7 +66,7 @@ struct HealthHistoryView: View {
             }
         }
         .task(id: range) {
-            scrubbed = nil
+            scrubbedID = nil
             await model.load(range)
         }
         .onReceive(NotificationCenter.default.publisher(for: .jcWorkoutDeleted)) { note in
@@ -181,11 +187,21 @@ struct HealthHistoryView: View {
     // MARK: Headline
 
     private var scrubbedBucket: HealthHistory.Bucket? {
-        guard let scrubbed, let history = model.histories[range] else { return nil }
-        return history.buckets.first { bucket in
-            bucket.days > 0 && scrubbed >= bucket.startDate
-                && scrubbed < Calendar.current.date(byAdding: .day, value: 1, to: bucket.endDate)!
-        }
+        guard let scrubbedID, let history = model.histories[range] else { return nil }
+        return history.buckets.first { $0.id == scrubbedID }
+    }
+
+    /// The chart's selection, kept as the bar it falls in.
+    private var scrubSelection: Binding<Date?> {
+        Binding(get: { scrubbedBucket?.startDate }, set: { date in
+            let id = date.flatMap { date in
+                model.histories[range]?.buckets.first { bucket in
+                    bucket.days > 0 && date >= bucket.startDate
+                        && date < Calendar.current.date(byAdding: .day, value: 1, to: bucket.endDate)!
+                }?.id
+            }
+            if id != scrubbedID { scrubbedID = id }
+        })
     }
 
     private func headline(_ history: HealthHistory) -> some View {
@@ -282,7 +298,7 @@ struct HealthHistoryView: View {
         }
         .modifier(HealthChartScale(padded: vitalDomain(history),
                                    includesZero: metric.style != .line && metric.style != .range))
-        .chartXSelection(value: $scrubbed)
+        .chartXSelection(value: scrubSelection)
         .frame(height: 220)
         .animation(.snappy(duration: 0.3), value: range)
         .geometryGroup()
