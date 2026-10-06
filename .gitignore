@@ -89,3 +89,5 @@ desktop_client/*.egg-info/
 # A CoreML package keeps its weights in a `Data/` folder, which `data/` above
 # swallows on a case-insensitive checkout — and a model without its weights.
 !**/*.mlpackage/Data/
+inmo-re/
+build/

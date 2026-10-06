@@ -59,7 +59,7 @@ final class CarPlayVoiceScreen {
     private let ui: CPInterfaceController
     private var template: CPVoiceControlTemplate?
     private(set) var isShowing = false {
-        didSet { if isShowing != oldValue { onShowingChange?() } }
+        didSet { if isShowing != oldValue { cpDiag("card isShowing=\(isShowing)"); onShowingChange?() } }
     }
     /// The card opened or closed (the Voice tab moves its header out of the way).
     var onShowingChange: (() -> Void)?
@@ -121,6 +121,7 @@ final class CarPlayVoiceScreen {
         buttonsKey = nil
         updateButtons()
         let shown: (Bool) -> Void = { [weak self] presented in
+            cpDiag("overlay presented=\(presented)")
             guard let self, self.template === template else { return }
             guard presented else {                       // CarPlay refused it: nothing shows, so nothing may record
                 self.isShowing = false

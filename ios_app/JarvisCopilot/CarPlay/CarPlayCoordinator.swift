@@ -42,6 +42,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private var live: (model: DashcamLiveModel, decoder: DashcamStillDecoder, ticker: Task<Void, Never>)?
     private var refreshPending = false
     private var running = false
+    /// CarPlay has the tabs (setRootTemplate finished). Changes made to them before
+    /// this can be lost, so the voice card waits for it.
+    private var rootReady = false
+    private var voiceWaiting = false
     private var cancellables: Set<AnyCancellable> = []
 
     private var sync: DashcamSync { .shared }
@@ -64,7 +68,12 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         wearablesTab.tabImage = UIImage(systemName: "car")
         let tabs = CPTabBarTemplate(templates: [voiceTab, wearablesTab])
         tabBar = tabs
-        ui.setRootTemplate(tabs, animated: false, completion: nil)
+        ui.setRootTemplate(tabs, animated: false) { [weak self] ok, _ in
+            cpDiag("root ready ok=\(ok)")
+            guard let self, self.running else { return }
+            self.rootReady = true
+            if self.voiceWaiting { self.voiceWaiting = false; self.handle(.startVoice) }
+        }
         refresh()
         observeStores()
         subscribeToDevices()
@@ -184,7 +193,10 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     /// said (dim) and the reply with its spoken words lit, and the buttons that fit now.
     private func updateVoiceHeader() {
         let attached = CarPlayScreens.showsVoiceHeader(cardOpen: voice.isShowing) ? voiceHeaderView : nil
-        if voiceTab.listHeader !== attached { voiceTab.listHeader = attached }
+        if voiceTab.listHeader !== attached {
+            cpDiag("listHeader -> \(attached == nil ? "nil" : "header") card=\(voice.isShowing) rootReady=\(rootReady)")
+            voiceTab.listHeader = attached
+        }
         guard let header = voiceHeaderView else { return }
         let v = VoiceStore.shared
         let subtitle = paired ? voiceStateText : "Pair Jarvis on your iPhone"
@@ -454,6 +466,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .push(let screen): push(screen)
         case .startVoice:
             guard paired else { alert("Pair Jarvis on your iPhone first."); return }
+            cpDiag("startVoice rootReady=\(rootReady)")
+            guard rootReady else { voiceWaiting = true; return }
             // The Voice tab is the voice screen: go there, then start listening.
             if tabBar?.selectedTemplate !== voiceTab || !stack.isEmpty {
                 ui.popToRootTemplate(animated: false, completion: nil)
@@ -636,11 +650,19 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
 
     // MARK: CPInterfaceControllerDelegate
 
+    nonisolated func templateDidAppear(_ aTemplate: CPTemplate, animated: Bool) {
+        MainActor.assumeIsolated { cpDiag("didAppear \(type(of: aTemplate)) header=\(voiceTab.listHeader != nil)") }
+    }
+
     nonisolated func templateDidDisappear(_ aTemplate: CPTemplate, animated: Bool) {
         MainActor.assumeIsolated {
+            cpDiag("didDisappear \(type(of: aTemplate))")
             // The voice screen went away without End/Done (the system took it): stop listening.
             if voice.owns(aTemplate) { voice.templateGone() }
             pruneStack()
         }
     }
 }
+
+/// TEMPORARY (2026-10-03): traces the voice card / header hand-off on the car; remove once settled.
+func cpDiag(_ message: String) { print("[cp-diag] \(String(format: "%.3f", Date().timeIntervalSince1970)) \(message)") }
