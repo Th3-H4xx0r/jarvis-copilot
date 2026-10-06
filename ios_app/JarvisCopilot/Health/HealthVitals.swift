@@ -386,6 +386,15 @@ struct HealthMetricGroupView: View {
                     .padding(.vertical, 8)
                 }
             }
+            if group == .ecg, let id = WearablesHub.shared.band.deviceID {
+                NavigationLink { BandEcgHistoryView(deviceID: id) } label: {
+                    Label("ECG reports: rhythm, HRV, QTc, risk analysis", systemImage: BandMeasure.ecg.icon)
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                }
+            }
             HealthHistoryView(metric: metric, tab: tab, selection: selection)
                 .id(metric)
         }

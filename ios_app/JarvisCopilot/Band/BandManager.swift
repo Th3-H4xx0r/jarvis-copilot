@@ -119,6 +119,13 @@ final class BandManager: NSObject, ObservableObject {
         if r.measure == .ecg {
             if let h = r.hrv { extra["hrv"] = Double(h) }
             if let b = r.respiratoryRate { extra["respiratory_rate"] = Double(b) }
+            if let diagnosis = r.ecg { extra.merge(diagnosis.extra) { a, _ in a } }
+            // The whole reading, for its report page.
+            if let deviceID, r.ecg != nil || !session.ecgSamples.isEmpty {
+                BandEcgStore.save(BandEcgReport(date: r.date, diagnosis: r.ecg, heartRates: session.ecgHeartRates,
+                                                samples: session.ecgSamples, sampleRate: session.ecgSampleRate),
+                                  deviceID: deviceID)
+            }
         }
         let value = r.heartRate ?? r.spo2 ?? r.stress
         store.update(key) { day in

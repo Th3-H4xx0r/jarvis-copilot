@@ -226,6 +226,8 @@ struct BandReading: Equatable {
     var bloodGlucose: Double?
     var bloodComponent: BandBloodComponent?
     var bodyComposition: BandBodyComposition?
+    /// ECG: the band's whole diagnosis (QTc, QRS, ST, SDNN/RMSSD, risks, findings).
+    var ecg: BandEcgDiagnosis?
     /// Why it ended without a value (failed, busy, not worn).
     var failure: String?
     /// ECG / body composition: no finger on the electrode right now (the reading carries on).
@@ -263,6 +265,12 @@ struct BandReading: Equatable {
         if let bloodGlucose { out["blood_glucose_mmol_l"] = bloodGlucose }
         if let bloodComponent { out.merge(bloodComponent.json) { a, _ in a } }
         if let bodyComposition { out.merge(bodyComposition.json) { a, _ in a } }
+        if let ecg {
+            out.merge(ecg.extra.mapValues { $0 as Any }) { a, _ in a }
+            out["rhythm"] = ecg.rhythm
+            let findings = ecg.findings
+            if !findings.isEmpty { out["findings"] = findings.map { ["name": $0.name, "grade": $0.gradeWord] } }
+        }
         if let failure { out["failure"] = failure }
         if leadOff { out["lead_off"] = true }
         return out
@@ -371,6 +379,7 @@ struct BandMeasureRun {
                 r.end(.failed, BandReading.Reason.failed)
             }
         case .ecg:
+            r.ecg = BandEcgDiagnosis(data)
             // The diagnosis: lead-off type, eight diagnosis bytes, heart rate, breathing, HRV, QT.
             if (30...250).contains(BandDecode.at(data, 9)) { r.heartRate = BandDecode.at(data, 9) }
             if BandDecode.at(data, 10) > 0 { r.respiratoryRate = BandDecode.at(data, 10) }

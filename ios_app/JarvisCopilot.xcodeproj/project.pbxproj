@@ -121,6 +121,7 @@
 		1E6D01AA4CA1EC7C838846ED /* InmoAIResponseRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D25430B8EECD051E1F0311 /* InmoAIResponseRendererTests.swift */; };
 		1EF54234B4EFB31A8BC55E94 /* LocalRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD8A1EDEAC1B1071D820CEC /* LocalRouter.swift */; };
 		1F1EF60988BBB5B02AACDFB6 /* SelfImprovementAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73041B8C326FE6FC0251CADB /* SelfImprovementAPI.swift */; };
+		1F2EE8C60B1AF1A05FA408C7 /* BandEcgTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C0D975BD69E363B9954EE9 /* BandEcgTests.swift */; };
 		1F74D0CFAC742C6BEA65A468 /* ChatAttachmentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63EC0A1F1264D5B4FE16464F /* ChatAttachmentsTests.swift */; };
 		1FCB731E8A1E7B20F0FD5D82 /* GlassesTranslateWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE015A444EA73A915FDAB241 /* GlassesTranslateWireTests.swift */; };
 		202CB7D0FDE90C5FF546927D /* WatchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 673C412DA32916AA322252F7 /* WatchViewModel.swift */; };
@@ -283,6 +284,7 @@
 		460C6E65E3AB16D9171480EE /* AmbientOpusEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3D404BBE1F88EE7584A34B /* AmbientOpusEncoder.swift */; };
 		466098C65CB4D6BF9C76188C /* DashcamSync+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D39CFE40AAC2B850F38DA6 /* DashcamSync+Live.swift */; };
 		46613DBA30D0464F90450B4C /* VoiceModelPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1917563EC6747D52C7302762 /* VoiceModelPickerSheet.swift */; };
+		467568A6C2F9A02E27E699E2 /* BandEcg.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBAB8DA77700010638A1B71C /* BandEcg.swift */; };
 		46A59800C038F3B179D01CD2 /* IslandBindingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86719261442AFBE85FA6D47B /* IslandBindingsTests.swift */; };
 		472F6F7C24F577900210C74B /* ConnectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B474480B73EBC2CA872FFAC3 /* ConnectionMonitor.swift */; };
 		47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
@@ -820,6 +822,7 @@
 		D95F53BAE120CBBBB10DBBFF /* RingSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C659B43FE2C191B8FAB857 /* RingSceneView.swift */; };
 		DA0861D1D6CC174333058B4A /* WidgetLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E54BDF8A038718B4D0815E5A /* WidgetLayout.swift */; };
 		DA98C647879DE5BF26F3C41B /* WidgetCreatorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C268B9654A2CEFBCEAEF945B /* WidgetCreatorPage.swift */; };
+		DADC951681F55B2D970599B0 /* BandEcgViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */; };
 		DB549599F3E90168B746FDDF /* LiveSessionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0CB57AF6D04496697BD5B /* LiveSessionsSheet.swift */; };
 		DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B976A13B047F8380A8012B /* ClockSkillsTests.swift */; };
 		DB68A5EFC773E3A716FF06E6 /* TodosModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553E205366DFBAA2BD7031EE /* TodosModels.swift */; };
@@ -1105,6 +1108,7 @@
 		14D02944671A690A4C303395 /* BridgeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeSettingsView.swift; sourceTree = "<group>"; };
 		14F3A4C823D2A935733DDEAD /* MemoryStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryStore.swift; sourceTree = "<group>"; };
 		14F6F9AD459413F173CF47EB /* LiveStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveStoreTests.swift; sourceTree = "<group>"; };
+		1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcgViews.swift; sourceTree = "<group>"; };
 		15991A1D7F41088A3118A8B0 /* IntegrationSetupStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationSetupStore.swift; sourceTree = "<group>"; };
 		15E07F70B0F3B547523638C3 /* WearablesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesHub.swift; sourceTree = "<group>"; };
 		15EA1BB17E5186EDBF66B78D /* IntegrationsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsPage.swift; sourceTree = "<group>"; };
@@ -1391,6 +1395,7 @@
 		68AA6C21EF2F12B8AD1D080C /* ChatTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatTestSupport.swift; sourceTree = "<group>"; };
 		695DF5E83265D57DABAD99BB /* TrainingStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingStore.swift; sourceTree = "<group>"; };
 		6998747AD0EC6B5B3EB2EA90 /* AppleFoundationModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleFoundationModel.swift; sourceTree = "<group>"; };
+		69C0D975BD69E363B9954EE9 /* BandEcgTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcgTests.swift; sourceTree = "<group>"; };
 		69C4ACCC9C12F7ADBC039E5E /* NavigationMinimap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NavigationMinimap.swift; sourceTree = "<group>"; };
 		69DF5FD1836D99C7F69E11A7 /* LiveSpeakersScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakersScreen.swift; sourceTree = "<group>"; };
 		6A1F0C263D3C9AF5C066C9EF /* WidgetDesignStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesignStoreTests.swift; sourceTree = "<group>"; };
@@ -1929,6 +1934,7 @@
 		FA6F8D16290937BE3DB979AA /* CodingAttachments.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingAttachments.swift; sourceTree = "<group>"; };
 		FAD8A1EDEAC1B1071D820CEC /* LocalRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalRouter.swift; sourceTree = "<group>"; };
 		FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandWearAsk.swift; sourceTree = "<group>"; };
+		FBAB8DA77700010638A1B71C /* BandEcg.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandEcg.swift; sourceTree = "<group>"; };
 		FBFFB5AA3D0B8B2F2CED14D7 /* X5SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SettingsView.swift; sourceTree = "<group>"; };
 		FC0D894E7B96060BB3A7DA90 /* TrainingRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TrainingRenderTests.swift; sourceTree = "<group>"; };
 		FC1A737C3A59A38264516752 /* MoreDestinationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreDestinationTests.swift; sourceTree = "<group>"; };
@@ -3517,6 +3523,7 @@
 				C37E581B3F19FE64C22BCDB7 /* BandRuntimeTests.swift */,
 				51371DC0E9F6CB5093C5760B /* BandWearPromptRenderTests.swift */,
 				9772B9E778BB546E106224DA /* Esp32RelayTests.swift */,
+				69C0D975BD69E363B9954EE9 /* BandEcgTests.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -3723,6 +3730,8 @@
 				EB5FF67E8522F08547878377 /* BandHandModel.swift */,
 				FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */,
 				8248CC504A7FEB554DA503DE /* BandHand.bin */,
+				FBAB8DA77700010638A1B71C /* BandEcg.swift */,
+				1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */,
 			);
 			name = Band;
 			path = Band;
@@ -4246,6 +4255,7 @@
 				75D771A34F1F5BDA4DFCFBF8 /* BandRuntimeTests.swift in Sources */,
 				29323DCF55A1456ED25F4521 /* BandWearPromptRenderTests.swift in Sources */,
 				3097178881B1D091C96711DD /* Esp32RelayTests.swift in Sources */,
+				1F2EE8C60B1AF1A05FA408C7 /* BandEcgTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4893,6 +4903,8 @@
 				27C8030A44A9CD18C8B27B0A /* BandWearAsk.swift in Sources */,
 				167C3D86B3735160082CA258 /* HealthUnits.swift in Sources */,
 				F1E52F5E3A65FADDBF836622 /* HealthVitals.swift in Sources */,
+				467568A6C2F9A02E27E699E2 /* BandEcg.swift in Sources */,
+				DADC951681F55B2D970599B0 /* BandEcgViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

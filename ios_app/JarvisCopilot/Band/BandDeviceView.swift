@@ -64,6 +64,9 @@ struct BandDeviceView: View {
     @State private var findToken = 0
     /// "Put the band on" for this page's readings.
     @StateObject private var wearAsk: BandWearAsk
+    /// An ECG running now (its live screen), and the report of the one that just ended.
+    @State private var ecgLive = false
+    @State private var ecgReport: BandEcgReport?
 
     init(manager: BandManager, band: DiscoveredRing) {
         self.manager = manager
@@ -98,6 +101,7 @@ struct BandDeviceView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 measureCard
+                if let id = manager.deviceID { ecgReportsLink(id) }
                 workoutLink
                 settingsLink
             }
@@ -123,6 +127,15 @@ struct BandDeviceView: View {
         }
         .navigationDestination(isPresented: $showingSettings) { BandSettingsView(manager: manager) }
         .bandWearSheet(wearAsk)
+        .fullScreenCover(isPresented: $ecgLive) {
+            BandEcgLiveView(session: session) {
+                wearAsk.dismiss()
+                ecgLive = false
+            }
+        }
+        .sheet(item: $ecgReport) { report in
+            NavigationStack { BandEcgReportView(report: report) }
+        }
         .sheet(isPresented: $choosingWorkout) {
             let workout = WearablesHub.shared.ring.workout
             WorkoutPicker(wearable: WearableKeepAlive.band,
@@ -213,7 +226,7 @@ struct BandDeviceView: View {
                 control: RingCardMeasure(
                     state: wearAsk.state(of: type),
                     enabled: ready && !workout && (session.measuring == nil || session.measuring == type),
-                    start: { run { try await wearAsk.measure(type) } },
+                    start: { start(type) },
                     stop: { wearAsk.dismiss() }))
         })
     }
@@ -225,7 +238,51 @@ struct BandDeviceView: View {
         return off ? "Put a finger on the band's metal top and hold it there." : "Keep your finger on the band's metal top until the reading ends."
     }
 
+    /// A reading from the list. ECG gets its live screen, then its report.
+    private func start(_ type: BandMeasure) {
+        if type == .ecg { ecgLive = true }
+        run {
+            do {
+                try await wearAsk.measure(type)
+            } catch {
+                ecgLive = false
+                throw error
+            }
+            guard type == .ecg else { return }
+            ecgLive = false
+            if let id = manager.deviceID, let latest = BandEcgStore.reports(deviceID: id).first,
+               Date().timeIntervalSince(latest.date) < 300 {
+                ecgReport = latest
+            }
+        }
+    }
+
     // MARK: Links
+
+    private func ecgReportsLink(_ deviceID: String) -> some View {
+        CardGroup {
+            NavigationLink { BandEcgHistoryView(deviceID: deviceID) } label: {
+                Row(minHeight: 56) {
+                    HStack(spacing: 12) {
+                        Image(systemName: BandMeasure.ecg.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(BandMeasure.ecg.tint)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ECG reports").font(.body.weight(.medium))
+                            Text("Rhythm, HRV, QTc and risk analysis for each ECG")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     private var workoutLink: some View {
         CardGroup {

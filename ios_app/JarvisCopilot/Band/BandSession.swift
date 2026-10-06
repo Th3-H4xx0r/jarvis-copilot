@@ -73,6 +73,11 @@ final class BandSession: ObservableObject {
     /// True while the band buzzes to be found. It stops on `find(false)`, when the wearer
     /// presses it, or on its own timeout — the band says which (`B5`).
     @Published private(set) var finding = false
+    /// The ECG running now: its waveform (raw counts) and heart rate each second, for the live
+    /// view and the report kept at the end.
+    @Published private(set) var ecgSamples: [Int] = []
+    @Published private(set) var ecgHeartRates: [Int] = []
+    private(set) var ecgSampleRate = 250
 
     /// The band's own workout reports (`DA 03`), between the adapter's polls.
     var onSportStatus: ((BandSportStatus) -> Void)?
@@ -160,6 +165,10 @@ final class BandSession: ObservableObject {
         measuring = type
         defer { measuring = nil }
         let before = lastReading
+        if type == .ecg {
+            ecgSamples = []
+            ecgHeartRates = []
+        }
         let start = BandRequest.measure(type, on: true)
         var run = BandMeasureRun(type, from: now(), seconds: seconds)
         // Every frame's reading from now on, in order — a poll would miss the parts of a result.
@@ -175,7 +184,14 @@ final class BandSession: ObservableObject {
         }
         // The first reply comes back to the request; the rest of the stream is unsolicited.
         let first = try await transport.perform(start, accepts: BandOp.measurementReplies, timeout: 6)
-        for frame in first { if let r = BandDecode.measurement(frame, at: now()) { run.add(r, at: now()) } }
+        for frame in first {
+            // The ECG's start reply names its sample rate (bytes 4–5).
+            if type == .ecg, frame.count > 5, frame[0] == BandOp.ecgBody, frame[1] == 1, frame[3] == 0 {
+                let rate = Int(frame[4]) | Int(frame[5]) << 8
+                if (100...1000).contains(rate) { ecgSampleRate = rate }
+            }
+            if let r = BandDecode.measurement(frame, at: now()) { run.add(r, at: now()) }
+        }
         while !run.ended {
             // The wear sheet's "Not now": no half-finished reading is left showing.
             if Task.isCancelled {
@@ -214,6 +230,12 @@ final class BandSession: ObservableObject {
             if let status = BandDecode.sportStatus([report]) { onSportStatus?(status) }
         }
         return BandDecode.sportStatus(frames.filter(isPoll))
+    }
+
+    /// A running ECG's waveform and heart rate, for previews and render tests.
+    func seedEcgForTests(samples: [Int], heartRates: [Int]) {
+        ecgSamples = samples
+        ecgHeartRates = heartRates
     }
 
     /// Starts (`B5 0A`) or stops (`B5 0B`) the band buzzing to be found.
@@ -358,11 +380,18 @@ final class BandSession: ObservableObject {
             // A late frame (the stop's own reply) must not replace the reading that ended.
             guard measuring == reading.measure else { return }
             lastReading = reading
+            if reading.measure == .ecg, let hr = reading.heartRate, (30...250).contains(hr) { ecgHeartRates.append(hr) }
             if reading.measure == .heartRate { liveHeartRate = reading.heartRate }
             return
         }
         if frame.first == BandOp.sportControl, let status = BandDecode.sportStatus([frame]) {
             onSportStatus?(status)
+            return
+        }
+        // The ECG's waveform, while one runs (the SDK's ADC frames; see `BandEcgSignal.samples`).
+        if measuring == .ecg, frame.first == BandOp.ecgWave {
+            ecgSamples.append(contentsOf: BandEcgSignal.samples(frame))
+            if ecgSamples.count > ecgSampleRate * 120 { ecgSamples.removeFirst(ecgSamples.count - ecgSampleRate * 120) }
             return
         }
         // Found (the wearer pressed the band) or timed out.
