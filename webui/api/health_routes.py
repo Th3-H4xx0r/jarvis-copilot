@@ -13,6 +13,8 @@ second place to edit them.
     GET  /api/integrations/jarvis-health/health/day/<date> the same (older phones)
     GET  /api/integrations/jarvis-health/health/now        today: last night's bedtime to now, the same shape
     GET  /api/integrations/jarvis-health/health/history?metric=&range=&end=  a metric's W/M/6M/Y history
+    GET  /api/integrations/jarvis-health/health/vitals?days=30&end=  blood pressure, glucose, blood fats, body
+                                                       composition, ECG: latest, ranges, trends, insights, readings
     POST /api/integrations/jarvis-health/health/workouts   {workout: {...}, device_id} a finished workout
     GET  /api/integrations/jarvis-health/health/workouts?since=&until=&kind=strength  saved workouts (a reinstall's history)
     POST /api/integrations/jarvis-health/health/workouts/delete  {start, device | device_id + source} remove one
@@ -190,6 +192,24 @@ def handle_get(handler, parsed) -> bool:
                 return True
             unit = "lb" if (query.get("unit") or [""])[0] == "lb" else "kg"
             j(handler, history(store, metric, range_, (query.get("end") or [None])[0], utc_now(), weight_unit=unit))
+            return True
+
+        if tail == "vitals":
+            from urllib.parse import parse_qs
+
+            from jarvis_health.metrics import utc_now
+            from jarvis_health.vitals import insights
+            from jarvis_health.window import today
+
+            query = parse_qs(parsed.query)
+            try:
+                days = max(1, min(365, int((query.get("days") or ["30"])[0])))
+            except ValueError:
+                j(handler, {"error": "days is a whole number of days, 1–365"}, status=400)
+                return True
+            end = (query.get("end") or [""])[0] or today(store, utc_now())["date"]
+            unit = "lb" if (query.get("unit") or [""])[0] == "lb" else "kg"
+            j(handler, insights(store, end, days=days, weight_unit=unit))
             return True
 
         if tail == "runs":

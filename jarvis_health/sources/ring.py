@@ -200,7 +200,7 @@ def day_from_ring_json(raw: dict, date: str, tz: str, source: str = "ring") -> H
         temperature=series(raw.get("temperature"), 60),
         steps=series(raw.get("steps"), 15),
         activity=dict(raw.get("activity") or {}),
-        measurements=list(raw.get("measurements") or []),
+        measurements=_measurements(raw),
         battery={
             "percent": raw.get("battery_percent"),
             "charging": bool(raw.get("charging")),
@@ -223,3 +223,22 @@ def _spo2(payload: Any, midnight: str) -> Optional[Series]:
     pairs = list(zip(lows, highs)) if lows and highs else [(v, v) for v in (lows or highs)]
     values = [((float(lo) + float(hi)) / 2 if lo and hi else float(lo or hi or 0)) for lo, hi in pairs]
     return Series(start=midnight, interval_minutes=60, values=values)
+
+
+def _measurements(raw: dict) -> list[dict]:
+    """The day's spot readings, with the blood pressure its history recorded on its own.
+
+    The band logs a pressure into its five-minute records and the rings keep one too
+    (`blood_pressure: [{time, systolic, diastolic}]`); they join the spot checks as
+    `blood_pressure` rows marked `auto`, so one list holds every reading of the day.
+    """
+    from ..vitals import merge_measurements
+
+    rows = [m for m in (raw.get("measurements") or []) if isinstance(m, dict)]
+    auto = []
+    for r in raw.get("blood_pressure") or []:
+        if not isinstance(r, dict) or not r.get("time") or not r.get("systolic") or not r.get("diastolic"):
+            continue
+        auto.append({"type": "blood_pressure", "time": r["time"], "outcome": "done", "auto": True,
+                     "systolic": r["systolic"], "diastolic": r["diastolic"]})
+    return merge_measurements(rows, auto) if auto else rows

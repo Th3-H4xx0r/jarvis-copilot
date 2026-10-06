@@ -3,6 +3,8 @@
 The primary wearable supplies what a body is judged on — sleep, heart, HRV,
 stress, SpO₂, temperature. Another device fills in only what the primary does
 not have. Steps take the highest count, because every device undercounts.
+Spot readings (blood pressure, glucose, body composition…) are each device's
+own and all of them count: they are kept together, each once.
 """
 from __future__ import annotations
 
@@ -10,6 +12,7 @@ import copy
 from typing import Optional
 
 from .metrics import HealthDay
+from .vitals import merge_measurements
 
 #: Judged from one device at a time: mixing two rings' heart rates would read
 #: as a heart that jumps between them.
@@ -47,6 +50,7 @@ def merged_day(store, date: str) -> Optional[HealthDay]:
         if (other.activity.get("steps") or 0) > (base.activity.get("steps") or 0):
             base.activity = dict(other.activity)
             base.steps = copy.deepcopy(other.steps)
+    base.measurements = merge_measurements(*(d.measurements for d in days.values()))
     base.source = primary
     return base
 

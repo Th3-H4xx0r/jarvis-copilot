@@ -29,7 +29,7 @@ struct HealthHistoryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Picker("Range", selection: $range) {
-                    ForEach(HealthRange.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(metric.ranges) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 20)
@@ -122,6 +122,9 @@ struct HealthHistoryView: View {
                     }
                 }
             }
+            if let bars = history.reference, !bars.isEmpty {
+                HealthReferenceCard(bars: bars, value: { marker($0, history) }, caption: markerCaption(history))
+            }
             CardGroup("Highlights") {
                 Row {
                     HStack(alignment: .top, spacing: 12) {
@@ -135,6 +138,9 @@ struct HealthHistoryView: View {
                 }
             }
             stats(history)
+            if let readings = history.readings, !readings.isEmpty {
+                HealthReadingsCard(readings: readings, kind: history.kind, bars: history.reference ?? [])
+            }
             if metric == .exercise, let workouts = history.workouts, !workouts.isEmpty {
                 HealthWorkoutsCard(workouts: workouts, title: "Workouts in this range", showsDate: true)
             }
@@ -143,6 +149,24 @@ struct HealthHistoryView: View {
             guard !revealed else { return }
             withAnimation(.odometer) { revealed = true }
         }
+    }
+
+    // MARK: Reference
+
+    /// The value a bar's marker sits on: the scrubbed bar's, else the latest reading's, else the
+    /// range's headline.
+    private func marker(_ bar: HealthReferenceBar, _ history: HealthHistory) -> Double? {
+        if let bucket = scrubbedBucket { return bar.field == "low" ? bucket.low : bucket.value }
+        if let latest = history.readings?.first { return bar.field == "low" ? latest.diastolic : latest.value }
+        return bar.field == "low" ? history.headline.low : history.headline.value
+    }
+
+    private func markerCaption(_ history: HealthHistory) -> String {
+        if let bucket = scrubbedBucket { return span(bucket) }
+        if let latest = history.readings?.first {
+            return "Latest · " + latest.date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        }
+        return history.headline.label
     }
 
     // MARK: Headline
@@ -306,7 +330,7 @@ struct HealthHistoryView: View {
         case .sleep, .sleepDebt: return value / 60
         case .temperature: return TemperatureUnit.current.value(value)
         case .weight: return TrainingUnit.current.show(value)
-        default: return value
+        default: return metric.isVital ? HealthFormat.shown(value, kind: model.histories[range]?.kind ?? "") : value
         }
     }
 
@@ -332,7 +356,10 @@ struct HealthHistoryView: View {
         case .exercise: return "\(Int(value.rounded()))m"
         case .steps: return value >= 1000 ? "\(Int((value / 1000).rounded()))k" : "\(Int(value))"
         case .temperature: return String(format: "%.1f", value)
-        default: return "\(Int(value.rounded()))"
+        default:
+            // mmol/L and BMI-sized numbers keep a decimal.
+            if metric.isVital && value < 20 && value != value.rounded() { return String(format: "%.1f", value) }
+            return "\(Int(value.rounded()))"
         }
     }
 

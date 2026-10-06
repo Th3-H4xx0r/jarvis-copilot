@@ -6,9 +6,11 @@ API, so the agent can answer "how did I sleep" without touching the registry
 or knowing which wearable is which.
 
 Usage:
-    python3 health.py devices                       # wearables with health analysis
-    python3 health.py day                           # today's scores, first device
-    python3 health.py day --date 2026-09-16 --device ring
+    python3 health.py devices                       # the wearables feeding Jarvis Health
+    python3 health.py now                           # today: last night's bedtime to now
+    python3 health.py day [--date 2026-09-16]       # one day bedtime to bedtime, with scores
+    python3 health.py history --metric blood_glucose --range M   # a metric's W/M/6M/Y history
+    python3 health.py vitals [--days 30]            # BP, glucose, blood fats, body comp, ECG: insights
     python3 health.py run                           # run the analysis now
     python3 health.py settings                      # read settings
     python3 health.py runs | alerts                 # recent runs / alerts
@@ -26,14 +28,22 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+
 from pathlib import Path
-from zoneinfo import ZoneInfo
+
 
 # Stdlib only, and no import from the repo: the installed copy of this skill
 # lives under ~/.jarviscopilot/skills, where `jarvis_health` is not importable.
 # The host carve-out is small enough to carry, exactly as devices.py does.
 _STATE = Path(os.environ.get("HERMES_WEBUI_STATE_DIR") or (Path.home() / ".jarviscopilot" / "webui"))
+#: Every wearable feeds the one shared integration.
+SPACE = "jarvis-health"
+BASE = f"/api/integrations/{SPACE}/health"
+#: What `history --metric` takes (the server answers 400 for anything else).
+METRICS = ("battery", "steps", "sleep", "sleep_debt", "heart_rate", "spo2", "hrv", "stress", "temperature",
+           "exercise", "weight", "body_fat", "blood_pressure", "blood_glucose", "uric_acid", "cholesterol",
+           "triglycerides", "hdl", "ldl", "bmi", "muscle_mass", "skeletal_muscle", "body_water", "bone_mass",
+           "protein", "bmr", "ecg", "ecg_hrv", "ecg_qtc", "respiratory_rate")
 _key_cache: dict = {"key": None}
 
 
@@ -116,116 +126,86 @@ def devices() -> list[dict]:
     return data.get("devices") or []
 
 
-def pick(wanted: str | None) -> dict | None:
-    found = devices()
-    if not found:
-        return None
-    if not wanted:
-        return found[0]
-    wanted = wanted.lower()
-    for device in found:
-        if wanted in (device.get("kind", "").lower(), device.get("name", "").lower(),
-                      device.get("space_id", "").lower(), device.get("device_id", "").lower()):
-            return device
-    return None
-
-
-def today_for(device: dict) -> str:
-    """The wearer's own local day — the key a day is stored under.
-
-    The zone comes from the integration, which the phone filled in when it
-    registered; the server's own clock may be UTC and would name the wrong day
-    for most of the evening.
-    """
-    status, data = request("GET", f"/api/integrations/{device['space_id']}/health/settings")
-    zone = ""
-    if status == 200:
-        zone = str((data.get("settings") or {}).get("timezone") or "")
-    now = datetime.now(timezone.utc)
-    if zone:
-        try:
-            return now.astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d")
-        except Exception:
-            pass
-    return now.astimezone().strftime("%Y-%m-%d")
+def get(path: str, timeout: float = 45) -> int:
+    status, data = request("GET", path, timeout=timeout)
+    if status != 200:
+        return fail(data.get("error") or f"could not read {path}")
+    return show(data)
 
 
 def cmd_devices(args) -> int:
     found = devices()
-    return show({"devices": found}) if found else fail("no wearable has a health integration yet")
+    return show({"devices": found}) if found else fail("no wearable has joined Jarvis Health yet")
+
+
+def cmd_now(args) -> int:
+    return get(f"{BASE}/now")
 
 
 def cmd_day(args) -> int:
-    device = pick(args.device)
-    if not device:
-        return fail("no matching wearable with health analysis")
-    date = args.date or today_for(device)
-    status, data = request("GET", f"/api/integrations/{device['space_id']}/health/day/{date}")
-    if status != 200:
-        return fail(data.get("error") or f"could not read {date}")
-    return show({"device": device["name"], **data})
+    if not args.date:
+        status, data = request("GET", f"{BASE}/now")
+        if status != 200:
+            return fail(data.get("error") or "could not read today")
+        args.date = data.get("date")
+    return get(f"{BASE}/day?date={args.date}")
+
+
+def cmd_history(args) -> int:
+    query = f"metric={args.metric}&range={args.range}" + (f"&end={args.end}" if args.end else "")
+    return get(f"{BASE}/history?{query}")
+
+
+def cmd_vitals(args) -> int:
+    return get(f"{BASE}/vitals?days={args.days}" + (f"&end={args.end}" if args.end else ""))
 
 
 def cmd_run(args) -> int:
-    device = pick(args.device)
-    if not device:
-        return fail("no matching wearable with health analysis")
-    status, data = request(
-        "POST",
-        f"/api/integrations/{device['space_id']}/health/run",
-        {"trigger": "agent"},
-        timeout=180,
-    )
+    status, data = request("POST", f"{BASE}/run", {"trigger": "agent"}, timeout=180)
     if status != 200:
         return fail(data.get("error") or "the run failed")
     return show(data)
 
 
 def cmd_settings(args) -> int:
-    device = pick(args.device)
-    if not device:
-        return fail("no matching wearable with health analysis")
-    status, data = request("GET", f"/api/integrations/{device['space_id']}/health/settings")
-    if status != 200:
-        return fail(data.get("error") or "could not read the settings")
-    return show(data)
+    return get(f"{BASE}/settings")
 
 
 def cmd_stream(args) -> int:
-    device = pick(args.device)
-    if not device:
-        return fail("no matching wearable with health analysis")
-    status, data = request("GET", f"/api/integrations/{device['space_id']}/health/{args.what}")
-    if status != 200:
-        return fail(data.get("error") or f"could not read {args.what}")
-    return show(data)
+    return get(f"{BASE}/{args.what}")
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Wearable health scores and alerts.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("devices", help="wearables with health analysis")
+    sub.add_parser("devices", help="the wearables feeding Jarvis Health")
+    sub.add_parser("now", help="today: last night's bedtime to now")
 
-    day = sub.add_parser("day", help="scores and analysis for a local day")
-    day.add_argument("--date", help="YYYY-MM-DD, default today on the device")
-    day.add_argument("--device", help="kind, name or id; default the first")
+    day = sub.add_parser("day", help="one day bedtime to bedtime, with scores and analysis")
+    day.add_argument("--date", help="YYYY-MM-DD, default the day today belongs to")
 
-    run = sub.add_parser("run", help="run the analysis now")
-    run.add_argument("--device")
+    hist = sub.add_parser("history", help="a metric's history over a week, month, 6 months or year")
+    hist.add_argument("--metric", required=True, choices=METRICS)
+    hist.add_argument("--range", default="M", choices=("W", "M", "6M", "Y"))
+    hist.add_argument("--end", help="YYYY-MM-DD, default today")
 
-    settings = sub.add_parser("settings", help="read the settings")
-    settings.add_argument("--device")
+    vit = sub.add_parser("vitals", help="spot readings: latest, usual ranges, trends, insights")
+    vit.add_argument("--days", type=int, default=30)
+    vit.add_argument("--end", help="YYYY-MM-DD, default today")
 
+    sub.add_parser("run", help="run the analysis now")
+    sub.add_parser("settings", help="read the settings")
     for name in ("runs", "alerts"):
-        stream = sub.add_parser(name, help=f"recent {name}")
-        stream.add_argument("--device")
-        stream.set_defaults(what=name)
+        sub.add_parser(name, help=f"recent {name}").set_defaults(what=name)
 
     args = parser.parse_args(argv)
     handlers = {
         "devices": cmd_devices,
+        "now": cmd_now,
         "day": cmd_day,
+        "history": cmd_history,
+        "vitals": cmd_vitals,
         "run": cmd_run,
         "settings": cmd_settings,
         "runs": cmd_stream,

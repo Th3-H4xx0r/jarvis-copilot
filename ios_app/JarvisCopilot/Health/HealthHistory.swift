@@ -73,9 +73,14 @@ struct HealthHistory: Codable, Equatable {
     var goal: Goal? = nil
     /// Exercise: every workout in the range, newest first.
     var workouts: [RingWorkout]? = nil
+    /// A spot reading: every one in the range, newest first.
+    var readings: [HealthVitalReading]? = nil
+    /// The range bars a value is drawn against, for this person (sex, age).
+    var reference: [HealthReferenceBar]? = nil
 
     enum CodingKeys: String, CodingKey {
         case metric, range, title, kind, start, end, buckets, headline, stats, previous, highlight, goal, workouts
+        case readings, reference
         case daysSoFar = "days_so_far"
     }
 
@@ -98,8 +103,37 @@ enum HealthFormat {
         case "kg": return weight(value)
         case "kg_change": return (value > 0 ? "+" : value < 0 ? "−" : "") + weight(abs(value))
         case "number": return String(format: "%.1f", value)
+        case "mmhg": return "\(Int(value.rounded())) mmHg"
+        case "glucose": return GlucoseUnit.current.format(value)
+        case "cholesterol": return BloodFatUnit.current.format(value)
+        case "triglycerides": return BloodFatUnit.current.format(value, triglycerides: true)
+        case "uric_acid": return UricAcidUnit.current.format(value)
+        case "breaths": return "\(Int(value.rounded()))/min"
         default: return Int(value.rounded()).formatted()
         }
+    }
+
+    /// A canonical value in the unit it is shown in (for charts and range bars).
+    static func shown(_ value: Double, kind: String) -> Double {
+        switch kind {
+        case "celsius": return TemperatureUnit.current.value(value)
+        case "glucose": return GlucoseUnit.current.value(value)
+        case "cholesterol": return BloodFatUnit.current.value(value)
+        case "triglycerides": return BloodFatUnit.current.value(value, triglycerides: true)
+        case "uric_acid": return UricAcidUnit.current.value(value)
+        case "kg": return TrainingUnit.current.show(value)
+        default: return value
+        }
+    }
+
+    /// The bare number in its shown unit, for axis and range-bar labels.
+    static func number(_ value: Double, kind: String) -> String {
+        let v = shown(value, kind: kind)
+        let precise = (kind == "glucose" && GlucoseUnit.current == .mmolL)
+            || ((kind == "cholesterol" || kind == "triglycerides") && BloodFatUnit.current == .mmolL)
+            || (kind == "celsius") || (kind == "number" && v < 100) || (kind == "uric_acid" && UricAcidUnit.current == .mgdL)
+        if precise { return v.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(v))" : String(format: "%.1f", v) }
+        return "\(Int(v.rounded()))"
     }
 
     /// A low–high range in one unit ("52–141 bpm"), or the one number.

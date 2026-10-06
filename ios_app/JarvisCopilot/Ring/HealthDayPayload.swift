@@ -61,6 +61,10 @@ enum HealthDayPayload {
                 var row: [String: Any] = ["type": record.type, "time": iso(record.time), "outcome": record.outcome]
                 if let value = record.value { row["value"] = value }
                 if let celsius = record.celsius { row["celsius"] = celsius }
+                if let systolic = record.systolic { row["systolic"] = systolic }
+                if let diastolic = record.diastolic { row["diastolic"] = diastolic }
+                // The band's multi-value results (glucose, blood components, body composition, ECG).
+                if let extra = record.extra, !extra.isEmpty { row["extra"] = extra }
                 return row
             }
         }

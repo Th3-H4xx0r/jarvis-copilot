@@ -20,6 +20,7 @@ from typing import Optional
 from .battery import MAIN_SLEEP, SLOT, band as battery_band
 from .metrics import HealthDay, Series, SleepSession, _iso, parse_instant, to_json
 from .scoring import stress_band_shares
+from .vitals import merge_measurements
 
 WINDOW_METRICS = ("heart_rate", "hrv", "stress", "spo2", "temperature", "steps")
 
@@ -84,6 +85,12 @@ def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> He
     out.sleep = [s for _, d in ordered for s in d.sleep
                  if s.end and start <= parse_instant(s.end) <= end]
 
+    # Spot readings (blood pressure, glucose, body composition, ECG…) carry
+    # their own time: each belongs to the window it was taken in.
+    out.measurements = merge_measurements(*(
+        [m for m in d.measurements if isinstance(m, dict) and _within(m.get("time"), start, end)]
+        for _, d in ordered))
+
     # Totals, day by day. A day with a steps series counts the slots inside
     # the window; one without (older phones pushed totals only) counts its
     # total in proportion to how much of that day the window covers — never
@@ -108,6 +115,13 @@ def window_day(days: dict[str, HealthDay], start: datetime, end: datetime) -> He
                 extra[key] = extra.get(key, 0.0) + value * share
     out.activity = {"steps": int(round(steps)), **{k: round(v, 1) for k, v in extra.items()}}
     return out
+
+
+def _within(text, start: datetime, end: datetime) -> bool:
+    try:
+        return start <= parse_instant(str(text)) <= end
+    except (TypeError, ValueError):
+        return False
 
 
 def _avg(values: list[float]) -> Optional[float]:

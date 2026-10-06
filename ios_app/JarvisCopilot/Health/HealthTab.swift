@@ -16,6 +16,9 @@ struct HealthTab: View {
     @State private var showingSettings = false
     /// The metric whose history is open.
     @State private var historyMetric: HealthMetric?
+    /// A band reading group's page (blood pressure, blood components, body composition…).
+    @State private var vitalsGroup: HealthMetricGroup?
+    @StateObject private var vitals = HealthVitalsModel()
     @State private var choosingWorkout = false
     /// The Health tab is the one on screen (its wearables stay connected).
     @State private var onScreen = false
@@ -55,6 +58,8 @@ struct HealthTab: View {
                     HealthWorkoutsCard(workouts: model.workouts[selection.cacheKey] ?? [],
                                        onStart: selection == .today ? { choosingWorkout = true } : nil,
                                        showAll: { historyMetric = .exercise })
+                    // The band's spot readings: blood pressure, glucose, blood components…
+                    HealthVitalsCard(model: vitals) { vitalsGroup = $0 }
                     // Weight, once there is a scale to weigh on.
                     if model.weight(for: selection)?.latest != nil || WearableIdentity.remembered(WearableKeepAlive.scale) != nil {
                         WeightCard(weight: model.weight(for: selection), showAll: { historyMetric = .weight })
@@ -80,8 +85,14 @@ struct HealthTab: View {
                 .padding(.top, 8)
                 .padding(.bottom, 40)
             }
-            .refreshable { await model.refresh(selection) }
-            .task(id: selection) { await model.refresh(selection) }
+            .refreshable {
+                await model.refresh(selection)
+                await vitals.load()
+            }
+            .task(id: selection) {
+                await model.refresh(selection)
+                await vitals.load()
+            }
             .jcScreen("Health")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -107,6 +118,9 @@ struct HealthTab: View {
             }
             .navigationDestination(item: $historyMetric) { metric in
                 HealthHistoryView(metric: metric, tab: model, selection: selection)
+            }
+            .navigationDestination(item: $vitalsGroup) { group in
+                HealthMetricGroupView(group: group, tab: model, selection: selection)
             }
             .onChange(of: measure.finished) {
                 // The reading is in the ring's history now; put it on the card.

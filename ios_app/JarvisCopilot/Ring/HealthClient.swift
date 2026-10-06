@@ -131,6 +131,12 @@ struct HealthClient {
         return try Self.decode(HealthHistory.self, from: try await api.get("\(base)/history", query: query).object())
     }
 
+    /// The band's spot readings over `days`: per metric its latest, range bars and trend, and
+    /// sentences Jarvis says about them.
+    func vitals(days: Int = 30) async throws -> HealthVitals {
+        try Self.decode(HealthVitals.self, from: try await api.get("\(base)/vitals", query: ["days": "\(days)"]).object())
+    }
+
     static func decodeForTests<T: Decodable>(_ type: T.Type, json: String) throws -> T {
         try decoder.decode(type, from: Data(json.utf8))
     }

@@ -88,6 +88,65 @@ final class HealthHistoryTests: XCTestCase {
         try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 1300), name: name, settle: 3)
     }
 
+    // MARK: The band's readings
+
+    private static let uricBar = HealthReferenceBar(label: "Uric acid", kind: "uric_acid", field: "value", segments: [
+        .init(status: "low", from: 0, to: 200), .init(status: "normal", from: 200, to: 420),
+        .init(status: "high", from: 420, to: 1000)])
+
+    func testAReadingsHistoryDecodesItsReferenceAndReadings() throws {
+        let json = """
+        {"metric":"uric_acid","range":"W","title":"Uric acid","kind":"uric_acid","start":"2026-09-29","end":"2026-10-05",
+         "buckets":[{"start":"2026-10-05","end":"2026-10-05","value":301.2,"low":null,"high":null,"days":1}],
+         "headline":{"label":"Average","value":301.2,"low":null,"high":null,"kind":"uric_acid"},
+         "stats":[],"previous":{"average":null,"days":0},"highlight":"","days_so_far":3,
+         "readings":[{"metric":"uric_acid","at":"2026-10-05T02:14:47Z","value":339.4}],
+         "reference":[{"label":"Uric acid","kind":"uric_acid","field":"value",
+                       "segments":[{"status":"low","from":0,"to":200},{"status":"normal","from":200,"to":420},
+                                   {"status":"high","from":420,"to":1000}]}]}
+        """
+        let history = try HealthClient.decodeForTests(HealthHistory.self, json: json)
+        XCTAssertEqual(history.readings?.first?.value, 339.4)
+        XCTAssertEqual(history.reference?.first?.segments.count, 3)
+        XCTAssertNotEqual(history.readings?.first?.date, .distantPast)
+    }
+
+    func testARangeBarPlacesAndJudgesAValue() {
+        let bar = Self.uricBar
+        XCTAssertEqual(bar.status(of: 150), "low")
+        XCTAssertEqual(bar.status(of: 301), "normal")
+        XCTAssertEqual(bar.status(of: 420), "high", "a threshold belongs to the segment it starts")
+        XCTAssertEqual(bar.status(of: 1500), "high", "past the end is still the last segment")
+        XCTAssertEqual(bar.position(of: 500), 0.5, accuracy: 0.001)
+        XCTAssertEqual(bar.position(of: -10), 0)
+        XCTAssertEqual(bar.position(of: 2000), 1)
+    }
+
+    func testUricAcidWeekShowsItsRangeBarAndReadings() throws {
+        var h = history(.uricAcid, range: .week, kind: "uric_acid") { i in
+            i < 3 ? nil : .init(start: "", end: "", value: 160 + Double(i) * 30, low: nil, high: nil, days: 1, stages: nil)
+        }
+        h.reference = [Self.uricBar]
+        h.readings = [.init(metric: "uric_acid", at: "2026-10-05T02:14:47Z", value: 339.4),
+                      .init(metric: "uric_acid", at: "2026-10-04T18:02:11Z", value: 160.5)]
+        try render(.uricAcid, .week, h, name: "history-uric-acid")
+    }
+
+    func testBloodPressureWeekBarsBothHalves() throws {
+        var h = history(.bloodPressure, range: .week, kind: "mmhg") { i in
+            .init(start: "", end: "", value: 118 + Double(i % 3) * 6, low: 76 + Double(i % 2) * 5, high: nil, days: 1, stages: nil)
+        }
+        h.reference = [
+            HealthReferenceBar(label: "Systolic", kind: "mmhg", field: "value", segments: [
+                .init(status: "low", from: 70, to: 90), .init(status: "normal", from: 90, to: 120),
+                .init(status: "elevated", from: 120, to: 130), .init(status: "high", from: 130, to: 200)]),
+            HealthReferenceBar(label: "Diastolic", kind: "mmhg", field: "low", segments: [
+                .init(status: "low", from: 40, to: 60), .init(status: "normal", from: 60, to: 80),
+                .init(status: "high", from: 80, to: 120)])]
+        h.readings = [.init(metric: "blood_pressure", at: "2026-10-05T02:15:29Z", value: 124, diastolic: 81)]
+        try render(.bloodPressure, .week, h, name: "history-blood-pressure")
+    }
+
     func testHeartRateWeekDrawsRanges() throws {
         let h = history(.heartRate, range: .week, kind: "bpm") { i in
             i == 2 ? nil : .init(start: "", end: "", value: 68 + Double(i % 3) * 5, low: 50 + Double(i % 2) * 4,

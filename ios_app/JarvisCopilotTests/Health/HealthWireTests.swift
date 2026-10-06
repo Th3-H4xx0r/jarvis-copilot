@@ -85,6 +85,20 @@ final class HealthWireTests: XCTestCase {
         XCTAssertEqual(payload["device_id"] as? String, "B6CE93C4-5680")
     }
 
+    func testTheDayUploadCarriesTheBandsReadingsWhole() {
+        var day = RingDay(date: "2026-10-05")
+        day.measurements = [
+            RingMeasurementRecord(type: "blood_pressure", time: Date(), outcome: "done", value: nil,
+                                  systolic: 124, diastolic: 81, celsius: nil),
+            RingMeasurementRecord(type: "blood_component", time: Date(), outcome: "done", value: nil,
+                                  systolic: nil, diastolic: nil, celsius: nil,
+                                  extra: ["uric_acid_umol_l": 339.4, "cholesterol_mmol_l": 4.6])]
+        let rows = HealthDayPayload.make(day, key: "2026-10-05", deviceID: "band-1")["measurements"] as? [[String: Any]]
+        XCTAssertEqual(rows?.first?["systolic"] as? Int, 124)
+        XCTAssertEqual(rows?.first?["diastolic"] as? Int, 81)
+        XCTAssertEqual((rows?.last?["extra"] as? [String: Double])?["uric_acid_umol_l"], 339.4)
+    }
+
     func testEveryWearableTalksToTheOneSharedIntegration() {
         XCTAssertEqual(HealthSpace.id(forRing: "B6CE93C4-5680"), "jarvis-health")
         XCTAssertEqual(HealthClient.settingsSource, "health-settings")

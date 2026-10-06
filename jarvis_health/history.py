@@ -15,6 +15,7 @@ from datetime import date as Date, datetime, timedelta
 from statistics import mean
 from typing import Callable, Optional
 
+from . import vitals
 from .baselines import resting_hr, sleeping_hrv
 from .metrics import STAGE_AWAKE, STAGE_DEEP, STAGE_LIGHT, STAGE_REM, from_json, parse_instant
 from .sleep_debt import NIGHTS, goal_of, slept
@@ -57,6 +58,15 @@ METRICS: dict[str, Metric] = {
     "weight": Metric("Weight", "weight_kg", "kg", "Average", "average weight", "weight_min", "weight_max"),
     "body_fat": Metric("Body fat", "body_fat", "percent", "Average", "average body fat"),
 }
+
+#: The spot readings (`vitals.VITALS`): blood pressure, glucose, blood fats, uric
+#: acid, body composition and ECG. A day's value is the mean of its readings.
+#: Body fat stays the scale's when a scale weighed in; the band fills in the rest.
+for _key, _vital in vitals.VITALS.items():
+    if _key == "body_fat":
+        continue
+    METRICS[_key] = Metric(_vital.title, _key, _vital.kind, "Average", f"average {_vital.title.lower()}"
+                           if _vital.title != "BMI" else "average BMI", f"{_key}_min", f"{_key}_max")
 
 # ── day summaries ──────────────────────────────────────────────────────────
 
@@ -125,6 +135,10 @@ def day_summary(store, date: str, now: str, window: Optional[dict] = None) -> di
     out["resting_hr"] = resting_hr(day)
     out["hrv"] = sleeping_hrv(day) or stats.get("hrv_avg")
     out["asleep"] = slept(day)
+    # Spot readings: a weigh-in's BMI and body fat win over the band's estimate.
+    for key, value in vitals.summary(day.measurements).items():
+        if out.get(key) is None:
+            out[key] = value
     night = day.main_sleep
     if night is not None:
         out.update(deep=night.stage_minutes(STAGE_DEEP), light=night.stage_minutes(STAGE_LIGHT),
@@ -217,6 +231,10 @@ def _bucket(metric: str, days: list[dict], start: Date, end: Date) -> dict:
         out["high"] = max(highs) if highs else None
     if metric == "sleep":
         out["stages"] = {s: _mean(d.get(s) for d in measured) or 0 for s in ("deep", "light", "rem", "awake")}
+    if metric == "blood_pressure":
+        # Drawn from diastolic up to systolic: the means, not the extremes.
+        out["low"] = _mean(d.get("blood_pressure_diastolic") for d in measured)
+        out["high"] = None
     return out
 
 
@@ -277,6 +295,21 @@ def _stats(metric: str, days: list[dict], goal: int) -> list[dict]:
                _stat("Workouts", sum(int(d.get("workouts") or 0) for d in days), "count"),
                _stat("Longest day", hi, "minutes"),
                _stat("Calories", sum(_values(days, "exercise_kcal")) or None, "kcal")]
+    elif metric == "blood_pressure":
+        dia = _values(days, "blood_pressure_diastolic")
+        sys_max = _values(days, "blood_pressure_max")
+        dia_max = _values(days, "blood_pressure_diastolic_max")
+        out = [_stat("Average systolic", avg, "mmhg"), _stat("Average diastolic", _mean(dia), "mmhg"),
+               _stat("Highest systolic", max(sys_max) if sys_max else None, "mmhg"),
+               _stat("Highest diastolic", max(dia_max) if dia_max else None, "mmhg"),
+               _stat("Readings", sum(int(d.get("blood_pressure_count") or 0) for d in days), "count")]
+    elif metric in vitals.VITALS:
+        kind = m.kind
+        lows, highs = _values(days, f"{metric}_min"), _values(days, f"{metric}_max")
+        latest = _values(days, f"{metric}_latest")
+        out = [_stat("Average", avg, kind), _stat("Latest", latest[-1] if latest else None, kind),
+               _stat("Lowest", min(lows) if lows else None, kind), _stat("Highest", max(highs) if highs else None, kind),
+               _stat("Readings", sum(int(d.get(f"{metric}_count") or 0) for d in days), "count")]
     else:
         out = [_stat("Average", avg, "celsius"), _stat("Highest", hi, "celsius"), _stat("Lowest", lo, "celsius")]
     return out + [_stat("Days measured", len(v), "count")]
@@ -288,6 +321,9 @@ def _headline(metric: str, days: list[dict]) -> dict:
     lows = _values(days, m.low) if m.low else []
     highs = _values(days, m.high) if m.high else []
     value = (v[-1] if v else None) if metric == "sleep_debt" else _mean(v)
+    if metric == "blood_pressure":
+        return {"label": m.headline, "value": value, "low": _mean(_values(days, "blood_pressure_diastolic")),
+                "high": None, "kind": m.kind}
     return {"label": m.headline, "value": value, "low": min(lows) if lows else None,
             "high": max(highs) if highs else None, "kind": m.kind}
 
@@ -337,6 +373,29 @@ def _highlight(metric: str, range_: str, current: Optional[float], previous: Opt
         return f"{lead}, about the same as {before}."
     word = ("more" if diff > 0 else "less") if m.kind in ("minutes", "steps") else ("higher" if diff > 0 else "lower")
     return f"{lead}, {_delta(abs(diff), m.kind, unit)} {word} than {before}."
+
+
+def _vital_highlight(metric: str, range_: str, head: dict, previous: dict, units: dict, sex: str) -> str:
+    """The highlight for a spot reading: the period's average against the one before, where it
+    sits against the usual adult range, and that a wrist band estimated it."""
+    m, vital = METRICS[metric], vitals.VITALS[metric]
+    current = head["value"]
+    if current is None:
+        return f"No {m.title if m.title.isupper() else m.title.lower()} readings in this range yet."
+    span, before = _SPANS[range_]
+    text = vitals.say(vital.kind, current, units, head.get("low"))
+    lead = f"Your {m.noun} over {span} was {text}"
+    if previous.get("value") is None:
+        sentence = f"{lead}."
+    else:
+        diff = current - previous["value"]
+        if abs(diff) < vital.step:
+            sentence = f"{lead}, about the same as {before}."
+        else:
+            change = vitals.say(vital.kind, abs(diff), units)
+            sentence = f"{lead}, {change} {'higher' if diff > 0 else 'lower'} than {before}."
+    verdict = vitals.verdict(metric, current, sex, head.get("low"))
+    return f"{sentence} {verdict or vitals.NOTE}"
 
 
 #: Metrics with a daily goal: the summary key a day is judged on, and the
@@ -404,8 +463,22 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str, weigh
         first = datetime.combine(periods[0][0], datetime.min.time()) - offset
         last = datetime.combine(periods[-1][1] + timedelta(days=1), datetime.min.time()) - offset
         listed = list(reversed(store.workouts(first.strftime("%Y-%m-%dT%H:%M:%SZ"), last.strftime("%Y-%m-%dT%H:%M:%SZ"))))
+    highlight = _highlight(metric, range_, head["value"], prev_head["value"], days_so_far,
+                           settings.get("temperature_unit") or "celsius", weight_unit)
+    readings: list = []
+    if metric in vitals.VITALS and metric != "body_fat":
+        highlight = _vital_highlight(metric, range_, head, prev_head, vitals.units_of(settings, weight_unit),
+                                     vitals._sex(settings))
+    if metric in vitals.VITALS:
+        # Every reading in the range, newest first: the history list under the chart.
+        readings = [r for r in reversed(vitals.readings_between(store, periods[0][0].isoformat(),
+                                                                 periods[-1][1].isoformat()))
+                    if r["metric"] == metric][:200]
     return {
         "workouts": listed,
+        "readings": readings,
+        # The range bars the latest (or scrubbed) value is drawn against, for this person.
+        "reference": vitals.reference(metric, vitals._sex(settings), vitals._age(settings)),
         "metric": metric,
         "range": range_,
         "title": METRICS[metric].title,
@@ -417,7 +490,6 @@ def history(store, metric: str, range_: str, end: Optional[str], now: str, weigh
         "headline": head,
         "stats": _stats(metric, current, goal),
         "previous": {"average": prev_head["value"], "days": len(_values(before, METRICS[metric].value))},
-        "highlight": _highlight(metric, range_, head["value"], prev_head["value"], days_so_far,
-                                settings.get("temperature_unit") or "celsius", weight_unit),
+        "highlight": highlight,
         "days_so_far": days_so_far,
     }
