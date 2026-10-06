@@ -87,6 +87,7 @@
 		157F14FAA13E84F156A92D94 /* VoiceLocalLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8280FD20DD3AC63BC1A90061 /* VoiceLocalLaneTests.swift */; };
 		15B5E43D2E52DB81A1CBD7D3 /* CarPlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE024C2472D4AF658ADB3DAE /* CarPlayCoordinator.swift */; };
 		160990382CEA3C285EBC33E3 /* WidgetDesignStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1F0C263D3C9AF5C066C9EF /* WidgetDesignStoreTests.swift */; };
+		167C3D86B3735160082CA258 /* HealthUnits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95FAC3E42EB619BE42672E /* HealthUnits.swift */; };
 		170114BF483753E0EF1AD6EC /* VoiceTurnMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58B78E101F917C3929CCFB0 /* VoiceTurnMachineTests.swift */; };
 		17B184CD5773BBCD2F4AE5A5 /* TrainingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F14AA7DF596CFF45DE21CBA8 /* TrainingStoreTests.swift */; };
 		17BC86F34EA1C05260D4F007 /* PodSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C601845F66BEC45F2AD905F /* PodSetupView.swift */; };
@@ -1178,6 +1179,7 @@
 		2A4872C584ECD913DE33F627 /* InmoEvent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoEvent.swift; sourceTree = "<group>"; };
 		2A8EDB517D89B29E58364D2E /* RouteRecordingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRecordingTests.swift; sourceTree = "<group>"; };
 		2B95871CA93FF456CB5A4E83 /* BandTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandTransport.swift; sourceTree = "<group>"; };
+		2B95FAC3E42EB619BE42672E /* HealthUnits.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthUnits.swift; sourceTree = "<group>"; };
 		2BD0A95997264D8485F52BC0 /* JarvisPodAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisPodAPITests.swift; sourceTree = "<group>"; };
 		2BDEA66F2705401B86302035 /* WearablesAvailabilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesAvailabilityTests.swift; sourceTree = "<group>"; };
 		2BFA5645662596C18A8F7236 /* RingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingModel.swift; sourceTree = "<group>"; };
@@ -3662,6 +3664,7 @@
 				41DCD577ADAA3427809FECC3 /* RingDayJSON.swift */,
 				1C617671C9D1004D791BE0EA /* HealthRing.swift */,
 				5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */,
+				2B95FAC3E42EB619BE42672E /* HealthUnits.swift */,
 			);
 			path = Ring;
 			sourceTree = "<group>";
@@ -4885,6 +4888,7 @@
 				7631B4122F331F2C477A154B /* BandWorkout.swift in Sources */,
 				49A787FB213EF4697F68FDCE /* BandHandModel.swift in Sources */,
 				27C8030A44A9CD18C8B27B0A /* BandWearAsk.swift in Sources */,
+				167C3D86B3735160082CA258 /* HealthUnits.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

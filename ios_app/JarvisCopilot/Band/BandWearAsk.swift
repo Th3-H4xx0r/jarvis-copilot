@@ -9,6 +9,9 @@ import SwiftUI
 final class BandWearAsk: ObservableObject {
     /// The reading waiting for the band, while the sheet is up.
     @Published var prompt: BandMeasure?
+    /// The reading that just ended, shown for a few seconds as the ring's rows do.
+    @Published private(set) var recent: BandReading?
+    private var fade: Task<Void, Never>?
 
     private let session: BandSession
     private var attempt: Task<Void, Error>?
@@ -45,6 +48,31 @@ final class BandWearAsk: ObservableObject {
         try await task.value
     }
 
+    private func show(_ reading: BandReading) {
+        recent = reading
+        fade?.cancel()
+        fade = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.recent = nil
+        }
+    }
+
+    /// One measure-list row's state: the live value while it runs, the result for a moment
+    /// after, else idle.
+    func state(of type: BandMeasure) -> RingCardMeasure.State {
+        if session.measuring == type {
+            guard let now = session.lastReading, now.measure == type else { return .measuring(nil) }
+            if let text = now.valueText { return .measuring(text) }
+            return .measuring(now.progress.flatMap { $0 > 0 ? "\($0)%" : nil })
+        }
+        if let recent, recent.measure == type {
+            if recent.finished, let text = recent.valueText { return .result(text) }
+            return .failed(recent.failure ?? (recent.notWorn ? BandReading.Reason.notWorn : BandReading.Reason.noReading))
+        }
+        return .idle
+    }
+
     /// "Not now", a swipe or a tap outside: stop asking, and stop the try in flight.
     func dismiss() {
         prompt = nil
@@ -74,11 +102,12 @@ final class BandWearAsk: ObservableObject {
                 closer?.cancel()
                 if Task.isCancelled { return }
                 prompt = nil
+                if let ended = session.lastReading, ended.measure == type, ended.ended { show(ended) }
                 throw error
             }
             closer?.cancel()
             guard !Task.isCancelled else { return }
-            guard reading.notWorn else { prompt = nil; return }
+            guard reading.notWorn else { prompt = nil; show(reading); return }
             prompt = type
             try? await Task.sleep(for: .seconds(retryAfter))
             guard !Task.isCancelled, prompt == type else { return }
@@ -88,6 +117,35 @@ final class BandWearAsk: ObservableObject {
 
 extension BandMeasure: Identifiable {
     var id: String { rawValue }
+
+    /// The ring's symbols and colours where they share a reading.
+    var icon: String {
+        switch self {
+        case .heartRate: return "heart.fill"
+        case .bloodPressure: return "drop.fill"
+        case .bloodOxygen: return "lungs.fill"
+        case .temperature: return "thermometer.medium"
+        case .stress: return "brain.head.profile"
+        case .bloodGlucose: return "drop.triangle.fill"
+        case .bloodComponent: return "testtube.2"
+        case .bodyComposition: return "figure.arms.open"
+        case .ecg: return "waveform.path.ecg"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .heartRate: return Color(red: 1, green: 0.35, blue: 0.4)
+        case .bloodPressure: return .pink
+        case .bloodOxygen: return JcTheme.accent
+        case .temperature: return .orange
+        case .stress: return JcTheme.amber
+        case .bloodGlucose: return .teal
+        case .bloodComponent: return .purple
+        case .bodyComposition: return .mint
+        case .ecg: return JcTheme.blue
+        }
+    }
 
     /// The name people see.
     var label: String {
@@ -115,5 +173,53 @@ extension View {
                 .presentationBackground(RingWearPrompt.sheetBackground)
                 .presentationCornerRadius(34)
         }
+    }
+}
+
+extension BandReading {
+    /// The value, in the user's units: "72 bpm", "118/76 mmHg", "5.6 mmol/L"… nil without one.
+    var valueText: String? {
+        if let s = systolic, let d = diastolic { return "\(s)/\(d) mmHg" }
+        if let g = bloodGlucose { return GlucoseUnit.current.format(g) }
+        if let c = bloodComponent { return "Uric acid " + UricAcidUnit.current.format(c.uricAcid) }
+        if let b = bodyComposition { return String(format: "BMI %.1f · %.0f%% fat", b.bmi, b.bodyFatPercent) }
+        if let t = temperatureC { return TemperatureUnit.current.format(t) }
+        if let o = spo2 { return "\(o)%" }
+        if let v = stress { return "\(v)" }
+        if let hr = heartRate { return "\(hr) bpm" }
+        return nil
+    }
+}
+
+extension RingMeasurementRecord {
+    /// A kept band reading's value, in the user's units (as `BandReading.valueText`).
+    var bandText: String? {
+        guard outcome == "done" else { return nil }
+        if let s = systolic, let d = diastolic { return "\(s)/\(d) mmHg" }
+        if let g = extra?["blood_glucose_mmol_l"] { return GlucoseUnit.current.format(g) }
+        if let u = extra?["uric_acid_umol_l"] { return "Uric acid " + UricAcidUnit.current.format(u) }
+        if let bmi = extra?["bmi"] {
+            return String(format: "BMI %.1f · %.0f%% fat", bmi, extra?["body_fat_percent"] ?? 0)
+        }
+        if let c = celsius { return TemperatureUnit.current.format(c) }
+        guard let value else { return nil }
+        switch type {
+        case BandMeasure.bloodOxygen.name: return "\(value)%"
+        case BandMeasure.stress.name: return "\(value)"
+        default: return "\(value) bpm"
+        }
+    }
+}
+
+extension RingHistoryStore {
+    /// The newest kept band reading of `type`, from the last week.
+    func lastBandReading(_ type: BandMeasure) -> (text: String, time: Date)? {
+        for daysAgo in 0..<7 {
+            let day = self.day(RingDates.dayKey(RingDates.midnight(daysAgo: daysAgo)))
+            if let r = day.measurements.last(where: { $0.type == type.name && $0.outcome == "done" }), let text = r.bandText {
+                return (text, r.time)
+            }
+        }
+        return nil
     }
 }

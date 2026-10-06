@@ -15,6 +15,11 @@ struct RingMeasurementRecord: Codable, Equatable {
     var systolic: Int?
     var diastolic: Int?
     var celsius: Double?
+    /// A result of several values (the band's glucose, blood components, body composition, ECG),
+    /// by its JSON name, in canonical units: `blood_glucose_mmol_l`, `uric_acid_umol_l`,
+    /// `cholesterol_mmol_l`, `triglycerides_mmol_l`, `hdl_mmol_l`, `ldl_mmol_l`, `bmi`,
+    /// `body_fat_percent`…, `hrv`, `respiratory_rate`. Absent on the rings' readings.
+    var extra: [String: Double]?
 }
 
 /// Everything collected from the ring for one local day.

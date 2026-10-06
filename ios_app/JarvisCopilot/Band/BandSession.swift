@@ -76,6 +76,8 @@ final class BandSession: ObservableObject {
 
     /// The band's own workout reports (`DA 03`), between the adapter's polls.
     var onSportStatus: ((BandSportStatus) -> Void)?
+    /// Every reading that ended (a value or why not), however it was asked for — kept in the day.
+    var onMeasured: ((BandReading) -> Void)?
     var calendar = Calendar.current
     var now: () -> Date = Date.init
 
@@ -187,6 +189,7 @@ final class BandSession: ObservableObject {
         watch.cancel()
         guard let result = run.reading else { throw BandError.timeout(start.first ?? 0) }
         lastReading = result
+        onMeasured?(result)
         return result
     }
 
@@ -287,6 +290,13 @@ final class BandSession: ObservableObject {
             try await write(frame) { BandDecode.isComplete($0, for: frame) }
         }
         alerts = switches
+    }
+
+    /// One of the band's units, metric (°C, mmol/L, µmol/L) or not. A band without that unit
+    /// is left alone.
+    func setUnit(_ unit: BandSettings.Unit, metric: Bool) async throws {
+        guard let current = settings, let next = current.with(unit, metric: metric), next != current else { return }
+        try await writeSettings(next)
     }
 
     func writeSettings(_ s: BandSettings) async throws {

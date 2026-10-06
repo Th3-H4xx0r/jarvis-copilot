@@ -200,61 +200,22 @@ struct BandDeviceView: View {
 
     // MARK: Measure
 
+    /// The ring's measure list: each reading's symbol (pulsing while it runs), the number as it
+    /// comes in, the result for a moment, then the last one kept with how long ago — Stop while
+    /// one runs.
     private var measureCard: some View {
-        CardGroup("Measure", footer: "Hold still with the band snug on the wrist; a reading takes about a minute.") {
-            ForEach(Array(BandMeasure.allCases.enumerated()), id: \.offset) { index, type in
-                if index > 0 { RowDivider() }
-                Row(minHeight: 50) {
-                    HStack {
-                        Text(type.label)
-                        Spacer()
-                        if session.measuring == type {
-                            if let reading = session.lastReading, reading.measure == type, let progress = reading.progress,
-                               progress > 0 {
-                                Text("\(progress)%").foregroundStyle(.secondary).monospacedDigit()
-                            }
-                            ProgressView().controlSize(.small)
-                        } else if let reading = session.lastReading, reading.measure == type {
-                            Text(Self.summary(reading)).foregroundStyle(.secondary).monospacedDigit()
-                        }
-                        Button("Measure") {
-                            run {
-                                try await wearAsk.measure(type)
-                                // Ended without a value: say why, under the card.
-                                if let reading = session.lastReading, reading.measure == type, !reading.finished,
-                                   let why = reading.failure {
-                                    throw BandError.refused(why)
-                                }
-                            }
-                        }
-                            .buttonStyle(.jcGlass(compact: true))
-                            // A workout has the sensor; readings wait until it ends.
-                            .disabled(!ready || session.measuring != nil
-                                      || WearablesHub.shared.ring.workout.holdsLink(for: WearableKeepAlive.band))
-                    }
-                }
-            }
-        }
-    }
-
-    /// What a row shows for its last reading: the value, or a word for how it ended.
-    static func summary(_ r: BandReading) -> String {
-        switch r.status {
-        case .notWorn: return "Not worn"
-        case .busy: return "Busy"
-        case .failed: return "No reading"
-        case .measuring: return ""
-        case .done: break
-        }
-        if let s = r.systolic, let d = r.diastolic { return "\(s)/\(d)" }
-        if let hr = r.heartRate { return "\(hr) bpm" }
-        if let v = r.spo2 { return "\(v)%" }
-        if let t = r.temperatureC { return String(format: "%.1f °C", t) }
-        if let v = r.stress { return "\(v)" }
-        if let g = r.bloodGlucose { return String(format: "%.1f mmol/L", g) }
-        if let c = r.bloodComponent { return String(format: "Uric acid %.0f", c.uricAcid) }
-        if let b = r.bodyComposition { return String(format: "BMI %.1f · %.0f%% fat", b.bmi, b.bodyFatPercent) }
-        return "Done"
+        // A workout has the sensor; readings wait until it ends.
+        let workout = WearablesHub.shared.ring.workout.holdsLink(for: WearableKeepAlive.band)
+        return RingMeasureList(items: BandMeasure.allCases.map { type in
+            RingMeasureList.Item(
+                label: type.label, icon: type.icon, tint: type.tint, state: wearAsk.state(of: type),
+                last: manager.store?.lastBandReading(type),
+                control: RingCardMeasure(
+                    state: wearAsk.state(of: type),
+                    enabled: ready && !workout && (session.measuring == nil || session.measuring == type),
+                    start: { run { try await wearAsk.measure(type) } },
+                    stop: { wearAsk.dismiss() }))
+        })
     }
 
     /// ECG and body composition read through the electrode: say so while one runs.
@@ -325,6 +286,11 @@ struct BandSettingsView: View {
     @State private var error: String?
     @State private var keepAlive = false
     @State private var confirmForget = false
+    /// The app-wide units every band and Health value is drawn in (the band keeps a copy).
+    @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
+    @AppStorage(GlucoseUnit.key) private var glucoseUnit: GlucoseUnit = .mmolL
+    @AppStorage(BloodFatUnit.key) private var bloodFatUnit: BloodFatUnit = .mmolL
+    @AppStorage(UricAcidUnit.key) private var uricAcidUnit: UricAcidUnit = .umolL
 
     init(manager: BandManager) {
         self.manager = manager
@@ -342,6 +308,7 @@ struct BandSettingsView: View {
                 alertsCard
                 alarmsCard
                 healthCard
+                unitsCard
                 connectionCard
                 logCard
                 CardGroup {
@@ -469,6 +436,52 @@ struct BandSettingsView: View {
             toggleRow("Raise to wake", on: session.raiseToWake?.enabled ?? session.handshake?.raiseToWake ?? false) {
                 invoke("band_set_raise_to_wake", ["enabled": $0])
             }
+        }
+    }
+
+    private var unitsCard: some View {
+        CardGroup("Units", footer: "How readings are shown everywhere in the app. The band keeps the same choice.") {
+            unitRow("Temperature", selection: Binding(get: { temperatureUnit }, set: { unit in
+                temperatureUnit = unit
+                setBandUnit(.temperature, metric: unit == .celsius)
+            }), options: TemperatureUnit.allCases, label: \.label)
+            RowDivider()
+            unitRow("Blood glucose", selection: Binding(get: { glucoseUnit }, set: { unit in
+                glucoseUnit = unit
+                setBandUnit(.glucose, metric: unit == .mmolL)
+            }), options: GlucoseUnit.allCases, label: \.label)
+            RowDivider()
+            unitRow("Blood fat", selection: Binding(get: { bloodFatUnit }, set: { unit in
+                bloodFatUnit = unit
+                setBandUnit(.bloodFat, metric: unit == .mmolL)
+            }), options: BloodFatUnit.allCases, label: \.label)
+            RowDivider()
+            unitRow("Uric acid", selection: Binding(get: { uricAcidUnit }, set: { unit in
+                uricAcidUnit = unit
+                setBandUnit(.uricAcid, metric: unit == .umolL)
+            }), options: UricAcidUnit.allCases, label: \.label)
+        }
+    }
+
+    private func unitRow<U: Hashable & Identifiable>(_ title: String, selection: Binding<U>, options: [U],
+                                                     label: KeyPath<U, String>) -> some View {
+        Row {
+            HStack {
+                Text(title)
+                Spacer()
+                Picker(title, selection: selection) {
+                    ForEach(options) { Text($0[keyPath: label]).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 170)
+            }
+        }
+    }
+
+    /// The band's copy follows the app's choice when it's connected; the app's changes at once.
+    private func setBandUnit(_ unit: BandSettings.Unit, metric: Bool) {
+        Task {
+            do { try await session.setUnit(unit, metric: metric) } catch { self.error = error.localizedDescription }
         }
     }
 

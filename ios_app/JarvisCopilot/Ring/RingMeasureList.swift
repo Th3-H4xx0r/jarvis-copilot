@@ -5,10 +5,28 @@ import SwiftUI
 /// ring's live number and Stop.
 struct RingMeasureList: View {
     struct Item {
-        let type: RingMeasurementType
+        let label: String
+        let icon: String
+        let tint: Color
         let state: RingCardMeasure.State
         let last: (text: String, time: Date)?
         let control: RingCardMeasure?
+
+        init(type: RingMeasurementType, state: RingCardMeasure.State, last: (text: String, time: Date)?,
+             control: RingCardMeasure?) {
+            self.init(label: type.label, icon: type.icon, tint: type.tint, state: state, last: last, control: control)
+        }
+
+        /// Any wearable's reading (the band's has its own types).
+        init(label: String, icon: String, tint: Color, state: RingCardMeasure.State,
+             last: (text: String, time: Date)?, control: RingCardMeasure?) {
+            self.label = label
+            self.icon = icon
+            self.tint = tint
+            self.state = state
+            self.last = last
+            self.control = control
+        }
     }
 
     let items: [Item]
@@ -25,10 +43,10 @@ struct RingMeasureList: View {
     private func row(_ item: Item) -> some View {
         Row(minHeight: 58) {
             HStack(spacing: 12) {
-                RingMetricSymbol(name: item.type.icon, tint: item.type.tint, pulsing: isMeasuring(item))
+                RingMetricSymbol(name: item.icon, tint: item.tint, pulsing: isMeasuring(item))
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.type.label)
+                    Text(item.label)
                         .font(.body.weight(.medium))
                         .lineLimit(1)
                     if case .measuring(let live) = item.state {
@@ -37,7 +55,7 @@ struct RingMeasureList: View {
                         Text(live ?? "--")
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .monospacedDigit()
-                            .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.type.tint))
+                            .foregroundStyle(live == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(item.tint))
                             .contentTransition(.numericText())
                             .animation(.snappy(duration: 0.25), value: live)
                             .geometryGroup()

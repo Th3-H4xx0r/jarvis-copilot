@@ -97,6 +97,45 @@ final class BandManager: NSObject, ObservableObject {
             WidgetDataHub.shared.refreshSoon()
         }
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
+        session.onMeasured = { [weak self] reading in self?.record(reading) }
+    }
+
+    /// A reading that ended goes into its day, like the rings' spot checks: the record (values in
+    /// canonical units), and heart rate / SpO₂ / temperature into the day's manual series too.
+    /// Then that day goes to Jarvis Health.
+    private func record(_ r: BandReading) {
+        guard let store, r.status != .measuring else { return }
+        let key = RingDates.dayKey(r.date)
+        let calendar = Calendar.current
+        let minute = calendar.component(.hour, from: r.date) * 60 + calendar.component(.minute, from: r.date)
+        var extra: [String: Double] = [:]
+        if let g = r.bloodGlucose { extra["blood_glucose_mmol_l"] = g }
+        if let c = r.bloodComponent {
+            for (k, v) in c.json { if let d = v as? Double { extra[k] = d } }
+        }
+        if let b = r.bodyComposition {
+            for (k, v) in b.json { if let d = v as? Double { extra[k] = d } else if let i = v as? Int { extra[k] = Double(i) } }
+        }
+        if r.measure == .ecg {
+            if let h = r.hrv { extra["hrv"] = Double(h) }
+            if let b = r.respiratoryRate { extra["respiratory_rate"] = Double(b) }
+        }
+        let value = r.heartRate ?? r.spo2 ?? r.stress
+        store.update(key) { day in
+            day.measurements.append(RingMeasurementRecord(
+                type: r.measure.name, time: r.date, outcome: r.status.rawValue, value: value,
+                systolic: r.systolic, diastolic: r.diastolic, celsius: r.temperatureC,
+                extra: extra.isEmpty ? nil : extra))
+            guard r.finished else { return }
+            if let hr = r.heartRate, r.measure == .heartRate {
+                day.manualHeartRate = RingDay.merged(day.manualHeartRate, [RingTimedValue(minute: minute, value: Double(hr))])
+            }
+            if let o = r.spo2 { day.manualSpO2 = RingDay.merged(day.manualSpO2, [RingTimedValue(minute: minute, value: Double(o))]) }
+            if let t = r.temperatureC {
+                day.instantTemperature = RingDay.merged(day.instantTemperature, [RingTimedValue(minute: minute, value: t)])
+            }
+        }
+        if r.finished { onDaysChanged?([key]) }
     }
 
     /// A device for the band list: a Veepoo advertisement (manufacturer 0xF8F8), or the E910's

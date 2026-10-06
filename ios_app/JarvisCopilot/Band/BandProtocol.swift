@@ -253,6 +253,40 @@ struct BandSettings: Equatable, Codable {
         ("fall_warning", 2, 14),
     ]
 
+    /// The units the band keeps (Android SDK `CustomSetting`): page 2's bytes 5 temperature
+    /// (1 °C, 2 °F), 10 blood glucose (1 mmol/L, 2 mg/dL), 12 uric acid (1 µmol/L, 2 mg/dL) and
+    /// 13 blood fat (1 mmol/L, 2 mg/dL); page 1's byte 2 distance (1 metric, 2 imperial). 0 is a
+    /// unit the band doesn't have.
+    enum Unit: CaseIterable {
+        case distance, temperature, glucose, uricAcid, bloodFat
+
+        var place: (page: Int, index: Int) {
+            switch self {
+            case .distance: return (1, 2)
+            case .temperature: return (2, 5)
+            case .glucose: return (2, 10)
+            case .uricAcid: return (2, 12)
+            case .bloodFat: return (2, 13)
+            }
+        }
+    }
+
+    /// Whether the band's `unit` is metric; nil when it has no such unit.
+    func isMetric(_ unit: Unit) -> Bool? {
+        let (page, index) = unit.place
+        guard let frame = page == 1 ? page1 : page2, frame.count > index, frame[index] != 0 else { return nil }
+        return frame[index] == 1
+    }
+
+    /// These settings with `unit` set; nil when the band has no such unit.
+    func with(_ unit: Unit, metric: Bool) -> BandSettings? {
+        guard isMetric(unit) != nil else { return nil }
+        let (page, index) = unit.place
+        var next = self
+        if page == 1 { next.page1[index] = metric ? 1 : 2 } else { next.page2?[index] = metric ? 1 : 2 }
+        return next
+    }
+
     init(page1: [UInt8], page2: [UInt8]? = nil) {
         self.page1 = Self.padded(page1)
         self.page2 = page2.map(Self.padded)
