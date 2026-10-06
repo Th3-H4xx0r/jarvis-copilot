@@ -177,6 +177,61 @@ final class BandRuntimeTests: XCTestCase {
         XCTAssertEqual(ticks.last?.heartRate, 146, "the end keeps the last numbers")
     }
 
+    func testStrengthStartsTheBandsWeightliftingNotARun() async {
+        let wearable = BandWorkoutWearable(session: session, connect: { true })
+        wearable.statusInterval = 60
+        wearable.stepInterval = 60
+        link.script(BandOp.sportControl, ["da0101"])
+        _ = await wearable.send(.start, sport: RingSport.strengthID)
+        // Type 25 (ESportType.WEIGHTLIFTING), little-endian: with 0 the E910 ran an outdoor run.
+        XCTAssertEqual(Array(link.sent.first { $0.first == BandOp.sportControl }?.prefix(5) ?? []),
+                       [BandOp.sportControl, 0x01, 25, 0x00, BandSportOp.start.rawValue])
+        XCTAssertEqual(BandWorkoutWearable.bandType(for: 7), 1, "a run is an outdoor run")
+        XCTAssertEqual(BandWorkoutWearable.bandType(for: 999), BandWorkoutWearable.fitness)
+        link.script(BandOp.sportControl, ["da0101"])
+        _ = await wearable.send(.stop, sport: RingSport.strengthID)
+    }
+
+    /// His 22:49 polls: the band had dropped the session 9 s in (run state 0, last op pause)
+    /// and kept answering 77 bpm. The workout starts it again, and doesn't show 77 meanwhile.
+    func testASessionTheBandDroppedIsStartedAgainAndItsHeartRateNotShownAsLive() async throws {
+        let now = Date()
+        var clock = now
+        let wearable = BandWorkoutWearable(session: session, connect: { true }, clock: { clock })
+        wearable.statusInterval = 0.1
+        wearable.stepInterval = 60
+        wearable.nudgeInterval = 0
+        var ticks: [RingSportTick] = []
+        wearable.onTick = { ticks.append($0) }
+        link.script(BandOp.sportControl, ["da0101"])
+        let dropped = "da020101a00101a1021900a20102a30100a40100a50409000000a60400000000a7014da80400000000a9020000aa020000"
+        link.script(BandOp.sportControl, [dropped])
+        link.script(BandOp.sportControl, ["da0101"])   // the start again
+        let accepted = await wearable.send(.start, sport: RingSport.strengthID)
+        XCTAssertTrue(accepted)
+        // The next poll goes unanswered (3 s) before the start again gets the link.
+        try await Task.sleep(for: .milliseconds(3600))
+        let starts = link.sent.filter { $0.count > 4 && $0[0] == BandOp.sportControl && $0[1] == 0x01 && $0[4] == BandSportOp.start.rawValue }
+        XCTAssertEqual(starts.count, 2, "the dropped session is started again")
+        clock = now.addingTimeInterval(60)
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertNil(ticks.last?.heartRate, "77 from a session that isn't running is not a live heart rate")
+        link.script(BandOp.sportControl, ["da0101"])
+        _ = await wearable.send(.stop, sport: RingSport.strengthID)
+    }
+
+    func testTheBandBuzzesWithItsFindAndStopsIt() async throws {
+        scriptSetup()
+        try await session.runSetup(profile: nil)
+        let wearable = BandWorkoutWearable(session: session, connect: { true })
+        XCTAssertTrue(wearable.canSignal, "the E910 has find")
+        link.script(BandOp.find, [Self.frame("b50a01")])
+        link.script(BandOp.find, [Self.frame("b50b02")])
+        await wearable.signal()
+        let finds = link.sent.filter { $0.first == BandOp.find }.map { $0[1] }
+        XCTAssertEqual(finds, [0x0A, 0x0B])
+    }
+
     func testARefusedStartIsReportedAsRefused() async {
         let wearable = BandWorkoutWearable(session: session, connect: { true })
         link.script(BandOp.sportControl, ["da0100"])   // the real reply while on the charger

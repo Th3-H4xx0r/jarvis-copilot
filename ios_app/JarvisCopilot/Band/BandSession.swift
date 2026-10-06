@@ -225,15 +225,16 @@ final class BandSession: ObservableObject {
 
     // MARK: Control
 
-    /// App sport control: true when the band accepted it.
-    func sport(_ op: BandSportOp) async -> Bool {
-        guard let frame = try? await transport.perform(BandRequest.sport(op), timeout: 3).first else { return false }
+    /// App sport control: true when the band accepted it. `type` is the band's sport
+    /// (`BandWorkoutWearable.bandType`); 0, "none", the band runs as an outdoor run.
+    func sport(_ op: BandSportOp, type: Int = 0) async -> Bool {
+        guard let frame = try? await transport.perform(BandRequest.sport(op, mode: type), timeout: 3).first else { return false }
         return BandDecode.sportAck(frame) ?? false
     }
 
     /// The running app sport, as the band counts it (poll every few seconds once started).
-    func sportStatus() async -> BandSportStatus? {
-        let request = BandRequest.sportStatus()
+    func sportStatus(type: Int = 0) async -> BandSportStatus? {
+        let request = BandRequest.sportStatus(mode: type)
         // A `DA 03` report can land between the parts of the `DA 02` reply: it is the band's
         // own update, not part of this one.
         let isPoll: ([UInt8]) -> Bool = { $0.count > 1 && $0[1] == 0x02 }

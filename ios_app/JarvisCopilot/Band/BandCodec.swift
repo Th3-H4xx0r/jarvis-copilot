@@ -133,6 +133,8 @@ enum BandRequest {
     // MARK: Sport
 
     /// `DA 01 <mode LE> <op>`; mode 0 is a sport run by the app.
+    /// `DA 01 <sport type LE> <op>` — the Android SDK's setSportControlInfo; the type is its
+    /// `ESportType` (25 weightlifting, 1 outdoor run…).
     static func sport(_ op: BandSportOp, mode: Int = 0) -> [UInt8] {
         frame([BandOp.sportControl, 0x01] + le16(mode) + [op.rawValue])
     }

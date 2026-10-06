@@ -196,6 +196,23 @@ final class StrengthSessionTests: XCTestCase {
         XCTAssertEqual(alerts.cancels, 1)
     }
 
+    func testARestThatRunsOutBuzzesTheWearableButASkippedOneDoesNot() {
+        let s = session(exercises: [bench])
+        var buzzes = 0
+        s.onRestEnded = { buzzes += 1 }
+        let e = s.log.exercises[0]
+        s.setValue(8, field: .reps, set: e.sets[0].id, in: e.id)
+        s.toggleDone(e.sets[0].id, in: e.id)
+        s.restDidEnd()
+        XCTAssertEqual(buzzes, 1)
+        // Unticked and ticked again: a new rest, this one skipped.
+        s.toggleDone(e.sets[0].id, in: e.id)
+        s.toggleDone(e.sets[0].id, in: e.id)
+        XCTAssertNotNil(s.rest)
+        s.skipRest()
+        XCTAssertEqual(buzzes, 1, "skipping it is the person's own choice: no buzz")
+    }
+
     func testARestThatRanOutWhileAwayEndsOnItsTime() {
         let s = session(exercises: [bench])
         let e = s.log.exercises[0]

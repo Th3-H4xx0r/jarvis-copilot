@@ -44,6 +44,35 @@ final class StrengthWorkoutTests: XCTestCase {
 
     private func deliver(_ payload: [UInt8]) { link.deliver(RingProtocol.frame(0x78, payload)) }
 
+    /// A wearable that can signal, as the band (buzz) and the X5 (light) do.
+    private final class Signaller: WorkoutWearable {
+        var signals = 0
+        override var isPaired: Bool { true }
+        override var canSignal: Bool { true }
+        override func signal() async { signals += 1 }
+    }
+
+    func testARestRunningOutSignalsEveryWearableWhoseSwitchIsOn() async throws {
+        let c = controller()
+        let on = Signaller(kind: "test-signal-on"), off = Signaller(kind: "test-signal-off")
+        WearableRestAlert.set(false, for: off.kind)
+        defer {
+            UserDefaults.standard.removeObject(forKey: "restAlert.\(on.kind)")
+            UserDefaults.standard.removeObject(forKey: "restAlert.\(off.kind)")
+        }
+        c.add(on)
+        c.add(off)
+        c.startStrength(template: template())
+        let session = try XCTUnwrap(c.strength)
+        let e = session.log.exercises[0]
+        session.toggleDone(e.sets[0].id, in: e.id)
+        XCTAssertNotNil(session.rest)
+        session.restDidEnd()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(on.signals, 1)
+        XCTAssertEqual(off.signals, 0, "its switch is off")
+    }
+
     func testStrengthRunsAtOnceAndWithoutARing() async throws {
         let c = controller(connected: false)
         c.start(RingSport.withID(RingSport.strengthID))

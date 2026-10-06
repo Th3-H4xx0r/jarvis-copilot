@@ -910,6 +910,10 @@ extension RingWorkoutController {
             guard let self, let strength, self.strength === strength else { return }
             self.scheduleAutosave()
         }
+        strength.onRestEnded = { [weak self, weak strength] in
+            guard let self, let strength, self.strength === strength else { return }
+            self.alertRestOver()
+        }
         self.strength = strength
         sport = RingSport.withID(RingSport.strengthID)
         startedAt = log.started
@@ -935,6 +939,17 @@ extension RingWorkoutController {
             }
         }
         pushStrengthActivity()
+    }
+
+    /// The rest ran out: every paired wearable that can signal does — the band buzzes, the X5
+    /// lights — each unless its "Alert when a rest ends" switch is off. Whichever one tracks
+    /// the workout.
+    private func alertRestOver() {
+        var all = wearables
+        if !all.contains(where: { $0 === wearable }) { all.append(wearable) }
+        for device in all where device.isPaired && device.canSignal && WearableRestAlert.isOn(device.kind) {
+            Task { await device.signal() }
+        }
     }
 
     /// Ask the ring for a strength session underneath — unless it already

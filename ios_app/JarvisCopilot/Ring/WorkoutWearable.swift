@@ -38,6 +38,11 @@ class WorkoutWearable: ObservableObject, Identifiable {
     /// A session picked up after a relaunch was paused (for devices whose ticks can't say).
     var resumesPaused: Bool { false }
 
+    /// It can signal on its own — a buzz, a light — and does when a strength rest runs out
+    /// (its "Alert when a rest ends" switch, `WearableRestAlert`).
+    var canSignal: Bool { false }
+    func signal() async {}
+
     func ensureConnected() async -> Bool { false }
     /// Drops the link (the picker's Reconnect).
     func disconnect() {}
@@ -131,6 +136,17 @@ final class X5WorkoutWearable: WorkoutWearable {
 
     override var deviceID: String? { device() }
     override var fallbackName: String { X5Ring.model }
+
+    /// The X5 has no light command (its SDK and protocol sheet have none): its outer light shows
+    /// while it charges and as it connects. So its signal is the link dropped and made again —
+    /// the connect light, at the cost of a few seconds without its data.
+    override var canSignal: Bool { isPaired }
+
+    override func signal() async {
+        drop()
+        try? await Task.sleep(for: .seconds(1.5))
+        _ = await connect()
+    }
     override var pauseFromTicks: Bool { false }
     override var endsWhenStill: Bool { true }
     override var resumesPaused: Bool { defaults.bool(forKey: Self.pausedKey) }

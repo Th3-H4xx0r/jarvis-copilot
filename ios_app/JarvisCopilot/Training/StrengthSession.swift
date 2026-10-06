@@ -50,6 +50,8 @@ final class StrengthSession: ObservableObject {
     let mode: Mode
     /// Autosave and the Live Activity.
     var onChange: (() -> Void)?
+    /// A rest ran out with the app running (not skipped): the wearable buzzes.
+    var onRestEnded: (() -> Void)?
 
     let store: TrainingStore
     let library: ExerciseLibrary
@@ -430,6 +432,7 @@ final class StrengthSession: ObservableObject {
         guard let rest else { return }
         finishRest(at: rest.ends, rest)
         alerts?.arrived()
+        onRestEnded?()
     }
 
     /// Catch up after the app was away: a rest that ran out meanwhile ends,

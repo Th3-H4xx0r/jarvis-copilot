@@ -90,3 +90,17 @@ extension Notification.Name {
     /// A wearable's Keep Alive changed; `object` is its key.
     static let jcKeepAliveChanged = Notification.Name("jcKeepAliveChanged")
 }
+
+/// Per wearable: signal (buzz, light) when a strength rest runs out, for one that can. On
+/// unless turned off.
+enum WearableRestAlert {
+    private static func key(_ kind: String) -> String { "restAlert.\(kind)" }
+
+    static func isOn(_ kind: String, defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key(kind)) as? Bool ?? true
+    }
+
+    static func set(_ on: Bool, for kind: String, defaults: UserDefaults = .standard) {
+        defaults.setValue(on, forKey: key(kind))
+    }
+}
