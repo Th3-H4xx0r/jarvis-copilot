@@ -132,6 +132,80 @@ final class HealthHistoryTests: XCTestCase {
         try render(.uricAcid, .week, h, name: "history-uric-acid")
     }
 
+    // MARK: A reading's day
+
+    private static func glucoseBars() -> [HealthReferenceBar] {
+        [HealthReferenceBar(label: "Fasting / before a meal", kind: "glucose", field: "value", segments: [
+            .init(status: "low", from: 2, to: 3.9), .init(status: "normal", from: 3.9, to: 5.6),
+            .init(status: "elevated", from: 5.6, to: 7), .init(status: "high", from: 7, to: 15)]),
+         HealthReferenceBar(label: "1 h after a meal", kind: "glucose", field: "value", segments: [
+            .init(status: "low", from: 2, to: 3.9), .init(status: "normal", from: 3.9, to: 9.4),
+            .init(status: "high", from: 9.4, to: 15)]),
+         HealthReferenceBar(label: "2 h after a meal", kind: "glucose", field: "value", segments: [
+            .init(status: "low", from: 2, to: 3.9), .init(status: "normal", from: 3.9, to: 7.8),
+            .init(status: "elevated", from: 7.8, to: 11.1), .init(status: "high", from: 11.1, to: 15)])]
+    }
+
+    /// The band's glucose every half hour, as its daily record keeps it: a night run, a gap, a day.
+    private static func glucoseDay(_ day: Date) -> HealthHistory {
+        let format = ISO8601DateFormatter()
+        let minutes = Array(stride(from: 30, through: 210, by: 30)) + Array(stride(from: 300, through: 990, by: 30))
+        let readings = minutes.reversed().map { m -> HealthVitalReading in
+            let wave = m < 450 ? 4.2 + 0.1 * sin(Double(m) / 40) : 6.2 + 1.2 * sin(Double(m - 450) / 90)
+            return HealthVitalReading(metric: "blood_glucose", at: format.string(from: day.addingTimeInterval(Double(m) * 60)),
+                                      value: (wave * 100).rounded() / 100)
+        }
+        let values = readings.map(\.value)
+        let key = RingDates.dayKey(day)
+        return HealthHistory(
+            metric: "blood_glucose", range: "D", title: "Blood glucose", kind: "glucose", start: key, end: key,
+            buckets: [.init(start: key, end: key, value: values.reduce(0, +) / Double(values.count), low: nil, high: nil,
+                            days: 1, stages: nil)],
+            headline: .init(label: "Average", value: values.reduce(0, +) / Double(values.count), low: nil, high: nil,
+                            kind: "glucose"),
+            stats: [], previous: .init(average: nil, days: 0),
+            highlight: "Your average blood glucose over the day was 5.6 mmol/L. A wrist-band estimate, not a diagnosis.",
+            daysSoFar: 4, readings: readings, reference: glucoseBars())
+    }
+
+    func testAOneReadingAxisHasRoomAroundIt() throws {
+        let one = try XCTUnwrap(HealthChartScale.padded([102.6]))
+        XCTAssertLessThan(one.lowerBound, 95)
+        XCTAssertGreaterThan(one.upperBound, 110)
+        let spread = try XCTUnwrap(HealthChartScale.padded([72, 136]))
+        XCTAssertLessThan(spread.lowerBound, 72)
+        XCTAssertGreaterThan(spread.upperBound, 136)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(HealthChartScale.padded([0.2])).lowerBound, 0)
+        XCTAssertNil(HealthChartScale.padded([]))
+    }
+
+    func testVitalsOfferADay() {
+        XCTAssertTrue(HealthMetric.bloodGlucose.ranges.contains(.day))
+        XCTAssertTrue(HealthMetric.bloodPressure.ranges.contains(.day))
+    }
+
+    func testGlucoseDayDrawsTheReadingsOnTheClock() throws {
+        UserDefaults.standard.setValue(GlucoseUnit.mgdL.rawValue, forKey: GlucoseUnit.key)
+        defer { UserDefaults.standard.removeObject(forKey: GlucoseUnit.key) }
+        let day = Calendar.current.startOfDay(for: Date())
+        let model = HealthVitalDayModel(metric: .bloodGlucose, day: day)
+        model.seed(Self.glucoseDay(day))
+        let view = NavigationStack { ScrollView { HealthVitalDayView(metric: .bloodGlucose, day: day, model: model) } }
+        try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 1900),
+                                name: "history-glucose-day", settle: 2)
+    }
+
+    func testGlucoseWeekShowsItsHeadlineAndThreeScales() throws {
+        UserDefaults.standard.setValue(GlucoseUnit.mgdL.rawValue, forKey: GlucoseUnit.key)
+        defer { UserDefaults.standard.removeObject(forKey: GlucoseUnit.key) }
+        var h = history(.bloodGlucose, range: .week, kind: "glucose") { i in
+            i < 6 ? nil : .init(start: "", end: "", value: 5.7, low: nil, high: nil, days: 1, stages: nil)
+        }
+        h.reference = Self.glucoseBars()
+        h.readings = Self.glucoseDay(Calendar.current.startOfDay(for: Date())).readings
+        try render(.bloodGlucose, .week, h, name: "history-glucose-week")
+    }
+
     func testBloodPressureWeekBarsBothHalves() throws {
         var h = history(.bloodPressure, range: .week, kind: "mmhg") { i in
             .init(start: "", end: "", value: 118 + Double(i % 3) * 6, low: 76 + Double(i % 2) * 5, high: nil, days: 1, stages: nil)

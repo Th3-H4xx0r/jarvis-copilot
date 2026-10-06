@@ -271,7 +271,11 @@ def reference(key: str, sex: str = "", age: Optional[int] = None) -> list[dict]:
         return [_bar("Systolic", "mmhg", [("low", 70), ("normal", 90), ("elevated", 120), ("high", 130), ("", 200)]),
                 _bar("Diastolic", "mmhg", [("low", 40), ("normal", 60), ("high", 80), ("", 120)], field="low")]
     if key == "blood_glucose":
-        return [_bar("Fasting", "glucose", [("low", 2.0), ("normal", 3.9), ("elevated", 5.6), ("high", 7.0), ("", 15.0)]),
+        # Fasting (ADA), an hour after eating (the band app's upper bound, 9.4) and two hours
+        # after (ADA's 7.8 / 11.1): a band reading isn't tagged, so all three are shown.
+        return [_bar("Fasting / before a meal", "glucose", [("low", 2.0), ("normal", 3.9), ("elevated", 5.6),
+                                                            ("high", 7.0), ("", 15.0)]),
+                _bar("1 h after a meal", "glucose", [("low", 2.0), ("normal", 3.9), ("high", 9.4), ("", 15.0)]),
                 _bar("2 h after a meal", "glucose", [("low", 2.0), ("normal", 3.9), ("elevated", 7.8), ("high", 11.1),
                                                      ("", 15.0)])]
     if key == "uric_acid":

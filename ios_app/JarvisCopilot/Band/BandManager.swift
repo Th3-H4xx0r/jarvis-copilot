@@ -78,6 +78,8 @@ final class BandManager: NSObject, ObservableObject {
     private var exposedDevice: BandDevice?
     private var scanTimeoutTask: Task<Void, Never>?
     private var idleDropTask: Task<Void, Never>?
+    /// Backgrounded mid-reading: the link drops once the reading ends.
+    private var backgroundDropTask: Task<Void, Never>?
     private var setupTask: Task<Void, Never>?
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
@@ -127,11 +129,17 @@ final class BandManager: NSObject, ObservableObject {
             if let h = r.hrv { extra["hrv"] = Double(h) }
             if let b = r.respiratoryRate { extra["respiratory_rate"] = Double(b) }
             if let diagnosis = r.ecg { extra.merge(diagnosis.extra) { a, _ in a } }
-            // The whole reading, for its report page.
+            if let qtc = r.qtcMs, extra["qtc_ms"] == nil { extra["qtc_ms"] = Double(qtc) }
+            // The whole reading, for its report page — with how far it got when it stopped early.
             if let deviceID, r.ecg != nil || !session.ecgSamples.isEmpty {
-                BandEcgStore.save(BandEcgReport(date: r.date, diagnosis: r.ecg, heartRates: session.ecgHeartRates,
-                                                samples: session.ecgSamples, sampleRate: session.ecgSampleRate),
-                                  deviceID: deviceID)
+                var report = BandEcgReport(date: r.date, diagnosis: r.ecg, heartRates: session.ecgHeartRates,
+                                           samples: BandEcgSignal.withoutLeadIn(session.ecgSamples),
+                                           sampleRate: session.ecgSampleRate)
+                report.qtcs = session.ecgQtcs
+                report.hrvs = session.ecgHrvs
+                report.progress = r.status == .done ? 100 : r.progress
+                report.stopped = r.status == .done ? nil : r.failure
+                BandEcgStore.save(report, deviceID: deviceID)
             }
         }
         let value = r.heartRate ?? r.spo2 ?? r.stress
@@ -400,14 +408,25 @@ final class BandManager: NSObject, ObservableObject {
         stopScan()
         guard !holdsLinkForWorkout else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
-        if connected != nil {
-            wasConnectedBeforeBackground = connected
-            disconnect()
+        guard connected != nil else { return }
+        // A reading under way finishes first: an ECG cut off loses the band's analysis (his
+        // 21:54 run stopped at 83% when the app was switched away).
+        backgroundDropTask?.cancel()
+        backgroundDropTask = Task { [weak self] in
+            while let self, !Task.isCancelled, self.session.measuring != nil {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            guard let self, !Task.isCancelled, self.isBackgrounded, !self.holdsLinkForWorkout,
+                  let band = self.connected else { return }
+            self.wasConnectedBeforeBackground = band
+            self.disconnect()
         }
     }
 
     func enterForeground() {
         isBackgrounded = false
+        backgroundDropTask?.cancel()
+        backgroundDropTask = nil
         if let band = wasConnectedBeforeBackground {
             wasConnectedBeforeBackground = nil
             if keepAliveEnabled || screenIsOpen || healthIsOpen || holdsLinkForWorkout { connect(band) }

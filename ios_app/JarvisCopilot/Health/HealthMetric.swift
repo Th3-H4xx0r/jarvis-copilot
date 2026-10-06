@@ -150,8 +150,8 @@ enum HealthMetric: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// The ranges its history screen offers: a spot reading has no day view of its own.
-    var ranges: [HealthRange] { isVital ? HealthRange.allCases.filter { $0 != .day } : HealthRange.allCases }
+    /// The ranges its history screen offers (a spot reading's day is its readings on a line).
+    var ranges: [HealthRange] { HealthRange.allCases }
 }
 
 /// The band's readings, grouped as its pages switch between them (the official app's

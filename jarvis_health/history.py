@@ -22,10 +22,10 @@ from .sleep_debt import NIGHTS, goal_of, slept
 from .window import cycle, today
 
 #: range → (bucket unit, bucket count)
-RANGES = {"W": ("day", 7), "M": ("day", 30), "6M": ("week", 26), "Y": ("month", 12)}
+RANGES = {"D": ("day", 1), "W": ("day", 7), "M": ("day", 30), "6M": ("week", 26), "Y": ("month", 12)}
 
 #: What "the last …" and "the … before" say for each range.
-_SPANS = {"W": ("the last 7 days", "the 7 days before"), "M": ("the last 30 days", "the 30 days before"),
+_SPANS = {"D": ("the day", "the day before"), "W": ("the last 7 days", "the 7 days before"), "M": ("the last 30 days", "the 30 days before"),
           "6M": ("the last 6 months", "the 6 months before"), "Y": ("the last year", "the year before")}
 
 

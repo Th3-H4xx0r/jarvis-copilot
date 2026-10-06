@@ -898,6 +898,7 @@
 		ECED814028FBA24B42228563 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96A33C9D808787F7E83495B /* RouteMap.swift */; };
 		ED1634C71A49D7D0C50976E1 /* InmoRuntimeDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92160D7DC26CA93B6E15D30E /* InmoRuntimeDiagnostics.swift */; };
 		EE0965D3101557370F1BEAA2 /* QuotaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CDD52DB7E10082EBDBF61E9 /* QuotaStore.swift */; };
+		EE4E8C9A6546DE7556EDBA01 /* HealthVitalDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D09F857A67375B1E077EC2A /* HealthVitalDay.swift */; };
 		EF4627157C3B1785819CE8BB /* LiveTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */; };
 		EF68334C2E3FA0DEE887F4D1 /* BandDayMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C65987BA1B90E1F1651471 /* BandDayMapper.swift */; };
 		EF92979F1C515F4B3B67A85B /* DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D462E83EF512750EA59A8A4 /* DeviceView.swift */; };
@@ -1462,6 +1463,7 @@
 		7C4B1A6B18C02B6430D99A5A /* ChatModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatModelsTests.swift; sourceTree = "<group>"; };
 		7C9C939812877EA192CCACFD /* VoiceReplyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReplyTests.swift; sourceTree = "<group>"; };
 		7D087F3502193DBA679D33E0 /* QuotaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaTests.swift; sourceTree = "<group>"; };
+		7D09F857A67375B1E077EC2A /* HealthVitalDay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthVitalDay.swift; sourceTree = "<group>"; };
 		7D10F6655EBB10F18D09E94F /* StrengthLiveView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthLiveView.swift; sourceTree = "<group>"; };
 		7D47A6D7A646C7790970F30E /* AudioSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioSessionController.swift; sourceTree = "<group>"; };
 		7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechAnalyzerServices.swift; sourceTree = "<group>"; };
@@ -2504,6 +2506,7 @@
 				6F26EE8116FF48964B72C773 /* WeightCard.swift */,
 				02E3302B79DA67E4FC604077 /* AppleHealthSync.swift */,
 				A954274E6439F415046FB859 /* HealthVitals.swift */,
+				7D09F857A67375B1E077EC2A /* HealthVitalDay.swift */,
 			);
 			path = Health;
 			sourceTree = "<group>";
@@ -4905,6 +4908,7 @@
 				F1E52F5E3A65FADDBF836622 /* HealthVitals.swift in Sources */,
 				467568A6C2F9A02E27E699E2 /* BandEcg.swift in Sources */,
 				DADC951681F55B2D970599B0 /* BandEcgViews.swift in Sources */,
+				EE4E8C9A6546DE7556EDBA01 /* HealthVitalDay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -77,6 +77,10 @@ final class BandSession: ObservableObject {
     /// view and the report kept at the end.
     @Published private(set) var ecgSamples: [Int] = []
     @Published private(set) var ecgHeartRates: [Int] = []
+    /// The QTc and HRV the band reports each second: a reading that stops before the band's
+    /// analysis still has them.
+    private(set) var ecgQtcs: [Int] = []
+    private(set) var ecgHrvs: [Int] = []
     private(set) var ecgSampleRate = 250
 
     /// The band's own workout reports (`DA 03`), between the adapter's polls.
@@ -170,6 +174,8 @@ final class BandSession: ObservableObject {
         if type == .ecg {
             ecgSamples = []
             ecgHeartRates = []
+            ecgQtcs = []
+            ecgHrvs = []
             ecgWaveFrames = 0
             onEcgWave?(true)
         }
@@ -398,7 +404,11 @@ final class BandSession: ObservableObject {
             // A late frame (the stop's own reply) must not replace the reading that ended.
             guard measuring == reading.measure else { return }
             lastReading = reading
-            if reading.measure == .ecg, let hr = reading.heartRate, (30...250).contains(hr) { ecgHeartRates.append(hr) }
+            if reading.measure == .ecg, reading.part == nil, !reading.ended {
+                if let hr = reading.heartRate, (30...250).contains(hr) { ecgHeartRates.append(hr) }
+                if let qtc = reading.qtcMs { ecgQtcs.append(qtc) }
+                if let hrv = reading.hrv { ecgHrvs.append(hrv) }
+            }
             if reading.measure == .heartRate { liveHeartRate = reading.heartRate }
             return
         }

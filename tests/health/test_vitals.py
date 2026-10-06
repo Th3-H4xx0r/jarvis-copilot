@@ -129,6 +129,19 @@ def test_glucose_history_buckets_readings_and_says_where_it_sits(tmp_registry):
     assert readings["value"] == 3
 
 
+def test_a_day_is_one_bucket_with_that_days_readings(tmp_registry):
+    store = _store({
+        "2026-09-16": [glucose("2026-09-16T15:00:00Z", 5.8)],
+        "2026-09-17": [glucose("2026-09-17T12:30:00Z", 4.4), glucose("2026-09-17T13:00:00Z", 6.6)],
+    })
+    out = history(store, "blood_glucose", "D", "2026-09-17", NOW)
+    assert [(b["start"], b["value"], b["days"]) for b in out["buckets"]] == [("2026-09-17", 5.5, 1)]
+    assert [r["at"] for r in out["readings"]] == ["2026-09-17T13:00:00Z", "2026-09-17T12:30:00Z"]
+    assert out["headline"]["value"] == 5.5
+    assert "over the day" in out["highlight"]
+    assert {s["label"]: s["value"] for s in out["stats"]}["Highest"] == 6.6
+
+
 def test_the_highlight_speaks_the_chosen_unit(tmp_registry):
     store = _store({"2026-09-17": [glucose("2026-09-17T15:00:00Z", 5.0)]})
     store.put_settings({"glucose_unit": "mgdL"})
@@ -255,6 +268,13 @@ def test_every_bar_is_contiguous_and_in_order():
                     for a, b in zip(segs, segs[1:]):
                         assert a["to"] == b["from"], (key, sex, age)
                     assert all(s["from"] < s["to"] for s in segs), (key, sex, age)
+
+
+def test_glucose_shows_fasting_one_and_two_hours_after_a_meal():
+    bars = vitals.reference("blood_glucose")
+    assert [b["label"] for b in bars] == ["Fasting / before a meal", "1 h after a meal", "2 h after a meal"]
+    one_hour = bars[1]
+    assert [s["status"] for s in one_hour["segments"]] == ["low", "normal", "high"]
 
 
 def test_blood_pressure_has_a_diastolic_bar_on_the_bucket_low():

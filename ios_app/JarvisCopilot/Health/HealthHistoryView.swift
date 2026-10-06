@@ -87,10 +87,18 @@ struct HealthHistoryView: View {
             HealthWorkoutsCard(workouts: tab.workouts[selection.cacheKey] ?? [])
         case .weight, .bodyFat:
             WeightCard(weight: tab.weight(for: selection))
+        case _ where metric.isVital:
+            HealthVitalDayView(metric: metric, day: selectedDay)
         default:
             RingStatsSections(store: tab.cache, dayKey: selection.cacheKey, capabilities: RingCapabilities(),
                               hourDomain: tab.hourDomain(for: selection), only: metric)
         }
+    }
+
+    /// The Health tab's day (today's window is today).
+    private var selectedDay: Date {
+        if case .day(let key) = selection, let date = RingDates.date(forKey: key) { return date }
+        return Date()
     }
 
     // MARK: Range
@@ -99,6 +107,10 @@ struct HealthHistoryView: View {
         VStack(alignment: .leading, spacing: 20) {
             headline(history)
                 .padding(.horizontal, 24)
+                .onScrolledIntoView {
+                    guard !revealed else { return }
+                    withAnimation(.odometer) { revealed = true }
+                }
             CardGroup {
                 if history.isEmpty {
                     Row(minHeight: 180) {
@@ -144,10 +156,7 @@ struct HealthHistoryView: View {
             if metric == .exercise, let workouts = history.workouts, !workouts.isEmpty {
                 HealthWorkoutsCard(workouts: workouts, title: "Workouts in this range", showsDate: true)
             }
-        }
-        .onScrolledIntoView {
-            guard !revealed else { return }
-            withAnimation(.odometer) { revealed = true }
+            if metric.isVital { HealthUnitCard(kind: history.kind) }
         }
     }
 
@@ -271,7 +280,8 @@ struct HealthHistoryView: View {
                 AxisValueLabel { Text(yLabel(value.as(Double.self) ?? 0)) }
             }
         }
-        .chartYScale(domain: .automatic(includesZero: metric.style != .line && metric.style != .range))
+        .modifier(HealthChartScale(padded: vitalDomain(history),
+                                   includesZero: metric.style != .line && metric.style != .range))
         .chartXSelection(value: $scrubbed)
         .frame(height: 220)
         .animation(.snappy(duration: 0.3), value: range)
@@ -361,6 +371,13 @@ struct HealthHistoryView: View {
             if metric.isVital && value < 20 && value != value.rounded() { return String(format: "%.1f", value) }
             return "\(Int(value.rounded()))"
         }
+    }
+
+    /// A vital's axis with room around its line (one reading alone drew on 102–103).
+    private func vitalDomain(_ history: HealthHistory) -> ClosedRange<Double>? {
+        guard metric.isVital else { return nil }
+        let values = history.buckets.filter { $0.days > 0 }.flatMap { [$0.value, $0.low, $0.high].compactMap { $0 } }
+        return HealthChartScale.padded(values.map { plotted($0) })
     }
 
     private func xDomain(_ history: HealthHistory) -> ClosedRange<Date> {

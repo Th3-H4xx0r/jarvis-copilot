@@ -538,6 +538,7 @@ struct BandSettingsView: View {
     /// The band's copy follows the app's choice when it's connected; the app's changes at once.
     private func setBandUnit(_ unit: BandSettings.Unit, metric: Bool) {
         Task {
+            await HealthUnitSync.sendIfChanged()
             do { try await session.setUnit(unit, metric: metric) } catch { self.error = error.localizedDescription }
         }
     }

@@ -185,9 +185,9 @@ def main(argv=None) -> int:
     day = sub.add_parser("day", help="one day bedtime to bedtime, with scores and analysis")
     day.add_argument("--date", help="YYYY-MM-DD, default the day today belongs to")
 
-    hist = sub.add_parser("history", help="a metric's history over a week, month, 6 months or year")
+    hist = sub.add_parser("history", help="a metric's history over a day, week, month, 6 months or year")
     hist.add_argument("--metric", required=True, choices=METRICS)
-    hist.add_argument("--range", default="M", choices=("W", "M", "6M", "Y"))
+    hist.add_argument("--range", default="M", choices=("D", "W", "M", "6M", "Y"))
     hist.add_argument("--end", help="YYYY-MM-DD, default today")
 
     vit = sub.add_parser("vitals", help="spot readings: latest, usual ranges, trends, insights")

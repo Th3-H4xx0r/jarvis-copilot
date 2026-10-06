@@ -133,8 +133,33 @@ struct BandEcgReport: Codable, Equatable, Identifiable {
     /// The waveform, as the band sent it (raw counts), at `sampleRate`.
     var samples: [Int]
     var sampleRate: Int
+    /// The QTc and HRV the band reported each second (all a reading has when it stopped before
+    /// the band's analysis).
+    var qtcs: [Int]? = nil
+    var hrvs: [Int]? = nil
+    /// How far the band got (100: it finished), and why it stopped when it didn't.
+    var progress: Int? = nil
+    var stopped: String? = nil
 
     var id: Date { date }
+    /// The band sends its analysis only once a reading finishes.
+    var isPartial: Bool { diagnosis == nil }
+
+    /// The seconds' average, else the band's own figure.
+    var qtcMs: Int? { Self.mean(qtcs) ?? diagnosis.flatMap { $0.qtcMs > 0 ? $0.qtcMs : nil } }
+    var hrv: Int? { Self.mean(hrvs) ?? diagnosis.flatMap { $0.hrv > 0 ? $0.hrv : nil } }
+
+    private static func mean(_ values: [Int]?) -> Int? {
+        guard let values, !values.isEmpty else { return nil }
+        return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    /// The headline: the band's rhythm, else what the heart rate alone says.
+    var rhythm: String {
+        if let diagnosis { return diagnosis.rhythm }
+        guard let average = averageHeartRate else { return "ECG" }
+        return average > 100 ? "Fast heart rate" : average < 60 ? "Slow heart rate" : "Heart rate in the usual range"
+    }
     var duration: TimeInterval { sampleRate > 0 ? Double(samples.count) / Double(sampleRate) : 0 }
 
     var averageHeartRate: Int? { heartRates.isEmpty ? diagnosis.map(\.heartRate) : heartRates.reduce(0, +) / heartRates.count }
@@ -212,6 +237,14 @@ enum BandEcgSignal {
         let sorted = y.sorted()
         let lo = sorted[sorted.count * 2 / 100], hi = sorted[sorted.count * 98 / 100]
         return max(1, hi - lo)
+    }
+
+    /// The waveform from where the finger met the electrode: the band streams a flat line until
+    /// then (the trace's first seconds read the same count), which the playback would open on.
+    static func withoutLeadIn(_ samples: [Int]) -> [Int] {
+        guard let first = samples.first,
+              let start = samples.firstIndex(where: { abs($0 - first) > 2 }) else { return samples }
+        return Array(samples[max(0, start - 1)...])
     }
 
     /// A frame from the waveform channel (`BandGATT.wave`), as the SDK unpacks the E910's ECG

@@ -29,7 +29,7 @@ The local webui serves the API; the helper signs its loopback calls. Run it with
 python3 scripts/health.py now                              # today: bedtime to now, battery, workouts
 python3 scripts/health.py day --date 2026-09-16            # a day with its scores + analysis
 python3 scripts/health.py vitals --days 30                 # spot readings: insights, ranges, trends
-python3 scripts/health.py history --metric blood_glucose --range M   # W / M / 6M / Y
+python3 scripts/health.py history --metric blood_glucose --range M   # D / W / M / 6M / Y (D: that day's readings)
 python3 scripts/health.py devices | runs | alerts | settings
 python3 scripts/health.py run                              # score again now (reaches the wearables)
 ```
@@ -70,8 +70,9 @@ LDL in mmol/L; uric acid in µmol/L; kg; %; kcal; ms. The `*_text` fields of
   when you report them: wellness estimates, not medical measurements and not a
   diagnosis. Don't diagnose; for a value repeatedly in the high range you may
   say it is worth checking with a proper measurement.
-- Glucose ranges are fasting ranges (3.9–5.5 mmol/L normal, 5.6–6.9 elevated,
-  7.0 or more high); a reading soon after a meal is expected to be higher.
+- Glucose: fasting 3.9–5.5 mmol/L normal, 5.6–6.9 elevated, 7.0 or more high;
+  an hour after a meal up to 9.4 is normal, two hours after up to 7.8 (11.1 or
+  more high). A band reading isn't tagged with meals, so say which one applies.
 - Blood pressure: under 120/80 normal, 120–129 systolic elevated, 130/80 or
   more high.
 - `stale: true` on a score means the wearable could not be reached for that

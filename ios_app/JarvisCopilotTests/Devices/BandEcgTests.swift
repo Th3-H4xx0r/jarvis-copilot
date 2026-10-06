@@ -62,6 +62,41 @@ final class BandEcgTests: XCTestCase {
         XCTAssertEqual(run.reading?.ecg?.qtcMs, 400, "the success frame must not drop the report")
     }
 
+    func testTheFlatLeadInIsTrimmed() {
+        let samples = Array(repeating: 1200, count: 900) + [1201, 1260, 1400, 1100]
+        XCTAssertEqual(BandEcgSignal.withoutLeadIn(samples), [1201, 1260, 1400, 1100])
+        XCTAssertEqual(BandEcgSignal.withoutLeadIn([5, 5, 5]), [5, 5, 5], "all flat: nothing to trim to")
+    }
+
+    /// His 21:54 run: stopped at 83%, the band's seconds kept.
+    private static var stopped: BandEcgReport {
+        var r = BandEcgReport(date: Date(timeIntervalSince1970: 1_791_323_655), diagnosis: nil,
+                              heartRates: [72, 73, 74, 74, 73, 74], samples: trace(seconds: 20, rate: 500), sampleRate: 500)
+        r.qtcs = [335, 350, 357, 365, 389, 380]
+        r.hrvs = [76, 6, 9, 8, 10, 11]
+        r.progress = 83
+        r.stopped = "The band went quiet"
+        return r
+    }
+
+    func testAStoppedReadingKeepsWhatTheBandSentEachSecond() {
+        let r = Self.stopped
+        XCTAssertTrue(r.isPartial)
+        XCTAssertEqual(r.qtcMs, 363)
+        XCTAssertEqual(r.hrv, 20)
+        XCTAssertEqual(r.rhythm, "Heart rate in the usual range")
+        let full = Self.report
+        XCTAssertFalse(full.isPartial)
+        XCTAssertEqual(full.qtcMs, 349, "with no seconds kept, the band's own QTc")
+    }
+
+    func testAStoppedReportStillDecodesOldFiles() throws {
+        let old = #"{"date":0,"heartRates":[70],"samples":[1,2],"sampleRate":250}"#
+        let r = try JSONDecoder().decode(BandEcgReport.self, from: Data(old.utf8))
+        XCTAssertNil(r.qtcs)
+        XCTAssertNil(r.qtcMs)
+    }
+
     // MARK: Renders
 
     /// A clean synthetic lead I: a P wave, the QRS, a T wave, at 75 bpm.
@@ -100,6 +135,11 @@ final class BandEcgTests: XCTestCase {
         let view = NavigationStack { BandEcgReportView(report: Self.report, initialTab: 1) }
         try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 2300),
                                 name: "band-ecg-analysis", settle: 2)
+    }
+
+    func testAStoppedReportRenders() throws {
+        try RenderHarness.write(NavigationStack { BandEcgReportView(report: Self.stopped, initialTab: 1) }
+            .environment(AppRouter()), size: CGSize(width: 402, height: 1100), name: "band-ecg-stopped", settle: 2)
     }
 
     func testTheLiveScreenRenders() throws {

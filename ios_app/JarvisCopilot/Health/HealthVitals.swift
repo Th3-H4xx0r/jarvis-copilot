@@ -236,44 +236,108 @@ struct HealthReferenceCard: View {
     }
 }
 
-/// Every reading in the range, newest first, each with its chip.
+/// The newest readings with their chips, and the rest a tap away (the band app's "All Data").
 struct HealthReadingsCard: View {
     let readings: [HealthVitalReading]
     let kind: String
     let bars: [HealthReferenceBar]
+    /// A day's list: the time alone.
+    var timesOnly = false
+    var shown = 5
 
     var body: some View {
         CardGroup("Readings") {
-            ForEach(Array(readings.prefix(30).enumerated()), id: \.offset) { index, reading in
+            ForEach(Array(readings.prefix(shown).enumerated()), id: \.offset) { index, reading in
                 if index > 0 { RowDivider() }
-                Row {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(text(reading)).font(.body.monospacedDigit())
-                            Text(reading.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
-                                .font(.caption).foregroundStyle(.secondary)
+                HealthReadingRow(reading: reading, kind: kind, bars: bars, timesOnly: timesOnly)
+            }
+            if readings.count > shown {
+                RowDivider()
+                NavigationLink {
+                    HealthReadingsList(readings: readings, kind: kind, bars: bars, timesOnly: timesOnly)
+                } label: {
+                    Row {
+                        HStack {
+                            Text("All readings")
+                            Spacer()
+                            Text("\(readings.count)").foregroundStyle(.secondary).monospacedDigit()
+                            JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        if let status = status(reading) { HealthStatusChip(status: status) }
+                        .contentShape(Rectangle())
                     }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private func text(_ r: HealthVitalReading) -> String {
+    static func text(_ r: HealthVitalReading, kind: String) -> String {
         if kind == "mmhg", let d = r.diastolic { return "\(Int(r.value.rounded()))/\(Int(d.rounded())) mmHg" }
         return HealthFormat.string(r.value, kind: kind)
     }
 
     /// The worst of its bars: a pressure is as high as its higher half.
-    private func status(_ r: HealthVitalReading) -> String? {
+    static func status(_ r: HealthVitalReading, bars: [HealthReferenceBar]) -> String? {
         let order = ["low": 1, "normal": 0, "elevated": 2, "high": 3]
         let found = bars.compactMap { bar -> String? in
             let v = bar.field == "low" ? r.diastolic : r.value
             return v.flatMap(bar.status(of:))
         }
         return found.max { (order[$0] ?? 0) < (order[$1] ?? 0) }
+    }
+}
+
+struct HealthReadingRow: View {
+    let reading: HealthVitalReading
+    let kind: String
+    let bars: [HealthReferenceBar]
+    var timesOnly = false
+
+    var body: some View {
+        Row {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HealthReadingsCard.text(reading, kind: kind)).font(.body.monospacedDigit())
+                    Text(timesOnly ? reading.date.formatted(.dateTime.hour().minute())
+                         : reading.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let status = HealthReadingsCard.status(reading, bars: bars) { HealthStatusChip(status: status) }
+            }
+        }
+    }
+}
+
+/// Every reading, newest first, grouped by day.
+struct HealthReadingsList: View {
+    let readings: [HealthVitalReading]
+    let kind: String
+    let bars: [HealthReferenceBar]
+    var timesOnly = false
+
+    private var days: [(day: Date, readings: [HealthVitalReading])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: readings) { calendar.startOfDay(for: $0.date) }
+        return grouped.keys.sorted(by: >).map { ($0, grouped[$0]!.sorted { $0.date > $1.date }) }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                ForEach(days, id: \.day) { day in
+                    CardGroup(day.day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())) {
+                        ForEach(Array(day.readings.enumerated()), id: \.offset) { index, reading in
+                            if index > 0 { RowDivider() }
+                            HealthReadingRow(reading: reading, kind: kind, bars: bars, timesOnly: true)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 12)
+        }
+        .navigationTitle("All readings")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

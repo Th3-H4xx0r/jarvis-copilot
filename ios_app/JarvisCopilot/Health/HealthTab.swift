@@ -92,6 +92,7 @@ struct HealthTab: View {
             .task(id: selection) {
                 await model.refresh(selection)
                 await vitals.load()
+                await HealthUnitSync.sendIfChanged()
             }
             .jcScreen("Health")
             .toolbar {

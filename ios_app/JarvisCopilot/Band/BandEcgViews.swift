@@ -155,7 +155,8 @@ struct BandEcgLiveView: View {
     private var reading: BandReading? { session.lastReading?.measure == .ecg ? session.lastReading : nil }
     private var heartRate: Int? { reading?.heartRate ?? session.ecgHeartRates.last }
     private var hrv: Int? { reading?.hrv }
-    private var qtc: Int? { reading?.ecg.map(\.qtcMs).flatMap { $0 > 0 ? $0 : nil } }
+    /// The band's QTc each second, else the end-of-test one.
+    private var qtc: Int? { reading?.qtcMs ?? reading?.ecg.map(\.qtcMs).flatMap { $0 > 0 ? $0 : nil } }
     private var progress: Int { reading?.progress ?? 0 }
     private var hint: String {
         if reading?.leadOff == true || session.ecgSamples.isEmpty { return "Rest your arm and hold a finger on the band's metal top." }
@@ -184,7 +185,7 @@ struct BandEcgReportView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(report.diagnosis?.rhythm ?? "ECG").font(.headline).padding(.horizontal, 20)
+                Text(report.rhythm).font(.headline).padding(.horizontal, 20)
                 strip
                 Picker("", selection: $tab) {
                     Text("Value").tag(0)
@@ -263,6 +264,9 @@ struct BandEcgReportView: View {
                     }
                 }
                 .padding(16)
+            }
+            if report.isPartial {
+                partialFigures
             }
             if let d = report.diagnosis {
                 CardGroup("HRV") {
@@ -356,7 +360,43 @@ struct BandEcgReportView: View {
                     }
                 }
             } else {
-                Text("The band didn't send its analysis for this reading.").foregroundStyle(.secondary).padding()
+                CardGroup(footer: "Risks, the stress and fatigue indexes and the arrhythmia check come from the band's analysis, which it sends only when a reading reaches 100%. Keep a finger on the band and stay on this screen for the whole minute.") {
+                    Row {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(stoppedTitle).font(.headline)
+                            Text(stoppedDetail).font(.subheadline).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+                partialFigures
+            }
+        }
+    }
+
+    private var stoppedTitle: String {
+        if let progress = report.progress, progress > 0, progress < 100 { return "This reading stopped at \(progress)%" }
+        return "The band didn't send its analysis"
+    }
+
+    private var stoppedDetail: String {
+        let why = report.stopped.map { "\($0). " } ?? ""
+        let seconds = report.heartRates.count
+        return why + (seconds > 0 ? "From the \(seconds) seconds it measured:" : "It measured no full second.")
+    }
+
+    /// What the band sent each second: all a reading has when it stopped before the analysis.
+    @ViewBuilder private var partialFigures: some View {
+        if report.qtcMs != nil || report.hrv != nil {
+            CardGroup("Measured each second") {
+                if let qtc = report.qtcMs {
+                    rangeRow("QTc", Double(qtc), "260 – 440 ms", 260...440)
+                }
+                if report.qtcMs != nil, report.hrv != nil { RowDivider() }
+                if let hrv = report.hrv {
+                    rangeRow("HRV", Double(hrv), "0 – 210 ms", 0...210)
+                }
             }
         }
     }
