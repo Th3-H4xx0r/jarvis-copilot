@@ -73,6 +73,8 @@ final class BandManager: NSObject, ObservableObject {
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
+    /// The ECG waveform channel, subscribed while an ECG runs.
+    private var waveCharacteristic: CBCharacteristic?
     private var exposedDevice: BandDevice?
     private var scanTimeoutTask: Task<Void, Never>?
     private var idleDropTask: Task<Void, Never>?
@@ -98,6 +100,11 @@ final class BandManager: NSObject, ObservableObject {
         }
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
         session.onMeasured = { [weak self] reading in self?.record(reading) }
+        // The ECG's waveform channel, on while one runs (as the SDK's setChannelNotify).
+        session.onEcgWave = { [weak self] on in
+            guard let self, let peripheral = self.peripheral, let wave = self.waveCharacteristic else { return }
+            peripheral.setNotifyValue(on, for: wave)
+        }
     }
 
     /// A reading that ended goes into its day, like the rings' spot checks: the record (values in
@@ -224,6 +231,7 @@ final class BandManager: NSObject, ObservableObject {
 
     private func resetLink() {
         writeCharacteristic = nil
+        waveCharacteristic = nil
         session.linkDropped()
     }
 
@@ -297,7 +305,7 @@ final class BandManager: NSObject, ObservableObject {
         discoveryAttempts += 1
         state = .discovering
         p.delegate = self
-        p.discoverServices([BandGATT.service])
+        p.discoverServices([BandGATT.service, BandGATT.waveService])
         discoveryTask?.cancel()
         discoveryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(8))
@@ -502,6 +510,9 @@ extension BandManager: CBCentralManagerDelegate {
 extension BandManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         Task { @MainActor in
+            if let wave = p.services?.first(where: { $0.uuid == BandGATT.waveService }) {
+                p.discoverCharacteristics([BandGATT.wave], for: wave)
+            }
             guard let service = p.services?.first(where: { $0.uuid == BandGATT.service }) else {
                 self.state = .failed("Band service not found")
                 return
@@ -513,6 +524,10 @@ extension BandManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         Task { @MainActor in
             let characteristics = service.characteristics ?? []
+            if service.uuid == BandGATT.waveService {
+                self.waveCharacteristic = characteristics.first { $0.uuid == BandGATT.wave }
+                return
+            }
             if let write = characteristics.first(where: { $0.uuid == BandGATT.write }) { self.writeCharacteristic = write }
             for characteristic in characteristics where characteristic.uuid == BandGATT.notify {
                 if !characteristic.isNotifying { p.setNotifyValue(true, for: characteristic) }
@@ -537,8 +552,13 @@ extension BandManager: CBPeripheralDelegate {
     }
 
     nonisolated func peripheral(_ p: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard characteristic.uuid == BandGATT.notify, let data = characteristic.value, !data.isEmpty else { return }
+        guard let data = characteristic.value, !data.isEmpty else { return }
         let frame = [UInt8](data)
+        if characteristic.uuid == BandGATT.wave {
+            Task { @MainActor in self.session.ecgWave(frame) }
+            return
+        }
+        guard characteristic.uuid == BandGATT.notify else { return }
         Task { @MainActor in self.session.transport.deliver(frame) }
     }
 

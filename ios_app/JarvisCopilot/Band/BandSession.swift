@@ -83,6 +83,8 @@ final class BandSession: ObservableObject {
     var onSportStatus: ((BandSportStatus) -> Void)?
     /// Every reading that ended (a value or why not), however it was asked for — kept in the day.
     var onMeasured: ((BandReading) -> Void)?
+    /// Turns the ECG waveform channel on (an ECG starting) or off (it ended).
+    var onEcgWave: ((Bool) -> Void)?
     var calendar = Calendar.current
     var now: () -> Date = Date.init
 
@@ -168,7 +170,10 @@ final class BandSession: ObservableObject {
         if type == .ecg {
             ecgSamples = []
             ecgHeartRates = []
+            ecgWaveFrames = 0
+            onEcgWave?(true)
         }
+        defer { if type == .ecg { onEcgWave?(false) } }
         let start = BandRequest.measure(type, on: true)
         var run = BandMeasureRun(type, from: now(), seconds: seconds)
         // Every frame's reading from now on, in order — a poll would miss the parts of a result.
@@ -230,6 +235,19 @@ final class BandSession: ObservableObject {
             if let status = BandDecode.sportStatus([report]) { onSportStatus?(status) }
         }
         return BandDecode.sportStatus(frames.filter(isPoll))
+    }
+
+    /// How many waveform frames this ECG brought (the log would drown in them; this is its note).
+    private(set) var ecgWaveFrames = 0
+
+    /// A frame from the waveform channel while an ECG runs.
+    func ecgWave(_ frame: [UInt8]) {
+        guard measuring == .ecg else { return }
+        ecgWaveFrames += 1
+        if ecgWaveFrames == 1 { note(false, frame) }
+        ecgSamples.append(contentsOf: BandEcgSignal.waveSamples(frame))
+        let cap = ecgSampleRate * 120
+        if ecgSamples.count > cap { ecgSamples.removeFirst(ecgSamples.count - cap) }
     }
 
     /// A running ECG's waveform and heart rate, for previews and render tests.
@@ -386,12 +404,6 @@ final class BandSession: ObservableObject {
         }
         if frame.first == BandOp.sportControl, let status = BandDecode.sportStatus([frame]) {
             onSportStatus?(status)
-            return
-        }
-        // The ECG's waveform, while one runs (the SDK's ADC frames; see `BandEcgSignal.samples`).
-        if measuring == .ecg, frame.first == BandOp.ecgWave {
-            ecgSamples.append(contentsOf: BandEcgSignal.samples(frame))
-            if ecgSamples.count > ecgSampleRate * 120 { ecgSamples.removeFirst(ecgSamples.count - ecgSampleRate * 120) }
             return
         }
         // Found (the wearer pressed the band) or timed out.

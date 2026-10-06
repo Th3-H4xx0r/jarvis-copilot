@@ -228,6 +228,8 @@ struct BandReading: Equatable {
     var bodyComposition: BandBodyComposition?
     /// ECG: the band's whole diagnosis (QTc, QRS, ST, SDNN/RMSSD, risks, findings).
     var ecg: BandEcgDiagnosis?
+    /// ECG: the QTc the band reports each second while it runs (ms).
+    var qtcMs: Int?
     /// Why it ended without a value (failed, busy, not worn).
     var failure: String?
     /// ECG / body composition: no finger on the electrode right now (the reading carries on).
@@ -265,6 +267,7 @@ struct BandReading: Equatable {
         if let bloodGlucose { out["blood_glucose_mmol_l"] = bloodGlucose }
         if let bloodComponent { out.merge(bloodComponent.json) { a, _ in a } }
         if let bodyComposition { out.merge(bodyComposition.json) { a, _ in a } }
+        if let qtcMs { out["qtc_ms"] = qtcMs }
         if let ecg {
             out.merge(ecg.extra.mapValues { $0 as Any }) { a, _ in a }
             out["rhythm"] = ecg.rhythm
@@ -330,6 +333,9 @@ struct BandMeasureRun {
             r.heartRate = r.heartRate ?? reading?.heartRate
             r.hrv = r.hrv ?? reading?.hrv
             r.respiratoryRate = r.respiratoryRate ?? reading?.respiratoryRate
+            r.qtcMs = r.qtcMs ?? reading?.qtcMs
+            // The diagnosis comes in its parts before the band's "success": keep it to the end.
+            r.ecg = r.ecg ?? reading?.ecg
         }
         // The band's own "failed" right after the lead came off: that was why.
         if measure.usesElectrode, r.status == .failed, r.failure == BandReading.Reason.failed, reading?.leadOff == true {
@@ -838,9 +844,13 @@ enum BandDecode {
             case 0xFC: r.end(.notWorn, BandReading.Reason.notWorn); return r
             default: r.end(.busy, BandReading.Reason.busy); return r
             }
+            // EcgDetectState: hr1, hr2 (5, 6), HRV (7), breathing (10, 11), wear (12), QTc (14–15 LE).
             r.leadOff = at(f, 12) == 1
             if (30...250).contains(at(f, 6)) { r.heartRate = at(f, 6) }
             if (1...254).contains(at(f, 7)) { r.hrv = at(f, 7) }
+            if at(f, 11) > 0 { r.respiratoryRate = at(f, 11) }
+            let qtc = at(f, 14) | at(f, 15) << 8
+            if (200...700).contains(qtc) { r.qtcMs = qtc }
         case 2:
             r.progress = at(f, 19)
             if (30...250).contains(at(f, 13)) { r.heartRate = at(f, 13) }

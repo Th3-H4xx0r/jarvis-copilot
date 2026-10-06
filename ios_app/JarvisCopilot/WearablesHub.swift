@@ -475,9 +475,8 @@ final class WearablesHub: ObservableObject {
     /// so running it on each launch and pairing is free.
     func registerHealthIntegrations() {
         let eligible = roster().filter { HealthEligibility.kinds.contains($0.kind) }
-        // Both rings paired: both stay linked, and the chosen one is primary.
+        // Two or more paired: the chosen one is linked and primary; the others keep their switch.
         let choosing = HealthRing.bothPaired()
-        let chosen = HealthRing.current
         let rings: Set<String> = [WearableKeepAlive.ring, WearableKeepAlive.x5ring, WearableKeepAlive.band]
         guard !eligible.isEmpty, BridgeClient.shared.isPaired else { return }
         // Without the phone's own id the server has nothing to invoke through,
@@ -491,20 +490,27 @@ final class WearablesHub: ObservableObject {
         // and the timezone whose days its data is bucketed by.
         // The server-issued id for this phone, which is what the device bridge
         // routes a skill call to.
-        let payload = eligible.map { entry -> [String: Any] in
-            var out: [String: Any] = [
-                "kind": entry.kind,
-                "device_id": entry.deviceID,
-                "name": entry.name,
-                "bridge_device_id": phone,
-                "timezone": TimeZone.current.identifier,
-            ]
-            if choosing, rings.contains(entry.kind) {
-                out.merge(HealthRing.serverFlags(for: entry.kind, chosen: chosen)) { _, flag in flag }
-            }
-            return out
-        }
         Task {
+            // A primary chosen on the server (Health settings' sources, the web) wins over this
+            // phone's old copy, so a launch never registers the previous one back.
+            if choosing, let key = try? await HealthClient(spaceID: HealthSpace.shared).settings().primaryDevice,
+               let ring = HealthRing.ring(forDeviceKey: key), WearableIdentity.remembered(ring.kind) != nil {
+                HealthRing.adopt(ring)
+            }
+            let chosen = HealthRing.current
+            let payload = eligible.map { entry -> [String: Any] in
+                var out: [String: Any] = [
+                    "kind": entry.kind,
+                    "device_id": entry.deviceID,
+                    "name": entry.name,
+                    "bridge_device_id": phone,
+                    "timezone": TimeZone.current.identifier,
+                ]
+                if choosing, rings.contains(entry.kind) {
+                    out.merge(HealthRing.serverFlags(for: entry.kind, chosen: chosen)) { _, flag in flag }
+                }
+                return out
+            }
             do {
                 _ = try await HealthClient.register(payload)
             } catch {

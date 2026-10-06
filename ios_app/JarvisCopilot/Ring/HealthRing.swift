@@ -50,10 +50,26 @@ enum HealthRing: String, CaseIterable, Identifiable {
         allCases.filter { WearableIdentity.remembered($0.kind, defaults: defaults) != nil }.count >= 2
     }
 
-    /// What registration tells the server about a ring once both are paired: every ring stays
-    /// linked, so its days keep counting, and only the chosen one is primary.
+    /// What registration tells the server about a ring once two are paired: the chosen one is
+    /// linked and primary. The others say nothing about linking — whether one is on is the
+    /// person's switch in Health settings, and re-registering on every launch used to switch a
+    /// wearable they had turned off back on.
     static func serverFlags(for kind: String, chosen: HealthRing) -> [String: Any] {
-        ["linked": true, "primary": kind == chosen.kind]
+        kind == chosen.kind ? ["linked": true, "primary": true] : ["primary": false]
+    }
+
+    /// The ring a server device key names (`band-1a2b3c4d` → the band).
+    static func ring(forDeviceKey key: String) -> HealthRing? {
+        key.split(separator: "-").first.flatMap { HealthRing(rawValue: String($0)) }
+    }
+
+    /// Takes on a primary chosen elsewhere (Health settings' sources, the web) without
+    /// re-registering: the server already has it.
+    static func adopt(_ ring: HealthRing, defaults: UserDefaults = .standard) {
+        guard ring != current(defaults: defaults) else { return }
+        set(ring, defaults: defaults)
+        defaults.set(RingDates.dayKey(Date()), forKey: sinceKey)
+        NotificationCenter.default.post(name: .jcHealthRingChanged, object: nil)
     }
 
     /// The chosen ring's history.

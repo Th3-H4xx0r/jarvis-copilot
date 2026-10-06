@@ -29,6 +29,10 @@ enum BandGATT {
     static let service = CBUUID(string: "F0080001-0451-4000-B000-000000000000")
     static let write = CBUUID(string: "F0080003-0451-4000-B000-000000000000")
     static let notify = CBUUID(string: "F0080002-0451-4000-B000-000000000000")
+    /// The ECG waveform's channel (the Android SDK's "ADC" notify, `F0020001`/`F0020002`): the
+    /// SDK subscribes to it only while an ECG runs, and the samples come on it, not on `notify`.
+    static let waveService = CBUUID(string: "F0020001-0451-4000-B000-000000000000")
+    static let wave = CBUUID(string: "F0020002-0451-4000-B000-000000000000")
     /// What the band advertises (the Veepoo service only appears once connected).
     static let advertised = CBUUID(string: "FEE7")
     /// Veepoo's manufacturer id in the advertisement (its first 6 data bytes are the MAC).

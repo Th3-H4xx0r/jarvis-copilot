@@ -38,12 +38,28 @@ final class BandEcgTests: XCTestCase {
         XCTAssertEqual(d.allFindings.count, BandEcgFinding.names.count)
     }
 
-    func testTheSdkWaveformFrameUnpacksFiveSignedSamples() {
-        // 0x000100 = 256, 0xFFFF00 = -256 (top bits 7: negative).
-        let frame = Self.bytes("88000100ffff00000000000000000000000000")
-        let samples = BandEcgSignal.samples(frame + [0])
-        XCTAssertEqual(Array(samples.prefix(2)), [256, -256])
-        XCTAssertEqual(samples.count, 5)
+    func testAWaveformFrameUnpacksItsSignedSamples() {
+        // Type 11: (20 − 5) / 3 = 5 samples from byte 1; 0x000100 = 256, 0xFFFF00 = −256 (bit 23),
+        // FFFFFF is no sample.
+        let frame = Self.bytes("01000100ffff00ffffff000002000003") + [0, 0, 0, 0]
+        XCTAssertEqual(BandEcgSignal.waveSamples(frame), [256, -256, 2, 3])
+    }
+
+    func testTheLiveQtcComesFromTheSecondsFrame() throws {
+        // EcgDetectState: hr2 (6) 78, HRV (7) 10, QTc 341 (14–15 LE), progress (19) 30.
+        let frame = Self.bytes("9301010100004e0a00000000000055010000001e")
+        let r = try XCTUnwrap(BandDecode.measurement(frame))
+        XCTAssertEqual(r.heartRate, 78)
+        XCTAssertEqual(r.hrv, 10)
+        XCTAssertEqual(r.qtcMs, 341)
+    }
+
+    func testTheDiagnosisLastsThroughTheBandsSuccessFrame() throws {
+        var run = BandMeasureRun(.ecg, from: Date())
+        for hex in Self.realParts { run.add(try XCTUnwrap(BandDecode.measurement(Self.bytes(hex))), at: Date()) }
+        run.add(try XCTUnwrap(BandDecode.measurement(Self.bytes("9301010400000000000000000000000000000000"))), at: Date())
+        XCTAssertTrue(run.ended)
+        XCTAssertEqual(run.reading?.ecg?.qtcMs, 400, "the success frame must not drop the report")
     }
 
     // MARK: Renders

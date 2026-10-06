@@ -168,4 +168,21 @@ final class BandDayMapperTests: XCTestCase {
         let resynced = BandDayMapper.day(ahead, records: morning, sleep: [], date: now, calendar: utc)
         XCTAssertEqual(resynced.activity?.steps, 1234)
     }
+
+    /// The band's history carries its automatic blood pressure, glucose and blood fats: each
+    /// becomes the day's reading (for Jarvis Health), once however many syncs bring it.
+    func testTheHistorysReadingsBecomeTheDaysReadingsOnce() {
+        let today = RingDay(date: "2026-10-04"), yesterday = RingDay(date: "2026-10-03")
+        var morningDay = BandDayMapper.day(today, records: morning, sleep: [], date: date(2026, 10, 4, 8, 30), calendar: utc)
+        morningDay = BandDayMapper.day(morningDay, records: morning, sleep: [], date: date(2026, 10, 4, 8, 30), calendar: utc)
+        let pressures = morningDay.measurements.filter { $0.type == "blood_pressure" }
+        XCTAssertEqual(pressures.count, 1, "a second sync replaces it")
+        XCTAssertEqual(pressures.first?.systolic, 118)
+        XCTAssertEqual(pressures.first?.diastolic, 76)
+
+        let night = BandDayMapper.day(yesterday, records: lateNight, sleep: [], date: date(2026, 10, 3, 23, 55), calendar: utc)
+        let glucose = night.measurements.first { $0.type == "blood_glucose" }
+        XCTAssertEqual(glucose?.extra?["blood_glucose_mmol_l"] ?? 0, 5.42, accuracy: 0.01)
+        XCTAssertNotNil(night.measurements.first { $0.type == "blood_component" }?.extra?["cholesterol_mmol_l"])
+    }
 }

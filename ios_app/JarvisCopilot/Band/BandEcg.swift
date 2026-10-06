@@ -214,18 +214,16 @@ enum BandEcgSignal {
         return max(1, hi - lo)
     }
 
-    /// The SDK's waveform frame (its `vp_l` type 1): five 24-bit big-endian samples from byte 1,
-    /// the top three bits a sign (7 negative) or a saturated sample (1 or 6). Unconfirmed on the
-    /// E910: it sent no waveform frame with the electrode untouched.
-    static func samples(_ f: [UInt8]) -> [Int] {
-        guard f.count >= 16 else { return [] }
-        return (0..<5).map { i in
+    /// A frame from the waveform channel (`BandGATT.wave`), as the SDK unpacks the E910's ECG
+    /// type 11 (`vp_l` case 11): `(length − 5) / 3` samples, 24-bit big-endian from byte 1, sign
+    /// in bit 23; `FFFFFF` is no sample.
+    static func waveSamples(_ f: [UInt8]) -> [Int] {
+        guard f.count > 5 else { return [] }
+        let count = (f.count - 5) / 3
+        return (0..<count).compactMap { i in
             let raw = Int(f[1 + i * 3]) << 16 | Int(f[2 + i * 3]) << 8 | Int(f[3 + i * 3])
-            switch (raw >> 21) & 7 {
-            case 0: return raw & 0x1FFFFF
-            case 7: return raw - 0x1000000
-            default: return 0x200000
-            }
+            if raw == 0xFFFFFF { return nil }
+            return raw & 0x800000 == 0 ? raw : raw - 0x1000000
         }
     }
 }

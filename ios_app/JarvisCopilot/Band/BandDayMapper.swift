@@ -61,6 +61,9 @@ enum BandDayMapper {
                 if let s = r.systolic, let d = r.diastolic {
                     day.mergeBloodPressure([RingBloodPressureReading(time: r.date, systolic: s, diastolic: d)])
                 }
+                // The band's automatic readings in its history become the day's readings too, so
+                // Jarvis Health has every one, not only those taken in the app.
+                for reading in readings(r) { upsert(&day, reading) }
             }
         }
 
@@ -110,6 +113,33 @@ enum BandDayMapper {
     }
 
     // MARK: Helpers
+
+    /// A 5-minute record's blood pressure, glucose and blood components, as readings.
+    static func readings(_ r: BandDailyRecord) -> [RingMeasurementRecord] {
+        var out: [RingMeasurementRecord] = []
+        if let s = r.systolic, let d = r.diastolic, (60...260).contains(s), (30...160).contains(d), d < s {
+            out.append(RingMeasurementRecord(type: BandMeasure.bloodPressure.name, time: r.date, outcome: "done",
+                                             value: nil, systolic: s, diastolic: d, celsius: nil))
+        }
+        if let g = r.bloodGlucose, (1.0...35.0).contains(g) {
+            out.append(RingMeasurementRecord(type: BandMeasure.bloodGlucose.name, time: r.date, outcome: "done", value: nil,
+                                             systolic: nil, diastolic: nil, celsius: nil, extra: ["blood_glucose_mmol_l": g]))
+        }
+        if let c = r.bloodComponent, c.uricAcid > 0 || c.cholesterol > 0 || c.triglycerides > 0 {
+            var extra: [String: Double] = [:]
+            for (k, v) in c.json { if let d = v as? Double, d > 0 { extra[k] = d } }
+            out.append(RingMeasurementRecord(type: BandMeasure.bloodComponent.name, time: r.date, outcome: "done",
+                                             value: nil, systolic: nil, diastolic: nil, celsius: nil, extra: extra))
+        }
+        return out
+    }
+
+    /// One reading per kind and time: a sync that brings it again replaces it.
+    static func upsert(_ day: inout RingDay, _ record: RingMeasurementRecord) {
+        day.measurements.removeAll { $0.type == record.type && abs($0.time.timeIntervalSince(record.time)) < 1 }
+        day.measurements.append(record)
+        day.measurements.sort { $0.time < $1.time }
+    }
 
     /// The band's curve as the ring's stage numbering, one run per change: 0 deep, 1 light,
     /// 2 REM, 3 insomnia and 4 awake → awake. The points share the segment's span evenly

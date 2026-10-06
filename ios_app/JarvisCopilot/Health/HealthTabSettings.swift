@@ -38,6 +38,9 @@ struct HealthTabSettings: View {
                                           }
                                       },
                                       onPrimary: { key in
+                                          // The phone keeps the same choice, or its next launch
+                                          // registers the old primary back.
+                                          if let ring = HealthRing.ring(forDeviceKey: key) { HealthRing.adopt(ring) }
                                           Task { _ = await model.health.updateSettings(["primary_device": key]) }
                                       },
                                       analysis: {

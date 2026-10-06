@@ -71,8 +71,6 @@ enum BandOp {
     /// ECG (`93 01`) and body composition (`93 04`) share the opcode. The ECG waveform itself
     /// comes on `88` (byte 1 ≠ 1), four frames a second; nothing here reads it.
     static let ecgBody: UInt8 = 0x93
-    /// The ECG waveform frames, while an ECG runs (shared with the auto temperature's opcode).
-    static let ecgWave: UInt8 = 0x88
 
     /// What the band sends between the `A1` write and its `A1` reply, the reply included.
     static let handshakeReplies: Set<UInt8> = [features, alerts, settings, password]
