@@ -852,7 +852,10 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// by PushService, and the glasses show calls themselves, so both are skipped.
     private func relayToGlasses(_ n: Esp32Protocol.IosNotification) {
         if let r = relay { relay = Esp32Protocol.RelayStatus(on: r.on, state: .receiving, forwarded: r.forwarded + 1) }
-        guard n.appID != Bundle.main.bundleIdentifier, n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
+        // Prefix, not equality: the board clips app ids to 40 bytes, and ours is 43
+        // ("com.jarviscopilot.jarviscopilotMobileAndIOS"), so equality never matched and
+        // Jarvis's own banners came back as a second card.
+        guard !n.appID.hasPrefix("com.jarviscopilot"), n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
         let app = Self.appName(forBundleID: n.appID)
         InmoSession.shared.forwardNotification(title: n.title.isEmpty ? app : n.title, body: n.message, app: app)
     }
@@ -861,7 +864,7 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// another's name, so: Apple's own apps by table, others from the bundle id's last
     /// part ("com.burbn.instagram" → "Instagram", "com.google.Gmail" → "Gmail").
     static func appName(forBundleID id: String) -> String {
-        let known = ["com.apple.MobileSMS": "Messages", "com.apple.mobilephone": "Phone",
+        let known = ["com.apple.MobileSMS": "iMessage", "com.apple.mobilephone": "Phone",
                      "com.apple.facetime": "FaceTime", "com.apple.mobilemail": "Mail",
                      "com.apple.mobilecal": "Calendar", "com.apple.reminders": "Reminders",
                      "com.apple.Health": "Health", "com.apple.mobileslideshow": "Photos",

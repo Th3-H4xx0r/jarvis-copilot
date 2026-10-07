@@ -190,7 +190,7 @@ class IMessageRelay:
         if not origin:
             return
         payload = json.dumps({"title": sender[:80], "body": message[:400],
-                              "channel": "glasses", "app": "Messages"}).encode()
+                              "channel": "glasses", "app": "iMessage"}).encode()
         req = urllib.request.Request(origin + "/api/devices/notify", data=payload,
                                      # Cloudflare refuses Python's default User-Agent (error 1010).
                                      headers={"Content-Type": "application/json",
