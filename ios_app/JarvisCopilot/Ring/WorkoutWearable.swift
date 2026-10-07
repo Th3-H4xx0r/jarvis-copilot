@@ -141,15 +141,9 @@ final class X5WorkoutWearable: WorkoutWearable {
     override var deviceID: String? { device() }
     override var fallbackName: String { X5Ring.model }
 
-    /// The ring's alert command (`36 NN`, the vendor family's "vibrate N times"): the only
-    /// alert its firmware knows — its sheet has no light command.
-    override var canSignal: Bool { isPaired }
-    override var signalName: String { "Its alert (light / buzz)" }
-
-    override func signal() async {
-        guard await connect() else { return }
-        await session.alert(pulses: 5)
-    }
+    // No rest alert: the X5 has no light or buzz the app can drive. Its sheet has none, and the
+    // vendor family's motor command (`36 NN`) is taken — answered when done, ~6 s for 5 — with
+    // nothing to see (2026-10-06, on his ring).
     override var pauseFromTicks: Bool { false }
     override var endsWhenStill: Bool { true }
     override var resumesPaused: Bool { defaults.bool(forKey: Self.pausedKey) }

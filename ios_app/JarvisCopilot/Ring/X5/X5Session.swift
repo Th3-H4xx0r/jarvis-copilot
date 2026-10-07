@@ -339,21 +339,6 @@ final class X5Session: ObservableObject {
 
     func restart() async throws { _ = try await transport.perform(.x5Restart, until: .single) }
 
-    /// The ring's alert (`36 NN`). The ring answers `36 00` only once it has finished (about a
-    /// second a pulse — six seconds for five), so this sends and doesn't wait: the answer lands
-    /// in the log as it comes. False only when it couldn't be sent.
-    @discardableResult
-    func alert(pulses: Int) async -> Bool {
-        do {
-            _ = try await transport.perform(.x5Alert(pulses: pulses), until: .none)
-            log.note("X5 alert", "sent (\(pulses)) — the ring answers when it's done")
-            return true
-        } catch {
-            log.note("X5 alert", "not sent — \(error.localizedDescription)")
-            return false
-        }
-    }
-
     /// Off until it is next charged.
     func powerOff() async throws { _ = try await transport.perform(.x5Power(off: true), until: .single) }
 
