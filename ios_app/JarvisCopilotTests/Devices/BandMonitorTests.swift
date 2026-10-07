@@ -83,6 +83,37 @@ final class BandMonitorTests: XCTestCase {
         XCTAssertFalse(BandMeasurePlan.autoSwitches.contains("auto_ppg"), "sleep stays the band's")
     }
 
+    /// His 8:15 PM run: heart rate "not worn" (worn), then nothing for its whole 15 minutes.
+    func testAFailedReadingIsTriedAgainSoonAndReadingsWaitForTheSensor() {
+        let defaults = UserDefaults(suiteName: "BandMeasureRetryTests")!
+        defaults.removePersistentDomain(forName: "BandMeasureRetryTests")
+        let scheduler = BandMeasureScheduler(defaults: defaults)
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        scheduler.now = { clock }
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        plan.intervals = ["heart_rate": 15]
+        scheduler.seedForTests(plan)
+        XCTAssertEqual(scheduler.due(at: clock), .heartRate)
+        scheduler.finished(.heartRate, done: false)
+        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(61)), "a failure waits 3 minutes, not 15")
+        clock = clock.addingTimeInterval(181)
+        XCTAssertEqual(scheduler.due(at: clock), .heartRate, "then it's tried again")
+        scheduler.finished(.heartRate, done: false)
+        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(200)), "a second failure waits 6")
+        XCTAssertEqual(scheduler.due(at: clock.addingTimeInterval(361)), .heartRate)
+        clock = clock.addingTimeInterval(361)
+        scheduler.finished(.heartRate, done: true)
+        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(14 * 60)), "a value: its interval again")
+        XCTAssertEqual(scheduler.due(at: clock.addingTimeInterval(15 * 60 + 1)), .heartRate)
+        // Back to back the band said "not worn": the next waits a minute after the last ended.
+        var two = plan
+        two.intervals = ["heart_rate": 15, "spo2": 15]
+        scheduler.seedForTests(two)
+        scheduler.finished(.bloodOxygen, done: true)
+        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(30)))
+    }
+
     func testEveryMonitoringMetricIsASwitchTheBandFramesKnow() {
         let names = Set(BandSettings.switches.map(\.name))
         for (metric, name) in BandDevice.monitorSwitches {
