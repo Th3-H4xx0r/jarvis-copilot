@@ -63,6 +63,10 @@ enum X5Op {
     static let getGoal: UInt8 = 0x4B
     static let ppg: UInt8 = 0x78
     static let clearAll: UInt8 = 0x61
+    /// The ring's alert, `36 NN` — NN pulses. Not on the X5's sheet: the vendor library's parser
+    /// files a `0x36` reply as `MotorVibration_X5` (its opcode table, index 0x35 + 1), as the
+    /// vendor's sibling rings document it.
+    static let alert: UInt8 = 0x36
     /// The one opcode with bit 7 set that is not an error reply.
     static let unbind: UInt8 = 0x87
 }
@@ -182,6 +186,8 @@ extension RingRequest {
     static var x5Mac: RingRequest { .command(X5Op.mac) }
     static var x5Firmware: RingRequest { .command(X5Op.firmware) }
     static var x5Restart: RingRequest { .command(X5Op.restart) }
+
+    static func x5Alert(pulses: Int) -> RingRequest { .command(X5Op.alert, [UInt8(max(1, min(10, pulses)))]) }
     static var x5SkinTemp: RingRequest { .command(X5Op.skinTemp) }
 
     /// `09 01 01` starts the live stream with a packet every second — what the sheet's spot

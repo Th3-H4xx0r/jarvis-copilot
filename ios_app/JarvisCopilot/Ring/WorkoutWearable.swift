@@ -141,16 +141,14 @@ final class X5WorkoutWearable: WorkoutWearable {
     override var deviceID: String? { device() }
     override var fallbackName: String { X5Ring.model }
 
-    /// The X5 has no light command (its SDK and protocol sheet have none): its outer light shows
-    /// while it charges and as it connects. So its signal is the link dropped and made again —
-    /// the connect light, at the cost of a few seconds without its data.
+    /// The ring's alert command (`36 NN`, the vendor family's "vibrate N times"): the only
+    /// alert its firmware knows — its sheet has no light command.
     override var canSignal: Bool { isPaired }
-    override var signalName: String { "Lights up as it reconnects (a few seconds without data)" }
+    override var signalName: String { "Its alert (light / buzz)" }
 
     override func signal() async {
-        drop()
-        try? await Task.sleep(for: .seconds(1.5))
-        _ = await connect()
+        guard await connect() else { return }
+        await session.alert(pulses: 5)
     }
     override var pauseFromTicks: Bool { false }
     override var endsWhenStill: Bool { true }

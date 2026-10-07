@@ -865,6 +865,7 @@ struct RestAlertToggle: View {
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(minHeight: 56)
             .onChange(of: on) { _, value in WearableRestAlert.set(value, for: kind) }
             if on, !lengths.isEmpty {
