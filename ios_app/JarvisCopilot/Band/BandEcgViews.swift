@@ -20,32 +20,8 @@ struct BandEcgStrip: View {
 
     var body: some View {
         Canvas { context, size in
+            BandEcgPaper.draw(in: context, size: size, seconds: seconds, paper: paper)
             let perSecond = size.width / seconds
-            let major = perSecond / 5, minor = major / 5
-            var fine = Path(), bold = Path()
-            func rule(_ from: CGPoint, _ to: CGPoint, major: Bool) {
-                if major { bold.move(to: from); bold.addLine(to: to) } else { fine.move(to: from); fine.addLine(to: to) }
-            }
-            var x: CGFloat = 0
-            var i = 0
-            while x <= size.width {
-                rule(CGPoint(x: x, y: 0), CGPoint(x: x, y: size.height), major: i % 5 == 0)
-                x += minor; i += 1
-            }
-            // From the middle out, so the baseline sits on a bold line.
-            var y: CGFloat = size.height / 2
-            i = 0
-            while y <= size.height {
-                rule(CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y), major: i % 5 == 0)
-                y += minor; i += 1
-            }
-            y = size.height / 2 - minor; i = 1
-            while y >= 0 {
-                rule(CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y), major: i % 5 == 0)
-                y -= minor; i += 1
-            }
-            context.stroke(fine, with: .color(paper), lineWidth: 0.5)
-            context.stroke(bold, with: .color(paper.opacity(2.2)), lineWidth: 0.8)
 
             let count = Int(seconds * Double(rate))
             let last = min(trace.count, end ?? trace.count)
@@ -80,12 +56,211 @@ struct BandEcgStrip: View {
     }
 }
 
+/// ECG paper: 1 mm squares under 5 mm ones, from the middle out so the baseline is a bold line.
+enum BandEcgPaper {
+    static func draw(in context: GraphicsContext, size: CGSize, seconds: Double, paper: Color) {
+        let perSecond = size.width / seconds
+        let major = perSecond / 5, minor = major / 5
+        var fine = Path(), bold = Path()
+        func rule(_ from: CGPoint, _ to: CGPoint, major: Bool) {
+            if major { bold.move(to: from); bold.addLine(to: to) } else { fine.move(to: from); fine.addLine(to: to) }
+        }
+        var x: CGFloat = 0
+        var i = 0
+        while x <= size.width {
+            rule(CGPoint(x: x, y: 0), CGPoint(x: x, y: size.height), major: i % 5 == 0)
+            x += minor; i += 1
+        }
+        var y: CGFloat = size.height / 2
+        i = 0
+        while y <= size.height {
+            rule(CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y), major: i % 5 == 0)
+            y += minor; i += 1
+        }
+        y = size.height / 2 - minor; i = 1
+        while y >= 0 {
+            rule(CGPoint(x: 0, y: y), CGPoint(x: size.width, y: y), major: i % 5 == 0)
+            y -= minor; i += 1
+        }
+        context.stroke(fine, with: .color(paper), lineWidth: 0.5)
+        context.stroke(bold, with: .color(paper.opacity(2.2)), lineWidth: 0.8)
+    }
+}
+
+// MARK: Sweep
+
+/// The live trace, filtered once per sample as it arrives (causal, so what's drawn never
+/// changes): the baseline wander out (a 0.5 Hz high-pass) and the hum smoothed (a ~10 ms running
+/// mean). The tip is paced by the clock — `lag` behind the newest sample — so it moves at a
+/// steady 25 mm/s however the band's frames bunch up.
+final class BandEcgSweepModel {
+    private(set) var trace: [Double] = []
+    private(set) var rate = 250
+    /// The trace's height (its 2nd–98th percentile spread), eased so the line doesn't jump.
+    private(set) var amplitude: Double = 0
+    /// Its tallest swing from the baseline, eased the same way: a beat never runs off the paper.
+    private(set) var reach: Double = 0
+    static let lag: TimeInterval = 0.35
+    private var consumed = 0
+    private var tip: Double?
+    private var lastFrame: Date?
+    private var lastX = 0.0, lastY = 0.0
+    private var smoothing: [Double] = []
+    private var measuredAt = 0
+
+    func consume(_ samples: [Int], total: Int, rate: Int) {
+        if total < consumed || rate != self.rate { reset(rate) }
+        let fresh = min(total - consumed, samples.count)
+        guard fresh > 0 else { return }
+        let a = 1 / (1 + 2 * Double.pi * 0.5 / Double(rate))
+        let taps = max(1, rate / 100)
+        for raw in samples.suffix(fresh) {
+            let x = Double(raw)
+            if consumed == 0 && trace.isEmpty { lastX = x }
+            let y = a * (lastY + x - lastX)
+            lastX = x
+            lastY = y
+            smoothing.append(y)
+            if smoothing.count > taps { smoothing.removeFirst() }
+            trace.append(smoothing.reduce(0, +) / Double(smoothing.count))
+        }
+        consumed = total
+        if trace.count - measuredAt >= rate / 2 {
+            measuredAt = trace.count
+            let recent = Array(trace.suffix(rate * 2))
+            let spread = BandEcgSignal.spread(recent)
+            amplitude = amplitude == 0 ? spread : amplitude * 0.75 + spread * 0.25
+            let peak = recent.map(abs).max() ?? 0
+            reach = reach == 0 ? peak : max(peak, reach * 0.8 + peak * 0.2)
+        }
+    }
+
+    /// The tip, as a fractional sample, moved by the clock each frame at the trace's rate —
+    /// a little faster when the band's frames have run ahead of it, a little slower when it
+    /// nears the newest sample — so it stays about `lag` behind without a jump. After a long gap
+    /// (the screen just opened, the app was away) it snaps to `lag` behind.
+    func playhead(at now: Date) -> Double {
+        guard trace.count > 1 else { return 0 }
+        let newest = Double(trace.count - 1), perSecond = Double(rate), lagSamples = Self.lag * perSecond
+        guard let last = lastFrame, let p = tip, now.timeIntervalSince(last) < 1,
+              newest - p < 2 * perSecond else {
+            lastFrame = now
+            tip = max(0, newest - lagSamples)
+            return tip ?? 0
+        }
+        let dt = max(0, now.timeIntervalSince(last))
+        let pace = min(1.4, max(0.7, 1 + (newest - p - lagSamples) / (2 * lagSamples)))
+        let next = min(newest, p + dt * perSecond * pace)
+        lastFrame = now
+        tip = next
+        return next
+    }
+
+    private func reset(_ rate: Int) {
+        self.rate = rate
+        trace = []
+        consumed = 0
+        tip = nil
+        lastFrame = nil
+        lastX = 0
+        lastY = 0
+        smoothing = []
+        amplitude = 0
+        reach = 0
+        measuredAt = 0
+    }
+}
+
+/// A monitor's sweep: the trace drawn from the left to the tip, the last pass to the right of
+/// it past a short gap, and a pulsing point at the tip.
+struct BandEcgSweep: View {
+    let trace: [Double]
+    let rate: Int
+    /// The tip, a fractional sample index.
+    let playhead: Double
+    let amplitude: Double
+    /// The tallest swing to fit (0: by `amplitude` alone).
+    var reach: Double = 0
+    var seconds: Double = 4
+    /// 0…1: the tip's pulse.
+    var pulse: Double = 0
+    var ink: Color = ecgRed
+    var paper: Color = Color.white.opacity(0.06)
+
+    var body: some View {
+        Canvas { context, size in
+            BandEcgPaper.draw(in: context, size: size, seconds: seconds, paper: paper)
+            let width = Double(size.width), height = Double(size.height)
+            let span = seconds * Double(max(1, rate))
+            let scale = amplitude > 0 ? min(height * 0.36 / amplitude, reach > 0 ? height * 0.46 / reach : .infinity) : 0
+            func y(_ v: Double) -> CGFloat { CGFloat(min(height - 3, max(3, height / 2 - v * scale))) }
+            let tip = trace.count > 1 ? min(max(0, playhead), Double(trace.count - 1)) : 0
+            let lap = floor(tip / span) * span
+            func x(_ index: Double, from start: Double) -> CGFloat { CGFloat((index - start) / span * width) }
+            func value(_ p: Double) -> Double {
+                guard trace.count > 1 else { return 0 }
+                let i = min(Int(p), trace.count - 2), f = p - Double(i)
+                return trace[i] + (trace[i + 1] - trace[i]) * f
+            }
+            let step = max(1, Int(span / (width * 2)))
+            if trace.count > 1 {
+                // The last pass, past the gap ahead of the tip.
+                let gap = 0.12 * Double(rate)
+                let oldFrom = Int((tip + gap - span).rounded(.up)), oldTo = Int(lap) - 1
+                if oldTo > max(0, oldFrom) {
+                    var old = Path()
+                    var i = max(0, oldFrom)
+                    old.move(to: CGPoint(x: x(Double(i), from: lap - span), y: y(trace[i])))
+                    while i < oldTo {
+                        i = min(oldTo, i + step)
+                        old.addLine(to: CGPoint(x: x(Double(i), from: lap - span), y: y(trace[i])))
+                    }
+                    context.stroke(old, with: .color(ink.opacity(0.35)), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                }
+                // This pass, from the left to the tip.
+                var now = Path()
+                var i = Int(lap)
+                now.move(to: CGPoint(x: 0, y: y(trace[min(i, trace.count - 1)])))
+                while Double(i + step) < tip {
+                    i += step
+                    now.addLine(to: CGPoint(x: x(Double(i), from: lap), y: y(trace[i])))
+                }
+                now.addLine(to: CGPoint(x: x(tip, from: lap), y: y(value(tip))))
+                context.stroke(now, with: .color(ink), style: StrokeStyle(lineWidth: 1.9, lineCap: .round, lineJoin: .round))
+            } else {
+                context.stroke(Path { $0.move(to: CGPoint(x: 0, y: height / 2)); $0.addLine(to: CGPoint(x: width, y: height / 2)) },
+                               with: .color(ink.opacity(0.35)), lineWidth: 1.5)
+            }
+            // The tip: a glow that swells and fades, and the point itself.
+            let point = CGPoint(x: trace.count > 1 ? x(tip, from: lap) : 0, y: y(value(tip)))
+            let halo = 7 + 9 * pulse
+            context.fill(Path(ellipseIn: CGRect(x: point.x - halo, y: point.y - halo, width: halo * 2, height: halo * 2)),
+                         with: .color(ink.opacity(0.32 * (1 - pulse))))
+            let glow = 6.0
+            context.fill(Path(ellipseIn: CGRect(x: point.x - glow, y: point.y - glow, width: glow * 2, height: glow * 2)),
+                         with: .color(ink.opacity(0.45)))
+            let dot = 3.6 + 0.8 * pulse
+            context.fill(Path(ellipseIn: CGRect(x: point.x - dot, y: point.y - dot, width: dot * 2, height: dot * 2)),
+                         with: .color(.white))
+        }
+        .accessibilityLabel("ECG trace")
+    }
+
+    /// A pulse for the tip, about once a second, eased in and out.
+    static func pulse(at date: Date) -> Double {
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.1) / 1.1
+        return 0.5 - 0.5 * cos(t * 2 * .pi)
+    }
+}
+
 // MARK: Live
 
-/// The reading as it runs: full screen, black, the trace scrolling right to left.
+/// The reading as it runs: full screen, black, the trace sweeping left to right.
 struct BandEcgLiveView: View {
     @ObservedObject var session: BandSession
     let close: () -> Void
+    /// The filtered trace and the tip's pace, kept across frames.
+    @State private var sweep = BandEcgSweepModel()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -121,10 +296,12 @@ struct BandEcgLiveView: View {
                     .monospacedDigit()
                 }
                 .padding(.horizontal, 24)
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
-                    BandEcgStrip(trace: BandEcgSignal.cleaned(Array(session.ecgSamples.suffix(session.ecgSampleRate * 6)),
-                                                              rate: session.ecgSampleRate),
-                                 rate: session.ecgSampleRate, seconds: 4)
+                // The display's own rate: the sweep moves every frame, paced by the clock.
+                TimelineView(.animation) { context in
+                    let _ = sweep.consume(session.ecgSamples, total: session.ecgSampleTotal, rate: session.ecgSampleRate)
+                    BandEcgSweep(trace: sweep.trace, rate: sweep.rate, playhead: sweep.playhead(at: context.date),
+                                 amplitude: sweep.amplitude, reach: sweep.reach, seconds: 4,
+                                 pulse: BandEcgSweep.pulse(at: context.date))
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
@@ -180,7 +357,10 @@ struct BandEcgReportView: View {
     @State private var playhead: Double = 0
     @State private var started = Date()
 
-    private var trace: [Double] { BandEcgSignal.cleaned(report.samples, rate: report.sampleRate) }
+    /// The cleaned trace and its height, worked out once (not on every frame of playback).
+    @State private var trace: [Double] = []
+    @State private var amplitude: Double = 0
+    @State private var reach: Double = 0
 
     var body: some View {
         ScrollView {
@@ -211,11 +391,29 @@ struct BandEcgReportView: View {
                     .frame(height: 180)
                 Text("No waveform was kept for this reading.").font(.caption).foregroundStyle(.secondary)
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !playing)) { context in
-                    BandEcgStrip(trace: trace, rate: report.sampleRate, seconds: 3, end: endIndex(context.date),
-                                 showsSeconds: true)
+                Group {
+                    if playing || playhead > 0 {
+                        // Played back as it was taken: the sweep, left to right.
+                        TimelineView(.animation(paused: !playing)) { context in
+                            BandEcgSweep(trace: trace, rate: report.sampleRate,
+                                         playhead: playheadSeconds(context.date) * Double(report.sampleRate),
+                                         amplitude: amplitude, reach: reach, seconds: 3,
+                                         pulse: BandEcgSweep.pulse(at: context.date))
+                        }
+                    } else {
+                        BandEcgStrip(trace: trace, rate: report.sampleRate, seconds: 3, end: report.sampleRate * 3,
+                                     showsSeconds: true)
+                    }
                 }
                 .frame(height: 180)
+                .task(id: report.id) {
+                    guard trace.isEmpty else { return }
+                    let cleaned = BandEcgSignal.cleaned(report.samples, rate: report.sampleRate)
+                    trace = cleaned
+                    amplitude = BandEcgSignal.spread(cleaned)
+                    let mid = cleaned.isEmpty ? 0 : cleaned.sorted()[cleaned.count / 2]
+                    reach = cleaned.map { abs($0 - mid) }.max() ?? 0
+                }
                 HStack(spacing: 14) {
                     Button { togglePlay() } label: { Image(systemName: playing ? "pause.fill" : "play.fill") }
                     Button { playing = false; playhead = 0 } label: { Image(systemName: "stop.fill") }
@@ -238,11 +436,11 @@ struct BandEcgReportView: View {
         playing = true
     }
 
-    private func endIndex(_ now: Date) -> Int {
-        let window = 3.0
+    /// Where playback is, in seconds; at the end it stops there.
+    private func playheadSeconds(_ now: Date) -> Double {
         let t = playing ? min(report.duration, now.timeIntervalSince(started)) : playhead
         if playing, t >= report.duration { DispatchQueue.main.async { playing = false; playhead = report.duration } }
-        return Int(max(window, t) * Double(report.sampleRate))
+        return t
     }
 
     // MARK: Value

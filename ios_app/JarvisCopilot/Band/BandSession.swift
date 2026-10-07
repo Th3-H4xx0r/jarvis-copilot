@@ -79,6 +79,8 @@ final class BandSession: ObservableObject {
     /// The ECG running now: its waveform (raw counts) and heart rate each second, for the live
     /// view and the report kept at the end.
     @Published private(set) var ecgSamples: [Int] = []
+    /// Samples received this reading (`ecgSamples` keeps the last two minutes of them).
+    private(set) var ecgSampleTotal = 0
     @Published private(set) var ecgHeartRates: [Int] = []
     /// The QTc and HRV the band reports each second: a reading that stops before the band's
     /// analysis still has them.
@@ -176,6 +178,7 @@ final class BandSession: ObservableObject {
         let before = lastReading
         if type == .ecg {
             ecgSamples = []
+            ecgSampleTotal = 0
             ecgHeartRates = []
             ecgQtcs = []
             ecgHrvs = []
@@ -255,7 +258,9 @@ final class BandSession: ObservableObject {
         guard measuring == .ecg else { return }
         ecgWaveFrames += 1
         if ecgWaveFrames == 1 { note(false, frame) }
-        ecgSamples.append(contentsOf: BandEcgSignal.waveSamples(frame))
+        let samples = BandEcgSignal.waveSamples(frame)
+        ecgSamples.append(contentsOf: samples)
+        ecgSampleTotal += samples.count
         let cap = ecgSampleRate * 120
         if ecgSamples.count > cap { ecgSamples.removeFirst(ecgSamples.count - cap) }
     }
@@ -263,6 +268,7 @@ final class BandSession: ObservableObject {
     /// A running ECG's waveform and heart rate, for previews and render tests.
     func seedEcgForTests(samples: [Int], heartRates: [Int]) {
         ecgSamples = samples
+        ecgSampleTotal = samples.count
         ecgHeartRates = heartRates
     }
 

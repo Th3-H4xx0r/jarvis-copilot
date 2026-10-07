@@ -142,6 +142,36 @@ final class BandEcgTests: XCTestCase {
             .environment(AppRouter()), size: CGSize(width: 402, height: 1100), name: "band-ecg-stopped", settle: 2)
     }
 
+    func testTheSweepIsPacedByTheClockNotTheFrames() {
+        let model = BandEcgSweepModel()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let samples = Self.trace(seconds: 6, rate: 500)
+        model.consume(samples, total: samples.count, rate: 500)
+        XCTAssertEqual(model.trace.count, samples.count)
+        XCTAssertGreaterThan(model.amplitude, 0)
+        // Six seconds arrived at once: the tip is re-anchored lag behind the newest, not
+        // jumped to it, and from there it moves 500 samples a second.
+        let first = model.playhead(at: t0)
+        XCTAssertEqual(first, Double(samples.count - 1) - BandEcgSweepModel.lag * 500, accuracy: 1)
+        XCTAssertEqual(model.playhead(at: t0.addingTimeInterval(0.2)), first + 100, accuracy: 1, "500 samples a second")
+        XCTAssertEqual(model.playhead(at: t0.addingTimeInterval(1)), Double(samples.count - 1), accuracy: 1,
+                       "never past the newest sample")
+        // A new reading starts it over.
+        model.consume([1, 2, 3], total: 3, rate: 500)
+        XCTAssertEqual(model.trace.count, 3)
+    }
+
+    func testTheSweepRenders() throws {
+        let model = BandEcgSweepModel()
+        let samples = Self.trace(seconds: 5.6, rate: 500)
+        model.consume(samples, total: samples.count, rate: 500)
+        // A second pass under way: the new trace to the tip, the last pass beyond the gap.
+        let view = BandEcgSweep(trace: model.trace, rate: 500, playhead: 5.2 * 500, amplitude: model.amplitude, reach: model.reach,
+                                seconds: 4, pulse: 0.4)
+            .frame(height: 300).background(Color.black)
+        try RenderHarness.write(view, size: CGSize(width: 402, height: 300), name: "band-ecg-sweep", settle: 0.5)
+    }
+
     func testTheLiveScreenRenders() throws {
         let session = BandSession()
         session.seedEcgForTests(samples: Self.trace(seconds: 6, rate: 250), heartRates: [78])

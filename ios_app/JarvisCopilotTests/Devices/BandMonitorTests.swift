@@ -59,6 +59,30 @@ final class BandMonitorTests: XCTestCase {
         XCTAssertEqual(s, BandOxygenSchedule(enabled: true, startHour: 22, startMinute: 0, endHour: 7, endMinute: 0))
     }
 
+    func testThePhoneAsksForTheMostOverdueReadingAndNoneWhenTheBandManages() {
+        let defaults = UserDefaults(suiteName: "BandMeasureSchedulerTests")!
+        defaults.removePersistentDomain(forName: "BandMeasureSchedulerTests")
+        let scheduler = BandMeasureScheduler(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        scheduler.now = { now }
+        XCTAssertEqual(scheduler.plan.control, .band)
+        XCTAssertNil(scheduler.due(at: now), "the band manages itself: the phone asks for nothing")
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        plan.intervals = ["heart_rate": 30, "spo2": 60, "blood_pressure": 0]
+        // Heart rate is 10 min overdue, SpO2 50 min; blood pressure is off.
+        scheduler.seedForTests(plan, lastRuns: ["heart_rate": now.addingTimeInterval(-40 * 60),
+                                                "spo2": now.addingTimeInterval(-110 * 60),
+                                                "blood_pressure": .distantPast])
+        XCTAssertEqual(scheduler.due(at: now), .bloodOxygen)
+        XCTAssertNil(scheduler.next(.bloodPressure), "off: never")
+        XCTAssertEqual(scheduler.next(.heartRate), now, "overdue: now")
+        scheduler.setInterval(240, for: .bloodOxygen)
+        XCTAssertEqual(scheduler.due(at: now), .heartRate)
+        XCTAssertEqual(BandMeasurePlan.label(120), "Every 2 h")
+        XCTAssertFalse(BandMeasurePlan.autoSwitches.contains("auto_ppg"), "sleep stays the band's")
+    }
+
     func testEveryMonitoringMetricIsASwitchTheBandFramesKnow() {
         let names = Set(BandSettings.switches.map(\.name))
         for (metric, name) in BandDevice.monitorSwitches {
@@ -105,7 +129,7 @@ final class BandMonitorTests: XCTestCase {
         link.script(BandOp.bloodPressureCalibration, ["9101794f0102" + String(repeating: "00", count: 14)])
         await session.refreshCalibrations()
         let view = NavigationStack {
-            ScrollView { BandMonitorSettings(session: session) { _, _ in }.padding(.vertical, 12) }
+            ScrollView { BandMonitorSettings(session: session, scheduler: BandMeasureScheduler(defaults: UserDefaults(suiteName: "BandMonitorTests")!)) { _, _ in }.padding(.vertical, 12) }
         }
         try RenderHarness.write(view.environment(AppRouter()), size: CGSize(width: 402, height: 1700),
                                 name: "band-monitor-settings", settle: 1)

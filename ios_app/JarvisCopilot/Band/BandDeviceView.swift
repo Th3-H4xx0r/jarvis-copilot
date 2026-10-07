@@ -342,8 +342,6 @@ struct BandSettingsView: View {
     @State private var alarms: [BandAlarm] = []
     @State private var error: String?
     @State private var keepAlive = false
-    /// Strength workouts: the band buzzes as a rest runs out.
-    @State private var restAlert = WearableRestAlert.isOn(WearableKeepAlive.band)
     @State private var confirmForget = false
     /// The app-wide units every band and Health value is drawn in (the band keeps a copy).
     @AppStorage("temperatureUnit") private var temperatureUnit: TemperatureUnit = .celsius
@@ -366,7 +364,7 @@ struct BandSettingsView: View {
                 }
                 alertsCard
                 alarmsCard
-                BandMonitorSettings(session: session) { name, args in invoke(name, args) }
+                BandMonitorSettings(session: session, scheduler: manager.measureScheduler) { name, args in invoke(name, args) }
                 remindersCard
                 unitsCard
                 connectionCard
@@ -497,13 +495,6 @@ struct BandSettingsView: View {
             RowDivider()
             toggleRow("Raise to wake", on: session.raiseToWake?.enabled ?? session.handshake?.raiseToWake ?? false) {
                 invoke("band_set_raise_to_wake", ["enabled": $0])
-            }
-            if session.supports("find") {
-                RowDivider()
-                Toggle("Alert when a rest ends", isOn: $restAlert)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 50)
-                    .onChange(of: restAlert) { _, on in WearableRestAlert.set(on, for: WearableKeepAlive.band) }
             }
         }
     }

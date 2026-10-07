@@ -41,6 +41,8 @@ class WorkoutWearable: ObservableObject, Identifiable {
     /// It can signal on its own — a buzz, a light — and does when a strength rest runs out
     /// (its "Alert when a rest ends" switch, `WearableRestAlert`).
     var canSignal: Bool { false }
+    /// What its signal is, for the switch: "Buzz", "Light".
+    var signalName: String { "Alert" }
     func signal() async {}
 
     func ensureConnected() async -> Bool { false }
@@ -141,6 +143,7 @@ final class X5WorkoutWearable: WorkoutWearable {
     /// while it charges and as it connects. So its signal is the link dropped and made again —
     /// the connect light, at the cost of a few seconds without its data.
     override var canSignal: Bool { isPaired }
+    override var signalName: String { "Lights up as it reconnects (a few seconds without data)" }
 
     override func signal() async {
         drop()

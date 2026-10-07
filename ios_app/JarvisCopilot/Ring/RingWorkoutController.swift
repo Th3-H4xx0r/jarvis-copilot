@@ -945,11 +945,16 @@ extension RingWorkoutController {
     /// lights — each unless its "Alert when a rest ends" switch is off. Whichever one tracks
     /// the workout.
     private func alertRestOver() {
-        var all = wearables
-        if !all.contains(where: { $0 === wearable }) { all.append(wearable) }
-        for device in all where device.isPaired && device.canSignal && WearableRestAlert.isOn(device.kind) {
+        for device in restAlertWearables where WearableRestAlert.isOn(device.kind) {
             Task { await device.signal() }
         }
+    }
+
+    /// Every paired wearable that can signal as a rest ends, for the rest screen's switches.
+    var restAlertWearables: [WorkoutWearable] {
+        var all = wearables
+        if !all.contains(where: { $0 === wearable }) { all.append(wearable) }
+        return all.filter { $0.isPaired && $0.canSignal }
     }
 
     /// Ask the ring for a strength session underneath — unless it already

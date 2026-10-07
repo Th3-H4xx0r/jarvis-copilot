@@ -7,6 +7,8 @@ import SwiftUI
 
 struct BandMonitorSettings: View {
     @ObservedObject var session: BandSession
+    @ObservedObject var scheduler: BandMeasureScheduler
+    @State private var controlError: String?
     /// A switch, through the same skill Jarvis uses.
     let invoke: (String, [String: Any]) -> Void
 
@@ -23,9 +25,13 @@ struct BandMonitorSettings: View {
 
     private func has(_ name: String) -> Bool { session.settings?.isOn(name) != nil }
 
+    private var phoneManaged: Bool { scheduler.plan.control == .phone }
+
     private var groups: [Group] {
         func toggle(_ title: String, _ icon: String, _ tint: Color, _ name: String, _ metric: String) -> Item? {
-            has(name) ? .toggle(title: title, icon: icon, tint: tint, name: name, metric: metric) : nil
+            // Managed by the phone, the band's own measuring switches are off and not shown.
+            if phoneManaged, BandMeasurePlan.autoSwitches.contains(name) { return nil }
+            return has(name) ? .toggle(title: title, icon: icon, tint: tint, name: name, metric: metric) : nil
         }
         let all: [Group] = [
             Group(title: "Heart health", items: [
@@ -40,7 +46,7 @@ struct BandMonitorSettings: View {
                 session.calibratesBloodPressure ? .bpCalibration : nil,
             ].compactMap { $0 }),
             Group(title: "Blood oxygen", items: [
-                session.supports("spo2") ? .oxygen : nil,
+                session.supports("spo2") && !phoneManaged ? .oxygen : nil,
                 toggle("Low blood oxygen alert", "exclamationmark.triangle.fill", JcTheme.blue, "low_spo2_alert", "low_spo2_alert"),
             ].compactMap { $0 }),
             Group(title: "Blood glucose", items: [
@@ -63,6 +69,7 @@ struct BandMonitorSettings: View {
     var body: some View {
         let groups = self.groups
         VStack(spacing: 22) {
+            measuring
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 CardGroup(group.title, footer: index == groups.count - 1 ? Self.scheduleNote : nil) {
                     ForEach(Array(group.items.enumerated()), id: \.offset) { i, item in
@@ -75,9 +82,62 @@ struct BandMonitorSettings: View {
     }
 
     /// What this band can't be told (the SDK has both, for other models).
-    static let scheduleNote = "The band measures on its own schedule, about every 10 minutes into its daily record. "
-        + "The E910's firmware has no interval or vibration-length setting: its feature table leaves out the SDK's "
-        + "auto-measure intervals and low-power vibration timing, and the official app shows only these switches."
+    static let scheduleNote = "On its own the band measures about every 10 minutes into its daily record; its "
+        + "firmware takes no interval of its own. Managed by phone, the intervals above are the phone's."
+
+    // MARK: Who measures
+
+    private var control: Binding<BandMeasureControl> {
+        Binding(get: { scheduler.plan.control }, set: { next in
+            controlError = nil
+            Task {
+                do { try await scheduler.setControl(next) } catch {
+                    controlError = "Connect the band to change this — \(error.localizedDescription)"
+                }
+            }
+        })
+    }
+
+    private var measuring: some View {
+        CardGroup("Measurements", footer: controlError ?? (phoneManaged
+            ? "The phone keeps the band connected and asks it for each reading when it's due; the band's own all-day measuring is off, which saves most of its battery. Sleep and overnight HRV stay on the band."
+            : "The band measures on its own all day. Managed by phone, it measures only when the phone asks, on the intervals you set.")) {
+            Row(minHeight: 52) {
+                HStack {
+                    Text("Managed by")
+                    Spacer()
+                    if scheduler.applying { ProgressView().controlSize(.small) }
+                    Picker("Managed by", selection: control) {
+                        Text("Band").tag(BandMeasureControl.band)
+                        Text("Phone").tag(BandMeasureControl.phone)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 170)
+                    .disabled(scheduler.applying)
+                }
+            }
+            if phoneManaged {
+                ForEach(BandMeasurePlan.types.filter { session.supports($0.name) }, id: \.self) { type in
+                    RowDivider()
+                    intervalRow(type)
+                }
+            }
+        }
+    }
+
+    private func intervalRow(_ type: BandMeasure) -> some View {
+        Row(minHeight: 52) {
+            HStack {
+                BandMonitorLabel(title: type.label, icon: type.icon, tint: type.tint)
+                Spacer()
+                Picker(type.label, selection: Binding(get: { scheduler.plan.interval(type) },
+                                                      set: { scheduler.setInterval($0, for: type) })) {
+                    ForEach(BandMeasurePlan.choices, id: \.self) { Text(BandMeasurePlan.label($0)).tag($0) }
+                }
+                .pickerStyle(.menu)
+            }
+        }
+    }
 
     @ViewBuilder private func row(_ item: Item) -> some View {
         switch item {

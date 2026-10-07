@@ -694,6 +694,7 @@
 		B6CAC8B91301829A7D0F00C8 /* CodingAttachments.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6F8D16290937BE3DB979AA /* CodingAttachments.swift */; };
 		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
+		B7FE2B1590C9CEB980287CC2 /* BandMeasureSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */; };
 		B8772BBE4770F5AF25A3C1DB /* SpeechServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F3BF326978B8240E913298 /* SpeechServices.swift */; };
 		B8AEAF21BE8844C5268A67FF /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255E22F98CF91A5B288D04E /* VoiceSession.swift */; };
 		B946EE6519E9E3E9CE523832 /* WidgetBlockInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0858B1378CF509408FC17B /* WidgetBlockInspector.swift */; };
@@ -1350,6 +1351,7 @@
 		58D2A6668F60BB68B554931A /* MemoryModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryModels.swift; sourceTree = "<group>"; };
 		58FA71513D8D919202C562B2 /* SpeechEngineScreen.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechEngineScreen.swift; sourceTree = "<group>"; };
 		59053007B98F708B4326A25C /* VoiceMocks.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceMocks.swift; sourceTree = "<group>"; };
+		5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandMeasureSchedule.swift; sourceTree = "<group>"; };
 		59437ADD8499A9F58BCACCEF /* OnDeviceAISettingsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnDeviceAISettingsPage.swift; sourceTree = "<group>"; };
 		59F4338E72F1443806778AE7 /* GradientButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GradientButton.swift; sourceTree = "<group>"; };
 		5A289BA0A4EF00D5577CA623 /* RingFirmwareFlashSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareFlashSheet.swift; sourceTree = "<group>"; };
@@ -3741,6 +3743,7 @@
 				FBAB8DA77700010638A1B71C /* BandEcg.swift */,
 				1575B3905A5827B7F80F1DAB /* BandEcgViews.swift */,
 				C68561C35FBC7D57145C3162 /* BandMonitorSettings.swift */,
+				5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */,
 			);
 			name = Band;
 			path = Band;
@@ -4917,6 +4920,7 @@
 				DADC951681F55B2D970599B0 /* BandEcgViews.swift in Sources */,
 				EE4E8C9A6546DE7556EDBA01 /* HealthVitalDay.swift in Sources */,
 				5AF706A76E897065903912EC /* BandMonitorSettings.swift in Sources */,
+				B7FE2B1590C9CEB980287CC2 /* BandMeasureSchedule.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -281,6 +281,7 @@ struct WorkoutConfirmView: View {
             VStack(alignment: .leading, spacing: 26) {
                 header
                 tracking
+                if choice.isStrength { restAlertCard }
                 if choice.isOutdoor { routeCard }
                 if let template { breakdown(template) }
             }
@@ -365,6 +366,19 @@ struct WorkoutConfirmView: View {
                     Button(guide == nil ? "Follow" : "Change") { choosingRoute = true }
                         .buttonStyle(.jcGlass(compact: true))
                         .accessibilityLabel(guide == nil ? "Follow a past route" : "Change the route")
+                }
+            }
+        }
+    }
+
+    /// Strength: which wearables signal as a rest runs out — the band buzzes, the X5 lights.
+    @ViewBuilder private var restAlertCard: some View {
+        let devices = workout.restAlertWearables
+        if !devices.isEmpty {
+            CardGroup("Alert when a rest ends", footer: "The phone chimes either way; each wearable switched on here signals too.") {
+                ForEach(Array(devices.enumerated()), id: \.offset) { index, device in
+                    if index > 0 { RowDivider() }
+                    RestAlertToggle(kind: device.kind, title: device.name, detail: device.signalName)
                 }
             }
         }
@@ -820,3 +834,32 @@ private struct WorkoutWearableRow: View {
         }
     }
 }
+
+/// One wearable's "Alert when a rest ends" switch.
+struct RestAlertToggle: View {
+    let kind: String
+    let title: String
+    /// What it does: "Buzz", "Light".
+    let detail: String
+    @State private var on: Bool
+
+    init(kind: String, title: String, detail: String) {
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        _on = State(initialValue: WearableRestAlert.isOn(kind))
+    }
+
+    var body: some View {
+        Toggle(isOn: $on) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .onChange(of: on) { _, value in WearableRestAlert.set(value, for: kind) }
+    }
+}
+

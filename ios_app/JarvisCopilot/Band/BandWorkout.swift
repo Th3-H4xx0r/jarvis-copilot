@@ -121,6 +121,7 @@ final class BandWorkoutWearable: WorkoutWearable {
 
     /// The band's find buzz, stopped after a moment.
     override var canSignal: Bool { session.supports("find") }
+    override var signalName: String { "Buzzes" }
 
     override func signal() async {
         guard (try? await session.find(true)) != nil else { return }

@@ -12,8 +12,6 @@ struct X5SettingsView: View {
     @State private var confirmForget = false
     @State private var showRawBytes = false
     @State private var healthRing = HealthRing.current
-    /// Strength workouts: the X5's light as a rest runs out.
-    @State private var restAlert = WearableRestAlert.isOn(WearableKeepAlive.x5ring)
     @Environment(\.dismiss) private var dismiss
 
     init(manager: X5Manager) {
@@ -111,12 +109,7 @@ struct X5SettingsView: View {
                 }
             }
         }
-        CardGroup("Workouts", footer: "The X5 has no light command: its outer light shows as it connects, so as a strength rest runs out the app reconnects it. It sends no data for those few seconds.") {
-            Toggle("Alert when a rest ends", isOn: $restAlert)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 50)
-                .onChange(of: restAlert) { _, on in WearableRestAlert.set(on, for: WearableKeepAlive.x5ring) }
-        }
+
     }
 
     private var health: some View {

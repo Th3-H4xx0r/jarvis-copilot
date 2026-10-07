@@ -19,6 +19,8 @@ final class BandManager: NSObject, ObservableObject {
     @Published private(set) var forgottenIDs: Set<UUID> = []
 
     let session = BandSession()
+    /// The band's measuring, managed by the band or by the phone.
+    let measureScheduler = BandMeasureScheduler()
     private(set) lazy var sync = BandSync(session: session, store: { [weak self] in self?.store })
 
     /// Days the sync changed — Jarvis Health pushes them.
@@ -95,6 +97,7 @@ final class BandManager: NSObject, ObservableObject {
             options: [CBCentralManagerOptionRestoreIdentifierKey:
                         "com.jarviscopilot.jarviscopilotMobileAndIOS.bandCentral"])
         session.attach(self)
+        measureScheduler.attach(self)
         onDaysChanged = { [weak self] keys in
             guard let self else { return }
             Task { await BandHealthPush.push(keys, manager: self) }
