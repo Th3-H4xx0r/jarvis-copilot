@@ -119,13 +119,16 @@ final class BandWorkoutWearable: WorkoutWearable {
         }
     }
 
-    /// The band's find buzz, stopped after a moment.
+    /// The band's find buzz, stopped after the chosen length (a press on the band stops it sooner).
     override var canSignal: Bool { session.supports("find") }
     override var signalName: String { "Buzzes" }
+    override var signalLengths: [Double] { [2, 4, 6, 8, 10, 15, 20] }
 
     override func signal() async {
         guard (try? await session.find(true)) != nil else { return }
-        try? await Task.sleep(for: .seconds(1.5))
+        try? await Task.sleep(for: .seconds(WearableRestAlert.seconds(kind)))
+        // Pressed on the band already: nothing to stop.
+        guard session.finding else { return }
         try? await session.find(false)
     }
 

@@ -43,6 +43,8 @@ class WorkoutWearable: ObservableObject, Identifiable {
     var canSignal: Bool { false }
     /// What its signal is, for the switch: "Buzz", "Light".
     var signalName: String { "Alert" }
+    /// The lengths its signal can be set to, in seconds (none: it has no length of its own).
+    var signalLengths: [Double] { [] }
     func signal() async {}
 
     func ensureConnected() async -> Bool { false }

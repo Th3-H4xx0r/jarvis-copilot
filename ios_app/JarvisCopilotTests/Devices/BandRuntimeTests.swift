@@ -225,6 +225,8 @@ final class BandRuntimeTests: XCTestCase {
         try await session.runSetup(profile: nil)
         let wearable = BandWorkoutWearable(session: session, connect: { true })
         XCTAssertTrue(wearable.canSignal, "the E910 has find")
+        WearableRestAlert.setSeconds(0.2, for: WearableKeepAlive.band)
+        defer { UserDefaults.standard.removeObject(forKey: "restAlert.band.seconds") }
         link.script(BandOp.find, [Self.frame("b50a01")])
         link.script(BandOp.find, [Self.frame("b50b02")])
         await wearable.signal()

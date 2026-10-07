@@ -378,7 +378,8 @@ struct WorkoutConfirmView: View {
             CardGroup("Alert when a rest ends", footer: "The phone chimes either way; each wearable switched on here signals too.") {
                 ForEach(Array(devices.enumerated()), id: \.offset) { index, device in
                     if index > 0 { RowDivider() }
-                    RestAlertToggle(kind: device.kind, title: device.name, detail: device.signalName)
+                    RestAlertToggle(kind: device.kind, title: device.name, detail: device.signalName,
+                                    lengths: device.signalLengths)
                 }
             }
         }
@@ -841,25 +842,46 @@ struct RestAlertToggle: View {
     let title: String
     /// What it does: "Buzz", "Light".
     let detail: String
+    /// The lengths it can buzz for, in seconds (none: no length to pick).
+    var lengths: [Double] = []
     @State private var on: Bool
+    @State private var seconds: Double
 
-    init(kind: String, title: String, detail: String) {
+    init(kind: String, title: String, detail: String, lengths: [Double] = []) {
         self.kind = kind
         self.title = title
         self.detail = detail
+        self.lengths = lengths
         _on = State(initialValue: WearableRestAlert.isOn(kind))
+        _seconds = State(initialValue: WearableRestAlert.seconds(kind))
     }
 
     var body: some View {
-        Toggle(isOn: $on) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            Toggle(isOn: $on) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            .onChange(of: on) { _, value in WearableRestAlert.set(value, for: kind) }
+            if on, !lengths.isEmpty {
+                RowDivider()
+                HStack {
+                    Text("For")
+                    Spacer()
+                    Picker("For", selection: $seconds) {
+                        ForEach(lengths, id: \.self) { Text("\(Int($0)) s").tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 50)
+                .onChange(of: seconds) { _, value in WearableRestAlert.setSeconds(value, for: kind) }
             }
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .onChange(of: on) { _, value in WearableRestAlert.set(value, for: kind) }
     }
 }
 

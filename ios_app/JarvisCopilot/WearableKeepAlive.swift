@@ -103,4 +103,15 @@ enum WearableRestAlert {
     static func set(_ on: Bool, for kind: String, defaults: UserDefaults = .standard) {
         defaults.setValue(on, forKey: key(kind))
     }
+
+    /// How long a buzz lasts, for a wearable whose signal has a length.
+    static let defaultSeconds: Double = 6
+
+    static func seconds(_ kind: String, defaults: UserDefaults = .standard) -> Double {
+        defaults.object(forKey: "\(key(kind)).seconds") as? Double ?? defaultSeconds
+    }
+
+    static func setSeconds(_ seconds: Double, for kind: String, defaults: UserDefaults = .standard) {
+        defaults.setValue(seconds, forKey: "\(key(kind)).seconds")
+    }
 }
