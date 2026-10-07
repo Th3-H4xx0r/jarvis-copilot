@@ -339,19 +339,17 @@ final class X5Session: ObservableObject {
 
     func restart() async throws { _ = try await transport.perform(.x5Restart, until: .single) }
 
-    /// The ring's alert (`36 NN`). True when it took it; its error reply (`B6`) is false. Noted in
-    /// the log either way, since the sheet doesn't document it.
+    /// The ring's alert (`36 NN`). The ring answers `36 00` only once it has finished (about a
+    /// second a pulse — six seconds for five), so this sends and doesn't wait: the answer lands
+    /// in the log as it comes. False only when it couldn't be sent.
     @discardableResult
     func alert(pulses: Int) async -> Bool {
         do {
-            let took = try await transport.perform(.x5Alert(pulses: pulses), until: .single).first?.cmd == X5Op.alert
-            log.note("X5 alert", took ? "taken (\(pulses))" : "no answer")
-            return took
-        } catch RingError.rejected {
-            log.note("X5 alert", "refused — this firmware has no 0x36")
-            return false
+            _ = try await transport.perform(.x5Alert(pulses: pulses), until: .none)
+            log.note("X5 alert", "sent (\(pulses)) — the ring answers when it's done")
+            return true
         } catch {
-            log.note("X5 alert", "no answer — \(error.localizedDescription)")
+            log.note("X5 alert", "not sent — \(error.localizedDescription)")
             return false
         }
     }
