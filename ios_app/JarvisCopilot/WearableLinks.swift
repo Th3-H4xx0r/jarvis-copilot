@@ -44,8 +44,8 @@ protocol WearableHost: AnyObject {
 final class WearableLinks: ObservableObject {
     static let shared = WearableLinks()
     static let storeKey = "wearableLinks"
-    /// The dashcam rides in the car.
-    static let defaults: [String: String] = ["dashcam": "car"]
+    /// The dashcam and the car lights ride in the car.
+    static let defaults: [String: String] = ["dashcam": "car", "lights": "car"]
 
     /// Bumped on any change a host's page shows: a link, a child's status or controls.
     @Published private(set) var revision = 0

@@ -143,12 +143,38 @@ enum CarModel {
         case card
         /// The car's page: the same pose, a touch closer and higher.
         case hero
+        /// The lights' page: from above, front at the top, the body cut away at the waist so the
+        /// cabin shows.
+        case cutaway
 
-        var distance: Float { self == .card ? 6.9 : 7.4 }
-        var height: Float { self == .card ? 2.1 : 2.3 }
-        /// The car's yaw at rest: the front left corner toward the viewer.
-        var restYaw: Float { -0.62 }
+        var distance: Float {
+            switch self {
+            case .card: return 6.9
+            case .hero: return 7.4
+            case .cutaway: return 3.3
+            }
+        }
+        var height: Float {
+            switch self {
+            case .card: return 2.1
+            case .hero: return 2.3
+            case .cutaway: return 8.4
+            }
+        }
+        var target: SCNVector3 { self == .cutaway ? SCNVector3(0, 0.3, -0.12) : SCNVector3(0, 0.62, 0) }
+        /// The car's yaw at rest: the front left corner toward the viewer — or, cut away, the front
+        /// away from it (at the top of the screen).
+        var restYaw: Float { self == .cutaway ? .pi : -0.62 }
     }
+
+    /// Where the body is cut for the cabin view: just under the window line.
+    static let beltHeight: Float = 0.98
+
+    /// Drops everything above the belt line (in car space — the car only ever turns about Y).
+    private static let cutawayModifier = """
+        float4 carPoint = scn_frame.inverseViewTransform * float4(_surface.position, 1.0);
+        if (carPoint.y > \(beltHeight)) { discard_fragment(); }
+        """
 
     /// A self-contained scene: the car on its shadow, the wearables' studio light, a camera.
     @MainActor
@@ -188,8 +214,14 @@ enum CarModel {
                 spinner.addChildNode(shadow)
 
                 for part in mesh.parts {
+                    // Cut away, the windows go and the body stops at the waist.
+                    if presentation == .cutaway, part.slot == .glass { continue }
                     let geometry = part.geometry.copy() as! SCNGeometry
                     geometry.firstMaterial = CarModel.material(for: part.slot)
+                    if presentation == .cutaway, part.slot != .interior {
+                        geometry.firstMaterial?.shaderModifiers = [.fragment: CarModel.cutawayModifier]
+                        geometry.firstMaterial?.isDoubleSided = true   // the inside of the door skins shows now
+                    }
                     let node = SCNNode(geometry: geometry)
                     // Glass and lenses after the solid body, so what is behind them shows.
                     if [.glass, .lampLens, .tailLens, .amberLens].contains(part.slot) { node.renderingOrder = 10 }
@@ -233,7 +265,7 @@ enum CarModel {
             lens.zFar = 60
             camera.camera = lens
             camera.position = SCNVector3(0, presentation.height, presentation.distance)
-            camera.look(at: SCNVector3(0, 0.62, 0))
+            camera.look(at: presentation.target)
             scene.rootNode.addChildNode(camera)
         }
 

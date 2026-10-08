@@ -39,7 +39,8 @@ MATERIAL_SLOT = {
     "Tire": "rubber", "CarP_Rubber": "rubber",
     "Wheel_Alloy": "wheel",
     "Glass_Light": "lampLens", "Light_Frost": "lampLens", "Frost_Glass": "lampLens",
-    "Reflector_W": "lampInner", "Ex_White": "lampInner", "Door_Light_N": "lampInner",
+    # Ex_White / Door_Light_N are cabin trim (seat backs, door courtesy lamps): white specks in the cutaway.
+    "Reflector_W": "lampInner", "Ex_White": "interior", "Door_Light_N": "interior",
     "Glow": "lampGlow", "Decal_Light": "lampGlow",
     "Red_glass": "tailLens",
     "Color_glass": "amberLens",
@@ -56,6 +57,10 @@ BUDGET = {"paint": 80000, "chrome": 14000, "glossTrim": 12000, "matteTrim": 1800
           "lampGlow": 2500, "tailLens": 6000, "amberLens": 1500, "brake": 2500, "mirror": 600}
 
 CREASE_DEGREES = 50
+# The source is a right-hand-drive Camry (steering wheel on the right); his US car is left-hand
+# drive. The body is symmetric, so mirroring the whole car across its centreline only moves the
+# cabin: the wheel ends up on the left, at +X (the car's left when facing +Z with +Y up).
+LEFT_HAND_DRIVE = True
 LENGTH_M = 4.915   # 2025+ Camry, bumper to bumper
 WELD_M = 0.0005
 
@@ -161,13 +166,16 @@ def place(slots):
     basis[2, length_axis], basis[1, up_axis], basis[0, side_axis] = front_sign, up_sign, 1
     # Keep it a rotation: if the axis swap mirrored the car, flip X back.
     mirror = -1.0 if np.linalg.det(basis) < 0 else 1.0
+    if LEFT_HAND_DRIVE:
+        mirror = -mirror
     out = {}
     for s, (p, f) in slots.items():
         q = np.empty_like(p)
         q[:, 2] = (p[:, length_axis] - (lo[length_axis] + hi[length_axis]) / 2) * front_sign
         q[:, 1] = (p[:, up_axis] - (lo[up_axis] if up_sign > 0 else hi[up_axis])) * up_sign
         q[:, 0] = (p[:, side_axis] - (lo[side_axis] + hi[side_axis]) / 2) * mirror
-        out[s] = (q * scale, f)
+        # A mirror turns the faces inside out: flip their winding back.
+        out[s] = (q * scale, f[:, ::-1] if LEFT_HAND_DRIVE else f)
     return out
 
 

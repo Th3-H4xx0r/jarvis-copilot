@@ -4,9 +4,9 @@ import XCTest
 @MainActor
 final class CarDeviceTests: XCTestCase {
     private func car(_ links: WearableLinks) -> CarDevice {
-        // The real car takes only the dashcam; a stand-in for the lights is linked here too.
+        // A stand-in "trailer" (not linked by default, unlike the real lights) is accepted too.
         let car = CarDevice(links: links, presence: CarPresence(), defaults: isolatedDefaults(),
-                            accepted: ["dashcam", "lights"])
+                            accepted: ["dashcam", "trailer"])
         links.register(host: car)
         return car
     }
@@ -20,12 +20,12 @@ final class CarDeviceTests: XCTestCase {
         let links = WearableLinks(storage: isolatedDefaults())
         let car = car(links)
         let recorder = ControlRecorder()
-        let lights = FakeLinkable(kind: "lights")
+        let lights = FakeLinkable(kind: "trailer")
         lights.controls = [recorder.control("lights.power", .toggle(isOn: false))]
         links.register(lights)
         XCTAssertEqual(car.capabilities.map(\.name), ["car_get_status"], "not linked yet")
 
-        try links.link("lights", to: CarDevice.kind)
+        try links.link("trailer", to: CarDevice.kind)
         let set = try XCTUnwrap(car.capabilities.first { $0.name == "car_set_control" })
         let props = set.inputSchema["properties"] as? [String: [String: Any]]
         XCTAssertEqual(props?["control"]?["enum"] as? [String], ["lights.power"])
@@ -36,10 +36,10 @@ final class CarDeviceTests: XCTestCase {
         let links = WearableLinks(storage: isolatedDefaults())
         let car = car(links)
         let recorder = ControlRecorder()
-        let lights = FakeLinkable(kind: "lights")
+        let lights = FakeLinkable(kind: "trailer")
         lights.controls = [recorder.control("lights.power", .toggle(isOn: false))]
         links.register(lights)
-        try links.link("lights", to: CarDevice.kind)
+        try links.link("trailer", to: CarDevice.kind)
 
         let out = try await car.invoke("car_set_control", args: ["control": "lights.power", "value": "on"])
         XCTAssertEqual(out["ok"] as? Bool, true)

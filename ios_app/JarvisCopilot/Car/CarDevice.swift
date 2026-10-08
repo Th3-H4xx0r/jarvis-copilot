@@ -9,8 +9,8 @@ final class CarDevice: WearableDevice, WearableHost {
     static let shared = CarDevice()
     static let kind = "car"
     static let model = CarProfile.camry.description
-    /// Kinds that can be linked to the car. Lights join here.
-    static let accepted: Set<String> = [DashcamDevice.identityKey]
+    /// Kinds that can be linked to the car.
+    static let accepted: Set<String> = [DashcamDevice.identityKey, CarLightsDevice.kind]
     private static let idKey = "jc.car.deviceID"
 
     let profile = CarProfile.camry
