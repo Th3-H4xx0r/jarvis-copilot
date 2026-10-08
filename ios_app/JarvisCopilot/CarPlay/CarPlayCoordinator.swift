@@ -66,6 +66,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         voiceHeaderView = voiceHeader()
         voiceTab.listHeader = voiceHeaderView
         wearablesTab.tabImage = UIImage(systemName: "car")
+        wearablesTab.tabTitle = CarDevice.shared.name   // the tab is the car
         let tabs = CPTabBarTemplate(templates: [voiceTab, wearablesTab])
         tabBar = tabs
         ui.setRootTemplate(tabs, animated: false) { [weak self] ok, _ in
@@ -117,8 +118,17 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         show(paired ? CarPlayScreens.voiceTab(conversation, speaking: VoiceStore.shared.state == .speaking)
                     : CarPlayScreens.notPaired, in: voiceTab)
         updateVoiceHeader()
-        show(paired ? CarPlayScreens.wearablesTab(carDevices.map(\.row)) : CarPlayScreens.notPaired, in: wearablesTab)
+        if wearablesTab.tabTitle != CarDevice.shared.name {
+            wearablesTab.tabTitle = CarDevice.shared.name
+            tabBar?.updateTemplates([voiceTab, wearablesTab])
+        }
+        show(paired ? CarPlayScreens.carTab(carInput, others: unlinkedCarDevices) : CarPlayScreens.notPaired, in: wearablesTab)
         for entry in stack { update(entry.template, for: entry.screen) }
+        // A control that went away takes its picker with it.
+        if let top = stack.last, case .wearableControl(let id) = top.screen, carControl(id) == nil,
+           ui.topTemplate === top.template {
+            ui.popTemplate(animated: true, completion: nil)
+        }
     }
 
     /// Rebuild a list only when what it shows changed.
@@ -138,6 +148,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             let v = VoiceStore.shared
             _ = v.state; _ = v.error
             _ = v.userTranscript; _ = v.livePartial; _ = v.assistantText; _ = v.spokenWords
+            _ = WearableNames.shared.names   // the car's name is the tab's title
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.scheduleRefresh()
@@ -150,6 +161,8 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     private func subscribeToDevices() {
         let feeds: [AnyPublisher<Void, Never>] = [
             DeviceRegistry.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            WearableLinks.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            CarPresence.shared.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             sync.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             wifi.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             library.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
@@ -263,6 +276,26 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         }
     }
 
+    /// The car tab: its controls and the wearables linked to it.
+    private var carInput: CarPlayCarInput {
+        CarPlayCarInput(
+            controls: CarDevice.shared.controls.map(CarPlayControl.init),
+            linked: WearableLinks.shared.children(of: CarDevice.kind).map { child in
+                CarPlayLinked(kind: child.kind, title: child.title, status: child.linkStatus.text,
+                              connected: child.linkStatus.connected, symbol: child.symbol, screen: child.carPlayScreen)
+            })
+    }
+
+    /// Car wearables that aren't linked to anything get their own rows under the car's.
+    private var unlinkedCarDevices: [CarPlayCarDevice] {
+        carDevices.filter { entry in entry.device.linkKind.map { WearableLinks.shared.host(of: $0) == nil } ?? true }
+            .map(\.row)
+    }
+
+    private func carControl(_ id: String) -> CarPlayControl? {
+        CarDevice.shared.controls.first { $0.id == id }.map(CarPlayControl.init)
+    }
+
     private var dashcamInput: CarPlayDashcamInput {
         CarPlayDashcamInput(
             onCamera: wifi.onCamera, phaseLabel: sync.phase.label, recording: sync.recording,
@@ -298,6 +331,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .dashcamSettings: return "Dashcam settings"
         case .live: return "Live view"
         case .device(let id): return carDevices.first { $0.row.id == id }?.row.name ?? "Device"
+        case .wearableControl(let id): return carControl(id)?.title ?? "Control"
         }
     }
 
@@ -308,6 +342,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .dashcamSettings: return CarPlayScreens.dashcamSettings(settingsInput)
         case .live: return CarPlayScreens.live(status: liveStatus, otherLens: live?.model.otherLensName ?? "Rear",
                                                canSwitch: live?.model.source?.canSwitch ?? false)
+        case .wearableControl(let id): return carControl(id).map(CarPlayScreens.controlPicker) ?? []
         case .clip, .device: return nil
         }
     }
@@ -393,7 +428,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
                 refresh()
             }
         case .live: startLive()
-        case .device: break
+        case .device, .wearableControl: break
         }
     }
 
@@ -476,6 +511,22 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             voice.start()
         case .dashcam(let command): run(command)
         case .clip(let id, let command): run(command, clipID: id)
+        case .control(let id, let value):
+            // The picker this pick came from (if any), captured now: by the time a slow device
+            // answers, Back and another picker may be on top.
+            let picker = stack.last.flatMap { entry -> CPTemplate? in
+                if case .wearableControl = entry.screen { return entry.template } else { return nil }
+            }
+            Task {
+                do {
+                    try await WearableLinks.shared.perform(id, value: value, on: CarDevice.kind)
+                    // A pick from a control's list is the answer: back to the car.
+                    if let picker, ui.topTemplate === picker { ui.popTemplate(animated: true, completion: nil) }
+                } catch {
+                    alert(error.localizedDescription)
+                }
+                refresh()
+            }
         }
     }
 

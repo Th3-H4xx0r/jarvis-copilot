@@ -19,6 +19,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                   didConnect interfaceController: CPInterfaceController) {
         AppServices.shared.setCarPlayActive(true)
+        CarPresence.shared.setCarPlay(true)
         let coordinator = CarPlayCoordinator(interfaceController: interfaceController)
         self.coordinator = coordinator
         coordinator.start()
@@ -42,6 +43,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         coordinator?.stop()
         coordinator = nil
         AppServices.shared.setCarPlayActive(false)
+        CarPresence.shared.setCarPlay(false)
     }
 
     /// The car switched to another app (Maps, Music): the conversation ends here.

@@ -12,6 +12,10 @@ struct SceneCanvas: UIViewRepresentable {
     let rendersContinuously: Bool
     /// Half rate by default: the models turn slowly, and several can be on screen.
     var preferredFramesPerSecond = 30
+    /// A sideways drag on the model (turntable). Vertical drags are left to the scroll view around it.
+    var onHorizontalPan: ((UIPanGestureRecognizer) -> Void)? = nil
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -25,10 +29,30 @@ struct SceneCanvas: UIViewRepresentable {
         view.autoenablesDefaultLighting = false
         view.preferredFramesPerSecond = preferredFramesPerSecond
         view.rendersContinuously = rendersContinuously
+        context.coordinator.onPan = onHorizontalPan
+        if onHorizontalPan != nil {
+            let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.panned(_:)))
+            pan.delegate = context.coordinator
+            view.addGestureRecognizer(pan)
+        }
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
         view.rendersContinuously = rendersContinuously
+        context.coordinator.onPan = onHorizontalPan
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onPan: ((UIPanGestureRecognizer) -> Void)?
+
+        @objc func panned(_ pan: UIPanGestureRecognizer) { onPan?(pan) }
+
+        /// Only a mostly-sideways drag turns the model; anything else scrolls the page.
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y)
+        }
     }
 }

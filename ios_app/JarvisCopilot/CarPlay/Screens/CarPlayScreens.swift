@@ -98,6 +98,93 @@ enum CarPlayScreens {
         })]
     }
 
+    // MARK: Car tab (the Wearables tab is the car)
+
+    /// The car's controls, what is linked to it, then any other car wearable on its own.
+    static func carTab(_ car: CarPlayCarInput, others: [CarPlayCarDevice]) -> [CarPlaySection] {
+        let controls = car.controls.isEmpty
+            ? [CarPlayRow(id: "nocontrols", title: "No controls yet", detail: "Linked devices add theirs here",
+                          symbol: "slider.horizontal.3")]
+            : car.controls.map(controlRow)
+        let linked = car.linked.isEmpty
+            ? [CarPlayRow(id: "nolinked", title: "Nothing linked yet", detail: "Link devices to the car on your iPhone",
+                          symbol: "link")]
+            : car.linked.map { item in
+                CarPlayRow(id: "linked:\(item.kind)", title: item.title, detail: item.status, symbol: item.symbol,
+                           tint: item.connected ? .success : .muted, action: item.screen.map { .push($0) } ?? .none)
+            }
+        var sections = [CarPlaySection(title: "Controls", rows: controls),
+                        CarPlaySection(title: "Linked devices", rows: linked)]
+        if !others.isEmpty {
+            sections.append(CarPlaySection(title: "Other wearables", rows: wearablesTab(others).flatMap(\.rows)))
+        }
+        return sections
+    }
+
+    /// Toggles and buttons act in place; levels and choices open their list.
+    static func controlRow(_ control: CarPlayControl) -> CarPlayRow {
+        var row = CarPlayRow(id: "control:\(control.id)", title: control.title, symbol: control.symbol)
+        row.enabled = control.enabled
+        switch control.kind {
+        case .toggle(let on):
+            row.detail = on ? "On" : "Off"
+            row.tint = on ? .accent : .muted
+            row.action = .control(id: control.id, .toggle(!on))
+        case .button:
+            row.action = .control(id: control.id, .press)
+        case .level(let value, _, _, let unit):
+            row.detail = levelText(value, unit: unit)
+            row.action = .push(.wearableControl(id: control.id))
+        case .choice(let selected, let options):
+            row.detail = options.first { $0.id == selected }?.title ?? selected
+            row.action = .push(.wearableControl(id: control.id))
+        }
+        return row
+    }
+
+    /// A level's steps or a choice's options, the current one ticked.
+    static func controlPicker(_ control: CarPlayControl) -> [CarPlaySection] {
+        switch control.kind {
+        case .choice(let selected, let options):
+            return [CarPlaySection(title: nil, rows: options.map { option in
+                CarPlayRow(id: "option:\(option.id)", title: option.title, checked: option.id == selected,
+                           action: .control(id: control.id, .choice(option.id)))
+            })]
+        case .level(let value, let range, let step, let unit):
+            // The current level is always a row, so ticking it keeps it.
+            let current = WearableControl.snap(value, range: range, step: step)
+            var steps = levelSteps(range: range, step: step)
+            if !steps.contains(current) { steps = (steps + [current]).sorted() }
+            return [CarPlaySection(title: nil, rows: steps.map { level in
+                CarPlayRow(id: "level:\(level)", title: levelText(level, unit: unit), checked: level == current,
+                           action: .control(id: control.id, .level(level)))
+            })]
+        case .toggle, .button:
+            return []
+        }
+    }
+
+    /// At most `maxCount` evenly spread levels, both ends included, each on the control's step.
+    static func levelSteps(range: ClosedRange<Double>, step: Double, maxCount: Int = 11) -> [Double] {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0, span.isFinite else { return [range.lowerBound] }
+        // + epsilon: 0.6 / 0.1 is 5.999…, which would drop a level. Compared as a Double first:
+        // a tiny step would overflow `Int(_:)`.
+        let ratio = step > 0 ? span / step + 1e-9 : .infinity
+        let natural = ratio.isFinite && ratio < Double(maxCount) ? Int(ratio.rounded(.down)) + 1 : maxCount
+        let count = min(max(natural, 2), maxCount)
+        var out: [Double] = []
+        for i in 0..<count {
+            let level = WearableControl.snap(range.lowerBound + span * Double(i) / Double(count - 1), range: range, step: step)
+            if out.last != level { out.append(level) }
+        }
+        return out
+    }
+
+    private static func levelText(_ value: Double, unit: String?) -> String {
+        WearableControl.format(value) + (unit.map { " \($0)" } ?? "")
+    }
+
     /// A car-enabled wearable with no screen of its own: whether it's reachable,
     /// then the plain values it reports (nested state is left to the phone).
     static func carDevice(name: String, connected: Bool, snapshot: [String: Any]) -> CarPlayInfo {

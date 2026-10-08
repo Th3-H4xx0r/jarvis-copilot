@@ -74,6 +74,9 @@ protocol WearableDevice: AnyObject {
     /// Shown in Jarvis's CarPlay Wearables tab. Off unless a device type opts in —
     /// only things worth reaching from the driver's seat (the dashcam).
     var carEnabled: Bool { get }
+    /// The `LinkableWearable` kind this device is, if any (`"dashcam"`). A linked device is
+    /// listed by its host, not on its own.
+    var linkKind: String? { get }
     /// Current state as JSON-encodable values.
     func snapshot() -> [String: Any]
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any]
@@ -83,6 +86,7 @@ extension WearableDevice {
     var notificationChannel: NotificationChannelInfo? { nil }
     func forwardNotification(title: String, body: String) {}
     var carEnabled: Bool { false }
+    var linkKind: String? { nil }
 }
 
 /// Everything the app can currently drive. The bridge asks this for skills and state;

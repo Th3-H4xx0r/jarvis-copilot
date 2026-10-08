@@ -45,10 +45,12 @@ enum CarPlayScreen: Hashable {
     case dashcam, clip(id: String), drives, dashcamSettings, live
     /// A car-enabled wearable without a screen of its own: its status.
     case device(id: String)
+    /// A car control's choices or level steps.
+    case wearableControl(id: String)
 
     var depth: Int {
         switch self {
-        case .dashcam, .device: return 2
+        case .dashcam, .device, .wearableControl: return 2
         case .clip, .drives, .dashcamSettings, .live: return 3
         }
     }
@@ -62,6 +64,8 @@ enum CarPlayAction: Equatable {
     case startVoice
     case dashcam(CarPlayDashcamCommand)
     case clip(id: String, CarPlayClipCommand)
+    /// Use one of the car's controls.
+    case control(id: String, WearableControlValue)
 }
 
 enum CarPlayDashcamCommand: Equatable {
@@ -111,6 +115,51 @@ struct CarPlayVoiceText: Equatable {
     var heard: String?
     var spoken: String
     var unspoken: String
+}
+
+/// The car as its tab shows it: its controls, then what is linked to it.
+struct CarPlayCarInput: Equatable {
+    var controls: [CarPlayControl]
+    var linked: [CarPlayLinked]
+}
+
+/// One of the car's controls, as plain values.
+struct CarPlayControl: Equatable {
+    enum Kind: Equatable {
+        case toggle(Bool)
+        case button
+        case level(value: Double, range: ClosedRange<Double>, step: Double, unit: String?)
+        case choice(selected: String, options: [WearableControl.Option])
+    }
+
+    var id: String
+    var title: String
+    var symbol: String
+    var kind: Kind
+    var enabled = true
+}
+
+extension CarPlayControl {
+    init(_ control: WearableControl) {
+        let kind: Kind = switch control.kind {
+        case .toggle(let on): .toggle(on)
+        case .button: .button
+        case .level(let value, let range, let step, let unit): .level(value: value, range: range, step: step, unit: unit)
+        case .choice(let selected, let options): .choice(selected: selected, options: options)
+        }
+        self.init(id: control.id, title: control.title, symbol: control.symbol, kind: kind, enabled: control.enabled)
+    }
+}
+
+/// A wearable linked to the car.
+struct CarPlayLinked: Equatable {
+    var kind: String
+    var title: String
+    var status: String
+    var connected: Bool
+    var symbol: String
+    /// Where its row opens; nil = it has nothing to show yet.
+    var screen: CarPlayScreen?
 }
 
 /// A car-enabled wearable as the Wearables tab lists it.

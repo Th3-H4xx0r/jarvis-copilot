@@ -315,6 +315,10 @@ final class AppServices {
         DashcamSync.shared.start()
         DashcamDevice.shared.refreshMembership()
 
+        // 10e. The car: hosts the dashcam (linked wearables) and its controls.
+        WearableLinks.shared.register(DashcamLinkable.shared)
+        CarDevice.shared.start()
+
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.

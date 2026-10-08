@@ -8,6 +8,8 @@ struct ScanView: View {
     @ObservedObject private var ringManager = WearablesHub.shared.ring
     @ObservedObject private var x5Manager = WearablesHub.shared.x5
     @ObservedObject private var bandManager = WearablesHub.shared.band
+    /// Linked wearables live on their host's page; unlinked ones keep their card here.
+    @ObservedObject private var links = WearableLinks.shared
     @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
@@ -32,7 +34,7 @@ struct ScanView: View {
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && x5Manager.discovered.isEmpty && bandManager.discovered.isEmpty && absent.isEmpty
                     && JarvisPodStore.shared.pods.isEmpty {
                     glassesCard(entries)
-                    DashcamEntryCard(namespace: cardNamespace)
+                    carCards
                     emptyState
                 } else {
                     grid(entries, absent: absent)
@@ -152,7 +154,7 @@ struct ScanView: View {
                 .zoomSource(id: band.id, in: cardNamespace)
             }
             glassesCard(entries)
-            DashcamEntryCard(namespace: cardNamespace)
+            carCards
             ForEach(absent) { entry in
                 AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
                     connecting = entry.deviceID
@@ -191,6 +193,13 @@ struct ScanView: View {
         }
         .buttonStyle(.plain)
         .zoomSource(id: WearableKeepAlive.glasses, in: cardNamespace)
+    }
+
+    /// The car, then any linkable wearable that isn't linked to anything (the dashcam, once
+    /// unlinked from the car).
+    @ViewBuilder private var carCards: some View {
+        CarEntryCard(namespace: cardNamespace)
+        ForEach(links.topLevel, id: \.kind) { $0.card(namespace: cardNamespace) }
     }
 
     /// When this kind of device was last in range, for a card whose link is down.
