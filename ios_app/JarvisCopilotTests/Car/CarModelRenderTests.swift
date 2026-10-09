@@ -135,6 +135,42 @@ final class CarModelRenderTests: XCTestCase {
             recorder.control("lights.mode", .choice(selected: "calm", options: [.init(id: "calm", title: "Calm")])),
         ]) { _, _ in }.padding(.vertical, 16), size: CGSize(width: 402, height: 420), name: "car-controls.png")
     }
+
+    /// The page's car glides to the top view and into the cabin: render each stage (with
+    /// `JC_RENDER_DIR`, the PNGs are written for a look before it goes on a phone).
+    func testHeroGoesToTheTopViewAndIntoTheCabin() throws {
+        let live = CarModel.Live(presentation: .hero, spin: false, canSlice: true)
+        guard live.hasModel else { throw XCTSkip("no bundled model") }
+        let hero = try render(live, width: 402, height: 230)
+        write(onBlack(hero), "stage-hero.png")
+        live.go(to: .top, animated: false)
+        XCTAssertEqual(live.stage, .top)
+        let top = try render(live, width: 402, height: 400)
+        write(onBlack(top), "stage-top.png")
+        live.go(to: .cabin, animated: false)
+        let cabin = try render(live, width: 402, height: 460)
+        write(onBlack(cabin), "stage-cabin.png")
+        live.go(to: .hero, animated: false)
+        XCTAssertEqual(live.stage, .hero)
+    }
+
+    /// Front at the top, the driver's (left) side on the left, the car centred.
+    func testTopViewLabelsLandOnTheRightWheels() {
+        let marks = Landmarks(mesh: CarModel.bundled)
+        let size = CGSize(width: 402, height: 400)
+        func at(_ key: String) -> CGPoint {
+            CarModel.Live.topViewPoint(marks.wheels[key]!, in: size, height: CarModel.Live.topHeight, centreZ: marks.centreZ)
+        }
+        XCTAssertLessThan(at("fl").x, size.width / 2)
+        XCTAssertGreaterThan(at("fr").x, size.width / 2)
+        XCTAssertLessThan(at("fl").y, at("rl").y, "front wheels above the rear ones")
+        XCTAssertEqual(at("fl").y, at("fr").y, accuracy: 0.5)
+        XCTAssertEqual(at("fl").x + at("fr").x, size.width, accuracy: 1, "symmetric about the middle")
+        for key in ["fl", "fr", "rl", "rr"] {
+            let p = at(key)
+            XCTAssertTrue((0...size.width).contains(p.x) && (0...size.height).contains(p.y), key)
+        }
+    }
 }
 
 @MainActor
@@ -151,4 +187,5 @@ final class CarTurntableTests: XCTestCase {
         live.endTurn(velocity: 800)
         XCTAssertNotNil(live.spinner.action(forKey: "spin"), "coasts, then keeps turning")
     }
+
 }

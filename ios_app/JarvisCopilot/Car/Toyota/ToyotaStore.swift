@@ -38,6 +38,18 @@ final class ToyotaStore: ObservableObject {
         return now().timeIntervalSince(since) < Self.hazardsMemory
     }
 
+    private var loading: Task<Void, Never>?
+
+    /// The first load, owned by the store: pushing a screen cancels the page's `.task`, which
+    /// would otherwise leave every screen empty until the page came back.
+    func loadIfNeeded() {
+        guard account == nil, loading == nil else { return }
+        loading = Task { [weak self] in
+            await self?.load()
+            self?.loading = nil
+        }
+    }
+
     func load() async {
         do {
             let state = try await api.state()
@@ -75,21 +87,23 @@ final class ToyotaStore: ObservableObject {
         guard busy == nil, isSignedIn else { return }
         busy = command
         outcome = nil
+        // The car's new state is read BEFORE the button comes back: a button that flips (Unlock →
+        // Lock, Start → Stop) must not change meaning under a finger that is already holding it.
         do {
             let text = try await api.run(command)
             if command == .hazardsOn { rememberHazards() }
             if command == .hazardsOff { hazardsOnSince = nil }
-            finish(Outcome(command: command, text: text, ok: true))
             await load()
+            finish(Outcome(command: command, text: text, ok: true))
         } catch {
             if ToyotaAPI.isPending(error) {
-                finish(Outcome(command: command, text: ToyotaAPI.Pending().errorDescription ?? "", ok: false, pending: true))
                 await load()
+                finish(Outcome(command: command, text: ToyotaAPI.Pending().errorDescription ?? "", ok: false, pending: true))
                 return
             }
-            finish(Outcome(command: command, text: apiErrorMessage(error), ok: false))
             // 409: Toyota signed Jarvis out — show the account as it is now.
             if case .http(409, _) = error as? APIError { await load() }
+            finish(Outcome(command: command, text: apiErrorMessage(error), ok: false))
         }
     }
 

@@ -3,11 +3,12 @@ import SwiftUI
 /// A host's Controls: its own and its linked wearables', as tiles — or a quiet note while there
 /// are none.
 struct WearableControlsSection: View {
+    var title = "Controls"
     let controls: [WearableControl]
     let perform: (String, WearableControlValue) async throws -> Void
 
     var body: some View {
-        CardGroup("Controls") {
+        CardGroup(title) {
             if controls.isEmpty {
                 CardEmptyBlock(symbol: "slider.horizontal.3", text: "No controls yet — linked devices add theirs here.")
             } else {

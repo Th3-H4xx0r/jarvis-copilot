@@ -212,6 +212,18 @@ enum CarModel {
     /// Where the body is cut for the cabin view: just under the window line.
     static let beltHeight: Float = 0.98
 
+    /// The hero car's body can be sliced at any height (the cabin view lowers it from above the roof
+    /// to the belt line). Same test as the cutaway, with the height as an animatable argument.
+    static let sliceModifier = """
+        #pragma arguments
+        float sliceHeight;
+        #pragma body
+        float4 carPoint = scn_frame.inverseViewTransform * float4(_surface.position, 1.0);
+        if (carPoint.y > sliceHeight) { discard_fragment(); }
+        """
+    /// Above the roof: nothing is cut.
+    static let noSlice: Float = 3
+
     /// Drops everything above the belt line (in car space — the car only ever turns about Y).
     private static let cutawayModifier = """
         float4 carPoint = scn_frame.inverseViewTransform * float4(_surface.position, 1.0);
@@ -230,9 +242,10 @@ enum CarModel {
 
     /// Builds a scene off the main thread — 400 k triangles and their materials — for a view to
     /// show once it's ready, instead of in the middle of a navigation.
-    static func build(_ presentation: Presentation, spin: Bool = true, spinSeconds: Double = 40) async -> Live {
+    static func build(_ presentation: Presentation, spin: Bool = true, spinSeconds: Double = 40,
+                      canSlice: Bool = false) async -> Live {
         await Task.detached(priority: .userInitiated) {
-            Live(presentation: presentation, spin: spin, spinSeconds: spinSeconds)
+            Live(presentation: presentation, spin: spin, spinSeconds: spinSeconds, canSlice: canSlice)
         }.value
     }
 
@@ -247,13 +260,31 @@ enum CarModel {
         private let spins: Bool
         private let spinSeconds: Double
         private var turnStartYaw: Float = 0
+        private let presentation: Presentation
+        /// The hero's body parts, sliced for the cabin view; and its windows, which fade for it.
+        private var sliceable: [SCNMaterial] = []
+        private var windows: [SCNNode] = []
+        /// Main thread only: whether the cabin view is open (the render thread only writes the
+        /// shader's height while a slice animates).
+        private var sliceOpen = false
+        /// The fill light, raised for the top views: Dark Cosmos from straight above read as black.
+        private var fill: SCNLight?
+        /// Where the stage animations are heading (the hero's screens move it).
+        private(set) var stage: Stage = .hero
+        /// Car-space landmarks for the top views' labels: wheel centres, windscreen and rear window.
+        let landmarks: Landmarks
         /// Radians per point of drag.
         static let turnRate: Float = 0.012
 
-        init(presentation: Presentation = .card, spin: Bool = true, spinSeconds: Double = 40, mesh: Mesh? = CarModel.bundled) {
+        /// `canSlice`: the screens' car, which opens into the cabin. The page's turning car never
+        /// does, so it doesn't pay for the slice shader (a discard on every body pixel).
+        init(presentation: Presentation = .card, spin: Bool = true, spinSeconds: Double = 40,
+             canSlice: Bool = false, mesh: Mesh? = CarModel.bundled) {
             hasModel = mesh != nil
             spins = spin
             self.spinSeconds = spinSeconds
+            self.presentation = presentation
+            landmarks = Landmarks(mesh: mesh)
             scene.background.contents = UIColor.clear
             scene.lightingEnvironment.contents = CarModel.studioEnvironment   // a car photo studio
             scene.lightingEnvironment.intensity = 1.6
@@ -282,7 +313,13 @@ enum CarModel {
                         geometry.firstMaterial?.shaderModifiers = [.fragment: CarModel.cutawayModifier]
                         geometry.firstMaterial?.isDoubleSided = true   // the inside of the door skins shows now
                     }
+                    if canSlice, part.slot != .interior, part.slot != .glass, let material = geometry.firstMaterial {
+                        material.shaderModifiers = [.fragment: CarModel.sliceModifier]
+                        material.setValue(NSNumber(value: CarModel.noSlice), forKey: "sliceHeight")
+                        sliceable.append(material)
+                    }
                     let node = SCNNode(geometry: geometry)
+                    if canSlice, part.slot == .glass { windows.append(node) }
                     if part.slot == .interior { node.categoryBitMask |= CarModel.cabinCategory }
                     // Glass and lenses after the solid body, so what is behind them shows.
                     if [.glass, .lampLens, .tailLens, .amberLens].contains(part.slot) { node.renderingOrder = 10 }
@@ -319,6 +356,7 @@ enum CarModel {
                 n.light = light
                 n.eulerAngles = euler
                 scene.rootNode.addChildNode(n)
+                if type == .ambient { fill = light }
             }
             let lens = SCNCamera()
             lens.fieldOfView = 26
@@ -363,11 +401,244 @@ enum CarModel {
             spinner.runAction(spins ? .sequence([coast, spinForever]) : coast, forKey: "spin")
         }
 
+        // MARK: Stages — a screen's car glides from the hero pose to the top view and into the cabin.
+
+        enum Stage { case hero, top, cabin }
+
+        /// Camera heights above the ground for the top views (26° lens): the whole car, then the cabin.
+        static let topHeight: Float = 13
+        static let cabinHeight: Float = 11
+        /// Studio and fill light for the hero, and for the views from above (brighter: the roof and
+        /// the cabin face the camera, away from the studio's key light).
+        private static let heroLight: (studio: CGFloat, fill: CGFloat) = (1.6, 40)
+        private static let topLight: (studio: CGFloat, fill: CGFloat) = (3.4, 320)
+        private static let glide: Double = 0.9
+        private static let sliceTime: Double = 0.6
+
+        /// Bumped by every move: a delayed step or a completion from an earlier move sees it changed
+        /// and stands down, so quick back-and-forth can't leave the car half way between stages.
+        private var generation = 0
+
+        /// Move to a stage: the car stops turning and turns front-up as the camera rises overhead;
+        /// the cabin then slices the roof away from the top down. `settled` runs on the main thread
+        /// once the car is there (not if another move replaced this one).
+        func go(to target: Stage, animated: Bool = true, settled: (() -> Void)? = nil) {
+            guard presentation == .hero, hasModel, target != stage else {
+                settled?()
+                return
+            }
+            let from = stage
+            stage = target
+            generation += 1
+            let move = generation
+            guard animated else {
+                applyNow(target)
+                settled?()
+                return
+            }
+            let done: () -> Void = { [weak self] in
+                guard let self, self.generation == move else { return }
+                settled?()
+            }
+            switch target {
+            case .hero:
+                let wait = sliceOpen ? Self.sliceTime : 0
+                slice(open: false, duration: Self.sliceTime)
+                moveCamera(to: target, duration: Self.glide, delay: wait, move: move) { [weak self] in
+                    self?.resumeSpinIfHero()
+                    done()
+                }
+            case .top:
+                spinner.removeAction(forKey: "spin")
+                let closing = sliceOpen
+                slice(open: false, duration: Self.sliceTime)
+                moveCamera(to: target, duration: closing ? Self.sliceTime : Self.glide, delay: 0, move: move, then: done)
+            case .cabin:
+                spinner.removeAction(forKey: "spin")
+                moveCamera(to: target, duration: from == .hero ? Self.glide : Self.sliceTime * 0.6, delay: 0, move: move) {
+                    [weak self] in
+                    guard let self, self.generation == move else { return }
+                    self.slice(open: true, duration: Self.sliceTime, then: done)
+                }
+            }
+        }
+
+        /// Stop or restart the hero's slow turn (a covered page shouldn't keep drawing a turning car).
+        func setSpinning(_ on: Bool) {
+            if on {
+                resumeSpinIfHero()
+            } else {
+                spinner.removeAction(forKey: "spin")
+            }
+        }
+
+        /// The camera pose and car yaw for a stage.
+        private func pose(for target: Stage) -> (position: SCNVector3, orientation: SCNQuaternion, yaw: Float) {
+            let node = SCNNode()
+            switch target {
+            case .hero:
+                node.position = SCNVector3(0, presentation.height, presentation.distance)
+                node.look(at: presentation.target)
+                return (node.position, node.orientation, presentation.restYaw)
+            case .top, .cabin:
+                let centre = landmarks.centreZ
+                // Straight down, the front at the top of the screen (screen up = world -Z).
+                node.position = SCNVector3(0, target == .top ? Self.topHeight : Self.cabinHeight, -centre)
+                node.look(at: SCNVector3(0, 0, -centre), up: SCNVector3(0, 0, -1), localFront: SCNVector3(0, 0, -1))
+                return (node.position, node.orientation, .pi)
+            }
+        }
+
+        /// The yaw nearest the car's current one, so it never turns the long way round.
+        private func nearest(_ yaw: Float) -> Float {
+            let now = spinner.presentation.eulerAngles.y
+            return yaw + ((now - yaw) / (2 * .pi)).rounded() * 2 * .pi
+        }
+
+        private func resumeSpinIfHero() {
+            guard stage == .hero, spins, spinner.action(forKey: "spin") == nil else { return }
+            spinner.runAction(spinForever, forKey: "spin")
+        }
+
+        /// Without animation (tests, a screen opened before the car was built): straight there.
+        private func setLight(for target: Stage) {
+            let light = target == .hero ? Self.heroLight : Self.topLight
+            scene.lightingEnvironment.intensity = light.studio
+            fill?.intensity = light.fill
+        }
+
+        private func applyNow(_ target: Stage) {
+            spinner.removeAction(forKey: "spin")
+            spinner.removeAction(forKey: "slice")
+            let (position, orientation, yaw) = pose(for: target)
+            camera.position = position
+            camera.orientation = orientation
+            setLight(for: target)
+            spinner.eulerAngles.y = nearest(yaw)
+            let open = target == .cabin
+            sliceOpen = open
+            setSlice(open ? CarModel.beltHeight : CarModel.noSlice)
+            sliceable.forEach { $0.isDoubleSided = open }
+            windows.forEach { $0.removeAction(forKey: "window"); $0.opacity = open ? 0 : 1 }
+            resumeSpinIfHero()
+        }
+
+        /// Only the shader's value — safe from SceneKit's render thread.
+        private func setSlice(_ height: Float) {
+            sliceable.forEach { $0.setValue(NSNumber(value: height), forKey: "sliceHeight") }
+        }
+
+        private func moveCamera(to target: Stage, duration: Double, delay: Double, move: Int,
+                                then done: (() -> Void)? = nil) {
+            let (position, orientation, yaw) = pose(for: target)
+            let animate = { [weak self] in
+                guard let self, self.generation == move else { return }
+                let finalYaw = self.nearest(yaw)
+                self.spinner.eulerAngles.y = self.spinner.presentation.eulerAngles.y
+                SCNTransaction.begin()
+                SCNTransaction.animationDuration = duration
+                SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                SCNTransaction.completionBlock = { [weak self] in
+                    guard let self, self.generation == move else { return }
+                    done?()
+                }
+                self.camera.position = position
+                self.camera.orientation = orientation
+                self.spinner.eulerAngles.y = finalYaw
+                self.setLight(for: target)
+                SCNTransaction.commit()
+            }
+            if delay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: animate)
+            } else {
+                animate()
+            }
+        }
+
+        /// Lowers the slice from above the roof to the belt line (the cabin shows) or raises it back.
+        /// `then` runs on the main thread when it's done.
+        private func slice(open: Bool, duration: Double, then done: (() -> Void)? = nil) {
+            guard !sliceable.isEmpty, sliceOpen != open else {
+                done?()
+                return
+            }
+            sliceOpen = open
+            let from = open ? CarModel.noSlice : CarModel.beltHeight
+            let to = open ? CarModel.beltHeight : CarModel.noSlice
+            if open { sliceable.forEach { $0.isDoubleSided = true } }   // the door skins' insides show
+            let fade = SCNAction.fadeOpacity(to: open ? 0 : 1, duration: duration)
+            windows.forEach { $0.runAction(fade, forKey: "window") }
+            let materials = sliceable
+            let action = SCNAction.customAction(duration: duration) { [weak self] _, elapsed in
+                let t = duration > 0 ? Float(min(max(elapsed / CGFloat(duration), 0), 1)) : 1
+                let eased = t * t * (3 - 2 * t)
+                self?.setSlice(from + (to - from) * eased)
+            }
+            let finish = SCNAction.run { [weak self] _ in
+                self?.setSlice(to)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.sliceOpen == open else { return }
+                    if !open { materials.forEach { $0.isDoubleSided = false } }
+                    done?()
+                }
+            }
+            spinner.runAction(.sequence([action, finish]), forKey: "slice")
+        }
+
+        /// Where a car-space point lands in a view of `size`, looking down from a top stage.
+        func topViewPoint(_ point: SIMD3<Float>, in size: CGSize, stage: Stage) -> CGPoint {
+            Self.topViewPoint(point, in: size, height: stage == .cabin ? Self.cabinHeight : Self.topHeight,
+                              centreZ: landmarks.centreZ)
+        }
+
+        /// Pinhole projection for the straight-down camera: the front (+Z) up, the driver's side
+        /// (+X) on the left — his car is left-hand drive.
+        static func topViewPoint(_ point: SIMD3<Float>, in size: CGSize, height: Float, centreZ: Float) -> CGPoint {
+            guard size.width > 0, size.height > 0 else { return .zero }
+            let halfView = tan(Float(26.0 / 2 * .pi / 180))
+            let depth = max(height - point.y, 0.1)
+            let aspect = Float(size.width / size.height)
+            let up = (point.z - centreZ) / (depth * halfView)
+            let right = -point.x / (depth * halfView * aspect)
+            return CGPoint(x: size.width * CGFloat(0.5 + right / 2), y: size.height * CGFloat(0.5 - up / 2))
+        }
+
         func setLit(_ on: Bool) {
             let fade = SCNAction.fadeOpacity(to: on ? 1 : 0, duration: 0.5)
             fade.timingMode = .easeOut
             lit.forEach { $0.runAction(fade, forKey: "lit") }
         }
+    }
+}
+
+/// Car-space places the top views label: the wheel centres, the windscreen and the rear window.
+struct Landmarks {
+    var wheels: [String: SIMD3<Float>]   // fl fr rl rr
+    var windscreen: SIMD3<Float>
+    var rearWindow: SIMD3<Float>
+    var centreZ: Float
+    var length: Float
+
+    init(mesh: CarModel.Mesh?) {
+        let lo = mesh?.min ?? SIMD3(-0.92, 0, -2.46), hi = mesh?.max ?? SIMD3(0.92, 1.44, 2.46)
+        centreZ = (lo.z + hi.z) / 2
+        length = hi.z - lo.z
+        func bounds(_ slot: CarModel.Slot) -> (SIMD3<Float>, SIMD3<Float>)? {
+            guard let geometry = mesh?.parts.first(where: { $0.slot == slot })?.geometry else { return nil }
+            let (a, b) = geometry.boundingBox
+            return (SIMD3(Float(a.x), Float(a.y), Float(a.z)), SIMD3(Float(b.x), Float(b.y), Float(b.z)))
+        }
+        // All four rims are one part: its box spans both axles and both sides.
+        let (wl, wh) = bounds(.wheel) ?? (SIMD3(-0.86, 0, lo.z + 0.55), SIMD3(0.86, 0.72, hi.z - 0.95))
+        let radius = (wh.y - wl.y) / 2
+        let side = max(wh.x - 0.1, 0.4)
+        let front = wh.z - radius, rear = wl.z + radius, y = wl.y + radius
+        // +X is the driver's side: left on his left-hand-drive car.
+        wheels = ["fl": SIMD3(side, y, front), "fr": SIMD3(-side, y, front),
+                  "rl": SIMD3(side, y, rear), "rr": SIMD3(-side, y, rear)]
+        let (gl, gh) = bounds(.glass) ?? (SIMD3(-0.8, 0.9, lo.z + 0.6), SIMD3(0.8, 1.44, hi.z - 1.3))
+        windscreen = SIMD3(0, (gl.y + gh.y) / 2, gh.z - 0.32)
+        rearWindow = SIMD3(0, (gl.y + gh.y) / 2, gl.z + 0.3)
     }
 }
 
@@ -419,7 +690,7 @@ struct CarSceneView: View {
         .onChange(of: lit) { _, on in live?.setLit(on) }
     }
 
-    private static func turn(_ live: CarModel.Live, _ pan: UIPanGestureRecognizer) {
+    static func turn(_ live: CarModel.Live, _ pan: UIPanGestureRecognizer) {
         switch pan.state {
         case .began: live.beginTurn()
         case .changed: live.turn(by: pan.translation(in: pan.view).x)

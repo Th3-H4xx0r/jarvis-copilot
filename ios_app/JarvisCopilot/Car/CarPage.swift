@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The car's page: the car, Toyota's Remote · Status · Health, its Controls, what is linked to it,
-/// then the Toyota account.
+/// The car's page, after Tesla's app: status, the car, range and quick actions, rows that open
+/// Controls / Climate / Status / Location / Health (the car gliding overhead in each), then the
+/// lighting controls, what is linked to the car, and the Toyota account.
 struct CarPage: View {
     @ObservedObject private var presence: CarPresence = .shared
     @ObservedObject private var links: WearableLinks = .shared
@@ -10,6 +11,8 @@ struct CarPage: View {
     @State private var sheet: CarSheet?
     @State private var renaming = false
     @State private var shared = BridgeClient.isExposed(CarDevice.shared.deviceID)
+    /// The one live car the page and the screens it opens share.
+    @StateObject private var stage = CarStage()
     @Namespace private var cards
 
     private var car: CarDevice { .shared }
@@ -17,9 +20,9 @@ struct CarPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
-                hero
-                CarToyotaSection(store: toyota) { sheet = $0 }
-                WearableControlsSection(controls: car.controls) { id, value in
+                CarToyotaHome(store: toyota, stage: stage, presence: presence, profile: car.profile)
+                // Today only the car lights add controls here.
+                WearableControlsSection(title: "Lighting controls", controls: car.controls) { id, value in
                     try await links.perform(id, value: value, on: CarDevice.kind)
                 }
                 LinkedWearablesSection(hostKind: CarDevice.kind, hostName: car.name, namespace: cards)
@@ -30,15 +33,10 @@ struct CarPage: View {
         }
         // Pulling down wakes the car for fresh status, like Toyota's app.
         .refreshable { await toyota.refresh() }
-        .task { await toyota.load() }
+        .onAppear { toyota.loadIfNeeded() }
+        .task { await stage.load() }
         // Outside .refreshable: a pull inside a sheet must not wake the car.
-        .sheet(item: $sheet) { which in
-            switch which {
-            case .climate: CarClimateSheet(store: toyota)
-            case .find: CarFindSheet(car: toyota.car)
-            case .signIn: ToyotaSignInSheet(store: toyota)
-            }
-        }
+        .sheet(item: $sheet) { _ in ToyotaSignInSheet(store: toyota) }
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle(car.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -68,30 +66,5 @@ struct CarPage: View {
             }
             .disabled(!bridge.isPaired)
         }
-    }
-
-    private var hero: some View {
-        VStack(spacing: 10) {
-            if CarModel.hasBundledModel {
-                // Swipe sideways to turn it; it carries on turning by itself once let go.
-                CarSceneView(presentation: .hero, lit: presence.inCar, spinSeconds: 50, turnable: true)
-                    .frame(height: 220)
-            }
-            VStack(spacing: 3) {
-                Text(car.profile.description).font(.headline)
-                Text("\(car.profile.colorName) · \(car.profile.colorCode)").font(.caption).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                if presence.inCar {
-                    MetricPill(icon: "car", label: "Status", value: "In the car", tint: JcTheme.success)
-                } else {
-                    MetricPill(icon: "car", label: "Status", value: "Away", tint: .secondary)
-                    if let note = DisconnectedPill.lastSeenNote(presence.lastSeen) {
-                        Text(note).font(.caption2).foregroundStyle(.tertiary)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 }

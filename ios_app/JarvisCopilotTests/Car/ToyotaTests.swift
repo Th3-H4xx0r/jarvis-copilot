@@ -177,11 +177,12 @@ final class ToyotaTests: XCTestCase {
         let (store, transport) = store()
         transport.enqueue(json: Self.signedIn)
         await store.load()
+        let stage = CarStage()
         let views: [(String, AnyView)] = [
-            ("toyota-remote", AnyView(VStack { ToyotaPills(car: store.car); CarRemoteTab(store: store, openClimate: {}, openFind: {}) })),
-            ("toyota-tabs", AnyView(CarToyotaSection(store: store) { _ in })),
-            ("toyota-status", AnyView(CarStatusTab(car: store.car))),
-            ("toyota-health", AnyView(CarHealthTab(car: store.car))),
+            ("toyota-controls", AnyView(CarControlsScreen(store: store, stage: stage).frame(height: 874))),
+            ("toyota-status", AnyView(CarStatusScreen(store: store, stage: stage).frame(height: 874))),
+            ("toyota-climate", AnyView(CarClimateScreen(store: store, stage: stage).frame(height: 780))),
+            ("toyota-health", AnyView(CarHealthScreen(car: store.car))),
             ("toyota-account", AnyView(ToyotaAccountCard(store: store) {})),
         ]
         for (name, view) in views {

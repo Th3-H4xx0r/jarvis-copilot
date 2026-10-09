@@ -51,6 +51,10 @@ struct SceneCanvas: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
+        if view.scene !== scene {
+            view.scene = scene
+            view.pointOfView = camera
+        }
         view.rendersContinuously = rendersContinuously
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
