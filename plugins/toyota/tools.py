@@ -87,9 +87,13 @@ def _handle_status(args: dict, **_: Any) -> str:
         ha = HAClient()
         await service.require_signed_in(ha)
         car = ToyotaCar(ha)
+        fresh = None
         if is_confirmed(args.get("refresh")):
-            await car.refresh()
-        return await car.snapshot()
+            fresh = (await car.refresh())["fresh"]
+        snapshot = await car.snapshot()
+        if fresh is False:
+            snapshot["note"] = "The car was woken but hasn't sent its new report yet; this is its last one."
+        return snapshot
     return _call(work)
 
 

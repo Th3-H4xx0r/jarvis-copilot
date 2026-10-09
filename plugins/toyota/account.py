@@ -65,7 +65,16 @@ class ToyotaAccount:
             raise SignInError("Enter your Toyota email and password.")
         if not await self._installed():
             raise SignInError("Toyota isn't set up in Home Assistant yet.")
-        await self._drop_unfinished_sign_ins()
+        # Toyota signed the integration out: Home Assistant holds a re-auth flow for the account,
+        # and a second flow for it would be refused — answer that one instead.
+        flows = await self._flows_or_none()
+        reauth = next((f for f in flows if (f.get("context") or {}).get("source") == "reauth"
+                       and f.get("flow_id") and f.get("step_id") == STEP_PASSWORD), None)
+        if reauth is not None:
+            answer = await self.ha.post(f"{FLOWS}/{reauth['flow_id']}",
+                                        {"username": email, "password": password}, timeout=60)
+            return await self._next(answer)
+        await self._drop_unfinished_sign_ins(flows)
         flow = await self.ha.post(FLOWS, {"handler": DOMAIN, "show_advanced_options": False})
         if not isinstance(flow, dict) or flow.get("step_id") != STEP_PASSWORD or not flow.get("flow_id"):
             return await self._next(flow)
@@ -107,14 +116,11 @@ class ToyotaAccount:
                 return {"step": "code", "flow_id": answer["flow_id"]}
             raise SignInError(MESSAGES["unknown"])
         if kind == "create_entry":
-            clear_map_cache()
-            await self._cloud_updates_only((answer.get("result") or {}).get("entry_id"))
-            return {"step": "done"}
+            return await self._signed_in((answer.get("result") or {}).get("entry_id"))
         if kind == "abort":
             reason = answer.get("reason")
             if reason in _DONE_ABORTS:
-                clear_map_cache()
-                return {"step": "done"}
+                return await self._signed_in(None)
             raise SignInError(MESSAGES.get(reason, f"Toyota sign-in stopped ({reason})."))
         raise SignInError(MESSAGES["unknown"])
 
@@ -132,12 +138,14 @@ class ToyotaAccount:
     async def _reauth_pending(self) -> bool:
         return any((f.get("context") or {}).get("source") == "reauth" for f in await self._flows())
 
-    async def _drop_unfinished_sign_ins(self) -> None:
-        """Abandoned sign-ins from earlier tries go; Home Assistant's own re-auth prompt stays."""
+    async def _flows_or_none(self) -> list[dict]:
         try:
-            flows = await self._flows()
+            return await self._flows()
         except HAError:
-            return
+            return []
+
+    async def _drop_unfinished_sign_ins(self, flows: list[dict]) -> None:
+        """Abandoned sign-ins from earlier tries go; Home Assistant's own re-auth prompt stays."""
         for flow in flows:
             if (flow.get("context") or {}).get("source") == "user" and flow.get("flow_id"):
                 try:
@@ -145,12 +153,28 @@ class ToyotaAccount:
                 except HAError:
                     log.debug("Couldn't drop an unfinished Toyota sign-in")
 
-    async def _cloud_updates_only(self, entry_id: Any) -> None:
-        if not entry_id:
-            return
+    async def _signed_in(self, entry_id: Any) -> dict[str, Any]:
+        """Done — and on every way here (new entry, re-auth, existing entry), no timed car wakes."""
+        clear_map_cache()
+        out: dict[str, Any] = {"step": "done"}
+        if not await self._cloud_updates_only(entry_id):
+            out["warning"] = ("Signed in, but Home Assistant didn't take 'Cloud updates only'; it may "
+                              "wake the car every few hours. Set it in the Toyota integration's options.")
+        return out
+
+    async def _cloud_updates_only(self, entry_id: Any) -> bool:
         try:
+            if not entry_id:
+                entry = await self._entry()
+                entry_id = entry and entry.get("entry_id")
+            if not entry_id:
+                return False
             form = await self.ha.post("/api/config/config_entries/options/flow", {"handler": entry_id})
-            await self.ha.post(f"/api/config/config_entries/options/flow/{form['flow_id']}",
-                               {WAKE_OPTION: CLOUD_ONLY})
+            done = await self.ha.post(f"/api/config/config_entries/options/flow/{form['flow_id']}",
+                                      {WAKE_OPTION: CLOUD_ONLY})
+            if isinstance(done, dict) and done.get("type") == "create_entry":
+                return True
+            log.warning("Toyota signed in, but 'Cloud updates only' was refused: %s", done)
         except (HAError, KeyError, TypeError) as exc:
             log.warning("Toyota signed in, but setting 'Cloud updates only' failed: %s", exc)
+        return False

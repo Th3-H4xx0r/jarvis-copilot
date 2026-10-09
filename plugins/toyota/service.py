@@ -7,7 +7,7 @@ from typing import Any, Awaitable
 
 from plugins.toyota.account import ToyotaAccount
 from plugins.toyota.car import SIGN_IN_FIRST, NotSignedIn, ToyotaCar
-from plugins.toyota.ha import HAClient, HAError
+from plugins.toyota.ha import HAClient, HAError, HAUnreachable
 
 _BLOCKED = {
     "not_installed": "The Toyota integration isn't installed in Home Assistant yet.",
@@ -35,7 +35,10 @@ def blocked_reason(account: dict) -> str | None:
 
 
 async def require_signed_in(ha: HAClient) -> None:
-    reason = blocked_reason(await ToyotaAccount(ha).state())
+    account = await ToyotaAccount(ha).state()
+    reason = blocked_reason(account)
+    if reason and account.get("state") == "ha_unreachable":
+        raise HAUnreachable(reason)
     if reason:
         raise NotSignedIn(reason)
 

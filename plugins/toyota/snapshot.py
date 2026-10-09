@@ -73,7 +73,7 @@ def build_snapshot(m: EntityMap, states: dict[str, dict]) -> dict[str, Any]:
         "odometer_mi": _miles(get("odometer")),
         "updated_at": (get("updated") or {}).get("state"),
         "running": bool(_on(get("running"))),
-        "commands": available_commands(m),
+        "commands": available_commands(m, states),
         "climate": _climate(get),
         "tires": tires,
         "doors": _doors(m, get),

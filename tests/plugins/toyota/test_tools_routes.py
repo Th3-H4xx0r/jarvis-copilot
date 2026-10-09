@@ -35,7 +35,7 @@ def test_command_tool_after_a_yes(use_ha):
     ha = use_ha(signed_in_ha())
     out = json.loads(tools._handle_command({"command": "start", "confirmed": True}))
     assert out["result"] == "Started"
-    assert ("/api/services/toyota_na/engine_start", {"vehicle": DEVICE}) in ha.posts()
+    assert ha.services() == [("engine_start", {"vehicle": DEVICE})]
 
 
 def test_tools_say_sign_in_first_when_signed_out(use_ha):
@@ -47,9 +47,7 @@ def test_tools_say_sign_in_first_when_signed_out(use_ha):
 def test_status_and_climate_tools(use_ha):
     ha = use_ha(signed_in_ha())
     assert json.loads(tools._handle_status({}))["range_mi"] == 353
-    assert not ha.posts("/api/services/toyota_na/refresh")
-    json.loads(tools._handle_status({"refresh": True}))
-    assert ha.posts("/api/services/toyota_na/refresh")
+    assert ha.services() == []
     assert json.loads(tools._handle_climate({"action": "get"}))["climate"]["temp"] == 68
 
 
@@ -84,12 +82,25 @@ def test_routes_sign_in_steps_and_errors():
 
 def test_routes_map_home_assistant_failures():
     down = signed_in_ha()
-    down.reply("POST", "/api/services/toyota_na/door_lock", HAError("Remote Connect isn't active", 500))
+    down.reply("WS", "call_service", HAError("Remote Connect isn't active"))
     assert handle_car_request("POST", "/command", {"command": "lock"}, ha=down) == \
         (502, {"ok": False, "error": "Remote Connect isn't active"})
     gone = signed_in_ha()
-    gone.reply("POST", "/api/services/toyota_na/door_lock", HAUnreachable("Home Assistant isn't reachable"))
+    gone.reply("WS", "call_service", HAUnreachable("Home Assistant isn't reachable"))
     assert handle_car_request("POST", "/command", {"command": "lock"}, ha=gone)[0] == 503
+    offline = FakeHA()
+    offline.reply("GET", "/api/config/config_entries/flow_handlers", HAUnreachable("Home Assistant isn't reachable"))
+    assert handle_car_request("POST", "/command", {"command": "lock"}, ha=offline)[0] == 503, \
+        "Home Assistant down is 503, not 'sign in'"
     assert handle_car_request("GET", "/nope", None, ha=FakeHA())[0] == 404
     assert handle_car_request("PUT", "/state", None, ha=FakeHA())[0] == 405
     assert handle_car_request("POST", "/climate", {"temp": 200}, ha=signed_in_ha())[0] == 400
+
+
+def test_a_command_toyota_has_not_confirmed_is_pending_not_unreachable():
+    from plugins.toyota.ha import HATimeout
+
+    slow = signed_in_ha()
+    slow.reply("WS", "call_service", HATimeout("Home Assistant didn't answer within 75 s"))
+    status, payload = handle_car_request("POST", "/command", {"command": "start", "confirmed": True}, ha=slow)
+    assert status == 504 and "check the car" in payload["error"]

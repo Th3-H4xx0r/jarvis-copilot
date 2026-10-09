@@ -60,6 +60,12 @@ _BLOCKED_DOMAINS = frozenset({
 })
 
 
+# Plugins whose devices have their own confirmation rules add a guard here. Each is called with
+# (domain, service, entity_id, data) before ha_call_service sends anything; a returned string
+# refuses the call with that message.
+SERVICE_GUARDS: list = []
+
+
 def _get_headers(token: str = "") -> Dict[str, str]:
     """Return authorization headers for HA REST API."""
     if not token:
@@ -279,6 +285,14 @@ def _handle_call_service(args: dict, **kw) -> str:
             data = json.loads(data) if data.strip() else None
         except json.JSONDecodeError as e:
             return tool_error(f"Invalid JSON string in 'data' parameter: {e}")
+
+    for guard in SERVICE_GUARDS:
+        try:
+            refusal = guard(domain, service, entity_id, data)
+        except Exception as e:
+            refusal = f"Couldn't check that {domain}.{service} is safe to call: {e}"
+        if refusal:
+            return tool_error(refusal)
 
     try:
         result = _run_async(_async_call_service(domain, service, entity_id, data))

@@ -14,7 +14,8 @@ handed to Home Assistant's sign-in flow and never stored or logged. GET/POST onl
     POST /signout                        -> {ok}
 
 Errors are ``{ok: false, error}``: 400 a request or sign-in Toyota refused, 409 not signed in,
-502 Home Assistant or Toyota failed, 503 Home Assistant unreachable.
+502 Home Assistant or Toyota failed, 503 Home Assistant unreachable, 504 a command Toyota hasn't
+confirmed in time (the car may still carry it out — the phone shows "check the car", no retry).
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ CAR_PATH_PREFIX = "/api/car"
 def handle_car_request(method, path, body, ha=None):
     from plugins.toyota import service
     from plugins.toyota.account import SignInError, ToyotaAccount
-    from plugins.toyota.car import CarError, NotSignedIn, ToyotaCar
+    from plugins.toyota.car import CarError, CommandPending, NotSignedIn, ToyotaCar
     from plugins.toyota.commands import CONFIRM, is_confirmed
     from plugins.toyota.ha import HAClient, HAError, HAUnreachable
 
@@ -71,6 +72,8 @@ def handle_car_request(method, path, body, ha=None):
         return 409, {"ok": False, "error": str(exc)}
     except (SignInError, CarError) as exc:
         return 400, {"ok": False, "error": str(exc)}
+    except CommandPending as exc:
+        return 504, {"ok": False, "error": str(exc)}
     except HAUnreachable as exc:
         return 503, {"ok": False, "error": str(exc)}
     except HAError as exc:

@@ -40,10 +40,19 @@ DONE: dict[str, str] = {
 }
 
 
-def available_commands(m: EntityMap) -> list[str]:
-    return [name for name in SERVICES if m.has(NEEDS[name])]
+def available_commands(m: EntityMap, states: dict | None = None) -> list[str]:
+    """Commands the car offers. With states, one whose entity went unavailable (Remote Connect
+    lapsed, say — the entity stays in the registry) is left out."""
+    def usable(role: str) -> bool:
+        if not m.has(role):
+            return False
+        if states is None:
+            return True
+        state = states.get(m.get(role))
+        return not (isinstance(state, dict) and state.get("state") == "unavailable")
+    return [name for name in SERVICES if usable(NEEDS[name])]
 
 
 def is_confirmed(value: Any) -> bool:
-    """Only an explicit yes counts: True, or "true" from a loosely typed caller."""
-    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+    """Only an explicit yes counts: True, or exactly "true" from a loosely typed caller."""
+    return value is True or value == "true"

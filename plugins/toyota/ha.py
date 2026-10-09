@@ -11,9 +11,12 @@ import json
 from typing import Any, Iterable
 
 READ_TIMEOUT = 15.0
-# A remote command waits for Toyota to hear back from the car.
-COMMAND_TIMEOUT = 120.0
+# A remote command waits for Toyota to hear back from the car. The phone reaches the server
+# through Cloudflare, which cuts a request at 100 s, so the whole request stays under ~90 s.
+COMMAND_TIMEOUT = 75.0
 _PARALLEL_STATE_READS = 8
+# The entity registry runs to several MB; anything far past that is not Home Assistant.
+_WS_MAX_MESSAGE = 64 * 1024 * 1024
 
 
 class HAError(Exception):
@@ -26,6 +29,10 @@ class HAError(Exception):
 
 class HAUnreachable(HAError):
     """No answer from Home Assistant, or the server isn't set up to reach it."""
+
+
+class HATimeout(HAUnreachable):
+    """Home Assistant took longer than the timeout — it may still be working on the request."""
 
 
 def config() -> tuple[str, str]:
@@ -87,7 +94,9 @@ class HAClient:
                 return await self._send(session, method, path, body, timeout)
         except HAError:
             raise
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+        except asyncio.TimeoutError as exc:
+            raise HATimeout(f"Home Assistant didn't answer within {timeout:g} s") from exc
+        except (aiohttp.ClientError, OSError) as exc:
             raise _unreachable(exc) from exc
 
     async def _send(self, session: Any, method: str, path: str, body: Any, timeout: float) -> Any:
@@ -139,23 +148,34 @@ class HAClient:
 
         try:
             async with aiohttp.ClientSession() as session:
-                await asyncio.gather(*(read(session, e) for e in ids))
-        except HAError:
-            raise
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+                # Every read finishes before the session closes; the first failure is raised after.
+                results = await asyncio.gather(*(read(session, e) for e in ids), return_exceptions=True)
+        except (aiohttp.ClientError, OSError) as exc:
             raise _unreachable(exc) from exc
+        for result in results:
+            if isinstance(result, HAError):
+                raise result
+            if isinstance(result, asyncio.TimeoutError):
+                raise HATimeout("Home Assistant didn't answer in time") from result
+            if isinstance(result, (aiohttp.ClientError, OSError)):
+                raise _unreachable(result) from result
+            if isinstance(result, BaseException):
+                raise result
         return out
 
-    async def ws_call(self, kind: str, **payload: Any) -> Any:
-        """One websocket command (``{"type": kind, **payload}``); returns its ``result``."""
+    async def ws_call(self, kind: str, timeout: float = READ_TIMEOUT, **payload: Any) -> Any:
+        """One websocket command (``{"type": kind, **payload}``); returns its ``result``.
+
+        A failed command's ``error.message`` is the reason (Toyota's, for the integration's
+        services) — REST only answers a failed service call with a bare 500.
+        """
         import aiohttp
 
         self._check()
         ws_url = "ws" + self.url[len("http"):] + "/api/websocket"
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=READ_TIMEOUT * 2)) as session:
-                # The entity registry is several MB: no message size cap.
-                async with session.ws_connect(ws_url, max_msg_size=0) as ws:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout + READ_TIMEOUT * 2)) as session:
+                async with session.ws_connect(ws_url, max_msg_size=_WS_MAX_MESSAGE) as ws:
                     await ws.receive_json(timeout=READ_TIMEOUT)
                     await ws.send_json({"type": "auth", "access_token": self.token})
                     auth = await ws.receive_json(timeout=READ_TIMEOUT)
@@ -163,12 +183,14 @@ class HAClient:
                         raise HAError("Home Assistant refused the Jarvis server's token.", 401)
                     await ws.send_json({"id": 1, "type": kind, **payload})
                     while True:
-                        msg = await ws.receive_json(timeout=READ_TIMEOUT)
+                        msg = await ws.receive_json(timeout=timeout)
                         if msg.get("id") == 1:
                             break
         except HAError:
             raise
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, TypeError) as exc:
+        except asyncio.TimeoutError as exc:
+            raise HATimeout(f"Home Assistant didn't answer within {timeout:g} s") from exc
+        except (aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
             raise _unreachable(exc) from exc
         if not msg.get("success"):
             error = msg.get("error") or {}

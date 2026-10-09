@@ -28,6 +28,10 @@ class FakeHA:
     def posts(self, prefix=""):
         return [(path, body) for method, path, body in self.calls if method == "POST" and path.startswith(prefix)]
 
+    def services(self):
+        """(service, service_data) of every websocket call_service, in order."""
+        return [(p["service"], p["service_data"]) for m, kind, p in self.calls if m == "WS" and kind == "call_service"]
+
     async def get(self, path, timeout=None):
         return self._answer("GET", path, None)
 
@@ -46,6 +50,18 @@ class FakeHA:
         self.registry_reads += 1
         self.calls.append(("WS", "config/entity_registry/list", None))
         return self.registry
+
+    async def ws_call(self, kind, timeout=None, **payload):
+        self.calls.append(("WS", kind, payload))
+        queue = self.replies.get(("WS", kind))
+        if queue:
+            answer = queue.pop(0)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+        if kind == "call_service" and payload.get("service") == "refresh":
+            self.refreshes = getattr(self, "refreshes", 0) + 1
+        return {}
 
     async def flows_in_progress(self):
         self.calls.append(("WS", "config_entries/flow/progress", None))
