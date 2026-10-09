@@ -1,10 +1,13 @@
 import SwiftUI
 
-/// The car's page: the car, whether the phone is with it, its Controls, then what is linked to it.
+/// The car's page: the car, Toyota's Remote · Status · Health, its Controls, what is linked to it,
+/// then the Toyota account.
 struct CarPage: View {
     @ObservedObject private var presence: CarPresence = .shared
     @ObservedObject private var links: WearableLinks = .shared
     @ObservedObject private var bridge: BridgeClient = .shared
+    @ObservedObject private var toyota: ToyotaStore = .shared
+    @State private var sheet: CarSheet?
     @State private var renaming = false
     @State private var shared = BridgeClient.isExposed(CarDevice.shared.deviceID)
     @Namespace private var cards
@@ -15,13 +18,26 @@ struct CarPage: View {
         ScrollView {
             VStack(spacing: 22) {
                 hero
+                CarToyotaSection(store: toyota) { sheet = $0 }
                 WearableControlsSection(controls: car.controls) { id, value in
                     try await links.perform(id, value: value, on: CarDevice.kind)
                 }
                 LinkedWearablesSection(hostKind: CarDevice.kind, hostName: car.name, namespace: cards)
                 sharing
+                ToyotaAccountCard(store: toyota) { sheet = .signIn }
             }
             .padding(.vertical, 12)
+        }
+        // Pulling down wakes the car for fresh status, like Toyota's app.
+        .refreshable { await toyota.refresh() }
+        .task { await toyota.load() }
+        // Outside .refreshable: a pull inside a sheet must not wake the car.
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .climate: CarClimateSheet(store: toyota)
+            case .find: CarFindSheet(car: toyota.car)
+            case .signIn: ToyotaSignInSheet(store: toyota)
+            }
         }
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle(car.name)
