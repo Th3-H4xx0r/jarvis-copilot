@@ -51,10 +51,12 @@ MATERIAL_SLOT = {
 DROP = {"Decals"}
 INTERIOR_PREFIXES = ("Int_", "Dash_", "Seat", "Speaker", "Stitches", "ZIP_", "Blue", "material")
 
-# Triangle budget per slot: the body keeps its detail, the cabin behind tinted glass very little.
-BUDGET = {"paint": 80000, "chrome": 14000, "glossTrim": 12000, "matteTrim": 18000, "rubber": 14000,
-          "wheel": 22000, "interior": 22000, "glass": 4000, "lampLens": 9000, "lampInner": 4000,
-          "lampGlow": 2500, "tailLens": 6000, "amberLens": 1500, "brake": 2500, "mirror": 600}
+# Triangle budget per slot. The paint and the wheels keep every triangle of the source (their
+# reflections show any faceting); trim and rubber keep enough for clean edges; the cabin, seen only
+# from above in the lights' cut-away, stays light.
+BUDGET = {"paint": 140000, "chrome": 40000, "glossTrim": 32000, "matteTrim": 48000, "rubber": 40000,
+          "wheel": 46000, "interior": 40000, "glass": 4000, "lampLens": 20000, "lampInner": 4000,
+          "lampGlow": 2500, "tailLens": 8000, "amberLens": 1500, "brake": 3000, "mirror": 600}
 
 CREASE_DEGREES = 50
 # The source is a right-hand-drive Camry (steering wheel on the right); his US car is left-hand

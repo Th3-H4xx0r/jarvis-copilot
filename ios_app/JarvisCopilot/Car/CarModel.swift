@@ -1,3 +1,4 @@
+import CoreImage
 import SceneKit
 import SwiftUI
 import UIKit
@@ -77,14 +78,14 @@ enum CarModel {
     static let darkCosmos = UIColor(red: 0.10, green: 0.112, blue: 0.185, alpha: 1)
 
     private static func pbr(_ color: UIColor, roughness: CGFloat, metalness: CGFloat = 0,
-                            clearCoat: CGFloat = 0, opacity: CGFloat = 1) -> SCNMaterial {
+                            clearCoat: CGFloat = 0, clearCoatRoughness: CGFloat = 0.04, opacity: CGFloat = 1) -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .physicallyBased
         m.diffuse.contents = color
         m.roughness.contents = roughness
         m.metalness.contents = metalness
         m.clearCoat.contents = clearCoat
-        m.clearCoatRoughness.contents = 0.04
+        m.clearCoatRoughness.contents = clearCoatRoughness
         if opacity < 1 {
             m.transparency = opacity
             m.blendMode = .alpha
@@ -95,7 +96,7 @@ enum CarModel {
 
     static func material(for slot: Slot) -> SCNMaterial {
         switch slot {
-        case .paint: return pbr(darkCosmos, roughness: 0.38, metalness: 0.45, clearCoat: 0.8)
+        case .paint: return pbr(darkCosmos, roughness: 0.38, metalness: 0.45, clearCoat: 0.8, clearCoatRoughness: 0.06)
         case .glass: return pbr(UIColor(white: 0.01, alpha: 1), roughness: 0.04, clearCoat: 1, opacity: 0.78)
         // The SE's trim is blacked out — window surround, sill strip, badges, wheel faces.
         case .chrome: return pbr(UIColor(white: 0.08, alpha: 1), roughness: 0.18, metalness: 1)
@@ -125,15 +126,46 @@ enum CarModel {
         return m
     }
 
-    /// A soft shadow under the car, so it sits on something rather than floating.
-    static let shadowImage: UIImage = {
-        let size = CGSize(width: 256, height: 256)
-        return UIGraphicsImageRenderer(size: size).image { ctx in
-            let colors = [UIColor(white: 0, alpha: 0.75).cgColor, UIColor(white: 0, alpha: 0).cgColor] as CFArray
-            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) else { return }
-            let c = CGPoint(x: 128, y: 128)
-            ctx.cgContext.drawRadialGradient(gradient, startCenter: c, startRadius: 0, endCenter: c, endRadius: 128, options: [])
+    private static func blurred(_ image: UIImage, sigma: Double) -> UIImage {
+        guard let ci = CIImage(image: image) else { return image }
+        let out = ci.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: ci.extent)
+        guard let cg = CIContext().createCGImage(out, from: ci.extent) else { return image }
+        return UIImage(cgImage: cg)
+    }
+
+    /// A car photo studio as an equirectangular environment: a dark room, a large softbox overhead
+    /// and two pairs of long strip lights at the horizon — so the paint shows long, soft reflections
+    /// along the body lines instead of one hard hotspot.
+    static let studioEnvironment: UIImage = {
+        let size = CGSize(width: 1024, height: 512)
+        let raw = UIGraphicsImageRenderer(size: size).image { r in
+            let ctx = r.cgContext
+            let colors = [UIColor(white: 0.05, alpha: 1).cgColor, UIColor(white: 0.03, alpha: 1).cgColor,
+                          UIColor(white: 0.015, alpha: 1).cgColor, UIColor(white: 0.01, alpha: 1).cgColor] as CFArray
+            if let sky = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.45, 0.55, 1]) {
+                ctx.drawLinearGradient(sky, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+            }
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 250, y: 40, width: 524, height: 110))                 // overhead softbox
+            for y in [size.height / 2 - 48, size.height / 2 - 8] {                  // strip lights
+                ctx.fill(CGRect(x: 40, y: y, width: 380, height: 14))
+                ctx.fill(CGRect(x: 604, y: y, width: 380, height: 14))
+            }
+            UIColor(red: 0.55, green: 0.65, blue: 0.85, alpha: 1).setFill()          // cool rim
+            ctx.fill(CGRect(x: 0, y: size.height / 2 - 66, width: 40, height: 60))
+            ctx.fill(CGRect(x: size.width - 40, y: size.height / 2 - 66, width: 40, height: 60))
         }
+        return blurred(raw, sigma: 4)
+    }()
+
+    /// The car's contact shadow: a soft rounded footprint, so it sits on the floor.
+    static let shadowImage: UIImage = {
+        let size = CGSize(width: 256, height: 512)
+        let raw = UIGraphicsImageRenderer(size: size).image { r in
+            UIColor(white: 0, alpha: 0.85).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 40, dy: 40), cornerRadius: 60).fill()
+        }
+        return blurred(raw, sigma: 18)
     }()
 
     // MARK: Scene
@@ -198,14 +230,14 @@ enum CarModel {
             spins = spin
             self.spinSeconds = spinSeconds
             scene.background.contents = UIColor.clear
-            scene.lightingEnvironment.contents = RingModel.environment   // the wearables' shared studio
-            scene.lightingEnvironment.intensity = 1.5
+            scene.lightingEnvironment.contents = CarModel.studioEnvironment   // a car photo studio
+            scene.lightingEnvironment.intensity = 4
             scene.rootNode.addChildNode(spinner)
             spinner.eulerAngles.y = presentation.restYaw
             if spin { spinner.runAction(spinForever, forKey: "spin") }
 
             if let mesh {
-                let shadow = SCNNode(geometry: SCNPlane(width: 3.0, height: 6.2))
+                let shadow = SCNNode(geometry: SCNPlane(width: 2.6, height: 5.4))
                 let m = SCNMaterial()
                 m.lightingModel = .constant
                 m.diffuse.contents = CarModel.shadowImage
@@ -247,11 +279,11 @@ enum CarModel {
                 }
             }
 
+            // The studio does the lighting; a soft key from above-front shapes it, nothing hard enough
+            // to burn a hotspot into the clear coat.
             let lights: [(SCNLight.LightType, CGFloat, UIColor, SCNVector3)] = [
-                (.directional, 900, .white, SCNVector3(-0.75, 0.6, 0)),
-                (.directional, 420, UIColor(red: 0.72, green: 0.82, blue: 1, alpha: 1), SCNVector3(-0.25, -2.4, 0)),
-                (.directional, 380, .white, SCNVector3(-0.5, 2.9, 0)),
-                (.ambient, 120, .white, SCNVector3Zero),
+                (.directional, 200, .white, SCNVector3(-1.1, 0.4, 0)),
+                (.ambient, 40, .white, SCNVector3Zero),
             ]
             for (type, intensity, color, euler) in lights {
                 let light = SCNLight()
@@ -267,6 +299,21 @@ enum CarModel {
             lens.fieldOfView = 26
             lens.zNear = 0.1
             lens.zFar = 60
+            // HDR + filmic roll-off: highlights fade instead of clipping; ambient occlusion grounds
+            // the panel gaps, grille and wheel wells.
+            lens.wantsHDR = true
+            lens.wantsExposureAdaptation = false
+            lens.exposureOffset = 0.25
+            lens.whitePoint = 2.2
+            lens.minimumExposure = -3
+            lens.maximumExposure = 3
+            lens.screenSpaceAmbientOcclusionIntensity = 1.2
+            lens.screenSpaceAmbientOcclusionRadius = 0.25
+            lens.screenSpaceAmbientOcclusionNormalThreshold = 0.3
+            lens.screenSpaceAmbientOcclusionDepthThreshold = 0.2
+            lens.bloomIntensity = 0.08
+            lens.bloomThreshold = 1.2
+            lens.bloomBlurRadius = 4
             camera.camera = lens
             camera.position = SCNVector3(0, presentation.height, presentation.distance)
             camera.look(at: presentation.target)
