@@ -396,7 +396,10 @@ struct CarSceneView: View {
     var body: some View {
         Group {
             if let live {
+                // 60 fps, not the wearables' 30: a turning (or dragged) car at 30 fps looks choppy
+                // next to the rest of a 120 Hz screen.
                 SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating,
+                            preferredFramesPerSecond: 60,
                             onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil)
                     .transition(.opacity)
             } else {
