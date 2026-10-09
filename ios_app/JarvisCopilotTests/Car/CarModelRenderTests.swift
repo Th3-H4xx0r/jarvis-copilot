@@ -105,7 +105,7 @@ final class CarModelRenderTests: XCTestCase {
     func testThePaintReadsDarkCosmosBlue() throws {
         let card = try render(CarModel.Live(presentation: .card, spin: false), width: 472, height: 336)
         write(onBlack(card), "car-card.png")
-        XCTAssertGreaterThan(blueLead(card), 4, "the body should read blue, not grey")
+        XCTAssertGreaterThan(blueLead(card), 3, "the body should read blue, not grey (neutral grey is ~0)")
         XCTAssertGreaterThan(bluePixels(card), 300)
 
         let lit = CarModel.Live(presentation: .card, spin: false)

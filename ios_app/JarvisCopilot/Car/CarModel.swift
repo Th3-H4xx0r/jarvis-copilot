@@ -382,11 +382,14 @@ struct CarSceneView: View {
     var turnable = false
 
     @State private var live: CarModel.Live?
+    /// False while another page covers it: the Devices card kept drawing at 30 fps under the car's
+    /// own page, two full car scenes at once.
+    @State private var onScreen = false
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.scenePhase) private var scenePhase
 
     private var animating: Bool {
-        spin && scenePhase == .active
+        spin && onScreen && scenePhase == .active
             && (animatesAnywhere || (router.map { $0.selectedTab == .devices } ?? true))
     }
 
@@ -401,6 +404,8 @@ struct CarSceneView: View {
             }
         }
         .animation(.easeOut(duration: 0.3), value: live != nil)
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         // Built off the main thread: opening a page with the car doesn't stall its transition.
         .task {
             guard live == nil else { return }
