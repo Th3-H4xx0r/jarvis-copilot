@@ -69,6 +69,11 @@ final class CarLightsManager: NSObject, ObservableObject {
     }
 
     func state(for id: String) -> CarLightsState { states[id] ?? CarLightsState() }
+
+    #if DEBUG
+    /// Tests: pretend a controller finished its handshake (no Bluetooth in the simulator).
+    func markReadyForTesting(_ id: String) { links[id] = .ready }
+    #endif
     func link(for id: String) -> Link { links[id] ?? .disconnected }
     var anyReady: Bool { controllers.contains { link(for: $0.id) == .ready } }
 

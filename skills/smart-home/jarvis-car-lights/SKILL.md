@@ -18,8 +18,8 @@ The car's ambient LED kit is a Magic Lantern ("MELK-…") Bluetooth controller t
 drives directly. It is linked to the car, so its power, brightness, colour and effect are also car
 controls (`car_set_control`). This skill does everything the Magic Lantern app does: colour, white
 and colour temperature, brightness, 213 effects and their speed, scenes, music from the lights' own
-microphone or the phone's, two weekly timers, and the wiring settings. It cannot address a single
-lamp: every lamp on one controller always shows the same thing.
+microphone or the phone's, two weekly timers, and the wiring settings. The lights have no zones:
+every lamp always shows the same thing, so there is no per-lamp control.
 
 ## When to Use
 
@@ -30,9 +30,9 @@ lamp: every lamp on one controller always shows the same thing.
 
 ## Prerequisites
 
-The JarvisCopilot iPhone app with the lights paired (Car → Car lights → Add lights). Commands
-reach the lights only while the car is on (they have no power otherwise); changes made while it's
-off are kept and sent when the lights come back.
+The JarvisCopilot iPhone app with the lights paired (Car → Car lights → Add lights). The lights
+must be connected — the car on and the phone near it; otherwise every change is refused as
+unavailable (nothing is queued for later).
 
 ## How to Run
 
@@ -48,8 +48,7 @@ Call the phone's device skills directly.
 | `lights_timer` | `target`, `timer` (on/off), `time` HH:MM, `days`, `enabled` | Set a timer, or read both back when only `target` is given. |
 | `lights_setup` | `target`, `pin_order`, `led_count` | Wiring: colour order and LED count (set once). |
 
-`target` is optional: all lights, a controller's name, or a lamp ("Dashboard", "Driver door") —
-a lamp means its whole controller.
+`target` is optional: all lights, or a controller's name.
 
 ## Procedure
 
@@ -61,6 +60,7 @@ a lamp means its whole controller.
 ## Pitfalls
 
 - The lights never report their state; `lights_get_status` shows what was last sent.
+- "aren't connected" means the car is off or the phone is away: say so, don't retry.
 - `scene` works only on OC/OT controllers, `white` on W units, `temperature` on CT units.
 - A wrong colour order (red shows green) is fixed with `lights_setup` `pin_order`, not a colour.
 

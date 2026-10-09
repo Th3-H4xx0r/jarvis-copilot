@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// One controller's settings, opened from a lamp (or the controller list): everything Magic
-/// Lantern can do — colour, white / temperature, brightness, the 213 effects and speed, scenes,
-/// music from the lights' own mic or the phone's, shake, the two timers, wiring and LED count.
+/// The lights' settings — everything Magic Lantern can do: colour, white / temperature,
+/// brightness, the 213 effects and speed, scenes, music from the lights' own mic or the phone's,
+/// shake, the two timers, wiring and LED count. All of it greys out while they aren't connected.
 struct CarLightSettingsSheet: View {
     enum Tab: String, CaseIterable, Identifiable {
         case color = "Colour", effects = "Effects", music = "Music", schedule = "Schedule", setup = "Setup"
@@ -10,7 +10,6 @@ struct CarLightSettingsSheet: View {
     }
 
     let controllerID: String
-    let lampID: String?
 
     @ObservedObject private var manager: CarLightsManager = .shared
     @ObservedObject private var music: CarLightsMusic = .shared
@@ -23,12 +22,12 @@ struct CarLightSettingsSheet: View {
     @State private var pixelText = ""
     @State private var reading = false
     @State private var note: String?
-    private let layout = CarLightLayout.bundled
 
     private var controller: CarLightsController? { manager.controllers.first { $0.id == controllerID } }
     private var state: CarLightsState { manager.state(for: controllerID) }
     private var caps: MelkCapabilities { controller?.capabilities ?? MelkCapabilities(name: "") }
     private var target: [String] { [controllerID] }
+    private var connected: Bool { manager.link(for: controllerID) == .ready }
 
     var body: some View {
         NavigationStack {
@@ -40,13 +39,18 @@ struct CarLightSettingsSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal, 20)
-                    switch tab {
-                    case .color: colorTab
-                    case .effects: effectsTab
-                    case .music: musicTab
-                    case .schedule: scheduleTab
-                    case .setup: setupTab
+                    Group {
+                        switch tab {
+                        case .color: colorTab
+                        case .effects: effectsTab
+                        case .music: musicTab
+                        case .schedule: scheduleTab
+                        case .setup: setupTab
+                        }
                     }
+                    // Away from the car nothing can reach the lights: grey, not silently queued.
+                    .disabled(!connected && tab != .setup)
+                    .opacity(!connected && tab != .setup ? 0.45 : 1)
                     if let note {
                         Text(note).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24)
                     }
@@ -54,7 +58,7 @@ struct CarLightSettingsSheet: View {
                 .padding(.vertical, 12)
             }
             .background(JcTheme.bg.ignoresSafeArea())
-            .navigationTitle(lampID.flatMap { id in layout.lamps.first { $0.id == id }?.name } ?? controller?.name ?? "Lights")
+            .navigationTitle(controller?.name ?? "Lights")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .alert("Rename lights", isPresented: $renaming) {
@@ -67,24 +71,24 @@ struct CarLightSettingsSheet: View {
 
     private var tabs: [Tab] { Tab.allCases.filter { $0 != .schedule || caps.hasTimers } }
 
-    /// Whose settings these are, and who shares them.
+    /// The lights, whether they're reachable, and their power.
     private var header: some View {
-        let shared = layout.lamps(on: controllerID, controllers: manager.controllers)
-        let linked = manager.link(for: controllerID) == .ready
-        return CardGroup(footer: shared.count > 1
-                         ? "Also changes: \(shared.filter { $0.id != lampID }.map(\.name).joined(separator: ", ")) — one controller drives them all."
-                         : nil) {
+        CardGroup {
             Row {
                 HStack(spacing: 12) {
-                    Circle().fill(linked ? JcTheme.success : JcTheme.muted).frame(width: 8, height: 8)
+                    Circle().fill(connected ? JcTheme.success : JcTheme.muted).frame(width: 8, height: 8)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(controller?.name ?? "Lights").font(.body.weight(.semibold))
-                        Text(linked ? state.summary : "Away — changes are sent when the lights have power")
+                        Text(connected ? state.summary : "Unavailable — the lights aren't connected. Turn the car on and stay near it.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Toggle("", isOn: Binding(get: { state.on }, set: { manager.apply(.power($0), to: target) }))
-                        .labelsHidden()
+                    if connected {
+                        Toggle("", isOn: Binding(get: { state.on }, set: { manager.apply(.power($0), to: target) }))
+                            .labelsHidden()
+                    } else {
+                        Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -337,7 +341,9 @@ struct CarLightSettingsSheet: View {
 
     private var setupTab: some View {
         VStack(spacing: 18) {
-            CardGroup("Wiring", footer: "Set once. If red shows as green or blue, change the order until colours match.") {
+            CardGroup("Wiring", footer: connected
+                      ? "Set once. If red shows as green or blue, change the order until colours match."
+                      : "Unavailable — the lights aren't connected.") {
                 Row {
                     Picker("Colour order", selection: Binding(get: { state.pinOrder }, set: { manager.apply(.pinOrder($0), to: target) })) {
                         ForEach(MelkPinOrder.allCases) { Text($0.rawValue).tag($0) }
@@ -364,6 +370,8 @@ struct CarLightSettingsSheet: View {
                     }
                 }
             }
+            .disabled(!connected)
+            .opacity(connected ? 1 : 0.45)
             CardGroup("Controller") {
                 Row {
                     HStack {

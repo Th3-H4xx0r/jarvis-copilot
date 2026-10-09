@@ -5,8 +5,9 @@ import SwiftUI
 /// reach everything Magic Lantern can do; its controls (power, brightness, colour, effect) join
 /// the car's page, CarPlay and `car_set_control`.
 ///
-/// A target is all the lights, one controller, or a lamp — a lamp means its controller: every
-/// lamp on one controller shows the same thing (the protocol has no lamp address).
+/// Every lamp shows the same thing (the lights have no zones); a target is all the lights or one
+/// controller. Nothing is queued while the lights aren't connected: controls grey out and the
+/// skills say so.
 @MainActor
 final class CarLightsDevice: WearableDevice, LinkableWearable {
     static let shared = CarLightsDevice()
@@ -15,13 +16,13 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
     private static let idKey = "jc.lights.deviceID"
 
     let manager: CarLightsManager
-    let layout: CarLightLayout
+    let layouts: CarLightLayoutStore
     let deviceID: String
     private var registered = false
 
-    init(manager: CarLightsManager = .shared, layout: CarLightLayout = .bundled, defaults: UserDefaults = .standard) {
+    init(manager: CarLightsManager = .shared, layouts: CarLightLayoutStore = .shared, defaults: UserDefaults = .standard) {
         self.manager = manager
-        self.layout = layout
+        self.layouts = layouts
         if let id = defaults.string(forKey: Self.idKey) {
             deviceID = id
         } else {
@@ -52,10 +53,8 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
 
     var linkStatus: LinkedWearableStatus {
         guard let first = manager.controllers.first else { return LinkedWearableStatus(text: "Not paired", connected: false) }
-        let ready = manager.controllers.filter { manager.link(for: $0.id) == .ready }.count
-        let summary = manager.state(for: first.id).summary
-        if ready == 0 { return LinkedWearableStatus(text: "Away · \(summary)", connected: false) }
-        return LinkedWearableStatus(text: summary, connected: true)
+        guard manager.anyReady else { return LinkedWearableStatus(text: "Not connected", connected: false) }
+        return LinkedWearableStatus(text: manager.state(for: first.id).summary, connected: true)
     }
 
     var changes: AnyPublisher<Void, Never> { manager.objectWillChange.map { _ in () }.eraseToAnyPublisher() }
@@ -65,31 +64,33 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
     /// No screen of its own in CarPlay: its controls are on the car's tab.
     var carPlayScreen: CarPlayScreen? { nil }
 
-    /// Power, brightness, colour and effect — for every light at once.
+    /// Power, brightness, colour and effect — for every light at once; greyed out ("Unavailable")
+    /// while the lights aren't connected.
     var controls: [WearableControl] {
         guard let first = manager.controllers.first else { return [] }
+        let connected = manager.anyReady
         let s = manager.state(for: first.id)
         let manager = self.manager
         let colorOptions = MelkColor.presets.map { WearableControl.Option(id: $0.name.lowercased(), title: $0.name) }
         let currentColor = MelkColor.presets.first { $0.color == s.color }?.name.lowercased() ?? ""
         let effects = Self.carEffects.compactMap(MelkCatalog.effect(id:))
         return [
-            WearableControl(id: "lights.power", title: "Lights", symbol: "power", kind: .toggle(isOn: s.on)) { value in
+            WearableControl(id: "lights.power", title: "Lights", symbol: "power", kind: .toggle(isOn: s.on), enabled: connected) { value in
                 if case .toggle(let on) = value { manager.apply(.power(on)) }
             },
             WearableControl(id: "lights.brightness", title: "Brightness", symbol: "sun.max",
-                            kind: .level(value: Double(s.shownBrightness), range: 0...100, step: 5, unit: "%")) { value in
+                            kind: .level(value: Double(s.shownBrightness), range: 0...100, step: 5, unit: "%"), enabled: connected) { value in
                 if case .level(let v) = value { manager.apply(.brightness(Int(v))) }
             },
             WearableControl(id: "lights.color", title: "Colour", symbol: "paintpalette",
-                            kind: .choice(selected: s.mode == .color ? currentColor : "", options: colorOptions)) { value in
+                            kind: .choice(selected: s.mode == .color ? currentColor : "", options: colorOptions), enabled: connected) { value in
                 if case .choice(let id) = value, let preset = MelkColor.presets.first(where: { $0.name.lowercased() == id }) {
                     manager.apply(.color(preset.color))
                 }
             },
             WearableControl(id: "lights.effect", title: "Effect", symbol: "sparkles",
                             kind: .choice(selected: s.mode == .effect ? String(s.effect) : "",
-                                          options: effects.map { .init(id: String($0.id), title: $0.name) })) { value in
+                                          options: effects.map { .init(id: String($0.id), title: $0.name) }), enabled: connected) { value in
                 if case .choice(let id) = value, let effect = UInt8(id) { manager.apply(.effect(effect)) }
             },
         ]
@@ -100,25 +101,29 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
 
     // MARK: Targets
 
-    /// "all" / nil, a controller's name or id, or a lamp's name or id → controller ids.
+    /// "all" / nil, or a controller's name or id → controller ids.
     func targets(_ raw: Any?) throws -> [String]? {
         guard let text = (raw as? String)?.trimmingCharacters(in: .whitespaces), !text.isEmpty,
               text.lowercased() != "all" else { return nil }
         if let c = manager.controllers.first(where: { $0.id == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }) {
             return [c.id]
         }
-        if let lamp = layout.lamps.first(where: { $0.id == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }),
-           let id = CarLightLayout.controllerID(for: lamp, in: manager.controllers) {
-            return [id]
+        throw DeviceError.badArgument("no lights called '\(text)' — paired: \(manager.controllers.map(\.name).joined(separator: ", "))")
+    }
+
+    /// The lights have to be reachable: nothing is queued for later.
+    private func requireConnected(_ ids: [String]?) throws {
+        let wanted = ids ?? manager.controllers.map(\.id)
+        guard wanted.contains(where: { manager.link(for: $0) == .ready }) else {
+            throw DeviceError.badArgument("the car lights aren't connected — the car has to be on and the phone near it")
         }
-        throw DeviceError.badArgument("no light or lamp called '\(text)' — lamps: \(layout.lamps.map(\.name).joined(separator: ", "))")
     }
 
     // MARK: Skills
 
     var capabilities: [DeviceCapability] {
         let target: [String: Any] = ["type": "string",
-            "description": "Which lights: omit or 'all', a controller's name, or a lamp (\(layout.lamps.map(\.name).joined(separator: ", "))). Lamps on one controller always match."]
+            "description": "Which lights: omit or 'all', or a controller's name. Every lamp shows the same thing (no zones)."]
         return [
             DeviceCapability(name: "lights_get_status", description: """
                 The car's LED lights (Magic Lantern controllers): each controller with its link, what it can do and \
@@ -183,11 +188,10 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
                     "pin_order": s.pinOrder.rawValue, "led_count": s.pixelCount.map { $0 as Any } ?? NSNull(),
                     "can": ["white": caps.hasWhite, "temperature": caps.hasTemperature, "scenes": caps.hasScenes,
                             "lights_mic": caps.hasDeviceMic, "timers": caps.hasTimers],
-                    "lamps": layout.lamps(on: c.id, controllers: manager.controllers).map(\.name),
                 ]
             },
-            "lamps": layout.lamps.map { ["id": $0.id, "name": $0.name] },
-            "note": "Lamps on one controller always show the same colour and effect.",
+            "lamps": layouts.layout.lamps.map(\.name),
+            "note": "Every lamp shows the same colour and effect (no zones). Changes need the lights connected.",
         ]
     }
 
@@ -209,6 +213,7 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
         case "lights_set":
             let ids = try targets(args["target"])
             let changes = try Self.changes(from: args)
+            try requireConnected(ids)
             guard !changes.isEmpty || args["music"] != nil else { throw DeviceError.badArgument("nothing to change") }
             for change in changes { manager.apply(change, to: ids) }
             switch args["music"] as? String {
@@ -219,6 +224,7 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
             return ["ok": true, "now": snapshot()["controllers"] ?? []]
         case "lights_timer":
             let ids = try targets(args["target"]) ?? manager.controllers.map(\.id)
+            try requireConnected(ids)
             guard let slotName = args["timer"] as? String else {
                 var out: [[String: Any]] = []
                 for id in ids {
@@ -250,6 +256,7 @@ final class CarLightsDevice: WearableDevice, LinkableWearable {
             return ["ok": true]
         case "lights_setup":
             let ids = try targets(args["target"])
+            try requireConnected(ids)
             if let raw = args["pin_order"] as? String {
                 guard let order = MelkPinOrder(rawValue: raw.uppercased()) else { throw DeviceError.badArgument("pin_order is one of RGB, RBG, GRB, GBR, BRG, BGR") }
                 manager.apply(.pinOrder(order), to: ids)

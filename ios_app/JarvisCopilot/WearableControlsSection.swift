@@ -11,11 +11,20 @@ struct WearableControlsSection: View {
             if controls.isEmpty {
                 CardEmptyBlock(symbol: "slider.horizontal.3", text: "No controls yet — linked devices add theirs here.")
             } else {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10, alignment: .top),
-                                    GridItem(.flexible(), spacing: 10, alignment: .top)],
-                          spacing: 10) {
-                    ForEach(controls) { WearableControlTile(control: $0, perform: perform) }
+                // A Grid, not a LazyVGrid: tiles in a row share its height (a toggle beside a slider).
+                Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                    ForEach(Array(stride(from: 0, to: controls.count, by: 2)), id: \.self) { i in
+                        GridRow {
+                            WearableControlTile(control: controls[i], perform: perform)
+                            if i + 1 < controls.count {
+                                WearableControlTile(control: controls[i + 1], perform: perform)
+                            } else {
+                                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                            }
+                        }
+                    }
                 }
+                .fixedSize(horizontal: false, vertical: true)   // rows at their natural height
                 .padding(12)
             }
         }
@@ -48,7 +57,7 @@ struct WearableControlTile: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 96, maxHeight: .infinity, alignment: .topLeading)
         .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous),
                        tint: isOn ? JcTheme.accent.opacity(0.55) : .clear)
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -66,6 +75,14 @@ struct WearableControlTile: View {
     }
 
     @ViewBuilder private var detail: some View {
+        if !control.enabled {
+            Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+        } else {
+            enabledDetail
+        }
+    }
+
+    @ViewBuilder private var enabledDetail: some View {
         switch control.kind {
         case .toggle(let on):
             Text(on ? "On" : "Off").font(.caption).foregroundStyle(.secondary)
@@ -87,7 +104,7 @@ struct WearableControlTile: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(options.first { $0.id == selected }?.title ?? selected).lineLimit(1)
+                    Text(options.first { $0.id == selected }?.title ?? "Choose").lineLimit(1)
                     JcIcon("chevron.up.chevron.down", size: 11)
                 }
                 .font(.caption)

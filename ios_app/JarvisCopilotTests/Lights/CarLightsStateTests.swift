@@ -91,17 +91,29 @@ final class CarLightsStateTests: XCTestCase {
         XCTAssertThrowsError(try CarLightLayout.decode(Data(#"{"version":1,"lamps":[{"id":"a","name":"A","controller":"main","at":[0,0,0]},{"id":"a","name":"B","controller":"main","at":[0,0,0]}]}"#.utf8)))
     }
 
-    func testLampsFindTheirController() throws {
-        let layout = try CarLightLayout.decode(Data(#"""
-            {"version":1,"lamps":[
-              {"id":"dash","name":"Dash","controller":"main","at":[0,0.8,0.6]},
-              {"id":"feet","name":"Feet","controller":"Footwells","at":[0,0.3,0.6]}]}
-            """#.utf8))
-        let controllers = [CarLightsController(id: "A", advertisedName: "MELK-OC1", name: "Car lights"),
-                           CarLightsController(id: "B", advertisedName: "MELK-OC2", name: "Footwells")]
-        XCTAssertEqual(CarLightLayout.controllerID(for: layout.lamps[0], in: controllers), "A")
-        XCTAssertEqual(CarLightLayout.controllerID(for: layout.lamps[1], in: controllers), "B")
-        XCTAssertNil(CarLightLayout.controllerID(for: layout.lamps[1], in: [controllers[0]]), "named controller not paired")
-        XCTAssertEqual(layout.lamps(on: "A", controllers: controllers).map(\.id), ["dash"])
+    func testTheLayoutStoreAddsMovesRemovesAndRemembers() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lamps-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = CarLightLayoutStore(file: file, fallback: .bundled)
+        XCTAssertFalse(store.customised)
+        let shipped = store.layout.lamps.count
+        let spot = store.add(.point(SIMD3(0.3, 0.4, 0.5)))
+        let strip = store.add(.strip(SIMD3(0, 0.5, 0), SIMD3(0, 0.5, 1)), name: "Under-seat")
+        XCTAssertEqual(store.layout.lamps.count, shipped + 2)
+        store.move(spot, by: SIMD3(0.1, 0, 0))
+        XCTAssertEqual(store.layout.lamps.first { $0.id == spot }?.center?.x ?? 0, 0.4, accuracy: 0.001)
+        store.move(strip, by: SIMD3(0, 0, -0.5))
+        XCTAssertEqual(store.layout.lamps.first { $0.id == strip }?.shape, .strip(SIMD3(0, 0.5, -0.5), SIMD3(0, 0.5, 0.5)))
+        store.rename(spot, to: "  Cup holder  ")
+        store.remove(store.layout.lamps[0].id)
+        XCTAssertTrue(store.customised)
+
+        let reopened = CarLightLayoutStore(file: file, fallback: .bundled)
+        XCTAssertEqual(reopened.layout, store.layout, "kept across launches")
+        XCTAssertEqual(reopened.layout.lamps.first { $0.id == spot }?.name, "Cup holder")
+        reopened.reset()
+        XCTAssertEqual(reopened.layout, .bundled)
+        XCTAssertFalse(reopened.customised)
+        XCTAssertEqual(CarLightLayoutStore(file: file, fallback: .bundled).layout, .bundled, "reset sticks")
     }
 }

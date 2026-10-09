@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "_coordinates": "Car metres, as Car/Camry.bin: +X = driver side (left), +Y = up from the ground, +Z = forward; 0,0,0 = centre of the car on the ground. A lamp is a point ('at') or a strip ('from' → 'to'). 'controller' = which MELK box drives it: 'main' = the first one paired, or a controller's name.",
+  "_coordinates": "Car metres, as Car/Camry.bin: +X = driver side (left), +Y = up from the ground, +Z = forward; 0,0,0 = centre of the car on the ground. A lamp is a point ('at') or a strip ('from' → 'to'). All lamps show the same thing (the lights have no zones). This is the default; the app's Arrange lamps editor saves your own.",
   "lamps": [
-    { "id": "dash",          "name": "Dashboard",                "controller": "main", "from": [ 0.62, 0.86, 0.60], "to": [-0.62, 0.86, 0.60] },
-    { "id": "door-front-l",  "name": "Driver door",              "controller": "main", "from": [ 0.64, 0.78, 0.86], "to": [ 0.64, 0.78, -0.16] },
-    { "id": "door-front-r",  "name": "Passenger door",           "controller": "main", "from": [-0.64, 0.78, 0.86], "to": [-0.64, 0.78, -0.16] },
-    { "id": "door-rear-l",   "name": "Rear left door",           "controller": "main", "from": [ 0.62, 0.76, -0.30], "to": [ 0.62, 0.76, -1.12] },
-    { "id": "door-rear-r",   "name": "Rear right door",          "controller": "main", "from": [-0.62, 0.76, -0.30], "to": [-0.62, 0.76, -1.12] },
-    { "id": "console-l",     "name": "Console, driver side",     "controller": "main", "from": [ 0.13, 0.56, 0.38], "to": [ 0.13, 0.56, -0.14] },
-    { "id": "console-r",     "name": "Console, passenger side",  "controller": "main", "from": [-0.13, 0.56, 0.38], "to": [-0.13, 0.56, -0.14] },
-    { "id": "footwell-fl",   "name": "Driver footwell",          "controller": "main", "at": [ 0.38, 0.34, 0.62] },
-    { "id": "footwell-fr",   "name": "Passenger footwell",       "controller": "main", "at": [-0.38, 0.34, 0.62] },
-    { "id": "footwell-rl",   "name": "Rear left footwell",       "controller": "main", "at": [ 0.38, 0.30, -0.36] },
-    { "id": "footwell-rr",   "name": "Rear right footwell",      "controller": "main", "at": [-0.38, 0.30, -0.36] }
+    { "id": "dash",          "name": "Dashboard", "from": [ 0.62, 0.86, 0.60], "to": [-0.62, 0.86, 0.60] },
+    { "id": "door-front-l",  "name": "Driver door", "from": [ 0.64, 0.78, 0.86], "to": [ 0.64, 0.78, -0.16] },
+    { "id": "door-front-r",  "name": "Passenger door", "from": [-0.64, 0.78, 0.86], "to": [-0.64, 0.78, -0.16] },
+    { "id": "door-rear-l",   "name": "Rear left door", "from": [ 0.62, 0.76, -0.30], "to": [ 0.62, 0.76, -1.12] },
+    { "id": "door-rear-r",   "name": "Rear right door", "from": [-0.62, 0.76, -0.30], "to": [-0.62, 0.76, -1.12] },
+    { "id": "console-l",     "name": "Console, driver side", "from": [ 0.13, 0.56, 0.38], "to": [ 0.13, 0.56, -0.14] },
+    { "id": "console-r",     "name": "Console, passenger side", "from": [-0.13, 0.56, 0.38], "to": [-0.13, 0.56, -0.14] },
+    { "id": "footwell-fl",   "name": "Driver footwell", "at": [ 0.38, 0.34, 0.62] },
+    { "id": "footwell-fr",   "name": "Passenger footwell", "at": [-0.38, 0.34, 0.62] },
+    { "id": "footwell-rl",   "name": "Rear left footwell", "at": [ 0.38, 0.30, -0.36] },
+    { "id": "footwell-rr",   "name": "Rear right footwell", "at": [-0.38, 0.30, -0.36] }
   ]
 }

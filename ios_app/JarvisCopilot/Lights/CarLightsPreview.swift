@@ -2,29 +2,37 @@ import SceneKit
 import SwiftUI
 import UIKit
 
-/// The lights in the car: the Camry cut away at the waist, each lamp from `CarLights.json` drawn
-/// where it is, glowing in what its controller was last set to.
+/// The lights in the car: the Camry cut away at the waist, each lamp of the layout drawn where it
+/// is, glowing in what the lights were last set to — or grey while they aren't connected.
 @MainActor
 final class CarLightsScene {
-    /// What one lamp shows.
+    /// What every lamp shows (they all show the same thing).
     enum Look: Equatable {
         case off
         case solid(MelkColor, brightness: Int)
         /// An effect, scene or music: the colour isn't known, so it cycles.
         case cycling
-        /// No controller paired yet: where it will be, dimly.
-        case unpaired
+        /// Not paired, or not connected: grey.
+        case unavailable
     }
 
     let live: CarModel.Live
-    let layout: CarLightLayout
+    private(set) var layout = CarLightLayout(version: 1, lamps: [])
     private var lamps: [String: (core: SCNNode, glow: SCNNode, center: SCNVector3)] = [:]
-    private var looks: [String: Look] = [:]
+    private var look: Look?
+    private(set) var selected: String?
 
-    init(layout: CarLightLayout = .bundled, mesh: CarModel.Mesh? = CarModel.bundled) {
-        self.layout = layout
+    init(mesh: CarModel.Mesh? = CarModel.bundled) {
         live = CarModel.Live(presentation: .cutaway, spin: false, mesh: mesh)
-        for lamp in layout.lamps {
+    }
+
+    /// Rebuild the lamps for a new or edited layout.
+    func show(_ next: CarLightLayout) {
+        guard next != layout else { return }
+        layout = next
+        lamps.values.forEach { $0.core.removeFromParentNode(); $0.glow.removeFromParentNode() }
+        lamps = [:]
+        for lamp in next.lamps {
             guard let shape = lamp.shape, let center = lamp.center else { continue }
             let (core, glow) = Self.nodes(for: shape)
             core.name = "lamp:\(lamp.id)"
@@ -32,6 +40,10 @@ final class CarLightsScene {
             live.spinner.addChildNode(glow)
             lamps[lamp.id] = (core, glow, SCNVector3(center.x, center.y, center.z))
         }
+        let current = look
+        look = nil
+        show(current ?? .unavailable)
+        markSelection()
     }
 
     private static func material(alpha: CGFloat) -> SCNMaterial {
@@ -43,7 +55,7 @@ final class CarLightsScene {
         return m
     }
 
-    /// A thin bright core and a wide soft glow around it.
+    /// A thin bright core and a soft glow around it.
     private static func nodes(for shape: CarLightLayout.Lamp.Shape) -> (SCNNode, SCNNode) {
         switch shape {
         case .point(let p):
@@ -58,10 +70,11 @@ final class CarLightsScene {
             let length = CGFloat(simd_length(b - a))
             let core = SCNNode(geometry: SCNCapsule(capRadius: 0.014, height: max(length, 0.05)))
             let glow = SCNNode(geometry: SCNCapsule(capRadius: 0.05, height: max(length, 0.1) + 0.06))
+            let direction = length > 0.0001 ? simd_normalize(b - a) : SIMD3<Float>(0, 1, 0)
             for node in [core, glow] {
                 node.simdPosition = (a + b) / 2
                 // A capsule runs along Y: turn it onto the strip.
-                node.simdOrientation = simd_quatf(from: SIMD3(0, 1, 0), to: simd_normalize(b - a))
+                node.simdOrientation = simd_quatf(from: SIMD3(0, 1, 0), to: direction)
             }
             core.geometry?.firstMaterial = material(alpha: 1)
             glow.geometry?.firstMaterial = material(alpha: 0.35)
@@ -70,17 +83,16 @@ final class CarLightsScene {
         }
     }
 
-    func show(_ next: [String: Look]) {
-        for (id, nodes) in lamps {
-            let look = next[id] ?? .unpaired
-            guard looks[id] != look else { continue }
-            looks[id] = look
+    func show(_ next: Look) {
+        guard look != next else { return }
+        look = next
+        for nodes in lamps.values {
             nodes.core.removeAction(forKey: "cycle")
             nodes.glow.removeAction(forKey: "cycle")
-            switch look {
+            switch next {
             case .off:
                 set(nodes, UIColor(white: 0.25, alpha: 1), glow: 0)
-            case .unpaired:
+            case .unavailable:
                 set(nodes, UIColor(white: 0.42, alpha: 1), glow: 0)
             case .solid(let c, let brightness):
                 let level = 0.35 + 0.65 * CGFloat(max(0, min(100, brightness))) / 100
@@ -98,6 +110,7 @@ final class CarLightsScene {
                 nodes.glow.runAction(cycle, forKey: "cycle")
             }
         }
+        markSelection()
     }
 
     private func set(_ nodes: (core: SCNNode, glow: SCNNode, center: SCNVector3), _ color: UIColor, glow: CGFloat) {
@@ -109,48 +122,85 @@ final class CarLightsScene {
         nodes.glow.isHidden = glow == 0
     }
 
-    var isAnimating: Bool { looks.values.contains(.cycling) }
+    // MARK: Editing
 
-    /// The lamp nearest a tap, if it's within reach of one.
+    /// The lamp being arranged: drawn larger, in white, pulsing.
+    func select(_ id: String?) {
+        guard id != selected else { return }
+        selected = id
+        // Repaint everything (a deselected lamp goes back to the lights' colour), then mark it.
+        let current = look
+        look = nil
+        show(current ?? .unavailable)
+    }
+
+    private func markSelection() {
+        for (id, nodes) in lamps {
+            nodes.core.removeAction(forKey: "pulse")
+            nodes.core.scale = SCNVector3(1, 1, 1)
+            nodes.core.opacity = 1
+            guard id == selected else { continue }
+            // Thicker, not longer: a strip runs along its local Y.
+            nodes.core.scale = SCNVector3(1.8, 1, 1.8)
+            nodes.core.geometry?.firstMaterial?.diffuse.contents = UIColor.white
+            nodes.core.geometry?.firstMaterial?.emission.contents = UIColor.white
+            let pulse = SCNAction.sequence([.fadeOpacity(to: 0.35, duration: 0.5), .fadeOpacity(to: 1, duration: 0.5)])
+            nodes.core.runAction(.repeatForever(pulse), forKey: "pulse")
+        }
+    }
+
+    /// The lamp nearest a point on screen, if one is within reach.
     func lamp(near point: CGPoint, in view: SCNView, reach: CGFloat = 44) -> String? {
         var best: (id: String, distance: CGFloat)?
         for (id, nodes) in lamps {
-            let world = live.spinner.convertPosition(nodes.center, to: nil)
-            let p = view.projectPoint(world)
+            let p = view.projectPoint(live.spinner.convertPosition(nodes.center, to: nil))
             let d = hypot(CGFloat(p.x) - point.x, CGFloat(p.y) - point.y)
             if d <= reach, d < (best?.distance ?? .infinity) { best = (id, d) }
         }
         return best?.id
     }
 
-    /// Where a lamp lands on screen (for tests and labels).
+    /// The point of the cabin under a finger, in car space — a little off the surface so the lamp
+    /// sits on it rather than inside it. Nil off the cabin (or above the cut).
+    func cabinPoint(at point: CGPoint, in view: SCNView) -> SIMD3<Float>? {
+        let hits = view.hitTest(point, options: [
+            .categoryBitMask: CarModel.cabinCategory,
+            .searchMode: SCNHitTestSearchMode.all.rawValue,
+            .ignoreHiddenNodes: true,
+        ])
+        for hit in hits {
+            let local = live.spinner.convertPosition(hit.worldCoordinates, from: nil)
+            let normal = live.spinner.convertVector(hit.worldNormal, from: nil)
+            guard local.y <= CarModel.beltHeight else { continue }
+            return SIMD3(Float(local.x), Float(local.y), Float(local.z)) + simd_normalize(SIMD3(Float(normal.x), Float(normal.y), Float(normal.z))) * 0.02
+        }
+        return nil
+    }
+
+    /// Where a lamp lands on screen (for tests).
     func screenPoint(of id: String, in renderer: SCNSceneRenderer) -> CGPoint? {
         guard let nodes = lamps[id] else { return nil }
         let p = renderer.projectPoint(live.spinner.convertPosition(nodes.center, to: nil))
         return CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
     }
 
-    /// Each lamp's look from the controllers' states.
-    static func looks(layout: CarLightLayout, manager: CarLightsManager) -> [String: Look] {
-        var out: [String: Look] = [:]
-        for lamp in layout.lamps {
-            guard let id = CarLightLayout.controllerID(for: lamp, in: manager.controllers) else {
-                out[lamp.id] = .unpaired
-                continue
-            }
-            let s = manager.state(for: id)
-            if !s.on { out[lamp.id] = .off }
-            else if let c = s.displayColor { out[lamp.id] = .solid(c, brightness: s.shownBrightness) }
-            else { out[lamp.id] = .cycling }
-        }
-        return out
+    /// What the lamps show for the lights' state — grey unless a controller is connected.
+    static func look(manager: CarLightsManager) -> Look {
+        guard let ready = manager.controllers.first(where: { manager.link(for: $0.id) == .ready }) else { return .unavailable }
+        let s = manager.state(for: ready.id)
+        if !s.on { return .off }
+        if let c = s.displayColor { return .solid(c, brightness: s.shownBrightness) }
+        return .cycling
     }
 }
 
-/// The preview as a view: tap a lamp to pick it.
+/// The preview as a view. Gestures are the editor's; elsewhere it's a picture.
 struct CarLightsPreview: View {
-    let looks: [String: CarLightsScene.Look]
-    var onTapLamp: ((String) -> Void)?
+    let layout: CarLightLayout
+    let look: CarLightsScene.Look
+    var selected: String? = nil
+    var onTap: ((CGPoint, SCNView, CarLightsScene) -> Void)? = nil
+    var onPan: ((UIPanGestureRecognizer, CarLightsScene) -> Void)? = nil
 
     @State private var scene: CarLightsScene?
     @Environment(\.scenePhase) private var scenePhase
@@ -159,8 +209,9 @@ struct CarLightsPreview: View {
         Group {
             if let scene {
                 SceneCanvas(scene: scene.live.scene, camera: scene.live.camera,
-                            rendersContinuously: looks.values.contains(.cycling) && scenePhase == .active,
-                            onTap: tapHandler(scene))
+                            rendersContinuously: (look == .cycling || selected != nil) && scenePhase == .active,
+                            onTap: onTap.map { tap in { point, view in tap(point, view, scene) } },
+                            onPan: onPan.map { pan in { recognizer in pan(recognizer, scene) } })
             } else {
                 Color.clear
             }
@@ -168,16 +219,13 @@ struct CarLightsPreview: View {
         .onAppear {
             guard scene == nil else { return }
             let made = CarLightsScene()
-            made.show(looks)
+            made.show(layout)
+            made.show(look)
+            made.select(selected)
             scene = made
         }
-        .onChange(of: looks) { _, next in scene?.show(next) }
-    }
-
-    private func tapHandler(_ scene: CarLightsScene) -> ((CGPoint, SCNView) -> Void)? {
-        guard let onTapLamp else { return nil }
-        return { point, view in
-            if let id = scene.lamp(near: point, in: view) { onTapLamp(id) }
-        }
+        .onChange(of: layout) { _, next in scene?.show(next) }
+        .onChange(of: look) { _, next in scene?.show(next) }
+        .onChange(of: selected) { _, next in scene?.select(next) }
     }
 }

@@ -1,36 +1,32 @@
 import SwiftUI
 
-/// Which lamp's settings are open (sheet item).
-struct CarLightPick: Identifiable {
-    let controllerID: String
-    let lampID: String?
-    var id: String { (lampID ?? "") + "@" + controllerID }
-}
-
-/// The lights' page: the cabin from above with every lamp where it is — tap one for its settings —
-/// then quick colour and brightness for all of them, the lamps, and the controllers.
+/// The lights' page: the cabin from above with the lamps where they are (Arrange lamps moves
+/// them), the lights' quick controls, and the controllers. All lamps show the same thing — the
+/// lights have no zones — and everything greys out while the lights aren't connected.
 struct CarLightsPage: View {
     @ObservedObject private var manager: CarLightsManager = .shared
-    @ObservedObject private var music: CarLightsMusic = .shared
-    @State private var pick: CarLightPick?
+    @ObservedObject private var store: CarLightLayoutStore = .shared
+    @State private var settingsFor: CarLightsController?
     @State private var pairing = false
+    @State private var arranging = false
     @State private var brightness: Double?
-    private let layout = CarLightLayout.bundled
+
+    private var connected: Bool { manager.anyReady }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                VStack(spacing: 6) {
-                    CarLightsPreview(looks: CarLightsScene.looks(layout: layout, manager: manager)) { lamp in open(lamp: lamp) }
+                ZStack(alignment: .bottomTrailing) {
+                    CarLightsPreview(layout: store.layout, look: CarLightsScene.look(manager: manager))
                         .frame(height: 430)
-                    Text(manager.controllers.isEmpty ? "Pair your lights to control them" : "Tap a light to change it")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Button { arranging = true } label: { Label("Arrange lamps", jcIcon: "slider.horizontal.3") }
+                        .buttonStyle(.jcGlass(compact: true))
+                        .padding(.trailing, 20)
                 }
                 if manager.controllers.isEmpty {
                     pairPrompt
                 } else {
                     quick
-                    lampList
                 }
                 controllerList
             }
@@ -44,18 +40,12 @@ struct CarLightsPage: View {
                 WearableToolbarButton(title: "Add lights", icon: "plus") { pairing = true }
             }
         }
-        .sheet(item: $pick) { pick in
-            CarLightSettingsSheet(controllerID: pick.controllerID, lampID: pick.lampID)
-                .presentationDetents([.large])
+        .sheet(item: $settingsFor) { c in
+            CarLightSettingsSheet(controllerID: c.id).presentationDetents([.large])
         }
         .sheet(isPresented: $pairing) { CarLightsPairSheet().presentationDetents([.medium, .large]) }
+        .fullScreenCover(isPresented: $arranging) { CarLightsArrangeView() }
         .onAppear { manager.start() }
-    }
-
-    private func open(lamp id: String) {
-        guard let lamp = layout.lamps.first(where: { $0.id == id }) else { return }
-        guard let controller = CarLightLayout.controllerID(for: lamp, in: manager.controllers) else { pairing = true; return }
-        pick = CarLightPick(controllerID: controller, lampID: id)
     }
 
     private var pairPrompt: some View {
@@ -70,12 +60,20 @@ struct CarLightsPage: View {
         }
     }
 
-    /// All the lights at once.
+    /// All the lights at once — greyed out and "Unavailable" while none is connected.
     private var quick: some View {
-        let first = manager.controllers.first.map { manager.state(for: $0.id) } ?? CarLightsState()
-        return CardGroup("All lights") {
+        let state = manager.controllers.first.map { manager.state(for: $0.id) } ?? CarLightsState()
+        return CardGroup("Lights", footer: connected ? nil : "Unavailable — the lights aren't connected. Turn the car on and stay near it.") {
             Row {
-                Toggle("Lights", isOn: Binding(get: { first.on }, set: { manager.apply(.power($0)) }))
+                HStack {
+                    Text("Lights")
+                    Spacer()
+                    if connected {
+                        Toggle("", isOn: Binding(get: { state.on }, set: { manager.apply(.power($0)) })).labelsHidden()
+                    } else {
+                        Text("Unavailable").foregroundStyle(.secondary)
+                    }
+                }
             }
             RowDivider()
             Row {
@@ -87,7 +85,7 @@ struct CarLightsPage: View {
                                     .fill(Color(red: Double(preset.color.r) / 255, green: Double(preset.color.g) / 255,
                                                 blue: Double(preset.color.b) / 255))
                                     .frame(width: 30, height: 30)
-                                    .overlay(Circle().strokeBorder(.white.opacity(first.mode == .color && first.color == preset.color ? 0.9 : 0.15),
+                                    .overlay(Circle().strokeBorder(.white.opacity(state.mode == .color && state.color == preset.color ? 0.9 : 0.15),
                                                                    lineWidth: 2))
                             }
                             .buttonStyle(.plain)
@@ -100,36 +98,29 @@ struct CarLightsPage: View {
             Row {
                 HStack {
                     JcIcon("sun.max", size: 16).foregroundStyle(.secondary)
-                    Slider(value: Binding(get: { brightness ?? Double(first.brightness) }, set: { brightness = $0 }),
+                    Slider(value: Binding(get: { brightness ?? Double(state.shownBrightness) }, set: { brightness = $0 }),
                            in: 0...100, step: 5) { editing in
                         if !editing, let b = brightness { manager.apply(.brightness(Int(b))); brightness = nil }
                     }
                     .tint(JcTheme.accent)
-                    Text("\(Int(brightness ?? Double(first.brightness))) %").font(.caption.monospacedDigit()).frame(width: 44)
+                    Text("\(Int(brightness ?? Double(state.shownBrightness))) %").font(.caption.monospacedDigit()).frame(width: 44)
                 }
             }
-        }
-    }
-
-    private var lampList: some View {
-        CardGroup("Lamps", footer: "Lamps on one controller always show the same colour and effect — the lights have no per-lamp address.") {
-            ForEach(Array(layout.lamps.enumerated()), id: \.element.id) { index, lamp in
-                if index > 0 { RowDivider() }
-                Button { open(lamp: lamp.id) } label: {
-                    Row {
-                        HStack {
-                            Circle().fill(color(for: lamp)).frame(width: 10, height: 10)
-                            Text(lamp.name)
-                            Spacer()
-                            Text(controllerName(for: lamp)).font(.caption).foregroundStyle(.secondary)
-                            JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
-                        }
+            RowDivider()
+            Button { if let first = manager.controllers.first { settingsFor = first } } label: {
+                Row {
+                    HStack {
+                        Text("Colours, effects, music, schedule…")
+                        Spacer()
+                        JcIcon("chevron.right", size: 12).foregroundStyle(.tertiary)
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
+        .disabled(!connected)
+        .opacity(connected ? 1 : 0.45)
     }
 
     private var controllerList: some View {
@@ -139,13 +130,13 @@ struct CarLightsPage: View {
             }
             ForEach(Array(manager.controllers.enumerated()), id: \.element.id) { index, c in
                 if index > 0 { RowDivider() }
-                Button { pick = CarLightPick(controllerID: c.id, lampID: nil) } label: {
+                Button { settingsFor = c } label: {
                     Row {
                         HStack(spacing: 12) {
                             Circle().fill(manager.link(for: c.id) == .ready ? JcTheme.success : JcTheme.muted).frame(width: 8, height: 8)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(c.name).font(.body.weight(.semibold))
-                                Text("\(c.advertisedName) · \(linkText(c.id)) · \(manager.state(for: c.id).summary)")
+                                Text("\(c.advertisedName) · \(linkText(c.id))")
                                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
@@ -161,22 +152,10 @@ struct CarLightsPage: View {
 
     private func linkText(_ id: String) -> String {
         switch manager.link(for: id) {
-        case .ready: return "Connected"
-        case .connecting: return "Waiting for power"
-        case .disconnected: return "Away"
+        case .ready: return "Connected · \(manager.state(for: id).summary)"
+        case .connecting: return "Not connected — waiting for the car"
+        case .disconnected: return "Not connected"
         }
-    }
-
-    private func controllerName(for lamp: CarLightLayout.Lamp) -> String {
-        guard let id = CarLightLayout.controllerID(for: lamp, in: manager.controllers) else { return "Not paired" }
-        return manager.controllers.first { $0.id == id }?.name ?? ""
-    }
-
-    private func color(for lamp: CarLightLayout.Lamp) -> Color {
-        guard let id = CarLightLayout.controllerID(for: lamp, in: manager.controllers) else { return JcTheme.muted }
-        let s = manager.state(for: id)
-        guard let c = s.displayColor else { return s.on ? JcTheme.accent : JcTheme.muted }
-        return Color(red: Double(c.r) / 255, green: Double(c.g) / 255, blue: Double(c.b) / 255)
     }
 }
 

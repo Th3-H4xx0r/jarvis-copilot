@@ -405,6 +405,7 @@
 		6248BB5834B1B9628C1772E6 /* TodosPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9569A4B4B8FF962E8FDA6B1 /* TodosPage.swift */; };
 		62FFA415689770BFCD90CC45 /* WorkoutRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46894A9489E1D504A9302CB8 /* WorkoutRenderTests.swift */; };
 		63527099402D4D9D55899095 /* SessionVitalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43C522E72095700C3317FC3 /* SessionVitalsTests.swift */; };
+		63977A59C0093A781BE52197 /* CarLightsArrangeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85505AA390E0434A4527A80B /* CarLightsArrangeView.swift */; };
 		63A789E5E21DDE83788E31ED /* ChatStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2A4A7B3E94BF71678C423F /* ChatStoreTests.swift */; };
 		63DF3B939797DF83662482F9 /* Glass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F3CCEFF8ADEE9872018479 /* Glass.swift */; };
 		6487C1D05B60D12C44A3A5CD /* GlassesModelRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB1DCE5A5277236E8DD6F3D /* GlassesModelRenderTests.swift */; };
@@ -1553,6 +1554,7 @@
 		8478042B41EA884EB0DD6242 /* LiveSpeakerSplit.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerSplit.swift; sourceTree = "<group>"; };
 		84A6B1CEA19934B35093B41F /* LiveVoiceprint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceprint.swift; sourceTree = "<group>"; };
 		8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamLiveCameraTests.swift; sourceTree = "<group>"; };
+		85505AA390E0434A4527A80B /* CarLightsArrangeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsArrangeView.swift; sourceTree = "<group>"; };
 		858D84003EB96FA3460A1BB1 /* LiveCaptureSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptureSource.swift; sourceTree = "<group>"; };
 		8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ModelSelection.swift; sourceTree = "<group>"; };
 		8599AFB6F04F3975A3C647A5 /* WearableControlTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableControlTests.swift; sourceTree = "<group>"; };
@@ -2605,6 +2607,7 @@
 				B9393F37802AABAA7023B60F /* MelkFrames.swift */,
 				2FC674B8AC22268049778479 /* MelkWriteQueue.swift */,
 				3162C1D7E0C9CA909A8A6FD9 /* CarLights.json */,
+				85505AA390E0434A4527A80B /* CarLightsArrangeView.swift */,
 			);
 			name = Lights;
 			path = Lights;
@@ -5101,6 +5104,7 @@
 				0B8DA9C28C6EFF8E1DE7B82C /* MelkCatalog.swift in Sources */,
 				12DCF0BEBAD953DDDF24FC00 /* MelkFrames.swift in Sources */,
 				F66457B0AFF217D5B54FA921 /* MelkWriteQueue.swift in Sources */,
+				63977A59C0093A781BE52197 /* CarLightsArrangeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

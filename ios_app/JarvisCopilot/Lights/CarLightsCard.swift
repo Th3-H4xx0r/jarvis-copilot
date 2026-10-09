@@ -5,15 +5,15 @@ import SwiftUI
 struct CarLightsEntryCard: View {
     var namespace: Namespace.ID
     @ObservedObject private var manager: CarLightsManager = .shared
+    @ObservedObject private var store: CarLightLayoutStore = .shared
 
     var body: some View {
         NavigationLink {
             CarLightsPage().zoomTransition(id: CarLightsDevice.kind, in: namespace)
         } label: {
-            CarLightsCard(looks: CarLightsScene.looks(layout: .bundled, manager: manager),
+            CarLightsCard(layout: store.layout, look: CarLightsScene.look(manager: manager),
                           status: CarLightsDevice.shared.linkStatus,
-                          paired: !manager.controllers.isEmpty,
-                          lampCount: CarLightLayout.bundled.lamps.count)
+                          paired: !manager.controllers.isEmpty)
         }
         .buttonStyle(.plain)
         .zoomSource(id: CarLightsDevice.kind, in: namespace)
@@ -21,23 +21,23 @@ struct CarLightsEntryCard: View {
 }
 
 struct CarLightsCard: View {
-    let looks: [String: CarLightsScene.Look]
+    let layout: CarLightLayout
+    let look: CarLightsScene.Look
     let status: LinkedWearableStatus
     let paired: Bool
-    let lampCount: Int
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
-                CarLightsPreview(looks: looks)
+                CarLightsPreview(layout: layout, look: look)
                     .frame(width: 150, height: 190)
                     .padding(.trailing, 6)
                     .allowsHitTesting(false)
             }
             VStack(alignment: .leading, spacing: 0) {
                 Text("Car lights").font(.title3.weight(.semibold)).lineLimit(1)
-                Text(paired ? "Magic Lantern · \(lampCount) lamps" : "Pair your car lights")
+                Text(paired ? "Magic Lantern · \(layout.lamps.count) lamps" : "Pair your car lights")
                     .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
                 Spacer(minLength: 0)
                 MetricPill(icon: paired ? "light.strip.2" : "plus.circle", label: "Status",

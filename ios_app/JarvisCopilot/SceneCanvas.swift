@@ -16,6 +16,8 @@ struct SceneCanvas: UIViewRepresentable {
     var onHorizontalPan: ((UIPanGestureRecognizer) -> Void)? = nil
     /// A tap on the scene, with the view to hit-test or project against.
     var onTap: ((CGPoint, SCNView) -> Void)? = nil
+    /// A drag in any direction (the lamp editor; nothing scrolls under it).
+    var onPan: ((UIPanGestureRecognizer) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -33,6 +35,10 @@ struct SceneCanvas: UIViewRepresentable {
         view.rendersContinuously = rendersContinuously
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
+        context.coordinator.onFreePan = onPan
+        if onPan != nil {
+            view.addGestureRecognizer(UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.freePanned(_:))))
+        }
         if onTap != nil {
             view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
@@ -48,13 +54,16 @@ struct SceneCanvas: UIViewRepresentable {
         view.rendersContinuously = rendersContinuously
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
+        context.coordinator.onFreePan = onPan
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onPan: ((UIPanGestureRecognizer) -> Void)?
         var onTap: ((CGPoint, SCNView) -> Void)?
+        var onFreePan: ((UIPanGestureRecognizer) -> Void)?
 
         @objc func panned(_ pan: UIPanGestureRecognizer) { onPan?(pan) }
+        @objc func freePanned(_ pan: UIPanGestureRecognizer) { onFreePan?(pan) }
 
         @objc func tapped(_ tap: UITapGestureRecognizer) {
             guard let view = tap.view as? SCNView else { return }

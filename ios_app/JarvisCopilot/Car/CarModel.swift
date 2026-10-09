@@ -167,6 +167,9 @@ enum CarModel {
         var restYaw: Float { self == .cutaway ? .pi : -0.62 }
     }
 
+    /// Hit-testing the cabin (to place lamps) looks only at these parts.
+    static let cabinCategory = 1 << 2
+
     /// Where the body is cut for the cabin view: just under the window line.
     static let beltHeight: Float = 0.98
 
@@ -223,6 +226,7 @@ enum CarModel {
                         geometry.firstMaterial?.isDoubleSided = true   // the inside of the door skins shows now
                     }
                     let node = SCNNode(geometry: geometry)
+                    if part.slot == .interior { node.categoryBitMask |= CarModel.cabinCategory }
                     // Glass and lenses after the solid body, so what is behind them shows.
                     if [.glass, .lampLens, .tailLens, .amberLens].contains(part.slot) { node.renderingOrder = 10 }
                     spinner.addChildNode(node)
