@@ -22,8 +22,13 @@ final class CarLightsScene {
     private var look: Look?
     private(set) var selected: String?
 
-    init(mesh: CarModel.Mesh? = CarModel.bundled) {
-        live = CarModel.Live(presentation: .cutaway, spin: false, mesh: mesh)
+    init(live: CarModel.Live) {
+        self.live = live
+    }
+
+    /// Synchronous, for tests; views use `CarModel.build` off the main thread.
+    convenience init(mesh: CarModel.Mesh? = CarModel.bundled) {
+        self.init(live: CarModel.Live(presentation: .cutaway, spin: false, mesh: mesh))
     }
 
     /// Rebuild the lamps for a new or edited layout.
@@ -216,9 +221,11 @@ struct CarLightsPreview: View {
                 Color.clear
             }
         }
-        .onAppear {
+        .animation(.easeOut(duration: 0.3), value: scene != nil)
+        // The cut-away car is built off the main thread, then the lamps go on it.
+        .task {
             guard scene == nil else { return }
-            let made = CarLightsScene()
+            let made = CarLightsScene(live: await CarModel.build(.cutaway, spin: false))
             made.show(layout)
             made.show(look)
             made.select(selected)

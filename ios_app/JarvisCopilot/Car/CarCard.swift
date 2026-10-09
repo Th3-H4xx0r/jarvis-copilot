@@ -31,7 +31,7 @@ struct CarCard: View {
         ZStack(alignment: .topLeading) {
             HStack(alignment: .top) {
                 Spacer()
-                if CarModel.bundled != nil {
+                if CarModel.hasBundledModel {
                     // High and to the right: the status pills keep the bottom left.
                     CarSceneView(presentation: .card, lit: inCar)
                         .frame(width: 262, height: 150)

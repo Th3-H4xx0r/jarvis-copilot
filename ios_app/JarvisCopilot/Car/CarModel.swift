@@ -64,6 +64,9 @@ enum CarModel {
         return parts.isEmpty ? nil : Mesh(parts: parts, min: lo, max: hi)
     }
 
+    /// Whether the app has the car at all — without loading it (the views ask this on every render).
+    static let hasBundledModel = Bundle.main.url(forResource: "Camry", withExtension: "bin") != nil
+
     /// The car shipped with the app; nil leaves the card without a model.
     static let bundled: Mesh? = Bundle.main.url(forResource: "Camry", withExtension: "bin")
         .flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
@@ -139,7 +142,7 @@ enum CarModel {
     /// along the body lines instead of one hard hotspot.
     ///
     /// 2048 × 1024 and kept bright in the image itself (the scene scales it down): a dark 8-bit room
-    /// multiplied up showed as stepped bands in the glass and paint. A little noise dithers the rest.
+    /// multiplied up showed as stepped bands in the glass and paint.
     static let studioEnvironment: UIImage = {
         let size = CGSize(width: 2048, height: 1024)
         let raw = UIGraphicsImageRenderer(size: size).image { r in
@@ -158,13 +161,6 @@ enum CarModel {
             UIColor(red: 0.55, green: 0.65, blue: 0.85, alpha: 1).setFill()          // cool rim
             ctx.fill(CGRect(x: 0, y: size.height / 2 - 130, width: 70, height: 110))
             ctx.fill(CGRect(x: size.width - 70, y: size.height / 2 - 130, width: 70, height: 110))
-            // Dither: ±1 level of noise breaks up the bands a smooth gradient leaves in 8 bits.
-            var rng = SystemRandomNumberGenerator()
-            for _ in 0..<60_000 {
-                UIColor(white: .random(in: 0...1, using: &rng) < 0.5 ? 0 : 1, alpha: 0.012).setFill()
-                ctx.fill(CGRect(x: .random(in: 0..<size.width, using: &rng), y: .random(in: 0..<size.height, using: &rng),
-                                width: 3, height: 3))
-            }
         }
         return blurred(raw, sigma: 7)
     }()
@@ -222,9 +218,27 @@ enum CarModel {
         if (carPoint.y > \(beltHeight)) { discard_fragment(); }
         """
 
-    /// A self-contained scene: the car on its shadow, the wearables' studio light, a camera.
-    @MainActor
-    final class Live {
+    /// Load the mesh and build the studio and shadow images now, off the main thread, so the first
+    /// car on screen doesn't stall it (at launch).
+    static func warmUp() {
+        Task.detached(priority: .utility) {
+            _ = CarModel.bundled
+            _ = CarModel.studioEnvironment
+            _ = CarModel.shadowImage
+        }
+    }
+
+    /// Builds a scene off the main thread — 400 k triangles and their materials — for a view to
+    /// show once it's ready, instead of in the middle of a navigation.
+    static func build(_ presentation: Presentation, spin: Bool = true, spinSeconds: Double = 40) async -> Live {
+        await Task.detached(priority: .userInitiated) {
+            Live(presentation: presentation, spin: spin, spinSeconds: spinSeconds)
+        }.value
+    }
+
+    /// A self-contained scene: the car on its shadow, the studio light, a camera. Not tied to the
+    /// main actor: it's plain SceneKit, built on a background thread (`build`) and then shown.
+    final class Live: @unchecked Sendable {
         let scene = SCNScene()
         let camera = SCNNode()
         let spinner = SCNNode()
@@ -381,13 +395,16 @@ struct CarSceneView: View {
             if let live {
                 SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating,
                             onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil)
+                    .transition(.opacity)
             } else {
                 Color.clear
             }
         }
-        .onAppear {
+        .animation(.easeOut(duration: 0.3), value: live != nil)
+        // Built off the main thread: opening a page with the car doesn't stall its transition.
+        .task {
             guard live == nil else { return }
-            let scene = CarModel.Live(presentation: presentation, spin: spin, spinSeconds: spinSeconds)
+            let scene = await CarModel.build(presentation, spin: spin, spinSeconds: spinSeconds)
             if lit { scene.setLit(true) }
             live = scene
         }

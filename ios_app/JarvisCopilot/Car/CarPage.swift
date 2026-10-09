@@ -56,7 +56,7 @@ struct CarPage: View {
 
     private var hero: some View {
         VStack(spacing: 10) {
-            if CarModel.bundled != nil {
+            if CarModel.hasBundledModel {
                 // Swipe sideways to turn it; it carries on turning by itself once let go.
                 CarSceneView(presentation: .hero, lit: presence.inCar, spinSeconds: 50, turnable: true)
                     .frame(height: 220)

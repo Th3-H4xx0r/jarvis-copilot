@@ -316,6 +316,7 @@ final class AppServices {
         DashcamDevice.shared.refreshMembership()
 
         // 10e. The car: hosts the dashcam and the car lights (linked wearables) and their controls.
+        CarModel.warmUp()                        // the 3D car's mesh + studio, off the main thread
         WearableLinks.shared.register(DashcamLinkable.shared)
         WearableLinks.shared.register(CarLightsDevice.shared)
         CarDevice.shared.start()
