@@ -75,7 +75,7 @@ enum CarModel {
     /// against Toyota's own picture of the SE.
     /// Darker than the photo's raw pixels on purpose: the app shows it on black, where the same
     /// paint reads much lighter than on Toyota's white page.
-    static let darkCosmos = UIColor(red: 0.10, green: 0.112, blue: 0.185, alpha: 1)
+    static let darkCosmos = UIColor(red: 0.088, green: 0.104, blue: 0.2, alpha: 1)
 
     private static func pbr(_ color: UIColor, roughness: CGFloat, metalness: CGFloat = 0,
                             clearCoat: CGFloat = 0, clearCoatRoughness: CGFloat = 0.04, opacity: CGFloat = 1) -> SCNMaterial {
@@ -97,7 +97,8 @@ enum CarModel {
     static func material(for slot: Slot) -> SCNMaterial {
         switch slot {
         case .paint: return pbr(darkCosmos, roughness: 0.38, metalness: 0.45, clearCoat: 0.8, clearCoatRoughness: 0.06)
-        case .glass: return pbr(UIColor(white: 0.01, alpha: 1), roughness: 0.04, clearCoat: 1, opacity: 0.78)
+        // Tinted and only half as glossy: a full clear coat mirrored the softbox as a white sheet.
+        case .glass: return pbr(UIColor(white: 0.01, alpha: 1), roughness: 0.06, clearCoat: 0.5, opacity: 0.86)
         // The SE's trim is blacked out — window surround, sill strip, badges, wheel faces.
         case .chrome: return pbr(UIColor(white: 0.08, alpha: 1), roughness: 0.18, metalness: 1)
         case .glossTrim: return pbr(UIColor(white: 0.02, alpha: 1), roughness: 0.14, clearCoat: 0.6)
@@ -136,26 +137,36 @@ enum CarModel {
     /// A car photo studio as an equirectangular environment: a dark room, a large softbox overhead
     /// and two pairs of long strip lights at the horizon — so the paint shows long, soft reflections
     /// along the body lines instead of one hard hotspot.
+    ///
+    /// 2048 × 1024 and kept bright in the image itself (the scene scales it down): a dark 8-bit room
+    /// multiplied up showed as stepped bands in the glass and paint. A little noise dithers the rest.
     static let studioEnvironment: UIImage = {
-        let size = CGSize(width: 1024, height: 512)
+        let size = CGSize(width: 2048, height: 1024)
         let raw = UIGraphicsImageRenderer(size: size).image { r in
             let ctx = r.cgContext
-            let colors = [UIColor(white: 0.05, alpha: 1).cgColor, UIColor(white: 0.03, alpha: 1).cgColor,
-                          UIColor(white: 0.015, alpha: 1).cgColor, UIColor(white: 0.01, alpha: 1).cgColor] as CFArray
+            let colors = [UIColor(white: 0.24, alpha: 1).cgColor, UIColor(white: 0.13, alpha: 1).cgColor,
+                          UIColor(white: 0.06, alpha: 1).cgColor, UIColor(white: 0.04, alpha: 1).cgColor] as CFArray
             if let sky = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.45, 0.55, 1]) {
                 ctx.drawLinearGradient(sky, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
             }
             UIColor.white.setFill()
-            ctx.fill(CGRect(x: 250, y: 40, width: 524, height: 110))                 // overhead softbox
-            for y in [size.height / 2 - 48, size.height / 2 - 8] {                  // strip lights
-                ctx.fill(CGRect(x: 40, y: y, width: 380, height: 14))
-                ctx.fill(CGRect(x: 604, y: y, width: 380, height: 14))
+            ctx.fill(CGRect(x: 560, y: 90, width: 928, height: 180))                 // overhead softbox
+            for y in [size.height / 2 - 92, size.height / 2 - 14] {                 // strip lights
+                ctx.fill(CGRect(x: 80, y: y, width: 760, height: 24))
+                ctx.fill(CGRect(x: 1208, y: y, width: 760, height: 24))
             }
             UIColor(red: 0.55, green: 0.65, blue: 0.85, alpha: 1).setFill()          // cool rim
-            ctx.fill(CGRect(x: 0, y: size.height / 2 - 66, width: 40, height: 60))
-            ctx.fill(CGRect(x: size.width - 40, y: size.height / 2 - 66, width: 40, height: 60))
+            ctx.fill(CGRect(x: 0, y: size.height / 2 - 130, width: 70, height: 110))
+            ctx.fill(CGRect(x: size.width - 70, y: size.height / 2 - 130, width: 70, height: 110))
+            // Dither: ±1 level of noise breaks up the bands a smooth gradient leaves in 8 bits.
+            var rng = SystemRandomNumberGenerator()
+            for _ in 0..<60_000 {
+                UIColor(white: .random(in: 0...1, using: &rng) < 0.5 ? 0 : 1, alpha: 0.012).setFill()
+                ctx.fill(CGRect(x: .random(in: 0..<size.width, using: &rng), y: .random(in: 0..<size.height, using: &rng),
+                                width: 3, height: 3))
+            }
         }
-        return blurred(raw, sigma: 4)
+        return blurred(raw, sigma: 7)
     }()
 
     /// The car's contact shadow: a soft rounded footprint, so it sits on the floor.
@@ -231,7 +242,7 @@ enum CarModel {
             self.spinSeconds = spinSeconds
             scene.background.contents = UIColor.clear
             scene.lightingEnvironment.contents = CarModel.studioEnvironment   // a car photo studio
-            scene.lightingEnvironment.intensity = 4
+            scene.lightingEnvironment.intensity = 1.6
             scene.rootNode.addChildNode(spinner)
             spinner.eulerAngles.y = presentation.restYaw
             if spin { spinner.runAction(spinForever, forKey: "spin") }
@@ -299,21 +310,14 @@ enum CarModel {
             lens.fieldOfView = 26
             lens.zNear = 0.1
             lens.zFar = 60
-            // HDR + filmic roll-off: highlights fade instead of clipping; ambient occlusion grounds
-            // the panel gaps, grille and wheel wells.
+            // HDR tone mapping only: highlights fade instead of clipping. No ambient occlusion or
+            // bloom — they render at reduced resolution and left the edges jagged.
             lens.wantsHDR = true
             lens.wantsExposureAdaptation = false
-            lens.exposureOffset = 0.25
+            lens.exposureOffset = -0.15
             lens.whitePoint = 2.2
             lens.minimumExposure = -3
             lens.maximumExposure = 3
-            lens.screenSpaceAmbientOcclusionIntensity = 1.2
-            lens.screenSpaceAmbientOcclusionRadius = 0.25
-            lens.screenSpaceAmbientOcclusionNormalThreshold = 0.3
-            lens.screenSpaceAmbientOcclusionDepthThreshold = 0.2
-            lens.bloomIntensity = 0.08
-            lens.bloomThreshold = 1.2
-            lens.bloomBlurRadius = 4
             camera.camera = lens
             camera.position = SCNVector3(0, presentation.height, presentation.distance)
             camera.look(at: presentation.target)

@@ -33,6 +33,24 @@ final class CarModelRenderTests: XCTestCase {
         }
     }
 
+    /// Mean blue minus mean red over the drawn pixels: Dark Cosmos must read blue, not grey.
+    private func blueLead(_ image: UIImage) -> Double {
+        guard let cg = image.cgImage else { return 0 }
+        let w = cg.width, h = cg.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?
+                .draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        var lead = 0.0, n = 0.0
+        for i in stride(from: 0, to: bytes.count, by: 4) where bytes[i + 3] > 200 && max(bytes[i], bytes[i + 1], bytes[i + 2]) > 20 {
+            lead += Double(bytes[i + 2]) - Double(bytes[i])
+            n += 1
+        }
+        return n > 0 ? lead / n : 0
+    }
+
     private func bluePixels(_ image: UIImage) -> Int {
         guard let cg = image.cgImage else { return 0 }
         let w = cg.width, h = cg.height
@@ -87,7 +105,8 @@ final class CarModelRenderTests: XCTestCase {
     func testThePaintReadsDarkCosmosBlue() throws {
         let card = try render(CarModel.Live(presentation: .card, spin: false), width: 472, height: 336)
         write(onBlack(card), "car-card.png")
-        XCTAssertGreaterThan(bluePixels(card), 2000, "the body should read blue, not grey")
+        XCTAssertGreaterThan(blueLead(card), 4, "the body should read blue, not grey")
+        XCTAssertGreaterThan(bluePixels(card), 300)
 
         let lit = CarModel.Live(presentation: .card, spin: false)
         lit.setLit(true)
