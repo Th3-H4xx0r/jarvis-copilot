@@ -438,6 +438,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "toyota": {
+        "description": "His Toyota (2026 Camry SE) through Home Assistant: status, remote commands, remote-start climate",
+        "tools": ["toyota_status", "toyota_command", "toyota_climate"],
+        "includes": []
+    },
+
 
     # Scenario-specific toolsets
     

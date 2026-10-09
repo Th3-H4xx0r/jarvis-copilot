@@ -1,0 +1,9 @@
+name: toyota
+version: 1.0.0
+description: "Pranav's Toyota (2026 Camry SE) through Home Assistant's Toyota (North America) integration: status, remote commands, remote-start climate. Sign-in on the iPhone Car page."
+author: Pranav Krishna
+kind: backend
+provides_tools:
+  - toyota_status
+  - toyota_command
+  - toyota_climate

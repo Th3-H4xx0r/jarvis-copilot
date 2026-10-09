@@ -32,3 +32,15 @@ def test_modern_section_order():
     headings = re.findall(r"^## (.+)$", SKILL_MD.read_text(), re.MULTILINE)
     assert headings == ["When to Use", "Prerequisites", "How to Run", "Quick Reference",
                         "Procedure", "Pitfalls", "Verification"]
+
+
+def test_every_toyota_tool_in_the_doc_is_registered():
+    from plugins.toyota.tools import TOOLS
+
+    documented = set(re.findall(r"`(toyota_[a-z_]+)`", SKILL_MD.read_text()))
+    assert documented == {name for name, *_ in TOOLS}
+
+
+def test_doc_states_the_confirmation_rule():
+    text = SKILL_MD.read_text()
+    assert "confirmed: true" in text and "Unlock the car?" in text

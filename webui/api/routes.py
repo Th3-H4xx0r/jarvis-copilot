@@ -3501,6 +3501,11 @@ def handle_get(handler, parsed) -> bool:
             "GET", parsed.path[len(WIDGETS_PATH_PREFIX):], None, widget_store())
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/car/"):
+        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
+        status, payload = handle_car_request("GET", parsed.path[len(CAR_PATH_PREFIX):], None)
+        return j(handler, payload, status=status)
+
     if parsed.path == "/api/dashcam" or parsed.path.startswith("/api/dashcam/"):
         from api import dashcam_relay
         from api.dashcam_routes import (
@@ -4879,6 +4884,11 @@ def handle_post(handler, parsed) -> bool:
         from api.widget_store import store_for_request as widget_store
         status, payload = handle_widgets_request(
             "POST", parsed.path[len(WIDGETS_PATH_PREFIX):], body, widget_store())
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/car/"):
+        from api.car_routes import CAR_PATH_PREFIX, handle_car_request
+        status, payload = handle_car_request("POST", parsed.path[len(CAR_PATH_PREFIX):], body)
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/dashcam/"):
