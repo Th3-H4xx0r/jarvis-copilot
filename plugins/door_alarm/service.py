@@ -108,6 +108,21 @@ def _pod_page(name: str) -> dict:
                 {"type": "text", "value": "Disarm on the iPhone", "style": {"size": 12, "color": "muted"}}]}}
 
 
+def _pod_status(symbol: str, title: str, color: str, line: str, timer_to: Optional[float] = None,
+                ttl: Optional[int] = None) -> dict:
+    children = [{"type": "symbol", "name": symbol, "style": {"size": 36, "color": color}},
+                {"type": "text", "value": title, "style": {"size": 28, "weight": "bold", "color": color}}]
+    if timer_to:
+        children.append({"type": "timer", "to": int(timer_to), "format": "countdown",
+                         "style": {"size": 64, "weight": "bold", "color": color}})
+    children.append({"type": "text", "value": line, "style": {"size": 14, "color": "muted"}})
+    page = {"id": "doorlarm", "title": "Door alarm",
+            "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": children}}
+    if ttl:
+        page["ttl"] = ttl   # the Pod goes back home after this many seconds
+    return page
+
+
 class DoorService:
     _instance: Optional["DoorService"] = None
     _instance_lock = threading.Lock()
@@ -430,6 +445,24 @@ class DoorService:
         self._execute(effects)
         return self.state()
 
+    def cancel_arming(self, source: str = "app") -> dict:
+        self._require()
+        with self.lock:
+            before = self.alarm.state
+            effects = self.alarm.cancel_arming()
+            self._commit(before, source)
+        self._execute(effects)
+        return self.state()
+
+    def arm_now(self, source: str = "app") -> dict:
+        self._require()
+        with self.lock:
+            before = self.alarm.state
+            effects = self.alarm.arm_now()
+            self._commit(before, source)
+        self._execute(effects)
+        return self.state()
+
     def _verify(self, action: str, proof: dict, nonce: Any = None) -> None:
         self.approver.verify(action, nonce if nonce is not None else proof.get("nonce"), proof.get("ts"),
                              proof.get("signature"), domain=DOMAIN)
@@ -614,13 +647,16 @@ class DoorService:
         self.store.save_state(self.alarm.snapshot())
         after = self.alarm.state
         if after != before:
-            text = STATE_TEXT.get(after, after)
+            text = "Arming cancelled" if (before, after) == ("arming", "disarmed") else STATE_TEXT.get(after, after)
             if after in ("entry", "triggered") and self.alarm.contact_name:
                 text = f"{text}: {self.alarm.contact_name}"
             event = {"t": self.clock(), "kind": "alarm", "state": after, "from": before, "text": text}
             if source:
                 event["source"] = source
             self.store.append_event(event)
+            page = self._pod_state_page(after)
+            if page:
+                self._run_alerts(lambda: self._pod_show(page))
 
     # ── effects ──
 
@@ -642,9 +678,11 @@ class DoorService:
             elif kind == "push_entry":
                 self.push(f"{d.get('name')} opened", f"Disarm within {d.get('seconds')} s — then the alarm goes off.",
                           {"type": "door_alarm", "state": "entry"}, "DOOR_ALARM", "time-sensitive")
+                self._show_alarm()
             elif kind == "push_triggered":
                 self.push(f"Door alarm: {d.get('name')}", "The alarm is going off. Disarm it with Face ID in Jarvis.",
                           {"type": "door_alarm", "state": "triggered"}, "DOOR_ALARM", "time-sensitive")
+                self._show_alarm()
             elif kind == "push_info":
                 self.push(f"{d.get('name')} opened", "The door alarm is off.", {"type": "door_alarm"}, None, "active")
             elif kind in ("ring_phone", "stop_ring"):
@@ -662,6 +700,32 @@ class DoorService:
                 self.run_prompt(f"[Door alarm] {d.get('name')} just opened. {d.get('prompt')}")
         except Exception:
             log.warning("door alarm effect %s failed", kind, exc_info=True)
+
+    def _pod_state_page(self, state: str) -> Optional[dict]:
+        """The Pod's screen for an alarm state (the countdowns tick on the Pod itself)."""
+        a = self.alarm
+        if state == "arming" and a.deadline:
+            return _pod_status("bell.fill", "Arming", "accent", "Leave now", timer_to=a.deadline)
+        if state == "entry" and a.deadline:
+            return _pod_status("exclamationmark.triangle.fill", "Door opened", "danger",
+                               (a.contact_name or "A door")[:24], timer_to=a.deadline)
+        if state in ("armed_away", "armed_home"):
+            return _pod_status("checkmark", "Armed " + ("away" if state == "armed_away" else "home"), "accent",
+                               "Door alarm on", ttl=8)
+        if state == "disarmed":
+            return _pod_status("checkmark", "Disarmed", "success", "Door alarm off", ttl=8)
+        return None   # triggered: the pod_alert effect shows ALARM
+
+    def _pod_show(self, page: dict) -> None:
+        device = self.bridge.offering("pod_show")
+        if device:
+            self._safe_invoke(device, "pod_show", {"page": page}, timeout=8.0)
+
+    def _show_alarm(self) -> None:
+        """Pop the alarm card up on the phone (its countdown + Face ID disarm) if the app can hear us."""
+        device = self.bridge.offering("door_show_alarm")
+        if device:
+            self._safe_invoke(device, "door_show_alarm", {}, timeout=8.0)
 
     def _loudest(self, dp: schema.Dp) -> Any:
         if dp.type == "enum":

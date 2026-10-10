@@ -30,7 +30,7 @@ from urllib.parse import parse_qs
 DOOR_PATH_PREFIX = "/api/door"
 log = logging.getLogger(__name__)
 
-_PHONE_ONLY = ("/disarm", "/silence", "/setup/credentials", "/setup/pick", "/setup/proxy", "/firmware/upgrade")
+_PHONE_ONLY = ("/disarm", "/silence", "/cancel_arming", "/setup/credentials", "/setup/pick", "/setup/proxy", "/firmware/upgrade")
 
 
 def caller_kind(device: dict, skills: list[str]) -> str | None:
@@ -132,6 +132,10 @@ def handle_door_request(method, path, body, host_signed=False, service=None, cal
                     return 400, {"ok": False, "error": "Jarvis can only bypass a door that is open right now."}
             source = "Jarvis" if host_signed else str(body.get("source") or "app")[:40]
             return 200, svc.arm(str(body.get("mode") or ""), bypass, source=source)
+        if p == "/cancel_arming":
+            return 200, svc.cancel_arming()
+        if p == "/arm_now":
+            return 200, svc.arm_now(source="Jarvis" if host_signed else "app")
         if p == "/disarm":
             return 200, svc.disarm(body)
         if p == "/silence":

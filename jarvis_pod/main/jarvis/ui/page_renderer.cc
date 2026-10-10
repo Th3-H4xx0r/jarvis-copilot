@@ -161,6 +161,10 @@ static std::string TimerText(const cJSON* node, const Ctx& ctx) {
         if (left >= 86400) snprintf(buf, sizeof(buf), "%lldd %lldh", left / 86400, (left % 86400) / 3600);
         else if (left >= 3600) snprintf(buf, sizeof(buf), "%lldh %lldm", left / 3600, (left % 3600) / 60);
         else snprintf(buf, sizeof(buf), "%lldm", (left + 59) / 60);
+    } else if (cJSON_IsString(format) && !strcmp(format->valuestring, "countdown")) {
+        // A short countdown in big digits: "45", "1:30".
+        if (left >= 60) snprintf(buf, sizeof(buf), "%lld:%02lld", left / 60, left % 60);
+        else snprintf(buf, sizeof(buf), "%lld", left);
     } else {
         snprintf(buf, sizeof(buf), "%02lld:%02lld:%02lld", left / 3600, (left % 3600) / 60, left % 60);
     }

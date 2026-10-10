@@ -104,7 +104,7 @@ final class DoorAlarmTests: XCTestCase {
 
     func testTheDeviceAdvertisesTheTwoPhoneSkills() {
         let device = DoorAlarmDevice(defaults: UserDefaults(suiteName: "door-tests-\(UUID().uuidString)")!)
-        XCTAssertEqual(Set(device.capabilities.map(\.name)), ["door_alarm_ring", "door_show_approvals"])
+        XCTAssertEqual(Set(device.capabilities.map(\.name)), ["door_alarm_ring", "door_show_approvals", "door_show_alarm"])
         XCTAssertTrue(device.deviceID.hasPrefix("door-"))
     }
 }

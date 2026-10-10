@@ -49,6 +49,8 @@ struct JarvisCopilotApp: App {
                     CarApprovals.shared.scenePhaseChanged(to: phase)
                     // Same for the door alarm's disarm / silence requests.
                     DoorApprovals.shared.scenePhaseChanged(to: phase)
+                    // And the alarm card when a door has tripped the alarm.
+                    DoorAlarmAlert.shared.scenePhaseChanged(to: phase)
                     if phase == .background { scheduleBackgroundRefresh() }
                     // `Activity.request` throws while backgrounded, which is
                     // exactly where a voice-driven "start the stopwatch" runs;

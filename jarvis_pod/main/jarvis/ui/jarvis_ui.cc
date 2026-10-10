@@ -163,6 +163,8 @@ struct Ui::Impl {
     lv_obj_t* clock_battery = nullptr;
     lv_timer_t* tick = nullptr;
     lv_timer_t* error_timer = nullptr;
+    lv_timer_t* page_timer = nullptr;   // a shown page's "ttl": back home when it runs out
+    std::string page_timer_id;
 
     Screen screen = Screen::System;
     store::UiSettings settings;
@@ -1017,6 +1019,22 @@ void Ui::ShowPage(const std::string& page_json) {
     m->shown_id = cJSON_IsString(id) ? id->valuestring : "shown";
     m->screen = Screen::Shown;
     m->UpdateChrome();
+    if (m->page_timer) {
+        lv_timer_delete(m->page_timer);
+        m->page_timer = nullptr;
+    }
+    const cJSON* ttl = cJSON_GetObjectItemCaseSensitive(m->page_doc, "ttl");
+    if (cJSON_IsNumber(ttl) && ttl->valuedouble > 0) {
+        m->page_timer_id = m->shown_id;
+        m->page_timer = lv_timer_create(
+            [](lv_timer_t* t) {
+                auto* impl = static_cast<Impl*>(lv_timer_get_user_data(t));
+                impl->page_timer = nullptr;
+                lv_timer_delete(t);
+                if (impl->screen == Screen::Shown && impl->shown_id == impl->page_timer_id) impl->ShowHomeLocked();
+            },
+            static_cast<uint32_t>(std::min(ttl->valuedouble, 3600.0) * 1000), m);
+    }
 }
 
 void Ui::CacheImages(std::map<std::string, std::string> url_to_bytes) {

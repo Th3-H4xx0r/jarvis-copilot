@@ -119,6 +119,8 @@ struct DoorAlarmInfo: Equatable, Sendable {
     let contactName: String?
     let sirenOn: Bool
     let since: Date?
+    /// When the running countdown (exit or entry delay) ends — the phone counts down to it locally.
+    let deadline: Date?
     let exitDelay: Int
     let entryDelay: Int
     let sirenDuration: Int
@@ -130,6 +132,7 @@ struct DoorAlarmInfo: Equatable, Sendable {
         contactName = json["contact_name"] as? String
         sirenOn = json["siren_on"] as? Bool ?? false
         since = (json["since"] as? Double).map(Date.init(timeIntervalSince1970:))
+        deadline = (json["deadline"] as? Double).map(Date.init(timeIntervalSince1970:))
         let s = json["settings"] as? [String: Any] ?? [:]
         exitDelay = s["exit_delay"] as? Int ?? 60
         entryDelay = s["entry_delay"] as? Int ?? 30

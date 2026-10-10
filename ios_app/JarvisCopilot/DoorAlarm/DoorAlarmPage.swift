@@ -77,10 +77,11 @@ struct DoorAlarmPage: View {
             Text(alarm?.title ?? "Door Alarm")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(alarm?.isAlerting == true ? JcTheme.danger : .primary)
-            if let alarm, let left = alarm.secondsLeft, alarm.state == "arming" || alarm.state == "entry" {
-                Text(alarm.state == "entry" ? "\(alarm.contactName ?? "A door") opened — \(left) s to disarm"
-                                            : "Armed away in \(left) s")
-                    .font(.headline.monospacedDigit())
+            if let alarm, alarm.state == "arming" || alarm.state == "entry" {
+                DoorCountdown(alarm: alarm, size: 88)
+                Text(alarm.state == "entry" ? "\(alarm.contactName ?? "A door") opened — seconds to disarm"
+                                            : "seconds until armed away")
+                    .font(.headline)
                     .foregroundStyle(alarm.state == "entry" ? JcTheme.danger : .secondary)
             } else if let alarm, alarm.state == "triggered" {
                 Text("\(alarm.contactName ?? "A door") opened\(alarm.sirenOn ? " — siren on" : "")")
@@ -104,6 +105,9 @@ struct DoorAlarmPage: View {
                 }
                 .buttonStyle(.jcGlass(tint: JcTheme.amber, full: true))
             }
+            if alarm.state == "arming" {
+                exitDelayRow(alarm)
+            } else {
             HStack(spacing: 10) {
                 armButton("Away", icon: "figure.walk.departure", mode: "away", on: alarm.mode == "away" && alarm.isArmed)
                 armButton("Home", icon: "house.fill", mode: "home", on: alarm.mode == "home" && alarm.isArmed)
@@ -118,8 +122,59 @@ struct DoorAlarmPage: View {
                 // Never greyed out by another action in flight: this is the button that matters in an entry delay.
                 .disabled(!alarm.isArmed || store.busy == "disarm")
             }
+            }
         }
         .padding(.horizontal, 20)
+    }
+
+    /// During the Away exit delay: the Away button with a ring that drains from full to empty as
+    /// the delay runs out, then Arm now and Cancel.
+    private func exitDelayRow(_ alarm: DoorAlarmInfo) -> some View {
+        HStack(spacing: 10) {
+            Button {} label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "figure.walk.departure")
+                    Text("Away").font(.footnote.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+            .allowsHitTesting(false)
+            .overlay {
+                TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                    Capsule()
+                        .trim(from: 0, to: Self.exitFraction(alarm, at: context.date))
+                        .stroke(JcTheme.accent, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .padding(-4)
+                }
+                .allowsHitTesting(false)
+            }
+            .accessibilityLabel("Arming away")
+            Button { Task { await store.armNow() } } label: {
+                VStack(spacing: 4) {
+                    if store.busy == "arm_now" { ProgressView() } else { Image(systemName: "lock.shield.fill") }
+                    Text("Arm now").font(.footnote.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.jcGlass(tint: JcTheme.accent, full: true))
+            .disabled(store.busy != nil)
+            Button { Task { await store.cancelArming() } } label: {
+                VStack(spacing: 4) {
+                    if store.busy == "cancel_arming" { ProgressView() } else { Image(systemName: "xmark") }
+                    Text("Cancel").font(.footnote.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.jcGlass(tint: .secondary, full: true))
+            .disabled(store.busy != nil)
+        }
+    }
+
+    /// 1 when the exit delay starts, 0 when it ends.
+    static func exitFraction(_ alarm: DoorAlarmInfo, at now: Date) -> CGFloat {
+        guard let deadline = alarm.deadline, alarm.exitDelay > 0 else { return 0 }
+        return CGFloat(min(1, max(0, deadline.timeIntervalSince(now) / Double(alarm.exitDelay))))
     }
 
     private func armButton(_ title: String, icon: String, mode: String, on: Bool) -> some View {

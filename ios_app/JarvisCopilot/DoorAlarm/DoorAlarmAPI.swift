@@ -27,6 +27,11 @@ struct DoorAlarmAPI: Sendable {
         DoorState(json: try await api.post(Self.prefix + "/arm", json: ["mode": mode, "bypass": bypass], timeout: 20).object())
     }
 
+    /// "arm_now" (skip the exit delay) or "cancel_arming" (during the exit delay).
+    func action(_ name: String) async throws -> DoorState {
+        DoorState(json: try await api.post(Self.prefix + "/" + name, timeout: 20).object())
+    }
+
     /// `action` is "disarm" or "silence".
     func send(_ action: String, proof: ToyotaApprover.Proof) async throws -> DoorState {
         let body: [String: Any] = ["nonce": proof.nonce, "ts": proof.ts, "signature": proof.signature]

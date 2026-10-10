@@ -721,6 +721,7 @@
 		B13550069E805888DEB90DB6 /* RingFirmwareUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A934815D6CF5D882A1864B41 /* RingFirmwareUpdateTests.swift */; };
 		B1A48C98CB91A20B50E943A9 /* GlassesTranslateWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2C1F4FE59B3E43C5DA5EE /* GlassesTranslateWire.swift */; };
 		B1B785257FD986B2B83B352A /* WatchReplyContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03B77A548BAE82FDD698C5E /* WatchReplyContractTests.swift */; };
+		B23C1887F5ECD8A181CB6782 /* DoorAlarmAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122FCB0337149F97C4041DAB /* DoorAlarmAlert.swift */; };
 		B288B840F4DDE283757F3979 /* LocalAiSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF3E30F3BEC433A5D3BB3F89 /* LocalAiSettingsTests.swift */; };
 		B348906039DF41CF9C39101C /* RingTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC1B43CA2BEEE93179D65C9 /* RingTransport.swift */; };
 		B372872EE1082D40C99F1EC6 /* CodeMasterSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124A19CCFEEDF76C4C2B8451 /* CodeMasterSettingsStore.swift */; };
@@ -1161,6 +1162,7 @@
 		11C68CD5E3CB910CEC450F59 /* TasksPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TasksPage.swift; sourceTree = "<group>"; };
 		11F708B679062508F6A76A13 /* QuotaAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaAPI.swift; sourceTree = "<group>"; };
 		1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlButtonsPage.swift; sourceTree = "<group>"; };
+		122FCB0337149F97C4041DAB /* DoorAlarmAlert.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmAlert.swift; sourceTree = "<group>"; };
 		124A19CCFEEDF76C4C2B8451 /* CodeMasterSettingsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMasterSettingsStore.swift; sourceTree = "<group>"; };
 		13230616650AD4EA4F83CF5A /* X5Protocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Protocol.swift; sourceTree = "<group>"; };
 		133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWatchWidget.swift; path = JarvisWatchWidget/JarvisWatchWidget.swift; sourceTree = "<group>"; };
@@ -2455,6 +2457,7 @@
 				E41CA8B1DD39FB313653057E /* DoorAlarmCard.swift */,
 				72799F3CADE3A3284536089A /* DoorAlarmPage.swift */,
 				1088FB2DFABD62B48E1A5E79 /* DoorAlarmSetupView.swift */,
+				122FCB0337149F97C4041DAB /* DoorAlarmAlert.swift */,
 			);
 			name = DoorAlarm;
 			path = DoorAlarm;
@@ -5228,6 +5231,7 @@
 				6670E84C9875789F6348C75C /* DoorAlarmCard.swift in Sources */,
 				8D3AF9B18706448265BB8766 /* DoorAlarmPage.swift in Sources */,
 				CD05E1E6850F57A399A012D8 /* DoorAlarmSetupView.swift in Sources */,
+				B23C1887F5ECD8A181CB6782 /* DoorAlarmAlert.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

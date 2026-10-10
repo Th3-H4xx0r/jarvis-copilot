@@ -20,7 +20,7 @@ class FakeBridge:
         self.calls = []
         self.service = None
         self.connected = {"board1", "phone1", "pod1"}
-        self.offers = {"door_alarm_ring": "phone1", "door_show_approvals": "phone1", "pod_show": "pod1",
+        self.offers = {"door_alarm_ring": "phone1", "door_show_approvals": "phone1", "door_show_alarm": "phone1", "pod_show": "pod1",
                        "esp32_door_configure": "board1"}
         self.fail_set = False
 

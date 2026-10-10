@@ -73,7 +73,9 @@ class Alarm:
         left = None
         if self.deadline is not None and self.state in ("arming", "entry"):
             left = max(0, math.ceil(self.deadline - self.clock()))
-        return {"state": self.state, "mode": self.mode, "seconds_left": left, "contact": self.contact,
+        deadline = self.deadline if self.state in ("arming", "entry") else None
+        return {"state": self.state, "mode": self.mode, "seconds_left": left, "deadline": deadline,
+                "siren_until": self.siren_until, "contact": self.contact,
                 "contact_name": self.contact_name, "siren_on": self.siren_on, "since": self.since,
                 "triggered_at": self.triggered_at, "bypass": self.bypass, "settings": dict(self.settings)}
 
@@ -106,6 +108,24 @@ class Alarm:
             self.deadline = None
         return [Effect("note", {"text": f"Armed {mode}" + (f" (bypassing {', '.join(bypass)})" if bypass else ""),
                                 "state": True})]
+
+    def arm_now(self) -> list[Effect]:
+        """Skip the rest of the exit delay: armed away at once."""
+        if self.state != "arming":
+            raise ValueError("Arm now only works while the exit delay is counting down.")
+        self._set("armed_away")
+        self.deadline = None
+        return [Effect("note", {"text": "Armed away", "state": True})]
+
+    def cancel_arming(self) -> list[Effect]:
+        """Stop an Away arming during its exit delay (nothing is watched yet). Once armed, turning it
+        off is a disarm, which needs Face ID."""
+        if self.state != "arming":
+            raise ValueError("There's no arming to cancel.")
+        self._set("disarmed")
+        self.mode = self.deadline = None
+        self.bypass = []
+        return [Effect("note", {"text": "Arming cancelled", "state": True})]
 
     def disarm(self) -> list[Effect]:
         if self.state == "disarmed":

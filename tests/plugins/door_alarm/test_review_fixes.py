@@ -307,3 +307,67 @@ def test_a_status_read_fills_values_and_lists_sensors(tmp_path):
     state = svc.state()
     assert state["hub"]["values"]["doorbell_volume_value"]["value"] == 44
     assert [c["name"] for c in state["hub"]["contacts"]] == ["Front Door"]
+
+
+# ── real-time UI (task 4): arm now, deadlines, the phone popup ──
+
+def test_arm_now_skips_the_exit_delay():
+    clock = [1000.0]
+    contacts = [{"id": "dp:x", "name": "X", "open": False}]
+    alarm = Alarm({"exit_delay": 60}, contacts=lambda: contacts, clock=lambda: clock[0])
+    alarm.arm("away")
+    assert alarm.public()["deadline"] == 1060.0
+    alarm.arm_now()
+    assert alarm.state == "armed_away" and alarm.public()["deadline"] is None
+    with pytest.raises(ValueError):
+        alarm.arm_now()          # only while the exit delay runs
+
+
+def test_a_tripped_door_pops_the_alarm_on_the_phone(env):
+    svc, clock, bridge, push = env
+    svc.update_settings({"alarm": {"entry_delay": 30}})
+    svc.arm("away")
+    svc.on_board_event("board1", "door_report", {"dps": {"1": True}, "t": 0, "seq": 1})
+    assert any(c[1] == "door_show_alarm" for c in bridge.calls)
+
+
+def test_arm_now_route(env):
+    svc, *_ = env
+    svc.update_settings({"alarm": {"exit_delay": 60}})
+    call(svc, "POST", "/arm", {"mode": "away"})
+    status, payload = call(svc, "POST", "/arm_now", {})
+    assert status == 200 and payload["alarm"]["state"] == "armed_away"
+    assert call(svc, "POST", "/arm_now", {})[0] == 400
+
+
+def test_cancel_arming_only_during_the_exit_delay():
+    clock = [1000.0]
+    contacts = [{"id": "dp:x", "name": "X", "open": False}]
+    alarm = Alarm({"exit_delay": 60}, contacts=lambda: contacts, clock=lambda: clock[0])
+    alarm.arm("away")
+    alarm.cancel_arming()
+    assert alarm.state == "disarmed"
+    alarm.arm("home")
+    with pytest.raises(ValueError):
+        alarm.cancel_arming()     # armed: that's a disarm, which needs Face ID
+
+
+def test_only_the_phone_cancels_arming(env):
+    svc, *_ = env
+    svc.update_settings({"alarm": {"exit_delay": 60}})
+    call(svc, "POST", "/arm", {"mode": "away"})
+    assert call(svc, "POST", "/cancel_arming", {}, host=True)[0] == 403   # not Jarvis / the Pod
+    status, payload = call(svc, "POST", "/cancel_arming", {})
+    assert status == 200 and payload["alarm"]["state"] == "disarmed"
+
+
+def test_the_pod_shows_arming_and_disarmed(env):
+    svc, clock, bridge, push = env
+    svc.update_settings({"alarm": {"exit_delay": 60}})
+    bridge.calls.clear()
+    svc.arm("away")
+    page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
+    assert '"timer"' in __import__("json").dumps(page) and "Arming" in __import__("json").dumps(page)
+    svc.cancel_arming()
+    page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
+    assert "Disarmed" in __import__("json").dumps(page)

@@ -47,6 +47,10 @@ final class DoorAlarmDevice: WearableDevice {
                     "name": ["type": "string", "description": "Which door opened."],
                     "stop": ["type": "boolean", "description": "End the ringing alarm."],
                 ])),
+            DeviceCapability(name: "door_show_alarm", description: """
+                The server calls this when a door trips the alarm: brings up the alarm card (countdown, \
+                Face ID disarm) over the app. Don't call it yourself.
+                """, inputSchema: DeviceCapability.schema()),
             DeviceCapability(name: "door_show_approvals", description: """
                 Bring up the door alarm's waiting Face ID approvals (disarm / silence) on his iPhone. \
                 The server calls this itself after door_disarm; you don't need to.
@@ -62,6 +66,9 @@ final class DoorAlarmDevice: WearableDevice {
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
+        case "door_show_alarm":
+            Task { await DoorAlarmAlert.shared.refresh() }
+            return ["ok": true]
         case "door_show_approvals":
             Task { await DoorApprovals.shared.refresh() }
             return ["ok": true]

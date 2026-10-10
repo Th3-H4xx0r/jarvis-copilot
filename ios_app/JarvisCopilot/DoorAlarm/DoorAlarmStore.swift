@@ -66,7 +66,10 @@ final class DoorAlarmStore: ObservableObject {
             while !Task.isCancelled {
                 // Only while the app is on screen: the keep-alive holds it running in the background.
                 if UIApplication.shared.applicationState == .active { await self?.load() }
-                try? await Task.sleep(for: .seconds(3))
+                // Every second while a countdown runs or the alarm sounds, else every 3 s.
+                let live = self?.state?.alarm.isArmed == true && self?.state?.alarm.state != "armed_away"
+                    && self?.state?.alarm.state != "armed_home"
+                try? await Task.sleep(for: .seconds(live ? 1 : 3))
             }
         }
     }
@@ -97,6 +100,23 @@ final class DoorAlarmStore: ObservableObject {
             } else if !wasCancelled(error) {
                 notice = apiErrorMessage(error)
             }
+        }
+    }
+
+    func armNow() async { await quick("arm_now", done: "Armed away") }
+
+    func cancelArming() async { await quick("cancel_arming", done: "Arming cancelled") }
+
+    private func quick(_ action: String, done: String) async {
+        busy = action
+        defer { busy = nil }
+        generation += 1
+        do {
+            state = try await api.action(action)
+            notice = done
+        } catch {
+            if !wasCancelled(error) { notice = apiErrorMessage(error) }
+            await load()
         }
     }
 
