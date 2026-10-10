@@ -33,17 +33,27 @@ log = logging.getLogger(__name__)
 _PHONE_ONLY = ("/disarm", "/silence", "/setup/credentials", "/setup/pick", "/setup/proxy", "/firmware/upgrade")
 
 
+def caller_kind(device: dict, skills: list[str]) -> str | None:
+    """"board" for a session that IS an ESP32 or the Pod: it advertises only esp32_*/pod_* skills.
+    A phone is never one, even though it relays its boards' esp32_* skills over Bluetooth."""
+    if str(device.get("kind") or "").startswith("mobile"):
+        return None
+    names = [n for n in skills if n]
+    if names and all(n.startswith(("esp32_", "pod_")) for n in names):
+        return "board"
+    return None
+
+
 def door_caller(handler) -> str | None:
-    """"board" for a paired ESP32 or Pod session (read-only here), else None."""
+    """caller_kind() for the request's paired session."""
     try:
         from api import device_bridge
         from api.auth import parse_cookie
         from api.pairing import find_device_by_session
         device = find_device_by_session(parse_cookie(handler) or "") or {}
         if device.get("id"):
-            names = {str(s.get("name") or "") for s in device_bridge.skills_for_device(device["id"])}
-            if any(n.startswith(("esp32_", "pod_")) for n in names):
-                return "board"
+            skills = [str(s.get("name") or "") for s in device_bridge.skills_for_device(device["id"])]
+            return caller_kind(device, skills)
     except Exception:
         log.debug("door caller lookup failed", exc_info=True)
     return None

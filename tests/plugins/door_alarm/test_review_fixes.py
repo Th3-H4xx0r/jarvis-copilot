@@ -210,3 +210,19 @@ def test_the_proxy_must_be_a_connected_door_capable_board(env, monkeypatch):
 def test_server_only_device_skills_are_hidden_from_the_agent():
     from webui.api.device_bridge import SERVER_ONLY_SKILLS
     assert {"esp32_door_set", "esp32_door_configure", "esp32_door_forget", "door_alarm_ring"} <= SERVER_ONLY_SKILLS
+
+
+# ── who counts as a board (2026-10-10 live bug: the phone relays esp32_* skills and was refused) ──
+
+def test_a_phone_that_relays_board_skills_is_not_a_board():
+    from webui.api.door_routes import caller_kind
+    phone = {"id": "p", "kind": "mobile-ios"}
+    assert caller_kind(phone, ["open_app", "esp32_get_state", "pod_show", "door_alarm_ring"]) is None
+    assert caller_kind({"id": "x", "kind": "browser"}, ["open_app", "esp32_get_state"]) is None
+
+
+def test_a_board_or_pod_session_is_a_board():
+    from webui.api.door_routes import caller_kind
+    assert caller_kind({"id": "b", "kind": "browser"}, ["esp32_get_state", "esp32_door_set"]) == "board"
+    assert caller_kind({"id": "pod", "kind": "browser"}, ["pod_show", "pod_status"]) == "board"
+    assert caller_kind({"id": "web", "kind": "browser"}, []) is None
