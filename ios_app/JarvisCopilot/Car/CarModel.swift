@@ -185,12 +185,16 @@ enum CarModel {
         /// The lights' page: from above, front at the top, the body cut away at the waist so the
         /// cabin shows.
         case cutaway
+        /// The Face ID approval card: the hero's still three-quarter pose, centred in a short frame
+        /// with room under the wheels for the action's badge.
+        case approval
 
         var distance: Float {
             switch self {
             case .card: return 6.9
             case .hero: return 7.4
             case .cutaway: return 3.3
+            case .approval: return 7.7
             }
         }
         var height: Float {
@@ -198,9 +202,19 @@ enum CarModel {
             case .card: return 2.1
             case .hero: return 2.3
             case .cutaway: return 8.4
+            case .approval: return 2.15
             }
         }
-        var target: SCNVector3 { self == .cutaway ? SCNVector3(0, 0.3, -0.12) : SCNVector3(0, 0.62, 0) }
+        /// Slides the camera and its target sideways together: the three-quarter car sits left of
+        /// centre (its near front corner is bigger), and this brings it back to the middle.
+        var pan: Float { self == .approval ? -0.33 : 0 }
+        var target: SCNVector3 {
+            switch self {
+            case .cutaway: return SCNVector3(0, 0.3, -0.12)
+            case .approval: return SCNVector3(pan, 0.47, 0)
+            case .card, .hero: return SCNVector3(0, 0.62, 0)
+            }
+        }
         /// The car's yaw at rest: the front left corner toward the viewer — or, cut away, the front
         /// away from it (at the top of the screen).
         var restYaw: Float { self == .cutaway ? .pi : -0.62 }
@@ -371,7 +385,7 @@ enum CarModel {
             lens.minimumExposure = -3
             lens.maximumExposure = 3
             camera.camera = lens
-            camera.position = SCNVector3(0, presentation.height, presentation.distance)
+            camera.position = SCNVector3(presentation.pan, presentation.height, presentation.distance)
             camera.look(at: presentation.target)
             scene.rootNode.addChildNode(camera)
         }
@@ -477,7 +491,7 @@ enum CarModel {
             let node = SCNNode()
             switch target {
             case .hero:
-                node.position = SCNVector3(0, presentation.height, presentation.distance)
+                node.position = SCNVector3(presentation.pan, presentation.height, presentation.distance)
                 node.look(at: presentation.target)
                 return (node.position, node.orientation, presentation.restYaw)
             case .top, .cabin:

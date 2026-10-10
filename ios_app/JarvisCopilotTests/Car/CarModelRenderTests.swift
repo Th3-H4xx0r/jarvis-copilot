@@ -143,6 +143,9 @@ final class CarModelRenderTests: XCTestCase {
         guard live.hasModel else { throw XCTSkip("no bundled model") }
         let hero = try render(live, width: 402, height: 230)
         write(onBlack(hero), "stage-hero.png")
+        // The Face ID approval card: the still three-quarter pose, centred in its 334 × 200 frame.
+        let card = CarModel.Live(presentation: .approval, spin: false)
+        write(onBlack(try render(card, width: 334, height: 200)), "approval-car.png")
         live.go(to: .top, animated: false)
         XCTAssertEqual(live.stage, .top)
         let top = try render(live, width: 402, height: 400)

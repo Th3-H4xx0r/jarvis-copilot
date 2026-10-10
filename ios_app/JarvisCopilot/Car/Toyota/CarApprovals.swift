@@ -146,16 +146,15 @@ final class CarApprovals: ObservableObject {
     }
 }
 
-/// "Lock the car?" over everything: the car itself turning above the question, the action's badge,
-/// the time left to answer, Approve with Face ID — and Deny, quietly, underneath.
+/// "Lock the car?" over everything: the car itself, still, above the question, the action's badge,
+/// the time left to answer, Approve with Face ID — and Deny, quietly, underneath. Styled like the
+/// rest of the app: black, its glass card and its glass buttons, no gradients.
 struct CarApprovalCard: View {
     @ObservedObject var center: CarApprovals
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // The app stays visible behind, softened — a request on top of it, not a new screen.
-            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-            Color.black.opacity(0.35).ignoresSafeArea()
+            Color.black.opacity(0.6).ignoresSafeArea()
             if let approval = center.current {
                 ApprovalSheet(center: center, approval: approval)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -184,21 +183,16 @@ private struct ApprovalSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
-                // A soft pool of the action's colour under the car — blurred, so it has no edges.
-                Ellipse()
-                    .fill(tint.opacity(0.32))
-                    .frame(width: 300, height: 90)
-                    .blur(radius: 38)
-                    .offset(y: -18)
                 if CarModel.hasBundledModel {
-                    CarSceneView(presentation: .hero, lit: lit, spinSeconds: 36, animatesAnywhere: true)
-                        .frame(height: 210)
+                    // Still, at the classic front three-quarter angle, centred.
+                    CarSceneView(presentation: .approval, spin: false, lit: lit)
+                        .frame(height: 200)
                         .allowsHitTesting(false)
                 }
                 badge.offset(y: 26)
             }
-            .frame(height: 210)
-            .padding(.top, 6)
+            .frame(height: 200)
+            .padding(.top, 10)
 
             VStack(spacing: 6) {
                 Text("\(title)?")
@@ -224,15 +218,12 @@ private struct ApprovalSheet: View {
         .padding(.horizontal, 22)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .fill(JcTheme.surface)
-                .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.03)],
-                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
-        }
-        .padding(.horizontal, 10)
+        // The app's card: black, its glass fill and border.
+        .background(JcTheme.bg, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+        .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .animation(.easeInOut(duration: 0.25), value: center.answer)
         .accessibilityElement(children: .contain)
@@ -242,8 +233,7 @@ private struct ApprovalSheet: View {
         JcIcon(command?.symbol ?? "car.fill", size: 22)
             .foregroundStyle(tint)
             .frame(width: 56, height: 56)
-            .jcLiquidGlass(in: Circle(), tint: tint.opacity(0.25))
-            .overlay(Circle().strokeBorder(tint.opacity(0.5), lineWidth: 1))
+            .jcLiquidGlass(in: Circle())
             .accessibilityHidden(true)
     }
 
@@ -286,17 +276,14 @@ private struct ApprovalSheet: View {
                     if center.working {
                         ProgressView().tint(tint)
                     } else {
-                        Image(systemName: "faceid").font(.system(size: 20, weight: .semibold))
-                        Text("Approve with Face ID").font(.system(size: 17, weight: .semibold))
+                        Image(systemName: "faceid")
+                        Text("Approve with Face ID")
                     }
                 }
-                .foregroundStyle(tint)
-                .frame(maxWidth: .infinity, minHeight: 58)
-                .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous), tint: tint.opacity(0.3))
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(tint.opacity(0.45), lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: 28)
             }
-            .buttonStyle(.plain)
+            // The app's own glass button, in the action's colour.
+            .buttonStyle(.jcGlass(tint: tint, full: true))
             .disabled(center.working)
 
             Button("Deny") { Task { await center.deny(approval) } }
