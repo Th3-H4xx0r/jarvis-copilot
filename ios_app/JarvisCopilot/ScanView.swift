@@ -109,7 +109,8 @@ struct ScanView: View {
                     Esp32Card(board: board,
                               activeLink: esp32Manager.connected?.id == board.id && esp32Manager.state == .ready
                                   ? esp32Manager.activeLink : nil,
-                              lastSeen: lastSeen(WearableKeepAlive.esp32, in: entries))
+                              // Per board: the remembered entry is one board's, not every board's.
+                              lastSeen: entries.first { $0.kind == WearableKeepAlive.esp32 && $0.deviceID == board.stableID }?.lastSeen)
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: board.id, in: cardNamespace)

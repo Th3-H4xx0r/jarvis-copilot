@@ -23,8 +23,13 @@ struct Esp32DeviceView: View {
     private var green: Color { Color(red: 0.29, green: 0.82, blue: 0.49) }
     private var red: Color { Color(red: 1.0, green: 0.31, blue: 0.27) }
 
-    /// The stable ID once the handshake has run; the card's ID before that.
-    private var deviceID: String { manager.info?.deviceID ?? board.record?.deviceID ?? board.id }
+    /// The stable ID once the handshake has run; the card's ID before that. The manager's info is
+    /// only this board's while the manager is connected to THIS board — another board's ID here
+    /// made sharing, link preference and ownership act on the wrong board.
+    private var deviceID: String {
+        if manager.connected?.id == board.id, let id = manager.info?.deviceID { return id }
+        return board.stableID
+    }
 
     var body: some View {
         ScrollView {
@@ -40,9 +45,9 @@ struct Esp32DeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name))
-        .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name)) {
-            WearableNames.shared.rename(WearableKeepAlive.esp32, to: $0)
+        .navigationTitle(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
+        .wearableRename(isPresented: $renaming, current: WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name)) {
+            WearableNames.shared.renameEsp32(id: board.stableID, to: $0)
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -816,7 +821,7 @@ struct Esp32Card: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name))
+                Text(WearableNames.shared.esp32Name(id: board.stableID, fallback: board.name))
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)

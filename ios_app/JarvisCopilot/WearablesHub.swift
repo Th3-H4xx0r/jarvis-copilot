@@ -27,6 +27,19 @@ final class WearableNames {
     }
 }
 
+extension WearableNames {
+    /// ESP32 boards are named one by one: several can be paired at once (the glasses relay, the
+    /// door alarm's proxy), so one name per kind renamed every board together.
+    static func esp32Key(_ deviceID: String) -> String { "\(WearableKeepAlive.esp32):\(deviceID)" }
+    func esp32Name(id: String, fallback: String) -> String { name(Self.esp32Key(id), fallback: fallback) }
+    func renameEsp32(id: String, to name: String) { rename(Self.esp32Key(id), to: name) }
+}
+
+extension DiscoveredEsp32 {
+    /// The board's own ID once it is known (the same over Bluetooth and Wi‑Fi), else the card's.
+    var stableID: String { record?.deviceID ?? id }
+}
+
 /// A device page's ⋯ menu Rename: the same alert the chat list uses to rename a chat.
 private struct WearableRenameAlert: ViewModifier {
     @Binding var isPresented: Bool
@@ -329,8 +342,8 @@ final class WearablesHub: ObservableObject {
             out.append(WearableEntry(kind: WearableKeepAlive.esp32,
                                      deviceID: id,
                                      model: Esp32Board.model,
-                                     name: WearableNames.shared.name(WearableKeepAlive.esp32,
-                                                                     fallback: live?.name ?? esp32.connected?.name ?? Esp32Board.model),
+                                     name: WearableNames.shared.esp32Name(id: id,
+                                                                          fallback: live?.name ?? esp32.connected?.name ?? Esp32Board.model),
                                      connected: esp32.state == .ready,
                                      // A board on Wi-Fi has no RSSI; 0 means "remembered,
                                      // not advertising" in `DiscoveredEsp32`.

@@ -220,7 +220,7 @@ struct DoorAlarmPage: View {
                         HStack {
                             Text(point.name)
                             Spacer()
-                            Text(point.value.display + (point.unit.isEmpty ? "" : " \(point.unit)"))
+                            Text(point.shown + (point.unit.isEmpty || point.display != nil ? "" : " \(point.unit)"))
                                 .foregroundStyle(.secondary).monospacedDigit()
                         }
                     }
@@ -350,10 +350,10 @@ struct DoorPointControl: View {
         case "enum":
             Menu {
                 ForEach(point.range, id: \.self) { option in
-                    Button(option) { Task { await store.set(point, to: option) } }
+                    Button(point.label(for: option)) { Task { await store.set(point, to: option) } }
                 }
             } label: {
-                Text(point.value.display).foregroundStyle(JcTheme.accent)
+                Text(point.shown).foregroundStyle(JcTheme.accent)
             }
         case "value":
             let lo = point.min ?? 0
@@ -368,7 +368,7 @@ struct DoorPointControl: View {
             }
             .fixedSize()
         default:
-            Text(point.value.display).foregroundStyle(.secondary).lineLimit(1)
+            Text(point.shown).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 }

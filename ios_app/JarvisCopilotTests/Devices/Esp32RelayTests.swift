@@ -57,3 +57,21 @@ final class Esp32RelayTests: XCTestCase {
         XCTAssertNil(Esp32Protocol.parseRelayStatus([1, 2]))
     }
 }
+
+/// Two paired boards (the glasses relay and the door alarm's proxy) each keep their own name.
+@MainActor
+final class Esp32NamesTests: XCTestCase {
+    func testRenamingOneBoardLeavesTheOtherAlone() {
+        let a = "test-board-a-\(UUID().uuidString)", b = "test-board-b-\(UUID().uuidString)"
+        defer {
+            WearableNames.shared.renameEsp32(id: a, to: "")
+            WearableNames.shared.renameEsp32(id: b, to: "")
+        }
+        WearableNames.shared.renameEsp32(id: b, to: "ESP32 Alarm Proxy")
+        XCTAssertEqual(WearableNames.shared.esp32Name(id: b, fallback: "Jarvis-ESP32-BBBB"), "ESP32 Alarm Proxy")
+        XCTAssertEqual(WearableNames.shared.esp32Name(id: a, fallback: "Jarvis-ESP32-AAAA"), "Jarvis-ESP32-AAAA")
+        WearableNames.shared.renameEsp32(id: a, to: "Glasses Relay")
+        XCTAssertEqual(WearableNames.shared.esp32Name(id: a, fallback: "x"), "Glasses Relay")
+        XCTAssertEqual(WearableNames.shared.esp32Name(id: b, fallback: "x"), "ESP32 Alarm Proxy")
+    }
+}

@@ -79,9 +79,15 @@ struct DoorDataPoint: Identifiable, Equatable, Sendable {
     let max: Int?
     let step: Int
     let unit: String
+    /// Enum value -> English label (the server's product file), e.g. "LightSound" -> "Light + sound".
+    let optionLabels: [String: String]
+    /// Raw internals the page doesn't show (sensor list, schedules).
+    let hidden: Bool
     var value: DoorValue
+    /// The value as text when the server could decode it (a sensor's name) or label it.
+    var display: String?
 
-    init(json: [String: Any], value: DoorValue) {
+    init(json: [String: Any], value: DoorValue, display: String? = nil) {
         id = json["id"] as? Int ?? 0
         code = json["code"] as? String ?? ""
         let raw = json["name"] as? String ?? ""
@@ -93,8 +99,16 @@ struct DoorDataPoint: Identifiable, Equatable, Sendable {
         max = json["max"] as? Int
         step = Swift.max(1, json["step"] as? Int ?? 1)
         unit = json["unit"] as? String ?? ""
+        optionLabels = json["option_labels"] as? [String: String] ?? [:]
+        hidden = json["hidden"] as? Bool ?? false
         self.value = value
+        self.display = display
     }
+
+    /// What to show for the current value: the decoded or labelled text, else the raw value.
+    var shown: String { display ?? value.display }
+
+    func label(for option: String) -> String { optionLabels[option] ?? option }
 }
 
 struct DoorAlarmInfo: Equatable, Sendable {
@@ -226,7 +240,8 @@ struct DoorState: Equatable, Sendable {
         let values = hub["values"] as? [String: Any] ?? [:]
         dataPoints = (hub["dps"] as? [[String: Any]] ?? []).map { dp in
             let code = dp["code"] as? String ?? ""
-            return DoorDataPoint(json: dp, value: DoorValue((values[code] as? [String: Any])?["value"]))
+            let entry = values[code] as? [String: Any]
+            return DoorDataPoint(json: dp, value: DoorValue(entry?["value"]), display: entry?["display"] as? String)
         }
         roles = hub["roles"] as? [String: [String]] ?? [:]
         links = DoorLinks(json: hub["link"] as? [String: Any] ?? [:])
@@ -236,13 +251,13 @@ struct DoorState: Equatable, Sendable {
     /// The settings the hub lets you change, door sensors left out.
     var settings: [DoorDataPoint] {
         let doors = Set(roles["door"] ?? [])
-        return dataPoints.filter { $0.writable && !doors.contains($0.code) }
+        return dataPoints.filter { $0.writable && !$0.hidden && !doors.contains($0.code) }
     }
 
     /// Read-only readings (battery, tamper, signal…), door sensors left out.
     var readings: [DoorDataPoint] {
         let doors = Set(roles["door"] ?? [])
-        return dataPoints.filter { !$0.writable && !doors.contains($0.code) }
+        return dataPoints.filter { !$0.writable && !$0.hidden && !doors.contains($0.code) }
     }
 
     var openContacts: [DoorContact] { contacts.filter { $0.open == true } }
@@ -272,7 +287,8 @@ struct DoorEvent: Identifiable, Equatable, Sendable {
             let missed = json["missed"] as? Bool ?? false
             text = "\(name) \(open == false ? "closed" : "opened")\(missed ? " (while offline)" : "")"
         case "dp":
-            text = "\(json["code"] as? String ?? "Setting") → \(DoorValue(json["value"]).display)"
+            let name = json["name"] as? String ?? json["code"] as? String ?? "Setting"
+            text = "\(name) → \(json["display"] as? String ?? DoorValue(json["value"]).display)"
         default:
             text = json["text"] as? String ?? (json["state"] as? String ?? kind)
         }
