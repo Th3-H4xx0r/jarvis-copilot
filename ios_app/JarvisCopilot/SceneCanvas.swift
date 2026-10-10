@@ -18,6 +18,9 @@ struct SceneCanvas: UIViewRepresentable {
     var onTap: ((CGPoint, SCNView) -> Void)? = nil
     /// A drag in any direction (the lamp editor; nothing scrolls under it).
     var onPan: ((UIPanGestureRecognizer) -> Void)? = nil
+    /// Called once, on the main thread, when the first frame has been drawn (a car scene's first
+    /// frame can take ~0.4 s on a phone — the studio light — so an entrance waits for it).
+    var onFirstFrame: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -36,6 +39,10 @@ struct SceneCanvas: UIViewRepresentable {
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
         context.coordinator.onFreePan = onPan
+        if let onFirstFrame {
+            context.coordinator.onFirstFrame = onFirstFrame
+            view.delegate = context.coordinator
+        }
         if onPan != nil {
             view.addGestureRecognizer(UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.freePanned(_:))))
         }
@@ -61,10 +68,18 @@ struct SceneCanvas: UIViewRepresentable {
         context.coordinator.onFreePan = onPan
     }
 
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate, SCNSceneRendererDelegate {
         var onPan: ((UIPanGestureRecognizer) -> Void)?
         var onTap: ((CGPoint, SCNView) -> Void)?
         var onFreePan: ((UIPanGestureRecognizer) -> Void)?
+        /// Set before the view's first frame; taken (once) on SceneKit's render thread.
+        var onFirstFrame: (() -> Void)?
+
+        func renderer(_ renderer: SCNSceneRenderer, didRenderScene scene: SCNScene, atTime time: TimeInterval) {
+            guard let callback = onFirstFrame else { return }
+            onFirstFrame = nil
+            DispatchQueue.main.async(execute: callback)
+        }
 
         @objc func panned(_ pan: UIPanGestureRecognizer) { onPan?(pan) }
         @objc func freePanned(_ pan: UIPanGestureRecognizer) { onFreePan?(pan) }

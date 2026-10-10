@@ -424,9 +424,9 @@ enum CarModel {
 
         // MARK: Entrance — the approval card's car turns into its pose once, then holds still.
 
-        /// How far round from its rest pose the car waits (nearly head-on), and how long the turn takes.
-        static let entranceTurn: Float = 0.9
-        static let entranceTime: Double = 1.5
+        /// How far round from its rest pose the car waits (head-on), and how long the turn takes.
+        static let entranceTurn: Float = 1.1
+        static let entranceTime: Double = 1.8
 
         /// Before it's shown: wait `entranceTurn` round from the rest pose.
         func readyEntrance() {
@@ -438,7 +438,7 @@ enum CarModel {
         func enter() {
             SCNTransaction.begin()
             SCNTransaction.animationDuration = Self.entranceTime
-            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0, 0, 1)
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)
             spinner.eulerAngles.y = presentation.restYaw
             SCNTransaction.commit()
         }
@@ -717,7 +717,8 @@ struct CarSceneView: View {
                 // next to the rest of a 120 Hz screen.
                 SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating || entering,
                             preferredFramesPerSecond: 60,
-                            onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil)
+                            onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil,
+                            onFirstFrame: turnsIntoPlace ? { turnIn(live) } : nil)
                     .transition(.opacity)
             } else {
                 Color.clear
@@ -731,17 +732,24 @@ struct CarSceneView: View {
             guard live == nil else { return }
             let scene = await CarModel.build(presentation, spin: spin, spinSeconds: spinSeconds)
             if lit { scene.setLit(true) }
-            if turnsIntoPlace { scene.readyEntrance() }
+            if turnsIntoPlace {
+                scene.readyEntrance()
+                entering = true
+            }
             live = scene
-            guard turnsIntoPlace else { return }
-            entering = true
-            // Once the fade-in is nearly done, so the whole turn is seen.
-            try? await Task.sleep(for: .milliseconds(200))
-            scene.enter()
+        }
+        .onChange(of: lit) { _, on in live?.setLit(on) }
+    }
+
+    /// The first frame is on screen: wait out the fade-in, then turn, so the whole turn is seen.
+    /// (Timed from the view appearing, the turn was mostly over before the car showed on a phone.)
+    private func turnIn(_ live: CarModel.Live) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            live.enter()
             try? await Task.sleep(for: .seconds(CarModel.Live.entranceTime + 0.1))
             entering = false
         }
-        .onChange(of: lit) { _, on in live?.setLit(on) }
     }
 
     static func turn(_ live: CarModel.Live, _ pan: UIPanGestureRecognizer) {

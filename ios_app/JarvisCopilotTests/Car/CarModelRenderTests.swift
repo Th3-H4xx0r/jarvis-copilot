@@ -169,6 +169,44 @@ final class CarModelRenderTests: XCTestCase {
         XCTAssertNil(car.spinner.action(forKey: "spin"))
     }
 
+    /// On screen, the approval car holds head-on until its first frame is drawn and the fade-in
+    /// is done — only then does it turn, ending in its rest pose. (Started from the view appearing,
+    /// the turn was mostly over on a phone before the car was visible.)
+    func testTheApprovalCarTurnsOnlyOnceItIsOnScreen() throws {
+        guard let windowScene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            throw XCTSkip("no window scene")
+        }
+        let window = UIWindow(windowScene: windowScene)
+        window.windowLevel = .alert + 1
+        window.rootViewController = UIHostingController(rootView:
+            CarSceneView(presentation: .approval, spin: false, turnsIntoPlace: true).frame(height: 200))
+        window.isHidden = false
+        defer { window.isHidden = true }
+        func find(_ view: UIView) -> SCNView? { (view as? SCNView) ?? view.subviews.lazy.compactMap(find).first }
+
+        let rest = CarModel.Presentation.approval.restYaw
+        let start = rest + CarModel.Live.entranceTurn
+        var appeared: Date?
+        var spinner: SCNNode?
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            if spinner == nil, let view = find(window), let node = view.scene?.rootNode.childNodes.first {
+                spinner = node
+                appeared = Date()
+            }
+            guard let spinner, let appeared else { continue }
+            let shown = spinner.presentation.eulerAngles.y
+            // The old timing had it visibly turning by 0.35 s; now the turn waits ≥ 0.35 s after the first frame.
+            if Date().timeIntervalSince(appeared) < 0.38 {
+                XCTAssertEqual(shown, start, accuracy: 0.01, "turned before it was on screen")
+            } else if abs(shown - rest) < 0.001 {
+                return
+            }
+        }
+        XCTFail("the car never reached its rest pose")
+    }
+
     /// Front at the top, the driver's (left) side on the left, the car centred.
     func testTopViewLabelsLandOnTheRightWheels() {
         let marks = Landmarks(mesh: CarModel.bundled)
