@@ -199,6 +199,21 @@ class DoorService:
             log.warning("door alarm: bridge events unavailable", exc_info=True)
         self._restart_feed()
         threading.Thread(target=self._timer, name="door-alarm-timer", daemon=True).start()
+        self._run_alerts(self.refresh_values)   # values + known sensors right after a restart
+
+    def refresh_values(self) -> None:
+        """One status read from Tuya's cloud: every data point's value, and the sensors it names
+        (a snapshot — never counted as a door opening)."""
+        cloud, dev_id = self.cloud(), self.hub.cfg.get("dev_id")
+        if cloud is None or not dev_id:
+            return
+        try:
+            values = cloud.properties(dev_id)
+        except TuyaError as exc:
+            log.info("door alarm: status read failed: %s", exc)
+            return
+        self.hub.apply([{"code": v.get("code"), "dp_id": v.get("dp_id"), "value": v.get("value")} for v in values],
+                       source="cloud", snapshot=True)
 
     def _timer(self) -> None:
         while not self._stop.wait(1.0):
@@ -279,12 +294,7 @@ class DoorService:
             if info.get("local_key"):
                 self.store.save_secret({"local_key": info["local_key"]})
             self.hub.reload()
-        try:
-            values = cloud.properties(dev_id)
-            self.hub.apply([{"code": v.get("code"), "dp_id": v.get("dp_id"), "value": v.get("value")} for v in values],
-                           source="cloud", snapshot=True)
-        except TuyaError:
-            pass
+        self.refresh_values()
         self._restart_feed()
         self._configure_board()
         return self.state()

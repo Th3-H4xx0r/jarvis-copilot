@@ -290,3 +290,20 @@ def test_a_door_opening_on_his_hub_is_the_named_sensor(tmp_path):
 def test_any_other_chinese_name_becomes_readable_english():
     assert schema.english("门铃音量", "doorbell_volume_value") == "Doorbell volume value"
     assert schema.english("Volume", "x") == "Volume"
+
+
+def test_a_status_read_fills_values_and_lists_sensors(tmp_path):
+    from .test_service import FakeBridge, FakeCloud, FakePush, FakeApprover
+    store = DoorStore(tmp_path)
+    dps = schema.parse_model({"services": [{"properties": WXML}]})
+    store.save_config({"dev_id": "hub1", "product_id": "p9marmvo8k9lfhz6",
+                       "dps": [d.public() for d in dps.values()], "roles": schema.roles(dps, "p9marmvo8k9lfhz6")})
+    cloud = FakeCloud()
+    cloud.properties = lambda dev_id: [{"code": "alarm_message", "value": FRONT_DOOR, "dp_id": 5},
+                                       {"code": "doorbell_volume_value", "value": 44, "dp_id": 3}]
+    svc = DoorService(store=store, bridge=FakeBridge(), push=FakePush(), cloud=lambda: cloud,
+                      approver=FakeApprover(), run=lambda fn: fn())
+    svc.refresh_values()
+    state = svc.state()
+    assert state["hub"]["values"]["doorbell_volume_value"]["value"] == 44
+    assert [c["name"] for c in state["hub"]["contacts"]] == ["Front Door"]
