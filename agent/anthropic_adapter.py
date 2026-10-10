@@ -643,6 +643,7 @@ def build_anthropic_client(
     timeout: float = None,
     *,
     drop_context_1m_beta: bool = False,
+    force_api_key: bool = False,
 ):
     """Create an Anthropic client, auto-detecting setup-tokens vs API keys.
 
@@ -668,6 +669,11 @@ def build_anthropic_client(
     path in ``run_agent.py`` when a subscription rejects the beta; leave at
     its default on fresh clients so 1M-capable subscriptions keep the
     capability.
+
+    ``force_api_key=True`` always sends ``x-api-key`` and skips OAuth token
+    detection — the ``anthropic-api`` provider bills the API key, and key
+    prefixes other than ``sk-ant-api`` (e.g. ``sk-ant-usr``) would otherwise be
+    read as subscription tokens.
 
     Returns an anthropic.Anthropic instance.
     """
@@ -734,6 +740,11 @@ def build_anthropic_client(
         # own API keys with x-api-key auth. Skip OAuth detection — their keys
         # don't follow Anthropic's sk-ant-* prefix convention and would be
         # misclassified as OAuth tokens.
+        kwargs["api_key"] = api_key
+        if common_betas:
+            kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}
+    elif force_api_key:
+        # anthropic-api provider: API-key billing, whatever the key's prefix.
         kwargs["api_key"] = api_key
         if common_betas:
             kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}

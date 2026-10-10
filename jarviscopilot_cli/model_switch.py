@@ -1273,7 +1273,11 @@ def list_authenticated_providers(
     # Build reverse mapping: models.dev ID → JarvisCopilot provider ID.
     # HERMES_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
     # while _PROVIDER_MODELS and config.yaml use JarvisCopilot IDs ("copilot").
-    _mdev_to_hermes = {v: k for k, v in PROVIDER_TO_MODELS_DEV.items()}
+    # anthropic-api shares models.dev's "anthropic" id; keep that id mapped to
+    # the plain anthropic provider (anthropic-api is listed under its own key).
+    _mdev_to_hermes = {
+        v: k for k, v in PROVIDER_TO_MODELS_DEV.items() if k != "anthropic-api"
+    }
 
     for pid, overlay in HERMES_OVERLAYS.items():
         if pid.lower() in seen_slugs:

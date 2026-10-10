@@ -691,6 +691,7 @@ _PROVIDER_DISPLAY = {
     "nous": "Nous Portal",
     "openrouter": "OpenRouter",
     "anthropic": "Anthropic",
+    "anthropic-api": "Anthropic API",
     "openai": "OpenAI",
     "openai-codex": "OpenAI Codex",
     "claude-code": "Claude Code",
@@ -1182,6 +1183,9 @@ _PROVIDER_MODELS = {
         {"id": "grok-4.20", "label": "Grok 4.20"},
     ],
 }
+# Same catalogue, billed to ANTHROPIC_API_KEY (static fallback; the picker
+# asks the live /v1/models first).
+_PROVIDER_MODELS["anthropic-api"] = _PROVIDER_MODELS["anthropic"]
 
 
 _AMBIENT_GH_CLI_MARKERS = frozenset({"gh_cli", "gh auth token"})
@@ -1860,6 +1864,24 @@ def _claude_cli_installed() -> bool:
         or "claude"
     )
     return shutil.which(command) is not None
+
+
+def picker_catalog(catalog: dict) -> dict:
+    """``get_available_models()`` as the model pickers show it (web + phone).
+
+    The old ``anthropic`` provider is hidden: "Anthropic API" bills the API key
+    and "Claude Code" the subscription. Returns a copy — the full catalogue is
+    still what resolves chats already pinned to ``@anthropic:``.
+    """
+    groups = catalog.get("groups")
+    if not isinstance(groups, list):
+        return catalog
+    shown = dict(catalog)
+    shown["groups"] = [
+        g for g in groups
+        if not (isinstance(g, dict) and g.get("provider_id") == "anthropic")
+    ]
+    return shown
 
 
 def route_anthropic_via_claude_code(model: str, provider, base_url) -> tuple:
@@ -3020,6 +3042,7 @@ def get_available_models() -> dict:
                     all_env[k] = val
             if all_env.get("ANTHROPIC_API_KEY"):
                 detected_providers.add("anthropic")
+                detected_providers.add("anthropic-api")
             if all_env.get("OPENAI_API_KEY"):
                 detected_providers.add("openai")
                 # openai-codex uses ChatGPT OAuth (not OPENAI_API_KEY) for its default endpoint.

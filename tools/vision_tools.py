@@ -453,7 +453,7 @@ def _supports_media_in_tool_results(provider: str, model: str) -> bool:
         return True
 
     # Native Anthropic
-    if p in {"anthropic", "claude", "anthropic-direct"}:
+    if p in {"anthropic", "anthropic-api", "claude", "anthropic-direct"}:
         return True
 
     # OpenAI Chat Completions and Responses

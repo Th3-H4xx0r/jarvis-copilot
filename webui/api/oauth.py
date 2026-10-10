@@ -68,7 +68,9 @@ CLAUDE_CODE_ACTION_REQUIRED = (
 
 _OAUTH_FLOWS: dict[str, dict[str, Any]] = {}
 _OAUTH_FLOWS_LOCK = threading.Lock()
-_ANTHROPIC_ENV_KEYS = ("ANTHROPIC_TOKEN", "ANTHROPIC_API_KEY")
+# Only the OAuth/setup-token slot. ANTHROPIC_API_KEY belongs to the
+# anthropic-api provider, so linking a Claude sign-in must never delete it.
+_ANTHROPIC_ENV_KEYS = ("ANTHROPIC_TOKEN",)
 
 
 def _clear_process_anthropic_env_values() -> None:
@@ -89,6 +91,16 @@ def resolve_runtime_provider_with_anthropic_env_lock(resolver, *args, **kwargs):
     Anthropic env value while onboarding has already cleared the other.
     """
     from api.streaming import _ENV_LOCK
+
+    # claude-code's login check runs `claude auth status` (≤2 s). Do it before
+    # taking the lock every chat shares, so the check inside hits its cache.
+    if str(kwargs.get("requested") or "").strip().lower() == "claude-code":
+        try:
+            from jarviscopilot_cli.auth import claude_code_login_state
+
+            claude_code_login_state()
+        except Exception:
+            logger.debug("claude-code login pre-check failed", exc_info=True)
 
     with _ENV_LOCK:
         return resolver(*args, **kwargs)
@@ -291,8 +303,8 @@ def _clear_anthropic_env_values(hermes_home: Path) -> None:
 def _link_anthropic_credentials(hermes_home: Path) -> None:
     """Link JarvisCopilot to use Claude Code's credential store.
 
-    Clears ANTHROPIC_TOKEN and ANTHROPIC_API_KEY from the JarvisCopilot .env so
-    that resolve_anthropic_token() falls through to reading Claude Code's
+    Clears ANTHROPIC_TOKEN from the JarvisCopilot .env (the API key stays — it
+    belongs to anthropic-api) so that resolve_anthropic_token() falls through to reading Claude Code's
     ~/.claude/.credentials.json directly — the same thing the CLI's
     ``use_anthropic_claude_code_credentials()`` does.
 

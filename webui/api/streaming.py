@@ -294,6 +294,16 @@ def _cancelled_turn_hint(agent_name: str | None = None) -> str:
     return f'The run was cancelled by the user before {name} finished. No provider failure occurred.'
 
 
+def _is_missing_credential_text(text) -> bool:
+    """True for "No Anthropic API key configured" / "No Claude account connected"."""
+    try:
+        from agent.error_classifier import is_missing_credential
+    except Exception:
+        logger.debug("agent.error_classifier unavailable", exc_info=True)
+        return False
+    return is_missing_credential(text)
+
+
 def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = False) -> dict:
     """Classify provider/agent failure text for WebUI apperror UX.
 
@@ -301,6 +311,10 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
     provider error classes for Codex OAuth plan limits.
     """
     err_str = str(err_str or '')
+    # Checked first: the message itself is what the user must read — no auth
+    # wording on top, and nothing (fast lane, self-heal) answers in its place.
+    if _is_missing_credential_text(err_str):
+        return {'label': 'Error', 'type': 'missing_credential', 'hint': '', 'message': err_str}
     _err_lower = err_str.lower()
     _exc_name = type(exc).__name__ if exc is not None else ''
     # A provider failure that was then cancelled/interrupted (e.g. a 429 whose
@@ -3690,6 +3704,10 @@ def _run_agent_streaming(
                 if not resolved_base_url:
                     resolved_base_url = _rt.get("base_url")
             except Exception as _e:
+                # No key / no Claude account: tell the user rather than build
+                # an agent with no credential that fails somewhere less clear.
+                if _is_missing_credential_text(_e):
+                    raise
                 print(f"[webui] WARNING: resolve_runtime_provider failed: {_e}", flush=True)
 
             # Named custom providers (custom:slug) may not be resolvable by
@@ -4553,7 +4571,7 @@ def _run_agent_streaming(
                         s.pending_started_at = None
                         _error_message = {
                             'role': 'assistant',
-                            'content': f'**{_err_label}:** {_error_payload.get("message") or _err_label}\n\n*{_err_hint}*',
+                            'content': f'**{_err_label}:** {_error_payload.get("message") or _err_label}' + (f'\n\n*{_err_hint}*' if _err_hint else ''),
                             'timestamp': int(time.time()),
                             '_error': True,
                         }
@@ -5333,7 +5351,7 @@ def _run_agent_streaming(
                 'The selected model may not be supported by your configured provider. '
                 'Run `jarviscopilot model` in your terminal to switch providers, then restart the WebUI.',
             )
-        elif _exc_is_not_found:
+        elif _exc_is_not_found or _classification['type'] == 'missing_credential':
             _exc_label, _exc_type, _exc_hint = (
                 _classification['label'], _classification['type'], _classification['hint'],
             )

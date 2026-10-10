@@ -61,6 +61,7 @@ class TestFailoverReason:
             "thinking_signature", "long_context_tier",
             "oauth_long_context_beta_forbidden",
             "llama_cpp_grammar_pattern",
+            "missing_credential",
             "unknown",
         }
         actual = {r.value for r in FailoverReason}
@@ -1320,3 +1321,49 @@ class TestMultimodalToolContentUnsupported:
         e = MockAPIError("bad request: missing field 'model'", status_code=400)
         result = classify_api_error(e, provider="openrouter", model="anthropic/claude-sonnet-4")
         assert result.reason != FailoverReason.multimodal_tool_content_unsupported
+
+
+# ── Test: missing credential (Anthropic API key / Claude account) ──────
+
+class TestMissingCredential:
+    def test_both_messages_classify_and_never_fall_back(self):
+        from agent.error_classifier import MISSING_ANTHROPIC_API_KEY, NO_CLAUDE_ACCOUNT
+        for msg in (MISSING_ANTHROPIC_API_KEY + ". Add one in Settings.",
+                    NO_CLAUDE_ACCOUNT + ". Sign in with `claude /login`."):
+            c = classify_api_error(RuntimeError(msg), provider="anthropic-api")
+            assert c.reason is FailoverReason.missing_credential
+            assert not c.retryable
+            assert not c.should_fallback
+            assert not c.should_rotate_credential
+
+    def test_wins_over_a_401_status(self):
+        from agent.error_classifier import MISSING_ANTHROPIC_API_KEY
+
+        class _E(Exception):
+            status_code = 401
+
+        c = classify_api_error(_E(MISSING_ANTHROPIC_API_KEY), provider="anthropic-api")
+        assert c.reason is FailoverReason.missing_credential
+
+    def test_helper_ignores_other_auth_errors(self):
+        from agent.error_classifier import NO_CLAUDE_ACCOUNT, is_missing_credential
+        assert is_missing_credential(RuntimeError(NO_CLAUDE_ACCOUNT))
+        assert not is_missing_credential("401 invalid x-api-key")
+        assert not is_missing_credential(None)
+
+
+class TestRejectedAnthropicApiKey:
+    class _Unauthorized(Exception):
+        status_code = 401
+
+    def test_a_401_on_anthropic_api_is_a_missing_credential(self):
+        from agent.error_classifier import MISSING_ANTHROPIC_API_KEY, is_missing_credential
+        c = classify_api_error(self._Unauthorized("invalid x-api-key"), provider="anthropic-api")
+        assert c.reason is FailoverReason.missing_credential
+        assert not c.should_fallback
+        assert MISSING_ANTHROPIC_API_KEY in c.message and "rejected" in c.message
+        assert is_missing_credential(c.message)
+
+    def test_a_401_elsewhere_is_still_a_plain_auth_error(self):
+        c = classify_api_error(self._Unauthorized("invalid x-api-key"), provider="anthropic")
+        assert c.reason is not FailoverReason.missing_credential

@@ -4218,7 +4218,10 @@ class HermesCLI:
         # Primary provider auth failed — try fallback providers before giving up.
         if runtime is None and _primary_exc is not None:
             from jarviscopilot_cli.auth import AuthError
-            if isinstance(_primary_exc, AuthError):
+            from agent.error_classifier import is_missing_credential
+            # A missing API key / Claude account is printed below — a
+            # fallback provider must not answer in its place.
+            if isinstance(_primary_exc, AuthError) and not is_missing_credential(_primary_exc):
                 _fb_chain = self._fallback_model if isinstance(self._fallback_model, list) else []
                 for _fb in _fb_chain:
                     _fb_provider = (_fb.get("provider") or "").strip().lower()

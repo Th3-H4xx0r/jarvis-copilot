@@ -253,6 +253,7 @@ def _run_hidden_turn(node, session_id, summary):
                          profile=getattr(parent, "profile", None))
     hidden.title = f"harness: {node.get('id')}"
     hidden.messages = _copy.deepcopy(getattr(parent, "messages", None) or [])
+    copied = len(hidden.messages)
     stream_id = _uuid.uuid4().hex
     hidden.active_stream_id = stream_id
     hidden._turn_node_override = node   # its own tools + instructions, not Single's
@@ -265,9 +266,14 @@ def _run_hidden_turn(node, session_id, summary):
         _run_agent_streaming(hidden.session_id, prompt, model, parent.workspace, stream_id, None,
                              model_provider=provider)
         reloaded = Session.load(hidden.session_id)
-        for m in reversed((reloaded.messages if reloaded else None) or []):
-            if isinstance(m, dict) and m.get("role") == "assistant" and not m.get("_error"):
+        # Only this run's messages: the copied history ends with the parent's
+        # previous answer, which must never come back as this node's reply.
+        added = ((reloaded.messages if reloaded else None) or [])[copied:]
+        for m in reversed(added):
+            if isinstance(m, dict) and m.get("role") == "assistant":
                 content = str(m.get("content") or "").strip()
+                if m.get("_error"):
+                    raise RuntimeError(content or "the hand-off model failed")
                 if content:
                     return content
         return ""

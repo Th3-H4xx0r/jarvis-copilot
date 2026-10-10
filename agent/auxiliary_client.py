@@ -2092,6 +2092,34 @@ def _try_anthropic(explicit_api_key: str = None) -> Tuple[Optional[Any], Optiona
     return AnthropicAuxiliaryClient(real_client, model, token, base_url, is_oauth=is_oauth), model
 
 
+def _try_anthropic_api(explicit_api_key: str = None) -> Tuple[Optional[Any], Optional[str]]:
+    """anthropic-api: the API key only, sent as x-api-key — never a Claude subscription token."""
+    try:
+        from agent.anthropic_adapter import build_anthropic_client
+        from jarviscopilot_cli.config import get_env_value, load_config
+    except ImportError:
+        return None, None
+
+    token = str(explicit_api_key or get_env_value("ANTHROPIC_API_KEY") or "").strip()
+    if not token or token.startswith(("sk-ant-oat", "sk-ant-ort")):
+        return None, None
+
+    base_url = _ANTHROPIC_DEFAULT_BASE_URL
+    try:
+        model_cfg = load_config().get("model")
+        if isinstance(model_cfg, dict) and str(model_cfg.get("provider") or "").strip().lower() == "anthropic-api":
+            base_url = (model_cfg.get("base_url") or "").strip().rstrip("/") or base_url
+    except Exception:
+        pass
+
+    model = _get_aux_model_for_provider("anthropic-api") or "claude-haiku-4-5-20251001"
+    try:
+        real_client = build_anthropic_client(token, base_url, force_api_key=True)
+    except ImportError:
+        return None, None
+    return AnthropicAuxiliaryClient(real_client, model, token, base_url, is_oauth=False), model
+
+
 _AUTO_PROVIDER_LABELS = {
     "_try_openrouter": "openrouter",
     "_try_nous": "nous",
@@ -3522,6 +3550,14 @@ def resolve_provider_client(
             final_model = _normalize_resolved_model(model or default_model, provider)
             return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode else (client, final_model))
 
+        if provider == "anthropic-api":
+            client, default_model = _try_anthropic_api(explicit_api_key=explicit_api_key)
+            if client is None:
+                logger.warning("resolve_provider_client: anthropic-api requested but no Anthropic API key configured")
+                return None, None
+            final_model = _normalize_resolved_model(model or default_model, provider)
+            return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode else (client, final_model))
+
         creds = resolve_api_key_provider_credentials(provider)
         api_key = str(creds.get("api_key", "")).strip()
         # Honour an explicit api_key override (e.g. from a fallback_model entry
@@ -3798,6 +3834,8 @@ def _resolve_strict_vision_backend(
         return resolve_provider_client("openai-codex", model, is_vision=True)
     if provider == "anthropic":
         return _try_anthropic()
+    if provider == "anthropic-api":
+        return _try_anthropic_api()
     if provider == "custom":
         return _try_custom_endpoint()
     return None, None

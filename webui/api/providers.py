@@ -671,6 +671,7 @@ print(json.dumps(_snapshot_payload(snapshot)))
 _PROVIDER_ENV_VAR: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "anthropic-api": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "google": "GOOGLE_API_KEY",
     "gemini": "GEMINI_API_KEY",

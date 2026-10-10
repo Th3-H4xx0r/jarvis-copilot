@@ -472,6 +472,8 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "qwen/qwen3-235b-a22b-fp8",
     ],
 }
+# Same Claude catalogue, billed to ANTHROPIC_API_KEY (live /v1/models wins when a key is set).
+_PROVIDER_MODELS["anthropic-api"] = _PROVIDER_MODELS["anthropic"]
 
 # Vercel AI Gateway: derive the bare-model-id catalog from the curated
 # ``VERCEL_AI_GATEWAY_MODELS`` snapshot so both the picker (tuples with descriptions)

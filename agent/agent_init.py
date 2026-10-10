@@ -305,6 +305,10 @@ def init_agent(
     elif (provider_name is None) and agent._base_url_hostname == "api.x.ai":
         agent.api_mode = "codex_responses"
         agent.provider = "xai"
+    elif agent.provider == "anthropic-api":
+        # Anthropic billed to the API key — same Messages API, its own provider
+        # name (no OAuth/subscription paths, which key on "anthropic").
+        agent.api_mode = "anthropic_messages"
     elif agent.provider == "anthropic" or (provider_name is None and agent._base_url_hostname == "api.anthropic.com"):
         agent.api_mode = "anthropic_messages"
         agent.provider = "anthropic"
@@ -645,7 +649,10 @@ def init_agent(
             # the third-party identity-injection bug.
             from agent.anthropic_adapter import _is_oauth_token as _is_oat
             agent._is_anthropic_oauth = _is_oat(effective_key) if (_is_native_anthropic and isinstance(effective_key, str)) else False
-            agent._anthropic_client = build_anthropic_client(effective_key, base_url, timeout=_provider_timeout)
+            agent._anthropic_client = build_anthropic_client(
+                effective_key, base_url, timeout=_provider_timeout,
+                force_api_key=agent.provider == "anthropic-api",
+            )
             # No OpenAI client needed for Anthropic mode
             agent.client = None
             agent._client_kwargs = {}

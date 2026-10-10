@@ -2134,6 +2134,27 @@ def run_conversation(
                     classified.should_rotate_credential, classified.should_fallback,
                 )
 
+                # No API key / no Claude account: the user has to set it up.
+                # Retrying, rotating pooled credentials or answering from a
+                # fallback model would hide that, so end the turn here.
+                if classified.reason is FailoverReason.missing_credential:
+                    missing = classified.message or str(api_error)
+                    # Surfaces read _last_error before result["error"]; a stale
+                    # one (e.g. an earlier 429) must not shadow this message.
+                    agent._last_error = missing
+                    agent._emit_status(f"❌ {missing}")
+                    agent._vprint(f"{agent.log_prefix}❌ {missing}", force=True)
+                    logger.error("%sMissing credential: %s", agent.log_prefix, missing)
+                    agent._persist_session(messages, conversation_history)
+                    return {
+                        "final_response": None,
+                        "messages": messages,
+                        "api_calls": api_call_count,
+                        "completed": False,
+                        "failed": True,
+                        "error": missing,
+                    }
+
                 recovered_with_pool, has_retried_429 = agent._recover_with_credential_pool(
                     status_code=status_code,
                     has_retried_429=has_retried_429,

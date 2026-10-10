@@ -289,7 +289,7 @@ def _build_apikey_providers_list() -> list:
     # API-key loop (with custom headers/auth). Skip their pluggable profiles
     # here so the generic Bearer-auth loop doesn't run a duplicate, broken
     # check (e.g. Anthropic native API requires x-api-key, not Bearer).
-    _dedicated_canonical = {"anthropic", "openrouter", "bedrock"}
+    _dedicated_canonical = {"anthropic", "anthropic-api", "openrouter", "bedrock"}
     _known_canonical.update(_dedicated_canonical)
     try:
         from providers import list_providers

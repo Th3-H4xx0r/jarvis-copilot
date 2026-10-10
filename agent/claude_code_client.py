@@ -30,10 +30,32 @@ from agent.external_cli_shim import (
     sanitize_model_text as _sanitize_model_text,
 )
 
+from agent.error_classifier import NO_CLAUDE_ACCOUNT
+
 logger = logging.getLogger(__name__)
 
 CLAUDE_CLI_MARKER_BASE_URL = "claude-cli://local"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
+
+# claude-code bills only the Claude subscription. When the CLI has no usable
+# login it says "Not logged in · Please run /login" (or "… · Please run /login"
+# for a rejected token); the user sees this instead.
+NO_CLAUDE_ACCOUNT_MESSAGE = (
+    f"{NO_CLAUDE_ACCOUNT}. Sign in with `claude /login` on the server, "
+    "or connect Claude Code in Settings."
+)
+_NOT_LOGGED_IN_MARKERS = ("not logged in", "please run /login")
+
+
+def is_not_logged_in_text(*texts: Any) -> bool:
+    """True when CLI output says there is no usable Claude login."""
+    blob = " ".join(str(t or "") for t in texts).lower()
+    return any(marker in blob for marker in _NOT_LOGGED_IN_MARKERS)
+
+
+def _raise_if_not_logged_in(*texts: Any) -> None:
+    if is_not_logged_in_text(*texts):
+        raise RuntimeError(NO_CLAUDE_ACCOUNT_MESSAGE)
 
 # Effort/thinking level passed to `claude -p --effort`. Opus 4.8 defaults to a
 # high effort that, on the text-shim, can spend the turn "thinking" (dropped
@@ -439,6 +461,7 @@ class ClaudeCodeClient:
         stderr = (cp.stderr or "").strip()
 
         if not stdout:
+            _raise_if_not_logged_in(stderr)
             if cp.returncode != 0:
                 raise RuntimeError(
                     f"Claude Code CLI exited with code {cp.returncode}. "
@@ -450,12 +473,14 @@ class ClaudeCodeClient:
 
         data = _parse_claude_json(stdout)
         if data is None:
+            _raise_if_not_logged_in(stdout, stderr)
             raise RuntimeError(
                 f"Claude Code CLI returned non-JSON output: {stdout[:500]}"
             )
 
         if isinstance(data, dict) and data.get("is_error"):
             msg = data.get("result") or data.get("error") or stderr or "unknown error"
+            _raise_if_not_logged_in(msg, stderr)
             raise RuntimeError(f"Claude Code error: {msg}")
         if not isinstance(data, dict):
             raise RuntimeError(
@@ -698,10 +723,13 @@ class ClaudeCodeClient:
                 try:
                     event = json.loads(line)
                 except Exception:
+                    # Plain lines are the CLI talking, never model text.
+                    _raise_if_not_logged_in(line)
                     continue
                 etype = event.get("type")
                 if etype == "result" and event.get("is_error"):
                     msg = event.get("result") or event.get("error") or "unknown error"
+                    _raise_if_not_logged_in(msg)
                     raise RuntimeError(f"Claude Code error: {msg}")
                 if etype == "assistant":
                     m = (event.get("message") or {}).get("model")
@@ -768,6 +796,7 @@ class ClaudeCodeClient:
                     stderr_tail = (proc.stderr.read() or "").strip()[:500]
             except Exception:
                 pass
+            _raise_if_not_logged_in(stderr_tail)
             raise RuntimeError(
                 f"Claude Code CLI stream ended unexpectedly. stderr: {stderr_tail}"
             )

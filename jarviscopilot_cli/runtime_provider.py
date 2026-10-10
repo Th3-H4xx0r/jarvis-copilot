@@ -1204,6 +1204,46 @@ def _resolve_explicit_runtime(
     return None
 
 
+def _resolve_anthropic_api_runtime(
+    *,
+    requested_provider: str,
+    model_cfg: Dict[str, Any],
+    explicit_api_key: Optional[str],
+    explicit_base_url: Optional[str],
+) -> Dict[str, Any]:
+    """Anthropic billed to the API key only — never a Claude subscription token.
+
+    No credential pool, no ``resolve_anthropic_token()`` (both rank Claude
+    subscription tokens first). No key → a clear error instead of a quiet
+    switch to the subscription.
+    """
+    from agent.error_classifier import MISSING_ANTHROPIC_API_KEY
+    from jarviscopilot_cli.config import get_env_value
+
+    key = str(explicit_api_key or get_env_value("ANTHROPIC_API_KEY") or "").strip()
+    if not key:
+        raise AuthError(
+            f"{MISSING_ANTHROPIC_API_KEY}. Add ANTHROPIC_API_KEY in Settings → Providers, "
+            "or pick a Claude Code model to use your Claude subscription."
+        )
+    if key.startswith(("sk-ant-oat", "sk-ant-ort")):
+        raise AuthError(
+            f"{MISSING_ANTHROPIC_API_KEY} (ANTHROPIC_API_KEY holds a Claude subscription "
+            "token, not an API key). Create a key at console.anthropic.com."
+        )
+    cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
+    cfg_base_url = str(model_cfg.get("base_url") or "").strip() if cfg_provider == "anthropic-api" else ""
+    base_url = (explicit_base_url or cfg_base_url or "https://api.anthropic.com").strip().rstrip("/")
+    return {
+        "provider": "anthropic-api",
+        "api_mode": "anthropic_messages",
+        "base_url": base_url,
+        "api_key": key,
+        "source": "explicit" if explicit_api_key else "env",
+        "requested_provider": requested_provider,
+    }
+
+
 def resolve_runtime_provider(
     *,
     requested: Optional[str] = None,
@@ -1273,6 +1313,13 @@ def resolve_runtime_provider(
         explicit_base_url=explicit_base_url,
     )
     model_cfg = _get_model_config()
+    if provider == "anthropic-api":
+        return _resolve_anthropic_api_runtime(
+            requested_provider=requested_provider,
+            model_cfg=model_cfg,
+            explicit_api_key=explicit_api_key,
+            explicit_base_url=explicit_base_url,
+        )
     explicit_runtime = _resolve_explicit_runtime(
         provider=provider,
         requested_provider=requested_provider,

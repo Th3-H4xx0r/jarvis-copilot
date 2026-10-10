@@ -56,6 +56,9 @@ def test_resolve_creds_raises_missing_claude_cli_when_not_installed(monkeypatch)
     assert err.code == "missing_claude_cli"
     msg = str(err).lower()
     assert "claude" in msg and ("install" in msg or "log in" in msg)
+    # No CLI = no way onto the subscription: shown to the user, never answered by a fallback.
+    from agent.error_classifier import is_missing_credential
+    assert is_missing_credential(err)
 
 
 # --- get_external_process_provider_status ------------------------------------

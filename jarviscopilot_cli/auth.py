@@ -5772,6 +5772,109 @@ def clear_claude_code_setup_token() -> Path:
     return write_credential_pool("claude-code", [])
 
 
+def _claude_code_command() -> str:
+    return (
+        os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
+        or os.getenv("CLAUDE_CLI_PATH", "").strip()
+        or "claude"
+    )
+
+
+# Logins that bill the Claude subscription. "api_key" (a Console key, or an
+# ANTHROPIC_API_KEY reaching the CLI) is NOT one — claude-code must never use it.
+_CLAUDE_SUBSCRIPTION_AUTH_METHODS = frozenset({"claude.ai", "oauth_token"})
+_CLAUDE_CODE_LOGIN_TTL_SECONDS = 60.0
+# "Not connected" is kept only briefly: signing in shows within seconds, while
+# the WebUI's pre-warm outside its env lock and the call inside share a probe.
+_CLAUDE_CODE_LOGIN_NEGATIVE_TTL_SECONDS = 5.0
+# resolved command -> (monotonic time, probe result). Connected probes only: a
+# sign-in takes effect on the next turn, a sign-out within a minute.
+_CLAUDE_CODE_LOGIN_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _probe_claude_code_login(resolved_command: str) -> Dict[str, Any]:
+    """One ``claude auth status`` run, in the provider's own subprocess env."""
+    info: Any = None
+    try:
+        from agent.claude_code_client import _build_subprocess_env, _parse_claude_json
+
+        cp = subprocess.run(
+            [resolved_command, "auth", "status"],
+            capture_output=True, text=True, timeout=2.0,
+            env=_build_subprocess_env(),
+        )
+        # Signed out exits non-zero but still prints the JSON.
+        info = _parse_claude_json(cp.stdout or "")
+    except Exception as exc:  # TimeoutExpired, OSError, import failure
+        logger.debug("claude auth status probe failed: %s", exc)
+
+    if not (isinstance(info, dict) and "loggedIn" in info):
+        # Hung / unreadable: assume connected; the CLI's own error backs it up.
+        return {"connected": True, "logged_in": True, "auth_method": "",
+                "subscription_type": "", "email": "", "probe_ok": False}
+    logged_in = bool(info.get("loggedIn"))
+    auth_method = str(info.get("authMethod") or "")
+    return {
+        # Older CLIs report no authMethod; the probe env has no API key, so a
+        # login there is the subscription one.
+        "connected": logged_in and (not auth_method or auth_method in _CLAUDE_SUBSCRIPTION_AUTH_METHODS),
+        "logged_in": logged_in,
+        "auth_method": auth_method,
+        "subscription_type": str(info.get("subscriptionType") or ""),
+        "email": str(info.get("email") or ""),
+        "probe_ok": True,
+    }
+
+
+def claude_code_login_state(force: bool = False) -> Dict[str, Any]:
+    """Whether claude-code can run on the Claude subscription.
+
+    Probes ``claude auth status`` with the env the provider runs ``claude``
+    with (API keys scrubbed, a managed setup-token injected) — the server env
+    would make the CLI report ``authMethod: "api_key"`` whenever
+    ANTHROPIC_API_KEY is set. Connected = logged in with a subscription auth
+    method, or a stored setup-token. A probe that hangs (2 s cap) or prints
+    something unreadable is assumed connected (``probe_ok=False``); the CLI's
+    own "Not logged in" error is the backstop. A missing binary is not
+    connected. Connected probes are cached for 60 s, not-connected ones for
+    5 s, unless ``force``.
+
+    Returns ``connected, logged_in, auth_method, subscription_type, probe_ok``
+    plus ``email``, ``command``, ``resolved_command``, ``has_setup_token``.
+    """
+    command = _claude_code_command()
+    resolved_command = shutil.which(command)
+    if not resolved_command:
+        return {"connected": False, "logged_in": False, "auth_method": "",
+                "subscription_type": "", "email": "", "probe_ok": False,
+                "command": command, "resolved_command": None,
+                "has_setup_token": has_claude_code_setup_token()}
+
+    now = time.monotonic()
+    cached = _CLAUDE_CODE_LOGIN_CACHE.get(resolved_command)
+    ttl = (
+        _CLAUDE_CODE_LOGIN_TTL_SECONDS
+        if cached and cached[1].get("connected")
+        else _CLAUDE_CODE_LOGIN_NEGATIVE_TTL_SECONDS
+    )
+    if not force and cached and now - cached[0] < ttl:
+        probe = dict(cached[1])
+    else:
+        probe = _probe_claude_code_login(resolved_command)
+        _CLAUDE_CODE_LOGIN_CACHE[resolved_command] = (now, dict(probe))
+
+    # A stored setup-token is an independent, redeploy-proof subscription
+    # login. Read fresh each call so storing/clearing one shows at once.
+    has_token = has_claude_code_setup_token()
+    return {
+        **probe,
+        "connected": probe["connected"] or has_token,
+        "command": command,
+        "resolved_command": resolved_command,
+        "has_setup_token": has_token,
+    }
+
+
 def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
     """Status snapshot for providers that run a local subprocess."""
     pconfig = PROVIDER_REGISTRY.get(provider_id)
@@ -5779,56 +5882,23 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
         return {"configured": False}
 
     if provider_id == "claude-code":
-        command = (
-            os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
-            or os.getenv("CLAUDE_CLI_PATH", "").strip()
-            or "claude"
-        )
-        resolved_command = shutil.which(command)
-        # Probe `claude auth status` for the real login state — the CLI exposes
-        # this as JSON ({"loggedIn": bool, "subscriptionType": "max"|"pro", …}),
-        # so binary-present != logged-in. A 2s timeout keeps the WebUI card
-        # responsive even when claude itself is sluggish. Default to
-        # binary-present-means-logged-in (optimistic) and only override when
-        # the probe gives us a clean JSON answer.
-        logged_in = bool(resolved_command)
-        login_info: Dict[str, Any] = {}
-        if resolved_command:
-            try:
-                import subprocess as _sp
-                cp = _sp.run(
-                    [resolved_command, "auth", "status"],
-                    capture_output=True, text=True, timeout=2.0,
-                )
-                out = (cp.stdout or "").strip()
-                if out:
-                    try:
-                        login_info = json.loads(out) or {}
-                        # Authoritative answer from the CLI.
-                        logged_in = bool(login_info.get("loggedIn"))
-                    except Exception:
-                        # Non-JSON stdout — keep the optimistic default.
-                        pass
-            except Exception:
-                # Subprocess failure — keep the optimistic default.
-                pass
-        # A stored setup-token is an independent, redeploy-proof auth path: it
-        # counts as logged-in even if the CLI's own file login is absent.
-        has_token = has_claude_code_setup_token()
-        if has_token and not logged_in:
-            logged_in = True
+        # "Logged in" = usable on the Claude subscription (see
+        # claude_code_login_state) — an API-key login doesn't count.
+        login = claude_code_login_state()
+        resolved_command = login["resolved_command"]
         return {
             "configured": bool(resolved_command),
             "provider": provider_id,
             "name": pconfig.name,
-            "command": command,
+            "command": login["command"],
             "args": [],
             "resolved_command": resolved_command,
             "base_url": pconfig.inference_base_url,
-            "logged_in": logged_in,
-            "has_setup_token": has_token,
-            "subscription_type": login_info.get("subscriptionType", ""),
-            "email": login_info.get("email", ""),
+            "logged_in": login["connected"],
+            "auth_method": login["auth_method"],
+            "has_setup_token": login["has_setup_token"],
+            "subscription_type": login["subscription_type"],
+            "email": login["email"],
         }
 
     command = (
@@ -6026,21 +6096,26 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
 
     if provider_id == "claude-code":
         # Claude Code uses the locally-installed `claude` CLI's own login —
-        # nothing to look up beyond the binary path. The base_url is a marker
-        # scheme routed to ClaudeCodeClient.
-        command = (
-            os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
-            or os.getenv("CLAUDE_CLI_PATH", "").strip()
-            or "claude"
-        )
+        # the Claude subscription only, never an API key. The base_url is a
+        # marker scheme routed to ClaudeCodeClient.
+        command = _claude_code_command()
         resolved_command = shutil.which(command)
         if not resolved_command:
+            # Carries NO_CLAUDE_ACCOUNT so no fallback model answers in its place.
             raise AuthError(
-                f"Could not find the Claude Code CLI ('{command}'). "
+                f"No Claude account connected — could not find the Claude Code CLI ('{command}'). "
                 "Install Claude Code and run `claude` to log in to your "
                 "subscription, or set HERMES_CLAUDE_CODE_COMMAND / CLAUDE_CLI_PATH.",
                 provider=provider_id,
                 code="missing_claude_cli",
+            )
+        if not claude_code_login_state()["connected"]:
+            from agent.claude_code_client import NO_CLAUDE_ACCOUNT_MESSAGE
+
+            raise AuthError(
+                NO_CLAUDE_ACCOUNT_MESSAGE,
+                provider=provider_id,
+                code="no_claude_account",
             )
         return {
             "provider": provider_id,

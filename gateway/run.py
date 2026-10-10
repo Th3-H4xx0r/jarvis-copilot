@@ -689,6 +689,11 @@ def _resolve_runtime_agent_kwargs() -> dict:
             requested=os.getenv("HERMES_INFERENCE_PROVIDER"),
         )
     except AuthError as auth_exc:
+        # No API key / no Claude account: the user has to see that — a
+        # fallback provider must not answer in its place.
+        from agent.error_classifier import is_missing_credential
+        if is_missing_credential(auth_exc):
+            raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
         # Primary provider auth failed (expired token, revoked key, etc.).
         # Try the fallback provider chain before raising.
         logger.warning("Primary provider auth failed: %s — trying fallback", auth_exc)

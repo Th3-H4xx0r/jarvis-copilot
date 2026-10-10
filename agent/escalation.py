@@ -474,7 +474,8 @@ def default_runner(job: dict) -> str:
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue
             if message.get("_error"):
-                continue
+                # Report it (job marked failed, user told) instead of "" → dropped.
+                raise RuntimeError(str(message.get("content") or "").strip() or "escalation model failed")
             content = str(message.get("content") or "").strip()
             if content:
                 return content

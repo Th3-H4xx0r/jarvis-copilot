@@ -3810,7 +3810,8 @@ def handle_get(handler, parsed) -> bool:
         return True
 
     if parsed.path == "/api/models":
-        return j(handler, get_available_models())
+        from api.config import picker_catalog
+        return j(handler, picker_catalog(get_available_models()))
 
     if parsed.path == "/api/tools/catalog":
         return j(handler, _build_tools_catalog())

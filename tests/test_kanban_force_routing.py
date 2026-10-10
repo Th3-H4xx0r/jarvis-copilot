@@ -86,3 +86,33 @@ def test_opt_out_allows_anthropic(tmp_path):
     _apply_worker_routing_env(env, _task(), home)
     assert "HERMES_FORCE_PROVIDER" not in env
     assert "HERMES_FORCE_MODEL" not in env
+
+
+def test_anthropic_api_profile_runs_on_the_api_key(tmp_path):
+    # anthropic-api bills the API key — its workers must not be forced onto the subscription.
+    home = _write_profile(
+        tmp_path, {"provider": "anthropic-api", "default": "claude-sonnet-5-5"}
+    )
+    env = {}
+    _apply_worker_routing_env(env, _task(), home)
+    assert "HERMES_FORCE_PROVIDER" not in env
+    assert "HERMES_INFERENCE_PROVIDER" not in env
+
+
+def test_bare_claude_override_on_an_anthropic_api_profile_stays_on_the_key(tmp_path):
+    home = _write_profile(
+        tmp_path, {"provider": "anthropic-api", "default": "claude-sonnet-5-5"}
+    )
+    env = {}
+    _apply_worker_routing_env(env, _task(model_override="claude-opus-5-5"), home)
+    assert "HERMES_FORCE_PROVIDER" not in env
+    assert env["HERMES_INFERENCE_MODEL"] == "claude-opus-5-5"
+
+
+def test_explicit_old_anthropic_override_still_forced_on_an_anthropic_api_profile(tmp_path):
+    home = _write_profile(
+        tmp_path, {"provider": "anthropic-api", "default": "claude-sonnet-5-5"}
+    )
+    env = {}
+    _apply_worker_routing_env(env, _task(model_override="@anthropic:claude-opus-5-5"), home)
+    assert env["HERMES_FORCE_PROVIDER"] == "claude-code"

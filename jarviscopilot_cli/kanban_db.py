@@ -5827,7 +5827,8 @@ def _profile_targets_claude(provider: str, model: str) -> bool:
     flag. Genuinely non-claude profiles (glm-5-1 → GLM, codex, …) return False.
     """
     p = (provider or "").strip().lower()
-    if p in _NON_CLAUDE_PROVIDERS:
+    # anthropic-api bills the API key on purpose — never force it onto the subscription.
+    if p in _NON_CLAUDE_PROVIDERS or p == "anthropic-api":
         return False
     if p in ("anthropic", "claude-code"):
         return True
@@ -5862,7 +5863,13 @@ def _apply_worker_routing_env(env: dict, task: Task, profile_home: Optional[str]
 
     override = (task.model_override or "").strip()
     if override:
-        if _model_is_anthropic_claude(override):
+        # A bare claude-… override inherits the profile's provider; on an
+        # anthropic-api profile that's the API key, so leave it there.
+        on_api_key = (
+            not override.startswith("@")
+            and str(_profile_model_config(profile_home)[0] or "").strip().lower() == "anthropic-api"
+        )
+        if _model_is_anthropic_claude(override) and not on_api_key:
             bare = _bare_model_id(override)
             env["HERMES_INFERENCE_MODEL"] = bare
             env["HERMES_INFERENCE_PROVIDER"] = "claude-code"

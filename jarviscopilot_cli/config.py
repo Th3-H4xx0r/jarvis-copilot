@@ -5171,17 +5171,21 @@ def remove_env_value(key: str) -> bool:
 
 
 def save_anthropic_oauth_token(value: str, save_fn=None):
-    """Persist an Anthropic OAuth/setup token and clear the API-key slot."""
+    """Persist an Anthropic OAuth/setup token.
+
+    ANTHROPIC_API_KEY is left alone — it belongs to the anthropic-api provider.
+    """
     writer = save_fn or save_env_value
     writer("ANTHROPIC_TOKEN", value)
-    writer("ANTHROPIC_API_KEY", "")
 
 
 def use_anthropic_claude_code_credentials(save_fn=None):
-    """Use Claude Code's own credential files instead of persisting env tokens."""
+    """Use Claude Code's own credential files instead of persisting env tokens.
+
+    ANTHROPIC_API_KEY is left alone — it belongs to the anthropic-api provider.
+    """
     writer = save_fn or save_env_value
     writer("ANTHROPIC_TOKEN", "")
-    writer("ANTHROPIC_API_KEY", "")
 
 
 def save_anthropic_api_key(value: str, save_fn=None):

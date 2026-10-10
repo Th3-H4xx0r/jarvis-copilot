@@ -700,6 +700,11 @@ def _voice_quality_turn(handler, body) -> bool:
                 q = _format_clarify_speech(seg.get("question", ""), seg.get("choices") or [])
                 if q and not _emit_text(q):
                     return True
+            elif seg.get("kind") == "error":
+                # Say what failed (e.g. "No Anthropic API key configured.") — the
+                # realtime path does; push-to-talk used to just go silent.
+                if not _emit_text(_spoken_failure(seg)):
+                    return True
             # tool segments are intentionally suppressed in voice mode
     except _VoiceAgentError as exc:
         _emit({"type": "error", "error": str(exc), "status": exc.status})
@@ -1125,6 +1130,14 @@ def _cancel_active_voice_stream(state: dict) -> None:
 _OVERRIDE_COOLDOWN: dict = {}
 _OVERRIDE_COOLDOWN_SECONDS = 10 * 60
 
+# Failure classes (see _failure_class) on which the phone's override model is
+# silently rerun on the fast lane. "missing_credential" is deliberately absent:
+# "No Anthropic API key configured" / "No Claude account connected" must be
+# spoken, never answered by another model.
+_FAST_LANE_FALLBACK_CLASSES = frozenset(
+    {"quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found", "error"}
+)
+
 
 def _override_key(model: str, provider: str) -> tuple:
     return ((model or "").strip().lower(), (provider or "").strip().lower())
@@ -1368,7 +1381,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # user asked for the switch to be invisible) and put the pick on
             # cooldown so the next turns skip the failing round trip.
             if (seg.get("kind") == "error" and explicit_override and fast_lane
-                    and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found", "error")):
+                    and _failure_class(seg) in _FAST_LANE_FALLBACK_CLASSES):
                 _cls = _failure_class(seg)
                 print(f"[webui] voice: override model failed ({_cls}); rerunning on the fast lane", flush=True)
                 fallback_to_fast = True
@@ -2837,7 +2850,8 @@ def _failure_class(seg: dict) -> str:
     may carry a generic type ("apperror"/"error"), so re-classify from the text
     too — "You're out of extra usage" is a quota failure, not a plain error."""
     etype = str(seg.get("etype") or "")
-    if etype in ("quota_exhausted", "rate_limit", "auth_mismatch", "cancel", "model_not_found"):
+    if etype in ("quota_exhausted", "rate_limit", "auth_mismatch", "cancel", "model_not_found",
+                 "missing_credential"):
         return etype
     try:
         from api.streaming import _classify_provider_error  # type: ignore
@@ -2862,6 +2876,22 @@ def _strip_model_ack(text: str) -> str:
     return stripped if stripped != (text or "").strip() else text
 
 
+def _spoken_missing_credential(text: str) -> str:
+    """The missing-credential message itself, as one short spoken sentence.
+    The full text (with the Settings hint) is in the chat transcript."""
+    _ensure_hermes_on_path()
+    try:
+        from agent.error_classifier import MISSING_ANTHROPIC_API_KEY, NO_CLAUDE_ACCOUNT  # type: ignore
+        for phrase in (NO_CLAUDE_ACCOUNT, MISSING_ANTHROPIC_API_KEY):
+            if phrase in text:
+                return phrase + "."
+    except Exception:
+        pass
+    first = re.split(r"(?<=[.!?])\s", re.sub(r"\s+", " ", text).strip(), maxsplit=1)[0]
+    first = re.sub(r"[`*_]+", "", first)[:140].rstrip(" .:")
+    return f"{first}." if first else "A model credential is missing. Check Settings."
+
+
 def _spoken_failure(seg: dict) -> str:
     """One spoken sentence for a failed turn, by the streaming layer's error class."""
     etype = _failure_class(seg)
@@ -2872,6 +2902,8 @@ def _spoken_failure(seg: dict) -> str:
         return "That model's credentials aren't working. Please check the provider login."
     if etype == "cancel":
         return "Okay, cancelled."
+    if etype == "missing_credential":
+        return _spoken_missing_credential(str(seg.get("text") or seg.get("label") or ""))
     detail = re.sub(r"\s+", " ", str(seg.get("text") or seg.get("label") or "")).strip()
     detail = re.sub(r"https?://\S+", "", detail)[:140].rstrip(" .:")
     return f"Sorry, the model returned an error: {detail}." if detail else "Sorry, the model returned an error."

@@ -107,6 +107,11 @@ def _write_user_turn(proc: subprocess.Popen, user_text: str) -> None:
     proc.stdin.flush()
 
 
+def _is_not_logged_in(*texts: Any) -> bool:
+    from agent.claude_code_client import is_not_logged_in_text
+    return is_not_logged_in_text(*texts)
+
+
 def _consume_turn(
     proc: subprocess.Popen,
     *,
@@ -150,9 +155,16 @@ def _consume_turn(
             state["session_id"] = sid
         etype = ev.get("type")
         if etype == "assistant":
-            for block in (ev.get("message") or {}).get("content") or []:
+            _msg = ev.get("message") or {}
+            # The CLI reports its own failures as a synthetic assistant message
+            # ("Not logged in · Please run /login") before the error result —
+            # that's not a reply, so it must not be streamed to the user.
+            _synthetic = bool(ev.get("error")) or _msg.get("model") == "<synthetic>"
+            for block in _msg.get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "text":
                     t = block.get("text") or ""
+                    if t and _synthetic and _is_not_logged_in(t):
+                        continue
                     if t:
                         text_parts.append(t)
                         if on_text is not None:
@@ -172,6 +184,16 @@ def _consume_turn(
                 # instead of treating the error string as a real reply.
                 if isinstance(rtext, str) and rtext.strip():
                     error = rtext.strip()
+                # No usable Claude login: say so in the shared words (the
+                # classifier then ends the turn — no fallback model answers).
+                if _is_not_logged_in(error):
+                    from agent.claude_code_client import NO_CLAUDE_ACCOUNT_MESSAGE
+                    error = NO_CLAUDE_ACCOUNT_MESSAGE
+                    # An older CLI may not tag its synthetic message; drop
+                    # it when it is nothing but the login error itself.
+                    _shown = "".join(text_parts)
+                    if len(_shown) < 200 and _is_not_logged_in(_shown):
+                        text_parts.clear()
             # Fallback: if no `assistant` text block was seen (some replies
             # land only in the final result), use the result text so the turn
             # isn't treated as empty (which breaks voice → "no_reply" and

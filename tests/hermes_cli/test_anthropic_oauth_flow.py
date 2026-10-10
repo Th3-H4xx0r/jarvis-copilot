@@ -25,11 +25,13 @@ def test_run_anthropic_oauth_flow_prefers_claude_code_credentials(tmp_path, monk
     from jarviscopilot_cli.main import _run_anthropic_oauth_flow
 
     save_env_value("ANTHROPIC_TOKEN", "stale-env-token")
+    save_env_value("ANTHROPIC_API_KEY", "sk-ant-api03-key")
     assert _run_anthropic_oauth_flow(save_env_value) is True
 
     env_vars = load_env()
     assert env_vars["ANTHROPIC_TOKEN"] == ""
-    assert env_vars["ANTHROPIC_API_KEY"] == ""
+    # The API key belongs to the anthropic-api provider — linking Claude keeps it.
+    assert env_vars["ANTHROPIC_API_KEY"] == "sk-ant-api03-key"
     output = capsys.readouterr().out
     assert "Claude Code credentials linked" in output
 

@@ -18,6 +18,17 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# The two "you haven't set this up" errors. A fallback model must never answer
+# in their place — the user has to see them (Anthropic API vs Claude subscription).
+MISSING_ANTHROPIC_API_KEY = "No Anthropic API key configured"
+NO_CLAUDE_ACCOUNT = "No Claude account connected"
+
+
+def is_missing_credential(text) -> bool:
+    """True for the two errors a fallback must never answer in place of."""
+    s = str(text or "")
+    return MISSING_ANTHROPIC_API_KEY in s or NO_CLAUDE_ACCOUNT in s
+
 
 # ── Error taxonomy ──────────────────────────────────────────────────────
 
@@ -27,6 +38,7 @@ class FailoverReason(enum.Enum):
     # Authentication / authorization
     auth = "auth"                        # Transient auth (401/403) — refresh/rotate
     auth_permanent = "auth_permanent"    # Auth failed after refresh — abort
+    missing_credential = "missing_credential"  # No API key / no Claude account — show it, never fall back
 
     # Billing / quota
     billing = "billing"                  # 402 or confirmed credit exhaustion — rotate immediately
@@ -414,6 +426,15 @@ def classify_api_error(
     Returns:
         ClassifiedError with reason and recovery action hints.
     """
+    if is_missing_credential(error):
+        return ClassifiedError(
+            reason=FailoverReason.missing_credential,
+            provider=provider or None,
+            model=model or None,
+            message=str(error),
+            retryable=False,
+        )
+
     status_code = _extract_status_code(error)
     error_type = type(error).__name__
     # Copilot/GitHub Models RateLimitError may not set .status_code; force 429
@@ -423,6 +444,23 @@ def classify_api_error(
         status_code = 429
     body = _extract_error_body(error)
     error_code = _extract_error_code(body)
+
+    # Anthropic API (billed to the key) rejected the key: not temporary, and a
+    # fallback model answering would hide it — same treatment as no key at all.
+    if status_code == 401 and (provider or "").strip().lower() == "anthropic-api":
+        err = body.get("error") if isinstance(body, dict) else None
+        detail = (err.get("message") if isinstance(err, dict) else "") or str(error)[:160]
+        return ClassifiedError(
+            reason=FailoverReason.missing_credential,
+            status_code=401,
+            provider=provider,
+            model=model or None,
+            message=(
+                f"{MISSING_ANTHROPIC_API_KEY} that Anthropic accepts — it rejected "
+                f"ANTHROPIC_API_KEY ({detail}). Update the key in Settings → Providers."
+            ),
+            retryable=False,
+        )
 
     # Build a comprehensive error message string for pattern matching.
     # str(error) alone may not include the body message (e.g. OpenAI SDK's

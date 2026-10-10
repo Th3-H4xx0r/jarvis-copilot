@@ -74,6 +74,7 @@ _AGGREGATOR_PROVIDERS: frozenset[str] = frozenset({
 # Providers that want bare names with dots replaced by hyphens.
 _DOT_TO_HYPHEN_PROVIDERS: frozenset[str] = frozenset({
     "anthropic",
+    "anthropic-api",
 })
 
 # Providers that want bare names with dots preserved.
@@ -412,7 +413,10 @@ def normalize_model_for_provider(model_input: str, target_provider: str) -> str:
 
     # --- Anthropic: strip matching provider prefix, dots -> hyphens ---
     if provider in _DOT_TO_HYPHEN_PROVIDERS:
-        bare = _strip_matching_provider_prefix(name, provider)
+        # anthropic-api serves the same catalogue — strip "anthropic/" too.
+        bare = _strip_matching_provider_prefix(
+            name, "anthropic" if provider == "anthropic-api" else provider
+        )
         if "/" in bare:
             return bare
         return _dots_to_hyphens(bare)

@@ -491,7 +491,7 @@ def test_anthropic_worker_reports_link_errors(monkeypatch, tmp_path):
     }
 
 
-def test_anthropic_link_clears_env_and_writes_secret_free_marker(monkeypatch, tmp_path):
+def test_anthropic_link_clears_the_token_keeps_the_api_key_and_writes_secret_free_marker(monkeypatch, tmp_path):
     import api.oauth as oauth
     from api.onboarding import _provider_oauth_authenticated
 
@@ -504,10 +504,11 @@ def test_anthropic_link_clears_env_and_writes_secret_free_marker(monkeypatch, tm
 
     env_text = env_path.read_text(encoding="utf-8")
     assert "ANTHROPIC_TOKEN" not in env_text
-    assert "ANTHROPIC_API_KEY" not in env_text
+    # The API key belongs to the anthropic-api provider — linking Claude keeps it.
+    assert "ANTHROPIC_API_KEY=old-key" in env_text
     assert "OTHER=value" in env_text
     assert "ANTHROPIC_TOKEN" not in os.environ
-    assert "ANTHROPIC_API_KEY" not in os.environ
+    assert os.environ["ANTHROPIC_API_KEY"] == "old-key"
     auth = json.loads((tmp_path / "auth.json").read_text(encoding="utf-8"))
     marker = auth["credential_pool"]["anthropic"][0]
     assert marker["auth_type"] == "oauth"
@@ -556,7 +557,7 @@ def test_anthropic_env_clear_waits_for_chat_env_read_lock(monkeypatch, tmp_path)
     assert done.is_set()
     assert errors == []
     assert "ANTHROPIC_TOKEN" not in os.environ
-    assert "ANTHROPIC_API_KEY" not in os.environ
+    assert os.environ["ANTHROPIC_API_KEY"] == "old-key"
 
 
 def test_runtime_provider_reads_use_anthropic_env_lock():

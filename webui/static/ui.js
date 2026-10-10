@@ -758,6 +758,12 @@ function _providerDefersMissingModelFallback(providerId){
   // not been hydrated yet (#2405).
   return p.startsWith('custom:')||p==='openrouter';
 }
+function _isHiddenAnthropicPin(modelId, providerId){
+  // The old "anthropic" provider is hidden from the picker (Anthropic API and
+  // Claude Code replace it); chats pinned to it keep their model.
+  const p=String(providerId||_providerFromModelValue(modelId)||'').toLowerCase();
+  return p==='anthropic';
+}
 function _modelStateForSelect(sel, modelId){
   const value=String(modelId||'').trim();
   if(!value) return {model:'',model_provider:null};
@@ -4647,7 +4653,7 @@ function syncTopbar(){
       // default rather than silently retaining the previous chat's selection (#1771).
       if(!applied){
         const deferModelCorrection=Boolean(S.session._modelResolutionDeferred);
-        const missingModelIsRoutable=_providerDefersMissingModelFallback(S.session.model_provider||window._activeProvider||null);
+        const missingModelIsRoutable=_providerDefersMissingModelFallback(S.session.model_provider||window._activeProvider||null)||_isHiddenAnthropicPin(currentModel,S.session.model_provider);
         // Also defer if a live model fetch is still in flight — the model may be
         // in the list once the fetch completes. Persisting now would corrupt the
         // session with the wrong model before live models arrive (#1169).
