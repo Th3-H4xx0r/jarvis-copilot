@@ -80,6 +80,10 @@ class CloudLink {
   /// A short agent turn in this board's one persistent events session; returns once
   /// the server has accepted it.
   bool agent_turn(const String& prompt, String& error);
+  /// Pushes `{"type":"event","name":<name>,"data":<data_json>}` on the open bridge.
+  /// `name` is a plain identifier, `data_json` already-serialised JSON. False when the
+  /// bridge is down or the write failed, so the caller can keep the event for later.
+  bool send_event(const String& name, const String& data_json);
 
   /// True once per state change so the sketch can announce it.
   bool take_state_changed() { const bool c = state_changed_; state_changed_ = false; return c; }
@@ -105,7 +109,7 @@ class CloudLink {
   bool ws_connect();
   void ws_close();
   bool ws_send_text(const String& text);
-  void ws_send_frame(uint8_t opcode, const uint8_t* data, size_t len);
+  bool ws_send_frame(uint8_t opcode, const uint8_t* data, size_t len);
   void ws_poll(uint32_t now);
   void ws_handle_text(const char* text, size_t len);
   void ws_handle_invoke(JsonVariantConst msg);

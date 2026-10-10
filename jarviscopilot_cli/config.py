@@ -2576,6 +2576,20 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
+    "TUYA_ACCESS_ID": {
+        "description": "Tuya IoT cloud project Access ID (door alarm setup + cloud fallback)",
+        "prompt": "Tuya Access ID",
+        "url": "https://platform.tuya.com",
+        "password": False,
+        "category": "tool",
+    },
+    "TUYA_ACCESS_SECRET": {
+        "description": "Tuya IoT cloud project Access Secret (door alarm)",
+        "prompt": "Tuya Access Secret",
+        "url": "https://platform.tuya.com",
+        "password": True,
+        "category": "tool",
+    },
     "SONIOX_API_KEY": {
         "description": "Soniox speech-to-text (Live, Voice and uploads when set to Soniox)",
         "prompt": "Soniox API key",

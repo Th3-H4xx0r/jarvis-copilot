@@ -323,6 +323,9 @@ final class AppServices {
         CarLightsManager.shared.start()          // pending links to paired lights: they connect when the car is on
         CarLightsDevice.shared.refreshMembership()
 
+        // 10f. The door alarm: it runs on the server; the phone lends its alarm sound and Face ID.
+        DoorAlarmDevice.shared.start()
+
         // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.

@@ -199,6 +199,7 @@ struct ScanView: View {
     /// unlinked from the car).
     @ViewBuilder private var carCards: some View {
         CarEntryCard(namespace: cardNamespace)
+        DoorAlarmEntryCard(namespace: cardNamespace)
         ForEach(links.topLevel, id: \.kind) { $0.card(namespace: cardNamespace) }
     }
 

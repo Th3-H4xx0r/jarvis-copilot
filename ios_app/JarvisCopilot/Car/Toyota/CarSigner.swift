@@ -180,13 +180,16 @@ final class ToyotaApprover {
         self.now = now
     }
 
-    /// Face ID, then a signature over `jarvis-car|<command>|<nonce>|<ts>` — the time taken after Face ID.
-    /// `nonce` is an approval's id when answering Jarvis, else a fresh random one.
-    func proof(for command: String, title: String, nonce: String = UUID().uuidString) async throws -> Proof {
+    /// Face ID, then a signature over `<domain>|<command>|<nonce>|<ts>` — the time taken after Face ID.
+    /// `nonce` is an approval's id when answering Jarvis, else a fresh random one. `domain` keeps the
+    /// car's signatures (`jarvis-car`) apart from the door alarm's (`jarvis-home`): the same key signs
+    /// both, and the server never accepts one as the other.
+    func proof(for command: String, title: String, nonce: String = UUID().uuidString,
+               domain: String = "jarvis-car") async throws -> Proof {
         let auth = try await signer.authenticate(reason: title)
         try await ensureRegistered(auth: auth)
         let ts = Int(now().timeIntervalSince1970)
-        let signature = try await signer.sign(Data("jarvis-car|\(command)|\(nonce)|\(ts)".utf8), auth: auth)
+        let signature = try await signer.sign(Data("\(domain)|\(command)|\(nonce)|\(ts)".utf8), auth: auth)
         return Proof(nonce: nonce, ts: ts, signature: signature.base64EncodedString())
     }
 

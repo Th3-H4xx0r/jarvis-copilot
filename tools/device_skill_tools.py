@@ -538,15 +538,16 @@ def rebuild_device_tools() -> list[dict]:
     try:
         from api import device_bridge
         flat = device_bridge.all_device_skills()
+        server_only = device_bridge.SERVER_ONLY_SKILLS
     except Exception:
-        flat = []
+        flat, server_only = [], frozenset()
 
     grouped: dict[str, list[dict]] = {}
     for entry in flat:
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name") or "").strip()
-        if not name:
+        if not name or name in server_only:
             continue
         grouped.setdefault(name, []).append({
             "device_id": entry.get("device_id"),

@@ -42,8 +42,10 @@ class ApprovalError(Exception):
         self.code = code
 
 
-def message(command: str, nonce: str, ts: int) -> bytes:
-    return f"jarvis-car|{command}|{nonce}|{ts}".encode()
+def message(command: str, nonce: str, ts: int, domain: str = "jarvis-car") -> bytes:
+    """What a command approval is signed over. ``domain`` keeps the car's and the door alarm's
+    ("jarvis-home") signatures apart: one can never be replayed as the other."""
+    return f"{domain}|{command}|{nonce}|{ts}".encode()
 
 
 def register_message(public_key: str, ts: int) -> bytes:
@@ -180,7 +182,7 @@ class Approver:
         except InvalidSignature as exc:
             raise ApprovalError(f"The signature isn't from {whose}.", "bad_signature") from exc
 
-    def verify(self, command: str, nonce: Any, ts: Any, signature: Any) -> None:
+    def verify(self, command: str, nonce: Any, ts: Any, signature: Any, domain: str = "jarvis-car") -> None:
         """Raise ApprovalError unless this is a fresh, unused signature by the registered key."""
         with self._lock:
             self._load()
@@ -195,7 +197,7 @@ class Approver:
         sig = _signature(signature)
         self._check_time(stamp)
         try:
-            self._check_signature(_load_key(current), sig, message(command, nonce, stamp), "this iPhone")
+            self._check_signature(_load_key(current), sig, message(command, nonce, stamp, domain), "this iPhone")
         except ApprovalError as exc:
             raise ApprovalError("Face ID approval didn't check out on this server.", exc.code) from exc
         now = self.clock()
@@ -211,8 +213,11 @@ class Approver:
 class Approvals:
     """Commands Jarvis asked for, waiting for Face ID on the phone."""
 
-    def __init__(self, clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, clock: Callable[[], float] = time.time, titles: dict | None = None,
+                 label: str = "car") -> None:
         self.clock = clock
+        self.titles = TITLES if titles is None else titles
+        self.label = label
         self._items: dict[str, dict] = {}
         self._asked: list[float] = []
         self._lock = threading.Lock()
@@ -224,14 +229,14 @@ class Approvals:
                 del self._items[key]
 
     def create(self, command: str, source: str = "Jarvis") -> dict:
-        item = {"id": secrets.token_hex(12), "command": command, "title": TITLES.get(command, command),
+        item = {"id": secrets.token_hex(12), "command": command, "title": self.titles.get(command, command),
                 "source": source, "created": self.clock()}
         with self._lock:
             self._sweep()
             now = self.clock()
             self._asked = [at for at in self._asked if now - at < 60]
             if len(self._asked) >= CREATE_LIMIT:
-                raise ApprovalError("Too many car approvals asked for. Wait a minute.", "rate_limited")
+                raise ApprovalError(f"Too many {self.label} approvals asked for. Wait a minute.", "rate_limited")
             self._asked.append(now)
             # One waiting approval per command: asking twice replaces the older one.
             for key, other in list(self._items.items()):

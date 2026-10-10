@@ -31,6 +31,7 @@
 #include "ScriptRuntime.h"
 #include "CloudLink.h"
 #include "Ancs.h"
+#include "TuyaLocal.h"
 
 namespace cfg = jarvis::config;
 namespace pins = jarvis::pins;
@@ -76,6 +77,8 @@ jarvis::CloudLink g_cloud;
 bool g_cloud_boot = false;   // booted without Bluetooth, holding the bridge instead
 jarvis::AncsClient g_ancs;
 bool g_relay_enabled = false;  // iPhone-notification relay for the glasses (NVS, read at boot)
+// Local Tuya LAN session to a door-sensor hub, relayed to Jarvis as bridge events.
+jarvis::TuyaLocal g_door;
 
 // Reply capture for commands the cloud bridge runs through dispatch().
 struct CapturedFrame { uint8_t len; uint8_t bytes[proto::max_frame]; };
@@ -609,7 +612,12 @@ const char skills_json[] PROGMEM = R"JSON([
 {"name":"esp32_all_off","description":"Set every output low and cancel any PWM, pulse or blink. The safe stop.","input_schema":{"type":"object","properties":{}}},
 {"name":"esp32_upload_script","description":"Program the board: upload a Lua script that runs on it (sandboxed, survives reboots). Replaces the current script. See the jarvis-esp32 skill for the API. Returns the compile result.","input_schema":{"type":"object","properties":{"source":{"type":"string","description":"Lua 5.4 source, up to 16 KB"},"name":{"type":"string"},"autostart":{"type":"boolean","default":true}},"required":["source","name"]}},
 {"name":"esp32_script_status","description":"State of the script on the board (none/stopped/running/finished/error), its name and last error, plus recent console output.","input_schema":{"type":"object","properties":{"log_lines":{"type":"integer","default":20}}}},
-{"name":"esp32_script_control","description":"start, stop or delete the script stored on the board.","input_schema":{"type":"object","properties":{"action":{"type":"string","enum":["start","stop","delete"]}},"required":["action"]}}
+{"name":"esp32_script_control","description":"start, stop or delete the script stored on the board.","input_schema":{"type":"object","properties":{"action":{"type":"string","enum":["start","stop","delete"]}},"required":["action"]}},
+{"name":"esp32_door_configure","description":"Point the board at a Tuya (Smart Life) Wi-Fi door-sensor hub on its LAN and (re)start the local link. Stored on the board. Without ip/version it finds both from the hub's broadcasts.","input_schema":{"type":"object","properties":{"dev_id":{"type":"string"},"local_key":{"type":"string","minLength":16,"maxLength":16},"ip":{"type":"string"},"version":{"type":"string","enum":["3.3","3.4","3.5","auto"],"default":"auto"}},"required":["dev_id","local_key"]}},
+{"name":"esp32_door_set","description":"Write data points on the door-sensor hub. Returns once sent; the next door_report confirms the new values.","input_schema":{"type":"object","properties":{"dps":{"type":"object","description":"DP id (string) to value, e.g. {\"1\": true}"}},"required":["dps"]}},
+{"name":"esp32_door_query","description":"Ask the door-sensor hub for all its data points. Returns them if it answers within 3 s, otherwise pending (they still arrive as a door_report).","input_schema":{"type":"object","properties":{}}},
+{"name":"esp32_door_status","description":"The board's local link to the door-sensor hub: configured, state, ip, protocol version, last report age, heartbeat round trip, Wi-Fi RSSI, last error.","input_schema":{"type":"object","properties":{}}},
+{"name":"esp32_door_forget","description":"Forget the door-sensor hub: clear its stored id and key and close the local link.","input_schema":{"type":"object","properties":{}}}
 ])JSON";
 
 void dispatch(const uint8_t* bytes, size_t len, Link link);
@@ -680,6 +688,7 @@ bool run_skill(const char* skill, JsonVariantConst args, JsonDocument& result, S
     return true;
   };
 
+  if (name.startsWith("esp32_door_")) return g_door.run_skill(name, args, result, error);
   if (name == "esp32_get_state") {
     result["connected"] = true;
     result["link"] = "cloud";
@@ -1365,6 +1374,11 @@ void setup() {
 
   const String name = device_name();
   g_cloud.begin(skills_json, run_skill);
+  // Door-hub events ride the bridge; while it's down door_report is queued and door_link
+  // just waits for the next one.
+  g_door.begin([](const char* event, const String& data) {
+    return g_cloud.connected() && g_cloud.send_event(event, data);
+  });
   g_cloud_boot = g_cloud.cloud_mode();
   g_pairing_boot = g_cloud.has_pending_pairing();
   g_pairing_boot_started = millis();
@@ -1403,6 +1417,8 @@ void loop() {
   if (g_wifi.take_state_changed()) send_wifi_changed();
   service_pairing_boot(now);
   if (!g_pairing_boot) g_cloud.service(now, g_wifi.state() == proto::WifiState::connected);
+  // Runs in either mode once a hub is configured; events need the cloud bridge.
+  if (!g_pairing_boot) g_door.service(millis(), g_wifi.state() == proto::WifiState::connected, g_cloud.connected());
   service_auto_cloud(now);
   if (g_cloud.take_state_changed()) send_cloud_changed();
   if (!g_pairing_boot) g_script.service(now);

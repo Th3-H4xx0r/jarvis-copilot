@@ -1,0 +1,13 @@
+name: door_alarm
+version: 1.0.0
+description: "Pranav's Smart Life (Tuya) door-sensor hub as a security alarm: status, arm, Face ID disarm, hub settings, history. Local via an ESP32 proxy, Tuya's cloud for setup and fallback."
+author: Pranav Krishna
+kind: backend
+provides_tools:
+  - door_status
+  - door_arm
+  - door_disarm
+  - door_silence
+  - door_set
+  - door_history
+  - door_settings

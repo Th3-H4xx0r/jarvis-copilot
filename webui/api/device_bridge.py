@@ -108,6 +108,56 @@ def _notify_registry_change() -> None:
             logger.debug("device-bridge registry-change callback raised", exc_info=True)
 
 
+# Skills only the server itself may call (in-process): never an agent tool, never through
+# /api/devices/skills/invoke. The door alarm's proxy and phone-ring skills would otherwise let an
+# injected or overheard request switch the siren off or blind the alarm without Face ID.
+SERVER_ONLY_SKILLS = frozenset({"esp32_door_configure", "esp32_door_set", "esp32_door_forget",
+                                "door_alarm_ring"})
+
+
+# ── Inbound device events ───────────────────────────────────────────────────
+# A board streams data to a server-side feature with {"type":"event","name":..,"data":{..}}
+# (the door alarm's ESP32 proxy sends door_report / door_link). One worker thread, so a
+# device's events reach the handler in the order they arrived and never block the pump.
+_EVENT_HANDLERS: dict = {}
+_EVENT_LOCK = threading.Lock()
+_EVENT_POOL = None
+
+
+def on_device_event(name: str, handler) -> None:
+    """Route inbound ``event`` frames named ``name`` to ``handler(device_id, data)``.
+    ``None`` removes it. One handler per name; a raising handler is logged and skipped."""
+    with _EVENT_LOCK:
+        if handler is None:
+            _EVENT_HANDLERS.pop(name, None)
+        else:
+            _EVENT_HANDLERS[name] = handler
+
+
+def _dispatch_event(conn: "_DeviceConn", msg: dict) -> None:
+    global _EVENT_POOL
+    name, data = msg.get("name"), msg.get("data")
+    if not isinstance(name, str) or not isinstance(data, dict):
+        return
+    with _EVENT_LOCK:
+        handler = _EVENT_HANDLERS.get(name)
+        if handler is None:
+            return
+        if _EVENT_POOL is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _EVENT_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="device-event")
+        pool = _EVENT_POOL
+    device_id = conn.device_id
+
+    def run():
+        try:
+            handler(device_id, data)
+        except Exception:
+            logger.warning("device event handler %r raised", name, exc_info=True)
+
+    pool.submit(run)
+
+
 def in_process_available() -> bool:
     """True when this process hosts the live device-bridge WS registry.
 
@@ -1361,6 +1411,9 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         return
     if t in _CODING_INBOUND_TYPES:
         _dispatch_coding_frame(conn, msg)
+        return
+    if t == "event":
+        _dispatch_event(conn, msg)
         return
     if t == "ping":
         try:

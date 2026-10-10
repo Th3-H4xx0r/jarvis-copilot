@@ -13,6 +13,9 @@ firmware/
     ScriptRuntime.h/.cpp   sandboxed Lua runtime for app/Jarvis-written scripts
     Ancs.h/.cpp            iPhone-notification relay for the glasses (ANCS client)
     AncsParser.h           ANCS wire format, host-tested by tests/ancs_parser_test.cpp
+    TuyaCodec.h            Tuya LAN framing + crypto (3.3/3.4/3.5), host-tested (tinytuya vectors)
+    TuyaSession.h          one Tuya LAN connection, sans socket: handshake, heartbeat, reports
+    TuyaLocal.h/.cpp       door-sensor hub link: NVS config, TCP 6668, UDP discovery, bridge events
     src/lua/               Lua 5.4.7 (io, os, debug, package libs removed)
     Protocol.h             frame format, opcodes, CRC — mirrored in Esp32Protocol.swift
     Pins.h                 which GPIOs are exposed and what each can do
@@ -168,6 +171,33 @@ TLS chain validation is skipped on the board (no CA bundle in flash); the sessio
 and CF token are the gate.
 
 Needs the **ArduinoJson** library; `flash.sh` installs it.
+
+## Door-sensor hub (Tuya LAN relay)
+
+A board in cloud mode can also hold a **local Tuya LAN session** to a Smart Life Wi‑Fi
+device on the same network (built for the PHYSEN door-sensor hub) and relay it to Jarvis
+over the bridge. `TuyaLocal` speaks protocol 3.3, 3.4 and 3.5 on TCP 6668 (framing,
+AES-ECB/GCM, HMAC and the 3.4/3.5 session-key negotiation follow tinytuya byte for byte),
+heartbeats every 10 s, queries every data point on each (re)connect and reconnects with
+1 s → 30 s backoff. Without a configured IP or version it learns both from the hub's UDP
+discovery broadcasts (6666 / 6667 / 7000 — it also sends the 7000 "who's there" that
+wakes 3.5 hubs); with an IP but no version it tries 3.5, 3.4, then 3.3. Three failed TCP
+connects in a row switch broadcast listening back on in case DHCP moved the hub.
+
+Bridge skills: `esp32_door_configure {dev_id, local_key, ip?, version?}` (stored in NVS
+namespace `jvdoor`), `esp32_door_set {dps}`, `esp32_door_query` (waits ≤ 3 s),
+`esp32_door_status`, `esp32_door_forget`. Events on the bridge socket
+(`{"type":"event","name":…,"data":…}`):
+
+- `door_report` — `{"dps":{…},"t":<hub's unix time or 0>,"seq":n,"query":bool}` for every
+  report; `query` is true for DP-query answers (snapshots). The last 16 are kept while the
+  bridge is down and flushed in order when it's back.
+- `door_link` — `{"state","ip","version","rtt_ms","error","rssi"}` on every state change
+  and every 30 s; `state` is `unconfigured | connecting | connected | handshake_failed |
+  unreachable`, and `handshake_failed` means the local key looks wrong.
+
+The local key is never logged or returned. Codec + session test, no board needed:
+`tests/run_tuya_test.sh` (needs `brew install mbedtls@3`).
 
 ## Scripting runtime (Lua)
 

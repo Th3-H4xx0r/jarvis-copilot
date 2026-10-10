@@ -439,8 +439,8 @@ void CloudLink::ws_close() {
   rx_.reset(); rx_cap_ = 0; rx_len_ = 0;
 }
 
-void CloudLink::ws_send_frame(uint8_t opcode, const uint8_t* data, size_t len) {
-  if (!ws_ || !ws_->connected()) return;
+bool CloudLink::ws_send_frame(uint8_t opcode, const uint8_t* data, size_t len) {
+  if (!ws_ || !ws_->connected()) return false;
   uint8_t header[14];
   size_t h = 0;
   header[h++] = 0x80 | opcode;
@@ -458,20 +458,32 @@ void CloudLink::ws_send_frame(uint8_t opcode, const uint8_t* data, size_t len) {
   esp_fill_random(mask, sizeof(mask));
   memcpy(header + h, mask, 4);
   h += 4;
-  ws_->write(header, h);
+  bool ok = ws_->write(header, h) == h;
   // Mask in chunks so a 16 KB skills catalogue doesn't need a second copy.
   uint8_t buf[256];
-  for (size_t off = 0; off < len; off += sizeof(buf)) {
+  for (size_t off = 0; ok && off < len; off += sizeof(buf)) {
     const size_t n = len - off < sizeof(buf) ? len - off : sizeof(buf);
     for (size_t i = 0; i < n; ++i) buf[i] = data[off + i] ^ mask[(off + i) & 3];
-    ws_->write(buf, n);
+    ok = ws_->write(buf, n) == n;
   }
+  return ok;
 }
 
 bool CloudLink::ws_send_text(const String& text) {
   if (!ws_open_) return false;
-  ws_send_frame(0x1, reinterpret_cast<const uint8_t*>(text.c_str()), text.length());
-  return true;
+  return ws_send_frame(0x1, reinterpret_cast<const uint8_t*>(text.c_str()), text.length());
+}
+
+bool CloudLink::send_event(const String& name, const String& data_json) {
+  if (!ws_open_ || state_ != proto::CloudState::connected) return false;
+  String msg;
+  msg.reserve(36 + name.length() + data_json.length());
+  msg += "{\"type\":\"event\",\"name\":\"";
+  msg += name;
+  msg += "\",\"data\":";
+  msg += data_json.length() ? data_json : String("null");
+  msg += "}";
+  return ws_send_text(msg);
 }
 
 void CloudLink::ws_poll(uint32_t now) {

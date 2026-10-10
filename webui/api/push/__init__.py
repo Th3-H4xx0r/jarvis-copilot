@@ -35,3 +35,41 @@ def send(push_kind: str, push_token: str, payload: dict,
         return send_apns(push_token, payload, timeout=timeout, alert=alert,
                          topic=topic, sandbox=sandbox)
     return {"ok": False, "error": f"unknown push kind: {push_kind!r}"}
+
+
+def _mobile_devices() -> list:
+    from api.pairing import list_devices
+    return list_devices()
+
+
+def alert_phones(title: str, body: str, *, data: Optional[dict] = None,
+                 category: Optional[str] = None, level: Optional[str] = None) -> int:
+    """A visible banner on every paired phone, each through its own app's topic and APNs
+    environment. ``level`` "time-sensitive" breaks through Focus. Best effort; returns how
+    many phones APNs accepted it for."""
+    alert: dict = {"title": title, "body": body}
+    if category:
+        alert["category"] = category
+    if level:
+        alert["interruption_level"] = level
+    sent = 0
+    try:
+        devices = _mobile_devices()
+    except Exception:
+        return 0
+    for d in devices:
+        token = (d.get("push_token") or "").strip()
+        if not token or (d.get("push_kind") or "").strip().lower() != "apns":
+            continue
+        if not (d.get("kind") or "").strip().lower().startswith("mobile"):
+            continue
+        env = (d.get("push_env") or "").strip().lower()
+        sandbox = True if env == "development" else False if env == "production" else None
+        try:
+            res = send_apns(token, dict(data or {}), alert=dict(alert),
+                            topic=(d.get("push_topic") or "").strip() or None, sandbox=sandbox)
+        except Exception:
+            continue
+        if res.get("ok"):
+            sent += 1
+    return sent

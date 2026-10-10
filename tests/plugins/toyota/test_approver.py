@@ -174,3 +174,42 @@ def test_approvals_wait_two_minutes_and_end_when_answered(clock):
     assert waiting.pending() == []
     with pytest.raises(ApprovalError):
         waiting.peek(late["id"])
+
+
+# ── Domain separation: the same phone key approves the door alarm ("jarvis-home") ──
+
+def _sign_domain(phone, domain, command, nonce, ts):
+    return base64.b64encode(phone.key.sign(message(command, nonce, ts, domain=domain),
+                                           ec.ECDSA(hashes.SHA256()))).decode()
+
+
+def test_message_defaults_to_the_car_domain():
+    assert message("unlock", "n", 1) == b"jarvis-car|unlock|n|1"
+    assert message("disarm", "n", 1, domain="jarvis-home") == b"jarvis-home|disarm|n|1"
+
+
+def test_a_car_signature_never_disarms_the_house(keys, clock):
+    phone = Phone()
+    phone.register_on(keys, int(clock[0]))
+    ts, nonce = int(clock[0]), uuid.uuid4().hex
+    car_sig = phone.sign("disarm", nonce, ts)  # jarvis-car|disarm|…
+    with pytest.raises(ApprovalError) as err:
+        keys.verify("disarm", nonce, ts, car_sig, domain="jarvis-home")
+    assert err.value.code == "bad_signature"
+
+
+def test_a_home_signature_verifies_in_its_domain_only(keys, clock):
+    phone = Phone()
+    phone.register_on(keys, int(clock[0]))
+    ts = int(clock[0])
+    nonce = uuid.uuid4().hex
+    keys.verify("disarm", nonce, ts, _sign_domain(phone, "jarvis-home", "disarm", nonce, ts), domain="jarvis-home")
+    other = uuid.uuid4().hex
+    with pytest.raises(ApprovalError):
+        keys.verify("disarm", other, ts, _sign_domain(phone, "jarvis-home", "disarm", other, ts))
+
+
+def test_approvals_take_their_own_titles(clock):
+    waiting = Approvals(clock=lambda: clock[0], titles={"disarm": "Disarm the door alarm"}, label="door alarm")
+    item = waiting.create("disarm")
+    assert item["title"] == "Disarm the door alarm"

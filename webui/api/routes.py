@@ -3508,6 +3508,14 @@ def handle_get(handler, parsed) -> bool:
                                              host_signed=_check_host_signature(handler))
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/door/"):
+        from api.door_routes import DOOR_PATH_PREFIX, door_caller, handle_door_request
+        from api.auth import _check_host_signature
+        sub = parsed.path[len(DOOR_PATH_PREFIX):] + (f"?{parsed.query}" if parsed.query else "")
+        status, payload = handle_door_request("GET", sub, None, host_signed=_check_host_signature(handler),
+                                              caller=door_caller(handler))
+        return j(handler, payload, status=status)
+
     if parsed.path == "/api/dashcam" or parsed.path.startswith("/api/dashcam/"):
         from api import dashcam_relay
         from api.dashcam_routes import (
@@ -4894,6 +4902,14 @@ def handle_post(handler, parsed) -> bool:
         from api.auth import _check_host_signature
         status, payload = handle_car_request("POST", parsed.path[len(CAR_PATH_PREFIX):], body,
                                              host_signed=_check_host_signature(handler))
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/door/"):
+        from api.door_routes import DOOR_PATH_PREFIX, door_caller, handle_door_request
+        from api.auth import _check_host_signature
+        status, payload = handle_door_request("POST", parsed.path[len(DOOR_PATH_PREFIX):], body,
+                                              host_signed=_check_host_signature(handler),
+                                              caller=door_caller(handler))
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/dashcam/"):
@@ -6446,6 +6462,9 @@ def handle_post(handler, parsed) -> bool:
             timeout = 30.0
         if not skill:
             return bad(handler, "skill is required")
+        from api.device_bridge import SERVER_ONLY_SKILLS
+        if skill in SERVER_ONLY_SKILLS:
+            return j(handler, {"ok": False, "error": f"'{skill}' is only run by the server itself"}, status=403)
         if not device_id:
             # Callers that only know the skill — an ESP32 script's jarvis.invoke —
             # get the device offering it. A 404 tells them it isn't a device skill,

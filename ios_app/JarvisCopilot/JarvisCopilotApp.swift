@@ -47,6 +47,8 @@ struct JarvisCopilotApp: App {
                     // Car commands Jarvis asked for wait here for Face ID (a tapped approval
                     // notification opens the app onto them).
                     CarApprovals.shared.scenePhaseChanged(to: phase)
+                    // Same for the door alarm's disarm / silence requests.
+                    DoorApprovals.shared.scenePhaseChanged(to: phase)
                     if phase == .background { scheduleBackgroundRefresh() }
                     // `Activity.request` throws while backgrounded, which is
                     // exactly where a voice-driven "start the stopwatch" runs;

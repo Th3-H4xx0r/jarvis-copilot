@@ -444,6 +444,13 @@ TOOLSETS = {
         "includes": []
     },
 
+    "door_alarm": {
+        "description": "His Smart Life door-sensor hub as a security alarm: status, arm, Face ID disarm, settings, history",
+        "tools": ["door_status", "door_arm", "door_disarm", "door_silence", "door_set", "door_history",
+                  "door_settings"],
+        "includes": []
+    },
+
 
     # Scenario-specific toolsets
     

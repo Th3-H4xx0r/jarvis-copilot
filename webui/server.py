@@ -594,6 +594,14 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Coding status loop failed to start: {e}', flush=True)
 
+    # The door alarm: ESP32 bridge events, Tuya's cloud feed and the alarm's 1 s timer (entry/exit
+    # delays, siren timeout, health warnings) must run from boot, not from the first page view.
+    try:
+        from plugins.door_alarm.service import DoorService
+        DoorService.instance().start()
+    except Exception as e:
+        print(f'[!!] WARNING: Door alarm failed to start: {e}', flush=True)
+
     httpd = QuietHTTPServer((HOST, PORT), Handler)
 
     # ── TLS/HTTPS setup (optional) ─────────────────────────────────────────
