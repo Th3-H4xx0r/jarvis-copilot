@@ -292,7 +292,14 @@ final class ToyotaTests: XCTestCase {
         transport.enqueue(json: Self.signedIn)
         await store.load()
         let stage = CarStage()
+        let (approvalsAPI, approvalsTransport) = JarvisAPI.mocked()
+        let center = CarApprovals(api: ToyotaAPI(api: approvalsAPI),
+                                  approver: ToyotaApprover(signer: signer, api: ToyotaAPI(api: approvalsAPI)))
+        approvalsTransport.enqueue(json: ["approvals": [["id": "a1", "command": "lock", "title": "Lock the car",
+                                                         "source": "Jarvis", "age_s": 2, "expires_in_s": 112]]])
+        await center.refresh()
         let views: [(String, AnyView)] = [
+            ("toyota-approval", AnyView(CarApprovalCard(center: center).frame(height: 874))),
             ("toyota-controls", AnyView(CarControlsScreen(store: store, stage: stage).frame(height: 874))),
             ("toyota-status", AnyView(CarStatusScreen(store: store, stage: stage).frame(height: 874))),
             ("toyota-climate", AnyView(CarClimateScreen(store: store, stage: stage).frame(height: 780))),

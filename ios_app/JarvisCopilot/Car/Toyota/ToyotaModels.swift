@@ -227,8 +227,13 @@ struct CarApproval: Identifiable, Equatable {
     let source: String
     let ageSeconds: Int
     let expiresInSeconds: Int
+    /// When this copy came from the server: the countdown runs from here.
+    let receivedAt: Date
 
-    init?(json o: [String: Any]) {
+    /// When the server stops accepting an answer.
+    var deadline: Date { receivedAt.addingTimeInterval(TimeInterval(expiresInSeconds)) }
+
+    init?(json o: [String: Any], receivedAt: Date = Date()) {
         guard let id = o["id"] as? String, let command = o["command"] as? String else { return nil }
         self.id = id
         self.command = command
@@ -236,5 +241,6 @@ struct CarApproval: Identifiable, Equatable {
         source = o["source"] as? String ?? "Jarvis"
         ageSeconds = (o["age_s"] as? NSNumber)?.intValue ?? 0
         expiresInSeconds = (o["expires_in_s"] as? NSNumber)?.intValue ?? 0
+        self.receivedAt = receivedAt
     }
 }

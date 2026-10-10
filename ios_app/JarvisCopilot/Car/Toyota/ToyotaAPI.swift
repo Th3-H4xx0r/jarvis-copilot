@@ -110,7 +110,7 @@ struct ToyotaAPI: Sendable {
 
     func approvals() async throws -> [CarApproval] {
         let o = try await api.get(Self.prefix + "/approvals", timeout: 20).object()
-        return (o["approvals"] as? [[String: Any]] ?? []).compactMap(CarApproval.init(json:))
+        return (o["approvals"] as? [[String: Any]] ?? []).compactMap { CarApproval(json: $0) }
     }
 
     /// Answers Jarvis's request: the proof's nonce is the approval's id. Returns what the car did.
