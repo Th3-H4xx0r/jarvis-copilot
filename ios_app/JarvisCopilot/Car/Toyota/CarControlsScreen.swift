@@ -154,6 +154,7 @@ struct ToyotaRoundButton: View {
 
     private var captionColor: Color {
         guard let outcome else { return .secondary }
+        if outcome.muted { return .secondary }
         if outcome.pending { return JcTheme.amber }
         return outcome.ok ? JcTheme.success : JcTheme.danger
     }

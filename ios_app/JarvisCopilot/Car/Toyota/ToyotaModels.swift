@@ -51,6 +51,26 @@ enum ToyotaCommand: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Everything but Stop needs Face ID (his rule): the server only runs it with the phone's signature.
+    var needsFaceID: Bool { self != .stop }
+
+    /// What Face ID is approving, and what the approval card asks.
+    var approvalTitle: String {
+        switch self {
+        case .start: return "Start the car"
+        case .stop: return "Stop the car"
+        case .lock: return "Lock the car"
+        case .unlock: return "Unlock the car"
+        case .trunkLock: return "Lock the trunk"
+        case .trunkUnlock: return "Unlock the trunk"
+        case .lights: return "Turn on the headlights"
+        case .horn: return "Sound the horn"
+        case .buzzer: return "Sound the buzzer"
+        case .hazardsOn: return "Turn on the hazards"
+        case .hazardsOff: return "Turn off the hazards"
+        }
+    }
+
     /// Start/Stop and Hazards on/off share one button, so a result stays on it when it flips.
     var slot: String {
         switch self {
@@ -196,5 +216,25 @@ struct ToyotaCar: Equatable {
         let withFraction = ISO8601DateFormatter()
         withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+}
+
+/// A command Jarvis asked for, waiting for Face ID on this iPhone (`/api/car/approvals`).
+struct CarApproval: Identifiable, Equatable {
+    let id: String
+    let command: String
+    let title: String
+    let source: String
+    let ageSeconds: Int
+    let expiresInSeconds: Int
+
+    init?(json o: [String: Any]) {
+        guard let id = o["id"] as? String, let command = o["command"] as? String else { return nil }
+        self.id = id
+        self.command = command
+        title = o["title"] as? String ?? command
+        source = o["source"] as? String ?? "Jarvis"
+        ageSeconds = (o["age_s"] as? NSNumber)?.intValue ?? 0
+        expiresInSeconds = (o["expires_in_s"] as? NSNumber)?.intValue ?? 0
     }
 }

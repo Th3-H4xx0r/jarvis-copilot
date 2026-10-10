@@ -64,10 +64,11 @@ struct ToyotaAPI: Sendable {
         _ = try await actions.post(Self.prefix + "/refresh", timeout: Self.commandTimeout)
     }
 
-    /// Runs a command. Only called after a completed tap-and-hold — that is the confirmation.
-    func run(_ command: ToyotaCommand) async throws -> String {
-        let o = try await actions.post(Self.prefix + "/command", json: ["command": command.rawValue, "confirmed": true],
-                                       timeout: Self.commandTimeout).object()
+    /// Runs a command after a completed tap-and-hold — with the Face ID proof for all but Stop.
+    func run(_ command: ToyotaCommand, proof: ToyotaApprover.Proof?) async throws -> String {
+        var body: [String: Any] = ["command": command.rawValue]
+        if let proof { body.merge(["nonce": proof.nonce, "ts": proof.ts, "signature": proof.signature]) { $1 } }
+        let o = try await actions.post(Self.prefix + "/command", json: body, timeout: Self.commandTimeout).object()
         guard o["ok"] as? Bool != false else {
             throw APIError.badResponse(o["error"] as? String ?? o["ask"] as? String ?? "the car didn't take it")
         }
@@ -92,6 +93,37 @@ struct ToyotaAPI: Sendable {
     func submitCode(flowID: String, code: String) async throws -> SignInStep {
         try step(try await api.post(Self.prefix + "/signin/code", json: ["flow_id": flowID, "code": code],
                                     timeout: 90).object())
+    }
+
+    // MARK: Face ID approvals
+
+    /// The public key the server checks signatures against; nil before any iPhone registered.
+    func approverKey() async throws -> String? {
+        let o = try await actions.get(Self.prefix + "/approver", timeout: 20).object()
+        return o["public_key"] as? String
+    }
+
+    func registerApprover(publicKey: String, ts: Int, signature: String) async throws {
+        _ = try await actions.post(Self.prefix + "/approver",
+                                   json: ["public_key": publicKey, "ts": ts, "signature": signature], timeout: 20)
+    }
+
+    func approvals() async throws -> [CarApproval] {
+        let o = try await api.get(Self.prefix + "/approvals", timeout: 20).object()
+        return (o["approvals"] as? [[String: Any]] ?? []).compactMap(CarApproval.init(json:))
+    }
+
+    /// Answers Jarvis's request: the proof's nonce is the approval's id. Returns what the car did.
+    func approve(_ approval: CarApproval, proof: ToyotaApprover.Proof) async throws -> String {
+        let o = try await actions.post(Self.prefix + "/approvals/\(approval.id)/approve",
+                                       json: ["ts": proof.ts, "signature": proof.signature],
+                                       timeout: Self.commandTimeout).object()
+        guard o["ok"] as? Bool != false else { throw APIError.badResponse(o["error"] as? String ?? "not done") }
+        return o["result"] as? String ?? "Done"
+    }
+
+    func deny(_ approval: CarApproval) async throws {
+        _ = try await api.post(Self.prefix + "/approvals/\(approval.id)/deny")
     }
 
     func signOut() async throws {

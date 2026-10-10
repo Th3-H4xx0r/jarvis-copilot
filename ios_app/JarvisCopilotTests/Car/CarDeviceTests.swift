@@ -11,9 +11,11 @@ final class CarDeviceTests: XCTestCase {
         return car
     }
 
-    func testNoControlsMeansOnlyTheStatusSkill() {
+    func testNoControlsMeansNoSetControlSkill() {
         let car = car(WearableLinks(storage: isolatedDefaults()))
-        XCTAssertEqual(car.capabilities.map(\.name), ["car_get_status"])
+        let names = car.capabilities.map(\.name)
+        XCTAssertTrue(names.contains("car_get_status") && names.contains("car_show_approvals"))
+        XCTAssertFalse(names.contains("car_set_control"))
     }
 
     func testALinkedControlBringsTheSetControlSkill() throws {
@@ -23,7 +25,7 @@ final class CarDeviceTests: XCTestCase {
         let lights = FakeLinkable(kind: "trailer")
         lights.controls = [recorder.control("lights.power", .toggle(isOn: false))]
         links.register(lights)
-        XCTAssertEqual(car.capabilities.map(\.name), ["car_get_status"], "not linked yet")
+        XCTAssertFalse(car.capabilities.map(\.name).contains("car_set_control"), "not linked yet")
 
         try links.link("trailer", to: CarDevice.kind)
         let set = try XCTUnwrap(car.capabilities.first { $0.name == "car_set_control" })

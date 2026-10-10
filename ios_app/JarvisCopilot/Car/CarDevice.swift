@@ -74,11 +74,15 @@ final class CarDevice: WearableDevice, WearableHost {
     // MARK: Skills
 
     var capabilities: [DeviceCapability] {
-        var out = [DeviceCapability(name: "car_get_status", description: """
+        var out = [DeviceCapability(name: "car_show_approvals", description: """
+            Bring up Pranav's waiting car approvals on his iPhone so he can approve them with Face ID. \
+            The server calls this itself after toyota_command; you don't need to.
+            """, inputSchema: DeviceCapability.schema())]
+        out.append(DeviceCapability(name: "car_get_status", description: """
             The car (\(profile.description), \(profile.colorName)): whether the phone is with it now \
             and when it last was, the devices linked to it (like the dashcam) with their status, and \
             its controls with their current values.
-            """, inputSchema: DeviceCapability.schema())]
+            """, inputSchema: DeviceCapability.schema()))
         let controls = self.controls
         if !controls.isEmpty {
             let list = controls.map { "\($0.id) (\($0.kindName): \($0.title))" }.joined(separator: ", ")
@@ -112,6 +116,9 @@ final class CarDevice: WearableDevice, WearableHost {
 
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any] {
         switch name {
+        case "car_show_approvals":
+            Task { await CarApprovals.shared.refresh() }
+            return ["ok": true]
         case "car_get_status":
             return snapshot()
         case "car_set_control":

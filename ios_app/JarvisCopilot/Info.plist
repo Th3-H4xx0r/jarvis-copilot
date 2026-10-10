@@ -45,12 +45,12 @@
 		<string>discord</string>
 		<string>zoomus</string>
 	</array>
-	<key>NSAlarmKitUsageDescription</key>
-	<string>JARVIS sets real alarms and timers that ring even in Silent mode.</string>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>
 		<string>WiFi</string>
 	</array>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>JARVIS sets real alarms and timers that ring even in Silent mode.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -60,6 +60,8 @@
 	<array>
 		<string>_jarvis-esp32._tcp</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Jarvis uses Face ID to approve car commands — unlocking, starting, the trunk, lights, horn and hazards.</string>
 	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
 	<dict>
 		<key>WorkoutRoute</key>

@@ -11,6 +11,8 @@ final class ToyotaStore: ObservableObject {
         let ok: Bool
         /// No answer in time: the car may still do it — shown amber, not red.
         var pending = false
+        /// Face ID cancelled: nothing was sent — shown grey, not red.
+        var muted = false
     }
 
     @Published private(set) var account: ToyotaAccount?
@@ -23,11 +25,14 @@ final class ToyotaStore: ObservableObject {
     @Published private(set) var hazardsOnSince: Date?
 
     let api: ToyotaAPI
+    /// Face ID for every command but Stop (the server refuses them without its signature).
+    let approver: ToyotaApprover
     private let now: () -> Date
     static let hazardsMemory: TimeInterval = 15 * 60
 
-    init(api: ToyotaAPI = ToyotaAPI(), now: @escaping () -> Date = Date.init) {
+    init(api: ToyotaAPI = ToyotaAPI(), approver: ToyotaApprover? = nil, now: @escaping () -> Date = Date.init) {
         self.api = api
+        self.approver = approver ?? ToyotaApprover(api: api)
         self.now = now
     }
 
@@ -89,13 +94,27 @@ final class ToyotaStore: ObservableObject {
         outcome = nil
         // The car's new state is read BEFORE the button comes back: a button that flips (Unlock →
         // Lock, Start → Stop) must not change meaning under a finger that is already holding it.
+        var proof: ToyotaApprover.Proof?
+        if command.needsFaceID {
+            do {
+                proof = try await approver.proof(for: command.rawValue, title: command.approvalTitle)
+            } catch CarSignError.cancelled {
+                finish(Outcome(command: command, text: "Not approved", ok: false, muted: true))
+                return
+            } catch {
+                finish(Outcome(command: command, text: apiErrorMessage(error), ok: false))
+                return
+            }
+        }
         do {
-            let text = try await api.run(command)
+            let text = try await api.run(command, proof: proof)
             if command == .hazardsOn { rememberHazards() }
             if command == .hazardsOff { hazardsOnSince = nil }
             await load()
             finish(Outcome(command: command, text: text, ok: true))
         } catch {
+            // The server refused the signature (reset or replaced key): check the registration again.
+            if case .http(403, _) = error as? APIError { approver.forgetRegistration() }
             if ToyotaAPI.isPending(error) {
                 await load()
                 finish(Outcome(command: command, text: ToyotaAPI.Pending().errorDescription ?? "", ok: false, pending: true))
