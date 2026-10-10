@@ -41,6 +41,6 @@ def test_every_toyota_tool_in_the_doc_is_registered():
     assert documented == {name for name, *_ in TOOLS}
 
 
-def test_doc_states_the_confirmation_rule():
+def test_doc_states_the_face_id_rule():
     text = SKILL_MD.read_text()
-    assert "confirmed: true" in text and "Unlock the car?" in text
+    assert "Face ID" in text and "pending_approval" in text and "confirmed" not in text

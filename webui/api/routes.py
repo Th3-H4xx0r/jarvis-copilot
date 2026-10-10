@@ -3503,7 +3503,9 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path.startswith("/api/car/"):
         from api.car_routes import CAR_PATH_PREFIX, handle_car_request
-        status, payload = handle_car_request("GET", parsed.path[len(CAR_PATH_PREFIX):], None)
+        from api.auth import _check_host_signature
+        status, payload = handle_car_request("GET", parsed.path[len(CAR_PATH_PREFIX):], None,
+                                             host_signed=_check_host_signature(handler))
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/dashcam" or parsed.path.startswith("/api/dashcam/"):
@@ -4888,7 +4890,9 @@ def handle_post(handler, parsed) -> bool:
 
     if parsed.path.startswith("/api/car/"):
         from api.car_routes import CAR_PATH_PREFIX, handle_car_request
-        status, payload = handle_car_request("POST", parsed.path[len(CAR_PATH_PREFIX):], body)
+        from api.auth import _check_host_signature
+        status, payload = handle_car_request("POST", parsed.path[len(CAR_PATH_PREFIX):], body,
+                                             host_signed=_check_host_signature(handler))
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/dashcam/"):

@@ -49,7 +49,7 @@ Call the phone's `car_*` device skills and the server's `toyota_*` tools directl
 | `car_get_status` | — | Car profile, `in_car` + `last_seen`, linked devices with status, controls with values. |
 | `car_set_control` | `control` (id), `value` (string) | Use one control. Only present while the car has controls. |
 | `toyota_status` | `refresh?` | Range, fuel, odometer, locks/doors/windows/trunk, tyres, health, location, remote-started, last report. |
-| `toyota_command` | `command`, `confirmed?` | `start stop lock unlock trunk_lock trunk_unlock lights horn buzzer hazards_on hazards_off`. |
+| `toyota_command` | `command` | `start stop lock unlock trunk_lock trunk_unlock lights horn buzzer hazards_on hazards_off`. All but `stop` go to his iPhone for Face ID. |
 | `toyota_climate` | `action` get/set, `custom?`, `temp?`, `defrost_front?`, `defrost_rear?` | The climate used at remote start. |
 
 Values by control kind: toggle `on`/`off`, level a number (clamped and snapped to its step),
@@ -60,9 +60,10 @@ choice an option id, button no value.
 1. Run `car_get_status` first: it lists the controls by id with their kind and current value.
 2. To change one, call `car_set_control` with that id and a value of the right kind.
 3. For the dashcam (clips, recording, sync), use the `dashcam_*` skills.
-4. **Unlock, trunk_unlock and start need his yes.** Call `toyota_command` without `confirmed`; it
-   sends nothing and returns a question ("Unlock the car?"). Ask him, and only after he says yes
-   call again with `confirmed: true`. Everything else runs at once.
+4. **Every command but stop needs his Face ID.** `toyota_command` sends an approval to his iPhone
+   and returns `pending_approval` at once; nothing happens to the car until he approves it with
+   Face ID there (within 2 minutes). Tell him to check his phone — don't ask him out loud first and
+   don't call it again for the same command. `stop` runs straight away.
 
 ## Pitfalls
 
@@ -74,10 +75,12 @@ choice an option id, button no value.
 - `toyota_status` shows the last data the car sent (`updated_at`); `refresh: true` wakes the car,
   which is slow and uses its battery — only when he asks for fresh data.
 - Never repeat a car command on your own (a second horn, a second start). Report the error.
+- Don't try to work the car through Home Assistant directly — those calls are refused; the Face ID
+  approval is the only way.
 - "Sign in with Toyota on the Car page first" means exactly that — you can't sign in for him.
 
 ## Verification
 
 `car_get_status` returns `"car": {"model": "Camry", ...}`; after `car_set_control`, the result's
-`control.value` shows the new value. `toyota_command` returns `"result": "Locked"` (or the
-question to ask); a later `toyota_status` shows the new lock state.
+`control.value` shows the new value. `toyota_command` returns `pending_approval` (or, for stop,
+`"result": "Stopped"`); once he approves on his phone, a later `toyota_status` shows the new state.

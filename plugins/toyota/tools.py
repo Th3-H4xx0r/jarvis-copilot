@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable
 
 from plugins.toyota import service
 from plugins.toyota.car import CarError, NotSignedIn, ToyotaCar
-from plugins.toyota.commands import CONFIRM, SERVICES, is_confirmed
+from plugins.toyota.commands import SERVICES, is_confirmed, needs_face_id
 from plugins.toyota.ha import HAClient, HAError, configured
 
 STATUS_SCHEMA = {
@@ -34,16 +34,14 @@ COMMAND_SCHEMA = {
     "description": (
         "Send a remote command to Pranav's car through Toyota: start (remote start), stop, lock, "
         "unlock, trunk_lock, trunk_unlock, lights (headlights on), horn, buzzer, hazards_on, "
-        "hazards_off. unlock, trunk_unlock and start need his yes first: call without confirmed, "
-        "ask him the returned question, and call again with confirmed=true only after he says yes "
-        "in this conversation. Never repeat a command on your own."
+        "hazards_off. Every command except stop needs his approval with Face ID on his iPhone: this "
+        "tool sends the approval to his phone and returns at once — tell him to approve it there; it "
+        "runs when he does. Don't ask him out loud first, and never repeat a command on your own."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "command": {"type": "string", "enum": list(SERVICES)},
-            "confirmed": {"type": "boolean",
-                          "description": "true only after Pranav said yes to the question this tool asked."},
         },
         "required": ["command"],
     },
@@ -97,14 +95,30 @@ def _handle_status(args: dict, **_: Any) -> str:
     return _call(work)
 
 
+def _request_approval(command: str) -> dict:
+    """Ask the webui (it owns approvals and the push to his phone) over the host-signed loopback."""
+    from tools.chrome_device_tool import _api_request
+
+    return _api_request("POST", "/api/car/approvals", {"command": command}, timeout=15.0)
+
+
 def _handle_command(args: dict, **_: Any) -> str:
+    name = str(args.get("command") or "")
+    if name not in SERVICES:
+        return json.dumps({"error": f"Unknown car command '{name}'. Use one of: {', '.join(SERVICES)}."})
+    if needs_face_id(name):
+        answer = _request_approval(name)
+        if answer.get("_error") or not answer.get("ok"):
+            return json.dumps({"error": answer.get("_error") or answer.get("error")
+                               or "Couldn't send the approval to his iPhone."})
+        return json.dumps({"pending_approval": True, "command": name,
+                           "message": "Sent to Pranav's iPhone — it runs once he approves it with Face ID "
+                                      "(within 2 minutes). Tell him to check his phone."})
+
     async def work() -> dict:
         car = ToyotaCar(HAClient())
-        name = str(args.get("command") or "")
-        if name in CONFIRM and not is_confirmed(args.get("confirmed")):
-            return await car.command(name)   # only the question; nothing is sent
         await service.require_signed_in(car.ha)
-        return await car.command(name, args.get("confirmed"))
+        return await car.command(name)
     return _call(work)
 
 

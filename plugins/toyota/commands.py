@@ -26,12 +26,9 @@ NEEDS: dict[str, str] = {
     "lights": "btn_lights", "horn": "btn_horn", "buzzer": "btn_buzzer",
     "hazards_on": "btn_hazards", "hazards_off": "btn_hazards",
 }
-# Pranav's rule: these open or start the car, so Jarvis asks him first.
-CONFIRM: dict[str, str] = {
-    "unlock": "Unlock the car?",
-    "trunk_unlock": "Unlock the trunk?",
-    "start": "Start the car?",
-}
+# Pranav's rule: every command but stop needs Face ID on his iPhone — a signature from the phone's
+# Secure Enclave key (plugins/toyota/approver.py). Stop stays instant: turning the car off is safe.
+FACE_ID: frozenset[str] = frozenset(SERVICES) - {"stop"}
 DONE: dict[str, str] = {
     "start": "Started", "stop": "Stopped", "lock": "Locked", "unlock": "Unlocked",
     "trunk_lock": "Trunk locked", "trunk_unlock": "Trunk unlocked", "lights": "Headlights on",
@@ -56,3 +53,7 @@ def available_commands(m: EntityMap, states: dict | None = None) -> list[str]:
 def is_confirmed(value: Any) -> bool:
     """Only an explicit yes counts: True, or exactly "true" from a loosely typed caller."""
     return value is True or value == "true"
+
+
+def needs_face_id(command: str) -> bool:
+    return command in FACE_ID

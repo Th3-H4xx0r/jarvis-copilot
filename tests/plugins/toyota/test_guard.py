@@ -10,7 +10,8 @@ from plugins.toyota.guard import guard
 @pytest.fixture(autouse=True)
 def car_entities(monkeypatch):
     monkeypatch.setattr(guard_module, "_protected_ids",
-                        lambda: {"lock.camry_doors", "button.camry_remote_start", "button.camry_unlock_cargo_door"})
+                        lambda: {"lock.camry_doors", "button.camry_remote_start", "button.camry_unlock_cargo_door",
+                                 "button.camry_sound_horn", "button.camry_flash_hazards"})
 
 
 @pytest.mark.parametrize("domain,service,entity_id,data", [
@@ -22,6 +23,14 @@ def car_entities(monkeypatch):
     ("lock", "unlock", None, {"device_id": "dev"}),
     ("lock", "unlock", None, {}),
     ("lock", "unlock", "all", None),
+    ("lock", "lock", "lock.camry_doors", None),
+    ("button", "press", "button.camry_sound_horn", None),
+    ("button", "press", None, {"entity_id": "button.camry_flash_hazards"}),
+    ("lock", "unlock", None, {"entity_id": "Lock.Camry_Doors"}),
+    ("button", "press", "BUTTON.camry_remote_start", None),
+    ("lock", "unlock", None, {"entity_id": "ALL"}),
+    ("scene", "apply", None, {"entities": {"lock.camry_doors": "unlocked"}}),
+    ("scene", "create", None, {"scene_id": "x", "snapshot_entities": ["lock.camry_doors"]}),
 ])
 def test_ways_round_the_confirmation_are_refused(domain, service, entity_id, data):
     assert guard(domain, service, entity_id, data)
@@ -29,9 +38,10 @@ def test_ways_round_the_confirmation_are_refused(domain, service, entity_id, dat
 
 @pytest.mark.parametrize("domain,service,entity_id,data", [
     ("lock", "unlock", "lock.front_door", None),
-    ("lock", "lock", "lock.camry_doors", None),
+    ("lock", "lock", "lock.front_door", None),
     ("button", "press", "button.doorbell_chime", None),
     ("light", "turn_on", None, {"area_id": "kitchen"}),
+    ("scene", "apply", None, {"entities": {"light.kitchen": "on"}}),
 ])
 def test_everything_else_goes_through(domain, service, entity_id, data):
     assert guard(domain, service, entity_id, data) is None

@@ -5,7 +5,7 @@ import asyncio
 import time
 from typing import Any, Callable
 
-from plugins.toyota.commands import CONFIRM, DONE, SERVICES, available_commands, is_confirmed
+from plugins.toyota.commands import DONE, SERVICES, available_commands, needs_face_id
 from plugins.toyota.entities import DOMAIN, EntityMap, build_map
 from plugins.toyota.ha import COMMAND_TIMEOUT, HAClient, HAError, HATimeout
 from plugins.toyota.snapshot import as_float, build_snapshot
@@ -32,6 +32,14 @@ class NotSignedIn(Exception):
 
 class CarError(Exception):
     """A request the car can't take: unknown command, not on its plan, a bad value."""
+
+
+class FaceIdRequired(Exception):
+    """A command that needs Pranav's Face ID approval on his iPhone."""
+
+    def __init__(self, command: str) -> None:
+        super().__init__(f"'{command}' needs your approval with Face ID on your iPhone.")
+        self.command = command
 
 
 class CommandPending(HAError):
@@ -82,12 +90,13 @@ class ToyotaCar:
         ids = list(m.by_role.values()) + [entity_id for entity_id, _ in m.health_extra]
         return build_snapshot(m, await self.ha.states(ids))
 
-    async def command(self, name: str, confirmed: Any = False) -> dict[str, Any]:
+    async def command(self, name: str, approved: bool = False) -> dict[str, Any]:
+        """`approved`: the caller checked a Face ID signature for this command (approver.py). A gated
+        command without one is refused here too, before anything touches Home Assistant."""
         if name not in SERVICES:
             raise CarError(f"Unknown car command '{name}'. Use one of: {', '.join(SERVICES)}.")
-        # The gate comes before anything touches Home Assistant.
-        if name in CONFIRM and not is_confirmed(confirmed):
-            return {"ok": False, "needs_confirmation": True, "command": name, "ask": CONFIRM[name]}
+        if needs_face_id(name) and approved is not True:
+            raise FaceIdRequired(name)
         m = await self.entity_map(fresh=True)
         if name not in available_commands(m):
             raise CarError(f"Your car doesn't offer '{name}' right now (it needs Toyota Remote Connect).")
