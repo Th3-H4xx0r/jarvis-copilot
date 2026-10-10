@@ -157,22 +157,52 @@ final class CarModelRenderTests: XCTestCase {
         XCTAssertEqual(live.stage, .hero)
     }
 
-    /// The approval card's car waits nearly head-on, then turns into its rest pose and stays there.
-    func testTheApprovalCarTurnsIntoItsPose() {
+    /// The approval car holds head-on through the first frames' stall and only turns once frames
+    /// come steadily — by the frames' own clock, never backwards — ending in its rest pose.
+    func testTheApprovalCarWaitsForSteadyFramesThenTurnsIntoItsPose() {
         let car = CarModel.Live(presentation: .approval, spin: false, mesh: nil)
         let rest = CarModel.Presentation.approval.restYaw
+        let start = rest + CarModel.Live.entranceTurn
         XCTAssertEqual(car.spinner.eulerAngles.y, rest, accuracy: 1e-4)
+        XCTAssertEqual(car.entranceStep(at: 1), .idle, "no entrance unless it's readied")
         car.readyEntrance()
-        XCTAssertEqual(car.spinner.eulerAngles.y, rest + CarModel.Live.entranceTurn, accuracy: 1e-4)
-        car.enter()
+        // Three quick frames, then the first frame's long stall: still waiting, head-on.
+        for time in [10, 10.016, 10.033, 11.9] {
+            XCTAssertEqual(car.entranceStep(at: time), .waiting)
+        }
+        var time = 11.9
+        for _ in 1..<CarModel.Live.steadyFrames {
+            time += 1.0 / 60
+            XCTAssertEqual(car.entranceStep(at: time), .waiting)
+        }
+        XCTAssertEqual(car.spinner.eulerAngles.y, start, accuracy: 1e-4)
+        time += 1.0 / 60
+        XCTAssertEqual(car.entranceStep(at: time), .started)
+
+        var previous = car.spinner.eulerAngles.y
+        var step = CarModel.Live.EntranceStep.started
+        while step != .finished, time < 20 {
+            time += 1.0 / 60
+            step = car.entranceStep(at: time)
+            XCTAssertLessThanOrEqual(car.spinner.eulerAngles.y, previous + 1e-5)
+            previous = car.spinner.eulerAngles.y
+        }
+        XCTAssertEqual(step, .finished)
         XCTAssertEqual(car.spinner.eulerAngles.y, rest, accuracy: 1e-4)
-        XCTAssertNil(car.spinner.action(forKey: "spin"))
+        XCTAssertEqual(car.entranceStep(at: time + 1), .idle)
     }
 
-    /// On screen, the approval car holds head-on until its first frame is drawn and the fade-in
-    /// is done — only then does it turn, ending in its rest pose. (Started from the view appearing,
-    /// the turn was mostly over on a phone before the car was visible.)
-    func testTheApprovalCarTurnsOnlyOnceItIsOnScreen() throws {
+    /// A phone that never draws evenly still gets the turn, after the wait limit.
+    func testTheApprovalCarTurnsAnywayOnUnevenFrames() {
+        let car = CarModel.Live(presentation: .approval, spin: false, mesh: nil)
+        car.readyEntrance()
+        var time = 0.0
+        while car.entranceStep(at: time) == .waiting { time += 0.2 }
+        XCTAssertEqual(time, CarModel.Live.entranceWaitLimit, accuracy: 0.2)
+    }
+
+    /// Hosted in a window, the approval car starts head-on and turns into its rest pose.
+    func testTheApprovalCarTurnsIntoPlaceOnScreen() throws {
         guard let windowScene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw XCTSkip("no window scene")
         }
@@ -197,8 +227,7 @@ final class CarModelRenderTests: XCTestCase {
             }
             guard let spinner, let appeared else { continue }
             let shown = spinner.presentation.eulerAngles.y
-            // The old timing had it visibly turning by 0.35 s; now the turn waits ≥ 0.35 s after the first frame.
-            if Date().timeIntervalSince(appeared) < 0.38 {
+            if Date().timeIntervalSince(appeared) < 0.05 {
                 XCTAssertEqual(shown, start, accuracy: 0.01, "turned before it was on screen")
             } else if abs(shown - rest) < 0.001 {
                 return

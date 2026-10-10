@@ -427,20 +427,67 @@ enum CarModel {
         /// How far round from its rest pose the car waits (head-on), and how long the turn takes.
         static let entranceTurn: Float = 1.1
         static let entranceTime: Double = 1.8
+        /// A gentle start and a long, soft settle.
+        static let entranceCurve = CubicBezier(0.4, 0, 0.2, 1)
+        /// The turn starts once this many frames in a row come this close together. A car scene's
+        /// first frames can take a second or more on a phone (the studio light; shaders compiled
+        /// again after an install), and frames only flow evenly once they reach the screen — a turn
+        /// timed by the clock from the view appearing finished before the car was ever seen.
+        static let steadyFrames = 6
+        static let steadyGap: TimeInterval = 0.05
+        /// Turn anyway after this long, on a phone that never draws evenly.
+        static let entranceWaitLimit: TimeInterval = 3
 
-        /// Before it's shown: wait `entranceTurn` round from the rest pose.
+        enum EntranceStep { case idle, waiting, started, turning, finished }
+
+        private struct Entrance {
+            var first: TimeInterval?
+            var last: TimeInterval?
+            var steady = 0
+            var longest: TimeInterval = 0
+            var start: TimeInterval?
+        }
+        /// Set up before the view exists (`readyEntrance`), then the render thread's alone.
+        private var entrance: Entrance?
+
+        /// Before it's shown: wait `entranceTurn` round from the rest pose for the turn.
         func readyEntrance() {
             spinner.removeAction(forKey: "spin")
             spinner.eulerAngles.y = presentation.restYaw + Self.entranceTurn
+            entrance = Entrance()
         }
 
-        /// Turn into the rest pose: a gentle start and a long, soft settle.
-        func enter() {
-            SCNTransaction.begin()
-            SCNTransaction.animationDuration = Self.entranceTime
-            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.2, 1)
-            spinner.eulerAngles.y = presentation.restYaw
-            SCNTransaction.commit()
+        /// Every frame, on the render thread: hold the car head-on until frames come steadily, then
+        /// turn it into its rest pose by the frames' own clock. `.started` once (show the car now),
+        /// `.finished` once (stop drawing every frame).
+        func entranceStep(at time: TimeInterval) -> EntranceStep {
+            guard var step = entrance else { return .idle }
+            var began = false
+            if step.start == nil {
+                if let last = step.last {
+                    let gap = time - last
+                    step.longest = max(step.longest, gap)
+                    step.steady = gap < Self.steadyGap ? step.steady + 1 : 0
+                }
+                step.last = time
+                let first = step.first ?? time
+                step.first = first
+                guard step.steady >= Self.steadyFrames || time - first >= Self.entranceWaitLimit else {
+                    entrance = step
+                    return .waiting
+                }
+                step.start = time
+                began = true
+                JcLog.devices.info("car entrance: steady after \(time - first, format: .fixed(precision: 2)) s, longest frame \(Int(step.longest * 1000)) ms")
+            }
+            let progress = min(1, (time - (step.start ?? time)) / Self.entranceTime)
+            spinner.eulerAngles.y = presentation.restYaw + Self.entranceTurn * (1 - Float(Self.entranceCurve(progress)))
+            if progress >= 1 {
+                entrance = nil
+                return .finished
+            }
+            entrance = step
+            return began ? .started : .turning
         }
 
         // MARK: Stages — a screen's car glides from the hero pose to the top view and into the cabin.
@@ -693,12 +740,15 @@ struct CarSceneView: View {
     var animatesAnywhere = false
     /// Sideways drags turn the car; it keeps turning on its own once let go.
     var turnable = false
-    /// Once shown, the car turns into its rest pose (`Live.enter`), then holds still.
+    /// Once on screen, the car fades in as it turns into its rest pose (`Live.entranceStep`), then
+    /// holds still.
     var turnsIntoPlace = false
 
     @State private var live: CarModel.Live?
     /// True while the car turns into place: the view renders only while it moves.
     @State private var entering = false
+    /// Hidden until the turn starts (it waits for frames to reach the screen), then fades in.
+    @State private var hidden = false
     /// False while another page covers it: the Devices card kept drawing at 30 fps under the car's
     /// own page, two full car scenes at once.
     @State private var onScreen = false
@@ -718,7 +768,8 @@ struct CarSceneView: View {
                 SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating || entering,
                             preferredFramesPerSecond: 60,
                             onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil,
-                            onFirstFrame: turnsIntoPlace ? { turnIn(live) } : nil)
+                            onRender: turnsIntoPlace ? { time in entranceFrame(live, time) } : nil)
+                    .opacity(hidden ? 0 : 1)
                     .transition(.opacity)
             } else {
                 Color.clear
@@ -735,20 +786,23 @@ struct CarSceneView: View {
             if turnsIntoPlace {
                 scene.readyEntrance()
                 entering = true
+                hidden = true
             }
             live = scene
         }
         .onChange(of: lit) { _, on in live?.setLit(on) }
     }
 
-    /// The first frame is on screen: wait out the fade-in, then turn, so the whole turn is seen.
-    /// (Timed from the view appearing, the turn was mostly over before the car showed on a phone.)
-    private func turnIn(_ live: CarModel.Live) {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
-            live.enter()
-            try? await Task.sleep(for: .seconds(CarModel.Live.entranceTime + 0.1))
-            entering = false
+    /// Render thread, every frame of the entrance: show the car as its turn starts; stop drawing
+    /// every frame once it's in place.
+    private func entranceFrame(_ live: CarModel.Live, _ time: TimeInterval) {
+        switch live.entranceStep(at: time) {
+        case .started:
+            DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.35)) { hidden = false } }
+        case .finished:
+            DispatchQueue.main.async { entering = false }
+        case .idle, .waiting, .turning:
+            break
         }
     }
 
@@ -759,5 +813,38 @@ struct CarSceneView: View {
         case .ended, .cancelled, .failed: live.endTurn(velocity: pan.velocity(in: pan.view).x)
         default: break
         }
+    }
+}
+
+/// A CSS-style cubic-bezier timing curve from (0, 0) to (1, 1): progress in, eased progress out.
+struct CubicBezier {
+    let x1, y1, x2, y2: Double
+
+    init(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double) {
+        (self.x1, self.y1, self.x2, self.y2) = (x1, y1, x2, y2)
+    }
+
+    func callAsFunction(_ x: Double) -> Double {
+        guard x > 0 else { return 0 }
+        guard x < 1 else { return 1 }
+        // Newton's method for the curve parameter at this x (the x control points keep it monotonic).
+        var t = x
+        for _ in 0..<8 {
+            let error = Self.point(t, x1, x2) - x
+            let slope = Self.slope(t, x1, x2)
+            if abs(error) < 1e-6 || abs(slope) < 1e-6 { break }
+            t = min(1, max(0, t - error / slope))
+        }
+        return Self.point(t, y1, y2)
+    }
+
+    private static func point(_ t: Double, _ a: Double, _ b: Double) -> Double {
+        let u = 1 - t
+        return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t
+    }
+
+    private static func slope(_ t: Double, _ a: Double, _ b: Double) -> Double {
+        let u = 1 - t
+        return 3 * u * u * a + 6 * u * t * (b - a) + 3 * t * t * (1 - b)
     }
 }
