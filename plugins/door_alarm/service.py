@@ -693,17 +693,14 @@ class DoorService:
             elif kind == "push_info":
                 self.push(f"{d.get('name')} opened", "The door alarm is off.", {"type": "door_alarm"}, None, "active")
             elif kind in ("ring_phone", "stop_ring"):
+                if kind == "stop_ring" and self.alarm.state == "triggered":   # silenced: the Pod goes quiet too
+                    self._pod_show(_pod_page(self.alarm.contact_name or ""))
                 device = self.bridge.offering("door_alarm_ring")
                 if device:   # an asleep phone has no live link: invoke_skill wakes it with a push
                     args = {"stop": True} if kind == "stop_ring" else {"name": d.get("name") or "A door"}
                     self._safe_invoke(device, "door_alarm_ring", args, timeout=8.0)
-                if kind == "stop_ring" and self.alarm.state == "triggered":   # silenced: the Pod goes quiet too
-                    self._pod_show(_pod_page(self.alarm.contact_name or ""))
             elif kind == "pod_alert":
-                device = self.bridge.offering("pod_show")
-                if device:
-                    siren_s = (self.alarm.siren_until or 0) - self.clock()
-                    self._safe_invoke(device, "pod_show", {"page": _pod_page(d.get("name") or "", siren_s)}, timeout=8.0)
+                pass   # the ALARM page went to the Pod with the state change (_pod_state_page), ahead of the phone
             elif kind == "note" and not d.get("state"):   # state changes are already logged by _commit
                 self.store.append_event({"t": self.clock(), "kind": "note", "text": d.get("text")})
             elif kind == "prompt":
@@ -727,7 +724,9 @@ class DoorService:
                                "Door alarm on", ttl=8, sound={"name": "success"})
         if state == "disarmed":
             return _pod_status("checkmark", "Disarmed", "success", "Door alarm off", ttl=8, sound={"name": "success"})
-        return None   # triggered: the pod_alert effect shows ALARM
+        if state == "triggered":   # here, not in the effects: those wait behind the phone and the Pod went silent
+            return _pod_page(a.contact_name or "", (a.siren_until or 0) - now)
+        return None
 
     def _pod_show(self, page: dict) -> None:
         device = self.bridge.offering("pod_show")
