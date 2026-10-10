@@ -184,8 +184,8 @@ private struct ApprovalSheet: View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 if CarModel.hasBundledModel {
-                    // Still, at the classic front three-quarter angle, centred.
-                    CarSceneView(presentation: .approval, spin: false, lit: lit)
+                    // Turns in from nearly head-on to a mostly side-on pose, centred, and stays.
+                    CarSceneView(presentation: .approval, spin: false, lit: lit, turnsIntoPlace: true)
                         .frame(height: 200)
                         .allowsHitTesting(false)
                 }

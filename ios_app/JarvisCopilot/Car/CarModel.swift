@@ -185,8 +185,9 @@ enum CarModel {
         /// The lights' page: from above, front at the top, the body cut away at the waist so the
         /// cabin shows.
         case cutaway
-        /// The Face ID approval card: the hero's still three-quarter pose, centred in a short frame
-        /// with room under the wheels for the action's badge.
+        /// The Face ID approval card: mostly side-on (a little of the front still showing), centred
+        /// in a short frame with room under the wheels for the action's badge. It turns into this
+        /// pose once (`Live.enter`) and then holds still.
         case approval
 
         var distance: Float {
@@ -194,7 +195,7 @@ enum CarModel {
             case .card: return 6.9
             case .hero: return 7.4
             case .cutaway: return 3.3
-            case .approval: return 7.7
+            case .approval: return 8.5
             }
         }
         var height: Float {
@@ -202,12 +203,12 @@ enum CarModel {
             case .card: return 2.1
             case .hero: return 2.3
             case .cutaway: return 8.4
-            case .approval: return 2.15
+            case .approval: return 2.1
             }
         }
-        /// Slides the camera and its target sideways together: the three-quarter car sits left of
-        /// centre (its near front corner is bigger), and this brings it back to the middle.
-        var pan: Float { self == .approval ? -0.33 : 0 }
+        /// Slides the camera and its target sideways together: a car turned toward the viewer sits
+        /// off centre (its near front corner is bigger), and this brings it back to the middle.
+        var pan: Float { self == .approval ? -0.14 : 0 }
         var target: SCNVector3 {
             switch self {
             case .cutaway: return SCNVector3(0, 0.3, -0.12)
@@ -215,9 +216,15 @@ enum CarModel {
             case .card, .hero: return SCNVector3(0, 0.62, 0)
             }
         }
-        /// The car's yaw at rest: the front left corner toward the viewer — or, cut away, the front
-        /// away from it (at the top of the screen).
-        var restYaw: Float { self == .cutaway ? .pi : -0.62 }
+        /// The car's yaw at rest: the front left corner toward the viewer (the approval card further
+        /// round, nearly side-on) — or, cut away, the front away from it (at the top of the screen).
+        var restYaw: Float {
+            switch self {
+            case .cutaway: return .pi
+            case .approval: return -1.1
+            case .card, .hero: return -0.62
+            }
+        }
     }
 
     /// Hit-testing the cabin (to place lamps) looks only at these parts.
@@ -413,6 +420,27 @@ enum CarModel {
             let coast = SCNAction.rotateBy(x: 0, y: coastAngle, z: 0, duration: 0.7)
             coast.timingMode = .easeOut
             spinner.runAction(spins ? .sequence([coast, spinForever]) : coast, forKey: "spin")
+        }
+
+        // MARK: Entrance — the approval card's car turns into its pose once, then holds still.
+
+        /// How far round from its rest pose the car waits (nearly head-on), and how long the turn takes.
+        static let entranceTurn: Float = 0.9
+        static let entranceTime: Double = 1.5
+
+        /// Before it's shown: wait `entranceTurn` round from the rest pose.
+        func readyEntrance() {
+            spinner.removeAction(forKey: "spin")
+            spinner.eulerAngles.y = presentation.restYaw + Self.entranceTurn
+        }
+
+        /// Turn into the rest pose: a gentle start and a long, soft settle.
+        func enter() {
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = Self.entranceTime
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0, 0, 1)
+            spinner.eulerAngles.y = presentation.restYaw
+            SCNTransaction.commit()
         }
 
         // MARK: Stages — a screen's car glides from the hero pose to the top view and into the cabin.
@@ -665,8 +693,12 @@ struct CarSceneView: View {
     var animatesAnywhere = false
     /// Sideways drags turn the car; it keeps turning on its own once let go.
     var turnable = false
+    /// Once shown, the car turns into its rest pose (`Live.enter`), then holds still.
+    var turnsIntoPlace = false
 
     @State private var live: CarModel.Live?
+    /// True while the car turns into place: the view renders only while it moves.
+    @State private var entering = false
     /// False while another page covers it: the Devices card kept drawing at 30 fps under the car's
     /// own page, two full car scenes at once.
     @State private var onScreen = false
@@ -683,7 +715,7 @@ struct CarSceneView: View {
             if let live {
                 // 60 fps, not the wearables' 30: a turning (or dragged) car at 30 fps looks choppy
                 // next to the rest of a 120 Hz screen.
-                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating,
+                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: animating || entering,
                             preferredFramesPerSecond: 60,
                             onHorizontalPan: turnable ? { pan in Self.turn(live, pan) } : nil)
                     .transition(.opacity)
@@ -699,7 +731,15 @@ struct CarSceneView: View {
             guard live == nil else { return }
             let scene = await CarModel.build(presentation, spin: spin, spinSeconds: spinSeconds)
             if lit { scene.setLit(true) }
+            if turnsIntoPlace { scene.readyEntrance() }
             live = scene
+            guard turnsIntoPlace else { return }
+            entering = true
+            // Once the fade-in is nearly done, so the whole turn is seen.
+            try? await Task.sleep(for: .milliseconds(200))
+            scene.enter()
+            try? await Task.sleep(for: .seconds(CarModel.Live.entranceTime + 0.1))
+            entering = false
         }
         .onChange(of: lit) { _, on in live?.setLit(on) }
     }

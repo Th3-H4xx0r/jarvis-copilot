@@ -143,7 +143,7 @@ final class CarModelRenderTests: XCTestCase {
         guard live.hasModel else { throw XCTSkip("no bundled model") }
         let hero = try render(live, width: 402, height: 230)
         write(onBlack(hero), "stage-hero.png")
-        // The Face ID approval card: the still three-quarter pose, centred in its 334 × 200 frame.
+        // The Face ID approval card's resting pose, centred in its 334 × 200 frame.
         let card = CarModel.Live(presentation: .approval, spin: false)
         write(onBlack(try render(card, width: 334, height: 200)), "approval-car.png")
         live.go(to: .top, animated: false)
@@ -155,6 +155,18 @@ final class CarModelRenderTests: XCTestCase {
         write(onBlack(cabin), "stage-cabin.png")
         live.go(to: .hero, animated: false)
         XCTAssertEqual(live.stage, .hero)
+    }
+
+    /// The approval card's car waits nearly head-on, then turns into its rest pose and stays there.
+    func testTheApprovalCarTurnsIntoItsPose() {
+        let car = CarModel.Live(presentation: .approval, spin: false, mesh: nil)
+        let rest = CarModel.Presentation.approval.restYaw
+        XCTAssertEqual(car.spinner.eulerAngles.y, rest, accuracy: 1e-4)
+        car.readyEntrance()
+        XCTAssertEqual(car.spinner.eulerAngles.y, rest + CarModel.Live.entranceTurn, accuracy: 1e-4)
+        car.enter()
+        XCTAssertEqual(car.spinner.eulerAngles.y, rest, accuracy: 1e-4)
+        XCTAssertNil(car.spinner.action(forKey: "spin"))
     }
 
     /// Front at the top, the driver's (left) side on the left, the car centred.
