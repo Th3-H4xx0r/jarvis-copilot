@@ -16,6 +16,10 @@
 
 #include "application.h"
 #include "assets/lang_config.h"
+
+// assets/common/siren.ogg (embedded by main/CMakeLists' common-sounds glob): the door alarm's wail.
+extern const char ogg_siren_start[] asm("_binary_siren_ogg_start");
+extern const char ogg_siren_end[] asm("_binary_siren_ogg_end");
 #include "audio_codec.h"
 #include "board.h"
 #include "display.h"
@@ -176,6 +180,7 @@ struct Ui::Impl {
     double sound_fast_last = 0;         // the last N seconds beep every sound_fast_ms (Ring-style exit beeps)
     uint32_t sound_fast_ms = 0;
     bool sound_fast = false;
+    int sound_restore_volume = -1;      // a "loud" sound turned the speaker up from this; -1 = not loud
 
     Screen screen = Screen::System;
     store::UiSettings settings;
@@ -228,7 +233,7 @@ struct Ui::Impl {
 
     static std::string_view SoundNamed(const std::string& name) {
         if (name == "beep") return Lang::Sounds::OGG_POPUP;
-        if (name == "alarm") return Lang::Sounds::OGG_EXCLAMATION;
+        if (name == "siren" || name == "alarm") return {ogg_siren_start, static_cast<size_t>(ogg_siren_end - ogg_siren_start)};
         if (name == "success") return Lang::Sounds::OGG_SUCCESS;
         if (name == "buzz") return Lang::Sounds::OGG_VIBRATION;
         return {};
@@ -238,19 +243,36 @@ struct Ui::Impl {
         Application::GetInstance().Schedule([ogg]() { Application::GetInstance().PlaySound(ogg); });
     }
 
-    // page "sound": {"name": beep|alarm|success|buzz, "every_ms"?: 0 = once, "for_s"?, "fast_last_s"?, "fast_ms"?}
+    // Put the speaker back where it was after a "loud" sound.
+    void EndLoud() {
+        if (sound_restore_volume < 0) return;
+        int volume = sound_restore_volume;
+        sound_restore_volume = -1;
+        Application::GetInstance().Schedule([volume]() { Board::GetInstance().GetAudioCodec()->SetOutputVolume(volume); });
+    }
+
+    // page "sound": {"name": beep|siren|success|buzz, "every_ms"?: 0 = once, "for_s"?, "fast_last_s"?, "fast_ms"?,
+    //                "loud"?: full volume while it plays}
     void StartPageSound(const cJSON* sound) {
         if (sound_timer) {
             lv_timer_delete(sound_timer);
             sound_timer = nullptr;
         }
+        EndLoud();
         if (!cJSON_IsObject(sound)) return;
         const cJSON* name = cJSON_GetObjectItemCaseSensitive(sound, "name");
         std::string_view ogg = cJSON_IsString(name) ? SoundNamed(name->valuestring) : std::string_view();
         if (ogg.empty()) return;
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sound, "loud"))) {
+            sound_restore_volume = Board::GetInstance().GetAudioCodec()->output_volume();
+            Application::GetInstance().Schedule([]() { Board::GetInstance().GetAudioCodec()->SetOutputVolume(100); });
+        }
         PlayOgg(ogg);
         const cJSON* every = cJSON_GetObjectItemCaseSensitive(sound, "every_ms");
-        if (!cJSON_IsNumber(every) || every->valuedouble <= 0) return;
+        if (!cJSON_IsNumber(every) || every->valuedouble <= 0) {
+            EndLoud();   // a one-shot doesn't hold the speaker up (it's queued already at full volume)
+            return;
+        }
         const cJSON* for_s = cJSON_GetObjectItemCaseSensitive(sound, "for_s");
         const cJSON* fast_last = cJSON_GetObjectItemCaseSensitive(sound, "fast_last_s");
         const cJSON* fast_ms = cJSON_GetObjectItemCaseSensitive(sound, "fast_ms");
@@ -270,6 +292,7 @@ struct Ui::Impl {
                     (impl->sound_until > 0 && now >= impl->sound_until)) {
                     impl->sound_timer = nullptr;
                     lv_timer_delete(t);
+                    impl->EndLoud();
                     return;
                 }
                 if (!impl->sound_fast && impl->sound_fast_ms && impl->sound_until > 0 &&

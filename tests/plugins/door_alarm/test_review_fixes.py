@@ -385,7 +385,7 @@ def test_the_pod_beeps_while_arming_and_sounds_the_siren(env):
     svc.arm_now()
     svc.on_board_event("board1", "door_report", {"dps": {"1": True}, "t": 0, "seq": 9})
     alarm_pages = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show" and "ALARM" in str(c[2]["page"])]
-    assert alarm_pages and alarm_pages[-1]["sound"]["name"] == "alarm"
+    assert alarm_pages and alarm_pages[-1]["sound"]["name"] == "siren" and alarm_pages[-1]["sound"]["loud"]
 
 
 def test_the_pod_alarm_goes_out_before_the_slow_phone_calls(env):
@@ -397,5 +397,5 @@ def test_the_pod_alarm_goes_out_before_the_slow_phone_calls(env):
     clock[0] += 30
     svc.tick()
     skills = [c[1] for c in bridge.calls]
-    assert skills[0] == "pod_show" and bridge.calls[0][2]["page"]["sound"]["name"] == "alarm"
+    assert skills[0] == "pod_show" and bridge.calls[0][2]["page"]["sound"]["name"] == "siren"
     assert skills.count("pod_show") == 1          # shown once, not again by the effect

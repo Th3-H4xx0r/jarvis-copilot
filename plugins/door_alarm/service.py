@@ -108,7 +108,8 @@ def _pod_page(name: str, siren_s: float = 0) -> dict:
                 {"type": "text", "value": (name or "A door")[:28] + " opened", "style": {"size": 16, "color": "text"}},
                 {"type": "text", "value": "Disarm on the iPhone", "style": {"size": 12, "color": "muted"}}]}}
     if siren_s > 0:
-        page["sound"] = {"name": "alarm", "every_ms": 700, "for_s": int(siren_s + 0.5)}
+        # A 1.2 s wail on repeat, speaker at full volume (back to his level when it stops).
+        page["sound"] = {"name": "siren", "every_ms": 1200, "for_s": int(siren_s + 0.5), "loud": True}
     return page
 
 
