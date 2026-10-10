@@ -99,17 +99,21 @@ class _Prompts:
             return
 
 
-def _pod_page(name: str) -> dict:
-    return {"id": "doorlarm", "title": "Door alarm",
+def _pod_page(name: str, siren_s: float = 0) -> dict:
+    """The ALARM page; while the siren runs the Pod sounds it too (silence / disarm / timeout stop it)."""
+    page = {"id": "doorlarm", "title": "Door alarm",
             "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": [
                 {"type": "symbol", "name": "exclamationmark.triangle.fill", "style": {"size": 44, "color": "danger"}},
                 {"type": "text", "value": "ALARM", "style": {"size": 34, "weight": "bold", "color": "danger"}},
                 {"type": "text", "value": (name or "A door")[:28] + " opened", "style": {"size": 16, "color": "text"}},
                 {"type": "text", "value": "Disarm on the iPhone", "style": {"size": 12, "color": "muted"}}]}}
+    if siren_s > 0:
+        page["sound"] = {"name": "alarm", "every_ms": 700, "for_s": int(siren_s + 0.5)}
+    return page
 
 
 def _pod_status(symbol: str, title: str, color: str, line: str, timer_to: Optional[float] = None,
-                ttl: Optional[int] = None, now: float = 0.0) -> dict:
+                ttl: Optional[int] = None, now: float = 0.0, sound: Optional[dict] = None) -> dict:
     children = [{"type": "symbol", "name": symbol, "style": {"size": 36, "color": color}},
                 {"type": "text", "value": title, "style": {"size": 28, "weight": "bold", "color": color}}]
     if timer_to:
@@ -121,6 +125,8 @@ def _pod_status(symbol: str, title: str, color: str, line: str, timer_to: Option
             "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": children}}
     if ttl:
         page["ttl"] = ttl   # the Pod goes back home after this many seconds
+    if sound:
+        page["sound"] = sound   # played on the Pod while this page is up
     return page
 
 
@@ -691,10 +697,13 @@ class DoorService:
                 if device:   # an asleep phone has no live link: invoke_skill wakes it with a push
                     args = {"stop": True} if kind == "stop_ring" else {"name": d.get("name") or "A door"}
                     self._safe_invoke(device, "door_alarm_ring", args, timeout=8.0)
+                if kind == "stop_ring" and self.alarm.state == "triggered":   # silenced: the Pod goes quiet too
+                    self._pod_show(_pod_page(self.alarm.contact_name or ""))
             elif kind == "pod_alert":
                 device = self.bridge.offering("pod_show")
                 if device:
-                    self._safe_invoke(device, "pod_show", {"page": _pod_page(d.get("name") or "")}, timeout=8.0)
+                    siren_s = (self.alarm.siren_until or 0) - self.clock()
+                    self._safe_invoke(device, "pod_show", {"page": _pod_page(d.get("name") or "", siren_s)}, timeout=8.0)
             elif kind == "note" and not d.get("state"):   # state changes are already logged by _commit
                 self.store.append_event({"t": self.clock(), "kind": "note", "text": d.get("text")})
             elif kind == "prompt":
@@ -704,17 +713,20 @@ class DoorService:
 
     def _pod_state_page(self, state: str) -> Optional[dict]:
         """The Pod's screen for an alarm state (the countdowns tick on the Pod itself)."""
-        a = self.alarm
-        if state == "arming" and a.deadline:
-            return _pod_status("bell.fill", "Arming", "accent", "Leave now", timer_to=a.deadline, now=self.clock())
+        a, now = self.alarm, self.clock()
+        left = int(max(0.0, (a.deadline or now) - now) + 0.5)
+        if state == "arming" and a.deadline:   # Ring-style: a beep a second, faster for the last 10 s
+            return _pod_status("bell.fill", "Arming", "accent", "Leave now", timer_to=a.deadline, now=now,
+                               sound={"name": "beep", "every_ms": 1000, "for_s": left, "fast_last_s": 10, "fast_ms": 500})
         if state == "entry" and a.deadline:
             return _pod_status("exclamationmark.triangle.fill", "Door opened", "danger",
-                               (a.contact_name or "A door")[:24], timer_to=a.deadline, now=self.clock())
+                               (a.contact_name or "A door")[:24], timer_to=a.deadline, now=now,
+                               sound={"name": "beep", "every_ms": 500, "for_s": left})
         if state in ("armed_away", "armed_home"):
             return _pod_status("checkmark", "Armed " + ("away" if state == "armed_away" else "home"), "accent",
-                               "Door alarm on", ttl=8)
+                               "Door alarm on", ttl=8, sound={"name": "success"})
         if state == "disarmed":
-            return _pod_status("checkmark", "Disarmed", "success", "Door alarm off", ttl=8)
+            return _pod_status("checkmark", "Disarmed", "success", "Door alarm off", ttl=8, sound={"name": "success"})
         return None   # triggered: the pod_alert effect shows ALARM
 
     def _pod_show(self, page: dict) -> None:

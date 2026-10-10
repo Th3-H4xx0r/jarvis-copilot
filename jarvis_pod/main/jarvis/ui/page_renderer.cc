@@ -1,12 +1,14 @@
 // Page JSON → LVGL objects. Input is already validated (logic::ValidatePage).
 #include <cJSON.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <mbedtls/base64.h>
 
 #include "jpg/jpeg_to_image.h"
 #include <wifi_manager.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -154,6 +156,8 @@ static lv_flex_align_t Cross(const std::string& align) {
 static std::string TimerText(const cJSON* node, const Ctx& ctx) {
     double to = ResolveNumber(node, "to", ctx, 0);
     long long left = static_cast<long long>(to) - static_cast<long long>(time(nullptr));
+    const cJSON* mono_to = cJSON_GetObjectItemCaseSensitive(node, "mono_to");
+    if (cJSON_IsNumber(mono_to)) left = static_cast<long long>(std::ceil(mono_to->valuedouble - esp_timer_get_time() / 1e6));
     if (left < 0) left = 0;
     const cJSON* format = cJSON_GetObjectItemCaseSensitive(node, "format");
     char buf[32];

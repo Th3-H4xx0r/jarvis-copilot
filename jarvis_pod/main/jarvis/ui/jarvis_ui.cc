@@ -3,6 +3,7 @@
 #include <cJSON.h>
 #include <esp_app_desc.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <esp_log.h>
 #include <esp_partition.h>
 #include <wifi_manager.h>
@@ -13,6 +14,8 @@
 #include <algorithm>
 #include <ctime>
 
+#include "application.h"
+#include "assets/lang_config.h"
 #include "audio_codec.h"
 #include "board.h"
 #include "display.h"
@@ -166,6 +169,13 @@ struct Ui::Impl {
     lv_timer_t* error_timer = nullptr;
     lv_timer_t* page_timer = nullptr;   // a shown page's "ttl": back home when it runs out
     std::string page_timer_id;
+    lv_timer_t* sound_timer = nullptr;  // a shown page's "sound": repeats while that page is up
+    std::string sound_page_id;
+    std::string_view sound_ogg;
+    double sound_until = 0;             // uptime seconds; 0 = until the page goes
+    double sound_fast_last = 0;         // the last N seconds beep every sound_fast_ms (Ring-style exit beeps)
+    uint32_t sound_fast_ms = 0;
+    bool sound_fast = false;
 
     Screen screen = Screen::System;
     store::UiSettings settings;
@@ -216,19 +226,74 @@ struct Ui::Impl {
         return l;
     }
 
-    // A timer's "in" (seconds left) becomes "to" on this pod's own clock, so a countdown is right even
-    // when the clock isn't synced yet. Done once: a re-render keeps the same deadline.
-    static void AnchorTimers(cJSON* node, time_t now) {
+    static std::string_view SoundNamed(const std::string& name) {
+        if (name == "beep") return Lang::Sounds::OGG_POPUP;
+        if (name == "alarm") return Lang::Sounds::OGG_EXCLAMATION;
+        if (name == "success") return Lang::Sounds::OGG_SUCCESS;
+        if (name == "buzz") return Lang::Sounds::OGG_VIBRATION;
+        return {};
+    }
+
+    static void PlayOgg(std::string_view ogg) {
+        Application::GetInstance().Schedule([ogg]() { Application::GetInstance().PlaySound(ogg); });
+    }
+
+    // page "sound": {"name": beep|alarm|success|buzz, "every_ms"?: 0 = once, "for_s"?, "fast_last_s"?, "fast_ms"?}
+    void StartPageSound(const cJSON* sound) {
+        if (sound_timer) {
+            lv_timer_delete(sound_timer);
+            sound_timer = nullptr;
+        }
+        if (!cJSON_IsObject(sound)) return;
+        const cJSON* name = cJSON_GetObjectItemCaseSensitive(sound, "name");
+        std::string_view ogg = cJSON_IsString(name) ? SoundNamed(name->valuestring) : std::string_view();
+        if (ogg.empty()) return;
+        PlayOgg(ogg);
+        const cJSON* every = cJSON_GetObjectItemCaseSensitive(sound, "every_ms");
+        if (!cJSON_IsNumber(every) || every->valuedouble <= 0) return;
+        const cJSON* for_s = cJSON_GetObjectItemCaseSensitive(sound, "for_s");
+        const cJSON* fast_last = cJSON_GetObjectItemCaseSensitive(sound, "fast_last_s");
+        const cJSON* fast_ms = cJSON_GetObjectItemCaseSensitive(sound, "fast_ms");
+        double now = esp_timer_get_time() / 1e6;
+        sound_ogg = ogg;
+        sound_page_id = shown_id;
+        sound_fast = false;
+        sound_until = cJSON_IsNumber(for_s) && for_s->valuedouble > 0 ? now + for_s->valuedouble : 0;
+        sound_fast_last = cJSON_IsNumber(fast_last) ? fast_last->valuedouble : 0;
+        sound_fast_ms = cJSON_IsNumber(fast_ms) ? static_cast<uint32_t>(std::max(200.0, fast_ms->valuedouble)) : 0;
+        uint32_t period = static_cast<uint32_t>(std::max(250.0, std::min(every->valuedouble, 60000.0)));
+        sound_timer = lv_timer_create(
+            [](lv_timer_t* t) {
+                auto* impl = static_cast<Impl*>(lv_timer_get_user_data(t));
+                double now = esp_timer_get_time() / 1e6;
+                if (impl->screen != Screen::Shown || impl->shown_id != impl->sound_page_id ||
+                    (impl->sound_until > 0 && now >= impl->sound_until)) {
+                    impl->sound_timer = nullptr;
+                    lv_timer_delete(t);
+                    return;
+                }
+                if (!impl->sound_fast && impl->sound_fast_ms && impl->sound_until > 0 &&
+                    impl->sound_until - now <= impl->sound_fast_last) {
+                    impl->sound_fast = true;
+                    lv_timer_set_period(t, impl->sound_fast_ms);
+                }
+                PlayOgg(impl->sound_ogg);
+            },
+            period, this);
+    }
+
+    // A timer's "in" (seconds left) becomes a deadline on the uptime clock ("mono_to"), so a countdown is
+    // right even when the wall clock is unsynced or jumps. Done once: a re-render keeps the same deadline.
+    static void AnchorTimers(cJSON* node, double uptime_s) {
         if (!cJSON_IsObject(node)) return;
         const cJSON* in = cJSON_GetObjectItemCaseSensitive(node, "in");
         if (cJSON_IsNumber(in)) {
-            double to = static_cast<double>(now) + in->valuedouble;
+            double mono_to = uptime_s + in->valuedouble;
             cJSON_DeleteItemFromObjectCaseSensitive(node, "in");
-            cJSON_DeleteItemFromObjectCaseSensitive(node, "to");
-            cJSON_AddNumberToObject(node, "to", to);
+            cJSON_AddNumberToObject(node, "mono_to", mono_to);
         }
         cJSON* child;
-        cJSON_ArrayForEach(child, cJSON_GetObjectItemCaseSensitive(node, "children")) AnchorTimers(child, now);
+        cJSON_ArrayForEach(child, cJSON_GetObjectItemCaseSensitive(node, "children")) AnchorTimers(child, uptime_s);
     }
 
     bool RenderDoc(const std::string& json) {
@@ -238,7 +303,7 @@ struct Ui::Impl {
             cJSON_Delete(doc);
             return false;
         }
-        AnchorTimers(cJSON_GetObjectItemCaseSensitive(doc, "root"), time(nullptr));
+        AnchorTimers(cJSON_GetObjectItemCaseSensitive(doc, "root"), esp_timer_get_time() / 1e6);
         page_doc = doc;
         ctx.theme = settings.theme;
         ctx.clock_24h = settings.clock_24h;
@@ -1052,6 +1117,7 @@ void Ui::ShowPage(const std::string& page_json) {
             },
             static_cast<uint32_t>(std::min(ttl->valuedouble, 3600.0) * 1000), m);
     }
+    m->StartPageSound(cJSON_GetObjectItemCaseSensitive(m->page_doc, "sound"));
 }
 
 void Ui::CacheImages(std::map<std::string, std::string> url_to_bytes) {

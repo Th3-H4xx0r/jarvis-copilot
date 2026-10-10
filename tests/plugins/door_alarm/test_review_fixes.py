@@ -373,3 +373,16 @@ def test_the_pod_shows_arming_and_disarmed(env):
     svc.cancel_arming()
     page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
     assert "Disarmed" in __import__("json").dumps(page)
+
+
+def test_the_pod_beeps_while_arming_and_sounds_the_siren(env):
+    svc, clock, bridge, push = env
+    svc.update_settings({"alarm": {"exit_delay": 60, "entry_delay": 0}})
+    bridge.calls.clear()
+    svc.arm("away")
+    page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
+    assert page["sound"]["name"] == "beep" and page["sound"]["for_s"] == 60
+    svc.arm_now()
+    svc.on_board_event("board1", "door_report", {"dps": {"1": True}, "t": 0, "seq": 9})
+    alarm_pages = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show" and "ALARM" in str(c[2]["page"])]
+    assert alarm_pages and alarm_pages[-1]["sound"]["name"] == "alarm"
