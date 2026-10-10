@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -203,9 +204,28 @@ def _resolve_anthropic_messages_max_tokens(
     )
 
 
+# "claude-<family>-<major>[-<minor>]" (dots or hyphens; date suffixes like
+# -20250514 are not a minor version). Lets the 4.6+/4.7+ rules below cover new
+# releases (Opus 4.8, the 5.x line, Fable, Mythos) without a table edit each time.
+_CLAUDE_VERSION_RE = re.compile(
+    r"claude-(?:opus|sonnet|haiku|fable|mythos)-(\d{1,2})(?:[-.](\d{1,2})(?!\d))?"
+)
+
+
+def _claude_version_at_least(model: str, version: tuple) -> bool:
+    match = _CLAUDE_VERSION_RE.search((model or "").lower())
+    if not match:
+        return False
+    return (int(match.group(1)), int(match.group(2) or 0)) >= version
+
+
 def _supports_adaptive_thinking(model: str) -> bool:
-    """Return True for Claude 4.6+ models that support adaptive thinking."""
-    return any(v in model for v in _ADAPTIVE_THINKING_SUBSTRINGS)
+    """Return True for Claude 4.6+ models that support adaptive thinking.
+
+    On 4.7+ (Sonnet 5.5, Opus 5.5, Fable, …) adaptive is the ONLY thinking mode:
+    ``{"type": "enabled", "budget_tokens": N}`` is a 400.
+    """
+    return any(v in model for v in _ADAPTIVE_THINKING_SUBSTRINGS) or _claude_version_at_least(model, (4, 6))
 
 
 def _supports_xhigh_effort(model: str) -> bool:
@@ -216,7 +236,7 @@ def _supports_xhigh_effort(model: str) -> bool:
     and reject xhigh with an HTTP 400. Callers should downgrade xhigh→max
     when this returns False.
     """
-    return any(v in model for v in _XHIGH_EFFORT_SUBSTRINGS)
+    return any(v in model for v in _XHIGH_EFFORT_SUBSTRINGS) or _claude_version_at_least(model, (4, 7))
 
 
 def _forbids_sampling_params(model: str) -> bool:
@@ -226,7 +246,7 @@ def _forbids_sampling_params(model: str) -> bool:
     expected to follow suit.  Callers should omit these fields entirely rather
     than passing zero/default values (the API rejects anything non-null).
     """
-    return any(v in model for v in _NO_SAMPLING_PARAMS_SUBSTRINGS)
+    return any(v in model for v in _NO_SAMPLING_PARAMS_SUBSTRINGS) or _claude_version_at_least(model, (4, 7))
 
 
 def _supports_fast_mode(model: str) -> bool:
