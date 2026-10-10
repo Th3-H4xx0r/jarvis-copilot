@@ -368,6 +368,8 @@ def test_the_pod_shows_arming_and_disarmed(env):
     svc.arm("away")
     page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
     assert '"timer"' in __import__("json").dumps(page) and "Arming" in __import__("json").dumps(page)
+    timer = [c for c in page["root"]["children"] if c["type"] == "timer"][0]
+    assert timer["in"] == 60   # seconds left, so a Pod whose clock is off still counts right
     svc.cancel_arming()
     page = [c[2]["page"] for c in bridge.calls if c[1] == "pod_show"][-1]
     assert "Disarmed" in __import__("json").dumps(page)

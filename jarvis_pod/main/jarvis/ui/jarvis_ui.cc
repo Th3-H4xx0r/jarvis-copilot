@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include <algorithm>
+#include <ctime>
 
 #include "audio_codec.h"
 #include "board.h"
@@ -215,6 +216,21 @@ struct Ui::Impl {
         return l;
     }
 
+    // A timer's "in" (seconds left) becomes "to" on this pod's own clock, so a countdown is right even
+    // when the clock isn't synced yet. Done once: a re-render keeps the same deadline.
+    static void AnchorTimers(cJSON* node, time_t now) {
+        if (!cJSON_IsObject(node)) return;
+        const cJSON* in = cJSON_GetObjectItemCaseSensitive(node, "in");
+        if (cJSON_IsNumber(in)) {
+            double to = static_cast<double>(now) + in->valuedouble;
+            cJSON_DeleteItemFromObjectCaseSensitive(node, "in");
+            cJSON_DeleteItemFromObjectCaseSensitive(node, "to");
+            cJSON_AddNumberToObject(node, "to", to);
+        }
+        cJSON* child;
+        cJSON_ArrayForEach(child, cJSON_GetObjectItemCaseSensitive(node, "children")) AnchorTimers(child, now);
+    }
+
     bool RenderDoc(const std::string& json) {
         cJSON* doc = cJSON_Parse(json.c_str());
         const cJSON* root_node = cJSON_GetObjectItemCaseSensitive(doc, "root");
@@ -222,6 +238,7 @@ struct Ui::Impl {
             cJSON_Delete(doc);
             return false;
         }
+        AnchorTimers(cJSON_GetObjectItemCaseSensitive(doc, "root"), time(nullptr));
         page_doc = doc;
         ctx.theme = settings.theme;
         ctx.clock_24h = settings.clock_24h;

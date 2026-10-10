@@ -109,12 +109,13 @@ def _pod_page(name: str) -> dict:
 
 
 def _pod_status(symbol: str, title: str, color: str, line: str, timer_to: Optional[float] = None,
-                ttl: Optional[int] = None) -> dict:
+                ttl: Optional[int] = None, now: float = 0.0) -> dict:
     children = [{"type": "symbol", "name": symbol, "style": {"size": 36, "color": color}},
                 {"type": "text", "value": title, "style": {"size": 28, "weight": "bold", "color": color}}]
     if timer_to:
-        children.append({"type": "timer", "to": int(timer_to), "format": "countdown",
-                         "style": {"size": 64, "weight": "bold", "color": color}})
+        # "in" = seconds left: the Pod counts from when the page lands, so its own clock can be off.
+        children.append({"type": "timer", "to": int(timer_to), "in": max(0, int(timer_to - now + 0.5)),
+                         "format": "countdown", "style": {"size": 64, "weight": "bold", "color": color}})
     children.append({"type": "text", "value": line, "style": {"size": 14, "color": "muted"}})
     page = {"id": "doorlarm", "title": "Door alarm",
             "root": {"type": "vstack", "style": {"gap": 6, "align": "center"}, "children": children}}
@@ -705,10 +706,10 @@ class DoorService:
         """The Pod's screen for an alarm state (the countdowns tick on the Pod itself)."""
         a = self.alarm
         if state == "arming" and a.deadline:
-            return _pod_status("bell.fill", "Arming", "accent", "Leave now", timer_to=a.deadline)
+            return _pod_status("bell.fill", "Arming", "accent", "Leave now", timer_to=a.deadline, now=self.clock())
         if state == "entry" and a.deadline:
             return _pod_status("exclamationmark.triangle.fill", "Door opened", "danger",
-                               (a.contact_name or "A door")[:24], timer_to=a.deadline)
+                               (a.contact_name or "A door")[:24], timer_to=a.deadline, now=self.clock())
         if state in ("armed_away", "armed_home"):
             return _pod_status("checkmark", "Armed " + ("away" if state == "armed_away" else "home"), "accent",
                                "Door alarm on", ttl=8)
