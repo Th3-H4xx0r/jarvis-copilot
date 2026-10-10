@@ -226,3 +226,67 @@ def test_a_board_or_pod_session_is_a_board():
     assert caller_kind({"id": "b", "kind": "browser"}, ["esp32_get_state", "esp32_door_set"]) == "board"
     assert caller_kind({"id": "pod", "kind": "browser"}, ["pod_show", "pod_status"]) == "board"
     assert caller_kind({"id": "web", "kind": "browser"}, []) is None
+
+
+# ── his hub (PHYSEN wxml p9marmvo8k9lfhz6): English everywhere, sensors decoded (2026-10-10) ──
+
+WXML = [
+    {"abilityId": 1, "code": "doorbell_list_data", "name": "门铃列表数据", "accessMode": "rw", "typeSpec": {"type": "raw"}},
+    {"abilityId": 2, "code": "doorbell_ring_value", "name": "门铃铃声", "accessMode": "rw",
+     "typeSpec": {"type": "value", "min": 0, "max": 32, "step": 1}},
+    {"abilityId": 3, "code": "doorbell_volume_value", "name": "门铃音量", "accessMode": "rw",
+     "typeSpec": {"type": "value", "min": 0, "max": 100, "step": 1}},
+    {"abilityId": 5, "code": "alarm_message", "name": "告警消息", "accessMode": "rw", "typeSpec": {"type": "raw"}},
+    {"abilityId": 7, "code": "disturb_time_set", "name": "勿扰时段", "accessMode": "rw", "typeSpec": {"type": "raw"}},
+    {"abilityId": 10, "code": "doorbell_call", "name": "门铃呼叫", "accessMode": "ro",
+     "typeSpec": {"type": "value", "min": 1, "max": 32}},
+    {"abilityId": 101, "code": "doorbell_mode", "name": "模式", "accessMode": "rw",
+     "typeSpec": {"type": "enum", "range": ["LightSound", "Sound", "Light"]}},
+    {"abilityId": 103, "code": "accessery_id", "name": "子设备序号", "accessMode": "ro",
+     "typeSpec": {"type": "value", "min": 1, "max": 8}},
+    {"abilityId": 104, "code": "mode_alarmid", "name": "模式告警信息", "accessMode": "rw",
+     "typeSpec": {"type": "enum", "range": ["LightSound", "Sound", "Light", "Invalid"]}},
+]
+FRONT_DOOR = "AEYAcgBvAG4AdAAgAEQAbwBvAHI="  # UTF-16BE "Front Door"
+
+
+def wxml_hub(tmp_path):
+    clock = [1_800_000_000.0]
+    store = DoorStore(tmp_path)
+    dps = schema.parse_model({"services": [{"properties": WXML}]})
+    store.save_config({"dev_id": "hub1", "product_id": "p9marmvo8k9lfhz6",
+                       "dps": [d.public() for d in dps.values()], "roles": schema.roles(dps, "p9marmvo8k9lfhz6")})
+    return Hub(store, clock=lambda: clock[0]), store, clock
+
+
+def test_every_name_on_his_hub_is_english(tmp_path):
+    hub, _store, _clock = wxml_hub(tmp_path)
+    public = hub.public()
+    assert all(d["name"].isascii() for d in public["dps"]), [d["name"] for d in public["dps"]]
+    names = {d["code"]: d["name"] for d in public["dps"]}
+    assert names["doorbell_volume_value"] == "Volume" and names["doorbell_ring_value"] == "Ringtone"
+    mode = next(d for d in public["dps"] if d["code"] == "doorbell_mode")
+    assert mode["option_labels"]["LightSound"] == "Light + sound"
+
+
+def test_raw_fields_are_hidden_or_decoded(tmp_path):
+    hub, _store, _clock = wxml_hub(tmp_path)
+    hub.apply([{"code": "alarm_message", "value": FRONT_DOOR}], source="cloud", snapshot=True)
+    public = hub.public()
+    hidden = {d["code"] for d in public["dps"] if d["hidden"]}
+    assert {"doorbell_list_data", "disturb_time_set"} <= hidden
+    assert public["values"]["alarm_message"]["display"] == "Front Door"
+
+
+def test_a_door_opening_on_his_hub_is_the_named_sensor(tmp_path):
+    hub, _store, clock = wxml_hub(tmp_path)
+    hub.apply([{"code": "alarm_message", "value": FRONT_DOOR}], source="cloud", snapshot=True)
+    assert [c["name"] for c in hub.contacts()] == ["Front Door"]       # learned from the snapshot, no opening
+    clock[0] += 10
+    changes = hub.apply([{"code": "alarm_message", "value": FRONT_DOOR}], source="cloud")
+    assert [(c.kind, c.open) for c in changes] == [("door", True)]
+
+
+def test_any_other_chinese_name_becomes_readable_english():
+    assert schema.english("门铃音量", "doorbell_volume_value") == "Doorbell volume value"
+    assert schema.english("Volume", "x") == "Volume"

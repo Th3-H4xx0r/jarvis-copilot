@@ -1,0 +1,33 @@
+{
+  "product": "PHYSEN Smart WiFi Door Sensor Chime (Smart Life \"Wireless Doorbell\", Tuya category wxml)",
+  "roles": {
+    "door": ["alarm_message"],
+    "siren": [],
+    "volume": ["doorbell_volume_value"],
+    "ringtone": ["doorbell_ring_value"],
+    "battery": ["low_battery"],
+    "mode": ["doorbell_mode"],
+    "tamper": [],
+    "siren_time": []
+  },
+  "door_kind": {"alarm_message": "by_value"},
+  "names": {
+    "doorbell_list_data": "Paired sensors",
+    "doorbell_ring_value": "Ringtone",
+    "doorbell_volume_value": "Volume",
+    "alarm_message": "Last sensor alert",
+    "disturb_time_set": "Do-not-disturb schedule",
+    "doorbell_call": "Last chime",
+    "doorbell_mode": "Chime style",
+    "low_battery": "Low battery",
+    "accessery_id": "Last sensor number",
+    "mode_alarmid": "Alert style"
+  },
+  "labels": {
+    "doorbell_mode": {"LightSound": "Light + sound", "Sound": "Sound only", "Light": "Light only"},
+    "mode_alarmid": {"LightSound": "Light + sound", "Sound": "Sound only", "Light": "Light only", "Invalid": "Not set"}
+  },
+  "hidden": ["doorbell_list_data", "disturb_time_set"],
+  "readonly": ["alarm_message", "low_battery"],
+  "decode": {"alarm_message": "utf16be", "low_battery": "utf16be"}
+}

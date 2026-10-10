@@ -46,6 +46,8 @@ class Dp:
     unit: str = ""
     maxlen: Optional[int] = None
     labels: list = field(default_factory=list)
+    option_labels: dict = field(default_factory=dict)   # enum value -> English label to show
+    hidden: bool = False                                 # raw internals (sensor list, schedules)
 
     @property
     def writable(self) -> bool:
@@ -110,6 +112,33 @@ def parse_specifications(specs: dict) -> dict[int, Dp]:
         out[dp_id] = _dp_from_spec(dp_id, str(entry.get("code") or dp_id), str(entry.get("name") or ""),
                                    spec, "rw" if dp_id in writable else "ro")
     return dict(sorted(out.items()))
+
+
+def english(name: str, code: str) -> str:
+    """Tuya models are often named in Chinese; show English. A non-ASCII name becomes the code in
+    words ("doorbell_volume_value" → "Doorbell volume value"); the product file can do better."""
+    if name and name.isascii():
+        return name
+    words = (code or "").replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else "Setting"
+
+
+def decode_value(kind: str, value: Any) -> Optional[str]:
+    """A raw data point as text: ``utf16be`` = base64 of UTF-16BE (sensor names on Tuya chimes)."""
+    if kind != "utf16be" or not isinstance(value, str) or not value:
+        return None
+    import base64
+    try:
+        raw = base64.b64decode(value)
+    except (ValueError, TypeError):
+        return None
+    if len(raw) % 2:
+        raw = raw[1:]   # some firmwares prefix a length/flag byte
+    try:
+        text = raw.decode("utf-16-be").strip("\x00").strip()
+    except UnicodeDecodeError:
+        return None
+    return text if text and text.isprintable() else None
 
 
 def product_file(product_id: Optional[str], products_dir: Path | None = None) -> dict:

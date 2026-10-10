@@ -54,6 +54,8 @@ class Hub:
         self.values: dict[str, dict] = {}
         self._recent: dict[tuple, float] = {}
         self._doors: dict[str, dict] = {}     # contact id -> {open, last_open, last_close}
+        self.decoders: dict = {}
+        self.product_door_kind: dict = {}
         self.link = {"local": {"state": "unconfigured", "seen": None},
                      "cloud": {"state": "off", "seen": None, "online": None, "error": ""}}
         self.reload()
@@ -69,9 +71,21 @@ class Hub:
             self.by_code = {dp.code: dp for dp in self.dps.values()}
             roles = dict(cfg.get("roles") or schema.roles(self.dps, cfg.get("product_id")))
             # A product file written after setup (mapping roles with Pranav) wins without a re-pick.
-            override = schema.product_file(cfg.get("product_id")).get("roles") or {}
+            product = schema.product_file(cfg.get("product_id"))
+            override = product.get("roles") or {}
             roles.update({k: [str(c) for c in v or []] for k, v in override.items()})
             self.roles = roles
+            # Everything shown in English: the product file's names and option labels, else the
+            # code in words; raw internals hidden; decoders for raw values worth reading.
+            names, labels = product.get("names") or {}, product.get("labels") or {}
+            for dp in self.dps.values():
+                dp.name = names.get(dp.code) or schema.english(dp.name, dp.code)
+                dp.option_labels = dict(labels.get(dp.code) or {})
+                dp.hidden = dp.code in (product.get("hidden") or [])
+                if dp.code in (product.get("readonly") or []):
+                    dp.mode = "ro"
+            self.decoders = dict(product.get("decode") or {})
+            self.product_door_kind = dict(product.get("door_kind") or {})
             self.door_codes = [c for c in self.roles.get("door") or [] if c in self.by_code]
             self.open_values = cfg.get("open_values") or {}
 
@@ -81,7 +95,7 @@ class Hub:
 
     def _by_value(self, code: str) -> bool:
         """True when this door DP's value names the sensor (not its open/closed state)."""
-        kind = (self.cfg.get("door_kind") or {}).get(code)
+        kind = (self.cfg.get("door_kind") or {}).get(code) or self.product_door_kind.get(code)
         if kind in ("state", "by_value"):
             return kind == "by_value"
         dp = self.by_code.get(code)
@@ -108,7 +122,8 @@ class Hub:
             for n, code in enumerate(self.door_codes, 1):
                 if self._by_value(code):
                     for value in (self.cfg.get("learned") or {}).get(code, []):
-                        ids.append((f"{code}={value}", f"Sensor {len(ids) + 1}"))
+                        named = schema.decode_value(self.decoders.get(code, ""), value)
+                        ids.append((f"{code}={value}", named or f"Sensor {len(ids) + 1}"))
                 else:
                     dp = self.by_code[code]
                     default = dp.name if dp.name and dp.name != code else ("Door" if len(self.door_codes) == 1 else f"Door {n}")
@@ -208,7 +223,10 @@ class Hub:
                 if now - at > 120:
                     del self._recent[k]
         if self._by_value(code):
-            if snapshot or value in (None, "", False):
+            if value in (None, "", False):
+                return None
+            if snapshot:
+                self._learn(code, value)   # a sensor seen in a status read is listed, not "opened"
                 return None
             self._learn(code, value)
             contact = f"{code}={value}"
@@ -244,7 +262,20 @@ class Hub:
             if change.late:
                 event["late"] = True
             return event
-        return {"t": change.t, "kind": "dp", "code": change.code, "value": change.value, "source": change.source}
+        dp = self.by_code.get(change.code)
+        shown = self._public_value(change.code, {"value": change.value}).get("display")
+        return {"t": change.t, "kind": "dp", "code": change.code, "name": dp.name if dp else change.code,
+                "value": change.value, "display": shown, "source": change.source}
+
+    def _public_value(self, code: str, entry: dict) -> dict:
+        out = dict(entry)
+        text = schema.decode_value(self.decoders.get(code, ""), entry.get("value"))
+        if text is None:
+            dp = self.by_code.get(code)
+            text = (dp.option_labels.get(str(entry.get("value"))) if dp else None)
+        if text is not None:
+            out["display"] = text
+        return out
 
     # ── links ──
 
@@ -284,7 +315,7 @@ class Hub:
                 "product_name": cfg.get("product_name"), "category": cfg.get("category"),
                 "dps": [dp.public() for dp in self.dps.values()],
                 "roles": self.roles,
-                "values": {k: dict(v) for k, v in self.values.items()},
+                "values": {k: self._public_value(k, v) for k, v in self.values.items()},
                 "contacts": self.contacts(),
                 "link": {"local": dict(self.link["local"]), "cloud": dict(self.link["cloud"]),
                          "local_alive": self.local_alive(), "cloud_alive": self.cloud_alive()},
