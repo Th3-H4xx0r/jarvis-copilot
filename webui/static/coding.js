@@ -1900,6 +1900,7 @@ function _codingStartPoll() {
   _codingPollTimer = setInterval(() => {
     // Stop polling if we've navigated away from the Coding panel.
     if (typeof _currentPanel === 'string' && _currentPanel !== 'coding') { _codingStopPoll(); return; }
+    if (document.hidden) return; // nobody is looking; the next visible tick catches up
     _codingRefreshDetail();
   }, _CODING_POLL_MS);
 }

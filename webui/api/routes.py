@@ -7030,9 +7030,60 @@ _STATIC_MIME = {
     "webp": "image/webp",
     "woff": "font/woff",
     "woff2": "font/woff2",
+    "ttf": "font/ttf",
 }
 # MIME types that are text-based and should carry charset=utf-8
 _TEXT_MIME_TYPES = {"text/css", "application/javascript", "text/html", "image/svg+xml", "text/plain"}
+
+# Static assets used to go out uncompressed with no-store, so every page load
+# re-downloaded ~5.5 MB. A URL carrying the running build's ?v= never changes
+# content, so it may be cached for good; anything else revalidates against an
+# ETag (a 304 is a few hundred bytes). Text types are gzipped once per file
+# version and kept, ~2 MB for the whole static tree.
+_STATIC_GZIP_TYPES = _TEXT_MIME_TYPES | {"font/ttf", "application/json"}
+_STATIC_GZIP_MIN_BYTES = 1024
+_STATIC_GZIP_MAX_ENTRIES = 256
+_STATIC_GZIP_CACHE: dict = {}  # path -> (etag, gzipped bytes or None when too small)
+_STATIC_GZIP_LOCK = threading.Lock()
+
+
+def _static_cache_control(parsed) -> str:
+    from api.updates import WEBUI_VERSION
+
+    version = parse_qs(parsed.query).get("v", [""])[0]
+    # A dirty (developer) tree can change a file without a restart, which keeps
+    # the same ?v= -- revalidate there instead.
+    if version and version == WEBUI_VERSION and "dirty" not in WEBUI_VERSION.lower():
+        return "public, max-age=31536000, immutable"
+    return "no-cache"
+
+
+def _static_etag_matches(handler, etag: str) -> bool:
+    headers = getattr(handler, "headers", None)
+    sent = headers.get("If-None-Match", "") if headers else ""
+    if not sent:
+        return False
+    tags = {tag.strip() for tag in str(sent).split(",")}
+    return "*" in tags or etag in tags or etag[2:] in tags
+
+
+def _static_gzip(static_file: Path, etag: str):
+    key = str(static_file)
+    with _STATIC_GZIP_LOCK:
+        cached = _STATIC_GZIP_CACHE.get(key)
+    if cached is not None and cached[0] == etag:
+        return cached[1]
+    raw = static_file.read_bytes()
+    body = None
+    if len(raw) >= _STATIC_GZIP_MIN_BYTES:
+        import gzip
+
+        body = gzip.compress(raw, compresslevel=6)
+    with _STATIC_GZIP_LOCK:
+        if len(_STATIC_GZIP_CACHE) >= _STATIC_GZIP_MAX_ENTRIES and key not in _STATIC_GZIP_CACHE:
+            _STATIC_GZIP_CACHE.clear()
+        _STATIC_GZIP_CACHE[key] = (etag, body)
+    return body
 
 
 def _serve_static(handler, parsed):
@@ -7049,13 +7100,37 @@ def _serve_static(handler, parsed):
     ext = static_file.suffix.lower()
     ct = _STATIC_MIME.get(ext.lstrip("."), "text/plain")
     ct_header = f"{ct}; charset=utf-8" if ct in _TEXT_MIME_TYPES else ct
+    stat = static_file.stat()
+    etag = f'W/"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+    cache_control = _static_cache_control(parsed)
+    compressible = ct in _STATIC_GZIP_TYPES
+    if _static_etag_matches(handler, etag):
+        handler.send_response(304)
+        handler.send_header("ETag", etag)
+        handler.send_header("Cache-Control", cache_control)
+        if compressible:
+            handler.send_header("Vary", "Accept-Encoding")
+        handler.end_headers()
+        return True
+    from api.helpers import _accepts_gzip
+
+    body = None
+    if compressible and _accepts_gzip(handler):
+        body = _static_gzip(static_file, etag)
+    gzipped = body is not None
+    if body is None:
+        body = static_file.read_bytes()
     handler.send_response(200)
     handler.send_header("Content-Type", ct_header)
-    handler.send_header("Cache-Control", "no-store")
-    raw = static_file.read_bytes()
-    handler.send_header("Content-Length", str(len(raw)))
+    handler.send_header("Cache-Control", cache_control)
+    handler.send_header("ETag", etag)
+    if compressible:
+        handler.send_header("Vary", "Accept-Encoding")
+    if gzipped:
+        handler.send_header("Content-Encoding", "gzip")
+    handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
-    handler.wfile.write(raw)
+    handler.wfile.write(body)
     return True
 
 

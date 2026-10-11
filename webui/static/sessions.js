@@ -1990,6 +1990,9 @@ let _sessionTimeRefreshTimer = null;
 function startStreamingPoll(){
   if(_streamingPollTimer) return;
   _streamingPollTimer = setInterval(() => {
+    // A hidden tab has no sidebar to refresh; each poll re-sends the whole
+    // session list. The next tick after the tab shows again catches up.
+    if(document.hidden) return;
     void renderSessionList({deferWhileInteracting:true});
   }, _streamingPollMs);
 }
