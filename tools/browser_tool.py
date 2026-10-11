@@ -1567,6 +1567,21 @@ BROWSER_TOOL_SCHEMAS = [
         }
     },
     {
+        "name": "browser_run",
+        "description": "Run several browser steps in ONE call — e.g. open a page, fill a field, press Enter, wait for results, extract the data — instead of one call per action. Stops at the first step that fails and returns where the page is. Steps: {action:'open', url} · {action:'click', ref} · {action:'fill', ref, text} · {action:'press', key} · {action:'scroll', direction} · {action:'back'} · {action:'wait_for', text|selector|load|ms} · {action:'extract', instruction, schema?}. Refs come from a previous snapshot.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "description": "The steps, in order (max 25).",
+                    "items": {"type": "object"}
+                }
+            },
+            "required": ["steps"]
+        }
+    },
+    {
         "name": "browser_click",
         "description": "Click on an element identified by its ref ID from the snapshot (e.g., '@e5'). The ref IDs are shown in square brackets in the snapshot output. Requires browser_navigate and browser_snapshot to be called first.",
         "parameters": {
@@ -2487,6 +2502,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None, engine: Optional[s
         session_info["_first_nav"] = False
         _maybe_start_recording(nav_session_key)
 
+    _ensure_light_loads(nav_session_key)
     result = _run_browser_command(nav_session_key, "open", [url], timeout=max(_get_command_timeout(), 60))
 
     # Remember which session served this nav so snapshot/click/fill/...
@@ -2753,6 +2769,109 @@ def browser_extract(instruction: str, url: Optional[str] = None, schema: Optiona
         messages = messages + [{"role": "assistant", "content": text[:2000]},
                                {"role": "user", "content": f"That reply was not usable ({problem}). Reply with valid JSON only."}]
     return json.dumps({"success": False, "error": f"The extraction model's reply was not usable: {problem}"})
+
+
+# Chrome sessions skip what a reading agent never needs: web fonts, audio/video
+# and ad/analytics beacons. Images stay (screenshots, browser_vision).
+_LIGHT_LOAD_PATTERNS = (
+    "**/*.{woff,woff2,ttf,otf,eot}",
+    "**/*.{mp4,webm,m4v,mov,mp3,m4a,ogg,wav}",
+    "*://*.doubleclick.net/**",
+    "*://*.google-analytics.com/**",
+    "*://*.hotjar.com/**",
+    "*://connect.facebook.net/**",
+)
+
+
+def _ensure_light_loads(session_key: str) -> None:
+    """Route the light-load patterns to abort, once per local Chrome session."""
+    info = _active_sessions.get(session_key)
+    if not info or info.get("cdp_url") or info.get("light_loads") or _is_camofox_mode():
+        return
+    if (info.get("engine") or _get_browser_engine()) == "lightpanda":
+        return
+    info["light_loads"] = True
+    for pattern in _LIGHT_LOAD_PATTERNS:
+        try:
+            _run_browser_command(session_key, "network", ["route", pattern, "--abort"], timeout=10)
+        except Exception:
+            logger.debug("light-load route %s not set", pattern, exc_info=True)
+
+
+_RUN_MAX_STEPS = 25
+
+
+def _run_wait(task_id: Optional[str], step: Dict[str, Any]) -> Dict[str, Any]:
+    if step.get("text"):
+        args = ["--text", str(step["text"])]
+    elif step.get("selector"):
+        args = [str(step["selector"])]
+    elif step.get("load"):
+        args = ["--load", str(step["load"])]
+    elif step.get("ms"):
+        args = [str(int(step["ms"]))]
+    else:
+        return {"success": False, "error": "wait_for needs text, selector, load or ms"}
+    return _run_browser_command(_last_session_key(task_id or "default"), "wait", args,
+                                timeout=max(_get_command_timeout(), 30))
+
+
+def browser_run(steps: List[Dict[str, Any]], task_id: Optional[str] = None) -> str:
+    """Run several browser steps in one call; stop at the first failure.
+
+    Actions: open {url, engine?}, click {ref}, fill {ref, text}, press {key},
+    scroll {direction}, back, wait_for {text|selector|load|ms}, extract
+    {instruction, schema?}. Returns small per-step results (extracted data
+    included) and a compact snapshot of where the page ended up."""
+    if not isinstance(steps, list) or not steps:
+        return json.dumps({"success": False, "error": "steps must be a non-empty list"})
+    if len(steps) > _RUN_MAX_STEPS:
+        return json.dumps({"success": False, "error": f"at most {_RUN_MAX_STEPS} steps per run"})
+    results: List[Dict[str, Any]] = []
+    failed = None
+    for i, raw in enumerate(steps):
+        step = raw if isinstance(raw, dict) else {}
+        action = str(step.get("action") or "").strip()
+        try:
+            if action == "open":
+                out = json.loads(browser_navigate(str(step.get("url") or ""), task_id=task_id,
+                                                  engine=step.get("engine")))
+            elif action == "click":
+                out = json.loads(browser_click(str(step.get("ref") or ""), task_id=task_id))
+            elif action == "fill":
+                out = json.loads(browser_type(str(step.get("ref") or ""), str(step.get("text") or ""), task_id=task_id))
+            elif action == "press":
+                out = json.loads(browser_press(str(step.get("key") or ""), task_id=task_id))
+            elif action == "scroll":
+                out = json.loads(browser_scroll(str(step.get("direction") or "down"), task_id=task_id))
+            elif action == "back":
+                out = json.loads(browser_back(task_id=task_id))
+            elif action == "wait_for":
+                out = _run_wait(task_id, step)
+            elif action == "extract":
+                out = json.loads(browser_extract(str(step.get("instruction") or ""), schema=step.get("schema"),
+                                                 task_id=task_id))
+            else:
+                out = {"success": False, "error": f"unknown action {action!r}"}
+        except Exception as e:  # a tool raising must not lose the steps already done
+            out = {"success": False, "error": f"{type(e).__name__}: {e}"}
+        entry: Dict[str, Any] = {"action": action or "?", "ok": bool(out.get("success"))}
+        if not entry["ok"]:
+            entry["error"] = str(out.get("error") or "failed")[:300]
+        if action == "extract" and out.get("success"):
+            entry["data"] = out.get("data")
+        results.append(entry)
+        if not entry["ok"]:
+            failed = i
+            break
+    reply: Dict[str, Any] = {"success": failed is None, "steps": results}
+    if failed is not None:
+        reply["failed_step"] = failed
+    if failed is not None or results[-1]["action"] != "extract":
+        snap = _run_browser_command(_last_session_key(task_id or "default"), "snapshot", ["-i", "-c"])
+        if snap.get("success"):
+            reply["snapshot"] = _truncate_snapshot(str((snap.get("data") or {}).get("snapshot") or ""), 6000)
+    return json.dumps(reply, ensure_ascii=False)
 
 
 def browser_click(ref: str, task_id: Optional[str] = None) -> str:
@@ -3936,6 +4055,14 @@ registry.register(
                                                schema=args.get("schema"), task_id=kw.get("task_id")),
     check_fn=check_browser_requirements,
     emoji="🧾",
+)
+registry.register(
+    name="browser_run",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_run"],
+    handler=lambda args, **kw: browser_run(steps=args.get("steps") or [], task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="⏩",
 )
 registry.register(
     name="browser_snapshot",
