@@ -1565,6 +1565,15 @@ def get_pre_tool_call_block_message(
         fmt = getattr(_thread_tool_whitelist, "fmt", "Tool '{tool_name}' denied")
         return fmt.format(tool_name=tool_name)
 
+    # The user's own Mac browser only when this turn asked for it.
+    try:
+        from agent.mac_browser_gate import block_message as _mac_browser_block
+        blocked = _mac_browser_block(tool_name, task_id)
+        if blocked:
+            return blocked
+    except Exception:
+        pass
+
     # A fast harness node past its tool budget hands the turn to the bigger model.
     try:
         from agent.escalation import auto_handoff_block

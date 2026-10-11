@@ -530,6 +530,27 @@ def stop_job(session_id, job_id):
     return True
 
 
+def _message_text(content):
+    if isinstance(content, list):
+        return " ".join(str(p.get("text") or "") for p in content if isinstance(p, dict)).strip()
+    return str(content or "").strip()
+
+
+def hidden_turn_prompt(summary, messages):
+    """The background model's turn: finish the job, with the user's own latest
+    words (the Mac-browser gate reads the turn's text; it must see what he
+    actually asked, not only the hand-off note)."""
+    latest = next((_message_text(m.get("content")) for m in reversed(messages or [])
+                   if isinstance(m, dict) and m.get("role") == "user"), "")
+    parts = ["A faster model handed this over to you. Finish it fully with your tools, then reply "
+             "with the final answer for the user."]
+    if summary:
+        parts.append(f"Hand-off note: {summary}")
+    if latest:
+        parts.append(f"The user's latest message: \"{latest[:2000]}\"")
+    return "\n\n".join(parts)
+
+
 def _run_hidden_turn(node, session_id, summary, job_id=None):
     """The node's model with the parent chat's full history, on a throwaway session."""
     import uuid as _uuid
@@ -560,8 +581,7 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         escalation.update_job(job_id, stream_id=stream_id)
         threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
                          daemon=True, name=f"jc-harness-job-{job_id}").start()
-    prompt = ("A faster model handed this over to you. Finish it fully with your tools, then reply "
-              f"with the final answer for the user.\n\nHand-off note: {summary}")
+    prompt = hidden_turn_prompt(summary, getattr(parent, "messages", None) or [])
     try:
         if _stop_requested(job_id):
             return ""

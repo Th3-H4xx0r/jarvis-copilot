@@ -373,6 +373,13 @@ def run_conversation(
     # state registry.  Set BEFORE any tool dispatch so snapshots taken at
     # child-launch time see the parent's real id, not None.
     agent._current_task_id = effective_task_id
+    # The user's own Mac browser is only for turns that ask for it
+    # (agent/mac_browser_gate.py) — record this turn's words before any tool runs.
+    try:
+        from agent import mac_browser_gate
+        mac_browser_gate.note_turn(effective_task_id, persist_user_message or user_message)
+    except Exception:
+        logger.debug("mac browser gate: turn not recorded", exc_info=True)
     
     # Reset retry counters and iteration budget at the start of each turn
     # so subagent usage from a previous turn doesn't eat into the next one.

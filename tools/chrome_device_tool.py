@@ -224,10 +224,11 @@ def _chrome_call(skill_name: str, args: dict) -> str:
 _NAV = {
     "name": "chrome_navigate",
     "description": (
-        "Open a URL in the user's REAL, visible Chrome on their Mac (their "
+        "Open a URL in the user's own, visible Chrome on their Mac (their "
         "logged-in session) and return a size-capped accessibility snapshot with "
-        "clickable refs (e.g. e47). Use this — NOT open_url and NOT the headless "
-        "browser_* tools — to read or act on a page in the user's own browser."
+        "clickable refs (e.g. e47). ONLY for when the user explicitly asks to use "
+        "their own Mac or browser; research and browsing otherwise run headless "
+        "on the server."
     ),
     "parameters": {"type": "object",
                    "properties": {"url": {"type": "string", "description": "URL to open"}},

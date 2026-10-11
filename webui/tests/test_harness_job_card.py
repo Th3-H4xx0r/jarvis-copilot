@@ -346,3 +346,14 @@ def test_jobs_endpoints(monkeypatch, tmp_path):
     assert status == 200 and [j["id"] for j in body["jobs"]] == ["j1"]
     assert handle_harness_request("POST", "/jobs/s1/j1/stop", {}, st) == (200, {"ok": True})
     assert handle_harness_request("POST", "/jobs/s1/zz/stop", {}, st)[0] == 404
+
+
+def test_a_background_turn_carries_the_users_latest_words():
+    """The Mac-browser gate reads the turn's text: a hidden turn must carry the
+    parent chat's latest user message, not only the hand-off note."""
+    msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Here."},
+            {"role": "user", "content": [{"type": "text", "text": "open kayak in my browser"}]},
+            {"role": "assistant", "content": "On it."}]
+    prompt = hr.hidden_turn_prompt("", msgs)
+    assert "open kayak in my browser" in prompt and prompt.startswith("A faster model handed this over")
+    assert "Hand-off note: check prices" in hr.hidden_turn_prompt("check prices", msgs[:2])
