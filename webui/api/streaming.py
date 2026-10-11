@@ -2187,6 +2187,18 @@ def _message_identity(msg):
     )
 
 
+def _shown_reply_key(msg):
+    """An assistant/tool message by its own timestamp + identity: two messages with the
+    same key are one reply seen twice (stamps like `_meta` added later don't count)."""
+    if not isinstance(msg, dict) or msg.get('role') not in ('assistant', 'tool'):
+        return None
+    ts = msg.get('timestamp') or msg.get('_ts')
+    if not ts:
+        return None
+    reasoning = msg.get('reasoning')
+    return (msg.get('role'), ts, _message_identity(msg), str(reasoning)[:200] if reasoning else '')
+
+
 def _messages_have_prefix(messages, prefix):
     if len(messages or []) < len(prefix or []):
         return False
@@ -2252,23 +2264,28 @@ def _compression_summary_from_messages(messages):
 
 
 def _find_current_user_turn(messages, msg_text):
+    """Index of this turn's user message: the latest one that matches.
+
+    Searching from the start matched an earlier turn with the same words ("Hello, are
+    you there?") or a prefix of them ("question 1" for "question 10"), and the merge
+    then re-appended the whole history after it.
+    """
+    messages = list(messages or [])
     needle = " ".join(str(msg_text or '').split())
-    fallback = None
-    for idx, msg in enumerate(messages or []):
-        if not isinstance(msg, dict) or msg.get('role') != 'user':
-            continue
-        fallback = idx
-        if _looks_like_current_user_turn(msg, msg_text):
+    users = [idx for idx, msg in enumerate(messages) if isinstance(msg, dict) and msg.get('role') == 'user']
+    for idx in reversed(users):
+        if _looks_like_current_user_turn(messages[idx], msg_text):
             return idx
+    for idx in reversed(users):
         text = " ".join(
             _strip_workspace_prefix(
-                _message_text(msg.get('content', '')),
+                _message_text(messages[idx].get('content', '')),
                 include_legacy=True,
             ).split()
         )
-        if needle and (needle in text or text in needle):
+        if needle and text and (needle in text or text in needle):
             return idx
-    return fallback
+    return users[-1] if users else None
 
 
 def _drop_checkpointed_current_user_from_context(messages, msg_text):
@@ -2403,6 +2420,11 @@ def _merge_display_messages_after_agent_result(previous_display, previous_contex
 
     merged = previous_display[:]
     seen = {_message_identity(m) for m in merged}
+    # A candidate matching a reply already shown is that reply replayed, not new output.
+    # Reasoning-only replies (a voice reply that was only "[end]") have no identity, so
+    # nothing below caught them; re-appended each turn, they doubled a voice chat to
+    # 504k messages and the webui was OOM-killed loading it.
+    shown_replies = {k for k in map(_shown_reply_key, merged) if k is not None}
     current_user_key = _message_identity({'role': 'user', 'content': msg_text})
     current_user_in_candidates = any(
         _message_identity(m) == current_user_key or _looks_like_current_user_turn(m, msg_text)
@@ -2438,6 +2460,9 @@ def _merge_display_messages_after_agent_result(previous_display, previous_contex
 
     for msg in candidates:
         key = _message_identity(msg)
+        reply_key = _shown_reply_key(msg)
+        if reply_key is not None and reply_key in shown_replies:
+            continue
         is_current_user_turn = _looks_like_current_user_turn(msg, msg_text)
         if (
             ((key is not None and key == current_user_key) or is_current_user_turn)
@@ -2477,6 +2502,8 @@ def _merge_display_messages_after_agent_result(previous_display, previous_contex
         merged.append(copy.deepcopy(display_msg))
         if key is not None:
             seen.add(key)
+        if reply_key is not None:
+            shown_replies.add(reply_key)
     return merged
 
 
@@ -4383,7 +4410,7 @@ def _run_agent_streaming(
                 s.messages = _carry_late_harness_results(s.messages, len(_previous_messages), _merge_display_messages_after_agent_result(
                     _previous_messages,
                     _previous_context_messages,
-                    _restore_reasoning_metadata(_previous_messages, _result_messages),
+                    _next_context_messages,
                     msg_text,
                 ))
                 # Strip XML tool-call blocks from assistant message content.
@@ -4531,7 +4558,7 @@ def _run_agent_streaming(
                                 s.messages = _merge_display_messages_after_agent_result(
                                     _previous_messages,
                                     _previous_context_messages,
-                                    _restore_reasoning_metadata(_previous_messages, _result_messages),
+                                    _next_context_messages,
                                     msg_text,
                                 )
                                 # Skip the error block — jump directly to the
@@ -5351,7 +5378,7 @@ def _run_agent_streaming(
                                 s.messages = _merge_display_messages_after_agent_result(
                                     _previous_messages,
                                     _previous_context_messages,
-                                    _restore_reasoning_metadata(_previous_messages, _result_messages),
+                                    _next_context_messages,
                                     msg_text,
                                 )
                                 s.save()

@@ -26,6 +26,9 @@ from api.agent_sessions import (
 )
 
 logger = logging.getLogger(__name__)
+# A session file past this takes GBs of RAM to parse. On 2026-10-11 a voice chat that
+# re-appended its own replies reached 536 MB and OOM-killed the webui on every load.
+_OVERSIZED_SESSION_BYTES = 25 * 1024 * 1024
 CLI_VISIBLE_SESSION_LIMIT = 20
 _CLI_SESSIONS_CACHE_TTL_SECONDS = 5.0
 # Ceiling for a cache entry whose freshness signature still matches. See
@@ -664,6 +667,10 @@ class Session:
         p = SESSION_DIR / f'{sid}.json'
         if not p.exists():
             return None
+        size = p.stat().st_size
+        if size > _OVERSIZED_SESSION_BYTES:
+            logger.warning("Session %s is %.0f MB on disk; check it for duplicated messages",
+                           sid, size / (1024 * 1024))
         return cls(**json.loads(p.read_text(encoding='utf-8')))
 
     @classmethod
