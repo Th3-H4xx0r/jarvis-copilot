@@ -238,6 +238,26 @@ class TestDefaultContextLengths:
                 api_key="oauth-token",
             ) == 256000
 
+    def test_claude_code_uses_the_anthropic_catalogue(self):
+        """The Claude Code CLI runs Anthropic's models with Anthropic's windows
+        (it reports contextWindow 1,000,000 for Sonnet/Opus 5.5). Without the
+        alias every claude-code model fell to the generic "claude" 200K entry,
+        so compaction fired at a fraction of the real window."""
+        registry = {
+            "anthropic": {
+                "models": {
+                    "claude-test-9-9": {"limit": {"context": 1_000_000, "output": 128_000}},
+                },
+            },
+        }
+        with patch("agent.model_metadata.get_cached_context_length", return_value=None), \
+             patch("agent.model_metadata._query_ollama_api_show", return_value=None), \
+             patch("agent.model_metadata._query_anthropic_context_length", return_value=None), \
+             patch("agent.models_dev.fetch_models_dev", return_value=registry):
+            via_cli = get_model_context_length("claude-test-9-9", provider="claude-code")
+            via_api = get_model_context_length("claude-test-9-9", provider="anthropic-api")
+        assert via_cli == via_api == 1_000_000
+
     def test_deepseek_v4_models_1m_context(self):
         from agent.model_metadata import get_model_context_length
         from unittest.mock import patch as mock_patch

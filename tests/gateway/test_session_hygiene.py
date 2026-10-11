@@ -186,6 +186,18 @@ class TestSessionHygieneThresholds:
         assert approx_tokens >= low_threshold
         assert approx_tokens < high_threshold
 
+    def test_hygiene_never_fires_before_the_users_trigger(self):
+        """Hygiene is a safety net at 85%; a user trigger above that (e.g. 95%)
+        must not be pre-empted by a pre-agent compaction at 85%."""
+        from gateway.run import _hygiene_threshold_pct
+
+        assert _hygiene_threshold_pct({}) == 0.85
+        assert _hygiene_threshold_pct({"threshold": 0.50}) == 0.85
+        assert _hygiene_threshold_pct({"threshold": 0.95}) == pytest.approx(0.95)
+        assert _hygiene_threshold_pct({"threshold": 95}) == pytest.approx(0.95)
+        assert _hygiene_threshold_pct({"threshold": "junk"}) == 0.85
+        assert _hygiene_threshold_pct(None) == 0.85
+
     def test_minimum_message_guard(self):
         """Sessions with fewer than 4 messages should never trigger."""
         history = _make_history(3, content_size=100_000)

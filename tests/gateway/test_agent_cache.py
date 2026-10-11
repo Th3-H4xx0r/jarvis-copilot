@@ -240,6 +240,15 @@ class TestExtractCacheBustingConfig:
         assert out["compression.target_ratio"] == 0.3
         assert out["compression.protect_last_n"] == 25
 
+    def test_token_cap_edit_busts_the_cached_agent(self):
+        """compression.max_context_tokens is baked into the compressor at
+        construction, so changing it must rebuild the cached agent."""
+        from gateway.run import GatewayRunner
+
+        before = GatewayRunner._extract_cache_busting_config({"compression": {"max_context_tokens": 0}})
+        after = GatewayRunner._extract_cache_busting_config({"compression": {"max_context_tokens": 200_000}})
+        assert before != after
+
     def test_missing_keys_yield_none(self):
         """Absent config keys must produce None values (still contribute to signature)."""
         from gateway.run import GatewayRunner

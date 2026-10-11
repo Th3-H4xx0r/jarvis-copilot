@@ -602,7 +602,8 @@ All compression settings live in `config.yaml` (no environment variables).
 ```yaml
 compression:
   enabled: true                                     # Toggle compression on/off
-  threshold: 0.50                                   # Compress at this % of context limit
+  threshold: 0.50                                   # Compress at this share of the active model's window (0.10–0.95; 75 = 75%)
+  max_context_tokens: 0                             # Optional absolute cap on that trigger, in tokens (0 = none)
   target_ratio: 0.20                                # Fraction of threshold to preserve as recent tail
   protect_last_n: 20                                # Min recent messages to keep uncompressed
   hygiene_hard_message_limit: 400                   # Gateway safety valve — see below
@@ -618,6 +619,31 @@ auxiliary:
 :::info Legacy config migration
 Older configs with `compression.summary_model`, `compression.summary_provider`, and `compression.summary_base_url` are automatically migrated to `auxiliary.compression.*` on first load (config version 17). No manual action needed.
 :::
+
+### When auto-compact fires
+
+The trigger is worked out **per model**, from the window of whichever model is answering — so it moves with a model switch, a fallback, or a harness node on a different model:
+
+```
+trigger = threshold × the model's context window
+          never below 64,000 tokens, never above 95% of the window,
+          and never above max_context_tokens when that is set (> 0)
+```
+
+| Model window | `threshold` | `max_context_tokens` | Compacts at |
+|---|---|---|---|
+| 1,000,000 | 0.50 | 0 | 500,000 |
+| 1,000,000 | 0.75 | 0 | 750,000 |
+| 1,000,000 | 0.50 | 200000 | 200,000 |
+| 200,000 | 0.50 | 0 | 100,000 |
+| 100,000 | 0.50 | 0 | 64,000 (the floor) |
+| unknown | 0.50 | 0 | 128,000 (50% of the 256K fallback) |
+
+- **`max_context_tokens`** is an optional cost bound. On a 1M-token model the percentage lets history grow to hundreds of thousands of tokens, and every tool round re-reads all of it. A cap holds that down on large models while smaller models keep using the percentage. It defaults to `0` (no cap). Older builds silently capped every model at 64,000. That made 1M-context models compact at 64K, often on the system prompt alone.
+- **Nothing to compact, no compaction.** If the trigger is reached while every message is still in the protected head (`protect_first_n`) and tail, there is nothing the summarizer could remove. Auto-compact then waits, instead of rotating the session and rebuilding the system prompt for no gain. A large system prompt alone never triggers it.
+- **Settings UI.** WebUI → Settings → Conversation → **Auto-compact**, and the iOS app's Settings → **Auto-compact**, edit these same three keys (`enabled`, `threshold`, `max_context_tokens`). Both show a live readout for the current model (e.g. "Compacts at 500,000 of 1,000,000 tokens for claude-sonnet-5-5"). A save also updates the agents the WebUI already has running, from their next turn. Only the trigger moves, so the prompt cache is kept.
+- The gateway's session-hygiene safety net (below) runs at 85% of the window, or at your `threshold` when that is higher, so it never compacts before your own trigger.
+- Claude models run through the Claude Code CLI (`claude-code` provider) resolve to Anthropic's windows (1M for Sonnet/Opus 5.5), not the generic 200K.
 
 `hygiene_hard_message_limit` is a gateway-only **pre-compression safety valve**. Runaway sessions with thousands of messages can hit model context limits before the normal percent-of-context threshold fires; when message count crosses this ceiling, JarvisCopilot forces compression regardless of token usage. Default `400` — raise it for platforms where very long sessions are normal, lower it to force more aggressive compression. Editing this value on a running gateway takes effect on the next message (see below).
 

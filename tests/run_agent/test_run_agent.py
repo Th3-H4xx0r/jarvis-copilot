@@ -3122,7 +3122,8 @@ class TestRunConversation:
         assert result["final_response"] == "Recovered after remint"
 
     def test_context_compression_triggered(self, agent):
-        """When compressor says should_compress, compression runs."""
+        """When the compressor says it is due and has something to compact
+        (beyond the protected head/tail), compression runs."""
         self._setup_agent(agent)
         agent.compression_enabled = True
 
@@ -3135,6 +3136,9 @@ class TestRunConversation:
             patch("run_agent.handle_function_call", return_value="result"),
             patch.object(
                 agent.context_compressor, "should_compress", return_value=True
+            ),
+            patch.object(
+                agent.context_compressor, "has_content_to_compress", return_value=True
             ),
             patch.object(agent, "_compress_context") as mock_compress,
             patch.object(agent, "_persist_session"),

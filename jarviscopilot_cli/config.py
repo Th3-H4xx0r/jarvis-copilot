@@ -990,7 +990,11 @@ DEFAULT_CONFIG = {
 
     "compression": {
         "enabled": True,
-        "threshold": 0.50,            # compress when context usage exceeds this ratio
+        "threshold": 0.50,            # auto-compact at this share of the ACTIVE model's
+                                      # window (0.10–0.95; 75 is read as 75%) — 1M at
+                                      # 0.50 compacts at 500K, 200K at 0.50 at 100K
+        "max_context_tokens": 0,      # optional absolute cap on that trigger, in
+                                      # tokens (0 = none, percentage only)
         "target_ratio": 0.20,         # fraction of threshold to preserve as recent tail
         "protect_last_n": 20,         # minimum recent messages to keep uncompressed
         "hygiene_hard_message_limit": 400,  # gateway session-hygiene force-compress threshold by message count

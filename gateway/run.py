@@ -955,6 +955,24 @@ def _teams_pipeline_plugin_enabled() -> bool:
     return "teams_pipeline" in enabled or "teams-pipeline" in enabled
 
 
+def _hygiene_threshold_pct(comp_cfg: Any) -> float:
+    """Session hygiene's trigger as a share of the window.
+
+    A pre-agent safety net at 85% — but never below the user's own
+    ``compression.threshold``, so a 95% trigger is not pre-empted at 85%.
+    """
+    base = 0.85
+    raw = comp_cfg.get("threshold") if isinstance(comp_cfg, dict) else None
+    if raw is None:
+        return base
+    try:
+        float(raw)
+    except (TypeError, ValueError):
+        return base
+    from agent.context_compressor import normalize_threshold_percent
+    return max(base, normalize_threshold_percent(raw))
+
+
 def _load_gateway_config() -> dict:
     """Load and parse ~/.jarviscopilot/config.yaml, returning {} on any error.
 
@@ -7659,14 +7677,15 @@ class GatewayRunner:
                         _hyg_provider = _model_cfg.get("provider") or None
                         _hyg_base_url = _model_cfg.get("base_url") or None
 
-                    # Read compression settings — only use enabled flag.
-                    # The threshold is intentionally separate from the agent's
-                    # compression.threshold (hygiene runs higher).
+                    # Read compression settings. Hygiene runs at 85% — higher
+                    # than the agent's compression.threshold — unless the user's
+                    # own trigger is higher still (see _hygiene_threshold_pct).
                     _comp_cfg = _hyg_data.get("compression", {})
                     if isinstance(_comp_cfg, dict):
                         _hyg_compression_enabled = str(
                             _comp_cfg.get("enabled", True)
                         ).lower() in {"true", "1", "yes"}
+                        _hyg_threshold_pct = _hygiene_threshold_pct(_comp_cfg)
                         _raw_hard_limit = _comp_cfg.get("hygiene_hard_message_limit")
                         if _raw_hard_limit is not None:
                             try:
@@ -14185,6 +14204,7 @@ class GatewayRunner:
         ("model", "max_tokens"),
         ("compression", "enabled"),
         ("compression", "threshold"),
+        ("compression", "max_context_tokens"),
         ("compression", "target_ratio"),
         ("compression", "protect_last_n"),
         ("agent", "disabled_toolsets"),

@@ -1243,12 +1243,13 @@ def init_agent(
     if not isinstance(_compression_cfg, dict):
         _compression_cfg = {}
     compression_threshold = float(_compression_cfg.get("threshold", 0.50))
-    # Absolute trigger cap (tokens). 64K keeps the hot prefix small on 1M-context
-    # models; set lower (e.g. 40000) for voice-first setups, 0 to disable.
+    # Optional absolute trigger cap (tokens). 0/absent = none: the trigger is
+    # threshold × each model's own window. A hidden 64K default here made a
+    # 1M-context model compact at 64K, often on the system prompt alone.
     try:
-        compression_max_tokens = int(_compression_cfg.get("max_context_tokens", 64_000))
+        compression_max_tokens = int(_compression_cfg.get("max_context_tokens", 0) or 0)
     except (TypeError, ValueError):
-        compression_max_tokens = 64_000
+        compression_max_tokens = 0
     try:
         from agent.auxiliary_client import _compression_threshold_for_model as _cthresh_fn
         _model_cthresh = _cthresh_fn(agent.model)

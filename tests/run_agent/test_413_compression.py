@@ -570,6 +570,12 @@ class TestToolResultPreflightCompression:
         agent.client.chat.completions.create.side_effect = [tool_resp, ok_resp]
         large_result = "x" * 100_000
 
+        # Earlier turns outside the protected head/tail — something to compact.
+        history = []
+        for i in range(4):
+            history += [{"role": "user", "content": f"earlier {i}"},
+                        {"role": "assistant", "content": f"reply {i}"}]
+
         with (
             patch("run_agent.handle_function_call", return_value=large_result),
             patch.object(agent, "_compress_context") as mock_compress,
@@ -580,9 +586,43 @@ class TestToolResultPreflightCompression:
             mock_compress.return_value = (
                 [{"role": "user", "content": "hello"}], "compressed prompt",
             )
-            result = agent.run_conversation("hello")
+            result = agent.run_conversation("hello", conversation_history=history)
 
         mock_compress.assert_called_once()
+        assert result["completed"] is True
+
+    def test_over_threshold_with_nothing_to_compact_does_not_compress(self, agent):
+        """A big system prompt + one tool round can cross the threshold while
+        every message is still in the protected head/tail. compress() would
+        remove nothing, so the trigger must not fire (it used to rotate the
+        session and rebuild the system prompt for nothing)."""
+        agent.compression_enabled = True
+        agent.context_compressor.context_length = 200_000
+        agent.context_compressor.threshold_tokens = 64_000
+        tc = SimpleNamespace(
+            id="tc1", type="function",
+            function=SimpleNamespace(name="web_search", arguments='{"query":"test"}'),
+        )
+        tool_resp = _mock_response(
+            content=None, finish_reason="stop", tool_calls=[tc],
+            usage={"prompt_tokens": 66_000, "completion_tokens": 50, "total_tokens": 66_050},
+        )
+        ok_resp = _mock_response(
+            content="Done", finish_reason="stop",
+            usage={"prompt_tokens": 67_000, "completion_tokens": 10, "total_tokens": 67_010},
+        )
+        agent.client.chat.completions.create.side_effect = [tool_resp, ok_resp]
+
+        with (
+            patch("run_agent.handle_function_call", return_value="ok"),
+            patch.object(agent, "_compress_context") as mock_compress,
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("hello")
+
+        mock_compress.assert_not_called()
         assert result["completed"] is True
 
     def test_anthropic_prompt_too_long_safety_net(self, agent):

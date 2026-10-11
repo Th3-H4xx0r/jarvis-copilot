@@ -74,6 +74,27 @@ from utils import base_url_host_matches, env_var_enabled
 logger = logging.getLogger(__name__)
 
 
+def _auto_compress_due(agent: Any, tokens: int, messages: list) -> bool:
+    """The post-response trigger: threshold reached AND something to compact.
+
+    Without the second check a large system prompt alone could trip the
+    trigger on the first tool round, and the "compaction" could only rotate
+    the session and rebuild the system prompt (a prompt-cache miss) with
+    nothing removed. Engines without ``has_content_to_compress`` keep the
+    threshold-only behaviour.
+    """
+    compressor = agent.context_compressor
+    if not agent.compression_enabled or not compressor.should_compress(tokens):
+        return False
+    has_content = getattr(compressor, "has_content_to_compress", None)
+    if not callable(has_content):
+        return True
+    try:
+        return bool(has_content(messages))
+    except Exception:
+        return True
+
+
 def _ollama_context_limit_error(agent: Any, request_tokens: int) -> Optional[str]:
     """Return a user-facing error when Ollama is loaded with too little context."""
     if not getattr(agent, "tools", None):
@@ -3704,7 +3725,7 @@ def run_conversation(
                         messages, tools=agent.tools or None
                     )
 
-                if agent.compression_enabled and _compressor.should_compress(_real_tokens):
+                if _auto_compress_due(agent, _real_tokens, messages):
                     agent._safe_print("  ⟳ compacting context…")
                     messages, active_system_prompt = agent._compress_context(
                         messages, system_message,

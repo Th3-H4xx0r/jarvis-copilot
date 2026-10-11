@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 from agent.auxiliary_client import call_llm, _is_connection_error
 from agent.context_engine import ContextEngine
 from agent.model_metadata import (
+    DEFAULT_FALLBACK_CONTEXT,
     MINIMUM_CONTEXT_LENGTH,
     get_model_context_length,
     estimate_messages_tokens_rough,
@@ -33,6 +34,87 @@ from agent.model_metadata import (
 from agent.redact import redact_sensitive_text
 
 logger = logging.getLogger(__name__)
+
+# The auto-compact trigger (``compression.threshold``) is kept in this band:
+# below 10% a session compacts almost every turn; above 95% the next reply can
+# overflow the window before compaction gets a chance to run.
+MIN_TRIGGER_PERCENT = 0.10
+MAX_TRIGGER_PERCENT = 0.95
+DEFAULT_TRIGGER_PERCENT = 0.50
+
+
+def normalize_threshold_percent(value: Any, default: float = DEFAULT_TRIGGER_PERCENT) -> float:
+    """``compression.threshold`` as a ratio in the trigger band.
+
+    Accepts a ratio (0.75) or a whole percentage (75). Anything unreadable
+    falls back to ``default``.
+    """
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return default
+    if pct != pct:  # NaN
+        return default
+    if pct > 1.0:
+        pct = pct / 100.0
+    return max(MIN_TRIGGER_PERCENT, min(pct, MAX_TRIGGER_PERCENT))
+
+
+def compute_threshold_tokens(
+    context_length: int | None,
+    threshold_percent: float,
+    max_threshold_tokens: int | None = None,
+) -> int:
+    """The auto-compact trigger, in tokens, for one model's window.
+
+    ``threshold_percent`` × the window, never below ``MINIMUM_CONTEXT_LENGTH``
+    (so a big system prompt alone cannot trip it on a mid-size model) and never
+    above 95% of the window. An unknown window (0/None) counts as
+    ``DEFAULT_FALLBACK_CONTEXT``. ``max_threshold_tokens``
+    (``compression.max_context_tokens``), when positive, can only lower it.
+
+    The percentage is used as given (only bounded above): the compression
+    feasibility check stores ``aux_context / main_context`` here, which may sit
+    below the user-facing band.
+    """
+    ctx = int(context_length or 0)
+    if ctx <= 0:
+        ctx = DEFAULT_FALLBACK_CONTEXT
+    try:
+        pct = float(threshold_percent)
+    except (TypeError, ValueError):
+        pct = DEFAULT_TRIGGER_PERCENT
+    if pct != pct or pct <= 0:
+        pct = DEFAULT_TRIGGER_PERCENT
+    pct = min(pct, MAX_TRIGGER_PERCENT)
+    tokens = min(max(int(ctx * pct), MINIMUM_CONTEXT_LENGTH), int(ctx * MAX_TRIGGER_PERCENT))
+    try:
+        cap = int(max_threshold_tokens or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if cap > 0:
+        tokens = min(tokens, cap)
+    return tokens
+
+
+def apply_compression_config(agent: Any, compression_cfg: Any) -> None:
+    """Bring a live agent's auto-compact settings in line with ``compression:``.
+
+    For agents built before a settings change (e.g. cached by the WebUI). Only
+    the trigger moves — the prompt does not — so the prompt cache survives.
+    Plugin context engines keep their own thresholds; only the on/off applies.
+    """
+    cfg = compression_cfg if isinstance(compression_cfg, dict) else {}
+    agent.compression_enabled = str(cfg.get("enabled", True)).lower() in {"true", "1", "yes"}
+    compressor = getattr(agent, "context_compressor", None)
+    if not isinstance(compressor, ContextCompressor):
+        return
+    compressor.set_trigger(
+        cfg.get("threshold", DEFAULT_TRIGGER_PERCENT), cfg.get("max_context_tokens") or 0,
+    )
+    # A new trigger may exceed the summary model's window again; let the
+    # feasibility check re-run before the next compaction.
+    agent._compression_feasibility_checked = False
 
 SUMMARY_PREFIX = (
     "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted "
@@ -497,16 +579,33 @@ class ContextCompressor(ContextEngine):
         self.provider = provider
         self.api_mode = api_mode
         self.context_length = context_length
-        self.threshold_tokens = self._apply_threshold_cap(max(
-            int(context_length * self.threshold_percent),
-            MINIMUM_CONTEXT_LENGTH,
-        ))
-        # Recalculate token budgets for the new context length so the
-        # compressor stays calibrated after a model switch (e.g. 200K → 32K).
-        target_tokens = int(self.threshold_tokens * self.summary_target_ratio)
-        self.tail_token_budget = target_tokens
+        # Recalculate the trigger and token budgets for the new window so the
+        # compressor stays calibrated after a model switch (e.g. 1M → 200K).
+        self._recompute_threshold()
+
+    def set_trigger(self, threshold_percent: Any, max_threshold_tokens: int | None = None) -> None:
+        """Apply new ``compression.threshold`` / ``max_context_tokens`` in place.
+
+        Used when the settings change under a live (cached) agent. Only the
+        trigger moves — nothing in the prompt does, so the prompt cache stays.
+        """
+        self.threshold_percent = normalize_threshold_percent(threshold_percent)
+        try:
+            cap = int(max_threshold_tokens or 0)
+        except (TypeError, ValueError):
+            cap = 0
+        self.max_threshold_tokens = cap if cap > 0 else None
+        self._recompute_threshold()
+
+    def _recompute_threshold(self) -> None:
+        """Derive the trigger and the budgets hung off it from the window."""
+        self.threshold_tokens = compute_threshold_tokens(
+            self.context_length, self.threshold_percent, self.max_threshold_tokens,
+        )
+        # Ratio is relative to the threshold, not the total context.
+        self.tail_token_budget = int(self.threshold_tokens * self.summary_target_ratio)
         self.max_summary_tokens = min(
-            int(context_length * 0.05), _SUMMARY_TOKENS_CEILING,
+            int((self.context_length or DEFAULT_FALLBACK_CONTEXT) * 0.05), _SUMMARY_TOKENS_CEILING,
         )
 
     def __init__(
@@ -526,11 +625,10 @@ class ContextCompressor(ContextEngine):
         abort_on_summary_failure: bool = False,
         max_threshold_tokens: int | None = None,
     ):
-        # Absolute ceiling on the compression trigger. The percentage alone
-        # lets a 1M-context model grow to ~500K tokens of history before
-        # anything is summarised — every tool round then re-reads all of it
-        # (measured: 823K input tokens for one chat turn). Voice-first use
-        # wants a small, hot prefix, so cap it (config compression.max_context_tokens).
+        # Optional absolute ceiling on the compression trigger
+        # (config compression.max_context_tokens; None = none). Off by default:
+        # the trigger is the percentage of each model's own window. Setting it
+        # bounds how much history a 1M-context model re-reads per tool round.
         self.max_threshold_tokens = (
             int(max_threshold_tokens) if max_threshold_tokens and int(max_threshold_tokens) > 0 else None
         )
@@ -539,7 +637,7 @@ class ContextCompressor(ContextEngine):
         self.api_key = api_key
         self.provider = provider
         self.api_mode = api_mode
-        self.threshold_percent = threshold_percent
+        self.threshold_percent = normalize_threshold_percent(threshold_percent)
         self.protect_first_n = protect_first_n
         self.protect_last_n = protect_last_n
         self.summary_target_ratio = max(0.10, min(summary_target_ratio, 0.80))
@@ -555,22 +653,11 @@ class ContextCompressor(ContextEngine):
             config_context_length=config_context_length,
             provider=provider,
         )
-        # Floor: never compress below MINIMUM_CONTEXT_LENGTH tokens even if
-        # the percentage would suggest a lower value.  This prevents premature
-        # compression on large-context models at 50% while keeping the % sane
-        # for models right at the minimum.
-        self.threshold_tokens = self._apply_threshold_cap(max(
-            int(self.context_length * threshold_percent),
-            MINIMUM_CONTEXT_LENGTH,
-        ))
+        # threshold_percent × this model's window (see compute_threshold_tokens
+        # for the floor, the 95% ceiling and the optional absolute cap), plus
+        # the tail / summary budgets derived from it.
+        self._recompute_threshold()
         self.compression_count = 0
-
-        # Derive token budgets: ratio is relative to the threshold, not total context
-        target_tokens = int(self.threshold_tokens * self.summary_target_ratio)
-        self.tail_token_budget = target_tokens
-        self.max_summary_tokens = min(
-            int(self.context_length * 0.05), _SUMMARY_TOKENS_CEILING,
-        )
 
         if not quiet_mode:
             logger.info(
@@ -578,7 +665,7 @@ class ContextCompressor(ContextEngine):
                 "threshold=%d (%.0f%%) target_ratio=%.0f%% tail_budget=%d "
                 "provider=%s base_url=%s",
                 model, self.context_length, self.threshold_tokens,
-                threshold_percent * 100, self.summary_target_ratio * 100,
+                self.threshold_percent * 100, self.summary_target_ratio * 100,
                 self.tail_token_budget,
                 provider or "none", base_url or "none",
             )
@@ -641,13 +728,6 @@ class ContextCompressor(ContextEngine):
                 )
             return False
         return True
-
-    def _apply_threshold_cap(self, threshold_tokens: int) -> int:
-        """Clamp the trigger to ``max_threshold_tokens`` when configured."""
-        cap = getattr(self, "max_threshold_tokens", None)
-        if cap and threshold_tokens > cap:
-            return int(cap)
-        return int(threshold_tokens)
 
     # ------------------------------------------------------------------
     # Tool output pruning (cheap pre-pass, no LLM call)
@@ -1500,6 +1580,10 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         skip the LLM call when the transcript is still entirely inside
         the protected head/tail.
         """
+        # Same minimum compress() enforces — without it this said "yes" for a
+        # short session that compress() then refuses.
+        if len(messages) <= self._protect_head_size(messages) + 3 + 1:
+            return False
         compress_start = self._align_boundary_forward(messages, self._protect_head_size(messages))
         compress_end = self._find_tail_cut_by_tokens(messages, compress_start)
         return compress_start < compress_end
@@ -1557,6 +1641,7 @@ The user has requested that this compaction PRIORITISE preserving all informatio
 
         display_tokens = current_tokens if current_tokens else self.last_prompt_tokens or estimate_messages_tokens_rough(messages)
 
+        original_messages = messages
         # Phase 1: Prune old tool results (cheap, no LLM call)
         messages, pruned_count = self._prune_old_tool_results(
             messages, protect_tail_count=self.protect_last_n,
@@ -1573,7 +1658,9 @@ The user has requested that this compaction PRIORITISE preserving all informatio
         compress_end = self._find_tail_cut_by_tokens(messages, compress_start)
 
         if compress_start >= compress_end:
-            return messages
+            # Hand back the caller's own list when pruning changed nothing, so
+            # compress_context can tell "nothing compacted" and keep the session.
+            return original_messages if messages == original_messages else messages
 
         turns_to_summarize = messages[compress_start:compress_end]
         # A persisted handoff summary can sit in the protected head after a

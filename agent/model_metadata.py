@@ -1672,7 +1672,11 @@ def get_model_context_length(
             return ctx
     if effective_provider:
         from agent.models_dev import lookup_models_dev_context
-        ctx = lookup_models_dev_context(effective_provider, model)
+        # The Claude Code CLI serves Anthropic's catalogue with Anthropic's
+        # windows (it reports 1M for Sonnet/Opus 5.5); models.dev has no
+        # "claude-code" entry, so without this every model fell to 200K.
+        _mdev_provider = "anthropic" if effective_provider == "claude-code" else effective_provider
+        ctx = lookup_models_dev_context(_mdev_provider, model)
         if ctx:
             return ctx
 

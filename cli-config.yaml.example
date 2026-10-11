@@ -358,15 +358,16 @@ compression:
   # Set to false if you prefer to manage context manually or want errors on overflow
   enabled: true
   
-  # Absolute cap on the trigger, in tokens (default: 64000). On a 1M-context
-  # model the percentage alone lets history reach ~500K tokens, and every tool
-  # round re-reads all of it — this is what made single turns cost 800K+ input
-  # tokens. 40000 is a good voice-first value; 0 disables the cap.
-  max_context_tokens: 64000
-
-  # Trigger compression at this % of model's context limit (default: 0.50 = 50%)
-  # Lower values = more aggressive compression, higher values = compress later
+  # Trigger compression at this % of the ACTIVE model's context window
+  # (default: 0.50 = 50%; range 0.10–0.95, and 75 is read as 75%). It follows
+  # the model: 1M at 0.50 compacts at 500K, a 200K model at 100K. Never below
+  # 64K (unless max_context_tokens says so) and never above 95% of the window.
   threshold: 0.50
+
+  # Optional absolute cap on the trigger, in tokens (default: 0 = no cap). On a
+  # 1M-context model the percentage lets history reach hundreds of thousands of
+  # tokens that every tool round re-reads; set e.g. 200000 to bound that cost.
+  max_context_tokens: 0
   
   # Fraction of the threshold to preserve as recent tail (default: 0.20 = 20%)
   # e.g. 20% of 50% threshold = 10% of total context kept as recent messages.

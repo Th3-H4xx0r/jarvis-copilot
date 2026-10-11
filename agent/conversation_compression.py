@@ -338,6 +338,28 @@ def compress_context(
             _existing_sp = agent._build_system_prompt(system_message)
         return messages, _existing_sp
 
+    # Nothing removed (every turn sits in the protected head/tail): keep the
+    # session and the system prompt. Rotating here splits the session for
+    # nothing and rebuilds the prompt — a prompt-cache miss on every attempt.
+    # Only the built-in compressor is read this way: it never edits the list
+    # in place, so getting the same list back means nothing changed.
+    from agent.context_compressor import ContextCompressor
+
+    if (
+        isinstance(agent.context_compressor, ContextCompressor)
+        and compressed is messages
+        and len(compressed) == _pre_msg_count
+    ):
+        logger.info(
+            "context compression skipped: nothing to compact outside the "
+            "protected head/tail (session=%s messages=%d)",
+            agent.session_id or "none", _pre_msg_count,
+        )
+        _existing_sp = getattr(agent, "_cached_system_prompt", None)
+        if not _existing_sp:
+            _existing_sp = agent._build_system_prompt(system_message)
+        return messages, _existing_sp
+
     summary_error = getattr(agent.context_compressor, "_last_summary_error", None)
     if summary_error:
         if getattr(agent, "_last_compression_summary_warning", None) != summary_error:
