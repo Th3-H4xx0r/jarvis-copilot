@@ -692,6 +692,7 @@ _PROVIDER_DISPLAY = {
     "openrouter": "OpenRouter",
     "anthropic": "Anthropic",
     "anthropic-api": "Anthropic API",
+    "celeris": "Celeris",
     "openai": "OpenAI",
     "openai-codex": "OpenAI Codex",
     "claude-code": "Claude Code",
@@ -1186,6 +1187,12 @@ _PROVIDER_MODELS = {
 # Same catalogue, billed to ANTHROPIC_API_KEY (static fallback; the picker
 # asks the live /v1/models first).
 _PROVIDER_MODELS["anthropic-api"] = _PROVIDER_MODELS["anthropic"]
+# Celeris chat models (each has its own base URL — the provider profile builds
+# it). Its decision model is listed apart: /api/models "decision_models".
+_PROVIDER_MODELS["celeris"] = [
+    {"id": "celeris-1", "label": "Celeris 1"},
+    {"id": "celeris-1-magnus", "label": "Celeris 1 Magnus"},
+]
 
 
 _AMBIENT_GH_CLI_MARKERS = frozenset({"gh_cli", "gh auth token"})
@@ -1881,7 +1888,28 @@ def picker_catalog(catalog: dict) -> dict:
         g for g in groups
         if not (isinstance(g, dict) and g.get("provider_id") == "anthropic")
     ]
+    shown["decision_models"] = decision_catalog(shown["groups"])
     return shown
+
+
+def decision_catalog(groups) -> list:
+    """Decision models of the providers in ``groups`` (the ones with a key) —
+    a harness Route's router options. Listed apart from the groups so no chat
+    picker ever offers a model that cannot chat."""
+    try:
+        from providers import get_provider_profile
+    except Exception:
+        return []
+    out = []
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        pid = str(g.get("provider_id") or "").strip().lower()
+        profile = get_provider_profile(pid) if pid else None
+        for mid in getattr(profile, "decision_models", ()) or ():
+            out.append({"id": f"@{pid}:{mid}", "label": _get_label_for_model(mid, []),
+                        "provider": g.get("provider") or pid, "provider_id": pid})
+    return out
 
 
 def route_anthropic_via_claude_code(model: str, provider, base_url) -> tuple:
@@ -3036,6 +3064,7 @@ def get_available_models() -> dict:
                 "MINIMAX_CN_API_KEY",
                 "XAI_API_KEY",
                 "MISTRAL_API_KEY",
+                "CELERIS_API_KEY",
             ):
                 val = os.getenv(k)
                 if val:
@@ -3043,6 +3072,8 @@ def get_available_models() -> dict:
             if all_env.get("ANTHROPIC_API_KEY"):
                 detected_providers.add("anthropic")
                 detected_providers.add("anthropic-api")
+            if all_env.get("CELERIS_API_KEY"):
+                detected_providers.add("celeris")
             if all_env.get("OPENAI_API_KEY"):
                 detected_providers.add("openai")
                 # openai-codex uses ChatGPT OAuth (not OPENAI_API_KEY) for its default endpoint.
