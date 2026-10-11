@@ -3,9 +3,11 @@ model Route labelling a message, a Review node checking an answer."""
 from __future__ import annotations
 
 
-def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8) -> str:
+def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8, reasoning_off: bool = False) -> str:
     """Run ``prompt`` once on ``model_ref`` (``@provider:model``) with no tools,
-    no memory and no context files; return the reply text ('' when empty)."""
+    no memory and no context files; return the reply text ('' when empty).
+    ``reasoning_off`` keeps a thinking model (Celeris Magnus) from spending a
+    tiny budget on reasoning — a Route's label needs no thought."""
     import api.config as cfg
     from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
     from run_agent import AIAgent
@@ -32,6 +34,8 @@ def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8) -> str
         max_tokens=max_tokens,
         platform="webui",
     )
+    if reasoning_off:
+        kwargs["reasoning_config"] = {"enabled": False}
     # Same defensive filter as api.streaming: only pass what this build accepts.
     accepted = set(inspect.signature(AIAgent.__init__).parameters)
     agent = AIAgent(**{k: v for k, v in kwargs.items() if k in accepted})

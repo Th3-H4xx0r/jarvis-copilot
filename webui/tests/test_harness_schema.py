@@ -102,3 +102,34 @@ def test_two_foreground_answers_on_one_path_rejected():
 
 def test_not_an_object():
     assert validate_harness(None)[0] is None and validate_harness(None)[1]
+
+
+def _route_doc(**route):
+    node = {"id": "r", "type": "route", "by": "model", "model": "@celeris:celeris-1-decision",
+            "labels": ["deep", "quick"], **route}
+    return {"id": "t", "name": "T", "nodes": [
+        {"id": "in", "type": "message"}, node,
+        {"id": "a", "type": "answer", "model": "@x:y"}, {"id": "b", "type": "answer", "model": "@x:z"}],
+        "edges": [{"from": "in", "to": "r"}, {"from": "r", "to": "a", "when": "label:deep"},
+                  {"from": "r", "to": "b", "when": "default"}]}
+
+
+def test_label_descriptions_kept_for_known_labels_only():
+    doc, errors = validate_harness(_route_doc(label_descriptions={"deep": " needs research ", "ghost": "x",
+                                                                  "quick": ""}))
+    assert not errors
+    r = next(n for n in doc["nodes"] if n["id"] == "r")
+    assert r["label_descriptions"] == {"deep": "needs research"}
+
+
+def test_decision_model_route_is_valid():
+    assert validate_harness(_route_doc())[1] == []
+
+
+def test_decision_model_refused_outside_a_route():
+    doc = _route_doc()
+    doc["nodes"][2]["model"] = "@celeris:celeris-1-decision"
+    doc["nodes"][3]["fallback_model"] = "@celeris:celeris-1-decision"
+    _, errors = validate_harness(doc)
+    assert any(e["node"] == "a" and "decision model" in e["message"] for e in errors)
+    assert any(e["node"] == "b" and "decision model" in e["message"] for e in errors)

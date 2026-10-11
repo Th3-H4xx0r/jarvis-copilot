@@ -2,7 +2,8 @@ import copy
 from types import SimpleNamespace
 
 from api.harness_builtins import builtin_harnesses
-from api.harness_runner import classify_with_model, plan_turn, resolve_harness, single_harness
+from api.harness_runner import (RouteDecision, _parse_label, _route_choices, _route_prompt,
+                                classify_with_model, plan_turn, resolve_harness, single_harness)
 from api.harness_store import HarnessStore
 
 FAST, CLAUDE = "@ollama-cloud:gemma4:31b", "@claude-code:claude-sonnet-5-5"
@@ -69,8 +70,96 @@ def test_model_route_uses_classifier_and_defaults_on_none():
     doc = copy.deepcopy(_bi("router"))
     doc["nodes"][1].update({"by": "model", "model": FAST, "rules": [], "labels": ["deep"]})
     kw = dict(session_model="m", session_provider=None, text="x", surface="chat", has_attachments=False)
-    assert plan_turn(doc, classify=lambda ref, labels, text: "deep", **kw).node_id == "claude"
-    assert plan_turn(doc, classify=lambda *a: None, **kw).node_id == "fast"
+    plan = plan_turn(doc, classify=lambda node, text: RouteDecision("deep", "model", FAST, None, 120), **kw)
+    assert plan.node_id == "claude"
+    assert plan.meta()["route"] == {"node": doc["nodes"][1]["id"], "label": "deep", "by": "model",
+                                    "model": FAST, "confidence": None, "ms": 120, "error": None}
+    plan = plan_turn(doc, classify=lambda node, text: RouteDecision(None, "model", FAST), **kw)
+    assert plan.node_id == "fast" and plan.meta()["route"]["label"] == "default"
+
+
+def test_rules_route_recorded_in_meta():
+    plan = plan_turn(_bi("router"), session_model="m", session_provider=None,
+                     text="fix this bug in my code", surface="chat", has_attachments=False)
+    assert plan.meta()["route"]["by"] == "rules" and plan.meta()["route"]["label"] != "default"
+
+
+def test_single_harness_has_no_route_meta():
+    plan = plan_turn(single_harness(), session_model="@x:y", session_provider="x",
+                     text="hi", surface="chat", has_attachments=False)
+    assert "route" not in plan.meta()
+
+
+def test_decision_route_uses_the_decision_client(monkeypatch):
+    from agent import decision_client
+    seen = {}
+
+    def fake_choose(provider, model, *, instructions, choices, text, timeout, client=None):
+        seen.update(provider=provider, model=model, instructions=instructions, choices=choices, text=text)
+        return decision_client.Decision(choice="deep", confidence=0.82, ms=71)
+
+    monkeypatch.setattr(decision_client, "choose", fake_choose)
+    node = {"id": "r", "model": "@celeris:celeris-1-decision", "labels": ["deep", "quick"],
+            "label_descriptions": {"deep": "needs research"}, "instructions": "Pick a lane."}
+    d = classify_with_model(node, "debug my code")
+    assert (d.label, d.by, d.confidence, d.error) == ("deep", "decision", 0.82, None)
+    assert seen["provider"] == "celeris" and seen["model"] == "celeris-1-decision"
+    assert seen["instructions"] == "Pick a lane." and seen["text"] == "debug my code"
+    assert seen["choices"] == [("deep", "needs research"), ("quick", None),
+                               ("none", "None of the other routes fit.")]
+
+
+def test_decision_none_takes_default(monkeypatch):
+    from agent import decision_client
+    monkeypatch.setattr(decision_client, "choose",
+                        lambda *a, **k: decision_client.Decision(choice="none", confidence=0.6))
+    d = classify_with_model({"id": "r", "model": "@celeris:celeris-1-decision", "labels": ["deep"]}, "hi")
+    assert d.label is None and d.error is None and d.by == "decision"
+
+
+def test_decision_route_failure_takes_default_with_error(monkeypatch):
+    from agent import decision_client
+
+    def boom(*a, **k):
+        raise decision_client.DecisionError("HTTP 402: out of credits")
+
+    monkeypatch.setattr(decision_client, "choose", boom)
+    d = classify_with_model({"id": "r", "model": "@celeris:celeris-1-decision", "labels": ["deep"]}, "hi")
+    assert d.label is None and d.error == "HTTP 402: out of credits"
+
+
+def test_decision_choices_skip_none_when_label_is_none():
+    assert [v for v, _ in _route_choices({"labels": ["deep", "none"]})] == ["deep", "none"]
+
+
+def test_chat_route_prompt_carries_instructions_and_descriptions():
+    p = _route_prompt({"labels": ["deep", "quick"], "label_descriptions": {"deep": "needs research"},
+                       "instructions": "Pick a lane."}, "debug my code")
+    assert "Pick a lane." in p and "- deep: needs research" in p and "- quick" in p and "- none" in p
+    assert p.rstrip().endswith("debug my code")
+
+
+def test_chat_route_parse_lenient_and_none():
+    labels = ["deep", "code review"]
+    assert _parse_label("Deep.", labels) == "deep"
+    assert _parse_label("**code review**", labels) == "code review"
+    assert _parse_label("I'd say deep", labels) == "deep"
+    assert _parse_label("none", labels) is None
+    assert _parse_label("none of these, maybe deep", labels) is None
+    assert _parse_label("banana", labels) is None
+
+
+def test_chat_route_turns_reasoning_off(monkeypatch):
+    import api.harness_llm as llm
+    seen = {}
+
+    def fake(model_ref, prompt, max_tokens=8, reasoning_off=False):
+        seen.update(ref=model_ref, reasoning_off=reasoning_off)
+        return "deep"
+
+    monkeypatch.setattr(llm, "one_shot_completion", fake)
+    d = classify_with_model({"id": "r", "model": "@celeris:celeris-1-magnus", "labels": ["deep"]}, "x")
+    assert d.label == "deep" and d.by == "model" and seen["reasoning_off"] is True
 
 
 def test_review_edge_lands_in_after_list():
@@ -85,5 +174,6 @@ def test_single_uses_session_model():
     assert (plan.model, plan.provider) == ("@x:y", "x")
 
 
-def test_classifier_failure_returns_none_fast():
-    assert classify_with_model("@nope:nope", ["a"], "x", timeout=0.2) is None
+def test_classifier_failure_returns_default_fast():
+    d = classify_with_model({"id": "r", "model": "@nope:nope", "labels": ["a"]}, "x", timeout=0.2)
+    assert d.label is None and d.error

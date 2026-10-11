@@ -2,7 +2,8 @@
 
 A harness is ``{id, name, icon, nodes:[…], edges:[…]}``. Node types: message
 (start, exactly one), answer (a model answers while the user waits), route
-(picks an outgoing edge by label), background (a non-blocking model job),
+(picks an outgoing edge by label: by rules, a chat model or a decision model),
+background (a non-blocking model job),
 review (checks the answer just given). Edge ``when``: always · handoff ·
 label:<name> · default · slow:<seconds> · tools:<count>.
 """
@@ -51,6 +52,17 @@ def _num(v):
         return 0.0
 
 
+def _is_decision_ref(ref) -> bool:
+    """A decision model answers typed questions (a Route's router), never a chat."""
+    try:
+        from api.config import split_provider_qualified_model
+        from providers import is_decision_model
+        q = split_provider_qualified_model(str(ref or ""))
+        return bool(q) and is_decision_model(q[0], q[1])
+    except Exception:
+        return False
+
+
 def _clean_node(raw, errors):
     nid = str(raw.get("id") or "").strip()
     ntype = str(raw.get("type") or "").strip()
@@ -67,6 +79,8 @@ def _clean_node(raw, errors):
         model = str(raw.get("model") or "").strip()
         if not model:
             _err(errors, "Pick a model for this node.", node=nid)
+        elif _is_decision_ref(model):
+            _err(errors, f"{model} is a decision model — only a Route can use it.", node=nid)
         node["model"] = model
     if ntype in ("answer", "background"):
         tools = raw.get("tools", "lean")
@@ -81,6 +95,9 @@ def _clean_node(raw, errors):
                 _err(errors, "max_steps must be a number.", node=nid)
         if str(raw.get("fallback_model") or "").strip():
             node["fallback_model"] = str(raw["fallback_model"]).strip()
+            if _is_decision_ref(node["fallback_model"]):
+                _err(errors, f"{node['fallback_model']} is a decision model — only a Route can use it.",
+                     node=nid)
     if ntype == "background":
         deliver = raw.get("deliver") or "speak_or_notify"
         if deliver not in DELIVER_BACKGROUND:
@@ -117,7 +134,14 @@ def _clean_node(raw, errors):
             if not model:
                 _err(errors, "A model Route needs a model to label messages.", node=nid)
             node["model"] = model
-        node["labels"] = [str(l).strip() for l in (raw.get("labels") or []) if str(l).strip()]
+        labels = [str(l).strip() for l in (raw.get("labels") or []) if str(l).strip()]
+        node["labels"] = labels
+        notes = raw.get("label_descriptions")
+        if isinstance(notes, dict):
+            kept = {l: str(notes[l]).strip()[:300] for l in labels
+                    if isinstance(notes.get(l), str) and notes[l].strip()}
+            if kept:
+                node["label_descriptions"] = kept
     return node
 
 

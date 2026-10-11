@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 
 from api.harness_schema import parse_when, validate_harness
@@ -39,6 +40,7 @@ class TurnPlan:
     after: list = field(default_factory=list)
     note: str | None = None
     surface: str = "chat"
+    route: dict | None = None
 
     def cache_key(self, session_id: str) -> str:
         """Each node keeps its own warm agent (and so its own prompt cache)."""
@@ -47,8 +49,11 @@ class TurnPlan:
         return f"{session_id}#{self.harness_id}:{self.node_id}"
 
     def meta(self) -> dict:
-        return {"harness": self.harness_id, "harness_name": self.harness_name, "node": self.node_id,
-                "model": self.model, "provider": self.provider, "kind": "answer", "note": self.note}
+        out = {"harness": self.harness_id, "harness_name": self.harness_name, "node": self.node_id,
+               "model": self.model, "provider": self.provider, "kind": "answer", "note": self.note}
+        if self.route:
+            out["route"] = self.route
+        return out
 
 
 def _model_and_provider(ref, session_model, session_provider):
@@ -94,25 +99,94 @@ def _rule_matches(rule, text, surface, has_attachments):
     return False
 
 
-def classify_with_model(model_ref, labels, text, timeout=1.5):
-    """One tiny call that answers with one of ``labels`` (or nothing).
-    Never raises; a slow or failing model just means "no label"."""
+_NONE = "none"
+_NONE_NOTE = "None of the other routes fit."
+_ROUTE_QUESTION = "Which route should handle the user's message?"
+
+
+@dataclass
+class RouteDecision:
+    """What a Route node picked; ``label`` None means the default wire."""
+    label: str | None
+    by: str  # rules · model · decision
+    model: str | None = None
+    confidence: float | None = None
+    ms: int = 0
+    error: str | None = None
+
+
+def _route_choices(node):
+    """``[(label, description|None)]`` plus a "none" option (→ default wire)."""
+    labels = node.get("labels") or []
+    notes = node.get("label_descriptions") or {}
+    out = [(l, notes.get(l) or None) for l in labels]
+    if not any(l.lower() == _NONE for l in labels):
+        out.append((_NONE, _NONE_NOTE))
+    return out
+
+
+def _route_prompt(node, text):
+    lines = [node.get("instructions") or "Pick the route that should handle the user's message.", "", "Routes:"]
+    lines += [f"- {v}: {d}" if d else f"- {v}" for v, d in _route_choices(node)]
+    lines += ["", "Reply with the route name only.", "", "Message: " + (text or "")[:1500]]
+    return "\n".join(lines)
+
+
+def _parse_label(out, labels):
+    """The label a chat model replied with: exact first, else the first label
+    named as a whole word; a reply starting "none" means the default wire."""
+    o = (out or "").strip().strip(" .\"'`*").lower()
+    if o.startswith(_NONE) and not any(l.lower().startswith(_NONE) for l in labels):
+        return None
+    exact = next((l for l in labels if l.lower() == o), None)
+    if exact:
+        return exact
+    return next((l for l in labels if re.search(rf"\b{re.escape(l.lower())}\b", o)), None)
+
+
+def classify_with_model(node, text, timeout=1.5):
+    """Ask the Route's model which label fits. Never raises; a slow or failing
+    router means the default wire, with the reason in ``error``. A decision
+    model (Celeris-1 Decision) gets one choice question; a chat model a
+    one-line prompt with reasoning off."""
+    ref = str(node.get("model") or "")
+    labels = node.get("labels") or []
+    try:
+        from api.config import split_provider_qualified_model
+        from providers import is_decision_model
+        q = split_provider_qualified_model(ref)
+        decision = bool(q) and is_decision_model(q[0], q[1])
+    except Exception:
+        q, decision = None, False
+    by = "decision" if decision else "model"
     result = {}
 
     def _run():
         try:
-            from api.harness_llm import one_shot_completion
-            prompt = ("Label the user's message with exactly one of: " + ", ".join(labels)
-                      + ", none. Reply with the label only.\n\nMessage: " + (text or "")[:1500])
-            out = (one_shot_completion(model_ref, prompt, max_tokens=8) or "").strip().strip(" .\"'").lower()
-            result["label"] = next((l for l in labels if l.lower() == out), None)
-        except Exception:
+            if decision:
+                from agent import decision_client
+                d = decision_client.choose(
+                    q[0], q[1], instructions=node.get("instructions") or _ROUTE_QUESTION,
+                    choices=_route_choices(node), text=(text or "")[:4000], timeout=timeout)
+                result["label"] = next((l for l in labels if l == d.choice), None)
+                result["confidence"] = d.confidence
+            else:
+                from api import harness_llm
+                out = harness_llm.one_shot_completion(ref, _route_prompt(node, text), max_tokens=8,
+                                                      reasoning_off=True)
+                result["label"] = _parse_label(out, labels)
+        except Exception as exc:
             logger.debug("harness: model route failed", exc_info=True)
+            result["error"] = str(exc)[:160] or type(exc).__name__
 
+    started = time.monotonic()
     t = threading.Thread(target=_run, daemon=True, name="jc-harness-route")
     t.start()
     t.join(timeout)
-    return result.get("label")
+    ms = int((time.monotonic() - started) * 1000)
+    if t.is_alive():
+        return RouteDecision(None, by, ref, None, ms, "timed out")
+    return RouteDecision(result.get("label"), by, ref, result.get("confidence"), ms, result.get("error"))
 
 
 def plan_turn(doc, *, session_model, session_provider, text, surface, has_attachments, classify=None):
@@ -122,17 +196,20 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
         out.setdefault(e["from"], []).append(e)
     nid = next(n["id"] for n in doc["nodes"] if n["type"] == "message")
     hops = 0
+    route = None
     while nodes[nid]["type"] != "answer" and hops < len(nodes):
         hops += 1
         node, edges = nodes[nid], out.get(nid, [])
         if node["type"] == "route":
             if node.get("by") == "model":
-                label = (classify or classify_with_model)(node.get("model"), node.get("labels") or [], text)
+                d = (classify or classify_with_model)(node, text)
             else:
-                label = next((r["label"] for r in node.get("rules") or []
-                              if _rule_matches(r, text, surface, has_attachments)), None)
-            chosen = (next((e for e in edges if label and e["when"] == f"label:{label}"), None)
-                      or next(e for e in edges if e["when"] == "default"))
+                d = RouteDecision(next((r["label"] for r in node.get("rules") or []
+                                        if _rule_matches(r, text, surface, has_attachments)), None), "rules")
+            wired = next((e for e in edges if d.label and e["when"] == f"label:{d.label}"), None)
+            chosen = wired or next(e for e in edges if e["when"] == "default")
+            route = {"node": node["id"], "label": d.label if wired else "default", "by": d.by,
+                     "model": d.model, "confidence": d.confidence, "ms": d.ms, "error": d.error}
             nid = chosen["to"]
         else:
             nid = edges[0]["to"]
@@ -146,7 +223,7 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
                     model=model, provider=provider, tools=answer.get("tools", "lean"),
                     instructions=answer.get("instructions", ""), max_steps=answer.get("max_steps"),
                     fallback_model=answer.get("fallback_model"), handoff_node=handoff, after=after,
-                    surface=surface)
+                    surface=surface, route=route)
 
 
 # ── after the answer: hand-off, background and review jobs ───────────────────
