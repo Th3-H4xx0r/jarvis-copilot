@@ -526,7 +526,7 @@ struct JarvisPodView: View {
         .padding(.vertical, 12)
     }
 
-    /// The chat and model the Pod talks to, and the engine that hears it — the
+    /// The chat and harness the Pod talks to, and the engine that hears it — the
     /// Pod's own voice settings, like the phone's.
     private var talkingSection: some View {
         group("Talking to Jarvis") {
@@ -535,8 +535,8 @@ struct JarvisPodView: View {
             }
             .buttonStyle(.plain)
             divider
-            NavigationLink { PodModelPicker(choice: voiceChoice) } label: {
-                navRow("cpu", "Model", voiceChoice.modelTitle)
+            NavigationLink { PodHarnessPicker(choice: voiceChoice) } label: {
+                navRow("point.3.connected.trianglepath.dotted", "Harness", voiceChoice.harnessTitle)
             }
             .buttonStyle(.plain)
             divider

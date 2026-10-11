@@ -15,12 +15,21 @@ final class JarvisPodAPITests: XCTestCase {
     }
 
     /// The chat and model the Pod talks to; empty fields are the voice defaults.
+    /// The Pod picks a chat and a harness (not a model): a model an older build
+    /// saved is neither read nor sent.
     func testVoiceChoiceParsesAndSendsItsFields() {
-        let voice = JarvisPodVoice(json: ["session_id": "chat-1", "model": "gpt-5", "provider": "openai", "x": 1])
-        XCTAssertEqual(voice, JarvisPodVoice(sessionID: "chat-1", model: "gpt-5", provider: "openai"))
+        let voice = JarvisPodVoice(json: ["session_id": "chat-1", "harness_id": "fast-claude", "model": "gpt-5", "x": 1])
+        XCTAssertEqual(voice, JarvisPodVoice(sessionID: "chat-1", harnessID: "fast-claude"))
         XCTAssertEqual(voice.body(podID: "pod1") as NSDictionary,
-                       ["device_id": "pod1", "session_id": "chat-1", "model": "gpt-5", "provider": "openai"] as NSDictionary)
+                       ["device_id": "pod1", "session_id": "chat-1", "harness_id": "fast-claude"] as NSDictionary)
         XCTAssertEqual(JarvisPodVoice(json: [:]), JarvisPodVoice())
+    }
+
+    func testPodHarnessTitle() {
+        let names = ["fast-claude": "Fast + Claude", "single": "Single model"]
+        XCTAssertEqual(PodVoiceChoice.harnessTitle("", names: names), "Voice default")
+        XCTAssertEqual(PodVoiceChoice.harnessTitle("fast-claude", names: names), "Fast + Claude")
+        XCTAssertEqual(PodVoiceChoice.harnessTitle("gone", names: names), "A harness")
     }
 
     func testRecordingParsesServerEntry() throws {

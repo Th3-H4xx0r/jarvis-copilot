@@ -198,27 +198,25 @@ struct JarvisPodRecording: Identifiable, Equatable, Sendable {
     }
 }
 
-/// The chat and model a pod talks to, kept on the server (so it can be set while the
-/// pod is offline). Empty fields are the voice defaults: the Voice chat, and "Auto".
+/// The chat and agent harness a pod talks to, kept on the server (so it can be set
+/// while the pod is offline). Empty fields are the voice defaults: the Voice chat,
+/// and the Voice harness. The Single harness answers with the chat's own model.
 struct JarvisPodVoice: Equatable, Sendable {
     var sessionID = ""
-    var model = ""
-    var provider = ""
+    var harnessID = ""
 
-    init(sessionID: String = "", model: String = "", provider: String = "") {
+    init(sessionID: String = "", harnessID: String = "") {
         self.sessionID = sessionID
-        self.model = model
-        self.provider = provider
+        self.harnessID = harnessID
     }
 
     init(json: [String: Any]) {
         sessionID = json["session_id"] as? String ?? ""
-        model = json["model"] as? String ?? ""
-        provider = json["provider"] as? String ?? ""
+        harnessID = json["harness_id"] as? String ?? ""
     }
 
     func body(podID: String) -> [String: Any] {
-        ["device_id": podID, "session_id": sessionID, "model": model, "provider": provider]
+        ["device_id": podID, "session_id": sessionID, "harness_id": harnessID]
     }
 }
 

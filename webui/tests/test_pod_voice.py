@@ -12,24 +12,25 @@ import api.pod_voice as pod_voice  # noqa: E402
 from api import voice  # noqa: E402
 
 
-def _store(monkeypatch, tmp_path, sessions=("chat-1",)):
+def _store(monkeypatch, tmp_path, sessions=("chat-1",), harnesses=("fast-claude", "single")):
     monkeypatch.setattr(pod_voice, "PATH", tmp_path / "pod_voice.json")
     monkeypatch.setattr(pod_voice, "_session_exists", lambda sid: sid in sessions)
+    monkeypatch.setattr(pod_voice, "_harness_exists", lambda hid: hid in harnesses)
 
 
 def test_nothing_chosen_is_the_voice_defaults(monkeypatch, tmp_path):
     _store(monkeypatch, tmp_path)
-    assert pod_voice.load("pod1") == {"session_id": "", "model": "", "provider": ""}
+    assert pod_voice.load("pod1") == {"session_id": "", "model": "", "provider": "", "harness_id": ""}
 
 
 def test_a_choice_is_kept_per_pod(monkeypatch, tmp_path):
     _store(monkeypatch, tmp_path)
-    pod_voice.save("pod1", {"session_id": "chat-1", "model": "gpt-5", "provider": "openai", "bogus": 1})
-    assert pod_voice.load("pod1") == {"session_id": "chat-1", "model": "gpt-5", "provider": "openai"}
+    pod_voice.save("pod1", {"session_id": "chat-1", "harness_id": "fast-claude", "bogus": 1})
+    assert pod_voice.load("pod1") == {"session_id": "chat-1", "model": "", "provider": "", "harness_id": "fast-claude"}
     assert pod_voice.load("pod2")["session_id"] == ""
-    # Clearing the model is "Auto"; the chat stays.
-    pod_voice.save("pod1", {"model": "", "provider": ""})
-    assert pod_voice.load("pod1") == {"session_id": "chat-1", "model": "", "provider": ""}
+    # Clearing the harness is "Voice default"; the chat stays.
+    pod_voice.save("pod1", {"harness_id": ""})
+    assert pod_voice.load("pod1")["session_id"] == "chat-1" and pod_voice.load("pod1")["harness_id"] == ""
     assert json.loads((tmp_path / "pod_voice.json").read_text())["pod1"]["session_id"] == "chat-1"
 
 
@@ -46,13 +47,25 @@ def _state(device_id="pod1"):
             "origin": {"device_id": device_id, "name": "Pod", "kind": "pod"}}
 
 
-def test_a_pod_turn_goes_to_its_chosen_chat_and_model(monkeypatch, tmp_path):
+def test_a_pod_turn_goes_to_its_chosen_chat_and_harness(monkeypatch, tmp_path):
+    # The Pod picks a harness, not a model: a model saved by an older phone build
+    # no longer applies (Single = the chat's own model).
     _store(monkeypatch, tmp_path)
     monkeypatch.setattr(voice, "_attach_escalation_sink", lambda *a: None)
-    pod_voice.save("pod1", {"session_id": "chat-1", "model": "gpt-5", "provider": "openai"})
+    pod_voice.save("pod1", {"session_id": "chat-1", "harness_id": "fast-claude", "model": "gpt-5", "provider": "openai"})
     state = _state()
     _begin(state)
-    assert (state["session_id"], state["model"], state["model_provider"]) == ("chat-1", "gpt-5", "openai")
+    assert (state["session_id"], state["harness_id"]) == ("chat-1", "fast-claude")
+    assert "model" not in state and "model_provider" not in state
+
+
+def test_a_deleted_harness_falls_back_to_the_voice_default(monkeypatch, tmp_path):
+    _store(monkeypatch, tmp_path, harnesses=())
+    monkeypatch.setattr(voice, "_attach_escalation_sink", lambda *a: None)
+    pod_voice.save("pod1", {"harness_id": "gone"})
+    state = _state()
+    _begin(state)
+    assert state["harness_id"] == ""
 
 
 def test_a_deleted_chat_falls_back_to_the_voice_chat(monkeypatch, tmp_path):
@@ -81,9 +94,9 @@ def test_a_new_choice_applies_from_the_next_turn(monkeypatch, tmp_path):
     state = _state()
     _begin(state)
     assert state["session_id"] == "voice-daily"
-    pod_voice.save("pod1", {"session_id": "chat-1", "model": "gpt-5", "provider": "openai"})
+    pod_voice.save("pod1", {"session_id": "chat-1", "harness_id": "single"})
     voice._refresh_pod_choice(state, None, None)
-    assert (state["session_id"], state["model"], state["model_provider"]) == ("chat-1", "gpt-5", "openai")
-    pod_voice.save("pod1", {"session_id": "", "model": "", "provider": ""})
+    assert (state["session_id"], state["harness_id"]) == ("chat-1", "single")
+    pod_voice.save("pod1", {"session_id": "", "harness_id": ""})
     voice._refresh_pod_choice(state, None, None)
-    assert state["session_id"] == "voice-daily" and "model" not in state and "model_provider" not in state
+    assert state["session_id"] == "voice-daily" and state["harness_id"] == "" and "model" not in state

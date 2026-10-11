@@ -2340,8 +2340,8 @@ def _flush_escalations(state: dict, conn, sock) -> None:
 
 
 def _refresh_pod_choice(state: dict, conn, sock) -> None:
-    """Each Pod turn follows the chat and model chosen on the phone now: the Pod sends
-    begin_turn once per socket and keeps that socket open for hours."""
+    """Each Pod turn follows the chat and harness chosen on the phone now: the Pod
+    sends begin_turn once per socket and keeps that socket open for hours."""
     if state.get("client") != "jarvis_pod":
         return
     from api import pod_voice
@@ -2350,15 +2350,10 @@ def _refresh_pod_choice(state: dict, conn, sock) -> None:
     if sid and sid != state.get("session_id"):
         state["session_id"] = sid
         _attach_escalation_sink(state, conn, sock)
-    # The Pod never picks a model itself, so no choice means the voice default.
-    if pod.get("model"):
-        state["model"] = pod["model"]
-    else:
-        state.pop("model", None)
-    if pod.get("provider"):
-        state["model_provider"] = pod["provider"]
-    else:
-        state.pop("model_provider", None)
+    # The Pod picks a harness, never a model: none chosen is the Voice harness.
+    state["harness_id"] = pod.get("harness_id", "")
+    state.pop("model", None)
+    state.pop("model_provider", None)
 
 
 def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
@@ -2373,12 +2368,12 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         sr = int(msg.get("sample_rate") or 0)
         if sr > 0:
             state["sample_rate"] = sr
-        # The Jarvis Pod's own chat and model, chosen on the phone's Pod page.
+        # The Jarvis Pod's own chat and harness, chosen on the phone's Pod page.
         from api import pod_voice
         pod = pod_voice.choice_for(state, (msg.get("client") or state.get("client") or "").strip().lower())
         state["voice_default_session"] = (msg.get("session_id") or "").strip()
-        # The Voice chip's agent harness (absent → the Voice default harness).
-        state["harness_id"] = (msg.get("harness_id") or "").strip()
+        # The Voice chip's agent harness, else the Pod's (absent → the Voice default harness).
+        state["harness_id"] = (msg.get("harness_id") or "").strip() or pod.get("harness_id", "")
         sid = pod.get("session_id") or (msg.get("session_id") or "").strip()
         if sid:
             state["session_id"] = sid
@@ -2386,10 +2381,10 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         # Per-turn model override (on-device escalation may pick a specific
         # server model/provider for this turn). Only set when non-empty so an
         # absent field never clobbers the session default.
-        model = (msg.get("model") or "").strip() or pod.get("model", "")
+        model = (msg.get("model") or "").strip()
         if model:
             state["model"] = model
-        provider = (msg.get("model_provider") or "").strip() or pod.get("provider", "")
+        provider = (msg.get("model_provider") or "").strip()
         if provider:
             state["model_provider"] = provider
         # Pre-supplied transcript: the on-device path already knows what the

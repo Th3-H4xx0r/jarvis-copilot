@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Which chat and model the Pod talks to — its own choice, like the phone's Voice
-/// settings. Kept on the server (`/api/devices/pod/voice`), so it can be changed
+/// Which chat and agent harness the Pod talks to — its own choice, like the phone's
+/// Voice settings. Kept on the server (`/api/devices/pod/voice`), so it can be changed
 /// while the Pod is offline and applies from the Pod's next turn.
 @Observable @MainActor
 final class PodVoiceChoice {
     let podID: String
     private(set) var voice = JarvisPodVoice()
     private(set) var sessions: [ChatSessionSummary] = []
-    private(set) var catalog: ModelCatalog?
+    private(set) var harnesses: [AgentHarness] = []
     private(set) var loaded = false
     private(set) var error: String?
 
@@ -25,7 +25,7 @@ final class PodVoiceChoice {
             self.error = apiErrorMessage(error)
         }
         if let list = try? await SessionsAPI().list() { sessions = list.filter { !$0.archived } }
-        if catalog == nil { catalog = try? await ModelsAPI().list() }
+        if let snapshot = try? await HarnessAPI().snapshot() { harnesses = snapshot.harnesses }
     }
 
     var chatTitle: String {
@@ -33,19 +33,21 @@ final class PodVoiceChoice {
         return sessions.first { $0.id == voice.sessionID }?.displayTitle ?? "A chat"
     }
 
-    var modelTitle: String {
-        if voice.model.isEmpty { return "Auto" }
-        return catalog?.models.first { $0.id == voice.model }?.label ?? voiceModelShortLabel(voice.model)
+    var harnessTitle: String {
+        Self.harnessTitle(voice.harnessID,
+                          names: Dictionary(harnesses.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }))
+    }
+
+    /// "Voice default" for no choice; a harness deleted since reads "A harness"
+    /// (the server then runs the Voice harness).
+    static func harnessTitle(_ id: String, names: [String: String]) -> String {
+        if id.isEmpty { return "Voice default" }
+        return names[id] ?? "A harness"
     }
 
     func chooseChat(_ sessionID: String) async { await save { $0.sessionID = sessionID } }
 
-    func chooseModel(_ model: ChatModel?) async {
-        await save {
-            $0.model = model?.id ?? ""
-            $0.provider = model?.providerID ?? ""
-        }
-    }
+    func chooseHarness(_ harnessID: String) async { await save { $0.harnessID = harnessID } }
 
     func newChat() async {
         do {
@@ -138,8 +140,9 @@ struct PodChatPicker: View {
     }
 }
 
-/// Pick the Pod's model: "Auto" (the voice default), or any model the server has.
-struct PodModelPicker: View {
+/// Pick the Pod's harness: "Voice default" (whatever Voice uses), or any harness —
+/// Single answers with the chat's own model.
+struct PodHarnessPicker: View {
     let choice: PodVoiceChoice
     @Environment(\.dismiss) private var dismiss
 
@@ -147,27 +150,25 @@ struct PodModelPicker: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 GlassGroup {
-                    GlassRow(symbol: "wand.and.stars", title: "Auto",
-                             subtitle: "The same model phone voice uses by default",
+                    GlassRow(symbol: "waveform", title: "Voice default",
+                             subtitle: "The harness Voice uses (Settings → Harnesses)",
                              subtitleLineLimit: 2, last: true,
-                             action: { pick(nil) }) {
-                        VoicePickerCheck(on: choice.voice.model.isEmpty)
+                             action: { pick("") }) {
+                        VoicePickerCheck(on: choice.voice.harnessID.isEmpty)
                     }
                 }
-                if let catalog = choice.catalog {
-                    ForEach(catalog.providers, id: \.self) { provider in
-                        let group = catalog.models(for: provider)
-                        VStack(alignment: .leading, spacing: 0) {
-                            GlassQuietLabel(provider.isEmpty ? "Models" : provider)
-                                .padding(.top, 16)
-                            GlassGroup {
-                                ForEach(Array(group.enumerated()), id: \.element.id) { index, model in
-                                    GlassRow(symbol: "cpu", title: model.label,
-                                             subtitle: model.label == model.id ? nil : model.id,
-                                             last: index == group.count - 1,
-                                             action: { pick(model) }) {
-                                        VoicePickerCheck(on: model.id == choice.voice.model)
-                                    }
+                if choice.loaded || !choice.harnesses.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassQuietLabel("Harnesses").padding(.top, 16)
+                        GlassGroup {
+                            ForEach(Array(choice.harnesses.enumerated()), id: \.element.id) { index, harness in
+                                GlassRow(symbol: "point.3.connected.trianglepath.dotted",
+                                         title: [harness.icon, harness.name].compactMap { $0 }
+                                             .filter { !$0.isEmpty }.joined(separator: " "),
+                                         subtitle: harness.id == "single" ? "Answers with the chat's own model" : nil,
+                                         last: index == choice.harnesses.count - 1,
+                                         action: { pick(harness.id) }) {
+                                    VoicePickerCheck(on: harness.id == choice.voice.harnessID)
                                 }
                             }
                         }
@@ -182,13 +183,13 @@ struct PodModelPicker: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .jcScreen("Pod model")
+        .jcScreen("Pod harness")
         .task { await choice.load() }
     }
 
-    private func pick(_ model: ChatModel?) {
+    private func pick(_ harnessID: String) {
         Task {
-            await choice.chooseModel(model)
+            await choice.chooseHarness(harnessID)
             if choice.error == nil { dismiss() }
         }
     }

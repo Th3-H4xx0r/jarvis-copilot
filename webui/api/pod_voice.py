@@ -1,13 +1,15 @@
-"""Which chat and model each Jarvis Pod talks to — chosen on the phone's Pod page.
+"""Which chat and agent harness each Jarvis Pod talks to — chosen on the phone's Pod page.
 
-    STATE_DIR/pod_voice.json   {"<device_id>": {"session_id": "", "model": "", "provider": ""}}
+    STATE_DIR/pod_voice.json   {"<device_id>": {"session_id": "", "harness_id": "", "model": "", "provider": ""}}
 
 Nothing chosen (an empty field) keeps the voice defaults: the shared Voice chat,
-and the voice model routing. A chosen chat that has since been deleted falls
-back to the Voice chat rather than failing the turn.
+and the Voice harness (Settings → Harnesses). A chosen chat or harness that has
+since been deleted falls back to the default rather than failing the turn. The
+Pod picks a harness, not a model (the Single harness answers with the chat's own
+model); ``model``/``provider`` are kept only for older phone builds and unused.
 
     GET  /api/devices/pod/voice?device_id=
-    POST /api/devices/pod/voice   {device_id, session_id?, model?, provider?}
+    POST /api/devices/pod/voice   {device_id, session_id?, harness_id?}
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from api.config import STATE_DIR
 logger = logging.getLogger(__name__)
 
 PATH = STATE_DIR / "pod_voice.json"
-FIELDS = ("session_id", "model", "provider")
+FIELDS = ("session_id", "model", "provider", "harness_id")
 _MAX_LEN = 200
 _DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _LOCK = threading.Lock()
@@ -67,8 +69,16 @@ def _session_exists(session_id: str) -> bool:
         return False
 
 
+def _harness_exists(harness_id: str) -> bool:
+    try:
+        from api.harness_store import store_for_request
+        return store_for_request().get(harness_id) is not None
+    except Exception:
+        return False
+
+
 def choice_for(state: dict, client: str) -> dict:
-    """A Pod socket's chosen chat and model ({} for anything else, or nothing chosen)."""
+    """A Pod socket's chosen chat and harness ({} for anything else, or nothing chosen)."""
     if client != "jarvis_pod":
         return {}
     device_id = str((state.get("origin") or {}).get("device_id") or "")
@@ -78,7 +88,10 @@ def choice_for(state: dict, client: str) -> dict:
     if row["session_id"] and not _session_exists(row["session_id"]):
         logger.info("pod %s: chosen chat %s is gone; using the Voice chat", device_id, row["session_id"])
         row["session_id"] = ""
-    return {k: v for k, v in row.items() if v}
+    if row["harness_id"] and not _harness_exists(row["harness_id"]):
+        logger.info("pod %s: chosen harness %s is gone; using the Voice harness", device_id, row["harness_id"])
+        row["harness_id"] = ""
+    return {k: row[k] for k in ("session_id", "harness_id") if row[k]}
 
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
