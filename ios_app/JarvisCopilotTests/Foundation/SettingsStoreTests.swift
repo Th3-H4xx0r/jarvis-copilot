@@ -252,3 +252,86 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.notificationsAreOff)
     }
 }
+
+/// Settings → Auto-compact: `/api/compression/config`, the same settings the web
+/// edits. The trigger math mirrors `compute_threshold_tokens` on the server so the
+/// readout moves with the slider before anything is saved.
+@MainActor
+final class CompactionSettingsTests: XCTestCase {
+
+    private let server: [String: Any] = [
+        "config": ["enabled": true, "threshold_percent": 50, "max_context_tokens": 0],
+        "defaults": ["enabled": true, "threshold_percent": 50, "max_context_tokens": 0],
+        "limits": ["min_percent": 10, "max_percent": 95, "floor_tokens": 64000,
+                   "min_cap_tokens": 16000, "fallback_context_length": 256000],
+        "preview": ["model": "claude-sonnet-5-5", "provider": "anthropic-api",
+                    "context_length": 1_000_000, "threshold_tokens": 500_000],
+    ]
+
+    func testParsesWhatTheServerSends() {
+        let s = CompactionSettings.from(server)
+        XCTAssertTrue(s.enabled)
+        XCTAssertEqual(s.percent, 50)
+        XCTAssertEqual(s.cap, 0)
+        XCTAssertEqual(s.minPercent, 10)
+        XCTAssertEqual(s.maxPercent, 95)
+        XCTAssertEqual(s.model, "claude-sonnet-5-5")
+        XCTAssertEqual(s.contextLength, 1_000_000)
+        XCTAssertEqual(s.trigger, 500_000)
+    }
+
+    func testTriggerFollowsTheWindow() {
+        var s = CompactionSettings.from(server)
+        XCTAssertEqual(s.trigger(contextLength: 1_000_000, percent: 50, cap: 0), 500_000)
+        XCTAssertEqual(s.trigger(contextLength: 200_000, percent: 50, cap: 0), 100_000)
+        XCTAssertEqual(s.trigger(contextLength: 100_000, percent: 50, cap: 0), 64_000, "the floor")
+        XCTAssertEqual(s.trigger(contextLength: 64_000, percent: 50, cap: 0), 60_800, "never above 95%")
+        XCTAssertEqual(s.trigger(contextLength: 1_000_000, percent: 50, cap: 200_000), 200_000)
+        XCTAssertEqual(s.trigger(contextLength: 0, percent: 50, cap: 0), 128_000, "unknown window → fallback")
+        s.percent = 80
+        XCTAssertEqual(s.trigger, 800_000)
+    }
+
+    func testReadoutNamesTheModelAndTheNumbers() {
+        var s = CompactionSettings.from(server)
+        XCTAssertEqual(s.readout, "Compacts at \(500_000.formatted()) of \(1_000_000.formatted()) tokens "
+                                + "for claude-sonnet-5-5.")
+        s.cap = 200_000
+        XCTAssertTrue(s.readout.hasSuffix("held down by the token cap."), s.readout)
+        s.enabled = false
+        XCTAssertTrue(s.readout.hasPrefix("Off"), s.readout)
+    }
+
+    func testLoadAsksAboutTheChatModelAndSaveSendsOnlyTheChange() async throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/compression/config", json: server)
+        let prefs = MemoryKeyValueStore()
+        let selection = ModelSelection(store: prefs)
+        selection.set(.chat, model: "claude-opus-5-5", provider: "claude-code")
+        let store = CompactionStore(api: CompactionAPI(api: api), selection: selection)
+        await store.load()
+        XCTAssertTrue(store.loaded)
+        let query = transport.lastRequest?.url?.query ?? ""
+        XCTAssertTrue(query.contains("model=claude-opus-5-5"), query)
+        XCTAssertTrue(query.contains("provider=claude-code"), query)
+
+        await store.setPercent(80)
+        XCTAssertEqual(transport.lastRequest?.httpMethod, "PUT")
+        let body = transport.lastBody()
+        XCTAssertEqual(body["threshold_percent"] as? Int, 80)
+        XCTAssertNil(body["max_context_tokens"])
+        XCTAssertEqual(body["model"] as? String, "claude-opus-5-5")
+    }
+
+    func testAFailedSaveRollsBack() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.enqueue(json: server)
+        transport.enqueue(json: ["error": "max_context_tokens must be 0 (no cap) or 16,000 to 10,000,000"],
+                          status: 400)
+        let store = CompactionStore(api: CompactionAPI(api: api), selection: ModelSelection(store: MemoryKeyValueStore()))
+        await store.load()
+        await store.setCap(1000)
+        XCTAssertEqual(store.settings.cap, 0, "the server refused, so the screen shows what it holds")
+        XCTAssertFalse(store.error.isEmpty)
+    }
+}

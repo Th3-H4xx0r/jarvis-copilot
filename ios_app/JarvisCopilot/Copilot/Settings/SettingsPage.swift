@@ -254,6 +254,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    ContextCompactionScreen()
+                } label: {
+                    GlassRow(symbol: "gauge.with.needle", title: "Auto-compact",
+                             subtitle: "When long chats get summarized, per model")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     WebViewPage(title: "Server settings", path: "/?panel=settings")
                 } label: {
                     GlassRow(symbol: "slider.horizontal.3", title: "Server settings")
@@ -318,5 +326,307 @@ private struct InfoRow: View {
                 .font(.system(size: 14, weight: .medium).monospacedDigit())
                 .foregroundStyle(JcTheme.muted)
         }
+    }
+}
+
+// MARK: - Auto-compact
+
+/// The server's auto-compact settings (`/api/compression/config`) — the same
+/// `compression:` keys the web's Settings → Auto-compact block edits — and the
+/// trigger for the chat's model. Nothing here is stored on the phone.
+struct CompactionSettings: Equatable, Sendable {
+    var enabled = true
+    var percent = 50
+    /// `max_context_tokens`: 0 = no cap, the percentage alone decides.
+    var cap = 0
+    var minPercent = 10
+    var maxPercent = 95
+    var floorTokens = 64_000
+    var minCapTokens = 16_000
+    var fallbackContextLength = 256_000
+    var model = ""
+    /// 0 when the server doesn't know the model's window.
+    var contextLength = 0
+
+    static func from(_ d: [String: Any]) -> CompactionSettings {
+        var out = CompactionSettings()
+        out.apply(d)
+        return out
+    }
+
+    /// A GET, or a PUT's reply.
+    mutating func apply(_ d: [String: Any]) {
+        let c = d.dict("config") ?? [:]
+        if let v = c.bool("enabled") { enabled = v }
+        if let v = c.int("threshold_percent") { percent = v }
+        if let v = c.int("max_context_tokens") { cap = v }
+        let l = d.dict("limits") ?? [:]
+        if let v = l.int("min_percent") { minPercent = v }
+        if let v = l.int("max_percent") { maxPercent = v }
+        if let v = l.int("floor_tokens") { floorTokens = v }
+        if let v = l.int("min_cap_tokens") { minCapTokens = v }
+        if let v = l.int("fallback_context_length"), v > 0 { fallbackContextLength = v }
+        let p = d.dict("preview") ?? [:]
+        if let v = p.string("model") { model = v }
+        if let v = p.int("context_length") { contextLength = v }
+    }
+
+    /// Mirrors `compute_threshold_tokens` (agent/context_compressor.py): the share
+    /// of the window, never below the floor, never above `maxPercent` of it, and
+    /// never above the cap when one is set.
+    func trigger(contextLength ctx: Int, percent pct: Int, cap: Int) -> Int {
+        let window = ctx > 0 ? ctx : fallbackContextLength
+        var tokens = min(max(window * pct / 100, floorTokens), window * maxPercent / 100)
+        if cap > 0 { tokens = min(tokens, cap) }
+        return tokens
+    }
+
+    var trigger: Int { trigger(contextLength: contextLength, percent: percent, cap: cap) }
+
+    var readout: String {
+        guard enabled else {
+            return "Off — chats are never summarized, so a long one ends with a context-limit "
+                + "error when it fills the window."
+        }
+        let tokens = trigger
+        let name = model.isEmpty ? "the default model" : model
+        var line = contextLength > 0
+            ? "Compacts at \(tokens.formatted()) of \(contextLength.formatted()) tokens for \(name)"
+            : "Compacts at \(tokens.formatted()) tokens for \(name) (its window isn't known, "
+                + "so \(fallbackContextLength.formatted()) is assumed)"
+        let window = contextLength > 0 ? contextLength : fallbackContextLength
+        if cap > 0 && tokens == cap {
+            line += " — held down by the token cap"
+        } else if tokens == floorTokens && window * percent / 100 < tokens {
+            line += " — never below \(floorTokens.formatted())"
+        }
+        return line + "."
+    }
+}
+
+struct CompactionAPI: Sendable {
+    let api: JarvisAPI
+
+    init(api: JarvisAPI = .shared) {
+        self.api = api
+    }
+
+    /// The settings, with the trigger worked out for `model` (the server's default
+    /// model when nil).
+    func load(model: String?, provider: String?) async throws -> [String: Any] {
+        var query: [String: String] = [:]
+        if let model, !model.isEmpty { query["model"] = model }
+        if let provider, !provider.isEmpty { query["provider"] = provider }
+        return try await api.get("/api/compression/config", query: query).object()
+    }
+
+    /// PUT a patch (just the keys that changed); the reply is the server's view.
+    func save(_ patch: [String: Any]) async throws -> [String: Any] {
+        try await api.put("/api/compression/config", json: patch).object()
+    }
+}
+
+/// The auto-compact settings on screen. Every change shows at once and is PUT at
+/// once; a refusal puts back what the server holds and says why — the same shape
+/// as `SpeechEngineStore`.
+@MainActor
+@Observable
+final class CompactionStore {
+    static let shared = CompactionStore()
+
+    private(set) var settings = CompactionSettings()
+    private(set) var loaded = false
+    private(set) var error = ""
+
+    private let api: CompactionAPI
+    /// Whose window the readout is for: the model the chat tab is set to.
+    private let selection: ModelSelection
+
+    init(api: CompactionAPI = CompactionAPI(), selection: ModelSelection = .shared) {
+        self.api = api
+        self.selection = selection
+    }
+
+    func load() async {
+        do {
+            settings = CompactionSettings.from(
+                try await api.load(model: selection.model(for: .chat), provider: selection.provider(for: .chat)))
+            loaded = true
+            error = ""
+        } catch {
+            self.error = apiErrorLine(error)
+        }
+    }
+
+    func setEnabled(_ on: Bool) async {
+        guard settings.enabled != on else { return }
+        let old = settings.enabled
+        settings.enabled = on
+        await commit(["enabled": on]) { $0.enabled = old }
+    }
+
+    func setPercent(_ percent: Int) async {
+        let value = min(max(percent, settings.minPercent), settings.maxPercent)
+        guard value != settings.percent else { return }
+        let old = settings.percent
+        settings.percent = value
+        await commit(["threshold_percent": value]) { $0.percent = old }
+    }
+
+    /// 0 removes the cap.
+    func setCap(_ tokens: Int) async {
+        let value = max(0, tokens)
+        guard value != settings.cap else { return }
+        let old = settings.cap
+        settings.cap = value
+        await commit(["max_context_tokens": value]) { $0.cap = old }
+    }
+
+    /// Save one change already on screen. A refusal puts back ONLY that field.
+    private func commit(_ patch: [String: Any], revert: (inout CompactionSettings) -> Void) async {
+        var body = patch
+        body["model"] = selection.model(for: .chat) ?? ""
+        body["provider"] = selection.provider(for: .chat) ?? ""
+        do {
+            settings.apply(try await api.save(body))
+            error = ""
+        } catch {
+            revert(&settings)
+            self.error = apiErrorLine(error)
+        }
+    }
+}
+
+/// Settings → Auto-compact: when a long chat's earlier turns get summarized, as
+/// a share of the current model's window, plus an optional token cap. Saved as
+/// each change is made.
+struct ContextCompactionScreen: View {
+    @State private var store = CompactionStore.shared
+    @State private var percentDraft: Double = 50
+    @State private var capDraft = ""
+    @FocusState private var capFocused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                onOff
+                share
+                capSection
+                if !store.error.isEmpty {
+                    Text(store.error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(JcTheme.danger)
+                        .padding(.horizontal, 4)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 36)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .jcScreen("Auto-compact")
+        .task { await store.load(); syncDrafts() }
+        .refreshable { await store.load(); syncDrafts() }
+    }
+
+    /// The saved settings with the share being dragged, so the readout moves
+    /// with the slider before anything is saved.
+    private var shown: CompactionSettings {
+        var s = store.settings
+        s.percent = Int(percentDraft.rounded())
+        return s
+    }
+
+    private var onOff: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Auto-compact")
+            GlassGroup {
+                SwitchRow(symbol: "gauge.with.needle", title: "Compact long chats",
+                          subtitle: "Summarize the earlier turns when a chat fills up, so it can go on",
+                          isOn: store.settings.enabled, last: true) { on in
+                    Task { await store.setEnabled(on) }
+                }
+            }
+            LiveSettingsNote("It follows the model: a 1M-token model at 50% compacts at 500K, a 200K "
+                           + "model at 100K. Applies to chat, voice and messaging from the next turn.")
+        }
+    }
+
+    private var share: some View {
+        let s = shown
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("When")
+            GlassGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Share of the window")
+                            .font(JcText.body.weight(.semibold))
+                            .foregroundStyle(JcTheme.text)
+                        Spacer()
+                        Text("\(s.percent)%")
+                            .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(JcTheme.accent)
+                    }
+                    Slider(value: $percentDraft,
+                           in: Double(s.minPercent)...Double(max(s.minPercent + 1, s.maxPercent)),
+                           step: 1) { editing in
+                        guard !editing else { return }
+                        let value = Int(percentDraft.rounded())
+                        Task { await store.setPercent(value); syncDrafts() }
+                    }
+                    .tint(JcTheme.accent)
+                }
+                .padding(14)
+                .disabled(!s.enabled)
+                .opacity(s.enabled ? 1 : 0.5)
+            }
+            LiveSettingsNote(s.readout)
+        }
+    }
+
+    private var capSection: some View {
+        let s = store.settings
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Token cap")
+            GlassGroup {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("No cap — percentage only", text: $capDraft)
+                        .keyboardType(.numberPad)
+                        .focused($capFocused)
+                        .jcFieldStyle()
+                    HStack(spacing: 10) {
+                        GlassButton(title: "Save", action: capDraftValue == nil || capDraftValue == s.cap
+                                    ? nil : { saveCap() })
+                        GlassButton(title: "Remove", ghost: true, action: s.cap > 0 ? {
+                            capDraft = ""
+                            saveCap()
+                        } : nil)
+                    }
+                }
+                .padding(14)
+                .disabled(!s.enabled)
+                .opacity(s.enabled ? 1 : 0.5)
+            }
+            LiveSettingsNote("Optional. Compact by this many tokens at the latest, whatever the window — "
+                           + "it bounds what a 1M-token model re-reads each step. At least "
+                           + "\(s.minCapTokens.formatted()); empty for none.")
+        }
+    }
+
+    /// The typed cap: empty is 0 (none); nil when it isn't a number.
+    private var capDraftValue: Int? {
+        let digits = capDraft.filter { !$0.isWhitespace && $0 != "," && $0 != "." }
+        return digits.isEmpty ? 0 : Int(digits)
+    }
+
+    private func saveCap() {
+        capFocused = false
+        guard let value = capDraftValue else { return }
+        Task { await store.setCap(value); syncDrafts() }
+    }
+
+    private func syncDrafts() {
+        percentDraft = Double(store.settings.percent)
+        capDraft = store.settings.cap > 0 ? String(store.settings.cap) : ""
     }
 }
