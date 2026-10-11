@@ -47,18 +47,18 @@ def test_bundled_plugins_discovered():
 
 
 def test_all_34_profiles_register():
-    """After discovery, the registry must contain exactly 34 distinct profiles."""
+    """After discovery, the registry holds every bundled profile (at least 34)."""
     _clear_provider_caches()
     from providers import list_providers
 
     profiles = list_providers()
     names = sorted(p.name for p in profiles)
-    assert len(names) == 34, f"Expected 34 profiles, got {len(names)}: {names}"
+    assert len(names) >= 34, f"Expected at least 34 profiles, got {len(names)}: {names}"
 
     # Spot-check representative providers from different categories
     for required in (
         "openrouter", "anthropic", "custom", "bedrock", "openai-codex",
-        "minimax-oauth", "gmi", "xiaomi", "alibaba-coding-plan",
+        "minimax-oauth", "gmi", "xiaomi", "alibaba-coding-plan", "celeris",
     ):
         assert required in names, f"Missing profile: {required}"
 

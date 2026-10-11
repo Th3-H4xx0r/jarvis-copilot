@@ -79,6 +79,9 @@ class ProviderProfile:
         ""  # cheap model for auxiliary tasks (compression, vision, etc.)
     )
     # empty = use main model
+    # Model ids that answer typed questions (OpenAI Decisions API) instead of
+    # chatting — e.g. a harness Route's router. Never offered as chat models.
+    decision_models: tuple = ()
 
     # ── Hooks (override in subclass for complex providers) ───
 
@@ -102,6 +105,11 @@ class ProviderProfile:
         Default: pass-through.
         """
         return messages
+
+    def base_url_for_model(self, model: str | None, base_url: str | None = None) -> str | None:
+        """The base URL to call ``model`` on. Default: ``base_url`` unchanged —
+        a provider that serves each model on its own URL overrides this."""
+        return base_url
 
     def build_extra_body(
         self, *, session_id: str | None = None, **context: Any

@@ -73,6 +73,38 @@ def get_provider_profile(name: str) -> ProviderProfile | None:
     return _REGISTRY.get(canonical)
 
 
+def _bare_model(model) -> str:
+    m = str(model or "").strip()
+    if m.startswith("@") and ":" in m:
+        m = m.split(":", 1)[1]
+    return m.rsplit("/", 1)[-1]
+
+
+def model_base_url(provider, model, base_url):
+    """``base_url`` adjusted for ``model``: most providers serve every model on
+    one URL; a profile whose models each have their own URL (Celeris) builds it."""
+    if not provider or not model:
+        return base_url
+    try:
+        profile = get_provider_profile(str(provider).strip().lower())
+    except Exception:
+        return base_url
+    if profile is None:
+        return base_url
+    return profile.base_url_for_model(model, base_url) or base_url
+
+
+def is_decision_model(provider, model) -> bool:
+    """True when ``model`` is one of ``provider``'s decision models."""
+    if not provider or not model:
+        return False
+    try:
+        profile = get_provider_profile(str(provider).strip().lower())
+    except Exception:
+        return False
+    return bool(profile and _bare_model(model) in profile.decision_models)
+
+
 def list_providers() -> list[ProviderProfile]:
     """Return all registered provider profiles (one per canonical name)."""
     if not _discovered:

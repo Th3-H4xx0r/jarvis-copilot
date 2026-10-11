@@ -1,0 +1,5 @@
+name: celeris-provider
+kind: model-provider
+version: 1.0.0
+description: Celeris
+author: Pranav Krishna
