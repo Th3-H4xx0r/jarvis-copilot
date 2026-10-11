@@ -13,6 +13,10 @@ struct ChatAssistantTurnCard: View {
     /// Sends a filled-in form on as the user's reply. Nil where a turn is being
     /// read rather than continued.
     var onFormSubmit: ((String) -> Void)?
+    /// Background jobs this reply started, as the store sees them now.
+    var jobs: [HarnessJob] = []
+    /// A job card's Stop button. Nil where a turn is being read only.
+    var onStopJob: ((String) -> Void)?
 
     private var tools: [ToolInvocation] { message.tools }
     /// A proposed integration isn't a tool result to skim — it's a card the user
@@ -64,6 +68,14 @@ struct ChatAssistantTurnCard: View {
 
             if !footer.isEmpty {
                 ChatStatsLine(text: footer)
+            }
+
+            if !jobs.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(jobs) { job in
+                        HarnessJobCard(job: job, onStop: onStopJob.map { stop in { stop(job.id) } })
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

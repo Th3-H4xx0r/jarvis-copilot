@@ -439,6 +439,7 @@
 		67E5D07257C3B152084C6456 /* WidgetDesignStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4470617425A5653F88F3892E /* WidgetDesignStore.swift */; };
 		689A792CAE9E330F4353949F /* PendingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BFBB82CA0EF423335E59D1 /* PendingActions.swift */; };
 		690B8053A1E0D4AF0B80D469 /* HarnessFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */; };
+		69795684A73D247B3CD6F51B /* HarnessJobCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A5A1C84749861FC4570518 /* HarnessJobCard.swift */; };
 		6997ECAF515028D839242519 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F573A48CA3121C4DED2FC /* TerminalBuffer.swift */; };
 		69EB6F91D5084C3029B5A40D /* RingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BFA5645662596C18A8F7236 /* RingModel.swift */; };
 		69FF32055C236FCA6D2E138D /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D94764B8E07BA3B6CDB7B6FB /* WidgetKit.framework */; };
@@ -958,6 +959,7 @@
 		EB3FBD481F4E4E20484D7367 /* BandCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2B2EBFA5F0C0F7CABEFE54 /* BandCodecTests.swift */; };
 		EC14C36CC09CE319961BC110 /* VoiceModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADB7CE7800E17691B62041F7 /* VoiceModelSelection.swift */; };
 		EC207F774C0218D2783B94D9 /* VoiceReply.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034FFC524E870F818694414F /* VoiceReply.swift */; };
+		EC2D097DF484B3B7CD4585DC /* HarnessJobTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E90B4027E586F5C69B6348 /* HarnessJobTests.swift */; };
 		EC55078BF03309A17DA84033 /* DashcamLiveCameraTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8547DC1E08DBDD33D6C3A4F0 /* DashcamLiveCameraTests.swift */; };
 		ECC17E4437E6536E8D45F08B /* MelkFramesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA9D1FA3CEA1B1ADADBBEF1 /* MelkFramesTests.swift */; };
 		ECEC3610EB3AE9052A6F446C /* DashcamCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9379EFBA47C09851A8E9A52 /* DashcamCamera.swift */; };
@@ -1179,6 +1181,7 @@
 		146EE21C044A20976CE8A332 /* InmoProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoProtocolTests.swift; sourceTree = "<group>"; };
 		147D758171AF421660BBF6DD /* HealthRingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRingTests.swift; sourceTree = "<group>"; };
 		148FC917440AA35E2ED13B4E /* ServerLogsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsAPI.swift; sourceTree = "<group>"; };
+		14A5A1C84749861FC4570518 /* HarnessJobCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessJobCard.swift; sourceTree = "<group>"; };
 		14AE0F62C79D41B95694B4E1 /* GlassesAudioLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesAudioLink.swift; sourceTree = "<group>"; };
 		14B28F720B2069CA6D8DD306 /* TaskHandleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TaskHandleTests.swift; sourceTree = "<group>"; };
 		14D02944671A690A4C303395 /* BridgeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeSettingsView.swift; sourceTree = "<group>"; };
@@ -1290,6 +1293,7 @@
 		31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToyotaTests.swift; sourceTree = "<group>"; };
 		31E11FE88F2A132053AF6CBF /* CodingChatTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatTranscript.swift; sourceTree = "<group>"; };
 		31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutConfirmTests.swift; sourceTree = "<group>"; };
+		31E90B4027E586F5C69B6348 /* HarnessJobTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessJobTests.swift; sourceTree = "<group>"; };
 		320C21712D75FAC917A722EE /* InmoCommand.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoCommand.swift; sourceTree = "<group>"; };
 		322E1110A5953ECE2DE854A9 /* Endpointer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Endpointer.swift; sourceTree = "<group>"; };
 		325184FC8D98E2485468EC47 /* AppleHealthWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppleHealthWriter.swift; sourceTree = "<group>"; };
@@ -2689,6 +2693,7 @@
 				312DC4C6741BA6428A2DB93A /* ChatModelsLoadTests.swift */,
 				C65CA22B79D1517E912B0EA0 /* HarnessTurnFieldsTests.swift */,
 				65FFE8F8C6367591BE8252F6 /* HarnessFormatTests.swift */,
+				31E90B4027E586F5C69B6348 /* HarnessJobTests.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -3662,6 +3667,7 @@
 				7A2F3E5630E7E8C201E1909D /* ChatConversationView.swift */,
 				AB25D9D1B06207A9A18CD028 /* ChatFormCard.swift */,
 				73D8E90823BB19C7D62C4729 /* HarnessChip.swift */,
+				14A5A1C84749861FC4570518 /* HarnessJobCard.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -4563,6 +4569,7 @@
 				ECC17E4437E6536E8D45F08B /* MelkFramesTests.swift in Sources */,
 				32628C66310E7ED3B48D02FB /* ToyotaTests.swift in Sources */,
 				4649C041E7A42194D458520B /* DoorAlarmTests.swift in Sources */,
+				EC2D097DF484B3B7CD4585DC /* HarnessJobTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5265,6 +5272,7 @@
 				B40C24929A940614FDDCEB44 /* DoorApprovals.swift in Sources */,
 				5C600257B309EB476B42CCEB /* DoorHubView.swift in Sources */,
 				E319EBCCF685E0CD4B3E34F7 /* DoorAlarmAlert.swift in Sources */,
+				69795684A73D247B3CD6F51B /* HarnessJobCard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

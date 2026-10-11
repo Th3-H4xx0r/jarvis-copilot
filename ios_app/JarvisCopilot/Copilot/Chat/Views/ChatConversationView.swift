@@ -95,7 +95,9 @@ struct ChatConversationView<Empty: View, Footer: View>: View {
                                     ? { Task { await store.retryOnServer(row.message) } } : nil,
                                 // A submitted form becomes the user's next message,
                                 // so the turn after it reads the answers normally.
-                                onFormSubmit: { reply in Task { await store.send(reply) } })
+                                onFormSubmit: { reply in Task { await store.send(reply) } },
+                                jobs: (row.message.meta?.jobs ?? []).map(store.job),
+                                onStopJob: { id in Task { await store.stopJob(id) } })
                                 .id(row.id)
                         }
                         Color.clear.frame(height: 1).id(Self.bottomAnchor)

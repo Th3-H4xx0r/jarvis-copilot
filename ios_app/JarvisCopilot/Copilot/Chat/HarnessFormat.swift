@@ -32,6 +32,52 @@ struct HarnessRoute: Equatable, Hashable, Sendable {
     }
 }
 
+/// A Background job a reply started (`_meta.jobs`, live `harness_job` events):
+/// the card under the reply. Status: running · done · failed · stopped, and
+/// "lost" on the device when a stored running job is gone from the server.
+struct HarnessJob: Equatable, Hashable, Sendable, Identifiable {
+    var id: String
+    var label: String
+    var model: String
+    var status: String
+    var startedAt: Double
+    var completedAt: Double?
+    var steps: Int
+    var activity: String
+    /// Stop was pressed; the job is winding down.
+    var stopping: Bool
+
+    init(id: String, label: String, model: String = "", status: String = "running", startedAt: Double,
+         completedAt: Double? = nil, steps: Int = 0, activity: String = "", stopping: Bool = false) {
+        self.id = id
+        self.label = label
+        self.model = model
+        self.status = status
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.steps = steps
+        self.activity = activity
+        self.stopping = stopping
+    }
+
+    init?(json: [String: Any]?) {
+        guard let json, let id = json["id"] as? String, !id.isEmpty else { return nil }
+        let label = json["label"] as? String ?? ""
+        self.init(id: id, label: label.isEmpty ? "Background" : label,
+                  model: json["model"] as? String ?? "",
+                  status: json["status"] as? String ?? "running",
+                  startedAt: (json["started_at"] as? NSNumber)?.doubleValue ?? 0,
+                  completedAt: (json["completed_at"] as? NSNumber)?.doubleValue,
+                  steps: (json["steps"] as? NSNumber)?.intValue ?? 0,
+                  activity: json["activity"] as? String ?? "",
+                  stopping: json["stopping"] as? Bool ?? false)
+    }
+
+    var isRunning: Bool { status == "running" }
+    /// Over for good ("lost" = the server says a restart cut it short).
+    var hasEnded: Bool { ["done", "failed", "stopped", "lost"].contains(status) }
+}
+
 /// Who answered a reply, from the server's `_meta` (stored on the message) or
 /// the stream's closing `turn_meta` frame: the harness node's model, how long it
 /// took, and whether it handed off or was a background / review reply.
@@ -43,9 +89,11 @@ struct HarnessMeta: Equatable, Hashable, Sendable {
     var note: String?
     var node: String?
     var route: HarnessRoute?
+    /// Background jobs this reply started, drawn as cards under it.
+    var jobs: [HarnessJob] = []
 
     init(kind: String? = nil, model: String? = nil, ms: Int? = nil, handedOff: Bool? = nil,
-         note: String? = nil, node: String? = nil, route: HarnessRoute? = nil) {
+         note: String? = nil, node: String? = nil, route: HarnessRoute? = nil, jobs: [HarnessJob] = []) {
         self.kind = kind
         self.model = model
         self.ms = ms
@@ -53,6 +101,7 @@ struct HarnessMeta: Equatable, Hashable, Sendable {
         self.note = note
         self.node = node
         self.route = route
+        self.jobs = jobs
     }
 
     init?(json: [String: Any]?) {
@@ -63,7 +112,8 @@ struct HarnessMeta: Equatable, Hashable, Sendable {
                   handedOff: json["handed_off"] as? Bool,
                   note: json["note"] as? String,
                   node: json["node"] as? String,
-                  route: HarnessRoute(json: json["route"] as? [String: Any]))
+                  route: HarnessRoute(json: json["route"] as? [String: Any]),
+                  jobs: ((json["jobs"] as? [[String: Any]]) ?? []).compactMap(HarnessJob.init(json:)))
     }
 
     /// A reply a background or review step posted on its own.
@@ -107,5 +157,42 @@ enum HarnessFormat {
     private static func seconds(_ ms: Int) -> String {
         let s = Double(ms) / 1000
         return s < 10 ? String(format: "%.1f s", s) : "\(Int(s.rounded())) s"
+    }
+}
+
+/// How a background-job card reads. Same words as the web's
+/// `HarnessJobs.view` (webui/static/harness_jobs.js).
+enum HarnessJobFormat {
+    /// Running clock: "0:42", "4:12", "1:05:09".
+    static func clock(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds.rounded(.down)))
+        let h = s / 3600, m = (s % 3600) / 60, r = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, r) : String(format: "%d:%02d", m, r)
+    }
+
+    /// Elapsed in words: "42 s", "4m 12s", "1h 05m".
+    static func duration(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds.rounded()))
+        if s < 60 { return "\(s) s" }
+        if s < 3600 { return String(format: "%dm %02ds", s / 60, s % 60) }
+        return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+    }
+
+    /// What a running job is doing: "Searching the web · step 6".
+    static func detail(_ job: HarnessJob) -> String {
+        (job.activity.isEmpty ? "Starting" : job.activity) + (job.steps > 0 ? " · step \(job.steps)" : "")
+    }
+
+    /// The one line an ended job collapses to.
+    static func line(_ job: HarnessJob) -> String {
+        let ran = duration((job.completedAt ?? job.startedAt) - job.startedAt)
+        switch job.status {
+        case "done":
+            let steps = job.steps > 0 ? " · \(job.steps) step\(job.steps == 1 ? "" : "s")" : ""
+            return "\(job.label) · finished in \(ran)\(steps)"
+        case "failed": return "\(job.label) · couldn't finish (after \(ran))"
+        case "stopped": return "\(job.label) · stopped after \(ran)"
+        default: return "\(job.label) · stopped when the server restarted"
+        }
     }
 }

@@ -140,6 +140,17 @@ struct ChatAPI {
         try await api.get("/api/chat/cancel", query: ["stream_id": streamID]).object()
     }
 
+    /// A chat's harness Background jobs the server still knows (job-card catch-up).
+    func jobs(sessionID: String) async throws -> [HarnessJob] {
+        let body = try await api.get("/api/harnesses/jobs/\(sessionID)").object()
+        return ((body["jobs"] as? [[String: Any]]) ?? []).compactMap(HarnessJob.init(json:))
+    }
+
+    /// Stop a running Background job (its card's Stop button).
+    func stopJob(sessionID: String, jobID: String) async throws {
+        _ = try await api.post("/api/harnesses/jobs/\(sessionID)/\(jobID)/stop", json: [String: Any]())
+    }
+
     /// Answer the agent's open clarify question so the blocked turn resumes.
     func respondClarify(sessionID: String, answer: String) async throws {
         _ = try await api.post("/api/clarify/respond", json: ["session_id": sessionID, "response": answer])

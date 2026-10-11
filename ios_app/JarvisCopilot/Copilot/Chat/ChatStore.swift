@@ -63,6 +63,13 @@ final class ChatStore {
     private(set) var messagesTick = 0
     var historyLoading = false
 
+    // MARK: Background jobs
+
+    /// The latest card the server sent for each harness Background job
+    /// (`harness_job` events, catch-up). The copy stored on a reply is only
+    /// where it stood when the reply was saved.
+    private(set) var liveJobs: [String: HarnessJob] = [:]
+
     // MARK: Streaming turn
 
     var streaming = false
@@ -299,6 +306,44 @@ final class ChatStore {
         // path that starts it at all on a cold launch, where the tab becomes
         // visible before there is any session to watch.
         if sessionID == id { remirrorForCurrentSession() }
+        if sessionID == id, messages.contains(where: { $0.meta?.jobs.contains(where: \.isRunning) == true }) {
+            await catchUpJobs(id)
+        }
+    }
+
+    // MARK: Background jobs
+
+    /// The card to draw for a job stored on a reply. An ended card is final (a
+    /// live "running" left from a missed event never beats it); otherwise the
+    /// server's newest word — an event, or catch-up, which answers for every
+    /// card of the chat ("lost" = a restart cut it short).
+    func job(_ stored: HarnessJob) -> HarnessJob {
+        if stored.hasEnded { return stored }
+        return liveJobs[stored.id] ?? stored
+    }
+
+    /// A live card from the server. A running update that crossed the job's
+    /// end on the wire never brings an ended card back.
+    func applyJob(_ job: HarnessJob) {
+        if let was = liveJobs[job.id], was.hasEnded, !job.hasEnded { return }
+        liveJobs[job.id] = job
+    }
+
+    /// Where every job card of a chat stands now (opened mid-job, events missed
+    /// while the stream was down).
+    func catchUpJobs(_ id: String) async {
+        guard let jobs = try? await chatAPI.jobs(sessionID: id) else { return }
+        for job in jobs { applyJob(job) }
+    }
+
+    /// The card's Stop button. The job's own `harness_job` event redraws it.
+    func stopJob(_ jobID: String) async {
+        guard let id = sessionID else { return }
+        do {
+            try await chatAPI.stopJob(sessionID: id, jobID: jobID)
+        } catch {
+            self.error = "Could not stop the job: \(apiErrorMessage(error))"
+        }
     }
 
     /// Stage a brand-new conversation. The actual `POST /api/session/new` is
@@ -818,6 +863,10 @@ extension ChatStore {
             if let streamID = event.string("active_stream_id"), !streamID.isEmpty {
                 await adoptForeignRun(streamID: streamID, on: id)
             }
+            // (Re)connected: job events may have been missed meanwhile.
+            if sessionID == id, messages.contains(where: { !($0.meta?.jobs ?? []).isEmpty }) {
+                await catchUpJobs(id)
+            }
         case "run_started":
             if let streamID = event.string("stream_id"), !streamID.isEmpty {
                 await adoptForeignRun(streamID: streamID, on: id)
@@ -831,6 +880,9 @@ extension ChatStore {
             } else {
                 await loadSessions(quiet: true)
             }
+        case "harness_job":
+            // A harness Background job started, took a step or ended: its card.
+            if let job = HarnessJob(json: event.object["job"] as? [String: Any]) { applyJob(job) }
         case "session_changed":
             if let title = event.string("title"), !title.isEmpty, !streaming {
                 sessionTitle = title

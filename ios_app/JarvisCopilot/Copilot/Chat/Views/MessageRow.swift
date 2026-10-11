@@ -14,6 +14,9 @@ struct ChatMessageRow: View {
     var onRetryOnServer: (() -> Void)?
     /// Sends a filled-in form on as the user's reply.
     var onFormSubmit: ((String) -> Void)?
+    /// Background jobs this reply started, as the store sees them now.
+    var jobs: [HarnessJob] = []
+    var onStopJob: ((String) -> Void)?
 
     var body: some View {
         content.padding(.top, isFirst ? 0 : (row.continuesSpeaker ? 6 : 26))
@@ -25,7 +28,8 @@ struct ChatMessageRow: View {
         } else {
             ChatAssistantTurnCard(message: row.message, onCopy: onCopy,
                                   onRetryOnServer: onRetryOnServer,
-                                  onFormSubmit: onFormSubmit)
+                                  onFormSubmit: onFormSubmit,
+                                  jobs: jobs, onStopJob: onStopJob)
         }
     }
 }
