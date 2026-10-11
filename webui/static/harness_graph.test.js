@@ -144,3 +144,11 @@ test('modelOptions turns api/models groups into @provider:model refs', () => {
   assert.equal(out[2].options[0].value, '@openrouter:openai/gpt-4o');
   assert.deepEqual(G.modelOptions(null), []);
 });
+
+test('decisionOptions lists decision models in their own group', () => {
+  const g = G.decisionOptions([{ id: '@celeris:celeris-1-decision', label: 'Celeris 1 Decision',
+    provider: 'Celeris', provider_id: 'celeris' }]);
+  assert.deepEqual(g, [{ label: 'Decision models',
+    options: [{ value: '@celeris:celeris-1-decision', label: 'Celeris 1 Decision · Celeris' }] }]);
+  assert.deepEqual(G.decisionOptions(undefined), []);
+});

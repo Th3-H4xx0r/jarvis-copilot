@@ -147,8 +147,16 @@
     }).filter(g => g.options.length);
   }
 
+  // api/models decision_models -> one "Decision models" group for a Route's router picker.
+  function decisionOptions(list) {
+    const options = (Array.isArray(list) ? list : []).filter(m => m && m.id).map(m => ({
+      value: String(m.id), label: `${m.label || m.id}${m.provider ? ' · ' + m.provider : ''}`,
+    }));
+    return options.length ? [{ label: 'Decision models', options }] : [];
+  }
+
   return {
     newHarness, addNode, removeNode, connect, disconnect, moveNode, duplicate, defaultsFor,
-    nextWhen, edgeLabel, toDesign, problemsFor, slug, uniqueId, modelOptions,
+    nextWhen, edgeLabel, toDesign, problemsFor, slug, uniqueId, modelOptions, decisionOptions,
   };
 });

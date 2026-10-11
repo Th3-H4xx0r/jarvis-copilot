@@ -41,6 +41,7 @@
     try {
       const data = await api('api/models');
       E.models = HarnessGraph.modelOptions(data && data.groups);
+      E.decisions = HarnessGraph.decisionOptions(data && data.decision_models);
     } catch (e) { console.warn('[harness-editor] models failed', e); E.models = []; }
   }
 
@@ -422,8 +423,9 @@
     return `<option value="${esc(value)}"${String(value) === String(cur) ? ' selected' : ''}>${esc(label)}</option>`;
   }
 
-  function modelField(field, value, allowNone) {
-    const groups = E.models || [];
+  // extraGroups: option groups shown first (a Route's decision models).
+  function modelField(field, value, allowNone, extraGroups) {
+    const groups = (extraGroups || []).concat(E.models || []);
     if (!groups.length) {
       return `<input class="harness-input" data-field="${field}" value="${esc(value || '')}" placeholder="@provider:model">`;
     }
@@ -481,8 +483,17 @@
     if (n.type === 'route') {
       rows.push(fieldRow('Pick by', `<select class="harness-input" data-field="by">` +
         opt('rules', 'Rules', n.by) + opt('model', 'A model', n.by) + '</select>'));
-      if (n.by === 'model') rows.push(fieldRow('Router model', modelField('model', n.model, false)));
-      rows.push(fieldRow('Labels', `<input class="harness-input" data-field="labels" value="${esc((n.labels || []).join(', '))}" placeholder="deep, quick">`));
+      if (n.by === 'model') rows.push(fieldRow('Router model', modelField('model', n.model, false, E.decisions)));
+      // Each label can say what it means — the router model picks against that.
+      const notes = n.label_descriptions || {};
+      const labelRows = (n.labels || []).map((l, i) => `<div class="harness-rule" data-label-row="${i}">
+          <input class="harness-input" data-label-field="name" value="${esc(l)}" placeholder="label">
+          <input class="harness-input" data-label-field="note" value="${esc(notes[l] || '')}" placeholder="what it means (optional)">
+          ${E.readOnly ? '' : '<button type="button" class="harness-btn icon" data-label-del aria-label="Remove label">×</button>'}
+        </div>`).join('');
+      rows.push(`<div class="harness-field"><span>Labels${n.by === 'model' ? ' (the router picks one — say what each means)' : ''}</span>` +
+        (labelRows || '<div class="harness-hint">No labels yet — add one, or draw a wire out of this Route.</div>') +
+        (E.readOnly ? '' : '<button type="button" class="harness-btn" data-label-add>+ Label</button>') + '</div>');
       const rules = (n.rules || []).map((r, i) => `<div class="harness-rule" data-rule="${i}">
           <select class="harness-input" data-rule-field="match">${opt('keywords', 'Keywords', r.match)}${opt('regex', 'Regex', r.match)}${opt('surface', 'Surface', r.match)}${opt('has_attachment', 'Has attachment', r.match)}</select>
           ${r.match === 'has_attachment' ? '<span class="harness-rule-value">attached file</span>'
@@ -493,7 +504,8 @@
       rows.push(`<div class="harness-field"><span>Rules (first match wins; nothing matches → default wire)</span>${rules || '<div class="harness-hint">No rules yet.</div>'}` +
         (E.readOnly ? '' : '<button type="button" class="harness-btn" data-rule-add>+ Rule</button>') + '</div>');
     }
-    rows.push(fieldRow('Instructions', `<textarea class="harness-input" rows="3" data-field="instructions" placeholder="Extra instructions for this step">${esc(n.instructions || '')}</textarea>`));
+    const asks = n.type === 'route' && n.by === 'model';
+    rows.push(fieldRow(asks ? 'Question for the router' : 'Instructions', `<textarea class="harness-input" rows="3" data-field="instructions" placeholder="${asks ? 'e.g. Which route fits the message?' : 'Extra instructions for this step'}">${esc(n.instructions || '')}</textarea>`));
     if (!E.readOnly) rows.push('<button type="button" class="harness-btn danger" data-del-sel>Delete node</button>');
     return rows.join('');
   }
@@ -563,7 +575,6 @@
       const f = el.dataset.field, v = el.value;
       if (f === 'tools') { if (v !== '__keep') n.tools = v; }
       else if (f === 'max_steps') { if (v) n.max_steps = Math.max(1, parseInt(v, 10) || 1); else delete n.max_steps; }
-      else if (f === 'labels') { n.labels = Array.from(new Set(v.split(',').map(s => s.trim()).filter(Boolean))); }
       else if (f === 'by') { n.by = v; rerenderPanel = true; }
       else if (['label', 'instructions', 'fallback_model'].includes(f)) { if (v.trim()) n[f] = v; else delete n[f]; }
       else n[f] = v;
@@ -574,6 +585,28 @@
       const f = el.dataset.ruleField;
       if (f === 'match') { r.match = el.value; r.value = el.value === 'has_attachment' ? true : ''; rerenderPanel = true; }
       else r[f] = el.value;
+    } else if (n && el.dataset.labelField) {
+      const row = el.closest('[data-label-row]');
+      const labels = n.labels || [];
+      const old = labels[Number(row && row.dataset.labelRow)];
+      if (old == null) return;
+      if (el.dataset.labelField === 'note') {
+        n.label_descriptions = n.label_descriptions || {};
+        if (el.value.trim()) n.label_descriptions[old] = el.value; else delete n.label_descriptions[old];
+        if (!Object.keys(n.label_descriptions).length) delete n.label_descriptions;
+      } else {
+        // A rename carries the description and this Route's wires with it; a
+        // blank or taken name snaps back.
+        const v = el.value.trim();
+        if (!v || v === old || labels.includes(v)) { el.value = old; return; }
+        labels[labels.indexOf(old)] = v;
+        if (n.label_descriptions && old in n.label_descriptions) {
+          n.label_descriptions[v] = n.label_descriptions[old];
+          delete n.label_descriptions[old];
+        }
+        E.doc.edges.forEach(ed => { if (ed.from === n.id && ed.when === `label:${old}`) ed.when = `label:${v}`; });
+        rerenderPanel = true;
+      }
     } else if (e && (el.hasAttribute('data-when-kind') || el.hasAttribute('data-when-value'))) {
       const panel = $id('harnessSidePanel');
       const kind = panel.querySelector('[data-when-kind]').value;
@@ -603,6 +636,24 @@
     if (n && ev.target.closest('[data-rule-add]')) {
       n.rules = n.rules || [];
       n.rules.push({ match: 'keywords', value: '', label: (n.labels || [])[0] || '' });
+      markDirty(); drawCanvas(); renderPanel();
+      return;
+    }
+    if (n && ev.target.closest('[data-label-add]')) {
+      n.labels = n.labels || [];
+      let k = n.labels.length + 1;
+      while (n.labels.includes(`path-${k}`)) k++;
+      n.labels.push(`path-${k}`);
+      markDirty(); drawCanvas(); renderPanel();
+      return;
+    }
+    const ldel = ev.target.closest('[data-label-del]');
+    if (n && ldel) {
+      const [gone] = (n.labels || []).splice(Number(ldel.closest('[data-label-row]').dataset.labelRow), 1);
+      if (n.label_descriptions) {
+        delete n.label_descriptions[gone];
+        if (!Object.keys(n.label_descriptions).length) delete n.label_descriptions;
+      }
       markDirty(); drawCanvas(); renderPanel();
       return;
     }
@@ -701,6 +752,7 @@
       if (E.view !== 'edit') return;
       // Text fields apply as you type; selects/numbers settle on change.
       const el = ev.target;
+      if (el.dataset.labelField === 'name') return;  // a rename rewires — settle on change
       if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'number')) onPanelField(ev);
     });
     window.addEventListener('resize', () => { if (E.view === 'edit' && E.gesture == null) applyTransform(); });

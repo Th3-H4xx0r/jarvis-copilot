@@ -6078,8 +6078,10 @@ function renderMessages(options){
         by.textContent=answeredText;
         const meta=msg._meta;
         const harnessName=meta.harness_name||meta.harness||'';
+        const route=meta.route||null;
         by.title=['Answered by '+(meta.model||''), meta.provider?'provider '+meta.provider:'',
-          meta.node?'node '+meta.node:'', harnessName?'harness '+harnessName:''].filter(Boolean).join(' · ');
+          meta.node?'node '+meta.node:'', harnessName?'harness '+harnessName:'',
+          route?'routed '+route.label+(route.model?' by '+route.model:'')+(route.ms?' in '+route.ms+' ms':'')+(route.error?' ('+route.error+')':''):''].filter(Boolean).join(' · ');
         targetFoot.classList.add('msg-foot-with-usage');
         targetFoot.insertBefore(by, targetFoot.firstChild);
       };

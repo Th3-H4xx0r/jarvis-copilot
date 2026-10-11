@@ -40,3 +40,15 @@ test('isSideReply flags background and review replies only', () => {
   assert.equal(F.isSideReply({ kind: 'answer' }), false);
   assert.equal(F.isSideReply(null), false);
 });
+
+test('answeredBy adds the route a Route node picked', () => {
+  const base = { kind: 'answer', model: '@claude-code:claude-sonnet-5-5', ms: 3200 };
+  assert.equal(F.answeredBy({ ...base, route: { label: 'deep', by: 'decision', confidence: 0.82 } }),
+    'Claude Sonnet 5.5 · 3.2 s · routed deep 82%');
+  assert.equal(F.answeredBy({ ...base, route: { label: 'quick', by: 'rules' } }),
+    'Claude Sonnet 5.5 · 3.2 s · routed quick');
+  assert.equal(F.answeredBy({ ...base, route: { label: 'default', by: 'decision', error: 'timed out' } }),
+    'Claude Sonnet 5.5 · 3.2 s · routed default (router failed)');
+  assert.equal(F.answeredBy({ ...base, kind: 'background', route: { label: 'deep' } }),
+    'Claude Sonnet 5.5 · background · 3.2 s');
+});

@@ -1,7 +1,8 @@
 // The "answered by" line under an assistant reply (agent harnesses): which
 // model answered, how long it took, and whether it handed off. Formats the
 // server's turn_meta / persisted _meta dict:
-//   {kind: 'answer'|'background'|'review', model, ms?, handed_off?, note?, ...}
+//   {kind: 'answer'|'background'|'review', model, ms?, handed_off?, note?,
+//    route?: {label, by, model, confidence?, ms, error?}, ...}
 // UMD: window.HarnessFormat in the page, require() under `node --test`.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -27,15 +28,25 @@
     return !!(meta && (meta.kind === 'background' || meta.kind === 'review'));
   }
 
+  // "routed deep 82%" — which wire a Route node picked (meta.route).
+  function routedText(route) {
+    if (!route || !route.label) return '';
+    if (route.error) return 'routed default (router failed)';
+    const pct = typeof route.confidence === 'number' ? ` ${Math.round(route.confidence * 100)}%` : '';
+    return `routed ${route.label}${pct}`;
+  }
+
   function answeredBy(meta) {
     if (!meta || !meta.model) return '';
     const parts = [shortModel(meta.model)];
     if (isSideReply(meta)) parts.push(meta.kind);
     if (meta.ms) parts.push(secs(meta.ms));
+    const routed = isSideReply(meta) ? '' : routedText(meta.route);
+    if (routed) parts.push(routed);
     if (meta.handed_off) parts.push('handed off');
     if (meta.note) parts.push(String(meta.note));
     return parts.join(' · ');
   }
 
-  return { answeredBy, shortModel, isSideReply };
+  return { answeredBy, routedText, shortModel, isSideReply };
 });
