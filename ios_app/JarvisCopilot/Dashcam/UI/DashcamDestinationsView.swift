@@ -9,6 +9,8 @@ struct DashcamDestinationsView: View {
     @State private var testing: String?
     @State private var results: [String: String] = [:]
     @State private var confirmRemove: DashcamDestination?
+    @State private var signingIn: String?
+    @State private var google = DashcamGoogleSignIn()
 
     var body: some View {
         ScrollView {
@@ -24,6 +26,9 @@ struct DashcamDestinationsView: View {
                         if i > 0 { RowDivider() }
                         Row(minHeight: 60) { row(d) }
                             .contextMenu {
+                                if d.type == "drive" {
+                                    Button { Task { await signInAgain(d) } } label: { Label("Sign in again", systemImage: "person.badge.key") }
+                                }
                                 Button(role: .destructive) { Task { await delete(d) } } label: { Label("Remove", systemImage: "trash") }
                             }
                     }
@@ -57,17 +62,27 @@ struct DashcamDestinationsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(d.name).font(.subheadline.weight(.semibold))
                 Text("\(d.type.uppercased()) · \(d.path.isEmpty ? "/" : d.path)").font(.caption).foregroundStyle(.secondary)
-                if let r = results[d.id] ?? d.error {
+                if let r = results[d.id] ?? (d.signInExpired ? Self.expiredNote : d.error) {
                     Text(r).font(.caption).foregroundStyle(r == "Works" ? JcTheme.success : JcTheme.amber)
                 }
             }
             Spacer()
-            Button {
-                Task { await test(d) }
-            } label: {
-                if testing == d.id { ProgressView() } else { Text("Test") }
+            if d.signInExpired {
+                Button {
+                    Task { await signInAgain(d) }
+                } label: {
+                    if signingIn == d.id { ProgressView() } else { Text("Sign in") }
+                }
+                .buttonStyle(.jcGlass(compact: true))
+                .disabled(signingIn != nil)
+            } else {
+                Button {
+                    Task { await test(d) }
+                } label: {
+                    if testing == d.id || signingIn == d.id { ProgressView() } else { Text("Test") }
+                }
+                .buttonStyle(.jcGlass(compact: true))
             }
-            .buttonStyle(.jcGlass(compact: true))
             Button { confirmRemove = d } label: { JcIcon("trash", size: 15) }
                 .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                 .accessibilityLabel("Remove \(d.name)")
@@ -92,6 +107,25 @@ struct DashcamDestinationsView: View {
         defer { testing = nil }
         do { results[d.id] = try await DashcamAPI().testDestination(d.id) ?? "Works" }
         catch { results[d.id] = error.localizedDescription }
+    }
+
+    static let expiredNote = "Google sign-in expired — clips wait on the phone until you sign in again"
+
+    /// Renews the same destination (clips already copied keep pointing at it): Google sign-in on the phone,
+    /// the server trades the code with the client secret it already holds.
+    private func signInAgain(_ d: DashcamDestination) async {
+        signingIn = d.id
+        defer { signingIn = nil }
+        results[d.id] = nil
+        do {
+            let api = DashcamAPI()
+            let grant = try await google.authorize(clientID: try await api.driveClientID(d.id))
+            results[d.id] = try await api.reconnectDestination(d.id, grant: grant) ?? "Works"
+            DashcamSync.shared.destinationsChanged()       // clips held for the sign-in go now
+            await load()
+        } catch {
+            results[d.id] = error.localizedDescription
+        }
     }
 
     private func delete(_ d: DashcamDestination) async {

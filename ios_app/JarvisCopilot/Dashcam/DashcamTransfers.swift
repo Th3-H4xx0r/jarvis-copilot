@@ -17,6 +17,33 @@ enum DashcamPaths {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
+
+    /// Bytes of the MP4 copies made for Drive and the player — they count against the phone-space cap.
+    static func cacheBytes() -> Int64 { bytes(in: uploadTemp) + bytes(in: DashcamPlayable.directory) }
+
+    static func bytes(in dir: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in walker {
+            guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+            total += Int64(v.totalFileAllocatedSize ?? v.fileSize ?? 0)
+        }
+        return total
+    }
+
+    /// Removes everything directly in `dir` that `keep` doesn't want, except a conversion running now.
+    @discardableResult
+    static func sweep(_ dir: URL, keep: (URL) -> Bool) -> Int64 {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return 0 }
+        var freed: Int64 = 0
+        for item in items where !keep(item) && !DashcamRemux.Work.shared.isActive(item) {
+            let size = bytes(in: item) + ((try? fm.attributesOfItem(atPath: item.path)[.size] as? NSNumber)?.int64Value ?? 0)
+            if (try? fm.removeItem(at: item)) != nil { freed += size }
+        }
+        return freed
+    }
 }
 
 // MARK: - Camera → phone
@@ -196,7 +223,12 @@ extension DashcamAPI: DashcamUploadServer {
     func uploadDestinations() async throws -> [DashcamDestination] { try await destinations() }
 
     func driveAccess(destinationID: String) async throws -> DashcamDriveAccess {
-        let o = try await api.post(Self.prefix + "/destinations/\(destinationID)/token", timeout: 90).object()
+        let o: [String: Any]
+        do {
+            o = try await api.post(Self.prefix + "/destinations/\(destinationID)/token", timeout: 90).object()
+        } catch APIError.http(let status, _) where status == 409 {
+            throw DashcamDriveError.signInExpired(destinationID)    // the refresh token is dead; retrying won't help
+        }
         guard let token = o["access_token"] as? String, !token.isEmpty else { throw DashcamDriveError.unauthorized }
         let expires = (o["expires_at"] as? NSNumber)?.doubleValue ?? Date().addingTimeInterval(600).timeIntervalSince1970
         return DashcamDriveAccess(destinationID: destinationID, token: token, expiresAt: Date(timeIntervalSince1970: expires),
@@ -255,6 +287,13 @@ actor DashcamUploader {
     /// until then, and no clip's own retry count grows for it.
     private(set) var driveQuotaUntil: Date?
     static let quotaCooldown: TimeInterval = 90
+    /// Drive destinations whose Google sign-in is dead (the server said so): their uploads wait — without
+    /// using up any clip's retries or converting anything — until someone signs in again (`retryParked`)
+    /// or the hold runs out and the server is asked once more.
+    private(set) var signInHolds: [String: Date] = [:]
+    static let signInHold: TimeInterval = 1800
+    /// MP4 copies made for direct uploads (`DashcamPaths.uploadTemp`).
+    let tempDir: URL
 
     static func isQuota(_ error: Error) -> Bool {
         guard case DashcamDriveError.http(let code, let message) = error, code == 403 || code == 429 else { return false }
@@ -263,9 +302,11 @@ actor DashcamUploader {
     }
     static let maxBackoff: TimeInterval = 600
 
-    init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared) {
+    init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared, tempDir: URL? = nil) {
         self.drive = drive
         self.file = file ?? DashcamPaths.support.appendingPathComponent("uploads.json")
+        self.tempDir = tempDir ?? DashcamPaths.uploadTemp
+        try? FileManager.default.createDirectory(at: self.tempDir, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: self.file),
            let saved = try? JSONDecoder().decode([DashcamUploadJob].self, from: data) {
             jobs = saved
@@ -283,7 +324,29 @@ actor DashcamUploader {
         persist()
     }
 
-    func remove(clipID: String) { jobs.removeAll { $0.clipID == clipID }; persist() }
+    func remove(clipID: String) {
+        jobs.removeAll { $0.clipID == clipID }
+        persist()
+        try? FileManager.default.removeItem(at: tempURL(clipID))
+    }
+
+    private func tempURL(_ clipID: String) -> URL { tempDir.appendingPathComponent(clipID + ".mp4") }
+
+    /// Drive destinations waiting for a new sign-in.
+    func expiredSignIns(now: Date = Date()) -> [String] { signInHolds.filter { $0.value > now }.map(\.key).sorted() }
+
+    /// Empties the upload folder of everything no queued upload still needs: copies of uploads that finished,
+    /// were deleted or gave up, and the converter's leftovers. A copy stays only while Google holds a
+    /// half-finished upload of it (that session resumes on exactly these bytes). Skipped while a run is
+    /// converting or sending (it sweeps itself as it starts).
+    @discardableResult
+    func sweepTemp() -> Int64 { running ? 0 : sweepTempNow() }
+
+    @discardableResult
+    private func sweepTempNow() -> Int64 {
+        let needed = Set(jobs.filter { !($0.directSessions ?? [:]).isEmpty }.map { $0.clipID + ".mp4" })
+        return DashcamPaths.sweep(tempDir) { needed.contains($0.lastPathComponent) }
+    }
 
     func contains(_ clipID: String) -> Bool { jobs.contains { $0.clipID == clipID } }
 
@@ -291,6 +354,7 @@ actor DashcamUploader {
     func retryParked() {
         for i in jobs.indices { jobs[i].notBefore = nil; jobs[i].attempts = 0 }
         driveQuotaUntil = nil
+        signInHolds = [:]
         persist()
     }
 
@@ -329,6 +393,7 @@ actor DashcamUploader {
         guard !running else { return [] }
         running = true
         defer { running = false }
+        sweepTempNow()
         var done: [String] = []
         for clipID in jobs.map(\.clipID) {
             guard let index = jobs.firstIndex(where: { $0.clipID == clipID }) else { continue }
@@ -338,7 +403,9 @@ actor DashcamUploader {
             // The app container moves on every reinstall/update: re-anchor the stored path.
             let path = Self.resolve(job.localPath)
             guard FileManager.default.fileExists(atPath: path) else {
-                jobs.removeAll { $0.clipID == clipID }; persist(); continue
+                jobs.removeAll { $0.clipID == clipID }; persist()
+                try? FileManager.default.removeItem(at: tempURL(clipID))
+                continue
             }
             if path != job.localPath { job.localPath = path; update(job) }
             do {
@@ -347,7 +414,9 @@ actor DashcamUploader {
                 if let dests = destinations {
                     let applicable = dests.filter { $0.enabled && ($0.kinds.isEmpty || $0.kinds.contains(job.kind.rawValue)) }
                     let direct = applicable.filter { DashcamDirect.types.contains($0.type) }
-                    for dest in direct where !(job.directDone ?? []).contains(dest.id) {
+                    let waiting = direct.filter { !(job.directDone ?? []).contains($0.id) }
+                    if waiting.contains(where: { (signInHolds[$0.id] ?? .distantPast) > now() }) { continue }
+                    for dest in waiting {
                         try await uploadDirect(&job, to: dest, server: server, progress: progress)
                         job.directDone = (job.directDone ?? []) + [dest.id]
                         update(job)
@@ -400,6 +469,11 @@ actor DashcamUploader {
                     jobs.removeAll { $0.clipID == clipID }
                     persist()
                 }
+            } catch DashcamDriveError.signInExpired(let destID) {
+                // Retrying can't help and it isn't this clip's fault: every clip for that Drive waits for a new sign-in.
+                signInHolds[destID] = now().addingTimeInterval(Self.signInHold)
+                job.lastError = DashcamDriveError.signInExpired(destID).localizedDescription
+                update(job)
             } catch where Self.isQuota(error) {
                 // Not this clip's fault: everything waits a moment, then carries on by itself.
                 let until = now().addingTimeInterval(Self.quotaCooldown)
@@ -423,31 +497,66 @@ actor DashcamUploader {
     /// (a finished copy of the same size is found, not uploaded twice).
     private func uploadDirect(_ job: inout DashcamUploadJob, to dest: DashcamDestination, server: DashcamUploadServer,
                               progress: @escaping @Sendable (String, Int64, Int64) -> Void) async throws {
+        let clipID = job.clipID, destID = dest.id
+        // The sign-in first: a dead one must not cost a conversion (each is a second copy of the clip).
+        let key = try await accessFor(destID, server: server, renew: false)
         let clip = try await server.clipInfo(job.clipID)
         let local = URL(fileURLWithPath: job.localPath)
         var upload = local
         var converted = false
-        let temp = DashcamPaths.uploadTemp.appendingPathComponent(job.clipID + ".mp4")
+        let temp = tempURL(job.clipID)
+        var session = job.directSessions?[destID].flatMap(URL.init(string:))
         if DashcamPlayable.needsRemux(local) {
-            if !FileManager.default.fileExists(atPath: temp.path) { _ = try? await DashcamRemux.remux(ts: local, to: temp) }
+            if !FileManager.default.fileExists(atPath: temp.path) {
+                _ = try? await DashcamRemux.remux(ts: local, to: temp)
+                // A new conversion isn't byte-for-byte the copy an open Drive session was fed: start that over.
+                if session != nil { session = nil; saveSession(clipID, destID, nil); job.directSessions?[destID] = nil }
+            }
             if FileManager.default.fileExists(atPath: temp.path) { upload = temp; converted = true }
         }
-        let size = (try? FileManager.default.attributesOfItem(atPath: upload.path)[.size] as? NSNumber)?.int64Value ?? job.size
+        let opened = SessionBox()
+        do {
+            try await sendDirect(clip: clip, upload: upload, converted: converted, size: job.size, clipID: clipID,
+                                 destID: destID, key: key, session: session, opened: opened, server: server, progress: progress)
+        } catch {
+            // The run writes `job` back after a failure: carry over the Drive session opened meanwhile, or the
+            // next try starts the upload from scratch.
+            if let url = opened.url { job.directSessions = (job.directSessions ?? [:]).merging([destID: url.absoluteString]) { $1 } }
+            // Keep the copy only while Google holds a half-finished upload of it.
+            if job.directSessions?[destID] == nil { try? FileManager.default.removeItem(at: temp) }
+            throw error
+        }
+        if let i = jobs.firstIndex(where: { $0.clipID == clipID }) { job.directSessions = jobs[i].directSessions }
+        job.directSessions?[destID] = nil
+        try? FileManager.default.removeItem(at: temp)
+    }
+
+    /// The Drive session URL a direct upload opened, readable right away (`saveSession` lands on the actor later).
+    private final class SessionBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: URL?
+        var url: URL? { lock.lock(); defer { lock.unlock() }; return value }
+        func set(_ url: URL) { lock.lock(); value = url; lock.unlock() }
+    }
+
+    private func sendDirect(clip: DashcamServerClip, upload: URL, converted: Bool, size jobSize: Int64, clipID: String,
+                            destID: String, key initial: DashcamDriveAccess, session: URL?, opened: SessionBox,
+                            server: DashcamUploadServer,
+                            progress: @escaping @Sendable (String, Int64, Int64) -> Void) async throws {
+        var key = initial
+        let size = (try? FileManager.default.attributesOfItem(atPath: upload.path)[.size] as? NSNumber)?.int64Value ?? jobSize
         let name = DashcamRemotePath.name(clip.name, converted: converted)
         let mime = converted || name.lowercased().hasSuffix(".mp4") ? "video/mp4"
             : name.lowercased().hasSuffix(".jpg") ? "image/jpeg" : "application/octet-stream"
-        let clipID = job.clipID, destID = dest.id
-        var key = try await accessFor(destID, server: server, renew: false)
         let folders = DashcamRemotePath.folders(base: key.basePath, cameraID: clip.cameraID, start: clip.start,
                                                 kind: clip.kind, lens: clip.lens)
         func attempt(_ key: DashcamDriveAccess, session: URL?) async throws -> String {
             let folder = try await drive.folder(folders, access: key)
             if let id = try await drive.existing(name: name, size: size, in: folder, access: key) { return id }
             return try await drive.upload(upload, name: name, mime: mime, folder: folder, access: key, session: session,
-                                          saveSession: { url in Task { await self.saveSession(clipID, destID, url) } },
+                                          saveSession: { url in opened.set(url); Task { await self.saveSession(clipID, destID, url) } },
                                           sent: { progress(clipID, min($0, size), size) })
         }
-        let session = job.directSessions?[destID].flatMap(URL.init(string:))
         let fileID: String
         do {
             fileID = try await attempt(key, session: session)
@@ -462,7 +571,7 @@ actor DashcamUploader {
         // Best effort: without it the player streams the original.
         var preview: (path: String, fileID: String)?
         if mime == "video/mp4" {
-            let small = DashcamPaths.uploadTemp.appendingPathComponent(job.clipID + ".preview.mp4")
+            let small = tempDir.appendingPathComponent(clipID + ".preview.mp4")
             var ready = FileManager.default.fileExists(atPath: small.path)
             if !ready { ready = await DashcamPreview.make(from: upload, to: small) }
             if ready {
@@ -483,9 +592,6 @@ actor DashcamUploader {
         try await server.recordDirect(clipID: clipID, destinationID: destID,
                                       remotePath: (folders + [name]).joined(separator: "/"), fileID: fileID, size: size,
                                       preview: preview)
-        if let i = jobs.firstIndex(where: { $0.clipID == clipID }) { job.directSessions = jobs[i].directSessions }
-        job.directSessions?[destID] = nil
-        try? FileManager.default.removeItem(at: temp)
     }
 
     private func accessFor(_ destID: String, server: DashcamUploadServer, renew: Bool) async throws -> DashcamDriveAccess {

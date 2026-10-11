@@ -150,6 +150,8 @@ struct DashcamDestination: Identifiable, Equatable, Sendable {
     var kinds: [String]
     var status: String?
     var error: String?
+    /// Google no longer honours its sign-in: only signing in again fixes it.
+    var signInExpired: Bool
 
     init?(json: [String: Any]) {
         guard let id = str(json["id"]) else { return nil }
@@ -161,6 +163,7 @@ struct DashcamDestination: Identifiable, Equatable, Sendable {
         kinds = (json["kinds"] as? [Any])?.compactMap(str) ?? DashcamClipKind.allCases.map(\.rawValue)
         status = str(json["status"])
         error = str(json["error"])
+        signInExpired = json["signin_expired"].map(bool) ?? false
     }
 }
 
@@ -333,6 +336,21 @@ struct DashcamAPI: Sendable {
     }
 
     func deleteDestination(_ id: String) async throws { _ = try await api.post(Self.prefix + "/destinations/\(id)/delete") }
+
+    /// The Google OAuth client a Drive destination signs in with (its id only; the secret stays on the server).
+    func driveClientID(_ id: String) async throws -> String {
+        let o = try await api.get(Self.prefix + "/destinations/\(id)/oauth").object()
+        guard let clientID = str(o["client_id"]), !clientID.isEmpty else { throw APIError.badResponse("no client id") }
+        return clientID
+    }
+
+    /// Signs a Drive destination in again, in place: the server trades Google's code for a new token.
+    /// nil = signed in and working; otherwise why not.
+    func reconnectDestination(_ id: String, grant: DashcamGoogleSignIn.Grant) async throws -> String? {
+        let o = try await api.post(Self.prefix + "/destinations/\(id)/reconnect", json: [
+            "code": grant.code, "code_verifier": grant.verifier, "redirect_uri": grant.redirect], timeout: 90).object()
+        return bool(o["ok"]) ? nil : (str(o["error"]) ?? "sign-in failed")
+    }
 
     func updateRules(_ rules: DashcamRules) async throws {
         _ = try await api.post(Self.prefix + "/settings", json: ["rules": rules.json])

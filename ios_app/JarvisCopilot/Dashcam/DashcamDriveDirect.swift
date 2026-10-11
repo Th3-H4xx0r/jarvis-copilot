@@ -61,10 +61,13 @@ enum DashcamDriveError: LocalizedError, Equatable {
     case unauthorized
     case sessionGone
     case http(Int, String)
+    /// Google no longer honours this destination's sign-in (its id): only signing in again helps.
+    case signInExpired(String)
 
     var errorDescription: String? {
         switch self {
         case .unauthorized: return "Google Drive refused the sign-in — test the destination"
+        case .signInExpired: return "Google Drive sign-in expired — sign in again in Destinations"
         case .sessionGone: return "Google Drive dropped the upload session; starting it again"
         case .http(let code, let message): return "Google Drive said \(code): \(message)"
         }

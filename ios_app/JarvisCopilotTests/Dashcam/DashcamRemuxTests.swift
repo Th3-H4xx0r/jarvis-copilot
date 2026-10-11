@@ -81,6 +81,33 @@ final class DashcamRemuxTests: XCTestCase {
         XCTAssertGreaterThan(try out.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0, 1000)
     }
 
+    /// AVAssetWriter (optimised for network use) wrote the movie to a hidden `<out>.part.sb-…` first and
+    /// left it there: one whole extra copy per conversion — 90 GB on the phone after a week of uploads.
+    func testAConversionLeavesNothingButTheMP4() async throws {
+        let ts = try clip(DashcamTSFixtures.h264)
+        let out = dir.appendingPathComponent("clip_f.mp4")
+        _ = try await DashcamRemux.remux(ts: ts, to: out)
+        _ = try await DashcamRemux.remux(ts: ts, to: out)          // again over the first copy
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        XCTAssertEqual(names, ["clip_f.mp4", "clip_f.ts"])
+    }
+
+    func testThePlayerCacheSweepClearsLeftoversButNotAConversionInFlight() throws {
+        let cache = dir.appendingPathComponent("cache")
+        let running = cache.appendingPathComponent(DashcamRemux.workPrefix + "now")
+        try FileManager.default.createDirectory(at: running, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cache.appendingPathComponent(DashcamRemux.workPrefix + "old"),
+                                                withIntermediateDirectories: true)
+        for name in ["a.mp4", ".a.mp4.part.sb-742ce9cd-Zb9xEk", ".b.mp4.part"] {
+            try Data("x".utf8).write(to: cache.appendingPathComponent(name))
+        }
+        DashcamRemux.Work.shared.begin(running)
+        defer { DashcamRemux.Work.shared.end(running) }
+        DashcamPlayable.prune(cache, keeping: nil)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cache.path).sorted(),
+                       [DashcamRemux.workPrefix + "now", "a.mp4"])
+    }
+
     func testANonTransportStreamIsRefused() async throws {
         let junk = try clip(Data(repeating: 0x11, count: 4096), "junk.ts")
         do {

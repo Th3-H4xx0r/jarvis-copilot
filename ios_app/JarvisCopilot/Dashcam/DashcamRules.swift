@@ -32,7 +32,8 @@ struct DashcamRules: Equatable, Sendable {
 
     var normal: Normal = .off
     var normalWhen: When = .any
-    /// Phone storage the normal footage may use. Events and photos are not counted against it.
+    /// Phone storage normal footage may use, together with the MP4 copies made for Drive and the player.
+    /// Events and photos are not counted against it (they always come).
     var phoneCapGB: Int = 20
     var keepOnPhone: Bool = false
     /// Cloud uploads: on/off, what may use mobile data, and whether to wait until parked.

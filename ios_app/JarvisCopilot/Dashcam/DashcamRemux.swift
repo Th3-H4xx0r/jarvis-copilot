@@ -345,10 +345,16 @@ enum DashcamRemux {
 
     // MARK: Remux
 
-    /// `.ts` → `.mp4` at `mp4` (written beside it as a hidden part file, moved into place only when complete).
+    /// `.ts` → `.mp4` at `mp4`, moved into place only when complete. It is written in a hidden work folder
+    /// beside it that goes whatever happens: AVAssetWriter, optimising for network use, writes the movie to a
+    /// `.sb-…` file next to its output first and leaves it there — a second full copy of every clip
+    /// (90 GB on his phone after a week of Drive uploads).
     static func remux(ts: URL, to mp4: URL, chunk: Int = 1 << 20) async throws -> Result {
         try await Task.detached(priority: .userInitiated) { try remuxSync(ts: ts, to: mp4, chunk: chunk) }.value
     }
+
+    /// Hidden work folders start with this; a cache sweep removes any that isn't converting right now.
+    static let workPrefix = ".remux-"
 
     static func remuxSync(ts: URL, to mp4: URL, chunk: Int = 1 << 20) throws -> Result {
         let handle = try FileHandle(forReadingFrom: ts)
@@ -357,9 +363,14 @@ enum DashcamRemux {
         guard first.count >= packet * 2, first[0] == 0x47, first[packet] == 0x47 else { throw Failure.notTransportStream }
         try handle.seek(toOffset: 0)
 
-        let tmp = mp4.deletingLastPathComponent().appendingPathComponent(".\(mp4.lastPathComponent).part")
-        try FileManager.default.createDirectory(at: mp4.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: tmp)
+        let work = mp4.deletingLastPathComponent().appendingPathComponent(workPrefix + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        Work.shared.begin(work)
+        defer {
+            try? FileManager.default.removeItem(at: work)
+            Work.shared.end(work)
+        }
+        let tmp = work.appendingPathComponent(mp4.lastPathComponent)
         let muxer = Muxer(output: tmp)
         let demux = Demuxer()
         demux.onPES = { kind, pes in muxer.take(kind, pes, audioExpected: demux.streams.values.contains(.aac)) }
@@ -373,6 +384,16 @@ enum DashcamRemux {
         var fixes = demux.gps.compactMap { DashcamGPS.parseLine($0) }
         if fixes.isEmpty { fixes = tailFixes(ts) }
         return Result(output: mp4, duration: done.duration, fixes: fixes, codec: done.codec, hasAudio: done.hasAudio)
+    }
+
+    /// Work folders of conversions running now (by folder name), so a cache sweep leaves them alone.
+    final class Work: @unchecked Sendable {
+        static let shared = Work()
+        private let lock = NSLock()
+        private var names = Set<String>()
+        func begin(_ folder: URL) { lock.lock(); names.insert(folder.lastPathComponent); lock.unlock() }
+        func end(_ folder: URL) { lock.lock(); names.remove(folder.lastPathComponent); lock.unlock() }
+        func isActive(_ item: URL) -> Bool { lock.lock(); defer { lock.unlock() }; return names.contains(item.lastPathComponent) }
     }
 
     /// Elementary-stream units in, MP4 out. Formats are learnt from the stream (SPS/PPS, ADTS headers),
@@ -628,16 +649,24 @@ enum DashcamPlayable {
         return (out, result)
     }
 
-    /// Oldest copies go once there are more than `keep`.
-    static func prune(_ dir: URL, keeping: URL) {
+    /// Oldest copies go once there are more than `keep`, and so does everything else in the folder (a
+    /// conversion that was cut off, the converter's own leftovers) — except a conversion running now.
+    static func prune(_ dir: URL, keeping: URL?) {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
-        let copies = names.filter { $0.pathExtension == "mp4" && $0.lastPathComponent != keeping.lastPathComponent }
-            .sorted {
-                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                return a > b
-            }
-        for old in copies.dropFirst(max(0, keep - 1)) { try? fm.removeItem(at: old) }
+        let copies = names.filter {
+            $0.pathExtension == "mp4" && !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != keeping?.lastPathComponent
+        }
+        .sorted {
+            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return a > b
+        }
+        var kept = Set(copies.prefix(max(0, keep - (keeping == nil ? 0 : 1))).map(\.lastPathComponent))
+        if let keeping { kept.insert(keeping.lastPathComponent) }
+        DashcamPaths.sweep(dir) { kept.contains($0.lastPathComponent) }
     }
+
+    /// At launch: whatever earlier runs left in the player's folder.
+    static func sweep() { prune(directory, keeping: nil) }
 }

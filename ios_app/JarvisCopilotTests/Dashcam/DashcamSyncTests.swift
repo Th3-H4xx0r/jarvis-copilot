@@ -129,6 +129,39 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
         sent(Int64(data.count))
     }
     func completeUpload(_ uploadID: String) async throws { completed.append(uploadID) }
+
+    // Direct (Drive) uploads.
+    var destinations: [DashcamDestination] = []
+    var accessError: Error?
+    var accessCalls = 0
+    var recorded: [String] = []
+    func uploadDestinations() async throws -> [DashcamDestination] { destinations }
+    func driveAccess(destinationID: String) async throws -> DashcamDriveAccess {
+        accessCalls += 1
+        if let accessError { throw accessError }
+        return DashcamDriveAccess(destinationID: destinationID, token: "t", expiresAt: Date().addingTimeInterval(3600),
+                                  basePath: "Dashcam", teamDrive: nil)
+    }
+    func clipInfo(_ clipID: String) async throws -> DashcamServerClip {
+        DashcamServerClip(json: ["id": clipID, "path": "/sd/video_front/\(clipID).ts", "camera_id": "CAM", "kind": "normal"])!
+    }
+    func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64,
+                      preview: (path: String, fileID: String)?) async throws { recorded.append(clipID) }
+}
+
+/// Google Drive without Google: opens a session, then fails or finishes as told.
+final class FakeDrive: DashcamDriveClient, @unchecked Sendable {
+    var failAfterSession: Error?
+    var sessions: [URL?] = []
+    func folder(_ path: [String], access: DashcamDriveAccess) async throws -> String { "folder" }
+    func existing(name: String, size: Int64, in folder: String, access: DashcamDriveAccess) async throws -> String? { nil }
+    func upload(_ file: URL, name: String, mime: String, folder: String, access: DashcamDriveAccess, session: URL?,
+                saveSession: @escaping @Sendable (URL) -> Void, sent: @escaping @Sendable (Int64) -> Void) async throws -> String {
+        sessions.append(session)
+        saveSession(session ?? URL(string: "https://upload.example/session/\(name)")!)
+        if let failAfterSession { throw failAfterSession }
+        return "file-" + name
+    }
 }
 
 // MARK: Sync pass
@@ -155,8 +188,9 @@ final class DashcamSyncTests: XCTestCase {
         sync.cameraFactory = { [unowned self] _ in self.cam }
         sync.server = server
         sync.fetcher = fetcher
-        sync.uploader = DashcamUploader(file: root.appendingPathComponent("uploads.json"))
+        sync.uploader = DashcamUploader(file: root.appendingPathComponent("uploads.json"), tempDir: root.appendingPathComponent("up"))
         sync.storage = DashcamStorage(root: root)
+        sync.cacheBytes = { 0 }
         sync.parked = { [unowned self] in self.parked }
         sync.onCameraProvider = { [unowned self] in self.onCamera }
         sync.timeZone = { TimeZone(secondsFromGMT: 0)! }
@@ -411,6 +445,88 @@ final class DashcamUploaderTests: XCTestCase {
         let jobs = await uploader.jobs
         XCTAssertEqual(jobs.count, 1)
         XCTAssertEqual(jobs.first?.size, 4)
+    }
+
+    private func tempDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("up-dir-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func tsFile(_ name: String = "clip_f.ts") throws -> URL {
+        let url = try tempDir().appendingPathComponent(name)
+        try Data(count: 64).write(to: url)
+        return url
+    }
+
+    private static let drive = DashcamDestination(json: ["id": "d_1", "type": "drive", "name": "Drive"])!
+
+    /// His Drive sign-in died on day 7 and 126 clips kept asking the server — each attempt costing a
+    /// conversion (a second copy of the clip) — while the phone filled up.
+    func testAnExpiredDriveSignInHoldsItsUploadsWithoutConvertingAnything() async throws {
+        let temp = try tempDir()
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), drive: FakeDrive(), tempDir: temp)
+        await uploader.enqueue(clipID: "a", local: try tsFile(), size: 64, kind: .normal)
+        await uploader.enqueue(clipID: "b", local: try tsFile(), size: 64, kind: .normal)
+        let server = FakeUploadServer()
+        server.destinations = [Self.drive]
+        server.accessError = DashcamDriveError.signInExpired("d_1")
+        let clock = Date(timeIntervalSince1970: 1000)
+        let none = await uploader.run(server: server, cellular: false, now: { clock })
+        XCTAssertTrue(none.isEmpty)
+        XCTAssertEqual(server.accessCalls, 1, "the second clip doesn't ask again")
+        let jobs = await uploader.jobs
+        XCTAssertEqual(jobs.map(\.attempts), [0, 0], "no clip used up its retries")
+        XCTAssertEqual(jobs.first?.lastError, DashcamDriveError.signInExpired("d_1").localizedDescription)
+        let held = await uploader.expiredSignIns(now: clock)
+        XCTAssertEqual(held, ["d_1"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temp.path), [], "nothing converted")
+        _ = await uploader.run(server: server, cellular: false, now: { clock.addingTimeInterval(60) })
+        XCTAssertEqual(server.accessCalls, 1, "still held")
+        // Signed in again (Destinations → destinationsChanged → retryParked): everything goes.
+        server.accessError = nil
+        await uploader.retryParked()
+        let sent = await uploader.run(server: server, cellular: false, now: { clock.addingTimeInterval(120) })
+        XCTAssertEqual(Set(sent), ["a", "b"])
+        XCTAssertEqual(Set(server.recorded), ["a", "b"])
+    }
+
+    /// 130 GB of the phone: converted copies of uploads long gone, and the converter's own leftovers.
+    func testTheUploadFolderKeepsOnlyACopyGoogleIsHalfwayThrough() async throws {
+        let temp = try tempDir()
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), drive: FakeDrive(), tempDir: temp)
+        await uploader.enqueue(clipID: "queued", local: try tsFile(), size: 64, kind: .normal)
+        for name in ["queued.mp4", "gone.mp4", "x.preview.mp4", ".c_1.mp4.part.sb-742ce9cd-Zb9xEk"] {
+            try Data(count: 10).write(to: temp.appendingPathComponent(name))
+        }
+        try FileManager.default.createDirectory(at: temp.appendingPathComponent(".remux-old"), withIntermediateDirectories: true)
+        await uploader.sweepTemp()
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: temp.path).sorted(), [],
+                       "a queued clip with no Google session is converted again when its turn comes")
+    }
+
+    /// A dropped Drive upload used to forget its session (the run wrote back a stale job), so every retry
+    /// started from byte 0 — and the copy it resumes from must stay while the session does.
+    func testADroppedDriveUploadKeepsItsSessionAndItsCopy() async throws {
+        let temp = try tempDir()
+        let drive = FakeDrive()
+        drive.failAfterSession = URLError(.networkConnectionLost)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), drive: drive, tempDir: temp)
+        let mp4 = try tempDir().appendingPathComponent("clip.mp4")
+        try Data(count: 64).write(to: mp4)
+        await uploader.enqueue(clipID: "a", local: mp4, size: 64, kind: .normal)
+        let server = FakeUploadServer()
+        server.destinations = [Self.drive]
+        var clock = Date(timeIntervalSince1970: 1000)
+        _ = await uploader.run(server: server, cellular: false, now: { clock })
+        let job = await uploader.jobs.first
+        XCTAssertEqual(job?.attempts, 1)
+        XCTAssertNotNil(job?.directSessions?["d_1"], "the session survives the failure")
+        drive.failAfterSession = nil
+        clock = clock.addingTimeInterval(31)
+        let done = await uploader.run(server: server, cellular: false, now: { clock })
+        XCTAssertEqual(done, ["a"])
+        XCTAssertEqual(drive.sessions.last ?? nil, URL(string: "https://upload.example/session/a.ts"), "resumed, not restarted")
     }
 
     func testChunkMath() {

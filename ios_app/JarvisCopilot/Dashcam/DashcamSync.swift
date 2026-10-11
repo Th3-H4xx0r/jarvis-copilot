@@ -148,6 +148,8 @@ final class DashcamSync: ObservableObject {
     var fetcher: DashcamFetcher = DashcamDownloader.shared
     var uploader: DashcamUploader = .shared
     var storage: DashcamStorage = .standard
+    /// The MP4 copies made for Drive and the player, which count against the phone-space cap with the footage.
+    var cacheBytes: () -> Int64 = { DashcamPaths.cacheBytes() }
     var parked: () async -> Bool = { await DashcamMotion.shared.isParked() }
     var onCameraProvider: () -> Bool = { DashcamWiFi.shared.onCamera }
     var now: () -> Date = { Date() }
@@ -184,6 +186,9 @@ final class DashcamSync: ObservableObject {
         }
         pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
+        // What earlier runs left in the caches, even with cloud backup paused (then no upload run sweeps).
+        Task.detached(priority: .utility) { DashcamPlayable.sweep() }
+        Task { [uploader] in await uploader.sweepTemp() }
         DashcamSyncBeacon.shared.start()
     }
 
@@ -497,7 +502,8 @@ final class DashcamSync: ObservableObject {
         let isParked = inPlayback ? true : await parked()
         // Normal footage on the phone, walked once a pass (it used to be walked for every listed clip, on
         // the main thread — thousands of file checks every 20 s that made the whole page sluggish).
-        var normalOnPhone = storage.normalBytes(camera: cameraID)
+        // The cap also covers the MP4 copies made for Drive and the player: they once took 130 GB on their own.
+        var normalOnPhone = storage.normalBytes(camera: cameraID) + cacheBytes()
         func wanted(_ f: DashcamFile) -> Bool {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
             // Deleted from the phone on purpose: stays deleted until "Download again".
@@ -701,7 +707,9 @@ final class DashcamSync: ObservableObject {
         }
         uploading = nil
         pendingUploads = await uploader.pendingCount
-        if let until = await uploader.driveQuotaUntil, until > Date() {
+        if await !uploader.expiredSignIns().isEmpty {
+            uploadNote = "Google Drive sign-in expired — clips wait on the phone. Sign in again in Destinations."
+        } else if let until = await uploader.driveQuotaUntil, until > Date() {
             uploadNote = "Google Drive's shared rclone key is out of quota — retrying by itself. Your own Google key fixes it (Destinations)."
         } else {
             uploadNote = nil

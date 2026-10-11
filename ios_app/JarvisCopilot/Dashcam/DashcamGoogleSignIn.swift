@@ -30,7 +30,22 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
     }
 
+    /// Google's one-time code, and what trading it needs besides the client secret.
+    struct Grant: Sendable {
+        let code: String
+        let verifier: String
+        let redirect: String
+    }
+
     func signIn(clientID: String, clientSecret: String) async throws -> String {
+        let grant = try await authorize(clientID: clientID)
+        return try await exchange(code: grant.code, verifier: grant.verifier, clientID: clientID, clientSecret: clientSecret,
+                                  redirect: grant.redirect)
+    }
+
+    /// Signs in and stops at Google's code — for signing an existing destination in again, where the server
+    /// trades the code with the client secret it already holds.
+    func authorize(clientID: String) async throws -> Grant {
         let verifier = Self.randomString(64)
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URL
         let state = Self.randomString(24)
@@ -58,7 +73,7 @@ final class DashcamGoogleSignIn: NSObject, ASWebAuthenticationPresentationContex
         let code: String
         do { code = try await codeTask.value } catch { browser.cancel(); throw error }
         browser.cancel()
-        return try await exchange(code: code, verifier: verifier, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
+        return Grant(code: code, verifier: verifier, redirect: redirect)
     }
 
     /// A one-request HTTP server on a loopback port; its task finishes with Google's `code`. The port is
