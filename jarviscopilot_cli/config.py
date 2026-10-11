@@ -860,6 +860,9 @@ DEFAULT_CONFIG = {
         "backend": "",           # shared fallback — applies to both search and extract
         "search_backend": "",    # per-capability override for web_search (e.g. "searxng")
         "extract_backend": "",   # per-capability override for web_extract (e.g. "native")
+        # Local extractor (plugins/web/local): when a site serves a bot
+        # challenge, retry it once in Scrapling's stealth browser.
+        "stealth_fallback": True,
     },
 
     "browser": {

@@ -1,0 +1,7 @@
+name: web-local
+version: 1.0.0
+description: "Local page extraction — fast fetch (Scrapling + trafilatura), then the headless browser, then a stealth browser. No API key. Install with `pip install 'jarviscopilot[web-local]'`."
+author: Pranav Krishna
+kind: backend
+provides_web_providers:
+  - local

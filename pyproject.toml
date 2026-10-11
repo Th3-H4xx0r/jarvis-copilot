@@ -90,6 +90,10 @@ anthropic = ["anthropic==0.86.0"]
 exa = ["exa-py==2.10.2"]
 firecrawl = ["firecrawl-py==4.17.0"]
 parallel-web = ["parallel-web==0.4.2"]
+# Local page extraction (plugins/web/local): Scrapling's fast fetcher (curl_cffi)
+# and stealth browser, plus trafilatura for the main text. No API key.
+# Scrapling is pre-1.0, so its ceiling is two minors up (AGENTS.md).
+web-local = ["scrapling[fetchers]>=0.4.15,<0.6", "trafilatura>=2.2.0,<3"]
 # Image generation backends
 fal = ["fal-client==0.13.1"]
 # Edge TTS — default TTS provider but still optional (users can pick

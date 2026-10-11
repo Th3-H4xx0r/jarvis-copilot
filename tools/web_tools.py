@@ -218,6 +218,15 @@ def _is_backend_available(backend: str) -> bool:
         return _has_env("BRAVE_SEARCH_API_KEY")
     if backend == "ddgs":
         return _ddgs_package_importable()
+    if backend == "local":
+        # Extract-only local reader (plugins/web/local); available when its
+        # optional packages are importable.
+        try:
+            from agent.web_search_registry import get_provider
+            local = get_provider("local")
+            return bool(local is not None and local.is_available())
+        except Exception:
+            return False
     if backend == "xai":
         # Cheap probe — env var OR auth.json has OAuth tokens. Must not
         # call resolve_xai_http_credentials() here because the OAuth path
@@ -942,38 +951,30 @@ async def web_extract_tool(
 
             provider = _wsp_get_provider(backend) if backend else None
             if provider is None or not provider.supports_extract():
-                # When the configured name IS registered but doesn't support
-                # extract (search-only providers like brave-free / ddgs /
-                # searxng), surface that as a typed "search-only" error
-                # rather than silently switching backends. When the name
-                # isn't registered at all (typo / uninstalled plugin), fall
-                # through to the active-provider walk.
-                if provider is not None and not provider.supports_extract():
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": (
-                                f"{provider.display_name} is a search-only "
-                                "backend and cannot extract URL content. "
-                                "Set web.extract_backend to firecrawl, "
-                                "tavily, exa, or parallel."
-                            ),
-                        },
-                        ensure_ascii=False,
-                    )
+                # The configured backend can't extract: either it's a
+                # search-only provider (brave-free / ddgs / searxng) or the
+                # name isn't registered (typo / uninstalled plugin). Use the
+                # available extract provider instead: a paid one if it has
+                # credentials, else the local reader (plugins/web/local).
+                # Only when there is none do we return an error.
+                search_only = (
+                    provider if provider is not None and not provider.supports_extract() else None
+                )
                 provider = get_active_extract_provider()
-                if provider is None:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": (
-                                "No web extract provider configured. "
-                                "Set web.extract_backend to firecrawl, "
-                                "tavily, exa, or parallel."
-                            ),
-                        },
-                        ensure_ascii=False,
+                if provider is None or not provider.supports_extract():
+                    hint = (
+                        "Set web.extract_backend to firecrawl, tavily, exa, "
+                        "or parallel, or install the local extractor "
+                        "(pip install 'jarviscopilot[web-local]')."
                     )
+                    if search_only is not None:
+                        error = (
+                            f"{search_only.display_name} is a search-only "
+                            f"backend and cannot extract URL content. {hint}"
+                        )
+                    else:
+                        error = f"No web extract provider configured. {hint}"
+                    return json.dumps({"success": False, "error": error}, ensure_ascii=False)
 
             logger.info(
                 "Web extract via %s: %d URL(s)", provider.name, len(safe_urls)
@@ -1100,6 +1101,7 @@ async def web_extract_tool(
                 logger.info("%s (%d characters)", url, content_length)
         
         # Trim output to minimal fields per entry: title, content, error
+        # (+ which tier answered, when the provider reports one).
         trimmed_results = [
             {
                 "url": r.get("url", ""),
@@ -1107,6 +1109,8 @@ async def web_extract_tool(
                 "content": r.get("content", ""),
                 "error": r.get("error"),
                 **({  "blocked_by_policy": r["blocked_by_policy"]} if "blocked_by_policy" in r else {}),
+                **({"tier": r["metadata"]["tier"]}
+                   if isinstance(r.get("metadata"), dict) and r["metadata"].get("tier") else {}),
             }
             for r in response.get("results", [])
         ]
