@@ -752,20 +752,141 @@ def clean_base64_images(text: str) -> str:
 # dispatchers in this file resolve them via get_active_*_provider().
 
 
-def web_search_tool(query: str, limit: int = 5) -> str:
+def _resolve_extract_provider() -> tuple[Optional[Any], Optional[str]]:
+    """Return ``(provider, None)`` for the extract provider to use, or ``(None, error)``.
+
+    Used by ``web_extract`` and ``web_search(read_top=...)``. When the
+    configured backend can't extract (a search-only provider such as
+    brave-free / ddgs / searxng, or a name that isn't registered), the
+    available extract provider is used instead: a paid one with
+    credentials first, else the local reader (plugins/web/local). An error
+    comes back only when there is none.
+    """
+    from agent.web_search_registry import (
+        get_active_extract_provider,
+        get_provider as _wsp_get_provider,
+    )
+
+    backend = _get_extract_backend()
+    provider = _wsp_get_provider(backend) if backend else None
+    if provider is not None and provider.supports_extract():
+        return provider, None
+
+    search_only = provider  # registered but search-only, or None
+    provider = get_active_extract_provider()
+    if provider is not None and provider.supports_extract():
+        return provider, None
+
+    hint = (
+        "Set web.extract_backend to firecrawl, tavily, exa, or parallel, "
+        "or install the local extractor (pip install 'jarviscopilot[web-local]')."
+    )
+    if search_only is not None:
+        return None, (
+            f"{search_only.display_name} is a search-only backend and cannot "
+            f"extract URL content. {hint}"
+        )
+    return None, f"No web extract provider configured. {hint}"
+
+
+# web_search(read_top=N): how many results can be read, and how much of each.
+MAX_READ_TOP = 5
+READ_TOP_MAX_CHARS = 6000
+
+
+def _clamp_read_top(value: Any) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return min(max(n, 0), MAX_READ_TOP)
+
+
+def _read_top_pages(results: List[Dict[str, Any]], n: int) -> None:
+    """Attach the page text of the first ``n`` search results, in place.
+
+    All pages go to the extract provider in one call (providers read their
+    URLs in parallel). A result whose page can't be read keeps its snippet
+    and gains an ``error``. Never raises.
+    """
+    import inspect
+    from urllib.parse import unquote
+    from agent.redact import _PREFIX_RE
+
+    targets: List[Dict[str, Any]] = []
+    for result in results[:n]:
+        if not isinstance(result, dict):
+            continue
+        url = str(result.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            result["error"] = "Not read: this result has no web URL"
+        elif _PREFIX_RE.search(url) or _PREFIX_RE.search(unquote(url)):
+            result["error"] = "Not read: the URL contains what appears to be an API key or token"
+        elif not is_safe_url(url):
+            result["error"] = "Not read: the URL targets a private or internal network address"
+        else:
+            targets.append(result)
+    if not targets:
+        return
+
+    urls = [r["url"] for r in targets]
+    try:
+        provider, provider_error = _resolve_extract_provider()
+        if provider is None:
+            raise RuntimeError(provider_error)
+        logger.info("web_search read_top via %s: %d URL(s)", provider.name, len(urls))
+        if inspect.iscoroutinefunction(provider.extract):
+            from model_tools import _run_async
+            pages = _run_async(provider.extract(urls, format="markdown"))
+        else:
+            pages = provider.extract(urls, format="markdown")
+    except Exception as exc:  # noqa: BLE001 — the search results still stand
+        logger.warning("web_search read_top failed: %s", exc)
+        for result in targets:
+            result["error"] = f"Could not read the page: {exc}"
+        return
+
+    pages = [p for p in pages if isinstance(p, dict)] if isinstance(pages, list) else []
+    by_url = {p.get("url"): p for p in pages}
+    for i, result in enumerate(targets):
+        page = by_url.get(result["url"])
+        if page is None and len(pages) == len(targets):
+            page = pages[i]  # provider normalised the URL; fall back to order
+        text = str((page or {}).get("content") or (page or {}).get("raw_content") or "").strip()
+        if not page or page.get("error") or not text:
+            reason = (page or {}).get("error") or "no readable text came back"
+            result["error"] = str(reason)
+            continue
+        if len(text) > READ_TOP_MAX_CHARS:
+            text = text[:READ_TOP_MAX_CHARS] + f"\n\n[... truncated at {READ_TOP_MAX_CHARS:,} characters]"
+        # Fetched pages are untrusted: annotate likely prompt injection.
+        try:
+            from security.injection import screen_untrusted
+            text, _flagged = screen_untrusted(text, source=f"web page {result['url']}")
+        except Exception:
+            pass
+        result["content"] = text
+        metadata = page.get("metadata")
+        if isinstance(metadata, dict) and metadata.get("tier"):
+            result["tier"] = metadata["tier"]
+
+
+def web_search_tool(query: str, limit: int = 5, read_top: int = 0) -> str:
     """
     Search the web for information using available search API backend.
 
     This function provides a generic interface for web search that can work
     with multiple backends (Parallel or Firecrawl).
 
-    Note: This function returns search result metadata only (URLs, titles, descriptions).
-    Use web_extract_tool to get full content from specific URLs.
-    
+    By default this returns search result metadata only (URLs, titles,
+    descriptions). With ``read_top=N`` the first N results' pages are read in
+    the same call and each gains ``content`` (or ``error``).
+
     Args:
         query (str): The search query to look up
         limit (int): Maximum number of results to return (default: 5)
-    
+        read_top (int): Also read the page text of the first N results (0-5, default 0)
+
     Returns:
         str: JSON string containing search results with the following structure:
              {
@@ -791,11 +912,13 @@ def web_search_tool(query: str, limit: int = 5) -> str:
     except (TypeError, ValueError):
         limit = 5
     limit = min(max(limit, 1), 100)
+    read_top = _clamp_read_top(read_top)
 
     debug_call_data = {
         "parameters": {
             "query": query,
-            "limit": limit
+            "limit": limit,
+            "read_top": read_top,
         },
         "error": None,
         "results_count": 0,
@@ -839,6 +962,11 @@ def web_search_tool(query: str, limit: int = 5) -> str:
                 provider.name, query, limit,
             )
             response_data = provider.search(query, limit)
+
+            if read_top and response_data.get("success") is not False and not is_interrupted():
+                web_results = (response_data.get("data") or {}).get("web")
+                if isinstance(web_results, list) and web_results:
+                    _read_top_pages(web_results, read_top)
 
         debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
         result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
@@ -935,46 +1063,16 @@ async def web_extract_tool(
         if not safe_urls:
             results = []
         else:
-            backend = _get_extract_backend()
-
-            # All seven providers (brave-free, ddgs, searxng, exa, parallel,
-            # tavily, firecrawl) now live as plugins. The dispatcher is a
-            # registry lookup + delegation. Some providers' extract() is
-            # async (parallel, firecrawl), others sync (exa, tavily) — we
-            # detect coroutine functions and await; sync functions run
-            # inline (the policy gate, SSRF re-check, etc. live inside the
-            # provider itself for the firecrawl per-URL loop).
-            from agent.web_search_registry import (
-                get_active_extract_provider,
-                get_provider as _wsp_get_provider,
-            )
-
-            provider = _wsp_get_provider(backend) if backend else None
-            if provider is None or not provider.supports_extract():
-                # The configured backend can't extract: either it's a
-                # search-only provider (brave-free / ddgs / searxng) or the
-                # name isn't registered (typo / uninstalled plugin). Use the
-                # available extract provider instead: a paid one if it has
-                # credentials, else the local reader (plugins/web/local).
-                # Only when there is none do we return an error.
-                search_only = (
-                    provider if provider is not None and not provider.supports_extract() else None
-                )
-                provider = get_active_extract_provider()
-                if provider is None or not provider.supports_extract():
-                    hint = (
-                        "Set web.extract_backend to firecrawl, tavily, exa, "
-                        "or parallel, or install the local extractor "
-                        "(pip install 'jarviscopilot[web-local]')."
-                    )
-                    if search_only is not None:
-                        error = (
-                            f"{search_only.display_name} is a search-only "
-                            f"backend and cannot extract URL content. {hint}"
-                        )
-                    else:
-                        error = f"No web extract provider configured. {hint}"
-                    return json.dumps({"success": False, "error": error}, ensure_ascii=False)
+            # Every provider (brave-free, ddgs, searxng, exa, parallel,
+            # tavily, firecrawl, local) lives as a plugin. The dispatcher is
+            # a registry lookup + delegation. Some providers' extract() is
+            # async (parallel, firecrawl), others sync (exa, tavily, local)
+            # — we detect coroutine functions and await; sync functions run
+            # in a thread (the policy gate, SSRF re-check, etc. live inside
+            # the provider itself for the firecrawl / local per-URL loops).
+            provider, provider_error = _resolve_extract_provider()
+            if provider is None:
+                return json.dumps({"success": False, "error": provider_error}, ensure_ascii=False)
 
             logger.info(
                 "Web extract via %s: %d URL(s)", provider.name, len(safe_urls)
@@ -1516,7 +1614,7 @@ from tools.registry import registry, tool_error
 
 WEB_SEARCH_SCHEMA = {
     "name": "web_search",
-    "description": "Search the web for information. Returns up to 5 results by default with titles, URLs, and descriptions. The query is passed through to the configured backend, so operators such as site:domain, filetype:pdf, intitle:word, -term, and \"exact phrase\" may work when the backend supports them.",
+    "description": "Search the web for information. Returns up to 5 results by default with titles, URLs, and descriptions. Set read_top to also get the page text of the first few results in the same call. The query is passed through to the configured backend, so operators such as site:domain, filetype:pdf, intitle:word, -term, and \"exact phrase\" may work when the backend supports them.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -1530,6 +1628,13 @@ WEB_SEARCH_SCHEMA = {
                 "minimum": 1,
                 "maximum": 100,
                 "default": 5
+            },
+            "read_top": {
+                "type": "integer",
+                "description": "Also read the full page text of the first N results (0-5) in this same call. Each of those results gains 'content' (the page's main text as markdown, capped at about 6000 characters); a page that can't be read keeps its snippet and gets an 'error'. Use 2-3 when you need facts from the pages, not just the snippets. Defaults to 0 (snippets only).",
+                "minimum": 0,
+                "maximum": 5,
+                "default": 0
             }
         },
         "required": ["query"]
@@ -1557,7 +1662,8 @@ registry.register(
     name="web_search",
     toolset="web",
     schema=WEB_SEARCH_SCHEMA,
-    handler=lambda args, **kw: web_search_tool(args.get("query", ""), limit=args.get("limit", 5)),
+    handler=lambda args, **kw: web_search_tool(
+        args.get("query", ""), limit=args.get("limit", 5), read_top=args.get("read_top", 0)),
     check_fn=check_web_api_key,
     requires_env=_web_requires_env(),
     emoji="🔍",

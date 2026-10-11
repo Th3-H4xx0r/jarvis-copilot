@@ -470,7 +470,7 @@ class TestWebSearchSchema:
             result = entry.handler({"query": "site:example.com docs", "limit": 12})
 
         assert result == '{"success": true}'
-        mock_search.assert_called_once_with("site:example.com docs", limit=12)
+        mock_search.assert_called_once_with("site:example.com docs", limit=12, read_top=0)
 
     def test_registered_handler_defaults_limit_to_five(self):
         import tools.web_tools
@@ -480,7 +480,7 @@ class TestWebSearchSchema:
             result = entry.handler({"query": "docs"})
 
         assert result == '{"success": true}'
-        mock_search.assert_called_once_with("docs", limit=5)
+        mock_search.assert_called_once_with("docs", limit=5, read_top=0)
 
     def test_web_search_clamps_limit_before_backend_call(self):
         import tools.web_tools
