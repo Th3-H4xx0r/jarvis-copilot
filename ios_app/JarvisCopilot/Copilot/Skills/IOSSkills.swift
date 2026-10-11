@@ -76,7 +76,8 @@ enum IOSSkills {
                 + "shortcut's output text>} or {ran:false, error}. If the Shortcut produces no "
                 + "output you may get an empty result. To change iOS-locked settings "
                 + "(brightness, volume, wifi, bluetooth, focus) prefer the phone_control skill, "
-                + "which drives the per-verb 'JC …' Shortcuts.",
+                + "which drives the per-verb 'JC …' Shortcuts. Do not use Shortcuts to resume music "
+                + "on INMO glasses: use glasses_resume_music, which performs the sequence inside the phone app.",
             inputSchema: SkillSchema.object([
                 "name": SkillSchema.string("Exact Shortcut name as it appears in the Shortcuts app."),
                 "input": SkillSchema.string("Optional text passed as the Shortcut input."),

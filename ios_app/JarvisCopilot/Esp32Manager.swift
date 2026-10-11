@@ -848,14 +848,17 @@ final class Esp32Manager: NSObject, ObservableObject {
     }
 
     /// One notification the board read from this iPhone, onto the glasses' lens through
-    /// the same card route Jarvis's own notifications use. Jarvis's own are already sent
-    /// by PushService, and the glasses show calls themselves, so both are skipped.
+    /// the same card route Jarvis's own notifications use. Jarvis banners recover
+    /// their push payload; the glasses show calls themselves.
     private func relayToGlasses(_ n: Esp32Protocol.IosNotification) {
         if let r = relay { relay = Esp32Protocol.RelayStatus(on: r.on, state: .receiving, forwarded: r.forwarded + 1) }
-        // Prefix, not equality: the board clips app ids to 40 bytes, and ours is 43
-        // ("com.jarviscopilot.jarviscopilotMobileAndIOS"), so equality never matched and
-        // Jarvis's own banners came back as a second card.
-        guard !n.appID.hasPrefix("com.jarviscopilot"), n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
+        guard n.category != Esp32Protocol.IosNotification.incomingCallCategory else { return }
+        // Prefix: the board clips bundle ids. Resolve the original card so ANCS
+        // and APNs use the same app/title/body and the lens deduper can merge them.
+        if n.appID.hasPrefix("com.jarviscopilot") {
+            Task { await PushService.shared.recoverRelayedNotification(title: n.title, body: n.message) }
+            return
+        }
         let app = Self.appName(forBundleID: n.appID)
         InmoSession.shared.forwardNotification(title: n.title.isEmpty ? app : n.title, body: n.message, app: app)
     }

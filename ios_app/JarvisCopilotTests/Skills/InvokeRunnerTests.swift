@@ -28,7 +28,8 @@ final class InvokeRunnerTests: XCTestCase {
                          requiresForeground: Bool = false,
                          error: Error? = nil,
                          notifierError: Error? = nil,
-                         store: MemoryKeyValueStore = MemoryKeyValueStore()) -> Harness {
+                         store: MemoryKeyValueStore = MemoryKeyValueStore(),
+                         nativeRoute: ((String, [String: Any]) async throws -> [String: Any]?)? = nil) -> Harness {
         let counter = Counter()
         let skill = AnySkill(name: name, description: "demo skill",
                              requiresForeground: requiresForeground) { args in
@@ -43,12 +44,36 @@ final class InvokeRunnerTests: XCTestCase {
         let notifier = MockNotifier()
         notifier.error = notifierError
         let runner = InvokeRunner(registry: registry, lifecycle: lifecycle,
-                                  pending: pending, notifier: notifier, store: store)
+                                  pending: pending, notifier: notifier, store: store, nativeRoute: nativeRoute)
         return Harness(runner: runner, registry: registry, lifecycle: lifecycle,
                        pending: pending, notifier: notifier, store: store, ran: counter)
     }
 
     // MARK: happy path
+
+    func testNativeMediaRouteBypassesShortcutAndForegroundDeferral() async {
+        let h = harness(name: "run_shortcut", foreground: false, requiresForeground: true,
+                        nativeRoute: { _, _ in ["via": "glasses_native"] })
+        let outcome = await h.runner.run("run_shortcut", ["name": "JC Play Pause"])
+        XCTAssertNil(outcome.error)
+        XCTAssertEqual(outcome.result?["via"] as? String, "glasses_native")
+        XCTAssertTrue(h.ran.calls.isEmpty)
+        XCTAssertNil(outcome.result?["queued"])
+    }
+
+    func testNativeFailureNeverFallsBackToShortcut() async {
+        let h = harness(name: "media_control", nativeRoute: { _, _ in throw SkillError.failed("glasses disconnected") })
+        let outcome = await h.runner.run("media_control", ["action": "play"])
+        XCTAssertEqual(outcome.error, "glasses disconnected")
+        XCTAssertTrue(h.ran.calls.isEmpty)
+    }
+
+    func testPausedRunnerDoesNotEnterNativeRoute() async {
+        let h = harness(nativeRoute: { _, _ in XCTFail("pause must gate native route"); return [:] })
+        h.runner.paused = true
+        let outcome = await h.runner.run("demo", [:])
+        XCTAssertEqual(outcome.error, "paused")
+    }
 
     func testRunsTheSkillAndLogsIt() async {
         let h = harness()

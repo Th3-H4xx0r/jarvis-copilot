@@ -236,11 +236,11 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         // workout itself, not a banner over it.
         if notification.request.identifier == RestAlerts.identifier { return [] }
         let content = notification.request.content
-        // A device-channel push was already routed to its wearable by PushService;
-        // mirroring its banner too put every card on the lens twice. One relayed from
-        // another app (the Mac's iMessages) also needs no Jarvis banner over the app's own.
-        if (content.userInfo["type"] as? String) == "device_notify" {
-            return (content.userInfo["notify_app"] as? String).map { $0.isEmpty } ?? true ? [.banner, .sound, .list] : []
+        // Foreground delivery must route too: the background callback is not
+        // guaranteed. Both paths decode the same card, so lens dedupe handles overlap.
+        if let card = WearableNotification.decode(content.userInfo) {
+            await PushService.shared.forward(card)
+            return card.app == nil ? [.banner, .sound, .list] : []
         }
         // Mirror the notification onto the GO3 lens (no-op unless the user turned
         // glasses notifications on and the glasses are connected).

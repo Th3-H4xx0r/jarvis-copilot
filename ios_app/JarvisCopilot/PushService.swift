@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 /// APNs plumbing for the Jarvis bridge.
 ///
@@ -55,23 +56,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             // Route device-channel notifications (glasses, ring, etc.) to the
             // wearable that owns the channel. Falls back to the generic APS alert
             // path for non-device pushes.
-            if (info["type"] as? String) == "device_notify",
-               let channel = info["channel"] as? String {
-                let title = info["notify_title"] as? String ?? ""
-                let body = info["notify_body"] as? String ?? ""
-                if let app = info["notify_app"] as? String, !app.isEmpty, channel == "glasses" {
-                    // A card from another app (the Mac's iMessage relay): labelled with it.
-                    InmoSession.shared.forwardNotification(title: title, body: body, app: app)
-                } else if !title.isEmpty || !body.isEmpty {
-                    DeviceRegistry.shared.forwardNotification(channel: channel, title: title, body: body)
-                }
-            } else if (info["type"] as? String) == "glasses_notify" {
-                // Legacy: support old server payloads until fully deployed.
-                let title = info["glasses_title"] as? String ?? ""
-                let body = info["glasses_body"] as? String ?? ""
-                if !title.isEmpty || !body.isEmpty {
-                    DeviceRegistry.shared.forwardNotification(channel: "glasses", title: title, body: body)
-                }
+            let card = WearableNotification.decode(info)
+            if let card {
+                PushService.shared.forward(card)
             } else if let aps = info["aps"] as? [String: Any] {
                 if let alert = aps["alert"] as? [String: Any] {
                     InmoSession.shared.forwardNotification(title: alert["title"] as? String ?? "",
@@ -82,7 +69,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             }
             let before = BridgeClient.shared.lastActivity
             await BridgeClient.shared.drainQueue(foreground: false)
-            completion(BridgeClient.shared.lastActivity != before ? .newData : .noData)
+            completion(card != nil || BridgeClient.shared.lastActivity != before ? .newData : .noData)
         }
     }
 }
@@ -92,6 +79,39 @@ final class PushService {
     static let shared = PushService()
 
     private init() {}
+
+    func forward(_ card: WearableNotification) {
+        if card.channel == "glasses" {
+            InmoSession.shared.forwardNotification(title: card.title, body: card.body, app: card.app)
+        } else {
+            DeviceRegistry.shared.forwardNotification(channel: card.channel, title: card.title, body: card.body)
+        }
+    }
+
+    /// An alert-only APNs push can display without waking the app. The ESP32's
+    /// ANCS event DOES wake our BLE session: recover the original routing metadata
+    /// from Notification Center instead of dropping Jarvis's own iMessage banners.
+    /// Never infer the channel from banner text or relay unrelated Jarvis alerts.
+    func recoverRelayedNotification(title: String, body: String) async {
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                do { try await Task.sleep(nanoseconds: 300_000_000) }
+                catch { return }
+            }
+            let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
+            if let notification = delivered.sorted(by: { $0.date > $1.date }).first(where: {
+                Date().timeIntervalSince($0.date) < 60 &&
+                WearableNotification.decode($0.request.content.userInfo) != nil &&
+                WearableNotification.matchesRelay(title: $0.request.content.title,
+                    body: $0.request.content.body, relayTitle: title, relayBody: body)
+            }), let card = WearableNotification.decode(notification.request.content.userInfo) {
+                forward(card)
+                InmoRuntimeDiagnostics.note("device notification recovered through ANCS")
+                return
+            }
+        }
+        InmoRuntimeDiagnostics.note("ANCS Jarvis banner had no matching recent device notification")
+    }
 
     /// Asks iOS for a device token. Silent pushes don't need user permission, so this
     /// shows no prompt — the app only registers for background delivery.

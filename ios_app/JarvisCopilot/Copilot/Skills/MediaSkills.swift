@@ -221,7 +221,9 @@ enum MediaSkills {
                 + "toggle, next or previous track. Apple Music is driven directly, even with the phone "
                 + "locked; any other app goes through the \"JC Play Pause\" / \"JC Next Track\" / "
                 + "\"JC Previous Track\" Shortcuts, which need the phone unlocked. `play` and `pause` "
-                + "do nothing when it's already in that state; `status` says what is playing.",
+                + "do nothing when it's already in that state; `status` says what is playing. "
+                + "For INMO glasses, use glasses_resume_music to resume after chat; never run a media Shortcut. "
+                + "With connected INMO glasses, play is routed to that native command automatically.",
             inputSchema: SkillSchema.object([
                 "action": SkillSchema.enumeration(mediaActions),
             ], required: ["action"])

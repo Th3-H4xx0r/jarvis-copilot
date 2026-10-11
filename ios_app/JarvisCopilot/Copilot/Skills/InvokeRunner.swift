@@ -26,7 +26,7 @@ final class InvokeRunner {
         static func err(_ message: String) -> Outcome { Outcome(result: nil, error: message) }
     }
 
-    static let shared = InvokeRunner()
+    static let shared = InvokeRunner(nativeRoute: InmoAIChannel.routeMedia)
 
     /// Preference key for the kill switch. Its own key rather than a
     /// SettingsStore field: the runner has to answer `paused` before any store
@@ -39,6 +39,7 @@ final class InvokeRunner {
     private let notifier: any Notifying
     private let store: any KeyValueStore
     private let now: () -> Date
+    private let nativeRoute: ((String, [String: Any]) async throws -> [String: Any]?)?
 
     /// When true, every invoke returns `error: "paused"` without touching the
     /// skill. A settings toggle owns this.
@@ -62,7 +63,8 @@ final class InvokeRunner {
          pending: PendingActions = .shared,
          notifier: any Notifying = DefaultNotifier(),
          store: (any KeyValueStore)? = nil,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         nativeRoute: ((String, [String: Any]) async throws -> [String: Any]?)? = nil) {
         self.registry = registry
         self.lifecycle = lifecycle
         self.pending = pending
@@ -73,6 +75,7 @@ final class InvokeRunner {
         self.store = store
         self.paused = store.bool(Self.pausedKey) ?? false
         self.now = now
+        self.nativeRoute = nativeRoute
     }
 
     func run(_ skillName: String, _ args: [String: Any]) async -> Outcome {
@@ -87,6 +90,18 @@ final class InvokeRunner {
         guard let skill = registry.find(skillName) else {
             append(skillName, args, error: "unknown skill")
             return .err("unknown skill: \(skillName)")
+        }
+        // Prefer an available native device route before foreground deferral or
+        // a generic skill's Shortcut fallback. Failure is terminal, not fallback.
+        do {
+            if let result = try await nativeRoute?(skillName, args) {
+                append(skillName, args, result: result)
+                return .ok(result)
+            }
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            append(skillName, args, error: message)
+            return .err(message)
         }
         // A foreground-required action (openURL / launch an app) can't run while
         // the app is backgrounded — iOS refuses it. The app stays alive in the

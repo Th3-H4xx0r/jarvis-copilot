@@ -72,7 +72,7 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         .init(id: "illumination", group: "Display", title: "Automatic illumination", skill: "glasses_settings", evidence: "Source GLASSES_SETTINGS type 0", reason: nil),
         .init(id: "font", group: "Display", title: "Screen wake/sleep, font and language", skill: nil, evidence: "Source settings and reported font", reason: "Explicit model support and independent device validation pending"),
         .init(id: "sound", group: "Sound", title: "Volume and system sounds", skill: "glasses_set_volume", evidence: "Observed volume; source system sounds", reason: nil),
-        .init(id: "music", group: "Sound", title: "Music and call/audio controls", skill: nil, evidence: "Source CONTROL_MUSIC", reason: "Phone media/call integration and model support pending"),
+        .init(id: "music", group: "Sound", title: "Dismiss chat and resume music", skill: "glasses_resume_music", evidence: "Phone sequence: close AI, observed double GO, source-derived touchpad tap", reason: nil),
         .init(id: "input", group: "Input", title: "Wear detection and voice wake", skill: "glasses_settings", evidence: "Source settings types 2 and 21", reason: nil),
         .init(id: "gestures", group: "Input", title: "Touch enable, GO shortcut and gesture assignments", skill: nil, evidence: "Source long GO shortcut and input screens", reason: "Shortcut mapping and model capability validation pending"),
         .init(id: "notifications", group: "Notifications", title: "DND, indicator light and iOS ANCS", skill: "glasses_settings", evidence: "Observed DND; source indicator/ANCS", reason: nil),
@@ -105,6 +105,7 @@ final class InmoGo3Device: ObservableObject, WearableDevice {
         list += [command("glasses_navigate", "Start walking or cycling turn-by-turn directions on the lens to a place found by name or address near the user; the place is also saved to the lens's Navigation list.", ["destination": ["type": "string"], "mode": ["type": "string", "enum": ["walk", "bike"]]], ["destination"]),
                  command("glasses_navigate_stop", "Stop turn-by-turn directions on the lens.")]
         if experimentalEnabled { list.append(command("glasses_camera_action", "Experimental source-derived shutter/start/stop; device verification pending.", ["action": ["type": "string", "enum": ["shutter", "start_recording", "stop_recording"]]], ["action"])) }
+        list.append(command("glasses_resume_music", "Resume paused music on the INMO glasses from the phone: dismiss the open Jarvis chat and release its audio, double-press GO, then send the screen-off side tap. Use when asked to resume music after chatting on the glasses. Always sends the final side tap; use for paused music only and never retry the toggle blindly. Result sent is not playback confirmation."))
         if experimentalEnabled { list += InmoAdvancedControls.capabilities }
         return list
     }

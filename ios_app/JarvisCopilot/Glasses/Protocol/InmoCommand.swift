@@ -15,7 +15,15 @@ enum InmoCommand {
     /// on lift) — Control{TOUCH_CTRL(20), 13: CommandTouchCtrl{source APP(1), key GO(4), state, systick}}.
     /// The glasses tell single, double and long presses apart from these, so a double press needs them.
     static func goKey(pressed: Bool, atMillis millis: UInt64) -> Data {
-        let event = InmoWireCodec.uint(1, 1) + InmoWireCodec.uint(2, 4)
+        touchKey(code: 4, source: 1, pressed: pressed, atMillis: millis)
+    }
+    /// Probe the source-derived local PAD event. APP-source PAD was observed to
+    /// have no playback effect; LOCAL media behavior still needs a hardware trial.
+    static func sidePadKey(pressed: Bool, atMillis millis: UInt64) -> Data {
+        touchKey(code: 0, source: 0, pressed: pressed, atMillis: millis)
+    }
+    private static func touchKey(code: UInt64, source: UInt64, pressed: Bool, atMillis millis: UInt64) -> Data {
+        let event = InmoWireCodec.uint(1, source) + InmoWireCodec.uint(2, code)
             + (pressed ? InmoWireCodec.uint(3, 1) : Data()) + InmoWireCodec.uint(4, millis)
         return control(20, field: 13, payload: event)
     }

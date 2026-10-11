@@ -44,8 +44,16 @@ struct BandMeasurePlan: Codable, Equatable {
 @MainActor
 final class BandMeasureScheduler: ObservableObject {
     @Published private(set) var plan: BandMeasurePlan
-    /// When each type was last asked for.
+    /// When each type last gave a reading (what its interval counts from).
     @Published private(set) var lastRuns: [String: Date]
+    /// Each type's failed tries in a row ("not worn", busy, no value) and the last one: it is
+    /// tried again after 3 minutes, then 6, 12… never later than its interval.
+    private var failures: [String: (count: Int, at: Date)] = [:]
+    /// When the last scheduled reading ended: the next waits `settle` so the sensor settles (back
+    /// to back, the band answered "not worn" while worn).
+    private var lastEnded: Date?
+    var retryAfter: TimeInterval = 180
+    var settle: TimeInterval = 60
     @Published private(set) var applying = false
 
     private weak var manager: BandManager?
@@ -76,14 +84,21 @@ final class BandMeasureScheduler: ObservableObject {
         }
     }
 
-    /// The reading most overdue at `date`, if any.
+    /// The reading most overdue at `date`, if any (one that just failed waits its retry).
     func due(at date: Date) -> BandMeasure? {
         guard plan.control == .phone else { return nil }
+        if let lastEnded, date.timeIntervalSince(lastEnded) < settle { return nil }
         let overdue = BandMeasurePlan.types.compactMap { m -> (BandMeasure, TimeInterval)? in
             let minutes = plan.interval(m)
             guard minutes > 0 else { return nil }
-            let next = (lastRuns[m.name] ?? .distantPast).addingTimeInterval(TimeInterval(minutes * 60))
-            return next <= date ? (m, date.timeIntervalSince(next)) : nil
+            let interval = TimeInterval(minutes * 60)
+            let next = (lastRuns[m.name] ?? .distantPast).addingTimeInterval(interval)
+            guard next <= date else { return nil }
+            if let failed = failures[m.name] {
+                let wait = min(interval, retryAfter * pow(2, Double(max(0, failed.count - 1))))
+                guard date.timeIntervalSince(failed.at) >= wait else { return nil }
+            }
+            return (m, date.timeIntervalSince(next))
         }
         return overdue.max { $0.1 < $1.1 }?.0
     }
@@ -96,12 +111,27 @@ final class BandMeasureScheduler: ObservableObject {
     }
 
     func runDue() async {
-        guard let manager, plan.control == .phone, manager.state == .ready, manager.session.measuring == nil,
-              !manager.holdsLinkForWorkout, let type = due(at: now()) else { return }
-        mark(type)
+        guard let manager, plan.control == .phone, manager.session.measuring == nil, !manager.holdsLinkForWorkout,
+              let type = due(at: now()) else { return }
+        // A due reading brings the band back if its link dropped.
+        if manager.state != .ready {
+            guard await manager.ensureConnected() else { return }
+        }
         // A type this band doesn't have waits its interval like any other, quietly.
-        guard manager.session.supports(type.name) else { return }
-        _ = try? await manager.session.measure(type)
+        guard manager.session.supports(type.name) else { return mark(type) }
+        let reading = try? await manager.session.measure(type)
+        finished(type, done: reading?.status == .done)
+    }
+
+    /// A scheduled reading ended: a value starts its interval again; anything else is retried.
+    func finished(_ type: BandMeasure, done: Bool) {
+        lastEnded = now()
+        if done {
+            failures[type.name] = nil
+            mark(type)
+        } else {
+            failures[type.name] = ((failures[type.name]?.count ?? 0) + 1, now())
+        }
     }
 
     func setInterval(_ minutes: Int, for m: BandMeasure) {

@@ -17,10 +17,28 @@ final class InmoAIChannel {
     private var decoder: InmoOpusDecoder?
     private var generation = 0
     private var active = false
+    var hasOpenChat: Bool { active || InmoSession.shared.status.module == 4 }
+
+    /// Generic phone media tools must not escape to Shortcuts for glasses music.
+    static func routeMedia(_ skill: String, _ args: [String: Any]) async throws -> [String: Any]? {
+        guard skill == "media_control" || skill == "run_shortcut" else { return nil }
+        guard let route = GlassesMusicRoute.resolve(skill: skill, args: args,
+            connected: InmoSession.shared.isReady, chatOpen: shared.hasOpenChat) else { return nil }
+        if route == .rejectShortcut {
+            throw SkillError.failed("Do not use media Shortcuts for the INMO glasses. To resume music, invoke glasses_resume_music; playback stays inside the phone app.")
+        }
+        guard !SkillRegistry.shared.disabled.contains("glasses_resume_music") else {
+            throw SkillError.failed("glasses_resume_music is disabled by user")
+        }
+        var result = try await DeviceRegistry.shared.invoke(skill: "glasses_resume_music", args: [:])
+        result["via"] = "glasses_native"
+        return result
+    }
     private var poll: Task<Void, Never>?
     private var pending: [Data] = []
     private let defaults: UserDefaults
     private var restored = false
+    private let musicResume = InmoMusicResume()
     static let enabledPreference = "inmo.jarvisAI.enabled"
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
@@ -31,6 +49,20 @@ final class InmoAIChannel {
             if defaults.bool(forKey: Self.enabledPreference) {
                 Task { await self.setEnabled(true) }
             }
+        }
+        device.featureHandlers["glasses_resume_music"] = { [self, weak device] _ in
+            guard let device else { throw InmoProtocolError.unavailable("Glasses device unavailable") }
+            let session = device.session
+            let tapped = try await musicResume.run(dismissChat: {
+                let chatOpen = self.active || session.status.module == 4
+                // Stop the renderer and release voice audio before remote keys.
+                // Keep the user's voice-wake preference enabled.
+                await self.cancel(closeModule: false)
+                if chatOpen { try await session.send(InmoCommand.closeModule(4)) }
+            }, send: { try await session.send($0) })
+            InmoRuntimeDiagnostics.note("music resume sequence sent side_tap=\(tapped)")
+            return ["state": "sent", "command": "glasses_resume_music", "confirmed": false,
+                    "side_tap_sent": tapped]
         }
         device.featureHandlers["glasses_show_transcription"] = { args in
             let (text, final) = try Self.renderArguments(args)
@@ -118,6 +150,8 @@ final class InmoAIChannel {
         do {
             if type == 15, let app = try fields.firstField(18)?.nested(),
                app.firstField(1)?.varint == 4 {
+                // Late module echoes must not restart chat during the exit gesture.
+                guard !musicResume.isRunning else { return }
                 InmoRuntimeDiagnostics.note("AI module event action=\(app.firstField(2)?.varint ?? 0)")
                 let opening = (app.firstField(2)?.varint ?? 0) == 0
                 if opening && active { return }

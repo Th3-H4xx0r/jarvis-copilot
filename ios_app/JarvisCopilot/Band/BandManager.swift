@@ -411,6 +411,9 @@ final class BandManager: NSObject, ObservableObject {
         stopScan()
         guard !holdsLinkForWorkout else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
+        // Measuring managed by the phone: its schedule needs the band there in the background
+        // (the link was dropped here, and nothing was measured until the app was opened again).
+        guard measureScheduler.plan.control != .phone else { return }
         guard connected != nil else { return }
         // A reading under way finishes first: an ECG cut off loses the band's analysis (his
         // 21:54 run stopped at 83% when the app was switched away).
