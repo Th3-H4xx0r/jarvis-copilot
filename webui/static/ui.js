@@ -5506,6 +5506,8 @@ function renderMessages(options){
       requestAnimationFrame(()=>postProcessRenderedMessages(inner));
       if(typeof _initMediaPlaybackObserver==='function') _initMediaPlaybackObserver();
       if(typeof loadTodos==='function'&&document.getElementById('panelTodos')&&document.getElementById('panelTodos').classList.contains('active')){loadTodos();}
+      // Background job cards in the cached HTML show old clocks: redraw them.
+      if(window.HarnessJobs) HarnessJobs.refresh();
       return;
     }
   }
@@ -6141,6 +6143,16 @@ function renderMessages(options){
         for(let i=fragments.length-1;i>=0;i--) targetFoot.insertBefore(fragments[i], targetFoot.firstChild);
       }
       placeAnsweredBy();
+    }
+  }
+  // Agent harness: a Background job this reply started draws as a card under
+  // it (live step, clock, Stop; one line once it ends) — harness_jobs.js.
+  if(window.HarnessJobs){
+    for(const [mi,seg] of assistantSegments){
+      const jobs=(S.messages[mi]||{})._meta&&S.messages[mi]._meta.jobs;
+      if(!Array.isArray(jobs)||!jobs.length) continue;
+      const row=seg?seg.closest('.assistant-turn'):null;
+      if(row) HarnessJobs.renderInto(row, jobs, sid);
     }
   }
   // Only force-scroll when not actively streaming — mid-stream re-renders

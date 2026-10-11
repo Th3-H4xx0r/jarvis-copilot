@@ -3560,6 +3560,97 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* Background job cards under the reply that started them (harness_jobs.js). */
+.harness-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 2px;
+  max-width: var(--msg-max);
+}
+.harness-job {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.harness-job-running {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+.harness-job-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: harness-job-pulse 1.4s ease-in-out infinite;
+}
+@keyframes harness-job-pulse {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .harness-job-dot { animation: none; }
+}
+.harness-job-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.harness-job-title,
+.harness-job-detail,
+.harness-job-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.harness-job-title b {
+  font-weight: 600;
+}
+.harness-job-model,
+.harness-job-detail {
+  color: var(--muted);
+}
+.harness-job-detail {
+  margin-top: 2px;
+}
+.harness-job-clock {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.harness-job-stop {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.harness-job-stop:hover:not(:disabled) {
+  border-color: var(--error);
+  color: var(--error);
+}
+.harness-job-stop:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.harness-job-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+}
+.harness-job-done .harness-job-icon { color: var(--success); }
+.harness-job-failed .harness-job-icon,
+.harness-job-lost .harness-job-icon { color: var(--error); }
 /* Background / review replies: their own turn with a teal side edge. */
 .assistant-turn.harness-side .assistant-turn-blocks {
   border-left: 2px solid var(--info);

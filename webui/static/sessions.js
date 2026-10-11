@@ -3860,6 +3860,11 @@ function startSessionEventsSSE(sid){
         const d = JSON.parse(ev.data || '{}');
         if(d.error) console.warn('[mirror] snapshot reported', d.error, 'for', sid);
         _mirrorMaybeAttach(sid, d.active_stream_id);
+        // (Re)connected: job events may have been missed meanwhile — ask where
+        // this chat's background job cards stand (harness_jobs.js).
+        if(window.HarnessJobs && (S.messages||[]).some(m => m && m._meta && Array.isArray(m._meta.jobs) && m._meta.jobs.length)){
+          HarnessJobs.catchUp(sid);
+        }
       }catch(e){ console.warn('[mirror] bad snapshot frame', e); }
     });
 
@@ -3903,6 +3908,15 @@ function startSessionEventsSSE(sid){
         if(typeof renderMessages === 'function') renderMessages({preserveScroll:true});
         if(follow && typeof scrollToBottom === 'function') scrollToBottom();
       }catch(e){ console.warn('[mirror] bad harness_result frame', e); }
+    });
+
+    // A harness Background job changed (started, next step, ended): update its
+    // card under the reply that started it (harness_jobs.js).
+    es.addEventListener('harness_job', ev => {
+      try{
+        const d = JSON.parse(ev.data || '{}');
+        if(d.job && window.HarnessJobs) HarnessJobs.apply(d.session_id, d.job);
+      }catch(e){ console.warn('[mirror] bad harness_job frame', e); }
     });
 
     // We fell far enough behind that the server dropped events for us. Anything

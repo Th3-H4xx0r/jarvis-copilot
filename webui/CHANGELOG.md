@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Background job cards** — when a harness Background node takes a job (an `always` wire after a quick Kickoff reply, or a hand-off), the chat shows a card under the reply that started it: the node's label and model, what it is doing right now ("Searching the web · step 6"), a running clock and a **Stop** button. When the job ends the card collapses to one line — "Long Running · finished in 4m 12s · 18 steps", "couldn't finish", "stopped after 2m 10s", or "stopped when the server restarted" — and the result posts below it as before. Same card on the iPhone. Cards are stored on the reply (`_meta.jobs`), live changes go out as `harness_job` session events, `GET /api/harnesses/jobs/<session>` catches a chat up and `POST /api/harnesses/jobs/<session>/<job>/stop` stops one (nothing is posted or spoken for a stopped job).
+
 - **Auto-compact settings** — Settings → Conversation → **Auto-compact** (and the iOS app's Settings → Auto-compact) set when long chats get summarized: on/off, a share of the current model's window (10–95%), and an optional token cap. The readout names the trigger for the model you're on ("Compacts at 500,000 of 1,000,000 tokens for claude-sonnet-5-5"). Backed by `GET/PUT /api/compression/config` (`compression.enabled` / `threshold` / `max_context_tokens`). A save also moves the trigger on the agents already running for that profile, from their next turn, without touching the prompt cache.
 
 ### Changed
