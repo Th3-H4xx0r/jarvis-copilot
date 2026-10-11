@@ -147,6 +147,71 @@
     }).filter(g => g.options.length);
   }
 
+  // ── Route labels ──────────────────────────────────────────────────────────
+  const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+
+  // What a label means ('' when unset; never an inherited key like "constructor").
+  function labelNote(node, label) {
+    const notes = node && node.label_descriptions;
+    return own(notes, label) ? String(notes[label] || '') : '';
+  }
+
+  // Every name a Route already uses: its labels, its rules' labels, its wires.
+  function takenLabels(doc, node) {
+    const wired = doc.edges.filter(e => e.from === node.id && String(e.when || '').startsWith('label:'))
+      .map(e => e.when.slice(6));
+    return new Set([...(node.labels || []), ...(node.rules || []).map(r => r.label), ...wired]);
+  }
+
+  // Rename a Route's label, carrying its description, its rules and this
+  // Route's `label:` wires. A blank or already-used name is refused (false).
+  function renameLabel(doc, id, old, name) {
+    const node = nodeById(doc, id);
+    const labels = (node && node.labels) || [];
+    const i = labels.indexOf(old);
+    const v = String(name || '').trim();
+    if (i < 0) return false;
+    if (v === old) return true;
+    if (!v || takenLabels(doc, node).has(v)) return false;
+    labels[i] = v;
+    if (own(node.label_descriptions, old)) {
+      node.label_descriptions[v] = node.label_descriptions[old];
+      delete node.label_descriptions[old];
+    }
+    (node.rules || []).forEach(r => { if (r.label === old) r.label = v; });
+    doc.edges.forEach(e => { if (e.from === id && e.when === `label:${old}`) e.when = `label:${v}`; });
+    return true;
+  }
+
+  // Add the next free `path-N` label (the name a new wire's label gets too).
+  function addLabel(doc, id) {
+    const node = nodeById(doc, id);
+    if (!node) return null;
+    node.labels = node.labels || [];
+    const taken = takenLabels(doc, node);
+    let k = node.labels.length + 1;
+    while (taken.has(`path-${k}`)) k++;
+    node.labels.push(`path-${k}`);
+    return `path-${k}`;
+  }
+
+  function removeLabel(doc, id, index) {
+    const node = nodeById(doc, id);
+    if (!node || !node.labels) return;
+    const [gone] = node.labels.splice(index, 1);
+    if (own(node.label_descriptions, gone)) delete node.label_descriptions[gone];
+    if (node.label_descriptions && !Object.keys(node.label_descriptions).length) delete node.label_descriptions;
+  }
+
+  // Set what a label means; blank text clears it (an empty map is dropped).
+  function describeLabel(doc, id, label, text) {
+    const node = nodeById(doc, id);
+    if (!node) return;
+    const notes = Object.assign({}, node.label_descriptions || {});
+    if (String(text || '').trim()) notes[label] = text; else delete notes[label];
+    if (Object.keys(notes).length) node.label_descriptions = notes; else delete node.label_descriptions;
+  }
+
   // api/models decision_models -> one "Decision models" group for a Route's router picker.
   function decisionOptions(list) {
     const options = (Array.isArray(list) ? list : []).filter(m => m && m.id).map(m => ({
@@ -158,5 +223,6 @@
   return {
     newHarness, addNode, removeNode, connect, disconnect, moveNode, duplicate, defaultsFor,
     nextWhen, edgeLabel, toDesign, problemsFor, slug, uniqueId, modelOptions, decisionOptions,
+    labelNote, renameLabel, addLabel, removeLabel, describeLabel,
   };
 });

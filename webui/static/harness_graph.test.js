@@ -152,3 +152,65 @@ test('decisionOptions lists decision models in their own group', () => {
     options: [{ value: '@celeris:celeris-1-decision', label: 'Celeris 1 Decision · Celeris' }] }]);
   assert.deepEqual(G.decisionOptions(undefined), []);
 });
+
+function routeDoc() {
+  return {
+    id: 'h', name: 'H', nodes: [
+      { id: 'in', type: 'message' },
+      { id: 'r', type: 'route', by: 'rules', labels: ['deep', 'quick'],
+        label_descriptions: { deep: 'needs research' },
+        rules: [{ match: 'keywords', value: 'code', label: 'deep' }, { match: 'regex', value: 'x', label: 'other' }] },
+      { id: 'a', type: 'answer' }, { id: 'b', type: 'answer' }, { id: 'r2', type: 'route', labels: ['deep'] }],
+    edges: [{ from: 'in', to: 'r', when: 'always' }, { from: 'r', to: 'a', when: 'label:deep' },
+      { from: 'r', to: 'b', when: 'default' }, { from: 'r2', to: 'a', when: 'label:deep' }],
+  };
+}
+
+test('renameLabel carries the description, the wires and the rules of that Route only', () => {
+  const d = routeDoc();
+  assert.equal(G.renameLabel(d, 'r', 'deep', ' research '), true);
+  const r = d.nodes[1];
+  assert.deepEqual(r.labels, ['research', 'quick']);
+  assert.deepEqual(r.label_descriptions, { research: 'needs research' });
+  assert.equal(r.rules[0].label, 'research');
+  assert.equal(r.rules[1].label, 'other');
+  assert.equal(d.edges[1].when, 'label:research');
+  assert.equal(d.edges[3].when, 'label:deep');  // another Route's wire is untouched
+  assert.deepEqual(d.nodes[4].labels, ['deep']);
+});
+
+test('renameLabel refuses blank and taken names (rule labels count as taken)', () => {
+  const d = routeDoc();
+  assert.equal(G.renameLabel(d, 'r', 'deep', '  '), false);
+  assert.equal(G.renameLabel(d, 'r', 'deep', 'quick'), false);
+  assert.equal(G.renameLabel(d, 'r', 'deep', 'other'), false);
+  assert.equal(G.renameLabel(d, 'r', 'deep', 'deep'), true);
+  assert.deepEqual(d.nodes[1].labels, ['deep', 'quick']);
+});
+
+test('addLabel skips names used by labels, rules and wires', () => {
+  const d = routeDoc();
+  d.nodes[1].labels = ['path-2'];
+  d.edges.push({ from: 'r', to: 'b', when: 'label:path-3' });
+  assert.equal(G.addLabel(d, 'r'), 'path-4');
+  assert.deepEqual(d.nodes[1].labels, ['path-2', 'path-4']);
+});
+
+test('removeLabel drops the label and its description', () => {
+  const d = routeDoc();
+  G.removeLabel(d, 'r', 0);
+  assert.deepEqual(d.nodes[1].labels, ['quick']);
+  assert.equal(d.nodes[1].label_descriptions, undefined);
+});
+
+test('describeLabel and labelNote use own keys only', () => {
+  const d = routeDoc();
+  const r = d.nodes[1];
+  assert.equal(G.labelNote(r, 'constructor'), '');
+  assert.equal(G.labelNote(r, 'deep'), 'needs research');
+  G.describeLabel(d, 'r', 'quick', 'small talk');
+  assert.deepEqual(r.label_descriptions, { deep: 'needs research', quick: 'small talk' });
+  G.describeLabel(d, 'r', 'deep', '  ');
+  G.describeLabel(d, 'r', 'quick', '');
+  assert.equal(r.label_descriptions, undefined);
+});

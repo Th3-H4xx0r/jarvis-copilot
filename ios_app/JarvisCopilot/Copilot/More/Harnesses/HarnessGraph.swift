@@ -111,19 +111,24 @@ enum HarnessGraph {
 
     // MARK: Route labels
 
-    /// Renames a Route's label, carrying its description and every `label:<old>`
-    /// wire out of the Route along. A blank name, or one another label already has
-    /// (the two would then share their wires for good), is refused: false.
+    /// Renames a Route's label, carrying its description, its rules and every
+    /// `label:<old>` wire out of the Route along. A blank name, or one another label
+    /// or rule already has (the two would then share their wires for good), is refused: false.
     @discardableResult
     static func renameLabel(_ h: inout AgentHarness, node id: String, from old: String, to name: String) -> Bool {
         guard let i = h.nodes.firstIndex(where: { $0.id == id }),
               let labels = h.nodes[i].labels, let index = labels.firstIndex(of: old) else { return false }
         let new = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if new == old { return true }
-        if new.isEmpty || labels.contains(new) { return false }
+        let ruleLabels = (h.nodes[i].rules ?? []).map(\.label)
+        if new.isEmpty || labels.contains(new) || ruleLabels.contains(new) { return false }
         h.nodes[i].labels?[index] = new
         if let note = h.nodes[i].labelDescriptions?.removeValue(forKey: old) {
             h.nodes[i].labelDescriptions?[new] = note
+        }
+        // A rules Route picks the wire its rule names, so the rules move too.
+        for r in (h.nodes[i].rules ?? []).indices where h.nodes[i].rules?[r].label == old {
+            h.nodes[i].rules?[r].label = new
         }
         for e in h.edges.indices where h.edges[e].from == id && h.edges[e].when == "label:\(old)" {
             h.edges[e].when = "label:\(new)"
@@ -144,7 +149,8 @@ enum HarnessGraph {
         return "path-\(n)"
     }
 
-    /// Removes labels and their descriptions. Their wires stay, for the server to flag.
+    /// Removes labels and their descriptions. Their wires stay (a model router can no
+    /// longer pick them; delete the wire too if it should go).
     static func removeLabels(_ h: inout AgentHarness, node id: String, at offsets: IndexSet) {
         guard let i = h.nodes.firstIndex(where: { $0.id == id }), let all = h.nodes[i].labels else { return }
         let gone = all.indices.filter { offsets.contains($0) }.map { all[$0] }

@@ -326,6 +326,10 @@
     };
     svg.addEventListener('pointerdown', ev => {
       if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      // A half-edited panel field commits on blur (its change event) — let it
+      // land on the node it belongs to before the selection moves.
+      const focused = document.activeElement;
+      if (focused && focused.closest && focused.closest('#harnessSidePanel')) focused.blur();
       const p = toCanvas(ev);
       const port = ev.target.closest('[data-port-out]');
       const nodeEl = ev.target.closest('[data-node]');
@@ -485,10 +489,9 @@
         opt('rules', 'Rules', n.by) + opt('model', 'A model', n.by) + '</select>'));
       if (n.by === 'model') rows.push(fieldRow('Router model', modelField('model', n.model, false, E.decisions)));
       // Each label can say what it means — the router model picks against that.
-      const notes = n.label_descriptions || {};
       const labelRows = (n.labels || []).map((l, i) => `<div class="harness-rule harness-label-row" data-label-row="${i}">
           <input class="harness-input" data-label-field="name" value="${esc(l)}" placeholder="label">
-          <input class="harness-input" data-label-field="note" value="${esc(notes[l] || '')}" placeholder="what it means (optional)">
+          <input class="harness-input" data-label-field="note" value="${esc(HarnessGraph.labelNote(n, l))}" placeholder="what it means (optional)">
           ${E.readOnly ? '' : '<button type="button" class="harness-btn icon" data-label-del aria-label="Remove label">×</button>'}
         </div>`).join('');
       rows.push(`<div class="harness-field"><span>Labels${n.by === 'model' ? ' (the router picks one — say what each means)' : ''}</span>` +
@@ -587,26 +590,13 @@
       else r[f] = el.value;
     } else if (n && el.dataset.labelField) {
       const row = el.closest('[data-label-row]');
-      const labels = n.labels || [];
-      const old = labels[Number(row && row.dataset.labelRow)];
+      const old = (n.labels || [])[Number(row && row.dataset.labelRow)];
       if (old == null) return;
-      if (el.dataset.labelField === 'note') {
-        n.label_descriptions = n.label_descriptions || {};
-        if (el.value.trim()) n.label_descriptions[old] = el.value; else delete n.label_descriptions[old];
-        if (!Object.keys(n.label_descriptions).length) delete n.label_descriptions;
-      } else {
-        // A rename carries the description and this Route's wires with it; a
-        // blank or taken name snaps back.
-        const v = el.value.trim();
-        if (!v || v === old || labels.includes(v)) { el.value = old; return; }
-        labels[labels.indexOf(old)] = v;
-        if (n.label_descriptions && old in n.label_descriptions) {
-          n.label_descriptions[v] = n.label_descriptions[old];
-          delete n.label_descriptions[old];
-        }
-        E.doc.edges.forEach(ed => { if (ed.from === n.id && ed.when === `label:${old}`) ed.when = `label:${v}`; });
-        rerenderPanel = true;
-      }
+      if (el.dataset.labelField === 'note') HarnessGraph.describeLabel(E.doc, n.id, old, el.value);
+      // A rename carries the description, rules and this Route's wires; a blank
+      // or taken name snaps back. No panel re-render: the input already shows it.
+      else if (HarnessGraph.renameLabel(E.doc, n.id, old, el.value)) el.value = el.value.trim();
+      else { el.value = old; return; }
     } else if (e && (el.hasAttribute('data-when-kind') || el.hasAttribute('data-when-value'))) {
       const panel = $id('harnessSidePanel');
       const kind = panel.querySelector('[data-when-kind]').value;
@@ -640,20 +630,13 @@
       return;
     }
     if (n && ev.target.closest('[data-label-add]')) {
-      n.labels = n.labels || [];
-      let k = n.labels.length + 1;
-      while (n.labels.includes(`path-${k}`)) k++;
-      n.labels.push(`path-${k}`);
+      HarnessGraph.addLabel(E.doc, n.id);
       markDirty(); drawCanvas(); renderPanel();
       return;
     }
     const ldel = ev.target.closest('[data-label-del]');
     if (n && ldel) {
-      const [gone] = (n.labels || []).splice(Number(ldel.closest('[data-label-row]').dataset.labelRow), 1);
-      if (n.label_descriptions) {
-        delete n.label_descriptions[gone];
-        if (!Object.keys(n.label_descriptions).length) delete n.label_descriptions;
-      }
+      HarnessGraph.removeLabel(E.doc, n.id, Number(ldel.closest('[data-label-row]').dataset.labelRow));
       markDirty(); drawCanvas(); renderPanel();
       return;
     }
@@ -752,7 +735,9 @@
       if (E.view !== 'edit') return;
       // Text fields apply as you type; selects/numbers settle on change.
       const el = ev.target;
-      if (el.dataset.labelField === 'name') return;  // a rename rewires — settle on change
+      // A rename rewires, so it settles on change; mark the harness dirty now so
+      // the header isn't rebuilt under the click that ends the edit (Save).
+      if (el.dataset.labelField === 'name') { if (!E.readOnly) markDirty(); return; }
       if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'number')) onPanelField(ev);
     });
     window.addEventListener('resize', () => { if (E.view === 'edit' && E.gesture == null) applyTransform(); });

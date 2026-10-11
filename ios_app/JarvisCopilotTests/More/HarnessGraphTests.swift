@@ -90,6 +90,21 @@ final class HarnessGraphTests: XCTestCase {
         XCTAssertEqual(h.edges.first?.when, "label:deep")
     }
 
+    /// A rules Route picks the wire matching the rule's label, so a rename that
+    /// moved the wire but not the rule would send that message down the default wire.
+    func testRenameLabelCarriesTheRulesUsingIt() {
+        var (h, r, a) = routeHarness()
+        let i = h.nodes.firstIndex { $0.id == r }!
+        h.nodes[i].labels = ["deep"]
+        h.nodes[i].rules = [HarnessRule(match: "keywords", value: .string("code"), label: "deep"),
+                            HarnessRule(match: "regex", value: .string("x"), label: "other")]
+        _ = HarnessGraph.connect(&h, from: r, to: a, when: "label:deep")
+        XCTAssertFalse(HarnessGraph.renameLabel(&h, node: r, from: "deep", to: "other"), "a rule already uses it")
+        XCTAssertTrue(HarnessGraph.renameLabel(&h, node: r, from: "deep", to: "research"))
+        XCTAssertEqual(h.nodes[i].rules?.map(\.label), ["research", "other"])
+        XCTAssertEqual(h.edges.first?.when, "label:research")
+    }
+
     /// A model router only picks among the Route's labels, so a label made up
     /// for a new wire has to join them.
     func testWiringARouteRemembersTheLabelItMadeUp() {
