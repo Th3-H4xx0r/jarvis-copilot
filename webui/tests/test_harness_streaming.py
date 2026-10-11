@@ -125,3 +125,13 @@ def test_saved_reasoning_drops_a_trailing_copy_of_the_answer():
     assert _reasoning_without_answer("Add 2 and 2.", "The answer is 4.") == "Add 2 and 2."
     assert _reasoning_without_answer("Thinking", "") == "Thinking"
     assert _reasoning_without_answer("x", [{"type": "text", "text": "x"}]) == "x"
+
+
+def test_the_handoff_rule_survives_the_turn_context_rebuild():
+    """The turn's context is rebuilt after the hand-off block; the rule must be
+    in that final assignment, or fast nodes never see it."""
+    src = (Path(__file__).resolve().parents[1] / "api" / "streaming.py").read_text()
+    last = src.rindex("agent._turn_user_context = _collect_turn_context(")
+    final = src[last:src.index(")\n", last)]
+    assert "_handoff_rule" in final
+    assert "_handoff_rule = HANDOFF_RULE" in src

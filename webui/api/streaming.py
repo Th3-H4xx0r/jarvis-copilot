@@ -4190,6 +4190,7 @@ def _run_agent_streaming(
             # is the same every turn). This node is wired to a Background node, so it gets
             # the `handoff` tool (same list every turn → the prompt prefix holds)
             # and the turn binds where the job goes.
+            _handoff_rule = ""
             if _harness_plan is not None and _harness_plan.handoff_node:
                 try:
                     import agent.escalation as _esc  # registers the handoff tool
@@ -4206,8 +4207,8 @@ def _run_agent_streaming(
                         escalation_model=_harness_plan.handoff_node.get("model"),
                         question=msg_text, auto_handoff_after=_esc.AUTO_HANDOFF_AFTER,
                         **_job_node(_harness_plan.handoff_node))
-                    agent._turn_user_context = _collect_turn_context(
-                        getattr(agent, "_turn_user_context", ""), HANDOFF_RULE)
+                    # Rides this turn's context (set below with the node's notes).
+                    _handoff_rule = HANDOFF_RULE
                 except Exception:
                     logger.warning("harness: hand-off tool not attached", exc_info=True)
             _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
@@ -4259,7 +4260,7 @@ def _run_agent_streaming(
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
             agent._turn_user_context = _collect_turn_context(
-                _harness_plan.instructions if _harness_plan else "",
+                _harness_plan.instructions if _harness_plan else "", _handoff_rule,
                 _voice_directive, _origin_directive, _setup_directive)
             _turn_started_wall = time.time()
             _turn_handed_off = False
