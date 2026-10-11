@@ -12,7 +12,6 @@ import os
 import shutil
 import socket
 import subprocess
-import tempfile
 import time
 from typing import Dict, Optional
 
@@ -59,12 +58,11 @@ def start(key: str) -> Dict[str, object]:
     if not exe:
         raise RuntimeError("Lightpanda is not installed")
     port = _free_port()
-    log = tempfile.NamedTemporaryFile(prefix="lightpanda-", suffix=".log", delete=False)
     proc = subprocess.Popen(
         [exe, "serve", "--host", "127.0.0.1", "--port", str(port)],
-        stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+        start_new_session=True,
     )
-    log.close()
     deadline = time.monotonic() + _START_TIMEOUT_S
     while time.monotonic() < deadline:
         if proc.poll() is not None:

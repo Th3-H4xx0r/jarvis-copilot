@@ -130,3 +130,39 @@ def test_the_agent_can_ask_for_chrome_on_a_page_that_looks_incomplete():
         bt._apply_engine_request("https://fine.example/", None)
         assert bt._navigation_session_key("t7", "https://fine.example/") == "t7"
     assert "engine" in bt._BROWSER_SCHEMA_MAP["browser_navigate"]["parameters"]["properties"]
+
+
+def test_a_bad_ref_on_lightpanda_is_not_an_engine_failure():
+    """A stale ref fails the same on any engine: no Chrome switch, no 14-day memory."""
+    assert bt._lightpanda_fallback_reason("lightpanda", "click", {"success": False, "error": "no element e99"}) is None
+    assert bt._lightpanda_fallback_reason("lightpanda", "fill", {"success": False, "error": "x"}) is None
+    assert bt._lightpanda_fallback_reason("lightpanda", "open", {"success": False, "error": "net::ERR"})
+    assert bt._lightpanda_fallback_reason("lightpanda", "snapshot", {"success": True, "data": {"snapshot": ""}})
+
+
+def test_the_page_url_survives_a_lightpanda_crash():
+    bt._active_sessions["t8"] = {"session_name": "h", "engine": "lightpanda", "cdp_url": "http://127.0.0.1:1",
+                                 "last_url": "https://heavy.example/results"}
+    calls = []
+
+    def fake(key, command, args=None, timeout=None, _engine_override=None):
+        calls.append((key, command, list(args or [])))
+        if command == "eval":
+            return {"success": False, "error": "CDP connection closed"}
+        return {"success": True, "data": {"snapshot": "- ok"}}
+
+    with _lightpanda_engine(), patch.object(bt, "_run_browser_command", fake):
+        out = bt._switch_task_to_chrome("t8", "snapshot", [], 30, "Lightpanda crashed")
+    assert ("t8::chrome", "open", ["https://heavy.example/results"]) in calls and out.get("success")
+
+
+def test_the_idle_reaper_leaves_a_live_chrome_session_alone(monkeypatch):
+    import time as _t
+    reaped = []
+    monkeypatch.setattr(bt, "_cleanup_single_browser_session", lambda key: reaped.append(key))
+    bt._active_sessions["t9"] = {"session_name": "a", "engine": "lightpanda"}
+    bt._active_sessions["t9::chrome"] = {"session_name": "b", "engine": "chrome"}
+    bt._last_active_session_key["t9"] = "t9::chrome"
+    monkeypatch.setattr(bt, "_session_last_activity", {"t9": _t.time() - 10_000, "t9::chrome": _t.time()})
+    bt._cleanup_inactive_browser_sessions()
+    assert reaped == ["t9"] and bt._last_active_session_key.get("t9") == "t9::chrome"

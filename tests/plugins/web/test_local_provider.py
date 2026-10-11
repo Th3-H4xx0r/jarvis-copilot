@@ -387,3 +387,41 @@ class TestDispatcher:
         [r] = out["results"]
         assert r["content"] == ""
         assert "stealth browser crashed" in r["error"]
+
+
+# ── review fixes: the browser tier ───────────────────────────────────────────
+
+def test_browser_tier_reads_the_session_the_page_opened_in(monkeypatch):
+    import json as _json
+    import tools.browser_tool as bt
+    from plugins.web.local import provider as prov
+    seen = []
+    monkeypatch.setattr(bt, "browser_navigate", lambda url, task_id=None, engine=None: _json.dumps(
+        {"success": True, "url": url, "title": "T"}))
+    monkeypatch.setattr(bt, "_last_session_key", lambda tid: f"{tid}::chrome")
+    monkeypatch.setattr(bt, "_run_browser_command", lambda key, cmd, args=None, timeout=None, _engine_override=None:
+                        seen.append(key) or {"success": True, "data": {"result": _json.dumps(
+                            {"html": "<p>x</p>", "text": "x", "href": "https://www.google.com/travel/flights"})}})
+    monkeypatch.setattr(bt, "cleanup_browser", lambda tid: None)
+    prov._browser_read("https://www.google.com/travel/flights")
+    assert seen and seen[0].endswith("::chrome")
+
+
+def test_browser_tier_reports_where_the_page_really_ended_up(monkeypatch):
+    import json as _json
+    import tools.browser_tool as bt
+    from plugins.web.local import provider as prov
+    monkeypatch.setattr(bt, "browser_navigate", lambda url, task_id=None, engine=None: _json.dumps(
+        {"success": True, "url": url, "title": "T"}))
+    monkeypatch.setattr(bt, "_last_session_key", lambda tid: tid)
+    monkeypatch.setattr(bt, "_run_browser_command", lambda *a, **k: {"success": True, "data": {"result": _json.dumps(
+        {"html": "<p>secret</p>", "text": "secret", "href": "http://127.0.0.1:8787/admin"})}})
+    monkeypatch.setattr(bt, "cleanup_browser", lambda tid: None)
+    page = prov._browser_read("https://evil.example/")
+    assert page["url"] == "http://127.0.0.1:8787/admin"     # _judge then refuses the private address
+
+
+def test_browser_and_stealth_slots_are_shared_across_calls():
+    from plugins.web.local import provider as prov
+    assert isinstance(prov._BROWSER_SLOT, type(prov._STEALTH_SLOT))
+    assert prov._BROWSER_SLOT is not prov._STEALTH_SLOT

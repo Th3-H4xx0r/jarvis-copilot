@@ -713,8 +713,10 @@ def _lightpanda_fallback_reason(engine: str, command: str, result: Dict[str, Any
     # Only retry commands where Chrome can meaningfully produce a different
     # result. Session-management commands (close, record) are tied to the
     # engine's daemon and can't be retried on a different engine.
-    _FALLBACK_ELIGIBLE = {"open", "snapshot", "screenshot", "eval", "click",
-                          "fill", "scroll", "back", "press", "console", "errors"}
+    # Only engine-shaped failures: a page that won't open or renders empty. A
+    # click/fill on a stale ref fails the same on any engine — replaying it on
+    # Chrome (where Lightpanda's refs don't exist) would only add confusion.
+    _FALLBACK_ELIGIBLE = {"open", "snapshot", "screenshot"}
     if command not in _FALLBACK_ELIGIBLE:
         return None
 
@@ -813,12 +815,17 @@ def _switch_task_to_chrome(
                                           timeout=10, _engine_override="auto")
         url = str((url_result.get("data") or {}).get("result") or "").strip().strip('"').strip("'") \
             if url_result.get("success") else ""
+        if not url.startswith(("http://", "https://")):
+            # Lightpanda crashed: the last page this session opened.
+            url = str((_active_sessions.get(session_key) or {}).get("last_url") or "")
     if not url.startswith(("http://", "https://")):
         return {"success": False, "error": f"{reason} Chrome could not take over: the page URL is unknown."}
     remember_chrome(url, reason)
     opened = _run_browser_command(chrome_key, "open", [url], timeout=timeout)
     if opened.get("success"):
         _last_active_session_key[bare] = chrome_key
+        if chrome_key in _active_sessions:
+            _active_sessions[chrome_key]["last_url"] = url
     result = opened if command == "open" or not opened.get("success") else \
         _run_browser_command(chrome_key, command, args, timeout=timeout)
     return _annotate_lightpanda_fallback(result, reason)
@@ -1313,7 +1320,15 @@ def _cleanup_inactive_browser_sessions():
         try:
             elapsed = int(current_time - _session_last_activity.get(task_id, current_time))
             logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
-            cleanup_browser(task_id)
+            # Reap only the idle session itself: a task that moved to its Chrome
+            # (or local) sidecar keeps that live session.
+            _cleanup_single_browser_session(task_id)
+            bare = _bare_task_id(task_id)
+            with _cleanup_lock:
+                live_sidecar = any(k in _active_sessions for k in
+                                   (bare, f"{bare}{_LOCAL_SUFFIX}", f"{bare}{_CHROME_SUFFIX}"))
+            if not live_sidecar:
+                _last_active_session_key.pop(bare, None)
             with _cleanup_lock:
                 if task_id in _session_last_activity:
                     del _session_last_activity[task_id]
@@ -1568,7 +1583,7 @@ BROWSER_TOOL_SCHEMAS = [
     },
     {
         "name": "browser_run",
-        "description": "Run several browser steps in ONE call — e.g. open a page, fill a field, press Enter, wait for results, extract the data — instead of one call per action. Stops at the first step that fails and returns where the page is. Steps: {action:'open', url} · {action:'click', ref} · {action:'fill', ref, text} · {action:'press', key} · {action:'scroll', direction} · {action:'back'} · {action:'wait_for', text|selector|load|ms} · {action:'extract', instruction, schema?}. Refs come from a previous snapshot.",
+        "description": "Run several browser steps in ONE call — e.g. open a page, fill a field, press Enter, wait for results, extract the data — instead of one call per action. Stops at the first step that fails and returns where the page is. Steps: {action:'open', url} · {action:'click', ref} · {action:'fill', ref, text} · {action:'press', key} · {action:'scroll', direction} · {action:'back'} · {action:'wait_for', text|selector|load|ms} · {action:'extract', instruction, schema?}. 'ref' is a ref from the current page's snapshot (e.g. @e12) or a CSS selector; for steps after an 'open' inside the same run, use CSS selectors (the new page's refs aren't known yet).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2503,12 +2518,19 @@ def browser_navigate(url: str, task_id: Optional[str] = None, engine: Optional[s
         _maybe_start_recording(nav_session_key)
 
     _ensure_light_loads(nav_session_key)
+    pointer_before = _last_active_session_key.get(effective_task_id)
     result = _run_browser_command(nav_session_key, "open", [url], timeout=max(_get_command_timeout(), 60))
+    # A Lightpanda failure during this open moved the task to its Chrome session.
+    switched_to_chrome = (_last_active_session_key.get(effective_task_id) != pointer_before
+                          and _is_chrome_sidecar_key(_last_active_session_key.get(effective_task_id, "")))
+    if result.get("success") and not switched_to_chrome:
+        session_info["last_url"] = url
 
     # Remember which session served this nav so snapshot/click/fill/...
     # on the same task_id hit it (critical when hybrid routing has both a
     # cloud session and a local sidecar alive concurrently).
-    _last_active_session_key[effective_task_id] = nav_session_key
+    if not switched_to_chrome:
+        _last_active_session_key[effective_task_id] = nav_session_key
 
     if result.get("success"):
         data = result.get("data", {})

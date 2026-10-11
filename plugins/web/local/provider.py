@@ -74,8 +74,14 @@ _TEXT_TYPES = ("text/plain", "text/markdown", "json")
 _BROWSER_READ_JS = (
     "JSON.stringify({"
     "html: document.documentElement ? document.documentElement.outerHTML : '',"
-    "text: document.body ? document.body.innerText : ''})"
+    "text: document.body ? document.body.innerText : '',"
+    "href: location.href})"
 )
+# One browser-rendered read and one stealth browser at a time on the whole server
+# (Chromium ~300-500 MB, the stealth browser more) — shared by every call, so
+# parallel web_search/web_extract calls can't stack browsers inside the webui's cap.
+_BROWSER_SLOT = threading.BoundedSemaphore(1)
+_STEALTH_SLOT = threading.BoundedSemaphore(1)
 
 Page = Dict[str, Any]
 PageFn = Callable[[str], Page]
@@ -158,11 +164,16 @@ def _browser_read(url: str) -> Page:
         if not nav.get("success"):
             return {"status": None, "url": url, "html": "", "error": nav.get("error") or "navigation failed"}
         final_url = nav.get("url") or url
-        res = browser_tool._run_browser_command(task_id, "eval", [_BROWSER_READ_JS])
+        # The session the page actually opened in (a site may run on the task's
+        # Chrome session rather than its Lightpanda one).
+        res = browser_tool._run_browser_command(browser_tool._last_session_key(task_id), "eval", [_BROWSER_READ_JS])
         if not res.get("success"):
             return {"status": None, "url": final_url, "html": "",
                     "error": res.get("error") or "could not read the rendered page"}
         payload = _decode_eval_result((res.get("data") or {}).get("result"))
+        # Where the page really ended up (it may have redirected itself after
+        # load): _judge refuses private/internal addresses.
+        final_url = str(payload.get("href") or final_url)
         html = str(payload.get("html") or "")
         text = str(payload.get("text") or "")
         # browser_navigate flags challenge-looking titles. A long readable page
@@ -337,7 +348,7 @@ class LocalWebProvider(WebSearchProvider):
         t0 = time.monotonic()
         # One browser-based tier at a time per call keeps memory in check on a
         # small server (Chromium is ~300-500 MB per live session).
-        browser_slot = threading.BoundedSemaphore(1)
+        browser_slot = _BROWSER_SLOT
         results: List[Optional[Dict[str, Any]]] = [None] * len(urls)
         pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=min(MAX_WORKERS, len(urls)), thread_name_prefix="web-local"
@@ -379,7 +390,7 @@ class LocalWebProvider(WebSearchProvider):
                 if tier == "fetch":
                     page = tiers[tier](url)
                 else:
-                    with browser_slot:
+                    with (_STEALTH_SLOT if tier == "stealth" else browser_slot):
                         page = tiers[tier](url)
             except Exception as exc:  # noqa: BLE001 — a failing tier escalates to the next
                 page = {"status": None, "url": url, "html": "", "error": f"{type(exc).__name__}: {exc}"}

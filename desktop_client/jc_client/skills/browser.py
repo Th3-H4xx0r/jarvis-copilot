@@ -49,11 +49,11 @@ def _act_then_snapshot(action: str, args: dict) -> dict:
 
 @skill(
     "chrome_navigate",
-    "Open a URL in the user's REAL, visible Chrome on their Mac (Playwright, "
+    "Open a URL in the user's real, visible Chrome on their Mac (Playwright, "
     "their logged-in session). Returns a size-capped accessibility snapshot of "
     "the page with clickable refs (e.g. e47) — you do NOT need a separate "
-    "chrome_snapshot afterward. Use this — NOT open_url — whenever you then need "
-    "to read or click the page.",
+    "chrome_snapshot afterward. ONLY when the user explicitly asks to use their "
+    "own Mac or browser; research and browsing otherwise run headless on the server.",
     {"type": "object",
      "properties": {"url": {"type": "string", "description": "URL to open"}},
      "required": ["url"]},
