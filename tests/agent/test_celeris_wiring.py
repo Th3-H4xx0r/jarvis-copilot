@@ -66,3 +66,18 @@ def test_agent_client_gets_model_url():
                     quiet_mode=True, enabled_toolsets=[], skip_context_files=True, skip_memory=True)
     assert agent.base_url == "https://inference.celeris.ai/celeris-1-magnus/v1"
     assert str(agent.client.base_url).rstrip("/") == "https://inference.celeris.ai/celeris-1-magnus/v1"
+
+
+def test_rejected_key_message_is_the_providers_words():
+    """The OpenAI SDK's APIStatusError.body is the inner error object, so the
+    message must come from body["message"], not str(error)."""
+    import httpx
+    import openai
+    from agent.error_classifier import classify_api_error
+    req = httpx.Request("POST", "https://inference.celeris.ai/celeris-1/v1/chat/completions")
+    body = {"error": {"message": "Invalid or missing API key.", "type": "authentication_error"}}
+    err = openai.AuthenticationError("Error code: 401 - " + str(body), response=httpx.Response(401, request=req, json=body),
+                                     body=body["error"])
+    c = classify_api_error(err, provider="celeris", model="celeris-1")
+    assert "Invalid or missing API key." in c.message
+    assert "Error code: 401" not in c.message

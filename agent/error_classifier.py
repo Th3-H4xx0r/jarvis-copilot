@@ -453,7 +453,8 @@ def classify_api_error(
                  }.get((provider or "").strip().lower())
     if status_code == 401 and _rejected:
         missing, vendor, env_var = _rejected
-        err = body.get("error") if isinstance(body, dict) else None
+        # The OpenAI SDK's body is already the inner error object; others wrap it.
+        err = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), dict) else body
         detail = (err.get("message") if isinstance(err, dict) else "") or str(error)[:160]
         return ClassifiedError(
             reason=FailoverReason.missing_credential,
