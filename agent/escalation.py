@@ -419,9 +419,12 @@ def _run_job(job_id: str, runner: Callable[[dict], str]) -> None:
     with _lock:
         record = _jobs.get(job_id)
         if record is not None:
-            record["status"] = status
+            # A runner that already settled its job (stopped, or failed and said
+            # so itself) keeps that status.
+            if record.get("status") not in ("stopped", "failed"):
+                record["status"] = status
             record["text"] = text
-            record["completed_at"] = completed
+            record["completed_at"] = record.get("completed_at") or completed
         session_id = (record or job).get("session_id")
 
     logger.info(json.dumps({
@@ -497,6 +500,16 @@ def get_job(job_id: str) -> Optional[dict]:
 def get_jobs(session_id: str) -> List[dict]:
     with _lock:
         return [dict(j) for j in _jobs.values() if j["session_id"] == session_id]
+
+
+def update_job(job_id: Optional[str], **fields: Any) -> Optional[dict]:
+    """Merge ``fields`` into a job's registry entry; a copy of it, or None."""
+    with _lock:
+        job = _jobs.get(job_id) if job_id else None
+        if job is None:
+            return None
+        job.update(fields)
+        return dict(job)
 
 
 def _prune_jobs_locked() -> None:

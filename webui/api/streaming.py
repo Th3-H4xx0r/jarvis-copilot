@@ -4194,7 +4194,7 @@ def _run_agent_streaming(
                 try:
                     import agent.escalation as _esc  # registers the handoff tool
                     from tools.registry import registry as _reg
-                    from api.harness_runner import background_runner as _bg_runner
+                    from api.harness_runner import background_runner as _bg_runner, job_node as _job_node
                     if "handoff" not in (getattr(agent, "valid_tool_names", None) or set()):
                         _hs = _reg.get_definitions({"handoff"})
                         if _hs:
@@ -4204,7 +4204,8 @@ def _run_agent_streaming(
                         session_id, session_id=session_id,
                         runner=_bg_runner(_harness_plan.handoff_node, session_id),
                         escalation_model=_harness_plan.handoff_node.get("model"),
-                        question=msg_text, auto_handoff_after=_esc.AUTO_HANDOFF_AFTER)
+                        question=msg_text, auto_handoff_after=_esc.AUTO_HANDOFF_AFTER,
+                        **_job_node(_harness_plan.handoff_node))
                     agent._turn_user_context = _collect_turn_context(
                         getattr(agent, "_turn_user_context", ""), HANDOFF_RULE)
                 except Exception:
@@ -5181,24 +5182,25 @@ def _run_agent_streaming(
                 logger.debug("Goal continuation hook failed for session %s: %s", session_id, _goal_exc)
             raw_session = s.compact() | {'messages': s.messages, 'tool_calls': tool_calls}
             if _harness_plan is not None:
-                _final_text = ''
                 _dm = _last_turn_assistant(s.messages)
-                if _dm is not None:
-                    if _dm.get('_meta'):
-                        put('turn_meta', _dm['_meta'])
-                    _final_text = str(_dm.get('content') or '')
-                if _harness_plan.after and not cancel_event.is_set():
+                _final_text = str(_dm.get('content') or '') if _dm is not None else ''
+                if not cancel_event.is_set():
+                    # Jobs wired after the answer start now; every Background job of
+                    # this turn (after-jobs and hand-offs) becomes a card on its reply
+                    # before turn_meta goes out, so the live client shows it at once.
                     try:
-                        from api.harness_runner import start_after_jobs
+                        from api.harness_runner import start_turn_jobs
                         _after_tools = sum(
                             1 for _tm in (result.get('messages') or [])[len(_previous_context_messages):]
                             if isinstance(_tm, dict) and _tm.get('role') == 'tool')
-                        start_after_jobs(_harness_plan, session_id=session_id, question=msg_text,
-                                         answer=_final_text,
-                                         elapsed_s=time.time() - _turn_started_wall,
-                                         tool_count=_after_tools)
+                        start_turn_jobs(_harness_plan, s, _dm, session_id=session_id, question=msg_text,
+                                        answer=_final_text,
+                                        elapsed_s=time.time() - _turn_started_wall,
+                                        tool_count=_after_tools, since=_turn_started_wall)
                     except Exception:
                         logger.warning("harness: after-jobs failed to start", exc_info=True)
+                if _dm is not None and _dm.get('_meta'):
+                    put('turn_meta', _dm['_meta'])
             # The last messages only (clients page older ones via msg_before), and
             # redacted after the cut: the whole transcript went out every turn.
             _done = bounded_journal_payload('done', {'session': raw_session, 'usage': usage})

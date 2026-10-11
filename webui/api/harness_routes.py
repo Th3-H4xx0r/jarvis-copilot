@@ -9,6 +9,8 @@ The webui server has no ``do_PUT``, so the API is GET/POST/DELETE only::
     POST   /designs/<id>/delete        -> {ok} | 404          (alias for DELETE)
     DELETE /designs/<id>               -> {ok} | 404
     POST   /assign {surface, harness_id} -> {ok, assignments} | 400
+    GET    /jobs/<session_id>          -> {jobs: [card]}   (Background job cards)
+    POST   /jobs/<session_id>/<job_id>/stop -> {ok} | 404
 """
 from __future__ import annotations
 
@@ -17,6 +19,8 @@ import re
 HARNESS_PATH_PREFIX = "/api/harnesses"
 _RE_DESIGN = re.compile(r"^/designs/([A-Za-z0-9_-]+)$")
 _RE_DELETE = re.compile(r"^/designs/([A-Za-z0-9_-]+)/delete$")
+_RE_JOBS = re.compile(r"^/jobs/([A-Za-z0-9_-]+)$")
+_RE_JOB_STOP = re.compile(r"^/jobs/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)/stop$")
 
 
 def _delete(store, hid):
@@ -30,6 +34,14 @@ def handle_harness_request(method, path, body, store):
     p = (path or "").split("?", 1)[0].rstrip("/")
     if method == "GET" and p == "":
         return 200, store.snapshot()
+    if method == "GET" and _RE_JOBS.match(p):
+        from api.harness_runner import session_job_cards
+        return 200, {"jobs": session_job_cards(_RE_JOBS.match(p).group(1))}
+    if method == "POST" and _RE_JOB_STOP.match(p):
+        from api.harness_runner import stop_job
+        if stop_job(*_RE_JOB_STOP.match(p).groups()):
+            return 200, {"ok": True}
+        return 404, {"ok": False, "error": "no running job with that id in this chat"}
     if method == "DELETE":
         m = _RE_DESIGN.match(p)
         if m:

@@ -319,13 +319,226 @@ def deliver_result(session_id, *, node, kind, text, ms, error=None):
     return message
 
 
-def _run_hidden_turn(node, session_id, summary):
+# ── the job card ─────────────────────────────────────────────────────────────
+# A Background job shows in the chat as a card under the reply that started it
+# (``_meta.jobs`` on that message): its node, live step, elapsed time and a Stop
+# button, collapsing to one line when it ends. Live changes go out as
+# ``harness_job`` session events; GET /api/harnesses/jobs/<session> catches a
+# client up. Card statuses: running · done · failed · stopped.
+
+_TOOL_ACTIVITY = {
+    "web_search": "Searching the web", "web_extract": "Reading web pages",
+    "terminal": "Running a command", "process": "Checking a process",
+    "read_file": "Reading files", "write_file": "Writing a file", "patch": "Editing a file",
+    "search_files": "Searching files", "execute_code": "Running code",
+    "delegate_task": "Working with helpers", "session_search": "Searching past chats",
+    "memory": "Saving to memory", "vision_analyze": "Looking at an image",
+    "image_generate": "Making an image", "text_to_speech": "Making audio",
+    "send_message": "Sending a message", "cronjob": "Scheduling a job", "todo": "Updating the plan",
+    "skill_view": "Using a skill", "skills_list": "Using a skill", "skill_manage": "Using a skill",
+    "tool_search": "Finding a tool", "clarify": "Asking you",
+}
+_BROWSER_PREFIXES = ("browser_", "chrome_")
+
+
+def tool_activity(name):
+    """What a tool call reads as on the card: "Searching the web"."""
+    n = str(name or "").strip()
+    if not n:
+        return "Working"
+    if n in _TOOL_ACTIVITY:
+        return _TOOL_ACTIVITY[n]
+    if n.startswith(_BROWSER_PREFIXES):
+        return "Using the browser"
+    return "Using " + n.replace("_", " ")
+
+
+def job_card(job):
+    """The card fields of an ``agent.escalation`` job."""
+    parent = job.get("parent") or {}
+    return {"id": job.get("job_id") or "", "node": parent.get("node_id") or "",
+            "label": parent.get("node_label") or "Background", "model": job.get("model") or "",
+            "status": job.get("status") or "running", "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"), "steps": int(job.get("steps") or 0),
+            "activity": job.get("activity") or "", "stopping": bool(job.get("stop_requested"))}
+
+
+def _background_jobs(session_id):
+    from agent import escalation
+    return [j for j in escalation.get_jobs(session_id)
+            if (j.get("parent") or {}).get("kind") == "background"]
+
+
+def _live_job_cards(session_id):
+    return [job_card(j) for j in sorted(_background_jobs(session_id),
+                                        key=lambda j: j.get("started_at") or 0)]
+
+
+def session_job_cards(session_id):
+    """Catch-up: where every job card of a chat stands — the jobs the server is
+    running or just ran, plus the cards stored on the chat's replies (an ended
+    one as stored; a stored running one the server no longer has is "lost": it
+    was cut short by a restart). Clients take this as the answer."""
+    cards = {c["id"]: c for c in _live_job_cards(session_id)}
+    try:
+        messages = getattr(_load_session(session_id), "messages", None) or []
+    except Exception:
+        messages = []
+    for m in messages:
+        for j in ((m.get("_meta") or {}).get("jobs") or []) if isinstance(m, dict) else []:
+            if isinstance(j, dict) and j.get("id") and j["id"] not in cards:
+                c = dict(j)
+                if c.get("status") == "running":
+                    c["status"] = "lost"
+                cards[c["id"]] = c
+    return sorted(cards.values(), key=lambda c: c.get("started_at") or 0)
+
+
+def turn_job_cards(session_id, since):
+    """Cards for the Background jobs a turn started (hand-offs), oldest first."""
+    return [c for c in _live_job_cards(session_id) if float(c["started_at"] or 0) >= since]
+
+
+def _publish_job(session_id, card):
+    try:
+        from api.session_events import SESSION_EVENTS
+        SESSION_EVENTS.publish(session_id, "harness_job", {"session_id": session_id, "job": card})
+    except Exception:
+        logger.debug("harness_job publish failed", exc_info=True)
+
+
+def attach_job_cards(session, message, cards):
+    """Put job cards on the reply that started them (once each) and save.
+
+    Each card is re-read from the registry under the session lock: a job that
+    ended before its card landed (its own save found nothing to update) is
+    stored as ended, not running."""
+    if not cards:
+        return
+    from agent import escalation
+    sid = session.session_id
+    with _session_lock(sid):
+        fresh = []
+        for c in cards:
+            job = escalation.get_job(c["id"])
+            if job and job.get("session_id") != sid:
+                # Compression gave the chat a new id mid-turn: the job's events,
+                # result and Stop follow the card to it.
+                job = escalation.update_job(c["id"], session_id=sid)
+            fresh.append(job_card(job) if job else dict(c))
+        jobs = message.setdefault("_meta", {}).setdefault("jobs", [])
+        known = {j.get("id") for j in jobs if isinstance(j, dict)}
+        jobs.extend(c for c in fresh if c["id"] not in known)
+        session.save()
+    for c in fresh:
+        _publish_job(session.session_id, c)
+
+
+def _persist_card(session_id, card):
+    """Update the stored card in place (a turn's writeback keeps the message
+    objects, so an in-place change survives a turn running at the same time)."""
+    with _session_lock(session_id):
+        s = _load_session(session_id)
+        for m in reversed(getattr(s, "messages", None) or []):
+            for entry in ((m.get("_meta") or {}).get("jobs") or []) if isinstance(m, dict) else []:
+                if isinstance(entry, dict) and entry.get("id") == card["id"]:
+                    entry.clear()
+                    entry.update(card)
+                    s.save()
+                    return True
+    return False
+
+
+def _record_job(session_id, job_id, **fields):
+    """Change a job in the registry and tell the devices; the new card or None."""
+    from agent import escalation
+    job = escalation.update_job(job_id, **fields)
+    if job is None:
+        return None
+    card = job_card(job)
+    _publish_job(job.get("session_id") or session_id, card)
+    return card
+
+
+def _job_session(job_id, session_id):
+    """The chat a job belongs to now (compression may have moved it)."""
+    from agent import escalation
+    job = escalation.get_job(job_id) if job_id else None
+    return (job or {}).get("session_id") or session_id
+
+
+def _stop_requested(job_id):
+    from agent import escalation
+    job = escalation.get_job(job_id) if job_id else None
+    return bool(job and job.get("stop_requested"))
+
+
+def _finish_job(session_id, job_id, status):
+    card = _record_job(session_id, job_id, status=status, completed_at=_time.time())
+    if card is not None:
+        try:
+            _persist_card(_job_session(job_id, session_id), card)
+        except Exception:
+            logger.warning("harness job card not saved", exc_info=True)
+
+
+_FINAL_EVENTS = ("stream_end", "done", "cancel", "apperror")
+
+
+def _watch_progress(q, session_id, job_id, stop=None):
+    """Follow a Background job's hidden stream: count tool calls and tell the
+    devices what it is doing, only when that changes."""
+    import queue as _queue
+    steps, activity = 0, ""
+    while not (stop is not None and stop.is_set()):
+        try:
+            event, data = q.get(timeout=0.5)
+        except _queue.Empty:
+            continue
+        if event in _FINAL_EVENTS:
+            return
+        data = data if isinstance(data, dict) else {}
+        new_steps, new_activity = steps, activity
+        if event == "tool" and data.get("event_type") in (None, "tool.started"):
+            new_steps, new_activity = steps + 1, tool_activity(data.get("name"))
+        elif event == "reasoning" and not activity:
+            new_activity = "Thinking"
+        elif event == "token" and (steps or activity == "Thinking"):
+            new_activity = "Writing the reply"
+        if (new_steps, new_activity) != (steps, activity):
+            steps, activity = new_steps, new_activity
+            _record_job(session_id, job_id, steps=steps, activity=activity)
+
+
+def stop_job(session_id, job_id):
+    """Stop a running Background job of this chat (cancels its hidden turn)."""
+    from agent import escalation
+    job = escalation.get_job(job_id) if job_id else None
+    if (not job or job.get("session_id") != session_id or job.get("status") != "running"
+            or (job.get("parent") or {}).get("kind") != "background"):
+        return False
+    # Flag first, then read the stream id: a hidden turn registering its stream
+    # at the same moment either sees the flag or is seen here.
+    fresh = escalation.update_job(job_id, stop_requested=True) or job
+    _publish_job(session_id, job_card(fresh))
+    if fresh.get("stream_id"):
+        from api.streaming import cancel_stream
+        try:
+            cancel_stream(fresh["stream_id"])
+        except Exception:
+            logger.warning("harness job %s: cancel failed", job_id, exc_info=True)
+    return True
+
+
+def _run_hidden_turn(node, session_id, summary, job_id=None):
     """The node's model with the parent chat's full history, on a throwaway session."""
     import uuid as _uuid
     from api.config import (SESSION_DIR, STREAMS, STREAMS_LOCK, create_stream_channel,
                             split_provider_qualified_model)
     from api.models import Session, new_session
     from api.streaming import _run_agent_streaming
+    if _stop_requested(job_id):
+        return ""
     parent = Session.load(session_id)
     q = split_provider_qualified_model(node.get("model") or "")
     model, provider = node.get("model"), (q[0] if q else None)
@@ -339,10 +552,19 @@ def _run_hidden_turn(node, session_id, summary):
     hidden._turn_node_override = node   # its own tools + instructions, not Single's
     hidden.save()
     with STREAMS_LOCK:
-        STREAMS[stream_id] = create_stream_channel()
+        STREAMS[stream_id] = channel = create_stream_channel()
+    watching = threading.Event()
+    if job_id:
+        # The card's live step, and the stream its Stop button cancels.
+        from agent import escalation
+        escalation.update_job(job_id, stream_id=stream_id)
+        threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
+                         daemon=True, name=f"jc-harness-job-{job_id}").start()
     prompt = ("A faster model handed this over to you. Finish it fully with your tools, then reply "
               f"with the final answer for the user.\n\nHand-off note: {summary}")
     try:
+        if _stop_requested(job_id):
+            return ""
         _run_agent_streaming(hidden.session_id, prompt, model, parent.workspace, stream_id, None,
                              model_provider=provider)
         reloaded = Session.load(hidden.session_id)
@@ -358,6 +580,7 @@ def _run_hidden_turn(node, session_id, summary):
                     return content
         return ""
     finally:
+        watching.set()
         try:
             (SESSION_DIR / f"{hidden.session_id}.json").unlink(missing_ok=True)
         except Exception:
@@ -378,15 +601,28 @@ def _run_hidden_turn(node, session_id, summary):
 def background_runner(node, session_id):
     def _run(job):
         started = _time.time()
+        job_id = job.get("job_id")
         try:
-            text = _run_hidden_turn(node, session_id, job.get("summary") or job.get("reason") or "")
-            deliver_result(session_id, node=node, kind="background", text=text,
+            text = _run_hidden_turn(node, _job_session(job_id, session_id),
+                                    job.get("summary") or job.get("reason") or "", job_id=job_id)
+            sid = _job_session(job_id, session_id)
+            if _stop_requested(job_id):
+                # Stopped from the card: nothing is posted or spoken.
+                _finish_job(sid, job_id, "stopped")
+                return ""
+            deliver_result(sid, node=node, kind="background", text=text,
                            ms=(_time.time() - started) * 1000)
+            _finish_job(sid, job_id, "done")
         except Exception as exc:
+            sid = _job_session(job_id, session_id)
+            if _stop_requested(job_id):
+                _finish_job(sid, job_id, "stopped")
+                return ""
             logger.warning("harness background node %s failed", node.get("id"), exc_info=True)
             text = f"Couldn't finish: {exc}"
-            deliver_result(session_id, node=node, kind="background", text=text,
+            deliver_result(sid, node=node, kind="background", text=text,
                            ms=(_time.time() - started) * 1000, error=exc)
+            _finish_job(sid, job_id, "failed")
         # Returned text is what an open voice socket speaks.
         return text if node.get("deliver") == "speak_or_notify" else ""
     return _run
@@ -413,10 +649,28 @@ def review_runner(node, session_id, question, answer):
     return _run
 
 
+def job_node(node):
+    """What a job records about the node it runs (its card's label)."""
+    return {"node_id": node.get("id") or "", "node_label": node.get("label") or node.get("id") or "",
+            "kind": node.get("type") or ""}
+
+
 def _start_job(session_id, node, runner):
     from agent import escalation
     return escalation.start_escalation(session_id=session_id, reason=f"harness:{node.get('id')}",
-                                       summary="", model=node.get("model"), runner=runner)
+                                       summary="", model=node.get("model"), runner=runner,
+                                       parent=job_node(node))
+
+
+def start_turn_jobs(plan, session, message, *, session_id, question, answer, elapsed_s, tool_count,
+                    since):
+    """Start the jobs wired after the answer, then put every Background job
+    this turn started (after-jobs and hand-offs) on its reply as a card."""
+    if getattr(plan, "after", None):
+        start_after_jobs(plan, session_id=session_id, question=question, answer=answer,
+                         elapsed_s=elapsed_s, tool_count=tool_count)
+    if message is not None:
+        attach_job_cards(session, message, turn_job_cards(session_id, since))
 
 
 def start_after_jobs(plan, *, session_id, question, answer, elapsed_s, tool_count):
