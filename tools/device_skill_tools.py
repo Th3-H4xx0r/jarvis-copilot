@@ -429,12 +429,28 @@ def _resolve_device(args: dict, candidates: list[dict],
 
 # ── tool building ────────────────────────────────────────────────────────────
 
+def _device_offers(device_id: str, skill: str) -> bool:
+    """True when ``device_id`` advertises ``skill`` (only the Mac app offers chrome_*)."""
+    try:
+        from api import device_bridge
+        return any(e.get("device_id") == device_id and e.get("name") == skill
+                   for e in device_bridge.all_device_skills() if isinstance(e, dict))
+    except Exception:
+        return False
+
+
 def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     def _handler(args=None, **_kw):
         # task_id is the chat session id for webui turns.
         device_id, err = _resolve_device(args or {}, candidates, _origin_device(_kw.get("task_id")))
         if err:
             return json.dumps({"ok": False, "error": err})
+        # Opening a link on the user's Mac drives its browser: only when asked
+        # (the Mac is the device that offers the chrome skills).
+        if skill_name == "open_url" and _device_offers(device_id, "chrome_navigate"):
+            from agent.mac_browser_gate import allowed as _mac_allowed, BLOCK_MESSAGE
+            if not _mac_allowed(_kw.get("task_id")):
+                return json.dumps({"ok": False, "error": BLOCK_MESSAGE})
         call_args = dict(args or {})
         call_args.pop("device", None)
         call_args = _inline_outbound_media(call_args)

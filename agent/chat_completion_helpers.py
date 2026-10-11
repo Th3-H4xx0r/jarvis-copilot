@@ -69,10 +69,10 @@ logger = logging.getLogger(__name__)
 # idempotent, user-visible, and cheap to repeat if the turn is later abandoned.
 # Anything that writes files, spends money, sends a message, or spawns an agent
 # stays on the normal path (dispatched only after message_stop).
+# The user's Mac browser (chrome_*) is never started early: it runs only when the
+# turn asked for it (agent/mac_browser_gate.py), checked on the normal path.
 EAGER_DISPATCH_TOOLS = frozenset({
-    "open_app", "open_url", "notify", "vibrate",
-    "play_audio", "chrome_navigate", "chrome_new_tab", "chrome_activate_tab",
-    "chrome_snapshot", "chrome_screenshot",
+    "open_app", "open_url", "notify", "vibrate", "play_audio",
 })
 # Whole families that qualify (flashlight_on / flashlight_off / …). plan 2.4
 EAGER_DISPATCH_PREFIXES = ("flashlight_",)

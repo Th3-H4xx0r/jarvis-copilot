@@ -1481,6 +1481,13 @@ def _run_single_child(
 
         child_task_id = _subagent_id or f"subagent-{task_index}-{_uuid.uuid4().hex[:8]}"
         parent_task_id = getattr(parent_agent, "_current_task_id", None)
+        # The user's Mac browser: a subagent follows its parent turn's decision,
+        # never its own (model-written) goal text (agent/mac_browser_gate.py).
+        try:
+            from agent import mac_browser_gate
+            mac_browser_gate.pin(child_task_id, mac_browser_gate.allowed(parent_task_id))
+        except Exception:
+            logger.debug("mac browser gate: subagent not pinned", exc_info=True)
         wall_start = time.time()
         parent_reads_snapshot = (
             list(file_state.known_reads(parent_task_id)) if parent_task_id else []

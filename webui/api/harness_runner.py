@@ -581,7 +581,19 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         escalation.update_job(job_id, stream_id=stream_id)
         threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
                          daemon=True, name=f"jc-harness-job-{job_id}").start()
-    prompt = hidden_turn_prompt(summary, getattr(parent, "messages", None) or [])
+    # The current turn's message isn't in parent.messages until the turn ends.
+    pending = getattr(parent, "pending_user_message", None)
+    history = list(getattr(parent, "messages", None) or [])
+    if pending:
+        history.append({"role": "user", "content": pending})
+    prompt = hidden_turn_prompt(summary, history)
+    # The user's Mac browser: the background job follows the parent turn's
+    # decision, not the hand-off note's wording (agent/mac_browser_gate.py).
+    try:
+        from agent import mac_browser_gate
+        mac_browser_gate.pin(hidden.session_id, mac_browser_gate.allowed(session_id))
+    except Exception:
+        logger.debug("mac browser gate: hidden turn not pinned", exc_info=True)
     try:
         if _stop_requested(job_id):
             return ""

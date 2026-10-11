@@ -840,6 +840,14 @@ def eager_dispatch(
     """
     if not tool_call_id or not _eager_dispatch_is_safe():
         return False
+    # Never start a tool early that the turn's policy would refuse (the user's Mac
+    # browser without an explicit ask) — the normal path blocks it with a reason.
+    try:
+        from agent.mac_browser_gate import block_message as _mac_browser_block
+        if _mac_browser_block(function_name, task_id):
+            return False
+    except Exception:
+        return False
     with _eager_lock:
         if tool_call_id in _eager_futures:
             return False
