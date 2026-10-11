@@ -132,7 +132,9 @@ struct DashcamLibraryView: View {
     @State private var deleteTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(spacing: 14) {
+        // Lazy: 466 clips laid out (and their thumbnails fetched) all at once made scrolling crawl, and the
+        // "more" spinner counted as on screen at once, so every page loaded in a burst.
+        LazyVStack(spacing: 14) {
             filters
             if let note {
                 Text(note).font(.footnote).foregroundStyle(JcTheme.amber).padding(.horizontal, 20)
@@ -168,10 +170,17 @@ struct DashcamLibraryView: View {
                     }
                 }
             }
-            if model.canLoadMore || model.loading {
+            if let failed = model.moreError, model.next != nil, !model.loading {
+                Button { Task { await model.loadMore() } } label: {
+                    Label("Couldn't load more — try again", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.jcGlass(compact: true))
+                .padding(.horizontal, 20)
+                .accessibilityHint(failed)
+            } else if model.canLoadMore || model.loading {
                 // No button: reaching the end loads the next page, and the next, as the list grows.
                 ProgressView().padding()
-                    .task(id: model.clips.count) { if model.canLoadMore && !model.loading { await model.loadMore() } }
+                    .task(id: model.next ?? "") { await model.reachedEnd() }
             }
         }
         .navigationDestination(item: $openedID) { id in
@@ -200,13 +209,15 @@ struct DashcamLibraryView: View {
             // States move on their own (uploads, the relay to the cloud): keep the first page current.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
-                if !model.pagedBeyondFirst, sync.downloading != nil || sync.uploading != nil || sync.pendingUploads > 0 {
-                    await model.reload()
+                // Only while something moves: with clips held (Drive sign-in, no destination) "pending" never
+                // clears, and page 1 was refetched every 10 s for nothing.
+                if sync.downloading != nil || sync.uploading != nil {
+                    await model.refresh()
                 }
             }
         }
         .onChange(of: sync.lastSync) { _, _ in
-            if !model.pagedBeyondFirst { Task { await model.reload() } }
+            Task { await model.refresh() }
         }
         .alert("Delete from the camera?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } })) {
             Button("Delete", role: .destructive) {

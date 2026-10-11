@@ -61,6 +61,60 @@ final class DashcamUIModelTests: XCTestCase {
         XCTAssertEqual(sections.count, 2)
         XCTAssertEqual(sections.last?.title, "Yesterday")
     }
+
+    private func page(_ ids: Range<Int>, next: String?) -> [String: Any] {
+        ["clips": ids.map { ["id": "c_\($0)", "path": "/sd/\($0).ts", "start": Date(timeIntervalSince1970: 1_790_900_000 - Double($0) * 60).dashcamISO] },
+         "next": next as Any]
+    }
+
+    /// His list stopped at a spinner for good: a page that failed (or was skipped) was never asked for again.
+    @MainActor
+    func testAFailedPageOffersARetryAndTheRetryLoadsIt() async {
+        let (api, transport) = JarvisAPI.mocked()
+        let model = DashcamLibraryModel()
+        model.api = DashcamAPI(api: api)
+        transport.enqueue(json: page(0..<60, next: "c_59"))
+        await model.reload()
+        XCTAssertEqual(model.clips.count, 60)
+        transport.enqueue(MockTransport.Reply(status: 502, body: Data("<html>Bad gateway</html>".utf8)))
+        await model.reachedEnd()
+        XCTAssertNotNil(model.moreError, "the end shows a retry, not a spinner")
+        XCTAssertNil(model.error, "the list itself stays")
+        XCTAssertEqual(model.clips.count, 60)
+        await model.reachedEnd()
+        XCTAssertEqual(transport.requests.count, 2, "no silent retry loop")
+        transport.enqueue(json: page(60..<100, next: nil))
+        await model.loadMore()
+        XCTAssertNil(model.moreError)
+        XCTAssertEqual(model.clips.count, 100)
+        XCTAssertNil(model.next)
+        XCTAssertTrue(transport.requests.last?.url?.query?.contains("cursor=c_59") == true)
+    }
+
+    /// The 10 s refresh used to reset the list to page 1 under the reader.
+    @MainActor
+    func testRefreshKeepsLoadedPagesAndUpdatesRows() async {
+        let (api, transport) = JarvisAPI.mocked()
+        let model = DashcamLibraryModel()
+        model.api = DashcamAPI(api: api)
+        transport.enqueue(json: page(0..<60, next: "c_59"))
+        await model.reload()
+        transport.enqueue(json: page(60..<120, next: "c_119"))
+        await model.reachedEnd()
+        XCTAssertEqual(model.clips.count, 120)
+        var fresh = page(0..<60, next: "c_59")
+        var rows = fresh["clips"] as! [[String: Any]]
+        rows.insert(["id": "c_new", "path": "/sd/new.ts", "start": Date(timeIntervalSince1970: 1_790_900_600).dashcamISO], at: 0)
+        rows[1]["has_thumb"] = true
+        fresh["clips"] = rows
+        transport.enqueue(json: fresh)
+        await model.refresh()
+        XCTAssertEqual(model.clips.count, 121, "pages stay, the new clip joins")
+        XCTAssertEqual(model.clips.first?.id, "c_new")
+        XCTAssertEqual(model.clips.first { $0.id == "c_0" }?.hasThumb, true)
+        XCTAssertEqual(model.next, "c_119", "paging carries on from where it was")
+        XCTAssertEqual(model.sections.flatMap(\.clips).count, 121)
+    }
 }
 
 final class DashcamKnownNetworksTests: XCTestCase {

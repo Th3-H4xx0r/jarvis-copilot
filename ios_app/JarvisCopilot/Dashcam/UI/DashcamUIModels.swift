@@ -175,46 +175,90 @@ final class DashcamLibraryModel: ObservableObject {
 
     @Published var filter: Filter = .all { didSet { if filter != oldValue { Task { await reload() } } } }
     @Published var lens: DashcamLens? = nil { didSet { if lens != oldValue { Task { await reload() } } } }
-    @Published private(set) var clips: [DashcamServerClip] = []
+    @Published private(set) var clips: [DashcamServerClip] = [] {
+        didSet { sections = Self.sections(clips, calendar: .current, now: Date()) }
+    }
+    /// Grouped once per change — not on every redraw (the page redraws with each transfer tick).
+    @Published private(set) var sections: [Section] = []
     @Published private(set) var loading = false
     @Published private(set) var error: String?
-    private var next: String?
+    /// The next page failed: the end of the list offers a retry instead of spinning for good.
+    @Published private(set) var moreError: String?
+    /// Cursor of the next page; nil at the end.
+    @Published private(set) var next: String?
+    private var generation = 0
     var api = DashcamAPI()
+    static let pageSize = 60
 
     var canLoadMore: Bool { next != nil && !loading }
-    /// More than the first page is on screen: an automatic refresh would throw the reader back to the top.
-    var pagedBeyondFirst: Bool { clips.count > 60 }
 
     func reload() async {
+        generation += 1
         next = nil
+        moreError = nil
         await load(reset: true)
     }
 
     func loadMore() async {
         guard canLoadMore else { return }
+        moreError = nil
         await load(reset: false)
     }
 
+    /// The end of the list came into view: the next page, once whatever is loading has finished. (Skipping
+    /// while a refresh was in flight left the spinner there for good — nothing asked again.)
+    func reachedEnd() async {
+        while loading {
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return }
+        }
+        guard moreError == nil else { return }
+        await loadMore()
+    }
+
+    /// Keeps the list current without dropping pages already loaded (a reset threw the reader back to the
+    /// top): the newest page's rows replace theirs, and new clips go on top.
+    func refresh() async {
+        guard clips.count > Self.pageSize else { await reload(); return }
+        guard !loading else { return }
+        let gen = generation
+        loading = true
+        defer { loading = false }
+        var f = filter.apiFilter
+        f.lens = lens
+        guard let page = try? await api.clips(f, cursor: nil, limit: Self.pageSize), gen == generation else { return }
+        let fresh = Dictionary(page.clips.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let known = Set(clips.map(\.id))
+        clips = page.clips.filter { !known.contains($0.id) } + clips.map { fresh[$0.id] ?? $0 }
+    }
+
     private func load(reset: Bool) async {
+        let gen = generation
         loading = true
         defer { loading = false }
         var f = filter.apiFilter
         f.lens = lens
         do {
-            let page = try await api.clips(f, cursor: reset ? nil : next, limit: 60)
-            clips = reset ? page.clips : clips + page.clips.filter { c in !clips.contains { $0.id == c.id } }
+            let page = try await api.clips(f, cursor: reset ? nil : next, limit: Self.pageSize)
+            guard gen == generation else { return }        // a reload started meanwhile: this page is stale
+            if reset {
+                clips = page.clips
+            } else {
+                let known = Set(clips.map(\.id))
+                clips += page.clips.filter { !known.contains($0.id) }
+            }
             next = page.next
             error = nil
+        } catch where wasCancelled(error) {
+            // The end scrolled away or the page closed: it asks again when it comes back.
         } catch {
-            self.error = error.localizedDescription
+            if reset { self.error = error.localizedDescription } else { moreError = error.localizedDescription }
         }
     }
 
     func replace(_ clip: DashcamServerClip) {
         if let i = clips.firstIndex(where: { $0.id == clip.id }) { clips[i] = clip }
     }
-
-    var sections: [Section] { Self.sections(clips, calendar: .current, now: Date()) }
 
     /// Clips grouped by local day, newest first: "Today", "Yesterday", then the date.
     static func sections(_ clips: [DashcamServerClip], calendar: Calendar, now: Date) -> [Section] {
