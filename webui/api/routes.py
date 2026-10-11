@@ -3797,6 +3797,10 @@ def handle_get(handler, parsed) -> bool:
         from api.speech_config import handle_speech_get
         if handle_speech_get(handler, parsed):
             return True
+    if parsed.path.startswith("/api/compression/"):
+        from api.compression_config import handle_compression_get
+        if handle_compression_get(handler, parsed):
+            return True
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -4949,6 +4953,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path.startswith("/api/speech/"):
         from api.speech_config import handle_speech_post
         if handle_speech_post(handler, parsed, body):
+            return True
+    if parsed.path.startswith("/api/compression/"):
+        from api.compression_config import handle_compression_post
+        if handle_compression_post(handler, parsed, body):
             return True
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe
@@ -6885,6 +6893,10 @@ def handle_put(handler, parsed) -> bool:
     if parsed.path.startswith("/api/speech/"):
         from api.speech_config import handle_speech_put
         if handle_speech_put(handler, parsed, body):
+            return True
+    if parsed.path.startswith("/api/compression/"):
+        from api.compression_config import handle_compression_put
+        if handle_compression_put(handler, parsed, body):
             return True
     return False
 

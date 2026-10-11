@@ -4022,6 +4022,9 @@ def _run_agent_streaming(
                         agent._interrupt_message = None
                 else:
                     agent = _AIAgent(**_agent_kwargs)
+                    # Which profile built it: a settings save (e.g. the
+                    # auto-compact trigger) updates only that profile's agents.
+                    agent._webui_profile_home = _profile_home or ''
                     with SESSION_AGENT_CACHE_LOCK:
                         SESSION_AGENT_CACHE[_agent_cache_key] = (agent, _agent_sig)
                         SESSION_AGENT_CACHE.move_to_end(_agent_cache_key)  # LRU: mark as recently used

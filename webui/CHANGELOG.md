@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Auto-compact settings** — Settings → Conversation → **Auto-compact** (and the iOS app's Settings → Auto-compact) set when long chats get summarized: on/off, a share of the current model's window (10–95%), and an optional token cap. The readout names the trigger for the model you're on ("Compacts at 500,000 of 1,000,000 tokens for claude-sonnet-5-5"). Backed by `GET/PUT /api/compression/config` (`compression.enabled` / `threshold` / `max_context_tokens`). A save also moves the trigger on the agents already running for that profile, from their next turn, without touching the prompt cache.
+
+### Fixed
+
+- **Compaction at 64K on 1M-context models** — a hidden 64,000-token default cap (`compression.max_context_tokens`) clamped every model, so a large system prompt alone tripped compaction on the first tool round. The trigger is now the percentage of each model's own window (cap off by default). Compaction no longer fires when there's nothing outside the protected head/tail to summarize: it used to rotate the session and rebuild the system prompt anyway. Claude models on the `claude-code` provider now resolve to Anthropic's windows (1M for Sonnet/Opus 5.5) instead of 200K.
+
 - **Celeris provider + decision-model routers** — Celeris's `celeris-1` and `celeris-1-magnus` appear in every model picker (key: Settings → Providers → `CELERIS_API_KEY`). Decision models such as `celeris-1-decision` are listed apart (`/api/models` → `decision_models`) and can be a harness Route's Router model; Route labels take an optional description, and a routed reply shows `routed <label> <confidence>` on its details line.
 
 ## [v0.51.85] — 2026-05-17 — Release BI (stage-378 — 3-PR batch — workspace-prefix display leakage fix + release-tag update banner + Slice 3a cancel-control gate RFC)

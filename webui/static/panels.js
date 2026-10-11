@@ -6408,10 +6408,168 @@ function _speechDuration(seconds){
   return s < 3600 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' h';
 }
 
+// ── Auto-compact (context compression) ──────────────────────────────────────
+// compression.enabled / threshold / max_context_tokens over /api/compression/config
+// — the same settings the phone's Settings → Auto-compact edits. The readout is
+// for the model this chat is on; the server's reply is the truth after a save.
+
+let _compactionState = null;
+
+function _compactionModel(){
+  const model = (S.session && S.session.model) || ($('modelSelect') && $('modelSelect').value) || '';
+  const provider = (S.session && S.session.model_provider) || '';
+  return { model, provider };
+}
+
+// Mirrors compute_threshold_tokens() (agent/context_compressor.py) so the
+// readout moves while the slider is dragged, before anything is saved.
+function _compactionTrigger(ctx, pct, cap, limits){
+  const win = ctx > 0 ? ctx : limits.fallback_context_length;
+  let t = Math.min(Math.max(Math.floor(win * pct / 100), limits.floor_tokens),
+                   Math.floor(win * limits.max_percent / 100));
+  if (cap > 0) t = Math.min(t, cap);
+  return t;
+}
+
+function _compactionReadout(cfg, preview, limits){
+  if (!cfg.enabled) return 'Off — chats are never summarized, so a long one ends with a context-limit error when it fills the window.';
+  const fmt = n => Number(n || 0).toLocaleString();
+  const ctx = preview.context_length || 0;
+  const tokens = _compactionTrigger(ctx, cfg.threshold_percent, cfg.max_context_tokens, limits);
+  const name = preview.model || 'the default model';
+  let line = ctx
+    ? `Compacts at ${fmt(tokens)} of ${fmt(ctx)} tokens for ${name}`
+    : `Compacts at ${fmt(tokens)} tokens for ${name} (its window isn't known, so ${fmt(limits.fallback_context_length)} is assumed)`;
+  const win = ctx > 0 ? ctx : limits.fallback_context_length;
+  if (cfg.max_context_tokens > 0 && tokens === cfg.max_context_tokens) line += ' — held down by the token cap';
+  else if (tokens === limits.floor_tokens && Math.floor(win * cfg.threshold_percent / 100) < tokens) line += ` — never below ${fmt(limits.floor_tokens)}`;
+  return line + '.';
+}
+
+function _compactionStatus(text, color, sticky){
+  const el = $('compactionSettingsStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--fg-dim,#9aa3b2)';
+  if (el._fadeT) clearTimeout(el._fadeT);
+  if (!sticky) el._fadeT = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function loadCompactionSettings(){
+  const body = $('compactionSettingsBody');
+  if (!body) return;
+  const { model, provider } = _compactionModel();
+  const qs = new URLSearchParams();
+  if (model) qs.set('model', model);
+  if (provider) qs.set('provider', provider);
+  try {
+    _compactionState = await api('/api/compression/config' + (qs.toString() ? '?' + qs : ''));
+  } catch (e) {
+    body.innerHTML = '';
+    _compactionStatus('Could not load auto-compact settings: ' + (e && e.message || e), '#ff8080', true);
+    return;
+  }
+  _renderCompaction();
+}
+
+async function _compactionSave(patch){
+  const { model, provider } = _compactionModel();
+  try {
+    const res = await api('/api/compression/config', { method: 'PUT', body: JSON.stringify(Object.assign({ model, provider }, patch)) });
+    if (res && res.config) _compactionState = res;
+    _compactionStatus('Saved.', '#9be09b');
+    return true;
+  } catch (e) {
+    _compactionStatus('Not saved: ' + (e && e.message || e), '#ff8080', true);
+    return false;
+  }
+}
+
+function _renderCompaction(){
+  const body = $('compactionSettingsBody');
+  if (!body || !_compactionState) return;
+  const st = _compactionState;
+  const cfg = Object.assign({}, st.config);
+  const limits = st.limits;
+  body.innerHTML = '';
+
+  const toggleRow = _speechEl('label', 'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg,#e8eef6);cursor:pointer');
+  const toggle = _speechEl('input');
+  toggle.type = 'checkbox';
+  toggle.checked = !!cfg.enabled;
+  toggleRow.append(toggle, document.createTextNode('Compact long chats automatically'));
+
+  const pctRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const pctHead = _speechEl('div', 'display:flex;justify-content:space-between;align-items:baseline');
+  const pctValue = _speechEl('span', 'font-size:13px;font-weight:500;color:var(--fg,#e8eef6);font-variant-numeric:tabular-nums');
+  pctHead.append(_speechEl('label', _SPEECH_LABEL, 'Compact at this share of the window'), pctValue);
+  const slider = _speechEl('input', 'width:100%;accent-color:var(--accent,#7c9cff)');
+  slider.type = 'range';
+  slider.min = String(limits.min_percent);
+  slider.max = String(limits.max_percent);
+  slider.step = '1';
+  slider.value = String(cfg.threshold_percent);
+  pctRow.append(pctHead, slider);
+
+  const capRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const cap = _speechEl('input', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
+  cap.type = 'number';
+  cap.min = '0';
+  cap.step = '1000';
+  cap.inputMode = 'numeric';
+  cap.placeholder = 'No cap — percentage only';
+  cap.value = cfg.max_context_tokens > 0 ? String(cfg.max_context_tokens) : '';
+  capRow.append(_speechEl('label', _SPEECH_LABEL, 'Token cap (optional)'), cap,
+    _speechEl('div', _SPEECH_LABEL + ';opacity:0.8',
+      `Compact by this many tokens at the latest, whatever the window — bounds what a 1M-token model re-reads each step. Empty or 0 for none; otherwise at least ${Number(limits.min_cap_tokens).toLocaleString()}.`));
+
+  const readout = _speechEl('div', 'font-size:12px;color:var(--fg,#e8eef6);line-height:1.4');
+
+  const paint = () => {
+    pctValue.textContent = cfg.threshold_percent + '%';
+    readout.textContent = _compactionReadout(cfg, st.preview, limits);
+    slider.disabled = cap.disabled = !cfg.enabled;
+    pctRow.style.opacity = capRow.style.opacity = cfg.enabled ? '1' : '0.5';
+  };
+  const resync = () => {
+    Object.assign(cfg, _compactionState.config);
+    st.preview = _compactionState.preview;
+    toggle.checked = !!cfg.enabled;
+    slider.value = String(cfg.threshold_percent);
+    cap.value = cfg.max_context_tokens > 0 ? String(cfg.max_context_tokens) : '';
+    paint();
+  };
+
+  toggle.addEventListener('change', async () => {
+    cfg.enabled = toggle.checked;
+    paint();
+    await _compactionSave({ enabled: toggle.checked });
+    resync();
+  });
+  slider.addEventListener('input', () => { cfg.threshold_percent = Number(slider.value); paint(); });
+  slider.addEventListener('change', async () => {
+    await _compactionSave({ threshold_percent: Number(slider.value) });
+    resync();
+  });
+  cap.addEventListener('change', async () => {
+    const raw = cap.value.replace(/[\s,_]/g, '');
+    const n = raw === '' ? 0 : Math.round(Number(raw));
+    if (!Number.isFinite(n) || n < 0) { _compactionStatus('Enter a whole number of tokens, or leave it empty.', '#ff8080', true); resync(); return; }
+    cfg.max_context_tokens = n;
+    paint();
+    await _compactionSave({ max_context_tokens: n });
+    resync();
+  });
+
+  body.append(toggleRow, pctRow, capRow, readout);
+  paint();
+}
+
 async function loadSettingsPanel(){
   loadPersonalityPicker();
   loadVoiceProvidersSettings();
   loadSpeechSettings();
+  loadCompactionSettings();
   try{
     const settings=await api('/api/settings');
     // Populate the version badges from the server — keeps them in sync with git
