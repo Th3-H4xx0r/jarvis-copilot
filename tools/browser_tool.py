@@ -1554,6 +1554,19 @@ BROWSER_TOOL_SCHEMAS = [
         }
     },
     {
+        "name": "browser_extract",
+        "description": "Get structured data from a web page as JSON in one step — prices, listings, tables, search results, details. Pass url to open it first, or omit it to use the current page. Describe what you want in instruction, and optionally give a JSON Schema in schema. Much faster and cheaper than reading snapshots yourself: the page is read for you and only the JSON comes back.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "description": "What to extract, e.g. 'every flight: airline, depart/arrive times, stops, price'."},
+                "url": {"type": "string", "description": "Optional page to open first; omit to use the current page."},
+                "schema": {"type": "object", "description": "Optional JSON Schema the result must match (top-level type and required fields are checked)."}
+            },
+            "required": ["instruction"]
+        }
+    },
+    {
         "name": "browser_click",
         "description": "Click on an element identified by its ref ID from the snapshot (e.g., '@e5'). The ref IDs are shown in square brackets in the snapshot output. Requires browser_navigate and browser_snapshot to be called first.",
         "parameters": {
@@ -2648,6 +2661,98 @@ def browser_snapshot(
             "error": result.get("error", "Failed to get snapshot")
         }
         return json.dumps(_copy_fallback_warning(response, result), ensure_ascii=False)
+
+
+_EXTRACT_PAGE_CHARS = 30000
+
+
+def _parse_json_reply(text: str) -> Any:
+    """The JSON in a model reply (plain, fenced, or the first {...}/[...] in prose)."""
+    t = str(text or "").strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else ""
+        t = t.rsplit("```", 1)[0]
+    try:
+        return json.loads(t)
+    except ValueError:
+        pass
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start, end = t.find(open_ch), t.rfind(close_ch)
+        if 0 <= start < end:
+            try:
+                return json.loads(t[start:end + 1])
+            except ValueError:
+                continue
+    raise ValueError("no JSON in the reply")
+
+
+def _schema_problem(data: Any, schema: Optional[Dict[str, Any]]) -> Optional[str]:
+    """A short reason ``data`` doesn't fit the top level of ``schema`` (type + required)."""
+    if not isinstance(schema, dict):
+        return None if isinstance(data, (dict, list)) else "expected a JSON object or array"
+    want = schema.get("type")
+    if want == "object" and not isinstance(data, dict):
+        return "expected a JSON object"
+    if want == "array" and not isinstance(data, list):
+        return "expected a JSON array"
+    if isinstance(data, dict):
+        missing = [k for k in schema.get("required") or [] if k not in data]
+        if missing:
+            return f"missing required field(s): {', '.join(missing)}"
+    return None
+
+
+def browser_extract(instruction: str, url: Optional[str] = None, schema: Optional[Dict[str, Any]] = None,
+                    task_id: Optional[str] = None) -> str:
+    """Read the page (``url`` or the current one) and return the data asked for as
+    JSON, from one call to the extraction model (Settings → Web & browser)."""
+    started = time.monotonic()
+    effective_task_id = task_id or "default"
+    if url:
+        nav = json.loads(browser_navigate(url, task_id=task_id))
+        if not nav.get("success"):
+            return json.dumps({"success": False, "error": nav.get("error") or f"could not open {url}"})
+    session_key = _last_session_key(effective_task_id)
+    snap = _run_browser_command(session_key, "snapshot", ["-c"])
+    page = str((snap.get("data") or {}).get("snapshot") or "") if snap.get("success") else ""
+    if not page.strip():
+        return json.dumps({"success": False,
+                           "error": snap.get("error") or "No page is open yet — open one first (pass url)."})
+    here = _run_browser_command(session_key, "eval", ["window.location.href"], timeout=10)
+    source_url = str((here.get("data") or {}).get("result") or url or "").strip().strip('"')
+    from agent.redact import redact_sensitive_text
+    page = redact_sensitive_text(page[:_EXTRACT_PAGE_CHARS])
+    from agent import extract_model
+    picked = extract_model.resolve(instruction, len(page))
+    shape = (f"Return JSON matching this JSON Schema:\n{json.dumps(schema)}" if schema
+             else "Return a JSON object (or array) with exactly the data asked for.")
+    messages = [{"role": "user", "content": (
+        "You extract data from a web page for an agent. Use only what the page shows; "
+        "do not invent values. " + shape + " Reply with JSON only.\n\n"
+        f"What to extract: {instruction}\n\nPage ({source_url}):\n{page}")}]
+    from agent.auxiliary_client import call_llm
+    problem = "no reply"
+    for _attempt in range(2):
+        kwargs = {"task": "web_extract", "messages": messages, "max_tokens": 4000, "temperature": 0}
+        if picked:
+            kwargs["provider"], kwargs["model"] = picked
+        try:
+            reply = call_llm(**kwargs)
+            text = (reply.choices[0].message.content or "").strip()
+        except Exception as e:
+            return json.dumps({"success": False, "error": f"Extraction model failed: {e}"})
+        try:
+            data = _parse_json_reply(text)
+            problem = _schema_problem(data, schema)
+        except ValueError as e:
+            problem = str(e)
+        if not problem:
+            engine = (_active_sessions.get(session_key) or {}).get("engine") or _get_browser_engine()
+            return json.dumps({"success": True, "data": data, "source_url": source_url, "engine": engine,
+                               "ms": int((time.monotonic() - started) * 1000)}, ensure_ascii=False)
+        messages = messages + [{"role": "assistant", "content": text[:2000]},
+                               {"role": "user", "content": f"That reply was not usable ({problem}). Reply with valid JSON only."}]
+    return json.dumps({"success": False, "error": f"The extraction model's reply was not usable: {problem}"})
 
 
 def browser_click(ref: str, task_id: Optional[str] = None) -> str:
@@ -3822,6 +3927,15 @@ registry.register(
                                                 engine=args.get("engine")),
     check_fn=check_browser_requirements,
     emoji="🌐",
+)
+registry.register(
+    name="browser_extract",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_extract"],
+    handler=lambda args, **kw: browser_extract(instruction=args.get("instruction", ""), url=args.get("url"),
+                                               schema=args.get("schema"), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="🧾",
 )
 registry.register(
     name="browser_snapshot",

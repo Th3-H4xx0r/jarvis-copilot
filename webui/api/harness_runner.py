@@ -707,3 +707,28 @@ def start_after_jobs(plan, *, session_id, question, answer, elapsed_s, tool_coun
                   else background_runner(node, session_id))
         ids.append(_start_job(session_id, node, runner))
     return ids
+
+
+# ── extraction model by harness ──────────────────────────────────────────────
+# Settings → Web & browser → Extraction model may name a harness
+# (web.extract_model: "harness:<id>"); its Route picks the model that turns each
+# page into JSON (browser_extract, web_search read_top). Core tools ask through
+# agent.extract_model, which this registers with.
+
+def extract_model_for(harness_id, instruction, page_chars):
+    """``@provider:model`` the harness picks for one extraction, or None."""
+    from api.harness_store import store_for_request
+    doc = store_for_request().get(harness_id)
+    if not doc or validate_harness(doc, strict=False)[1]:
+        return None
+    plan = plan_turn(doc, session_model=None, session_provider=None,
+                     text=f"{instruction}\n\n(Page: {int(page_chars or 0)} characters)",
+                     surface="chat", has_attachments=False)
+    return plan.model or None
+
+
+try:
+    from agent import extract_model as _extract_model
+    _extract_model.register_resolver(extract_model_for)
+except Exception:
+    logger.debug("extraction-model resolver not registered", exc_info=True)
