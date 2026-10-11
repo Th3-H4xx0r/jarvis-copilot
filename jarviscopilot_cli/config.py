@@ -863,6 +863,9 @@ DEFAULT_CONFIG = {
         # Local extractor (plugins/web/local): when a site serves a bot
         # challenge, retry it once in Scrapling's stealth browser.
         "stealth_fallback": True,
+        # The model browser_extract uses to turn a page into JSON:
+        # "@provider:model", "harness:<id>", or "" for the default.
+        "extract_model": "",
     },
 
     "browser": {

@@ -378,6 +378,7 @@
 		5781A62A8C3EA65CF635D673 /* HarnessAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E725F35A376638C38E264E /* HarnessAPI.swift */; };
 		581537C070C63F2F4AE19A89 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */; };
 		584FE958A56503AF14EB2C1E /* WatchConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F123592BB0EDB572AA897900 /* WatchConnector.swift */; };
+		5883F765C8903D49794BCC99 /* WebBrowserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */; };
 		58A97DE4C4E1D7C1E07676DD /* IslandOffline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */; };
 		59150C855011DCEE31ED1042 /* HealthScoreCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C33B28AD2D07DAF7F39482A2 /* HealthScoreCard.swift */; };
 		59582A208F292011B394F2BC /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */; };
@@ -475,6 +476,7 @@
 		70DAB1788F61BAB0B20C16E9 /* CodingSessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */; };
 		70E81184DF5A6EAD4C2C95C7 /* DevicesText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62A77293657E4869BF18C1B /* DevicesText.swift */; };
 		713461005AB08463AFA8401A /* CarLightsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F457BDB67BB9C8C7C9B457A9 /* CarLightsManager.swift */; };
+		7150CB675D8ED34FC94D1535 /* WebBrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */; };
 		71E2088F02010474A07723DD /* KeyValueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C72A8CF81A24BE96BD58A3 /* KeyValueStore.swift */; };
 		723018F1160B06B2CAE61FE8 /* PersonaLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70D9A5B75C48F0F5001D44C /* PersonaLoader.swift */; };
 		724F514EF8EAE0DB7A86D266 /* VoiceAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F31B15B05E8F7F84FF4017 /* VoiceAPITests.swift */; };
@@ -1316,6 +1318,7 @@
 		3771BFE92BFF9E51989080E6 /* InmoAudioInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAudioInput.swift; sourceTree = "<group>"; };
 		37884CC8479F12AF600948CD /* LiveVoiceHistoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveVoiceHistoryTests.swift; sourceTree = "<group>"; };
 		3797784518854B8FB0ABD75F /* RingMeasureController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingMeasureController.swift; sourceTree = "<group>"; };
+		37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebBrowserSettings.swift; sourceTree = "<group>"; };
 		3961785AB7CB407D48F4BCEA /* CodingSessionPanels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionPanels.swift; sourceTree = "<group>"; };
 		3987370FA104F5A8C3DCCB48 /* KanbanStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanStore.swift; sourceTree = "<group>"; };
 		39CEA86AF2CC9F1F56F90DA8 /* CarLightsPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarLightsPreview.swift; sourceTree = "<group>"; };
@@ -1357,6 +1360,7 @@
 		438CBFA66B125FE31EA00B31 /* HealthMetric.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthMetric.swift; sourceTree = "<group>"; };
 		438D0DAA806C23BD75CDA6F7 /* StrengthSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StrengthSession.swift; sourceTree = "<group>"; };
 		4427D18CA560FC8794B4334D /* QuotaCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaCard.swift; sourceTree = "<group>"; };
+		445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebBrowserSettingsTests.swift; sourceTree = "<group>"; };
 		4470617425A5653F88F3892E /* WidgetDesignStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesignStore.swift; sourceTree = "<group>"; };
 		44E654F72A46A4C711510DD1 /* exercises.json */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.json; path = exercises.json; sourceTree = "<group>"; };
 		451350B37D84B249122DE911 /* DevicesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesModels.swift; sourceTree = "<group>"; };
@@ -2298,6 +2302,15 @@
 			path = OnDeviceAI;
 			sourceTree = "<group>";
 		};
+		182AF84C84CF033DC2DAA561 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */,
+			);
+			name = Settings;
+			path = Settings;
+			sourceTree = "<group>";
+		};
 		1A8925273B4A31DF8BFA8A61 /* Voice */ = {
 			isa = PBXGroup;
 			children = (
@@ -2767,6 +2780,7 @@
 				58FA71513D8D919202C562B2 /* SpeechEngineScreen.swift */,
 				1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */,
 				22D79C8FBD50C7E46F2D368E /* SFSymbolCatalog.swift */,
+				37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -3447,6 +3461,7 @@
 				6E6EDDBBDBD748C0743D04AE /* Car */,
 				990838FE37DCE2306837D50B /* Lights */,
 				610CA6CFAA2D0AFDE5986B1A /* DoorAlarm */,
+				182AF84C84CF033DC2DAA561 /* Settings */,
 			);
 			path = JarvisCopilotTests;
 			sourceTree = "<group>";
@@ -4570,6 +4585,7 @@
 				32628C66310E7ED3B48D02FB /* ToyotaTests.swift in Sources */,
 				4649C041E7A42194D458520B /* DoorAlarmTests.swift in Sources */,
 				EC2D097DF484B3B7CD4585DC /* HarnessJobTests.swift in Sources */,
+				5883F765C8903D49794BCC99 /* WebBrowserSettingsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5273,6 +5289,7 @@
 				5C600257B309EB476B42CCEB /* DoorHubView.swift in Sources */,
 				E319EBCCF685E0CD4B3E34F7 /* DoorAlarmAlert.swift in Sources */,
 				69795684A73D247B3CD6F51B /* HarnessJobCard.swift in Sources */,
+				7150CB675D8ED34FC94D1535 /* WebBrowserSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,4 +1,4 @@
-"""The model that turns web pages into JSON (browser_extract, web_search read_top).
+"""The model that turns web pages into JSON (browser_extract).
 
 Set in Settings → Web & browser as ``web.extract_model``:
 - ``@provider:model`` — that model;

@@ -262,6 +262,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    WebBrowserSettingsScreen()
+                } label: {
+                    GlassRow(symbol: "globe", title: "Web & browser",
+                             subtitle: "Extraction model, browser engine, stealth fallback")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     WebViewPage(title: "Server settings", path: "/?panel=settings")
                 } label: {
                     GlassRow(symbol: "slider.horizontal.3", title: "Server settings")
@@ -295,7 +303,7 @@ struct SettingsPage: View {
 }
 
 /// A toggle row styled to match `GlassRow` — circular icon chip + switch.
-private struct SwitchRow: View {
+struct SwitchRow: View {
     let symbol: String
     let title: String
     var subtitle: String? = nil

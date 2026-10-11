@@ -6565,11 +6565,105 @@ function _renderCompaction(){
   paint();
 }
 
+// ── Web & browser (/api/web/config) ─────────────────────────────────────────
+// The extraction model (a model, a harness whose Route picks per page, or the
+// default), the browser engine (Lightpanda → Chrome when a site needs it) and
+// the stealth fallback for bot-blocked pages.
+
+function _webBrowserStatus(text, color, sticky){
+  const el = $('webBrowserSettingsStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--fg-dim,#9aa3b2)';
+  if (el._fadeT) clearTimeout(el._fadeT);
+  if (!sticky) el._fadeT = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function _webBrowserSave(patch){
+  try {
+    const res = await api('/api/web/config', { method: 'PUT', body: JSON.stringify(patch) });
+    _webBrowserStatus('Saved.', '#9be09b');
+    return res;
+  } catch (e) {
+    _webBrowserStatus('Not saved: ' + (e && e.message || e), '#ff8080', true);
+    return null;
+  }
+}
+
+async function loadWebBrowserSettings(){
+  const body = $('webBrowserSettingsBody');
+  if (!body) return;
+  let st, models = {}, harnesses = {};
+  try {
+    [st, models, harnesses] = await Promise.all([
+      api('/api/web/config'),
+      api('api/models').catch(() => ({})),
+      api('api/harnesses').catch(() => ({})),
+    ]);
+  } catch (e) {
+    body.innerHTML = '';
+    _webBrowserStatus('Could not load web settings: ' + (e && e.message || e), '#ff8080', true);
+    return;
+  }
+  const cfg = st.config || {};
+  body.innerHTML = '';
+
+  const modelRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const pick = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
+  const addOpt = (parent, value, label) => {
+    const o = document.createElement('option');
+    o.value = value; o.textContent = label;
+    parent.appendChild(o);
+  };
+  addOpt(pick, '', 'Default — Claude Haiku 5.5 (Anthropic key), else the helper model');
+  const groups = (window.HarnessGraph && HarnessGraph.modelOptions) ? HarnessGraph.modelOptions(models.groups) : [];
+  for (const g of groups) {
+    const og = document.createElement('optgroup');
+    og.label = g.label;
+    for (const o of g.options) addOpt(og, o.value, o.label);
+    pick.appendChild(og);
+  }
+  const hs = (harnesses && harnesses.harnesses) || [];
+  if (hs.length) {
+    const og = document.createElement('optgroup');
+    og.label = 'Harnesses (their Route picks the model per page)';
+    for (const h of hs) addOpt(og, 'harness:' + h.id, h.name || h.id);
+    pick.appendChild(og);
+  }
+  if (cfg.extract_model && ![...pick.options].some(o => o.value === cfg.extract_model)) {
+    addOpt(pick, cfg.extract_model, cfg.extract_model);
+  }
+  pick.value = cfg.extract_model || '';
+  modelRow.append(_speechEl('label', _SPEECH_LABEL, 'Extraction model — turns pages into structured data'), pick);
+
+  const engineRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const engine = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
+  addOpt(engine, 'lightpanda', 'Lightpanda first — fast; Chrome when a site needs it');
+  addOpt(engine, 'chrome', 'Chrome only');
+  engine.value = cfg.engine === 'lightpanda' ? 'lightpanda' : 'chrome';
+  engineRow.append(_speechEl('label', _SPEECH_LABEL, 'Browser engine'), engine);
+  if (!st.lightpanda_installed) {
+    engineRow.append(_speechEl('div', _SPEECH_LABEL + ';color:#e0b24b', "Lightpanda isn't installed on the server, so Chrome runs."));
+  }
+
+  const stealthRow = _speechEl('label', 'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg,#e8eef6);cursor:pointer');
+  const stealth = _speechEl('input');
+  stealth.type = 'checkbox';
+  stealth.checked = cfg.stealth_fallback !== false;
+  stealthRow.append(stealth, document.createTextNode('Retry pages that block bots in a stealth browser'));
+
+  pick.addEventListener('change', () => _webBrowserSave({ extract_model: pick.value }));
+  engine.addEventListener('change', () => _webBrowserSave({ engine: engine.value }));
+  stealth.addEventListener('change', () => _webBrowserSave({ stealth_fallback: stealth.checked }));
+  body.append(modelRow, engineRow, stealthRow);
+}
+
 async function loadSettingsPanel(){
   loadPersonalityPicker();
   loadVoiceProvidersSettings();
   loadSpeechSettings();
   loadCompactionSettings();
+  loadWebBrowserSettings();
   try{
     const settings=await api('/api/settings');
     // Populate the version badges from the server — keeps them in sync with git
