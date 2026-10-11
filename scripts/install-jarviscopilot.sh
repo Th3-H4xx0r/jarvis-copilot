@@ -378,6 +378,12 @@ Environment=JARVISCOPILOT_PAIRING_REQUIRED=1
 ExecStart=$INSTALL_DIR/scripts/launch-webui.sh
 Restart=on-failure
 RestartSec=5
+# A runaway webui restarts on its own instead of taking the whole box down with
+# it (2026-10-11: a 536 MB session pushed it to 4.8 GB of a 5 GB host). Normal
+# use is a few hundred MB.
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=1G
 StandardOutput=journal
 StandardError=journal
 
