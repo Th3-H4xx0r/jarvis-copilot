@@ -87,3 +87,28 @@ final class CancellationPredicateTests: XCTestCase {
         XCTAssertFalse(IntegrationsStore.wasCancelled(NSError(domain: "Other", code: 1)))
     }
 }
+
+/// Decision models (a harness Route's router) come in their own list and never
+/// join the chat models every picker offers.
+final class ModelCatalogDecisionTests: XCTestCase {
+    func testDecisionModelsParsedApartFromChatModels() {
+        let c = ModelCatalog(json: [
+            "groups": [["provider": "Celeris", "provider_id": "celeris",
+                        "models": [["id": "@celeris:celeris-1", "label": "Celeris-1"]]]],
+            "decision_models": [["id": "@celeris:celeris-1-decision", "label": "Celeris-1 Decision",
+                                 "provider": "Celeris", "provider_id": "celeris"]]])
+        XCTAssertEqual(c.models.map(\.id), ["@celeris:celeris-1"])
+        XCTAssertEqual(c.decisionModels.map(\.id), ["@celeris:celeris-1-decision"])
+        let r = c.forRouter()
+        XCTAssertEqual(r.providers.first, "Decision models")
+        XCTAssertEqual(r.models.first?.providerID, "celeris")
+    }
+
+    /// Older servers send no `decision_models`: the router picker is just the chat models.
+    func testNoDecisionModelsLeavesTheRouterPickerAsIs() {
+        let c = ModelCatalog(json: ["groups": [["provider": "Anthropic", "provider_id": "anthropic",
+                                                "models": [["id": "claude-sonnet-5-5"]]]]])
+        XCTAssertTrue(c.decisionModels.isEmpty)
+        XCTAssertEqual(c.forRouter(), c)
+    }
+}

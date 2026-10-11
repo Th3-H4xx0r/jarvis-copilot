@@ -20,8 +20,8 @@ struct ChatModelPickerSheet: View {
 
 /// A model picker over the server's catalogue: grouped by provider, searchable,
 /// the current choice ticked, "Auto" on top. One sheet for every place that
-/// picks a model — chat, and the Live watchers — so they all look and search
-/// the same.
+/// picks a model — chat, the Live watchers, harness steps — so they all look
+/// and search the same.
 struct CatalogModelPickerSheet: View {
     let title: String
     let catalog: ModelCatalog?
@@ -29,6 +29,8 @@ struct CatalogModelPickerSheet: View {
     let selectedID: String?
     /// How "Auto" reads. Nil gives the server's own default, named.
     var autoSubtitle: String? = nil
+    /// False where only a real model will do (a harness Route's router).
+    var showsAuto: Bool = true
     let load: () async -> Void
     let select: (ChatModel?) -> Void
 
@@ -83,10 +85,12 @@ struct CatalogModelPickerSheet: View {
             .jcScreen()
         } else {
             List {
-                Section {
-                    row(title: "Auto",
-                        subtitle: autoSubtitle ?? defaultSubtitle,
-                        selected: selectedID == nil) { select(nil) }
+                if showsAuto {
+                    Section {
+                        row(title: "Auto",
+                            subtitle: autoSubtitle ?? defaultSubtitle,
+                            selected: selectedID == nil) { select(nil) }
+                    }
                 }
                 ForEach(providers, id: \.self) { provider in
                     Section(provider.isEmpty ? "Models" : provider) {

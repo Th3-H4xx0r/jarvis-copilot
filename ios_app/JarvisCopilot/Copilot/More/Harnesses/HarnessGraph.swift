@@ -86,11 +86,79 @@ enum HarnessGraph {
             if !used.contains("default") { return "default" }
             let labels = (source.labels ?? []) + (source.rules ?? []).map(\.label)
             if let free = labels.first(where: { !used.contains("label:\($0)") }) { return "label:\(free)" }
-            var n = 1
-            while used.contains("label:route-\(n)") { n += 1 }
-            return "label:route-\(n)"
+            var n = (source.labels ?? []).count + 1
+            while labels.contains("path-\(n)") || used.contains("label:path-\(n)") { n += 1 }
+            return "label:path-\(n)"
         }
         if source.type == .answer, let to, h.node(to)?.type == .background { return "handoff" }
         return "always"
+    }
+
+    /// Wires `from` → `to` with ``defaultWhen``. A label made up for a Route's new
+    /// wire joins the Route's labels, so a model router can pick it (the web's
+    /// `nextWhen` does the same). False when ``connect`` refuses the wire.
+    @discardableResult
+    static func wire(_ h: inout AgentHarness, from: String, to: String) -> Bool {
+        let when = defaultWhen(h, from: from, to: to)
+        guard connect(&h, from: from, to: to, when: when) else { return false }
+        if when.hasPrefix("label:"), let i = h.nodes.firstIndex(where: { $0.id == from }) {
+            let label = String(when.dropFirst("label:".count))
+            let known = (h.nodes[i].labels ?? []) + (h.nodes[i].rules ?? []).map(\.label)
+            if !known.contains(label) { h.nodes[i].labels = (h.nodes[i].labels ?? []) + [label] }
+        }
+        return true
+    }
+
+    // MARK: Route labels
+
+    /// Renames a Route's label, carrying its description and every `label:<old>`
+    /// wire out of the Route along. A blank name, or one another label already has
+    /// (the two would then share their wires for good), is refused: false.
+    @discardableResult
+    static func renameLabel(_ h: inout AgentHarness, node id: String, from old: String, to name: String) -> Bool {
+        guard let i = h.nodes.firstIndex(where: { $0.id == id }),
+              let labels = h.nodes[i].labels, let index = labels.firstIndex(of: old) else { return false }
+        let new = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if new == old { return true }
+        if new.isEmpty || labels.contains(new) { return false }
+        h.nodes[i].labels?[index] = new
+        if let note = h.nodes[i].labelDescriptions?.removeValue(forKey: old) {
+            h.nodes[i].labelDescriptions?[new] = note
+        }
+        for e in h.edges.indices where h.edges[e].from == id && h.edges[e].when == "label:\(old)" {
+            h.edges[e].when = "label:\(new)"
+        }
+        return true
+    }
+
+    /// Adds the next free `path-N` label (free of the labels and the Route's wires),
+    /// the name the web gives a label it makes for a new wire.
+    @discardableResult
+    static func addLabel(_ h: inout AgentHarness, node id: String) -> String? {
+        guard let i = h.nodes.firstIndex(where: { $0.id == id }) else { return nil }
+        let labels = h.nodes[i].labels ?? []
+        let used = Set(h.edges.filter { $0.from == id }.map(\.when))
+        var n = labels.count + 1
+        while labels.contains("path-\(n)") || used.contains("label:path-\(n)") { n += 1 }
+        h.nodes[i].labels = labels + ["path-\(n)"]
+        return "path-\(n)"
+    }
+
+    /// Removes labels and their descriptions. Their wires stay, for the server to flag.
+    static func removeLabels(_ h: inout AgentHarness, node id: String, at offsets: IndexSet) {
+        guard let i = h.nodes.firstIndex(where: { $0.id == id }), let all = h.nodes[i].labels else { return }
+        let gone = all.indices.filter { offsets.contains($0) }.map { all[$0] }
+        let labels = all.indices.filter { !offsets.contains($0) }.map { all[$0] }
+        h.nodes[i].labels = labels
+        for label in gone where !labels.contains(label) { h.nodes[i].labelDescriptions?[label] = nil }
+        if h.nodes[i].labelDescriptions?.isEmpty == true { h.nodes[i].labelDescriptions = nil }
+    }
+
+    /// Sets what a label means; blank text clears it (and an empty map is dropped, not saved as `{}`).
+    static func describeLabel(_ h: inout AgentHarness, node id: String, label: String, as text: String) {
+        guard let i = h.nodes.firstIndex(where: { $0.id == id }) else { return }
+        var notes = h.nodes[i].labelDescriptions ?? [:]
+        notes[label] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        h.nodes[i].labelDescriptions = notes.isEmpty ? nil : notes
     }
 }

@@ -102,6 +102,8 @@ struct HarnessNode: Codable, Identifiable, Hashable {
     var by: String?
     var rules: [HarnessRule]?
     var labels: [String]?
+    /// What each Route label means (`label → text`), shown to a model router so it picks well.
+    var labelDescriptions: [String: String]?
     var instructions: String?
     var label: String?
     var fallbackModel: String?
@@ -116,6 +118,7 @@ struct HarnessNode: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, type, x, y, model, tools, deliver, by, rules, labels, instructions, label
+        case labelDescriptions = "label_descriptions"
         case fallbackModel = "fallback_model"
         case maxSteps = "max_steps"
     }

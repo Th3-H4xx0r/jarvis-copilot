@@ -30,6 +30,8 @@ struct ModelCatalog: Equatable, Sendable {
     var defaultModel: String = ""
     var activeModel: String?
     var models: [ChatModel] = []
+    /// Models that answer typed questions (a harness Route's router), never a chat.
+    var decisionModels: [ChatModel] = []
 
     /// Providers in the order the server listed them (the picker's section order).
     var providers: [String] {
@@ -66,9 +68,25 @@ struct ModelCatalog: Equatable, Sendable {
                 }
             }
         }
+        // Decision models answer typed questions (a harness Route's router), never a
+        // chat — the server lists them apart so chat pickers never offer them.
+        for model in object.list("decision_models") {
+            guard let id = model.string("id"), !id.isEmpty else { continue }
+            decisionModels.append(ChatModel(id: id, label: model.string("label"),
+                                            provider: model.string("provider") ?? "",
+                                            providerID: model.string("provider_id")))
+        }
     }
 
     init() {}
+
+    /// A Route's router picker: decision models first, in their own section, then every chat model.
+    func forRouter() -> ModelCatalog {
+        var c = self
+        c.models = decisionModels.map { ChatModel(id: $0.id, label: $0.label, provider: "Decision models",
+                                                  providerID: $0.providerID) } + models
+        return c
+    }
 }
 
 /// `/api/models` — list available models and set the active one.

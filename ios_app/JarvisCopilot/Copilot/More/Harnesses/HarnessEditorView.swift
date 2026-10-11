@@ -140,11 +140,8 @@ struct HarnessEditorView: View {
 
     private func tap(_ node: HarnessNode) {
         if let from = wiringFrom {
-            if from != node.id {
-                let when = HarnessGraph.defaultWhen(harness, from: from, to: node.id)
-                if !HarnessGraph.connect(&harness, from: from, to: node.id, when: when) {
-                    banner = "Those two are already wired."
-                }
+            if from != node.id, !HarnessGraph.wire(&harness, from: from, to: node.id) {
+                banner = "Those two are already wired."
             }
             wiringFrom = nil
             return
@@ -354,13 +351,21 @@ struct HarnessNodeSheet: View {
         }
         .presentationDetents([.medium, .large])
         .sheet(item: $pickingModel) { field in
-            CatalogModelPickerSheet(title: field == .model ? "Step model" : "Fallback model",
-                                    catalog: catalog,
+            let router = isRouterPick(field)
+            CatalogModelPickerSheet(title: router ? "Router model" : field == .model ? "Step model" : "Fallback model",
+                                    catalog: router ? catalog?.forRouter() : catalog,
                                     selectedID: nil,
                                     autoSubtitle: "The chat's own model.",
+                                    showsAuto: !router,
                                     load: { catalog = try? await ModelsAPI().list() },
                                     select: { picked in setModel(field, picked) })
         }
+    }
+
+    /// A Route's model is its router: decision models lead the list, and there is
+    /// no "Auto" — that stores `@session`, the chat's own model, not a router.
+    private func isRouterPick(_ field: ModelField) -> Bool {
+        field == .model && index.map { harness.nodes[$0].type == .route } == true
     }
 
     @ViewBuilder private func fields(_ i: Int) -> some View {
@@ -370,7 +375,7 @@ struct HarnessNodeSheet: View {
                                             set: { harness.nodes[i].label = $0.isEmpty ? nil : $0 }))
         }
         if type == .answer || type == .background || type == .review || (type == .route && harness.nodes[i].by == "model") {
-            Section("Model") {
+            Section(type == .route ? "Router model" : "Model") {
                 Button { pickingModel = .model } label: {
                     HStack {
                         Text(modelText(harness.nodes[i].model)).foregroundStyle(JcTheme.text)
@@ -424,10 +429,11 @@ struct HarnessNodeSheet: View {
             }
         }
         if type == .route { routeFields(i) }
-        if type != .message && type != .route {
-            Section("Extra instructions") {
-                TextField("Optional", text: Binding(get: { harness.nodes[i].instructions ?? "" },
-                                                   set: { harness.nodes[i].instructions = $0.isEmpty ? nil : $0 }),
+        if type != .message && (type != .route || harness.nodes[i].by == "model") {
+            Section(type == .route ? "Question for the router" : "Extra instructions") {
+                TextField(type == .route ? "Which route should handle the user's message?" : "Optional",
+                          text: Binding(get: { harness.nodes[i].instructions ?? "" },
+                                        set: { harness.nodes[i].instructions = $0.isEmpty ? nil : $0 }),
                           axis: .vertical)
                     .lineLimit(2...6)
             }
@@ -439,15 +445,28 @@ struct HarnessNodeSheet: View {
             Picker("Pick by", selection: Binding(get: { harness.nodes[i].by ?? "rules" },
                                                  set: { harness.nodes[i].by = $0 })) {
                 Text("Rules").tag("rules")
-                Text("A quick model").tag("model")
+                Text("A model").tag("model")
             }
             .pickerStyle(.segmented)
         }
-        Section("Labels") {
-            TextField("comma, separated", text: Binding(
-                get: { (harness.nodes[i].labels ?? []).joined(separator: ", ") },
-                set: { harness.nodes[i].labels = $0.split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }))
+        let labels = harness.nodes[i].labels ?? []
+        Section {
+            ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
+                HarnessLabelRow(name: label,
+                                note: Binding(get: { harness.node(nodeID)?.labelDescriptions?[label] ?? "" },
+                                              set: { HarnessGraph.describeLabel(&harness, node: nodeID,
+                                                                                label: label, as: $0) }),
+                                rename: { HarnessGraph.renameLabel(&harness, node: nodeID, from: label, to: $0) })
+            }
+            .onDelete { HarnessGraph.removeLabels(&harness, node: nodeID, at: $0) }
+            Button("Add label") { HarnessGraph.addLabel(&harness, node: nodeID) }
+        } header: {
+            Text("Labels")
+        } footer: {
+            if harness.nodes[i].by == "model" {
+                Text(labels.isEmpty ? "No labels yet — add one, or draw a wire out of this Route."
+                                    : "The router picks one. Say what each means so it picks well.")
+            }
         }
         if harness.nodes[i].by != "model" {
             Section("Rules") {
@@ -493,5 +512,47 @@ struct HarnessNodeSheet: View {
         case .model: harness.nodes[i].model = ref ?? "@session"
         case .fallback: harness.nodes[i].fallbackModel = ref
         }
+    }
+}
+
+/// One Route label: its name and what it means. The name is renamed on Return or
+/// when the field loses focus, so a half-typed name never rewires anything; a
+/// blank name or one another label has snaps back.
+private struct HarnessLabelRow: View {
+    let name: String
+    @Binding var note: String
+    let rename: (String) -> Bool
+
+    @State private var draft: String
+    @FocusState private var editing: Bool
+
+    init(name: String, note: Binding<String>, rename: @escaping (String) -> Bool) {
+        self.name = name
+        _note = note
+        self.rename = rename
+        _draft = State(initialValue: name)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("Label", text: $draft)
+                .focused($editing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .onSubmit(commit)
+            TextField("What it means (optional)", text: $note, axis: .vertical)
+                .font(JcText.small)
+                .lineLimit(1...4)
+        }
+        .onChange(of: name) { _, new in draft = new }
+        .onChange(of: editing) { _, now in if !now { commit() } }
+        // Done can close the sheet with the field still focused.
+        .onDisappear(perform: commit)
+    }
+
+    private func commit() {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines) != name else { draft = name; return }
+        if !rename(draft) { draft = name }
     }
 }

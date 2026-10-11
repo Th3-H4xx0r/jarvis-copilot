@@ -22,6 +22,32 @@ final class HarnessFormatTests: XCTestCase {
 
     func testNil() { XCTAssertEqual(HarnessFormat.answeredBy(nil), "") }
 
+    func testAnsweredByAddsRoute() {
+        var meta = HarnessMeta(kind: "answer", model: "@claude-code:claude-sonnet-5-5", ms: 3200)
+        meta.route = HarnessRoute(label: "deep", by: "decision", confidence: 0.82)
+        XCTAssertEqual(HarnessFormat.answeredBy(meta), "Claude Sonnet 5.5 · 3.2 s · routed deep 82%")
+        meta.route = HarnessRoute(label: "default", by: "decision", error: "timed out")
+        XCTAssertEqual(HarnessFormat.answeredBy(meta), "Claude Sonnet 5.5 · 3.2 s · routed default (router failed)")
+        meta.route = HarnessRoute(label: "quick", by: "rules")
+        XCTAssertEqual(HarnessFormat.answeredBy(meta), "Claude Sonnet 5.5 · 3.2 s · routed quick")
+    }
+
+    /// A background / review reply is its own message: the route belongs to the answer.
+    func testSideReplyGetsNoRoute() {
+        var meta = HarnessMeta(kind: "background", model: "@claude-code:claude-sonnet-5-5", ms: 3200)
+        meta.route = HarnessRoute(label: "deep")
+        XCTAssertEqual(HarnessFormat.answeredBy(meta), "Claude Sonnet 5.5 · background · 3.2 s")
+    }
+
+    func testRouteParsedFromMetaJSON() {
+        let meta = HarnessMeta(json: ["model": "@x:y", "route": ["label": "deep", "by": "decision",
+                                                                  "confidence": 0.5, "ms": 71]])
+        XCTAssertEqual(meta?.route?.label, "deep")
+        XCTAssertEqual(meta?.route?.confidence, 0.5)
+        XCTAssertEqual(meta?.route?.ms, 71)
+        XCTAssertNil(HarnessMeta(json: ["model": "@x:y"])?.route)
+    }
+
     func testMetaFromStoredMessage() {
         let msg = ChatMessage(stored: ["role": "assistant", "content": "done",
                                        "_meta": ["kind": "background", "model": "@claude-code:claude-sonnet-5-5",

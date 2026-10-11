@@ -34,6 +34,14 @@ final class HarnessModelsTests: XCTestCase {
         XCTAssertNil(obj["deliver"])
     }
 
+    func testLabelDescriptionsRoundTrip() throws {
+        var n = HarnessNode(id: "r", type: .route, x: 0, y: 0)
+        n.labels = ["deep"]; n.labelDescriptions = ["deep": "needs research"]
+        let data = try JSONEncoder().encode(n)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("\"label_descriptions\""))
+        XCTAssertEqual(try JSONDecoder().decode(HarnessNode.self, from: data).labelDescriptions?["deep"], "needs research")
+    }
+
     func testProblemsForNode() throws {
         let snap = try JSONDecoder().decode(HarnessSnapshot.self, from: json)
         XCTAssertEqual(snap.harnesses[0].problems(forNode: "r").count, 1)
