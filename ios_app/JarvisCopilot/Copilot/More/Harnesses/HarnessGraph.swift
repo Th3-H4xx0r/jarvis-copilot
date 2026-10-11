@@ -114,15 +114,79 @@ enum HarnessGraph {
     /// Renames a Route's label, carrying its description, its rules and every
     /// `label:<old>` wire out of the Route along. A blank name, or one another label
     /// or rule already has (the two would then share their wires for good), is refused: false.
+    /// A name only a stray wire carries (its label is on no list, so nothing could
+    /// pick it) is fine when this label has no wire of its own: the label adopts that wire.
     @discardableResult
     static func renameLabel(_ h: inout AgentHarness, node id: String, from old: String, to name: String) -> Bool {
         guard let i = h.nodes.firstIndex(where: { $0.id == id }),
-              let labels = h.nodes[i].labels, let index = labels.firstIndex(of: old) else { return false }
+              let labels = h.nodes[i].labels, labels.contains(old) else { return false }
         let new = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if new == old { return true }
         let ruleLabels = (h.nodes[i].rules ?? []).map(\.label)
         if new.isEmpty || labels.contains(new) || ruleLabels.contains(new) { return false }
-        h.nodes[i].labels?[index] = new
+        let wired = h.edges.filter { $0.from == id }.compactMap(wireLabel)
+        if wired.contains(new) && wired.contains(old) { return false }
+        carry(&h, node: i, from: old, to: new)
+        return true
+    }
+
+    /// Retypes a Route wire's label without the Route's labels and wires drifting
+    /// apart: a free name renames the label the wire had (description, rules and
+    /// all), a label no other wire has just takes the wire, and a stray wire's new
+    /// name joins the labels. Blank, or a name another wire has, is refused: false.
+    @discardableResult
+    static func relabelWire(_ h: inout AgentHarness, edge index: Int, to name: String) -> Bool {
+        guard h.edges.indices.contains(index), let old = wireLabel(h.edges[index]),
+              let i = h.nodes.firstIndex(where: { $0.id == h.edges[index].from }),
+              h.nodes[i].type == .route else { return false }
+        let new = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if new.isEmpty { return false }
+        if new == old { return true }
+        let node = h.nodes[i]
+        let others = h.edges.indices.filter { $0 != index && h.edges[$0].from == node.id }
+            .compactMap { wireLabel(h.edges[$0]) }
+        let taken = Set((node.labels ?? []) + (node.rules ?? []).map(\.label) + others + [old])
+        let canPick = pickable(node)
+        if !taken.contains(new), canPick.contains(old), !others.contains(old) {
+            carry(&h, node: i, from: old, to: new)
+            return true
+        }
+        if others.contains(new) { return false }
+        if canPick.contains(new) {
+            h.edges[index].when = "label:\(new)"
+            return true
+        }
+        if taken.contains(new) { return false }
+        h.nodes[i].labels = (node.labels ?? []) + [new]
+        h.edges[index].when = "label:\(new)"
+        return true
+    }
+
+    /// The labels the wire sheet offers for a Route wire: the ones the Route can
+    /// pick by that no other wire of the Route already has.
+    static func wireLabelChoices(_ h: AgentHarness, edge index: Int) -> [String] {
+        guard h.edges.indices.contains(index), let node = h.node(h.edges[index].from) else { return [] }
+        let others = Set(h.edges.indices.filter { $0 != index && h.edges[$0].from == node.id }
+            .compactMap { wireLabel(h.edges[$0]) })
+        return pickable(node).filter { !others.contains($0) }
+    }
+
+    /// The labels a Route can pick a wire by: a model router only its labels,
+    /// rules also their rules' labels (in order, once each).
+    static func pickable(_ node: HarnessNode) -> [String] {
+        let all = (node.labels ?? []) + (node.by == "model" ? [] : (node.rules ?? []).map(\.label))
+        var seen = Set<String>()
+        return all.filter { seen.insert($0).inserted }
+    }
+
+    private static func wireLabel(_ e: HarnessEdge) -> String? {
+        e.when.hasPrefix("label:") ? String(e.when.dropFirst("label:".count)) : nil
+    }
+
+    /// old → new everywhere on node `i`: the label, its description, its rules, its wires.
+    private static func carry(_ h: inout AgentHarness, node i: Int, from old: String, to new: String) {
+        let id = h.nodes[i].id
+        if let index = h.nodes[i].labels?.firstIndex(of: old) { h.nodes[i].labels?[index] = new }
         if let note = h.nodes[i].labelDescriptions?.removeValue(forKey: old) {
             h.nodes[i].labelDescriptions?[new] = note
         }
@@ -133,7 +197,6 @@ enum HarnessGraph {
         for e in h.edges.indices where h.edges[e].from == id && h.edges[e].when == "label:\(old)" {
             h.edges[e].when = "label:\(new)"
         }
-        return true
     }
 
     /// Adds the next free `path-N` label (free of the labels and the Route's wires),

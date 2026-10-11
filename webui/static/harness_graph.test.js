@@ -214,3 +214,95 @@ test('describeLabel and labelNote use own keys only', () => {
   G.describeLabel(d, 'r', 'quick', '');
   assert.equal(r.label_descriptions, undefined);
 });
+
+// ── A Route's labels and its wires stay in step ────────────────────────────
+// The bug seen live: a third wire got `path-2`, its label was retyped to
+// `long-running` on the wire (the Route kept `path-2`), and renaming `path-2`
+// in the Route panel was then refused — so a model router could never pick it.
+function modelRouteDoc() {
+  return {
+    id: 'h', name: 'H', nodes: [
+      { id: 'in', type: 'message' },
+      { id: 'r', type: 'route', by: 'model', labels: ['deep'] },
+      { id: 'a', type: 'answer' }, { id: 'b', type: 'answer' }, { id: 'c', type: 'answer' }],
+    edges: [{ from: 'in', to: 'r', when: 'always' }, { from: 'r', to: 'a', when: 'default' },
+      { from: 'r', to: 'b', when: 'label:deep' }],
+  };
+}
+
+test('retyping a Route wire\'s label renames the label it had (description included)', () => {
+  const d = modelRouteDoc();
+  const when = G.nextWhen(d, 'r', 'c');
+  assert.equal(when, 'label:path-2');
+  G.connect(d, 'r', 'c', when);
+  G.describeLabel(d, 'r', 'path-2', 'long jobs');
+  assert.equal(G.relabelWire(d, 3, ' long-running '), true);
+  const r = d.nodes[1];
+  assert.deepEqual(r.labels, ['deep', 'long-running']);
+  assert.deepEqual(r.label_descriptions, { 'long-running': 'long jobs' });
+  assert.equal(d.edges[3].when, 'label:long-running');
+});
+
+test('relabelWire carries the rules of a rules Route', () => {
+  const d = routeDoc();
+  assert.equal(G.relabelWire(d, 1, 'research'), true);
+  assert.deepEqual(d.nodes[1].labels, ['research', 'quick']);
+  assert.equal(d.nodes[1].rules[0].label, 'research');
+  assert.equal(d.edges[1].when, 'label:research');
+  assert.equal(d.edges[3].when, 'label:deep');  // another Route's wire is untouched
+});
+
+test('relabelWire points the wire at a label no other wire has', () => {
+  const d = routeDoc();
+  assert.equal(G.relabelWire(d, 1, 'quick'), true);
+  assert.equal(d.edges[1].when, 'label:quick');
+  assert.deepEqual(d.nodes[1].labels, ['deep', 'quick']);
+  // A rules Route also picks its rules' labels.
+  assert.equal(G.relabelWire(d, 1, 'other'), true);
+  assert.equal(d.edges[1].when, 'label:other');
+});
+
+test('relabelWire refuses blank names and labels another wire already has', () => {
+  const d = modelRouteDoc();
+  G.connect(d, 'r', 'c', G.nextWhen(d, 'r', 'c'));  // label:path-2
+  const before = JSON.stringify(d);
+  assert.equal(G.relabelWire(d, 3, '   '), false);
+  assert.equal(G.relabelWire(d, 3, 'deep'), false);
+  assert.equal(JSON.stringify(d), before);
+  assert.equal(G.relabelWire(d, 3, 'path-2'), true);  // unchanged is fine
+});
+
+test('relabelWire on a stray wire adds the new name to the labels', () => {
+  const d = modelRouteDoc();
+  d.edges.push({ from: 'r', to: 'c', when: 'label:ghost' });
+  assert.equal(G.relabelWire(d, 3, 'long-running'), true);
+  assert.deepEqual(d.nodes[1].labels, ['deep', 'long-running']);
+  assert.equal(d.edges[3].when, 'label:long-running');
+});
+
+test('renameLabel adopts the stray wire that carries the new name (the live bug)', () => {
+  const d = modelRouteDoc();
+  const r = d.nodes[1];
+  r.labels = ['deep', 'path-2'];
+  r.label_descriptions = { 'path-2': 'long jobs' };
+  d.edges.push({ from: 'r', to: 'c', when: 'label:long-running' });
+  assert.equal(G.renameLabel(d, 'r', 'path-2', 'long-running'), true);
+  assert.deepEqual(r.labels, ['deep', 'long-running']);
+  assert.deepEqual(r.label_descriptions, { 'long-running': 'long jobs' });
+  assert.equal(d.edges[3].when, 'label:long-running');
+});
+
+test('renameLabel won\'t adopt a stray wire when the label has a wire of its own', () => {
+  const d = modelRouteDoc();
+  d.edges.push({ from: 'r', to: 'c', when: 'label:ghost' });
+  assert.equal(G.renameLabel(d, 'r', 'deep', 'ghost'), false);
+  assert.deepEqual(d.nodes[1].labels, ['deep']);
+  assert.equal(d.edges[2].when, 'label:deep');
+});
+
+test('freeLabel picks a label no wire has, else makes one', () => {
+  const d = modelRouteDoc();
+  assert.equal(G.freeLabel(d, 'r'), 'path-2');
+  assert.deepEqual(d.nodes[1].labels, ['deep', 'path-2']);
+  assert.equal(G.freeLabel(d, 'r'), 'path-2');  // still unwired
+});

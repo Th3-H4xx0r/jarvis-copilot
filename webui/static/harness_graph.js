@@ -71,16 +71,7 @@
     if (src.type === 'route') {
       const out = doc.edges.filter(e => e.from === from).map(e => e.when || 'always');
       if (!out.includes('default')) return 'default';
-      src.labels = Array.isArray(src.labels) ? src.labels : [];
-      const used = new Set(out.filter(w => w.startsWith('label:')).map(w => w.slice(6)));
-      let label = src.labels.find(l => !used.has(l));
-      if (!label) {
-        let n = src.labels.length + 1;
-        while (src.labels.includes(`path-${n}`) || used.has(`path-${n}`)) n++;
-        label = `path-${n}`;
-        src.labels.push(label);
-      }
-      return `label:${label}`;
+      return `label:${freeLabel(doc, from)}`;
     }
     const dst = to ? nodeById(doc, to) : null;
     if (src.type === 'answer' && dst && dst.type === 'background') return 'handoff';
@@ -163,24 +154,84 @@
     return new Set([...(node.labels || []), ...(node.rules || []).map(r => r.label), ...wired]);
   }
 
-  // Rename a Route's label, carrying its description, its rules and this
-  // Route's `label:` wires. A blank or already-used name is refused (false).
-  function renameLabel(doc, id, old, name) {
-    const node = nodeById(doc, id);
-    const labels = (node && node.labels) || [];
-    const i = labels.indexOf(old);
-    const v = String(name || '').trim();
-    if (i < 0) return false;
-    if (v === old) return true;
-    if (!v || takenLabels(doc, node).has(v)) return false;
-    labels[i] = v;
+  const wireLabel = e => (String(e.when || '').startsWith('label:') ? e.when.slice(6) : null);
+
+  // The names a Route's wire can be picked by: its labels, plus its rules'
+  // labels when rules pick (a model router only ever picks from `labels`).
+  function pickable(node) {
+    const labels = node.labels || [];
+    return node.by === 'model' ? labels.slice() : [...labels, ...(node.rules || []).map(r => r.label)];
+  }
+
+  // old -> v everywhere on this Route: the label, its description, its rules, its wires.
+  function carry(doc, node, old, v) {
+    const i = (node.labels || []).indexOf(old);
+    if (i >= 0) node.labels[i] = v;
     if (own(node.label_descriptions, old)) {
       node.label_descriptions[v] = node.label_descriptions[old];
       delete node.label_descriptions[old];
     }
     (node.rules || []).forEach(r => { if (r.label === old) r.label = v; });
-    doc.edges.forEach(e => { if (e.from === id && e.when === `label:${old}`) e.when = `label:${v}`; });
+    doc.edges.forEach(e => { if (e.from === node.id && e.when === `label:${old}`) e.when = `label:${v}`; });
+  }
+
+  // Rename a Route's label, carrying its description, its rules and this
+  // Route's `label:` wires. A blank name, or one another label or rule has, is
+  // refused (false). A name only a stray wire carries (its label is on no list,
+  // so nothing could pick it) is fine when this label has no wire of its own:
+  // the label adopts that wire.
+  function renameLabel(doc, id, old, name) {
+    const node = nodeById(doc, id);
+    const labels = (node && node.labels) || [];
+    const v = String(name || '').trim();
+    if (labels.indexOf(old) < 0) return false;
+    if (v === old) return true;
+    if (!v || labels.includes(v) || (node.rules || []).some(r => r.label === v)) return false;
+    const wired = doc.edges.filter(e => e.from === id).map(wireLabel);
+    if (wired.includes(v) && wired.includes(old)) return false;
+    carry(doc, node, old, v);
     return true;
+  }
+
+  // Retype a Route wire's label without the Route's labels and wires drifting
+  // apart: a free name renames the label the wire had (description, rules and
+  // all), a label no other wire has just takes the wire, and a stray wire's new
+  // name joins the labels. Blank, or a name another wire has, is refused (false).
+  function relabelWire(doc, index, name) {
+    const e = doc.edges[index];
+    const node = e && nodeById(doc, e.from);
+    const old = e && wireLabel(e);
+    if (!node || node.type !== 'route' || old == null) return false;
+    const v = String(name || '').trim();
+    if (!v) return false;
+    if (v === old) return true;
+    node.labels = Array.isArray(node.labels) ? node.labels : [];
+    const others = doc.edges.filter((x, j) => j !== index && x.from === node.id).map(wireLabel);
+    const free = !takenLabels(doc, node).has(v);
+    if (free && pickable(node).includes(old) && !others.includes(old)) { carry(doc, node, old, v); return true; }
+    if (others.includes(v)) return false;
+    if (pickable(node).includes(v)) { e.when = `label:${v}`; return true; }
+    if (!free) return false;
+    node.labels.push(v);
+    e.when = `label:${v}`;
+    return true;
+  }
+
+  // A label of this Route no wire has yet; when every label has one, the next
+  // free `path-N`, remembered on the node so a model router can pick it.
+  function freeLabel(doc, id) {
+    const node = nodeById(doc, id);
+    if (!node) return null;
+    node.labels = Array.isArray(node.labels) ? node.labels : [];
+    const used = new Set(doc.edges.filter(e => e.from === id).map(wireLabel).filter(l => l != null));
+    let label = node.labels.find(l => !used.has(l));
+    if (!label) {
+      let n = node.labels.length + 1;
+      while (node.labels.includes(`path-${n}`) || used.has(`path-${n}`)) n++;
+      label = `path-${n}`;
+      node.labels.push(label);
+    }
+    return label;
   }
 
   // Add the next free `path-N` label (the name a new wire's label gets too).
@@ -223,6 +274,6 @@
   return {
     newHarness, addNode, removeNode, connect, disconnect, moveNode, duplicate, defaultsFor,
     nextWhen, edgeLabel, toDesign, problemsFor, slug, uniqueId, modelOptions, decisionOptions,
-    labelNote, renameLabel, addLabel, removeLabel, describeLabel,
+    labelNote, renameLabel, relabelWire, freeLabel, addLabel, removeLabel, describeLabel,
   };
 });

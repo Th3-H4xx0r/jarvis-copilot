@@ -63,6 +63,15 @@ def _is_decision_ref(ref) -> bool:
         return False
 
 
+def _pickable(route):
+    """The labels a Route can pick a wire by: a model router only its labels,
+    rules also their rules' labels."""
+    labels = set(route.get("labels") or [])
+    if route.get("by") == "model":
+        return labels
+    return labels | {r["label"] for r in route.get("rules") or []}
+
+
 def _clean_node(raw, errors):
     nid = str(raw.get("id") or "").strip()
     ntype = str(raw.get("type") or "").strip()
@@ -189,14 +198,26 @@ def validate_harness(doc):
             _err(errors, "Wires out of a Route need a label (or default).", edge=i)
         if kind in ("slow", "tools") and (st != "answer" or dt not in ("background", "review")):
             _err(errors, "slow/tools wires go from an Answer to a Background or Review node.", edge=i)
+        if kind == "label" and st == "route" and value not in _pickable(by_id[src]):
+            _err(errors, f"This wire's label '{value}' isn't one of the Route's labels, so it can never be picked.",
+                 edge=i)
         edge = {"from": src, "to": dst, "when": kind if value is None else f"{kind}:{value}"}
         edges.append(edge)
         out[src].append(edge)
         incoming[dst].add(kind)
 
     for n in nodes:
-        if n["type"] == "route" and "default" not in [e["when"] for e in out.get(n["id"], [])]:
+        if n["type"] != "route":
+            continue
+        whens = [e["when"] for e in out.get(n["id"], [])]
+        if "default" not in whens:
             _err(errors, "A Route needs one default wire.", node=n["id"])
+        if n.get("by") == "model":
+            # A label the router picks with no wire falls to the default wire;
+            # "none" is the router's own name for the default wire.
+            for label in n.get("labels") or []:
+                if f"label:{label}" not in whens and label.lower() != "none":
+                    _err(errors, f"Label '{label}' has no wire; wire it to a node or remove it.", node=n["id"])
 
     state = {}
 

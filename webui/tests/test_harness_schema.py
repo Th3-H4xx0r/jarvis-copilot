@@ -109,9 +109,10 @@ def _route_doc(**route):
             "labels": ["deep", "quick"], **route}
     return {"id": "t", "name": "T", "nodes": [
         {"id": "in", "type": "message"}, node,
-        {"id": "a", "type": "answer", "model": "@x:y"}, {"id": "b", "type": "answer", "model": "@x:z"}],
+        {"id": "a", "type": "answer", "model": "@x:y"}, {"id": "b", "type": "answer", "model": "@x:z"},
+        {"id": "c", "type": "answer", "model": "@x:w"}],
         "edges": [{"from": "in", "to": "r"}, {"from": "r", "to": "a", "when": "label:deep"},
-                  {"from": "r", "to": "b", "when": "default"}]}
+                  {"from": "r", "to": "b", "when": "default"}, {"from": "r", "to": "c", "when": "label:quick"}]}
 
 
 def test_label_descriptions_kept_for_known_labels_only():
@@ -139,3 +140,50 @@ def test_route_labels_are_deduplicated():
     doc, errors = validate_harness(_route_doc(labels=["deep", "quick", "deep", " quick "]))
     assert not errors
     assert next(n for n in doc["nodes"] if n["id"] == "r")["labels"] == ["deep", "quick"]
+
+
+# A model router only picks from the Route's labels, so a wire whose label is on
+# no list can never run, and a label with no wire falls to the default wire.
+# (Seen live: labels ["deep", "path-2"] with the wire saying "label:long-running".)
+def test_route_wire_label_must_be_one_of_the_labels():
+    doc = _route_doc(labels=["deep", "path-2"])
+    doc["edges"][3]["when"] = "label:long-running"
+    _, errors = validate_harness(doc)
+    assert any(e["edge"] == 3 and "'long-running' isn't one of the Route's labels" in e["message"]
+               for e in errors)
+    assert any(e["node"] == "r" and "'path-2' has no wire" in e["message"] for e in errors)
+
+
+def test_model_route_label_without_a_wire_is_an_error():
+    doc = _route_doc()
+    doc["edges"].pop(3)
+    _, errors = validate_harness(doc)
+    assert [e for e in errors if e["node"] == "r"] == [
+        {"node": "r", "edge": None, "message": "Label 'quick' has no wire; wire it to a node or remove it."}]
+
+
+def test_model_route_none_label_needs_no_wire():
+    # The router's "none" choice already means the default wire.
+    doc = _route_doc(labels=["deep", "quick", "None"])
+    assert validate_harness(doc)[1] == []
+
+
+def test_rules_route_wire_may_use_a_rule_label():
+    doc = _route_doc(by="rules", labels=["deep"], rules=[{"match": "keywords", "value": "hi", "label": "quick"}])
+    assert validate_harness(doc)[1] == []
+    doc["edges"][3]["when"] = "label:ghost"
+    _, errors = validate_harness(doc)
+    assert [e["edge"] for e in errors] == [3]
+
+
+def test_rules_route_label_without_a_wire_is_fine():
+    # Rules name their wire; an unwired label just never matches.
+    doc = _route_doc(by="rules", labels=["deep", "quick", "spare"],
+                     rules=[{"match": "keywords", "value": "x", "label": "deep"}])
+    assert validate_harness(doc)[1] == []
+
+
+def test_builtin_harnesses_validate_clean():
+    from api.harness_builtins import builtin_harnesses
+    for h in builtin_harnesses("@ollama-cloud:gemma4:31b"):
+        assert validate_harness(h)[1] == [], h["id"]

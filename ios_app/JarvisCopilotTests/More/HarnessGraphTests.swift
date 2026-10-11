@@ -145,4 +145,84 @@ final class HarnessGraphTests: XCTestCase {
         HarnessGraph.describeLabel(&h, node: r, label: "deep", as: "  ")
         XCTAssertNil(h.nodes[i].labelDescriptions)
     }
+
+    // MARK: A Route's labels and its wires stay in step
+    // Seen live (web): a wire's label was retyped to `long-running` while the Route
+    // kept `path-2`, and renaming `path-2` was then refused — so a model router
+    // could never pick `long-running`. The phone shares the same rules.
+
+    /// A model Route with labels ["deep"], wires default → a and label:deep → b.
+    private func modelRoute() -> (AgentHarness, route: String, c: String, routeIndex: Int) {
+        var (h, r, a) = routeHarness()
+        let b = HarnessGraph.addNode(&h, type: .answer, at: .zero)
+        let c = HarnessGraph.addNode(&h, type: .answer, at: .zero)
+        let i = h.nodes.firstIndex { $0.id == r }!
+        h.nodes[i].by = "model"
+        h.nodes[i].labels = ["deep"]
+        _ = HarnessGraph.connect(&h, from: r, to: a, when: "default")
+        _ = HarnessGraph.connect(&h, from: r, to: b, when: "label:deep")
+        return (h, r, c, i)
+    }
+
+    func testRelabelWireRenamesTheLabelItHad() {
+        var (h, r, c, i) = modelRoute()
+        XCTAssertTrue(HarnessGraph.wire(&h, from: r, to: c))
+        XCTAssertEqual(h.edges.last?.when, "label:path-2")
+        HarnessGraph.describeLabel(&h, node: r, label: "path-2", as: "long jobs")
+        XCTAssertTrue(HarnessGraph.relabelWire(&h, edge: 2, to: " long-running "))
+        XCTAssertEqual(h.nodes[i].labels, ["deep", "long-running"])
+        XCTAssertEqual(h.nodes[i].labelDescriptions, ["long-running": "long jobs"])
+        XCTAssertEqual(h.edges[2].when, "label:long-running")
+    }
+
+    func testRelabelWirePointsAtALabelNoOtherWireHas() {
+        var (h, r, c, i) = modelRoute()
+        h.nodes[i].labels = ["deep", "quick"]
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "label:quick")
+        XCTAssertFalse(HarnessGraph.relabelWire(&h, edge: 2, to: "deep"), "another wire has it")
+        XCTAssertFalse(HarnessGraph.relabelWire(&h, edge: 2, to: "  "))
+        XCTAssertEqual(h.edges[2].when, "label:quick")
+        h.edges[1].when = "default"
+        XCTAssertTrue(HarnessGraph.relabelWire(&h, edge: 2, to: "deep"))
+        XCTAssertEqual(h.edges[2].when, "label:deep")
+        XCTAssertEqual(h.nodes[i].labels, ["deep", "quick"])
+    }
+
+    func testRelabelWireOnAStrayWireAddsTheLabel() {
+        var (h, r, c, i) = modelRoute()
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "label:ghost")
+        XCTAssertTrue(HarnessGraph.relabelWire(&h, edge: 2, to: "long-running"))
+        XCTAssertEqual(h.nodes[i].labels, ["deep", "long-running"])
+        XCTAssertEqual(h.edges[2].when, "label:long-running")
+    }
+
+    func testRenameLabelAdoptsTheStrayWireCarryingTheName() {
+        var (h, r, c, i) = modelRoute()
+        h.nodes[i].labels = ["deep", "path-2"]
+        h.nodes[i].labelDescriptions = ["path-2": "long jobs"]
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "label:long-running")
+        XCTAssertTrue(HarnessGraph.renameLabel(&h, node: r, from: "path-2", to: "long-running"))
+        XCTAssertEqual(h.nodes[i].labels, ["deep", "long-running"])
+        XCTAssertEqual(h.nodes[i].labelDescriptions, ["long-running": "long jobs"])
+        XCTAssertEqual(h.edges[2].when, "label:long-running")
+    }
+
+    func testRenameLabelWontAdoptAStrayWireWhenItHasAWire() {
+        var (h, r, c, i) = modelRoute()
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "label:ghost")
+        XCTAssertFalse(HarnessGraph.renameLabel(&h, node: r, from: "deep", to: "ghost"), "two wires would share it")
+        XCTAssertEqual(h.nodes[i].labels, ["deep"])
+        XCTAssertEqual(h.edges[1].when, "label:deep")
+    }
+
+    /// The wire sheet offers only labels a router can pick and no other wire has.
+    func testWireLabelChoicesSkipLabelsOtherWiresHave() {
+        var (h, r, c, i) = modelRoute()
+        h.nodes[i].labels = ["deep", "quick"]
+        h.nodes[i].rules = [HarnessRule(match: "keywords", value: .string("x"), label: "ruled")]
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "label:quick")
+        XCTAssertEqual(HarnessGraph.wireLabelChoices(h, edge: 2), ["quick"], "deep is wired; a model router ignores rules")
+        h.nodes[i].by = "rules"
+        XCTAssertEqual(HarnessGraph.wireLabelChoices(h, edge: 2), ["quick", "ruled"])
+    }
 }

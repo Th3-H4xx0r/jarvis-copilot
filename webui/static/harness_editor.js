@@ -513,6 +513,8 @@
     return rows.join('');
   }
 
+  function labelOptions(labels) { return labels.map(l => `<option value="${esc(l)}">`).join(''); }
+
   function edgePanel(i) {
     const e = E.doc.edges[i];
     if (!e) return '';
@@ -527,8 +529,8 @@
     let valueCtl = '';
     if (kind === 'label') {
       const labels = (from && from.labels) || [];
-      valueCtl = fieldRow('Label', `<input class="harness-input" data-when-value list="harnessLabelList" value="${esc(value)}">` +
-        `<datalist id="harnessLabelList">${labels.map(l => `<option value="${esc(l)}">`).join('')}</datalist>`);
+      valueCtl = fieldRow('Label', `<input class="harness-input" data-when-value data-when-label list="harnessLabelList" value="${esc(value)}">` +
+        `<datalist id="harnessLabelList">${labelOptions(labels)}</datalist>`);
     } else if (kind === 'slow') {
       valueCtl = fieldRow('Seconds', `<input class="harness-input" type="number" min="1" data-when-value value="${esc(value || 10)}">`);
     } else if (kind === 'tools') {
@@ -601,11 +603,24 @@
       const panel = $id('harnessSidePanel');
       const kind = panel.querySelector('[data-when-kind]').value;
       const valEl = panel.querySelector('[data-when-value]');
+      const from = nodeById(e.from);
+      const fromRoute = from && from.type === 'route';
       if (el.hasAttribute('data-when-kind')) {
-        const from = nodeById(e.from);
-        const defaults = { label: ((from && from.labels) || [])[0] || 'path', slow: '10', tools: '3' };
+        // A Route wire switched to Label takes a label no other wire has (one is
+        // made and added to the Route when they are all wired).
+        const label = kind !== 'label' ? ''
+          : fromRoute ? HarnessGraph.freeLabel(E.doc, from.id) : (((from && from.labels) || [])[0] || 'path');
+        const defaults = { label, slow: '10', tools: '3' };
         e.when = defaults[kind] ? `${kind}:${defaults[kind]}` : kind;
         rerenderPanel = true;
+      } else if (kind === 'label' && fromRoute) {
+        // Keeps the Route's labels and wires in step (renames the label the wire
+        // had, or points it at a free one); a blank or taken name snaps back.
+        const old = String(e.when || '').slice(6);
+        if (!HarnessGraph.relabelWire(E.doc, E.sel.edge, valEl.value)) { valEl.value = old; return; }
+        valEl.value = valEl.value.trim();
+        const list = panel.querySelector('#harnessLabelList');
+        if (list) list.innerHTML = labelOptions(from.labels || []);
       } else {
         const v = String(valEl.value || '').trim();
         if (!v) return;
@@ -737,7 +752,7 @@
       const el = ev.target;
       // A rename rewires, so it settles on change; mark the harness dirty now so
       // the header isn't rebuilt under the click that ends the edit (Save).
-      if (el.dataset.labelField === 'name') { if (!E.readOnly) markDirty(); return; }
+      if (el.dataset.labelField === 'name' || el.hasAttribute('data-when-label')) { if (!E.readOnly) markDirty(); return; }
       if (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'number')) onPanelField(ev);
     });
     window.addEventListener('resize', () => { if (E.view === 'edit' && E.gesture == null) applyTransform(); });

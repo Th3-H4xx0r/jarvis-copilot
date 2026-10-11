@@ -156,8 +156,8 @@ struct HarnessEditorView: View {
     @ViewBuilder private var edgeActions: some View {
         if let index = editingEdge, harness.edges.indices.contains(index),
            let source = harness.node(harness.edges[index].from) {
-            ForEach(conditions(for: source), id: \.self) { when in
-                Button(when) { harness.edges[index].when = when; editingEdge = nil }
+            ForEach(conditions(for: source, edge: index), id: \.self) { when in
+                Button(when) { setWhen(when, edge: index); editingEdge = nil }
             }
             Button("Remove wire", role: .destructive) {
                 HarnessGraph.disconnect(&harness, index: index)
@@ -166,11 +166,23 @@ struct HarnessEditorView: View {
         }
     }
 
-    private func conditions(for source: HarnessNode) -> [String] {
+    /// A Route wire's label goes through ``HarnessGraph/relabelWire`` so the
+    /// Route's labels and wires never drift apart (a router could never pick it).
+    private func setWhen(_ when: String, edge index: Int) {
+        guard when.hasPrefix("label:"), harness.edges[index].when.hasPrefix("label:"),
+              harness.node(harness.edges[index].from)?.type == .route else {
+            harness.edges[index].when = when
+            return
+        }
+        if !HarnessGraph.relabelWire(&harness, edge: index, to: String(when.dropFirst("label:".count))) {
+            banner = "Another wire already has that label."
+        }
+    }
+
+    private func conditions(for source: HarnessNode, edge index: Int) -> [String] {
         switch source.type {
         case .route:
-            let labels = Set((source.labels ?? []) + (source.rules ?? []).map(\.label))
-            return ["default"] + labels.sorted().map { "label:\($0)" }
+            return ["default"] + HarnessGraph.wireLabelChoices(harness, edge: index).map { "label:\($0)" }
         case .answer:
             return ["always", "handoff", "slow:20", "tools:5"]
         default:
