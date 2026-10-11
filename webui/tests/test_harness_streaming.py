@@ -113,3 +113,15 @@ def test_fast_node_turn_gets_a_handoff_budget_and_the_rule():
     bind = bind[:bind.index(")\n")]
     assert "auto_handoff_after" in bind and "question" in bind
     assert "HANDOFF_RULE" in src
+
+
+
+def test_saved_reasoning_drops_a_trailing_copy_of_the_answer():
+    """Celeris streams the answer after a tool result as reasoning too; the saved
+    thinking card must not repeat the reply."""
+    from api.streaming import _reasoning_without_answer
+    assert _reasoning_without_answer("Look it up.The answer is 4.", "The answer is 4.") == "Look it up."
+    assert _reasoning_without_answer("The answer is 4.\n", " The answer is 4.") == ""
+    assert _reasoning_without_answer("Add 2 and 2.", "The answer is 4.") == "Add 2 and 2."
+    assert _reasoning_without_answer("Thinking", "") == "Thinking"
+    assert _reasoning_without_answer("x", [{"type": "text", "text": "x"}]) == "x"

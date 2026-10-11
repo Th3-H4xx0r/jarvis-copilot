@@ -84,3 +84,36 @@ def test_the_model_decides_quick_device_actions_skip():
     assert "skip" in rule
     for quick in ("single device action", "timer", "quick"):
         assert quick in rule, quick
+
+
+def test_ack_generation_calls_the_lane_models_own_url_with_thinking_off(monkeypatch):
+    """A Celeris fast lane: each model has its own URL, and Magnus thinks by
+    default — an ack (32 tokens) must reach the right URL with thinking off."""
+    import io
+    import urllib.request as ur
+    import api.oauth as oauth
+    seen = {}
+    monkeypatch.setattr(voice, "get_voice_lane_config",
+                        lambda: {"fast_lane": {"provider": "celeris", "model": "celeris-1-magnus"}})
+    monkeypatch.setattr(oauth, "resolve_runtime_provider_with_anthropic_env_lock",
+                        lambda fn, requested=None: {"base_url": "https://inference.celeris.ai/celeris-1/v1",
+                                                    "api_key": "ck_test"})
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"], seen["body"] = req.full_url, json.loads(req.data)
+        return _Resp(json.dumps({"choices": [{"message": {"content": "On it."}}]}).encode())
+
+    monkeypatch.setattr(ur, "urlopen", fake_urlopen)
+    monkeypatch.setattr(voice, "_synth_audio_uncached", lambda phrase: b"")
+    job = voice._start_ack_generation("research the history of rome for me")
+    assert job["done"].wait(3)
+    assert seen["url"] == "https://inference.celeris.ai/celeris-1-magnus/v1/chat/completions"
+    assert seen["body"]["model"] == "celeris-1-magnus"
+    assert seen["body"]["chat_template_kwargs"] == {"enable_thinking": False}

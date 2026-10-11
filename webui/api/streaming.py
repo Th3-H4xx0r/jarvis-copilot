@@ -294,6 +294,16 @@ def _cancelled_turn_hint(agent_name: str | None = None) -> str:
     return f'The run was cancelled by the user before {name} finished. No provider failure occurred.'
 
 
+def _reasoning_without_answer(reasoning, answer) -> str:
+    """Streamed reasoning minus a trailing copy of the answer — Celeris repeats
+    the answer as reasoning after a tool result. '' when nothing else is left."""
+    r = str(reasoning or "")
+    a = answer.strip() if isinstance(answer, str) else ""
+    if a and r.rstrip().endswith(a):
+        r = r.rstrip()[: -len(a)].rstrip()
+    return r
+
+
 def _is_missing_credential_text(text) -> bool:
     """True for "No Anthropic API key configured" / "No Claude account connected"."""
     try:
@@ -4768,7 +4778,9 @@ def _run_agent_streaming(
                 if _reasoning_text and s.messages:
                     for _rm in reversed(s.messages):
                         if isinstance(_rm, dict) and _rm.get('role') == 'assistant':
-                            _rm['reasoning'] = _reasoning_text
+                            _kept = _reasoning_without_answer(_reasoning_text, _rm.get('content'))
+                            if _kept:
+                                _rm['reasoning'] = _kept
                             break
                 try:
                     _turn_duration_seconds = max(0.0, time.time() - float(_turn_started_at))

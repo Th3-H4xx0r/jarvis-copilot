@@ -2556,16 +2556,27 @@ def _start_ack_generation(user_text: str):
             from api.oauth import resolve_runtime_provider_with_anthropic_env_lock  # type: ignore
             from jarviscopilot_cli.runtime_provider import resolve_runtime_provider  # type: ignore
             import urllib.request as _ur
+            from providers import get_provider_profile, model_base_url  # type: ignore
             rt = resolve_runtime_provider_with_anthropic_env_lock(resolve_runtime_provider, requested=lane["provider"])
-            base = (rt.get("base_url") or "").rstrip("/")
+            # A provider that serves each model on its own URL (Celeris) builds it.
+            base = (model_base_url(lane["provider"], lane["model"], rt.get("base_url")) or "").rstrip("/")
             key = rt.get("api_key") or ""
             if not base:
                 return
-            body = json.dumps({
+            payload = {
                 "model": lane["model"], "stream": False, "max_tokens": 32, "temperature": 0.7,
                 "messages": [{"role": "system", "content": _ACK_SYSTEM_PROMPT},
                              {"role": "user", "content": text[:400]}],
-            }).encode()
+            }
+            # The provider's own "no reasoning" switches — an ack needs no thought,
+            # and a thinking-by-default model (Celeris Magnus) would spend all 32 tokens.
+            profile = get_provider_profile(str(lane["provider"] or "").strip().lower())
+            if profile:
+                extra, top = profile.build_api_kwargs_extras(reasoning_config={"enabled": False},
+                                                             model=lane["model"])
+                payload.update(top)
+                payload.update(extra)
+            body = json.dumps(payload).encode()
             req = _ur.Request(base + "/chat/completions", data=body,
                               headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
             with _ur.urlopen(req, timeout=2.5) as r:
