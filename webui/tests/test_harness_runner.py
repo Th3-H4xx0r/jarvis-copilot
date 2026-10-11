@@ -177,3 +177,23 @@ def test_single_uses_session_model():
 def test_classifier_failure_returns_default_fast():
     d = classify_with_model({"id": "r", "model": "@nope:nope", "labels": ["a"]}, "x", timeout=0.2)
     assert d.label is None and d.error
+
+
+def test_route_choices_are_unique():
+    assert [v for v, _ in _route_choices({"labels": ["deep", "deep", "quick"]})] == ["deep", "quick", "none"]
+
+
+def test_decision_route_without_real_labels_makes_no_call(monkeypatch):
+    from agent import decision_client
+
+    def must_not_call(*a, **k):
+        raise AssertionError("called")
+
+    monkeypatch.setattr(decision_client, "choose", must_not_call)
+    for labels in ([], ["None"]):
+        d = classify_with_model({"id": "r", "model": "@celeris:celeris-1-decision", "labels": labels}, "hi")
+        assert d.label is None and d.error == "no labels to pick from"
+
+
+def test_chat_route_parse_prefers_the_longest_label():
+    assert _parse_label("I'd pick deep research", ["deep", "deep research"]) == "deep research"

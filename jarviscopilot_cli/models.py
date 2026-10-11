@@ -3384,6 +3384,18 @@ def validate_requested_model(
             "message": "Model names cannot contain spaces.",
         }
 
+    try:
+        from providers import is_decision_model
+        if is_decision_model(normalized, requested):
+            return {
+                "accepted": False,
+                "persist": False,
+                "recognized": True,
+                "message": f"{requested} is a decision model — use it as a harness Route's router, not for chat.",
+            }
+    except Exception:
+        pass
+
     if normalized == "lmstudio":
         from jarviscopilot_cli.auth import AuthError
         # Use probe_lmstudio_models so we can distinguish None (unreachable

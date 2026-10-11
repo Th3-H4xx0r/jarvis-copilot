@@ -64,7 +64,10 @@ register_provider(CelerisProfile(
     signup_url="https://console.celeris.ai/",
     env_vars=("CELERIS_API_KEY", "CELERIS_BASE_URL"),
     base_url=ROOT,
-    supports_model_listing=False,  # each URL lists only its own model
+    # Each URL lists only its own model, so no live catalog; `doctor` probes
+    # celeris-1's models endpoint to check the key.
+    models_url=f"{ROOT}/celeris-1/v1/models",
+    supports_model_listing=False,
     fallback_models=("celeris-1", "celeris-1-magnus"),
     decision_models=("celeris-1-decision",),
     default_aux_model="celeris-1",

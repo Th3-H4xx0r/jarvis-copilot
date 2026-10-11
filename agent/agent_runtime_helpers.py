@@ -1337,6 +1337,9 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     change persists across turns (unlike fallback which is
     turn-scoped).
     """
+    from providers import is_decision_model, model_base_url
+    if is_decision_model(new_provider, new_model):
+        raise ValueError(f"{new_model} is a decision model — use it as a harness Route's router, not for chat.")
     from jarviscopilot_cli.providers import determine_api_mode
 
     # ── Determine api_mode if not provided ──
@@ -1375,7 +1378,6 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     if base_url:
         agent.base_url = base_url
     # A provider that serves each model on its own URL (Celeris) builds it.
-    from providers import model_base_url
     agent.base_url = model_base_url(new_provider, new_model, agent.base_url)
     if base_url:
         base_url = agent.base_url

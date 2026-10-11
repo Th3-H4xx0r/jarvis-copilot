@@ -2888,6 +2888,9 @@ class AIAgent:
     def _swap_credential(self, entry) -> None:
         runtime_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
         runtime_base = getattr(entry, "runtime_base_url", None) or getattr(entry, "base_url", None) or self.base_url
+        # A provider that serves each model on its own URL (Celeris) builds it.
+        from providers import model_base_url
+        runtime_base = model_base_url(self.provider, self.model, runtime_base)
 
         if self.api_mode == "anthropic_messages":
             from agent.anthropic_adapter import build_anthropic_client, _is_oauth_token

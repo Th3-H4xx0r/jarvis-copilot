@@ -116,8 +116,8 @@ class RouteDecision:
 
 
 def _route_choices(node):
-    """``[(label, description|None)]`` plus a "none" option (→ default wire)."""
-    labels = node.get("labels") or []
+    """``[(label, description|None)]`` (unique) plus a "none" option (→ default wire)."""
+    labels = list(dict.fromkeys(node.get("labels") or []))
     notes = node.get("label_descriptions") or {}
     out = [(l, notes.get(l) or None) for l in labels]
     if not any(l.lower() == _NONE for l in labels):
@@ -141,7 +141,8 @@ def _parse_label(out, labels):
     exact = next((l for l in labels if l.lower() == o), None)
     if exact:
         return exact
-    return next((l for l in labels if re.search(rf"\b{re.escape(l.lower())}\b", o)), None)
+    return next((l for l in sorted(labels, key=len, reverse=True)
+                 if re.search(rf"\b{re.escape(l.lower())}\b", o)), None)
 
 
 def classify_with_model(node, text, timeout=1.5):
@@ -159,6 +160,8 @@ def classify_with_model(node, text, timeout=1.5):
     except Exception:
         q, decision = None, False
     by = "decision" if decision else "model"
+    if not any(l.lower() != _NONE for l in labels):
+        return RouteDecision(None, by, ref, error="no labels to pick from")
     result = {}
 
     def _run():

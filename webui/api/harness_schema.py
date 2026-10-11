@@ -134,7 +134,7 @@ def _clean_node(raw, errors):
             if not model:
                 _err(errors, "A model Route needs a model to label messages.", node=nid)
             node["model"] = model
-        labels = [str(l).strip() for l in (raw.get("labels") or []) if str(l).strip()]
+        labels = list(dict.fromkeys(str(l).strip() for l in (raw.get("labels") or []) if str(l).strip()))
         node["labels"] = labels
         notes = raw.get("label_descriptions")
         if isinstance(notes, dict):

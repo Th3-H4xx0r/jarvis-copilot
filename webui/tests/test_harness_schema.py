@@ -133,3 +133,9 @@ def test_decision_model_refused_outside_a_route():
     _, errors = validate_harness(doc)
     assert any(e["node"] == "a" and "decision model" in e["message"] for e in errors)
     assert any(e["node"] == "b" and "decision model" in e["message"] for e in errors)
+
+
+def test_route_labels_are_deduplicated():
+    doc, errors = validate_harness(_route_doc(labels=["deep", "quick", "deep", " quick "]))
+    assert not errors
+    assert next(n for n in doc["nodes"] if n["id"] == "r")["labels"] == ["deep", "quick"]

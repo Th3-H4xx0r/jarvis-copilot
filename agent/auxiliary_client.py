@@ -1450,6 +1450,8 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
             model = _get_aux_model_for_provider(provider_id) or None
             if model is None:
                 continue  # skip provider if we don't know a valid aux model
+            from providers import model_base_url
+            base_url = model_base_url(provider_id, model, base_url)
             logger.debug("Auxiliary text client: %s (%s) via pool", pconfig.name, model)
             if provider_id == "gemini":
                 from agent.gemini_native_adapter import GeminiNativeClient, is_native_gemini_base_url
@@ -1487,6 +1489,8 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
         model = _get_aux_model_for_provider(provider_id) or None
         if model is None:
             continue  # skip provider if we don't know a valid aux model
+        from providers import model_base_url
+        base_url = model_base_url(provider_id, model, base_url)
         logger.debug("Auxiliary text client: %s (%s)", pconfig.name, model)
         if provider_id == "gemini":
             from agent.gemini_native_adapter import GeminiNativeClient, is_native_gemini_base_url
