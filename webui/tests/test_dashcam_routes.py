@@ -61,6 +61,15 @@ class StubRelay:
             raise self.fail
         return {"access_token": "ya29.test", "expires_at": 2_000_000_000.0, "team_drive": None}
 
+    client = {"client_id": "123-abc.apps.googleusercontent.com", "client_secret": "GOCSPX-secret"}
+
+    def drive_client(self, remote):
+        self.calls.append(("client", remote))
+        return dict(self.client)
+
+    def update_remote(self, remote, dtype, fields):
+        self.calls.append(("update", remote, dtype, dict(fields)))
+
     def open_stream(self, remote, remote_path, range_header):
         self.calls.append(("stream", remote, remote_path, range_header))
         status, headers, blocks = self.stream
@@ -663,3 +672,80 @@ def test_a_direct_upload_counts_as_uploaded_without_any_bytes(H, store):
     status, _ = H("POST", f"/clips/{cid}/direct", {"destination_id": did, "remote_path": "dc/a.mp4", "file_id": "1AbC",
                                                    "size": 18, "preview_path": "dc/Previews/a.mp4", "preview_file_id": "1Pv"})
     assert status == 200 and store.get_clip(cid)["destinations"][did]["preview_file_id"] == "1Pv"
+
+
+# ── a Drive sign-in Google stopped honouring ─────────────────────────────────
+
+EXPIRED = ('couldn\'t find root directory ID: Get "https://www.googleapis.com/drive/v3/files/root": couldn\'t fetch '
+           'token: invalid_grant: maybe token expired? - try refreshing with "rclone config reconnect jc_d_x:"')
+
+
+def _drive(H):
+    status, payload = H("POST", "/destinations", {"type": "drive", "name": "Drive", "path": "Dashcam Camry",
+                                                  "token": {"access_token": "x", "refresh_token": "y"}})
+    assert status == 200, payload
+    return payload["destination"]["id"]
+
+
+def test_an_expired_drive_sign_in_is_a_409_and_flags_the_destination(H, store, relay):
+    did = _drive(H)
+    relay.fail = RelayError(EXPIRED)
+    status, payload = H("POST", f"/destinations/{did}/token", {})
+    assert status == 409 and payload["reason"] == "signin_expired", "the phone stops asking instead of retrying"
+    (dest,) = H("GET", "/destinations")[1]["destinations"]
+    assert dest["status"] == "error" and dest["signin_expired"] is True
+    relay.fail = RelayError("rclone is not answering: timed out")
+    assert H("POST", f"/destinations/{did}/token", {})[0] == 502, "other failures stay retryable"
+
+
+def test_the_phone_gets_the_client_id_but_never_the_secret(H, relay):
+    did = _drive(H)
+    status, payload = H("GET", f"/destinations/{did}/oauth")
+    assert status == 200 and payload == {"ok": True, "client_id": relay.client["client_id"]}
+    relay.client = {"client_id": "", "client_secret": ""}
+    assert H("GET", f"/destinations/{did}/oauth")[0] == 400, "rclone's shared client can't do the loopback sign-in"
+    sftp = add_dest(H)
+    assert H("GET", f"/destinations/{sftp['id']}/oauth")[0] == 400
+    assert H("GET", "/destinations/d_00000000/oauth")[0] == 404
+
+
+def test_reconnect_trades_the_code_on_the_server_and_keeps_the_destination(H, store, relay, monkeypatch):
+    did = _drive(H)
+    store.update_destination(did, {"status": "error", "error": EXPIRED})
+    seen = {}
+
+    def exchange(code, verifier, redirect, client_id, client_secret, **_):
+        seen.update(code=code, verifier=verifier, redirect=redirect, client_id=client_id, secret=client_secret)
+        return '{"access_token":"new","refresh_token":"fresh"}'
+    monkeypatch.setattr(dr.dashcam_relay, "exchange_google_code", exchange)
+    status, payload = H("POST", f"/destinations/{did}/reconnect",
+                        {"code": "4/abc", "code_verifier": "v" * 43, "redirect_uri": "http://127.0.0.1:53682"})
+    assert status == 200 and payload["ok"] is True, payload
+    assert seen == {"code": "4/abc", "verifier": "v" * 43, "redirect": "http://127.0.0.1:53682",
+                    "client_id": relay.client["client_id"], "secret": relay.client["client_secret"]}
+    assert ("update", "jc_" + did, "drive", {"token": '{"access_token":"new","refresh_token":"fresh"}'}) in relay.calls
+    dest = payload["destination"]
+    assert dest["id"] == did and dest["status"] == "ok" and dest["error"] is None and dest["signin_expired"] is False
+    assert "GOCSPX" not in json.dumps(payload) and "fresh" not in json.dumps(payload)
+    assert len(store.destinations()) == 1
+
+
+def test_reconnect_with_a_pasted_token_and_its_errors(H, store, relay, monkeypatch):
+    did = _drive(H)
+    status, payload = H("POST", f"/destinations/{did}/reconnect", {"token": '{"refresh_token":"z"}'})
+    assert status == 200 and payload["ok"] is True
+    assert relay.calls[-2] == ("update", "jc_" + did, "drive", {"token": '{"refresh_token":"z"}'})
+    relay.test_result = (False, EXPIRED)
+    status, payload = H("POST", f"/destinations/{did}/reconnect", {"token": '{"refresh_token":"z"}'})
+    assert status == 200 and payload["ok"] is False and payload["destination"]["signin_expired"] is True
+    assert H("POST", f"/destinations/{did}/reconnect", {})[0] == 400
+
+    def refuse(*a, **k):
+        raise ValueError("Google didn't hand over the token: Bad Request")
+    monkeypatch.setattr(dr.dashcam_relay, "exchange_google_code", refuse)
+    status, payload = H("POST", f"/destinations/{did}/reconnect",
+                        {"code": "4/x", "code_verifier": "v", "redirect_uri": "http://127.0.0.1:1"})
+    assert status == 400 and "Bad Request" in payload["error"]
+    sftp = add_dest(H)
+    assert H("POST", f"/destinations/{sftp['id']}/reconnect", {"token": "{}"})[0] == 400
+    assert H("POST", "/destinations/d_00000000/reconnect", {"token": "{}"})[0] == 404

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import logging
 import os
@@ -124,6 +125,14 @@ def make_handler(fake: FakeRclone):
             if path == "config/update":
                 opt = body.get("opt") or {}
                 name = body["name"]
+                if not opt.get("continue"):
+                    # New values for an existing remote; rclone then asks its questions again.
+                    if name not in fake.remotes:
+                        return self._send(500, {"error": f"couldn't find remote {name!r}"})
+                    fake.remotes[name]["parameters"].update(body.get("parameters") or {})
+                    fake.drive_step[name] = 0
+                    state, q = DRIVE_QUESTIONS[0]
+                    return self._send(200, {"State": state, "Option": {"Name": q}, "Error": "", "Result": ""})
                 step = fake.drive_step.get(name, 0)
                 if opt.get("state") != DRIVE_QUESTIONS[step][0]:
                     return self._send(500, {"error": "bad state"})
@@ -903,3 +912,85 @@ def test_drive_access_renews_a_lapsed_token_through_rclone(monkeypatch):
     assert out["access_token"] == "new" and out["expires_at"] > 4_000_000_000
     assert calls == ["config/get", "operations/about", "config/get"]
     assert relay_mod._rfc3339("2026-10-02T20:40:18.288940198Z") == pytest.approx(1790973618.28894, abs=1e-3)
+
+
+# ── signing a Drive remote in again ──────────────────────────────────────────
+
+def test_update_remote_swaps_the_token_in_place(fake, relay):
+    relay.create_remote("d_0000abcd", "drive", {"token": {"access_token": "old", "refresh_token": "1//old"},
+                                                "client_id": "cid", "client_secret": "csecret"})
+    relay.update_remote("jc_d_0000abcd", "drive", {"token": {"access_token": "new", "refresh_token": "1//new"}})
+    params = fake.remotes["jc_d_0000abcd"]["parameters"]
+    assert json.loads(params["token"])["refresh_token"] == "1//new"
+    assert params["client_id"] == "cid" and params["client_secret"] == "csecret", "the client stays"
+    finals = [b["opt"]["result"] for p, b in fake.requests if p == "config/update" and b["opt"].get("continue")]
+    assert finals[-3:] == ["true", "false", "false"], "keeps the new token, never starts a browser OAuth"
+
+
+def test_a_failed_update_never_deletes_the_remote(fake, relay):
+    relay.create_remote("d_0000abcd", "drive", {"token": {"access_token": "a"}})
+    fake.extra_question = "config_is_local"
+    with pytest.raises(RelayError, match="config_is_local"):
+        relay.update_remote("jc_d_0000abcd", "drive", {"token": {"access_token": "b", "refresh_token": "secret-rt"}})
+    assert "jc_d_0000abcd" in fake.remotes
+    with pytest.raises(ValueError):
+        relay.update_remote("jc_d_0000abcd", "drive", {"token": "not json"})
+
+
+def test_drive_client_reads_the_remote_config(fake, relay, monkeypatch):
+    monkeypatch.setattr(relay, "rc", lambda method, params=None, **k: {"client_id": "cid", "client_secret": "s", "token": "{}"})
+    assert relay.drive_client("jc_d_0000abcd") == {"client_id": "cid", "client_secret": "s"}
+    monkeypatch.setattr(relay, "rc", lambda method, params=None, **k: {"token": "{}"})
+    assert relay.drive_client("jc_d_0000abcd") == {"client_id": "", "client_secret": ""}
+
+
+def test_signin_expired_spots_a_dead_refresh_token():
+    assert dr.signin_expired('couldn\'t fetch token: invalid_grant: maybe token expired? - try refreshing')
+    assert dr.signin_expired(RelayError("oauth2: \"invalid_grant\" \"Token has been expired or revoked.\""))
+    assert not dr.signin_expired("googleapi: Error 403: Quota exceeded")
+    assert not dr.signin_expired(None)
+
+
+class _Reply:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def test_exchange_google_code_returns_rclones_token_shape():
+    sent = {}
+
+    def urlopen(req, timeout=None):
+        sent["url"], sent["form"] = req.full_url, dict(x.split("=", 1) for x in req.data.decode().split("&"))
+        return _Reply(json.dumps({"access_token": "ya29.a", "refresh_token": "1//r", "expires_in": 3599,
+                                  "token_type": "Bearer"}).encode())
+    token = json.loads(dr.exchange_google_code("4/code", "ver", "http://127.0.0.1:53682", "cid", "csec", urlopen=urlopen))
+    assert token["access_token"] == "ya29.a" and token["refresh_token"] == "1//r" and token["token_type"] == "Bearer"
+    assert re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$", token["expiry"])
+    assert sent["url"] == dr.GOOGLE_TOKEN_URL
+    assert sent["form"]["grant_type"] == "authorization_code" and sent["form"]["code_verifier"] == "ver"
+    assert sent["form"]["client_secret"] == "csec"
+
+
+def test_exchange_google_code_refusals_are_value_errors_without_the_secret():
+    import urllib.error
+
+    def refuse(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {},
+                                     io.BytesIO(b'{"error":"invalid_grant","error_description":"Bad Request csec"}'))
+    with pytest.raises(ValueError) as e:
+        dr.exchange_google_code("4/code", "ver", "http://127.0.0.1:1", "cid", "csec", urlopen=refuse)
+    assert "Bad Request" in str(e.value) and "csec" not in str(e.value)
+    with pytest.raises(ValueError, match="refresh token"):
+        dr.exchange_google_code("4/code", "ver", "http://127.0.0.1:1", "cid", "csec",
+                                urlopen=lambda req, timeout=None: _Reply(b'{"access_token":"a"}'))
+    with pytest.raises(ValueError, match="loopback"):
+        dr.exchange_google_code("4/code", "ver", "https://evil.example/cb", "cid", "csec", urlopen=refuse)

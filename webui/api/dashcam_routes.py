@@ -44,6 +44,13 @@ Endpoints (GET/POST/DELETE only)::
                           password?, token?, client_id?, client_secret?} -> {ok, destination}
     POST   /destinations/<id> {name?, enabled?, kinds?, path?} -> {ok, destination}
     POST   /destinations/<id>/test      -> {ok, error?}
+    GET    /destinations/<id>/oauth     -> {ok, client_id}  (Drive with its own OAuth client; the phone signs in with it)
+    POST   /destinations/<id>/reconnect {code, code_verifier, redirect_uri} | {token, client_id?, client_secret?}
+                                        -> {ok, destination, error?}  (a Drive sign-in Google stopped honouring,
+                                           renewed in place: same remote and id; the code is traded here with
+                                           the client secret rclone holds, so the secret never leaves the server)
+    POST   /destinations/<id>/token     -> {ok, access_token, expires_at, team_drive, path}
+                                           | 409 {ok:false, reason:"signin_expired"} (sign in again; retrying won't help)
     POST   /destinations/<id>/delete    -> {ok}            (alias of DELETE /destinations/<id>)
 
 Clips carry ``container`` (``"mp4"`` once a ``.ts`` was remuxed, ``"ts"`` when it was kept as it
@@ -88,7 +95,8 @@ _RE_UPLOAD_CHUNK = re.compile(rf"^/uploads/{_UPLOAD}/chunk$")
 _RE_DRIVE = re.compile(rf"^/drives/{_DRIVE}$")
 _RE_DRIVE_GPX = re.compile(rf"^/drives/{_DRIVE}\.gpx$")
 _RE_DEST = re.compile(rf"^/destinations/{_DEST}$")
-_RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete|token)$")
+_RE_DEST_ACTION = re.compile(rf"^/destinations/{_DEST}/(test|delete|token|reconnect)$")
+_RE_DEST_OAUTH = re.compile(rf"^/destinations/{_DEST}/oauth$")
 _RE_CLIP_DIRECT = re.compile(rf"^/clips/{_CLIP}/direct$")
 
 _UNKNOWN = (404, {"ok": False, "error": "unknown dashcam endpoint"})
@@ -185,7 +193,10 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
         if p == "/drives":
             return _list_drives(store, q)
         if p == "/destinations":
-            return 200, {"destinations": store.destinations()}
+            return 200, {"destinations": [_dest_view(d) for d in store.destinations()]}
+        m = _RE_DEST_OAUTH.match(p)
+        if m:
+            return _destination_oauth(store, m.group(1), relay)
         m = _RE_CLIP.match(p)
         if m:
             return _get_clip(store, m.group(1))
@@ -235,6 +246,8 @@ def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=
                 return _test_destination(store, did, relay)
             if action == "token":
                 return _destination_token(store, did, relay)
+            if action == "reconnect":
+                return _reconnect_destination(store, did, body, relay)
             return _delete_destination(store, did, relay)
         m = _RE_CLIP_DIRECT.match(p)
         if m:
@@ -541,10 +554,75 @@ def _destination_token(store, did, relay):
     except RelayUnavailable as exc:
         return _err(503, str(exc))
     except RelayError as exc:
+        if dashcam_relay.signin_expired(exc):
+            # Dead refresh token: say so on the destination, and tell the phone to stop asking.
+            from api.dashcam_store import now_iso
+            store.update_destination(did, {"status": "error", "error": str(exc), "tested_at": now_iso()})
+            return 409, {"ok": False, "reason": "signin_expired",
+                         "error": "Google Drive sign-in expired - sign in again in Destinations"}
         return _err(502, str(exc))
     return 200, {"ok": True, "type": dest["type"], "access_token": access["access_token"],
                  "expires_at": access["expires_at"], "team_drive": access["team_drive"],
                  "path": dest.get("path") or ""}
+
+
+def _dest_view(dest: dict) -> dict:
+    """A destination as the phone sees it: plus whether only signing in again will fix its error."""
+    return {**dest, "signin_expired": dest.get("type") == "drive" and dashcam_relay.signin_expired(dest.get("error"))}
+
+
+def _destination_oauth(store, did, relay):
+    dest = store.get_destination(did)
+    if dest is None:
+        return _err(404, "destination not found")
+    if dest.get("type") != "drive" or not dest.get("remote"):
+        return _err(400, "only Google Drive destinations sign in")
+    try:
+        client = _relay(relay).drive_client(dest["remote"])
+    except RelayUnavailable as exc:
+        return _err(503, str(exc))
+    except RelayError as exc:
+        return _err(502, str(exc))
+    if not client["client_id"] or not client["client_secret"]:
+        return _err(400, "this destination uses rclone's shared Google client - remove it and add it with your own")
+    return 200, {"ok": True, "client_id": client["client_id"]}
+
+
+def _reconnect_destination(store, did, body, relay):
+    """Signs a Drive destination in again without making a new one (clips already copied keep pointing
+    at it). Either the phone's OAuth code, traded here, or a token JSON made elsewhere."""
+    from api.dashcam_store import now_iso
+    dest = store.get_destination(did)
+    if dest is None:
+        return _err(404, "destination not found")
+    if dest.get("type") != "drive" or not dest.get("remote"):
+        return _err(400, "only Google Drive destinations sign in again")
+    r = _relay(relay)
+    try:
+        if body.get("code"):
+            client = r.drive_client(dest["remote"])
+            if not client["client_id"] or not client["client_secret"]:
+                return _err(400, "this destination uses rclone's shared Google client - paste a token instead")
+            fields = {"token": dashcam_relay.exchange_google_code(
+                body.get("code"), body.get("code_verifier"), body.get("redirect_uri"),
+                client["client_id"], client["client_secret"])}
+        elif body.get("token"):
+            fields = {k: body[k] for k in ("token", "client_id", "client_secret") if body.get(k)}
+        else:
+            return _err(400, "code (with code_verifier and redirect_uri) or token is required")
+        r.update_remote(dest["remote"], "drive", fields)
+        ok, error = r.test_remote(dest["remote"], dest.get("path") or "")
+    except ValueError as exc:
+        return _err(400, str(exc))
+    except RelayUnavailable as exc:
+        return _err(503, str(exc))
+    except RelayError as exc:
+        return _err(502, str(exc))
+    store.update_destination(did, {"status": "ok" if ok else "error", "error": error, "tested_at": now_iso()})
+    reply = {"ok": ok, "destination": _dest_view(store.get_destination(did))}
+    if not ok:
+        reply["error"] = error
+    return 200, reply
 
 
 def _record_direct(store, cid, body):

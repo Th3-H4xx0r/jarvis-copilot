@@ -47,6 +47,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable, Iterator, NamedTuple
@@ -206,6 +207,98 @@ def drive_token(raw) -> str:
     if not isinstance(obj, dict) or not (obj.get("access_token") or obj.get("refresh_token")):
         raise ValueError("that isn't a Drive token: it needs the access_token/refresh_token JSON from `rclone authorize drive`")
     return json.dumps(obj, separators=(",", ":"))
+
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+# What Google/rclone say when the refresh token is dead (expired, revoked, password changed).
+_SIGNIN_EXPIRED = ("invalid_grant", "token has been expired or revoked")
+
+
+def signin_expired(message) -> bool:
+    """True when an rclone/Google error means the Drive sign-in itself is gone - only signing in
+    again fixes it, so retrying is pointless."""
+    text = str(message or "").lower()
+    return any(marker in text for marker in _SIGNIN_EXPIRED)
+
+
+def exchange_google_code(code: str, verifier: str, redirect_uri: str, client_id: str, client_secret: str,
+                         *, urlopen=None) -> str:
+    """Trades the phone's OAuth code (PKCE, loopback redirect) for a token, in the JSON shape rclone
+    keeps. ValueError with Google's reason when it refuses."""
+    if not all(isinstance(v, str) and v for v in (code, verifier, redirect_uri)):
+        raise ValueError("code, code_verifier and redirect_uri are required")
+    if not redirect_uri.startswith("http://127.0.0.1:"):
+        raise ValueError("redirect_uri must be the phone's loopback address")
+    form = urllib.parse.urlencode({
+        "code": code, "code_verifier": verifier, "redirect_uri": redirect_uri, "client_id": client_id,
+        "client_secret": client_secret, "grant_type": "authorization_code"}).encode()
+    req = urllib.request.Request(GOOGLE_TOKEN_URL, data=form, method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with (urlopen or urllib.request.urlopen)(req, timeout=RC_TIMEOUT_S) as resp:
+            reply = json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            reply = json.loads(exc.read() or b"{}")
+        except ValueError:
+            reply = {}
+        reason = reply.get("error_description") or reply.get("error") or f"HTTP {exc.code}"
+        raise ValueError(f"Google didn't hand over the token: {_scrub(reason, [client_secret, code])}") from None
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise ValueError(f"couldn't reach Google: {_scrub(str(exc), [client_secret, code])}") from None
+    if not reply.get("access_token"):
+        raise ValueError("Google didn't hand over the token")
+    if not reply.get("refresh_token"):
+        raise ValueError("Google gave no refresh token - remove Jarvis's access in your Google account and sign in again")
+    expiry = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + float(reply.get("expires_in") or 3600)))
+    return json.dumps({"access_token": reply["access_token"], "token_type": reply.get("token_type") or "Bearer",
+                       "refresh_token": reply["refresh_token"], "expiry": expiry}, separators=(",", ":"))
+
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+# What Google/rclone say when the refresh token is dead (expired, revoked, password changed).
+_SIGNIN_EXPIRED = ("invalid_grant", "token has been expired or revoked")
+
+
+def signin_expired(message) -> bool:
+    """True when an rclone/Google error means the Drive sign-in itself is gone - only signing in
+    again fixes it, so retrying is pointless."""
+    text = str(message or "").lower()
+    return any(marker in text for marker in _SIGNIN_EXPIRED)
+
+
+def exchange_google_code(code: str, verifier: str, redirect_uri: str, client_id: str, client_secret: str,
+                         *, urlopen=None) -> str:
+    """Trades the phone's OAuth code (PKCE, loopback redirect) for a token, in the JSON shape rclone
+    keeps. ValueError with Google's reason when it refuses."""
+    if not all(isinstance(v, str) and v for v in (code, verifier, redirect_uri)):
+        raise ValueError("code, code_verifier and redirect_uri are required")
+    if not redirect_uri.startswith("http://127.0.0.1:"):
+        raise ValueError("redirect_uri must be the phone's loopback address")
+    form = urllib.parse.urlencode({
+        "code": code, "code_verifier": verifier, "redirect_uri": redirect_uri, "client_id": client_id,
+        "client_secret": client_secret, "grant_type": "authorization_code"}).encode()
+    req = urllib.request.Request(GOOGLE_TOKEN_URL, data=form, method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with (urlopen or urllib.request.urlopen)(req, timeout=RC_TIMEOUT_S) as resp:
+            reply = json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            reply = json.loads(exc.read() or b"{}")
+        except ValueError:
+            reply = {}
+        reason = reply.get("error_description") or reply.get("error") or f"HTTP {exc.code}"
+        raise ValueError(f"Google didn't hand over the token: {_scrub(reason, [client_secret, code])}") from None
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise ValueError(f"couldn't reach Google: {_scrub(str(exc), [client_secret, code])}") from None
+    if not reply.get("access_token"):
+        raise ValueError("Google didn't hand over the token")
+    if not reply.get("refresh_token"):
+        raise ValueError("Google gave no refresh token - remove Jarvis's access in your Google account and sign in again")
+    expiry = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + float(reply.get("expires_in") or 3600)))
+    return json.dumps({"access_token": reply["access_token"], "token_type": reply.get("token_type") or "Bearer",
+                       "refresh_token": reply["refresh_token"], "expiry": expiry}, separators=(",", ":"))
 
 
 def remote_parameters(dtype: str, fields: dict) -> tuple[dict, list[str]]:
@@ -459,21 +552,7 @@ class Relay:
         name = "jc_" + dest_id
         opt = {"obscure": True, "nonInteractive": True}
         try:
-            reply = self.rc("config/create", {"name": name, "type": dtype, "parameters": params, "opt": opt})
-            for _ in range(10):
-                if not reply.get("State"):
-                    break
-                question = (reply.get("Option") or {}).get("Name")
-                if question not in SAFE_ANSWERS:
-                    raise RelayError(f"rclone asked {question!r} while setting up the destination; "
-                                     "set it up with fewer options or report this")
-                reply = self.rc("config/update", {"name": name, "parameters": {}, "opt": {
-                    "continue": True, "nonInteractive": True, "obscure": True,
-                    "state": reply["State"], "result": SAFE_ANSWERS[question]}})
-            else:
-                raise RelayError("rclone kept asking questions while setting up the destination")
-            if reply.get("Error"):
-                raise RelayError(str(reply["Error"]))
+            self._answer(name, self.rc("config/create", {"name": name, "type": dtype, "parameters": params, "opt": opt}))
         except RelayError as exc:
             message = _scrub(str(exc), secret_values)
             try:
@@ -483,6 +562,41 @@ class Relay:
             logger.warning("dashcam relay: creating %s remote %s failed: %s", dtype, name, message)
             raise RelayError(message) from None
         return name
+
+    def _answer(self, name: str, reply: dict) -> None:
+        """Walks rclone's follow-up config questions, answering only ``SAFE_ANSWERS``."""
+        for _ in range(10):
+            if not reply.get("State"):
+                break
+            question = (reply.get("Option") or {}).get("Name")
+            if question not in SAFE_ANSWERS:
+                raise RelayError(f"rclone asked {question!r} while setting up the destination; "
+                                 "set it up with fewer options or report this")
+            reply = self.rc("config/update", {"name": name, "parameters": {}, "opt": {
+                "continue": True, "nonInteractive": True, "obscure": True,
+                "state": reply["State"], "result": SAFE_ANSWERS[question]}})
+        else:
+            raise RelayError("rclone kept asking questions while setting up the destination")
+        if reply.get("Error"):
+            raise RelayError(str(reply["Error"]))
+
+    def update_remote(self, remote: str, dtype: str, fields: dict) -> None:
+        """Puts new credentials (a fresh Drive token) into an existing remote. Unlike a failed create,
+        a failed update leaves the remote as it was. ValueError for bad fields, RelayError if rclone refuses."""
+        params, secret_values = remote_parameters(dtype, fields)
+        try:
+            self._answer(remote, self.rc("config/update", {"name": remote, "parameters": params,
+                                                           "opt": {"obscure": True, "nonInteractive": True}}))
+        except RelayError as exc:
+            message = _scrub(str(exc), secret_values)
+            logger.warning("dashcam relay: updating %s remote %s failed: %s", dtype, remote, message)
+            raise RelayError(message) from None
+
+    def drive_client(self, remote: str) -> dict:
+        """The OAuth client a Drive remote signs in with (its own, or none for rclone's shared one).
+        Server-side only: the secret is for ``exchange_google_code`` and never leaves this process."""
+        conf = self.rc("config/get", {"name": remote})
+        return {"client_id": conf.get("client_id") or "", "client_secret": conf.get("client_secret") or ""}
 
     def delete_remote(self, remote: str) -> None:
         """Deletes ``remote`` and the secrets in it. When rclone can't be asked (not installed, not
