@@ -27,6 +27,7 @@ You need at least one way to connect to an LLM. Use `jarviscopilot model` to swi
 | **Kimi / Moonshot (China)** | `KIMI_CN_API_KEY` in `~/.jarviscopilot/.env` (provider: `kimi-coding-cn`; aliases: `kimi-cn`, `moonshot-cn`) |
 | **Arcee AI** | `ARCEEAI_API_KEY` in `~/.jarviscopilot/.env` (provider: `arcee`; aliases: `arcee-ai`, `arceeai`) |
 | **GMI Cloud** | `GMI_API_KEY` in `~/.jarviscopilot/.env` (provider: `gmi`; aliases: `gmi-cloud`, `gmicloud`) |
+| **Celeris** | `CELERIS_API_KEY` in `~/.jarviscopilot/.env` (provider: `celeris`) |
 | **MiniMax** | `MINIMAX_API_KEY` in `~/.jarviscopilot/.env` (provider: `minimax`) |
 | **MiniMax China** | `MINIMAX_CN_API_KEY` in `~/.jarviscopilot/.env` (provider: `minimax-cn`) |
 | **Alibaba Cloud** | `DASHSCOPE_API_KEY` in `~/.jarviscopilot/.env` (provider: `alibaba`) |
@@ -530,6 +531,31 @@ model:
 ```
 
 The base URL can be overridden with `GMI_BASE_URL` (default: `https://api.gmi-serving.com/v1`).
+
+### Celeris
+
+Fast diffusion LLMs from [Celeris](https://celeris.ai/) — OpenAI-compatible API, API key authentication.
+
+| Model | Use |
+|---|---|
+| `celeris-1` | Lowest latency (~50–150 ms short replies); tools, streaming, images. Thinks only at reasoning effort `high`/`xhigh`. |
+| `celeris-1-magnus` | Smarter, still fast; reasons by default (effort `low`/`medium`/`xhigh`, `none` turns it off). |
+| `celeris-1-decision` | A **decision model**: answers typed questions with probabilities instead of chatting. Use it as a harness Route node's **Router model** (~70 ms per route). Never offered as a chat model. |
+
+```bash
+jarviscopilot chat --provider celeris --model celeris-1
+# Requires: CELERIS_API_KEY in ~/.jarviscopilot/.env (or Settings → Providers in the Web UI)
+```
+
+```yaml
+model:
+  provider: "celeris"
+  default: "celeris-1-magnus"
+```
+
+Each Celeris model has its own base URL (`https://inference.celeris.ai/<model>/v1`); JarvisCopilot builds it from the model you pick. `CELERIS_BASE_URL` overrides the root (e.g. a regional endpoint). Context: 131,072 tokens (prompt + output).
+
+**Decision-model routers.** In a harness, a Route node set to *Pick by: A model* can use a decision model. Its labels become the options of one multiple-choice question (give each label a one-line meaning — the model picks against it), the Route's instructions become the question, and "none of the other routes fit" takes the default wire. The reply's details line shows the route taken, e.g. `routed deep 82%`. If the router fails or times out (1.5 s), the default wire answers.
 
 ### StepFun
 

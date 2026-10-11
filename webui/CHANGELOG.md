@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Celeris provider + decision-model routers** — Celeris's `celeris-1` and `celeris-1-magnus` appear in every model picker (key: Settings → Providers → `CELERIS_API_KEY`). Decision models such as `celeris-1-decision` are listed apart (`/api/models` → `decision_models`) and can be a harness Route's Router model; Route labels take an optional description, and a routed reply shows `routed <label> <confidence>` on its details line.
+
 ## [v0.51.85] — 2026-05-17 — Release BI (stage-378 — 3-PR batch — workspace-prefix display leakage fix + release-tag update banner + Slice 3a cancel-control gate RFC)
 
 ### Fixed

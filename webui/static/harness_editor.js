@@ -486,7 +486,7 @@
       if (n.by === 'model') rows.push(fieldRow('Router model', modelField('model', n.model, false, E.decisions)));
       // Each label can say what it means — the router model picks against that.
       const notes = n.label_descriptions || {};
-      const labelRows = (n.labels || []).map((l, i) => `<div class="harness-rule" data-label-row="${i}">
+      const labelRows = (n.labels || []).map((l, i) => `<div class="harness-rule harness-label-row" data-label-row="${i}">
           <input class="harness-input" data-label-field="name" value="${esc(l)}" placeholder="label">
           <input class="harness-input" data-label-field="note" value="${esc(notes[l] || '')}" placeholder="what it means (optional)">
           ${E.readOnly ? '' : '<button type="button" class="harness-btn icon" data-label-del aria-label="Remove label">×</button>'}

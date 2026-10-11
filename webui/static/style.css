@@ -4791,6 +4791,7 @@ textarea.harness-input{min-height:64px;resize:vertical;}
 .harness-problems{margin:0;padding:8px 10px 8px 26px;border:1px solid var(--error);border-radius:var(--radius-md);font-size:12px;line-height:1.45;color:var(--error);}
 .harness-rule{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) auto;align-items:center;gap:6px;margin-bottom:6px;}
 .harness-rule-value{font-size:12px;color:var(--muted);}
+.harness-rule.harness-label-row{grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr) auto;}
 .h-node{cursor:move;}
 .h-node-box{fill:var(--surface);stroke:var(--border2);stroke-width:1.5;}
 .h-node.t-message .h-node-box{fill:var(--surface-subtle);}
