@@ -843,6 +843,15 @@ def init_agent(
                         "configuration."
                     )
         
+        # A decision model answers typed questions, never a chat; a provider
+        # that serves each model on its own URL (Celeris) builds it here.
+        from providers import is_decision_model, model_base_url
+        if is_decision_model(agent.provider, agent.model):
+            raise RuntimeError(f"{agent.model} is a decision model — use it as a harness "
+                               "Route's router, not for chat.")
+        if client_kwargs.get("base_url"):
+            client_kwargs["base_url"] = model_base_url(agent.provider, agent.model, client_kwargs["base_url"])
+
         agent._client_kwargs = client_kwargs  # stored for rebuilding after interrupt
 
         # Enable fine-grained tool streaming for Claude on OpenRouter.

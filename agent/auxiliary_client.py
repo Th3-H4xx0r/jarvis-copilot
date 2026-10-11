@@ -3585,6 +3585,9 @@ def resolve_provider_client(
 
         default_model = _get_aux_model_for_provider(provider)
         final_model = _normalize_resolved_model(model or default_model, provider)
+        # A provider that serves each model on its own URL (Celeris) builds it.
+        from providers import model_base_url
+        base_url = model_base_url(provider, final_model, base_url)
 
         if provider == "gemini":
             from agent.gemini_native_adapter import GeminiNativeClient, is_native_gemini_base_url

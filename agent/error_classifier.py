@@ -22,12 +22,13 @@ logger = logging.getLogger(__name__)
 # in their place — the user has to see them (Anthropic API vs Claude subscription).
 MISSING_ANTHROPIC_API_KEY = "No Anthropic API key configured"
 NO_CLAUDE_ACCOUNT = "No Claude account connected"
+MISSING_CELERIS_API_KEY = "No Celeris API key configured"
 
 
 def is_missing_credential(text) -> bool:
-    """True for the two errors a fallback must never answer in place of."""
+    """True for the errors a fallback must never answer in place of."""
     s = str(text or "")
-    return MISSING_ANTHROPIC_API_KEY in s or NO_CLAUDE_ACCOUNT in s
+    return any(m in s for m in (MISSING_ANTHROPIC_API_KEY, NO_CLAUDE_ACCOUNT, MISSING_CELERIS_API_KEY))
 
 
 # ── Error taxonomy ──────────────────────────────────────────────────────
@@ -445,9 +446,13 @@ def classify_api_error(
     body = _extract_error_body(error)
     error_code = _extract_error_code(body)
 
-    # Anthropic API (billed to the key) rejected the key: not temporary, and a
-    # fallback model answering would hide it — same treatment as no key at all.
-    if status_code == 401 and (provider or "").strip().lower() == "anthropic-api":
+    # Anthropic API (billed to the key) or Celeris rejected the key: not temporary,
+    # and a fallback model answering would hide it — same treatment as no key at all.
+    _rejected = {"anthropic-api": (MISSING_ANTHROPIC_API_KEY, "Anthropic", "ANTHROPIC_API_KEY"),
+                 "celeris": (MISSING_CELERIS_API_KEY, "Celeris", "CELERIS_API_KEY")
+                 }.get((provider or "").strip().lower())
+    if status_code == 401 and _rejected:
+        missing, vendor, env_var = _rejected
         err = body.get("error") if isinstance(body, dict) else None
         detail = (err.get("message") if isinstance(err, dict) else "") or str(error)[:160]
         return ClassifiedError(
@@ -456,8 +461,8 @@ def classify_api_error(
             provider=provider,
             model=model or None,
             message=(
-                f"{MISSING_ANTHROPIC_API_KEY} that Anthropic accepts — it rejected "
-                f"ANTHROPIC_API_KEY ({detail}). Update the key in Settings → Providers."
+                f"{missing} that {vendor} accepts — it rejected "
+                f"{env_var} ({detail}). Update the key in Settings → Providers."
             ),
             retryable=False,
         )

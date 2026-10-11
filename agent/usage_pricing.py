@@ -349,6 +349,31 @@ _OFFICIAL_DOCS_PRICING: Dict[tuple[str, str], PricingEntry] = {
         source_url="https://platform.claude.com/docs/en/about-claude/pricing",
         pricing_version="anthropic-pricing-2026-05",
     ),
+    # Celeris (https://docs.celeris.ai/pricing) — decision model output is free.
+    ("celeris", "celeris-1"): PricingEntry(
+        input_cost_per_million=Decimal("0.20"),
+        output_cost_per_million=Decimal("0.70"),
+        cache_read_cost_per_million=Decimal("0.02"),
+        source="official_docs_snapshot",
+        source_url="https://docs.celeris.ai/pricing",
+        pricing_version="celeris-pricing-2026-10-11",
+    ),
+    ("celeris", "celeris-1-magnus"): PricingEntry(
+        input_cost_per_million=Decimal("0.20"),
+        output_cost_per_million=Decimal("0.70"),
+        cache_read_cost_per_million=Decimal("0.02"),
+        source="official_docs_snapshot",
+        source_url="https://docs.celeris.ai/pricing",
+        pricing_version="celeris-pricing-2026-10-11",
+    ),
+    ("celeris", "celeris-1-decision"): PricingEntry(
+        input_cost_per_million=Decimal("0.04"),
+        output_cost_per_million=Decimal("0"),
+        cache_read_cost_per_million=Decimal("0.04"),
+        source="official_docs_snapshot",
+        source_url="https://docs.celeris.ai/pricing",
+        pricing_version="celeris-pricing-2026-10-11",
+    ),
     # DeepSeek
     (
         "deepseek",
@@ -548,6 +573,8 @@ def resolve_billing_route(
         return BillingRoute(provider="openai", model=model.split("/")[-1], base_url=base_url or "", billing_mode="official_docs_snapshot")
     if provider_name in {"minimax", "minimax-cn"}:
         return BillingRoute(provider=provider_name, model=model.split("/")[-1], base_url=base_url or "", billing_mode="official_docs_snapshot")
+    if provider_name == "celeris":
+        return BillingRoute(provider="celeris", model=model.split("/")[-1], base_url=base_url or "", billing_mode="official_docs_snapshot")
     if provider_name in {"custom", "local"} or (base and "localhost" in base):
         return BillingRoute(provider=provider_name or "custom", model=model, base_url=base_url or "", billing_mode="unknown")
     return BillingRoute(provider=provider_name or "unknown", model=model.split("/")[-1] if model else "", base_url=base_url or "", billing_mode="unknown")

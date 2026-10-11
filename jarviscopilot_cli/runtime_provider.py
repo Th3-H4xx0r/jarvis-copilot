@@ -1244,6 +1244,37 @@ def _resolve_anthropic_api_runtime(
     }
 
 
+def _resolve_celeris_runtime(
+    *,
+    requested_provider: str,
+    model_cfg: Dict[str, Any],
+    explicit_api_key: Optional[str],
+    explicit_base_url: Optional[str],
+    target_model: Optional[str],
+) -> Dict[str, Any]:
+    """Celeris serves each model on its own URL (``…/<model>/v1``). No key →
+    a clear error instead of a quiet switch to another provider."""
+    from agent.error_classifier import MISSING_CELERIS_API_KEY
+    from jarviscopilot_cli.config import get_env_value
+    from providers import get_provider_profile
+
+    key = str(explicit_api_key or get_env_value("CELERIS_API_KEY") or "").strip()
+    if not key:
+        raise AuthError(f"{MISSING_CELERIS_API_KEY}. Add CELERIS_API_KEY in Settings → Providers.")
+    cfg_is_celeris = str(model_cfg.get("provider") or "").strip().lower() == "celeris"
+    model = str(target_model or (model_cfg.get("default") if cfg_is_celeris else "") or "celeris-1").strip()
+    root = (explicit_base_url or get_env_value("CELERIS_BASE_URL")
+            or (str(model_cfg.get("base_url") or "") if cfg_is_celeris else "") or None)
+    return {
+        "provider": "celeris",
+        "api_mode": "chat_completions",
+        "base_url": get_provider_profile("celeris").base_url_for_model(model, root),
+        "api_key": key,
+        "source": "explicit" if explicit_api_key else "env",
+        "requested_provider": requested_provider,
+    }
+
+
 def resolve_runtime_provider(
     *,
     requested: Optional[str] = None,
@@ -1319,6 +1350,14 @@ def resolve_runtime_provider(
             model_cfg=model_cfg,
             explicit_api_key=explicit_api_key,
             explicit_base_url=explicit_base_url,
+        )
+    if provider == "celeris":
+        return _resolve_celeris_runtime(
+            requested_provider=requested_provider,
+            model_cfg=model_cfg,
+            explicit_api_key=explicit_api_key,
+            explicit_base_url=explicit_base_url,
+            target_model=target_model,
         )
     explicit_runtime = _resolve_explicit_runtime(
         provider=provider,

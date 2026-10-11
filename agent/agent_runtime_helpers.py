@@ -1014,8 +1014,13 @@ def extract_reasoning(agent, assistant_message) -> Optional[str]:
     
     # Combine all reasoning parts
     if reasoning_parts:
-        return "\n\n".join(reasoning_parts)
-    
+        joined = "\n\n".join(reasoning_parts)
+        # Some providers (Celeris, after a tool result) repeat the answer as
+        # reasoning — showing it twice helps nobody.
+        if isinstance(content, str) and content.strip() and joined.strip() == content.strip():
+            return None
+        return joined
+
     return None
 
 
@@ -1369,6 +1374,11 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     # that returns an empty base_url string.
     if base_url:
         agent.base_url = base_url
+    # A provider that serves each model on its own URL (Celeris) builds it.
+    from providers import model_base_url
+    agent.base_url = model_base_url(new_provider, new_model, agent.base_url)
+    if base_url:
+        base_url = agent.base_url
     agent.api_mode = api_mode
     # Invalidate transport cache — new api_mode may need a different transport
     if hasattr(agent, "_transport_cache"):

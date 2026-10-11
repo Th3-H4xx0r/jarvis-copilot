@@ -52,6 +52,7 @@ _PROVIDER_PREFIXES: frozenset[str] = frozenset({
     "xiaomi",
     "arcee",
     "gmi",
+    "celeris",
     "tencent-tokenhub",
     "custom", "local",
     # Common aliases
@@ -137,6 +138,8 @@ MINIMUM_CONTEXT_LENGTH = 64_000
 # all miss. Replaced the previous 80+ entry dict.
 # For provider-specific context lengths, models.dev is the primary source.
 DEFAULT_CONTEXT_LENGTHS = {
+    # Celeris (celeris-1, -magnus, -decision): 131,072 tokens prompt + output.
+    "celeris-1": 131072,
     # Anthropic Claude 4.6 (1M context) — bare IDs only to avoid
     # fuzzy-match collisions (e.g. "anthropic/claude-sonnet-4" is a
     # substring of "anthropic/claude-sonnet-4.6").
