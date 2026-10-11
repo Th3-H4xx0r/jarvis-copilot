@@ -203,6 +203,13 @@ test('removeLabel drops the label and its description', () => {
   assert.equal(d.nodes[1].label_descriptions, undefined);
 });
 
+test('removeLabel takes its wires with it (a stray wire could never be picked)', () => {
+  const d = routeDoc();
+  G.removeLabel(d, 'r', 0);
+  assert.ok(!d.edges.some(e => e.from === 'r' && e.when === 'label:deep'));
+  assert.ok(d.edges.some(e => e.from === 'r2' && e.when === 'label:deep'));  // another Route's wire stays
+});
+
 test('describeLabel and labelNote use own keys only', () => {
   const d = routeDoc();
   const r = d.nodes[1];

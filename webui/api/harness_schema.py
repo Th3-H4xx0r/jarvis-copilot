@@ -154,9 +154,13 @@ def _clean_node(raw, errors):
     return node
 
 
-def validate_harness(doc):
+def validate_harness(doc, *, strict=True):
     """Return ``(clean_doc, [])`` or ``(None, errors)``; errors are
-    ``{"node": id|None, "edge": index|None, "message": str}``."""
+    ``{"node": id|None, "edge": index|None, "message": str}``.
+
+    ``strict`` (saving, the editor's problem list) also refuses Route labels and
+    wires that don't line up. A turn validates with ``strict=False`` so a design
+    saved before those checks keeps routing instead of dropping to Single."""
     errors: list = []
     if not isinstance(doc, dict):
         return None, [{"node": None, "edge": None, "message": "A harness must be an object."}]
@@ -198,7 +202,7 @@ def validate_harness(doc):
             _err(errors, "Wires out of a Route need a label (or default).", edge=i)
         if kind in ("slow", "tools") and (st != "answer" or dt not in ("background", "review")):
             _err(errors, "slow/tools wires go from an Answer to a Background or Review node.", edge=i)
-        if kind == "label" and st == "route" and value not in _pickable(by_id[src]):
+        if strict and kind == "label" and st == "route" and value not in _pickable(by_id[src]):
             _err(errors, f"This wire's label '{value}' isn't one of the Route's labels, so it can never be picked.",
                  edge=i)
         edge = {"from": src, "to": dst, "when": kind if value is None else f"{kind}:{value}"}
@@ -212,7 +216,7 @@ def validate_harness(doc):
         whens = [e["when"] for e in out.get(n["id"], [])]
         if "default" not in whens:
             _err(errors, "A Route needs one default wire.", node=n["id"])
-        if n.get("by") == "model":
+        if strict and n.get("by") == "model":
             # A label the router picks with no wire falls to the default wire;
             # "none" is the router's own name for the default wire.
             for label in n.get("labels") or []:

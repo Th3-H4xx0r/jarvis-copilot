@@ -221,6 +221,9 @@ enum HarnessGraph {
         h.nodes[i].labels = labels
         for label in gone where !labels.contains(label) { h.nodes[i].labelDescriptions?[label] = nil }
         if h.nodes[i].labelDescriptions?.isEmpty == true { h.nodes[i].labelDescriptions = nil }
+        // Its wires go too: left behind, the router could never pick them.
+        let dropped = Set(gone.filter { !labels.contains($0) }.map { "label:\($0)" })
+        h.edges.removeAll { $0.from == id && dropped.contains($0.when) }
     }
 
     /// Sets what a label means; blank text clears it (and an empty map is dropped, not saved as `{}`).

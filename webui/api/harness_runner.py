@@ -75,7 +75,7 @@ def resolve_harness(store, *, session, surface, requested_id, explicit_model):
     doc = store.get(hid)
     if doc is None:
         return single_harness(), f"harness '{hid}' not found; ran Single model"
-    errors = validate_harness(doc)[1]
+    errors = validate_harness(doc, strict=False)[1]
     if errors:
         return single_harness(), f"harness '{hid}' is invalid ({errors[0]['message']}); ran Single model"
     return doc, None

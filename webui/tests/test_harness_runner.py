@@ -197,3 +197,25 @@ def test_decision_route_without_real_labels_makes_no_call(monkeypatch):
 
 def test_chat_route_parse_prefers_the_longest_label():
     assert _parse_label("I'd pick deep research", ["deep", "deep research"]) == "deep research"
+
+
+def test_a_saved_design_the_newer_checks_flag_still_runs(tmp_path):
+    """A label with no wire (or a wire whose label isn't one) is refused when
+    saving, but a design saved before those checks must keep routing, not drop
+    to Single every turn."""
+    import json
+    st = HarnessStore(tmp_path)
+    st._designs_dir.mkdir(parents=True)
+    doc = {"id": "older", "name": "Older", "nodes": [
+        {"id": "in", "type": "message"},
+        {"id": "r", "type": "route", "by": "model", "model": "@celeris:celeris-1-decision",
+         "labels": ["deep", "path-2"]},
+        {"id": "a", "type": "answer", "model": "@x:y"}, {"id": "b", "type": "answer", "model": "@x:z"},
+        {"id": "c", "type": "answer", "model": "@x:w"}],
+        "edges": [{"from": "in", "to": "r"}, {"from": "r", "to": "a", "when": "label:deep"},
+                  {"from": "r", "to": "b", "when": "default"}, {"from": "r", "to": "c", "when": "label:long-running"}]}
+    (st._designs_dir / "older.json").write_text(json.dumps(doc))
+    got, note = resolve_harness(st, session=_sess("older"), surface="chat", requested_id=None, explicit_model=None)
+    assert got["id"] == "older" and note is None
+    from api.harness_schema import validate_harness
+    assert validate_harness(doc)[1]          # still refused when saving

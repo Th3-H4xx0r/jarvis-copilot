@@ -136,6 +136,16 @@ final class HarnessGraphTests: XCTestCase {
         XCTAssertNil(h.nodes[i].labelDescriptions, "an empty map is dropped, not saved as {}")
     }
 
+    /// A deleted label's wires go with it: left behind they could never be picked.
+    func testRemoveLabelTakesItsWires() {
+        var (h, r, a) = routeHarness()
+        let i = h.nodes.firstIndex { $0.id == r }!
+        h.nodes[i].labels = ["deep", "quick"]
+        _ = HarnessGraph.connect(&h, from: r, to: a, when: "label:deep")
+        HarnessGraph.removeLabels(&h, node: r, at: IndexSet(integer: 0))
+        XCTAssertFalse(h.edges.contains { $0.from == r && $0.when == "label:deep" })
+    }
+
     func testDescribeLabelSetsAndClears() {
         var (h, r, _) = routeHarness()
         let i = h.nodes.firstIndex { $0.id == r }!

@@ -252,6 +252,8 @@
     const [gone] = node.labels.splice(index, 1);
     if (own(node.label_descriptions, gone)) delete node.label_descriptions[gone];
     if (node.label_descriptions && !Object.keys(node.label_descriptions).length) delete node.label_descriptions;
+    // Its wires go too: left behind, the router could never pick them.
+    if (!node.labels.includes(gone)) doc.edges = doc.edges.filter(e => !(e.from === id && e.when === `label:${gone}`));
   }
 
   // Set what a label means; blank text clears it (an empty map is dropped).
