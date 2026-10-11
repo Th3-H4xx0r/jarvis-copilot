@@ -1858,6 +1858,9 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
             try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
             if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
           }
+          // A replayed done carries a tail window (the run journal keeps the last
+          // messages only); 0 when the full transcript arrived.
+          if(typeof _oldestIdx!=='undefined')_oldestIdx=d.session._messages_offset||0;
           const _markerOnlyAssistantError=_replaceMarkerOnlyAssistantWithStreamError(S.messages);
           if(
             window._compressionUi&&window._compressionUi.automatic&&

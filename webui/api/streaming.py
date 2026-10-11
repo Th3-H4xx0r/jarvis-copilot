@@ -38,7 +38,7 @@ from api.config import (
 from api.helpers import redact_session_data, _redact_text
 from api.compression_anchor import visible_messages_for_anchor
 from api.metering import meter
-from api.run_journal import RunJournalWriter
+from api.run_journal import RunJournalWriter, bounded_journal_payload
 from api.turn_journal import append_turn_journal_event_for_stream
 
 # Global lock for os.environ writes. Per-session locks (_agent_lock) prevent
@@ -5199,7 +5199,11 @@ def _run_agent_streaming(
                                          tool_count=_after_tools)
                     except Exception:
                         logger.warning("harness: after-jobs failed to start", exc_info=True)
-            put('done', {'session': redact_session_data(raw_session), 'usage': usage})
+            # The last messages only (clients page older ones via msg_before), and
+            # redacted after the cut: the whole transcript went out every turn.
+            _done = bounded_journal_payload('done', {'session': raw_session, 'usage': usage})
+            _done['session'] = redact_session_data(_done['session'])
+            put('done', _done)
             # Emit one last metering packet for the live message-header TPS label.
             meter_stats = meter().get_stats()
             meter_stats['session_id'] = session_id

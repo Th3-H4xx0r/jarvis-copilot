@@ -159,6 +159,11 @@ export JARVISCOPILOT_PAIRING_REQUIRED="${JARVISCOPILOT_PAIRING_REQUIRED:-1}"
 # adds this too, but setting PYTHONPATH up front avoids import-order surprises.
 export PYTHONPATH="${REPO_ROOT}"
 export HERMES_WEBUI_AGENT_DIR="${REPO_ROOT}"
+# glibc gives each thread that allocates its own malloc arena (up to 8 per
+# core). The server runs a thread per request, so freed session/JSON memory sat
+# stranded across dozens of 64 MB arenas (46 on the 4-core box, ~1.8 GB held).
+# Two arenas keep that memory reusable. Ignored where malloc is not glibc.
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 
 # ---- banner ---------------------------------------------------------
 echo

@@ -481,6 +481,15 @@ def main() -> None:
         # Recovery is best-effort; never block server startup.
         print(f"[recovery] startup recovery failed: {exc}", flush=True)
 
+    # ── Run journals: drop finished runs past the retention age ─────────
+    # A daemon thread; its first pass waits a few minutes so it never adds to
+    # startup. HERMES_WEBUI_RUN_JOURNAL_RETENTION_DAYS (default 7, 0 = keep).
+    try:
+        from api.run_journal import start_retention_janitor
+        start_retention_janitor()
+    except Exception as exc:
+        print(f"[journal] retention janitor could not start: {exc}", flush=True)
+
     # ── Live Jarvis: adopt audio a crash left unregistered ───────────────
     # A chunk is registered when it rolls, so a crash mid-chunk leaves a real
     # file no live_audio row knows about — invisible to the storage panel and

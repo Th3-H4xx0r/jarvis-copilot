@@ -70,20 +70,25 @@ def inspect_session_recovery_status(session_path: Path) -> dict:
 
     {
       "session_id": "...",
-      "live_messages": int,    # -1 if live file unreadable
+      "live_messages": int,    # -1 if live file unreadable, or not counted
+                               #    because there is no .bak to compare against
       "bak_messages": int,     # -1 if no .bak or unreadable
       "recommend": "restore" | "no_action" | "no_backup",
     }
     """
     bak_path = session_path.with_suffix('.json.bak')
-    live_count = _msg_count(session_path)
     if not bak_path.exists():
+        # Nothing to compare against, so the live file is not parsed. Startup
+        # recovery calls this for every session, and parsing each one spiked
+        # the server by several times the size of the sessions directory
+        # (one oversized sidecar alone was enough to OOM it).
         return {
             "session_id": session_path.stem,
-            "live_messages": live_count,
+            "live_messages": -1,
             "bak_messages": -1,
             "recommend": "no_backup",
         }
+    live_count = _msg_count(session_path)
     bak_count = _msg_count(bak_path)
     if bak_count > live_count:
         return {

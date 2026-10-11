@@ -97,6 +97,17 @@ _stt_warm_started = False
 _stt_warm_lock = threading.Lock()
 
 
+def _local_realtime_stt_expected() -> bool:
+    """Whether a voice or Pod turn would normally be transcribed by the local
+    realtime model: true when either surface has no usable streaming engine
+    (set to the local model, or Soniox without a key). Unknown → true, which
+    keeps the warm-up."""
+    try:
+        return any(_voice_engine(surface) is None for surface in ("voice", "pod"))
+    except Exception:
+        return True
+
+
 def _spawn_stt_warm() -> None:
     """Pre-load the realtime STT model in a background thread (plan 1.5) so
     the first voice WS turn doesn't pay faster-whisper's load latency inline.
@@ -110,9 +121,22 @@ def _spawn_stt_warm() -> None:
     Also skipped outright under pytest or when JC_STT_WARM=0 is set, as a
     second line of defense in case something still imports this at
     collection time.
+
+    Skipped too while voice and the Pod both use a streaming engine (Soniox):
+    there the local model only answers a turn the engine failed, and holding
+    it warm costs the process ~0.75 GB (faster-whisper's imports plus
+    small.en) for that rare path; a fallback turn loads it on demand. Not
+    remembered as started, so a later connection warms it once the settings
+    point a surface back at the local model. JC_STT_WARM=1 always warms.
     """
     global _stt_warm_started
-    if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("JC_STT_WARM") == "0":
+    mode = (os.environ.get("JC_STT_WARM") or "").strip()
+    if os.environ.get("PYTEST_CURRENT_TEST") or mode == "0":
+        return
+    with _stt_warm_lock:
+        if _stt_warm_started:
+            return
+    if mode != "1" and not _local_realtime_stt_expected():
         return
     with _stt_warm_lock:
         if _stt_warm_started:
