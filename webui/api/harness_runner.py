@@ -712,7 +712,7 @@ def start_after_jobs(plan, *, session_id, question, answer, elapsed_s, tool_coun
 # ── extraction model by harness ──────────────────────────────────────────────
 # Settings → Web & browser → Extraction model may name a harness
 # (web.extract_model: "harness:<id>"); its Route picks the model that turns each
-# page into JSON (browser_extract, web_search read_top). Core tools ask through
+# page into JSON (browser_extract). Core tools ask through
 # agent.extract_model, which this registers with.
 
 def extract_model_for(harness_id, instruction, page_chars):
@@ -729,6 +729,8 @@ def extract_model_for(harness_id, instruction, page_chars):
 
 try:
     from agent import extract_model as _extract_model
+    from api.config import split_provider_qualified_model as _split_ref
     _extract_model.register_resolver(extract_model_for)
+    _extract_model.register_splitter(_split_ref)
 except Exception:
     logger.debug("extraction-model resolver not registered", exc_info=True)

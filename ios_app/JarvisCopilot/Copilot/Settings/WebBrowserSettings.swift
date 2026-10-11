@@ -39,8 +39,8 @@ struct WebBrowserAPI: Sendable {
         try await api.get("/api/web/config").object()
     }
 
-    func models() async throws -> [String: Any] {
-        try await api.get("/api/models").object()
+    func catalog() async throws -> ModelCatalog {
+        try await ModelsAPI(api: api).list()
     }
 
     func harnesses() async throws -> [String: Any] {
@@ -66,7 +66,8 @@ final class WebBrowserStore {
     static let shared = WebBrowserStore()
 
     private(set) var settings = WebBrowserSettings()
-    private(set) var choices: [ExtractChoice] = WebBrowserStore.choices(models: [:], harnesses: [:])
+    private(set) var catalog: ModelCatalog?
+    private(set) var harnesses: [ExtractChoice] = []
     private(set) var loaded = false
     private(set) var error = ""
 
@@ -76,23 +77,36 @@ final class WebBrowserStore {
         self.api = api
     }
 
-    /// Default, then every model (`@provider:model`), then every harness.
-    static func choices(models: [String: Any], harnesses: [String: Any]) -> [ExtractChoice] {
-        var out = [ExtractChoice(value: "", label: "Default — Claude Haiku 5.5")]
-        for g in models.list("groups") {
-            let provider = g.string("provider_id") ?? g.string("provider") ?? ""
-            for m in g.list("models") {
-                guard let id = m.string("id"), !id.isEmpty else { continue }
-                let ref = id.hasPrefix("@") ? id : "@\(provider):\(id)"
-                out.append(ExtractChoice(value: ref, label: m.string("label") ?? id))
-            }
+    /// Harnesses the extraction can use: those without problems (a harness with
+    /// problems would quietly run as the default).
+    static func harnessChoices(_ snapshot: [String: Any]) -> [ExtractChoice] {
+        snapshot.list("harnesses").compactMap { h in
+            guard let id = h.string("id"), !id.isEmpty,
+                  ((h["problems"] as? [Any]) ?? []).isEmpty else { return nil }
+            return ExtractChoice(value: "harness:\(id)", label: h.string("name") ?? id)
         }
-        for h in harnesses.list("harnesses") {
-            guard let id = h.string("id"), !id.isEmpty else { continue }
-            out.append(ExtractChoice(value: "harness:\(id)", label: "\(h.string("name") ?? id) (harness)"))
-        }
-        return out
     }
+
+    /// `@provider:model` for a picked model (the harness editor's form); "" = default.
+    static func ref(for model: ChatModel?) -> String {
+        guard let m = model else { return "" }
+        return m.id.hasPrefix("@") || m.providerID.isEmpty ? m.id : "@\(m.providerID):\(m.id)"
+    }
+
+    /// What the current choice reads as: "Claude Haiku 5.5 · Anthropic API", a
+    /// harness's name, or the default.
+    var currentLabel: String {
+        let value = settings.extractModel
+        if value.isEmpty { return defaultLabel }
+        if let h = harnesses.first(where: { $0.value == value }) { return "\(h.label) (harness)" }
+        if let m = catalog?.models.first(where: { Self.ref(for: $0) == value }) {
+            return m.provider.isEmpty ? m.label : "\(m.label) · \(m.provider)"
+        }
+        return value.hasPrefix("harness:") ? String(value.dropFirst(8)) : HarnessFormat.shortModel(value)
+    }
+
+    let defaultLabel = "Default"
+    let defaultNote = "Claude Haiku 5.5 when the Anthropic API key is set, otherwise the helper model."
 
     func load() async {
         do {
@@ -103,27 +117,30 @@ final class WebBrowserStore {
             self.error = apiErrorLine(error)
             return
         }
-        let models = (try? await api.models()) ?? [:]
-        let harnesses = (try? await api.harnesses()) ?? [:]
-        choices = Self.choices(models: models, harnesses: harnesses)
+        harnesses = Self.harnessChoices((try? await api.harnesses()) ?? [:])
+        if catalog == nil { await loadCatalog() }
+    }
+
+    func loadCatalog() async {
+        catalog = (try? await api.catalog()) ?? catalog
     }
 
     func setExtractModel(_ ref: String) async {
-        guard ref != settings.extractModel else { return }
+        guard loaded, ref != settings.extractModel else { return }
         let old = settings.extractModel
         settings.extractModel = ref
         await commit(["extract_model": ref]) { $0.extractModel = old }
     }
 
     func setEngine(_ engine: String) async {
-        guard engine != settings.engine else { return }
+        guard loaded, engine != settings.engine else { return }
         let old = settings.engine
         settings.engine = engine
         await commit(["engine": engine]) { $0.engine = old }
     }
 
     func setStealthFallback(_ on: Bool) async {
-        guard on != settings.stealthFallback else { return }
+        guard loaded, on != settings.stealthFallback else { return }
         let old = settings.stealthFallback
         settings.stealthFallback = on
         await commit(["stealth_fallback": on]) { $0.stealthFallback = old }
@@ -141,9 +158,10 @@ final class WebBrowserStore {
 }
 
 /// Settings → Web & browser: which model turns pages into structured data (a
-/// model or a harness), the browser engine, and the stealth fallback.
+/// model or a harness), the browser engine, and the stealth fallback for page reads.
 struct WebBrowserSettingsScreen: View {
     @State private var store = WebBrowserStore.shared
+    @State private var picking = false
 
     var body: some View {
         ScrollView {
@@ -161,45 +179,73 @@ struct WebBrowserSettingsScreen: View {
             .padding(.horizontal, 20)
             .padding(.top, 6)
             .padding(.bottom, 36)
+            .disabled(!store.loaded)
+            .opacity(store.loaded ? 1 : 0.5)
         }
         .jcScreen("Web & browser")
         .task { await store.load() }
         .refreshable { await store.load() }
-    }
-
-    private var currentLabel: String {
-        store.choices.first { $0.value == store.settings.extractModel }?.label
-            ?? (store.settings.extractModel.isEmpty ? "Default" : store.settings.extractModel)
+        .sheet(isPresented: $picking) {
+            let current = store.settings.extractModel
+            CatalogModelPickerSheet(
+                title: "Extraction model",
+                catalog: store.catalog,
+                selectedID: store.catalog?.models.first { WebBrowserStore.ref(for: $0) == current }?.id,
+                autoSubtitle: store.defaultNote,
+                load: { await store.loadCatalog() },
+                select: { picked in Task { await store.setExtractModel(WebBrowserStore.ref(for: picked)) } })
+        }
     }
 
     private var extraction: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Extraction model")
             GlassGroup {
-                Menu {
-                    ForEach(store.choices, id: \.self) { choice in
-                        Button {
-                            Task { await store.setExtractModel(choice.value) }
-                        } label: {
-                            if choice.value == store.settings.extractModel {
-                                Label(choice.label, systemImage: "checkmark")
-                            } else {
-                                Text(choice.label)
+                VStack(spacing: 0) {
+                    Button { picking = true } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(store.currentLabel)
+                                    .font(JcText.body)
+                                    .foregroundStyle(JcTheme.text)
+                                    .lineLimit(1)
+                                if store.settings.extractModel.isEmpty {
+                                    Text(store.defaultNote)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(JcTheme.muted)
+                                }
                             }
+                            Spacer()
+                            JcIcon("chevron.up.chevron.down", size: 12, weight: .semibold)
+                                .foregroundStyle(JcTheme.muted)
                         }
+                        .padding(14)
+                        .contentShape(Rectangle())
                     }
-                } label: {
-                    HStack {
-                        Text(currentLabel)
-                            .font(JcText.body)
-                            .foregroundStyle(JcTheme.text)
-                            .lineLimit(1)
-                        Spacer()
-                        JcIcon("chevron.up.chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(JcTheme.muted)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Extraction model")
+                    .accessibilityValue(store.currentLabel)
+                    ForEach(store.harnesses, id: \.self) { h in
+                        Divider().overlay(JcTheme.border)
+                        Button {
+                            Task { await store.setExtractModel(h.value) }
+                        } label: {
+                            HStack {
+                                Text("\(h.label) (harness)")
+                                    .font(JcText.body)
+                                    .foregroundStyle(JcTheme.text)
+                                Spacer()
+                                if store.settings.extractModel == h.value {
+                                    JcIcon("checkmark", size: 13, weight: .semibold)
+                                        .foregroundStyle(JcTheme.accent)
+                                }
+                            }
+                            .padding(14)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(store.settings.extractModel == h.value ? .isSelected : [])
                     }
-                    .padding(14)
                 }
             }
             LiveSettingsNote("Turns a web page into structured data (prices, listings, tables) in one step. "
@@ -220,10 +266,12 @@ struct WebBrowserSettingsScreen: View {
                 .pickerStyle(.segmented)
                 .padding(14)
             }
-            LiveSettingsNote(store.settings.lightpandaInstalled
-                ? "Lightpanda is a fast headless browser; pages it can't render move to Chrome, and the site "
-                    + "is remembered. Everything runs on the server — your Mac's browser only when you ask."
-                : "Lightpanda isn't installed on the server, so Chrome runs.")
+            if store.loaded {
+                LiveSettingsNote(store.settings.lightpandaInstalled
+                    ? "Lightpanda is a fast headless browser; pages it can't render move to Chrome, and the site "
+                        + "is remembered. Everything runs on the server — your Mac's browser only when you ask."
+                    : "Lightpanda isn't installed on the server, so Chrome runs.")
+            }
         }
     }
 
@@ -232,7 +280,7 @@ struct WebBrowserSettingsScreen: View {
             GlassQuietLabel("Blocked pages")
             GlassGroup {
                 SwitchRow(symbol: "eye.slash", title: "Stealth fallback",
-                          subtitle: "Retry pages that block bots in a stealth browser",
+                          subtitle: "Page reads retry sites that block bots in a stealth browser",
                           isOn: store.settings.stealthFallback, last: true) { on in
                     Task { await store.setStealthFallback(on) }
                 }

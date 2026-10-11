@@ -4,13 +4,13 @@ GET  /api/web/config   {config: {extract_model, engine, stealth_fallback},
                         engines, lightpanda_installed}
 PUT  /api/web/config   a validated patch (POST too) → like GET plus ``ok``.
 
-- ``extract_model`` (``web.extract_model``): the model that turns pages into JSON
-  (browser_extract, web_search read_top) — ``@provider:model``, ``harness:<id>``
+- ``extract_model`` (``web.extract_model``): the model browser_extract uses to turn a
+  page into JSON — ``@provider:model``, ``harness:<id>``
   (the harness's Route picks per page) or "" for the default.
 - ``engine`` (``browser.engine``): ``lightpanda`` (fast, Chrome when a site needs
   it) or ``chrome``.
-- ``stealth_fallback`` (``web.stealth_fallback``): retry bot-blocked pages in a
-  stealth browser.
+- ``stealth_fallback`` (``web.stealth_fallback``): page reads (web_extract, web_search
+  read_top) retry bot-blocked pages in a stealth browser.
 """
 from __future__ import annotations
 

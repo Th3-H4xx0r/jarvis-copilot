@@ -19,15 +19,22 @@ final class WebBrowserSettingsTests: XCTestCase {
         XCTAssertEqual(WebBrowserSettings.from([:]).engine, "chrome")
     }
 
-    func testModelChoicesListModelsThenHarnesses() {
-        let models: [String: Any] = ["groups": [["provider": "Anthropic API", "provider_id": "anthropic-api",
-                                                 "models": [["id": "claude-haiku-5-5", "label": "Claude Haiku 5.5"]]]]]
-        let harnesses: [String: Any] = ["harnesses": [["id": "extract", "name": "Extract fast"]]]
-        let choices = WebBrowserStore.choices(models: models, harnesses: harnesses)
-        XCTAssertEqual(choices.first?.value, "")
-        XCTAssertTrue(choices.contains { $0.value == "@anthropic-api:claude-haiku-5-5" && $0.label == "Claude Haiku 5.5" })
-        XCTAssertEqual(choices.last?.value, "harness:extract")
-        XCTAssertEqual(choices.last?.label, "Extract fast (harness)")
+    func testHarnessesWithProblemsAreNotOffered() {
+        let harnesses: [String: Any] = ["harnesses": [
+            ["id": "extract", "name": "Extract fast", "problems": []],
+            ["id": "broken", "name": "Broken", "problems": [["message": "A Route needs one default wire."]]],
+        ]]
+        XCTAssertEqual(WebBrowserStore.harnessChoices(harnesses),
+                       [ExtractChoice(value: "harness:extract", label: "Extract fast")])
+    }
+
+    func testAPickedModelIsStoredWithItsProvider() {
+        let custom = ChatModel(id: "qwen3:32b", label: "Qwen3 32B", provider: "Lab", providerID: "custom:lab")
+        XCTAssertEqual(WebBrowserStore.ref(for: custom), "@custom:lab:qwen3:32b")
+        let deduped = ChatModel(id: "@anthropic-api:claude-haiku-5-5", label: "Claude Haiku 5.5",
+                                provider: "Anthropic API", providerID: "anthropic-api")
+        XCTAssertEqual(WebBrowserStore.ref(for: deduped), "@anthropic-api:claude-haiku-5-5")
+        XCTAssertEqual(WebBrowserStore.ref(for: nil), "")
     }
 
     func testSaveSendsOnlyTheChange() async {

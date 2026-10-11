@@ -49,3 +49,19 @@ def test_nothing_chosen_means_haiku_when_the_anthropic_key_is_there():
 def test_a_harness_without_a_resolver_falls_back_to_the_default():
     with _configured("harness:gone"), patch.object(em, "_anthropic_api_ready", lambda: False):
         assert em.resolve("x", 10) is None
+
+
+def test_custom_provider_refs_keep_their_slug():
+    with _configured("@custom:lab:qwen3:32b"):
+        assert em.resolve("x", 10) == ("custom:lab", "qwen3:32b")
+    with _configured("@ollama-cloud:gemma4:31b"):
+        assert em.resolve("x", 10) == ("ollama-cloud", "gemma4:31b")
+
+
+def test_the_web_uis_splitter_wins_when_registered():
+    em.register_splitter(lambda ref: ("custom:host:8080", "llama3") if ref == "@custom:host:8080:llama3" else None)
+    try:
+        with _configured("@custom:host:8080:llama3"):
+            assert em.resolve("x", 10) == ("custom:host:8080", "llama3")
+    finally:
+        em.register_splitter(None)

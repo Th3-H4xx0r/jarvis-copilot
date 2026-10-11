@@ -6593,54 +6593,34 @@ async function _webBrowserSave(patch){
 async function loadWebBrowserSettings(){
   const body = $('webBrowserSettingsBody');
   if (!body) return;
-  let st, models = {}, harnesses = {};
+  let st;
   try {
-    [st, models, harnesses] = await Promise.all([
-      api('/api/web/config'),
-      api('api/models').catch(() => ({})),
-      api('api/harnesses').catch(() => ({})),
-    ]);
+    st = await api('/api/web/config');
   } catch (e) {
     body.innerHTML = '';
     _webBrowserStatus('Could not load web settings: ' + (e && e.message || e), '#ff8080', true);
     return;
   }
-  const cfg = st.config || {};
+  const saved = Object.assign({}, st.config || {});
   body.innerHTML = '';
-
-  const modelRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
-  const pick = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
   const addOpt = (parent, value, label) => {
     const o = document.createElement('option');
     o.value = value; o.textContent = label;
     parent.appendChild(o);
   };
+
+  const modelRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
+  const pick = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
   addOpt(pick, '', 'Default — Claude Haiku 5.5 (Anthropic key), else the helper model');
-  const groups = (window.HarnessGraph && HarnessGraph.modelOptions) ? HarnessGraph.modelOptions(models.groups) : [];
-  for (const g of groups) {
-    const og = document.createElement('optgroup');
-    og.label = g.label;
-    for (const o of g.options) addOpt(og, o.value, o.label);
-    pick.appendChild(og);
-  }
-  const hs = (harnesses && harnesses.harnesses) || [];
-  if (hs.length) {
-    const og = document.createElement('optgroup');
-    og.label = 'Harnesses (their Route picks the model per page)';
-    for (const h of hs) addOpt(og, 'harness:' + h.id, h.name || h.id);
-    pick.appendChild(og);
-  }
-  if (cfg.extract_model && ![...pick.options].some(o => o.value === cfg.extract_model)) {
-    addOpt(pick, cfg.extract_model, cfg.extract_model);
-  }
-  pick.value = cfg.extract_model || '';
+  if (saved.extract_model) addOpt(pick, saved.extract_model, saved.extract_model);
+  pick.value = saved.extract_model || '';
   modelRow.append(_speechEl('label', _SPEECH_LABEL, 'Extraction model — turns pages into structured data'), pick);
 
   const engineRow = _speechEl('div', 'display:flex;flex-direction:column;gap:4px');
   const engine = _speechEl('select', _SPEECH_FIELD + ';width:100%;box-sizing:border-box');
   addOpt(engine, 'lightpanda', 'Lightpanda first — fast; Chrome when a site needs it');
   addOpt(engine, 'chrome', 'Chrome only');
-  engine.value = cfg.engine === 'lightpanda' ? 'lightpanda' : 'chrome';
+  engine.value = saved.engine === 'lightpanda' ? 'lightpanda' : 'chrome';
   engineRow.append(_speechEl('label', _SPEECH_LABEL, 'Browser engine'), engine);
   if (!st.lightpanda_installed) {
     engineRow.append(_speechEl('div', _SPEECH_LABEL + ';color:#e0b24b', "Lightpanda isn't installed on the server, so Chrome runs."));
@@ -6649,13 +6629,44 @@ async function loadWebBrowserSettings(){
   const stealthRow = _speechEl('label', 'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg,#e8eef6);cursor:pointer');
   const stealth = _speechEl('input');
   stealth.type = 'checkbox';
-  stealth.checked = cfg.stealth_fallback !== false;
-  stealthRow.append(stealth, document.createTextNode('Retry pages that block bots in a stealth browser'));
+  stealth.checked = saved.stealth_fallback !== false;
+  stealthRow.append(stealth, document.createTextNode('Page reads retry sites that block bots in a stealth browser'));
 
-  pick.addEventListener('change', () => _webBrowserSave({ extract_model: pick.value }));
-  engine.addEventListener('change', () => _webBrowserSave({ engine: engine.value }));
-  stealth.addEventListener('change', () => _webBrowserSave({ stealth_fallback: stealth.checked }));
+  // A refused save puts the control back to what the server holds.
+  const save = async (patch, restore) => {
+    const res = await _webBrowserSave(patch);
+    if (res && res.config) Object.assign(saved, res.config); else restore();
+  };
+  pick.addEventListener('change', () => save({ extract_model: pick.value }, () => { pick.value = saved.extract_model || ''; }));
+  engine.addEventListener('change', () => save({ engine: engine.value }, () => { engine.value = saved.engine === 'lightpanda' ? 'lightpanda' : 'chrome'; }));
+  stealth.addEventListener('change', () => save({ stealth_fallback: stealth.checked }, () => { stealth.checked = saved.stealth_fallback !== false; }));
   body.append(modelRow, engineRow, stealthRow);
+
+  // Models and harnesses can take a moment on a cold server: fill them in after.
+  const [models, harnesses] = await Promise.all([
+    api('api/models').catch(() => ({})),
+    api('api/harnesses').catch(() => ({})),
+  ]);
+  const current = pick.value;
+  pick.innerHTML = '';
+  addOpt(pick, '', 'Default — Claude Haiku 5.5 (Anthropic key), else the helper model');
+  const groups = (window.HarnessGraph && HarnessGraph.modelOptions) ? HarnessGraph.modelOptions(models.groups) : [];
+  for (const g of groups) {
+    const og = document.createElement('optgroup');
+    og.label = g.label;
+    for (const o of g.options) addOpt(og, o.value, o.label);
+    pick.appendChild(og);
+  }
+  // A harness with problems would quietly run as the default, so it isn't offered.
+  const hs = ((harnesses && harnesses.harnesses) || []).filter(h => !(h.problems || []).length);
+  if (hs.length) {
+    const og = document.createElement('optgroup');
+    og.label = 'Harnesses (their Route picks the model per page)';
+    for (const h of hs) addOpt(og, 'harness:' + h.id, h.name || h.id);
+    pick.appendChild(og);
+  }
+  if (current && ![...pick.options].some(o => o.value === current)) addOpt(pick, current, current);
+  pick.value = current;
 }
 
 async function loadSettingsPanel(){
