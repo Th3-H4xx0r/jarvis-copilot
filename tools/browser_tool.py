@@ -793,6 +793,37 @@ def _copy_fallback_warning(target: Dict[str, Any], result: Dict[str, Any]) -> Di
     return target
 
 
+def _switch_task_to_chrome(
+    session_key: str,
+    command: str,
+    args: List[str],
+    timeout: int,
+    reason: str,
+) -> Dict[str, Any]:
+    """A page broke on Lightpanda: remember the site, move the task to its Chrome
+    session at the same URL (kept for the rest of the task, unlike a throwaway
+    Chrome per command) and run ``command`` there."""
+    from tools.browser_engine_sites import remember_chrome
+    bare = _bare_task_id(session_key)
+    chrome_key = f"{bare}{_CHROME_SUFFIX}"
+    if command == "open" and args:
+        url = str(args[0])
+    else:
+        url_result = _run_browser_command(session_key, "eval", ["window.location.href"],
+                                          timeout=10, _engine_override="auto")
+        url = str((url_result.get("data") or {}).get("result") or "").strip().strip('"').strip("'") \
+            if url_result.get("success") else ""
+    if not url.startswith(("http://", "https://")):
+        return {"success": False, "error": f"{reason} Chrome could not take over: the page URL is unknown."}
+    remember_chrome(url, reason)
+    opened = _run_browser_command(chrome_key, "open", [url], timeout=timeout)
+    if opened.get("success"):
+        _last_active_session_key[bare] = chrome_key
+    result = opened if command == "open" or not opened.get("success") else \
+        _run_browser_command(chrome_key, command, args, timeout=timeout)
+    return _annotate_lightpanda_fallback(result, reason)
+
+
 def _run_chrome_fallback_command(
     task_id: str,
     command: str,
@@ -1081,6 +1112,10 @@ def _navigation_session_key(task_id: str, url: str) -> str:
     if _is_camofox_mode():
         return task_id
     if _get_cloud_provider() is None:
+        if _get_browser_engine() == "lightpanda":
+            from tools.browser_engine_sites import needs_chrome
+            if needs_chrome(url):
+                return f"{task_id}{_CHROME_SUFFIX}"
         return task_id
     if not _auto_local_for_private_urls():
         return task_id
@@ -1092,6 +1127,18 @@ def _navigation_session_key(task_id: str, url: str) -> str:
 def _is_local_sidecar_key(session_key: str) -> bool:
     """Return True when ``session_key`` is a hybrid-routing local sidecar."""
     return session_key.endswith(_LOCAL_SUFFIX)
+
+
+def _is_chrome_sidecar_key(session_key: str) -> bool:
+    """Return True when ``session_key`` is a task's Chrome session (Lightpanda engine)."""
+    return str(session_key or "").endswith(_CHROME_SUFFIX)
+
+
+def _bare_task_id(session_key: str) -> str:
+    for suffix in (_LOCAL_SUFFIX, _CHROME_SUFFIX):
+        if str(session_key or "").endswith(suffix):
+            return session_key[: -len(suffix)]
+    return session_key
 
 
 def _last_session_key(task_id: str) -> str:
@@ -1168,6 +1215,9 @@ _recording_sessions: set = set()  # session_keys with active recordings
 # sidecar would fall back to the cloud session on its next snapshot call.
 _last_active_session_key: Dict[str, str] = {}  # task_id -> session_key
 _LOCAL_SUFFIX = "::local"
+# A task's Chrome session while Lightpanda is the engine: sites that need a real
+# renderer (tools/browser_engine_sites.py) and pages that broke on Lightpanda.
+_CHROME_SUFFIX = "::chrome"
 
 # Flag to track if cleanup has been done
 _cleanup_done = False
@@ -1478,6 +1528,11 @@ BROWSER_TOOL_SCHEMAS = [
                 "url": {
                     "type": "string",
                     "description": "The URL to navigate to (e.g., 'https://example.com')"
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": ["chrome"],
+                    "description": "Optional. 'chrome' loads the page in a full Chrome renderer — use it when a page came back empty or incomplete (heavy web apps such as flight or booking search). The site is remembered and starts on Chrome next time."
                 }
             },
             "required": ["url"]
@@ -1635,6 +1690,26 @@ def _create_local_session(task_id: str) -> Dict[str, str]:
     }
 
 
+def _create_engine_local_session(task_id: str) -> Dict[str, Any]:
+    """A local session on the configured engine. Lightpanda runs as this task's own
+    ``lightpanda serve`` driven over CDP; if it can't start, Chrome serves the task."""
+    if _get_browser_engine() != "lightpanda":
+        return _create_local_session(task_id)
+    from tools import lightpanda_local
+    if lightpanda_local.available():
+        try:
+            lp = lightpanda_local.start(task_id)
+            session_info = dict(_create_local_session(task_id))
+            session_info.update({"cdp_url": lp["cdp_url"], "engine": "lightpanda",
+                                 "lightpanda_pid": lp.get("pid"), "features": {"local": True, "lightpanda": True}})
+            return session_info
+        except Exception as e:
+            logger.warning("Lightpanda did not start for %s (%s); using Chrome", task_id, e)
+    session_info = dict(_create_local_session(task_id))
+    session_info["engine"] = "chrome"
+    return session_info
+
+
 def _create_cdp_session(task_id: str, cdp_url: str) -> Dict[str, str]:
     """Create a session that connects to a user-supplied CDP endpoint."""
     import uuid
@@ -1686,17 +1761,21 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
     # URLs in the same conversation continue to use the cloud session under
     # the bare task_id key.
     force_local = _is_local_sidecar_key(task_id)
+    force_chrome = _is_chrome_sidecar_key(task_id)
 
     # Create session outside the lock (network call in cloud mode)
     cdp_override = _get_cdp_override()
-    if cdp_override and not force_local:
+    if force_chrome:
+        session_info = dict(_create_local_session(task_id))
+        session_info["engine"] = "chrome"
+    elif cdp_override and not force_local:
         session_info = _create_cdp_session(task_id, cdp_override)
     elif force_local:
         session_info = _create_local_session(task_id)
     else:
         provider = _get_cloud_provider()
         if provider is None:
-            session_info = _create_local_session(task_id)
+            session_info = _create_engine_local_session(task_id)
         else:
             try:
                 session_info = provider.create_session(task_id)
@@ -1741,8 +1820,9 @@ def _get_session_info(task_id: Optional[str] = None) -> Dict[str, str]:
     # Lazy-start the CDP supervisor now that the session exists (if the
     # backend surfaces a CDP URL via override or session_info["cdp_url"]).
     # Idempotent; swallows errors. See _ensure_cdp_supervisor for details.
-    # Skip for local sidecars — they have no CDP URL.
-    if not force_local:
+    # Skip for local sidecars — they have no CDP URL — and for a task's own
+    # Lightpanda (its CDP is only for agent-browser).
+    if not force_local and not force_chrome and session_info.get("engine") != "lightpanda":
         _ensure_cdp_supervisor(task_id)
 
     return session_info
@@ -1873,6 +1953,15 @@ def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
     return None
 
 
+def _engine_args(session_info: Dict[str, Any], override: Optional[str]) -> List[str]:
+    """``--engine <name>`` for a local ``--session`` browser; nothing for a CDP one
+    (cloud, user CDP, or this task's own Lightpanda — the engine is already chosen)."""
+    engine = override or session_info.get("engine") or _get_browser_engine()
+    if engine == "auto" or _is_camofox_mode() or session_info.get("cdp_url"):
+        return []
+    return ["--engine", engine]
+
+
 def _run_browser_command(
     task_id: str,
     command: str,
@@ -1959,9 +2048,8 @@ def _run_browser_command(
     # Use the resolved session backend rather than global cloud-provider state:
     # hybrid private-URL routing can create a local sidecar while a cloud
     # provider remains configured for public URLs.
-    engine = _engine_override or _get_browser_engine()
-    if engine != "auto" and not _is_camofox_mode() and not session_info.get("cdp_url"):
-        backend_args += ["--engine", engine]
+    engine = _engine_override or session_info.get("engine") or _get_browser_engine()
+    backend_args += _engine_args(session_info, _engine_override)
 
     # Keep concrete executable paths intact, even when they contain spaces.
     # Only the synthetic npx fallback needs to expand into multiple argv items.
@@ -2185,13 +2273,9 @@ def _run_browser_command(
             task_id,
             fallback_reason,
         )
-        # For screenshots, use the dedicated Chrome fallback helper
-        # (spins up a separate Chrome session to the same URL).
-        if command == "screenshot":
-            fallback_result = _chrome_fallback_screenshot(task_id, args or [], timeout)
-        else:
-            fallback_result = _run_chrome_fallback_command(task_id, command, args, timeout)
-        return _annotate_lightpanda_fallback(fallback_result, fallback_reason)
+        # The task carries on in its Chrome session at the same URL, and the
+        # site is remembered so later visits start on Chrome.
+        return _switch_task_to_chrome(task_id, command, args or [], timeout, fallback_reason)
 
     return result
 
@@ -2287,13 +2371,22 @@ def _truncate_snapshot(snapshot_text: str, max_chars: int = 8000) -> str:
 # Browser Tool Functions
 # ============================================================================
 
-def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
+def _apply_engine_request(url: str, engine: Optional[str]) -> None:
+    """The agent asked for Chrome on this page (it looked incomplete on Lightpanda):
+    remember the site so this and later visits run on Chrome."""
+    if str(engine or "").lower() == "chrome" and _get_browser_engine() == "lightpanda":
+        from tools.browser_engine_sites import remember_chrome
+        remember_chrome(url, "the agent asked for Chrome (page incomplete on Lightpanda)")
+
+
+def browser_navigate(url: str, task_id: Optional[str] = None, engine: Optional[str] = None) -> str:
     """
     Navigate to a URL in the browser.
 
     Args:
         url: The URL to navigate to
         task_id: Task identifier for session isolation
+        engine: ``"chrome"`` to load this page (and the site from now on) in Chrome
 
     Returns:
         JSON string with navigation result (includes stealth features info on first nav)
@@ -2321,6 +2414,7 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     # cloud provider never sees the URL in that case.  Can also be opted
     # out globally via ``browser.allow_private_urls`` in config.
     effective_task_id = task_id or "default"
+    _apply_engine_request(url, engine)
     nav_session_key = _navigation_session_key(effective_task_id, url)
     auto_local_this_nav = _is_local_sidecar_key(nav_session_key)
 
@@ -3355,15 +3449,15 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
 
     # Expand to the full set of session keys to reap. For a bare task_id
     # that includes the cloud/primary key + the local sidecar if one exists.
-    if _is_local_sidecar_key(task_id):
+    if _is_local_sidecar_key(task_id) or _is_chrome_sidecar_key(task_id):
         session_keys = [task_id]
-        bare_task_id = task_id[: -len(_LOCAL_SUFFIX)]
+        bare_task_id = _bare_task_id(task_id)
     else:
         session_keys = [task_id]
-        sidecar_key = f"{task_id}{_LOCAL_SUFFIX}"
         with _cleanup_lock:
-            if sidecar_key in _active_sessions:
-                session_keys.append(sidecar_key)
+            for sidecar_key in (f"{task_id}{_LOCAL_SUFFIX}", f"{task_id}{_CHROME_SUFFIX}"):
+                if sidecar_key in _active_sessions:
+                    session_keys.append(sidecar_key)
         bare_task_id = task_id
 
     for session_key in session_keys:
@@ -3371,7 +3465,7 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
 
     # Drop the last-active pointer only when the bare task is being cleaned
     # (i.e. not when we're only reaping a sidecar mid-task).
-    if not _is_local_sidecar_key(task_id):
+    if not _is_local_sidecar_key(task_id) and not _is_chrome_sidecar_key(task_id):
         _last_active_session_key.pop(bare_task_id, None)
 
 
@@ -3419,6 +3513,11 @@ def _cleanup_single_browser_session(task_id: str) -> None:
         with _cleanup_lock:
             _active_sessions.pop(task_id, None)
             _session_last_activity.pop(task_id, None)
+
+        # This task's own Lightpanda process.
+        if session_info.get("lightpanda_pid"):
+            from tools import lightpanda_local
+            lightpanda_local.stop(session_info.get("lightpanda_pid"))
 
         # Cloud mode: close the cloud browser session via provider API.
         # Local sidecars have bb_session_id=None so this no-ops for them.
@@ -3719,7 +3818,8 @@ registry.register(
     name="browser_navigate",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_navigate"],
-    handler=lambda args, **kw: browser_navigate(url=args.get("url", ""), task_id=kw.get("task_id")),
+    handler=lambda args, **kw: browser_navigate(url=args.get("url", ""), task_id=kw.get("task_id"),
+                                                engine=args.get("engine")),
     check_fn=check_browser_requirements,
     emoji="🌐",
 )
