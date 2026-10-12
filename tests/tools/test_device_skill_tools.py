@@ -433,3 +433,41 @@ def test_a_call_without_the_lone_target_still_reaches_the_phone(monkeypatch):
     tool["handler"](args={"date": "2026-10-04"})
 
     assert calls == [("phone", "x5_get_day", {"date": "2026-10-04"})]
+
+
+# ── a stable tools list (shared prompt cache) ────────────────────────────────
+
+def _schemas():
+    return json.dumps([t["schema"] for t in device_skill_tools.get_device_tools()], sort_keys=True)
+
+
+def _skill(device_id, device_name, name):
+    return {"device_id": device_id, "device_name": device_name, "name": name,
+            "description": f"{name} on {device_name}.", "input_schema": {"type": "object", "properties": {}}}
+
+
+def test_tools_identical_whatever_connects_first(monkeypatch):
+    phone = [_skill("dev1", "Phone", "flashlight"), _skill("dev1", "Phone", "open_app")]
+    mac = [_skill("dev2", "Mac", "open_app"), _skill("dev2", "Mac", "chrome_navigate")]
+    _reset(monkeypatch, phone + mac)
+    first = _schemas()
+    _reset(monkeypatch, mac + phone)
+    assert _schemas() == first
+    assert [t["name"] for t in device_skill_tools.get_device_tools()] == sorted(
+        t["name"] for t in device_skill_tools.get_device_tools())
+
+
+def test_offline_paired_device_keeps_its_tools_and_says_offline(monkeypatch):
+    import api.pairing as pairing
+    # The bridge remembers each device's catalogue as it registers.
+    pod = {"id": "pod1", "name": "Jarvis Pod", "skills": [
+        {k: v for k, v in _skill("pod1", "Jarvis Pod", "pod_show").items() if k not in ("device_id", "device_name")}]}
+    monkeypatch.setattr(pairing, "list_devices", lambda: [pod])
+    _reset(monkeypatch, [_skill("pod1", "Jarvis Pod", "pod_show")])  # online
+    online = _schemas()
+    _reset(monkeypatch, [])  # the Pod drops off; it is still paired
+    assert _schemas() == online
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    handler = {t["name"]: t for t in device_skill_tools.get_device_tools()}["device_pod_show"]["handler"]
+    out = json.loads(handler(args={}))
+    assert out["ok"] is False and "Jarvis Pod" in out["error"] and "offline" in out["error"]

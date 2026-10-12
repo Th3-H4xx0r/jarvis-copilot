@@ -16,7 +16,7 @@ import api.config as _cfg
 from api.config import (
     SESSION_DIR, SESSION_INDEX_FILE, SESSIONS, SESSIONS_MAX,
     LOCK, STREAMS, STREAMS_LOCK, DEFAULT_WORKSPACE, DEFAULT_MODEL, PROJECTS_FILE, HOME,
-    get_effective_default_model, _get_session_agent_lock,
+    WORKER_SESSION_SEP, get_effective_default_model, _get_session_agent_lock,
 )
 from api.workspace import get_last_workspace
 from api.agent_sessions import (
@@ -134,7 +134,7 @@ def _write_session_index(updates=None):
             with LOCK:
                 existing_ids = {e.get('session_id') for e in entries}
                 for s in SESSIONS.values():
-                    if s.session_id not in existing_ids:
+                    if s.session_id not in existing_ids and not is_worker_session_id(s.session_id):
                         entries.append(s.compact())
                 entries.sort(key=lambda s: s.get('updated_at', 0), reverse=True)
                 _payload = json.dumps(entries, ensure_ascii=False, indent=2)
@@ -1308,6 +1308,23 @@ def _repair_stale_pending(session) -> bool:
         return False
 
 
+def is_worker_session_id(sid) -> bool:
+    """A Background node's hidden worker session (api.harness_runner.worker_session_id)."""
+    return WORKER_SESSION_SEP in str(sid or "")
+
+
+class WorkerSession(Session):
+    """The session a Background node's job runs on: in memory only.
+
+    It is registered in SESSIONS for the job (the streaming worker looks the
+    session up by id) and dropped after; it is never written to disk or the
+    index, never announced, and never listed. Its id can't be loaded from
+    disk either (``Session.load`` rejects "~")."""
+
+    def save(self, *args, **kwargs) -> None:
+        return None
+
+
 def get_session(sid, metadata_only=False):
     """Load a session, optionally with metadata only (skipping the messages array).
 
@@ -1411,6 +1428,8 @@ def _hide_from_default_sidebar(session: dict) -> bool:
     sid = str(session.get('session_id') or '')
     source = session.get('source_tag') or session.get('source')
     if source == 'cron' or sid.startswith('cron_'):
+        return True
+    if is_worker_session_id(sid):
         return True
     if bool(session.get('pre_compression_snapshot')):
         return not bool(session.get('_show_pre_compression_snapshot'))

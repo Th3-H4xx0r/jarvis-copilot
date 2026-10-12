@@ -121,34 +121,34 @@ When `workdir` is set:
 Jobs with a `workdir` run sequentially on the scheduler tick, not in the parallel pool. This is deliberate — `TERMINAL_CWD` is process-global, so two workdir jobs running at the same time would corrupt each other's cwd. Workdir-less jobs still run in parallel as before.
 :::
 
-## Running cron jobs in a specific profile
+## Choosing what a job runs on
 
-By default a cron job inherits whichever Hermes profile owned the gateway / CLI that created it. Pass `--profile <name>` (CLI) or `profile=` (cronjob tool) to re-target the job at a different profile — the scheduler resolves that profile's `HERMES_HOME`, temporarily switches into it for the duration of the run, loads its `.env` + `config.yaml`, and executes the job there:
+Each job runs on one of three things, and you pick which when you create or edit it:
+
+- **Default** — the server's default model (`model.default` in config.yaml), whatever it is at run time.
+- **A model** — any model from the pickers, written provider-qualified (`@anthropic-api:claude-haiku-5-5`) or bare. A cheap model is often right for a job that runs every few minutes.
+- **A harness** — the job's prompt goes through the harness like a chat message:
+  - a Route node picks the answer node, which runs the job with its own model, tool limits, notes and step budget;
+  - the Background and Review nodes wired after it run next, and each result is delivered after the answer;
+  - hand-off wires aren't followed, since nobody is waiting on a schedule.
+
+  If the harness is deleted later, the job falls back to Default, and the run's output says why.
+
+Set it in the web's schedule form (Tasks, and each integration's schedules) or the iPhone's (**Runs on**), or:
 
 ```bash
-# Pin a job to the `night-ops` profile regardless of where it was scheduled
-hermes cron create "every 1d at 03:00" \
-  "Tail the security log and flag anomalies" \
-  --profile night-ops
+# Standalone CLI
+hermes cron create "*/15 * * * *" "Check my inbox for anything actionable" --model @anthropic-api:claude-haiku-5-5
+hermes cron edit <job_id> --harness "Haiku Fast + Claude Sonnet"
+hermes cron edit <job_id> --model ""        # back to Default
 ```
 
 ```python
 # From a chat, via the cronjob tool
-cronjob(
-    action="create",
-    schedule="every 1d at 03:00",
-    prompt="Tail the security log and flag anomalies",
-    profile="night-ops",
-)
+cronjob(action="update", job_id="<id>", harness="Haiku Fast + Claude Sonnet")
 ```
 
-Use `--profile default` to explicitly pin to the root Hermes profile. The named profile must already exist; the scheduler refuses to create profiles on the fly. To clear a profile pin during `cron edit`, pass an empty string (`--profile ""` or `profile=""`) — the job reverts to running in whatever profile the scheduler itself is in.
-
-If the pinned profile is later deleted, the scheduler logs a warning and falls back to running the job in its current profile rather than crashing — so a stale `profile` reference never wedges a job.
-
-:::note Serialization
-Jobs with a `profile` set also run sequentially, for the same reason as `workdir`-pinned jobs: switching `HERMES_HOME` is a process-global mutation, so two profile-pinned jobs running in parallel would race each other. Unpinned jobs still run in the normal parallel pool.
-:::
+Setting a model clears the job's harness and vice versa. The per-job `profile` setting is gone: a job always runs in the profile whose schedules it belongs to, and older jobs had their `profile` cleared on upgrade.
 
 ## Editing jobs
 

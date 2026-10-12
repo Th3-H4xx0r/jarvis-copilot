@@ -456,3 +456,49 @@ def test_repair_tool_call_maps_a_bare_device_skill_to_its_tool():
     # Short names score under the fuzzy cutoff, so this used to come back None.
     assert repair_tool_call(agent, "x5_find") == "device_x5_find"
     assert repair_tool_call(agent, "X5_Get_Status") == "device_x5_get_status"
+
+
+def test_only_the_used_device_tools_stay_loaded(monkeypatch):
+    """Device tools are no longer all advertised: the ranked ones stay in the
+    tools list, the rest go to the on-demand catalogue (still callable)."""
+    _enable_lazy(monkeypatch)
+    for n in ("device_open_app", "device_rarely_used", "device_never_used"):
+        registry.register(name=n, toolset="devices",
+                          schema={"name": n, "description": f"{n}.", "parameters": {}},
+                          handler=lambda args, **kw: "{}")
+    import tools.device_tool_rank as rank
+    monkeypatch.setattr(rank, "always_loaded_device_tools", lambda candidates: ["device_open_app"])
+    try:
+        a = _AgentForPartition(["tool_search", "web_search", "device_open_app", "device_rarely_used",
+                                "device_never_used"] + [f"d{i}" for i in range(7)])
+        lt.apply_lazy_partition(a)
+        adv = {t["function"]["name"] for t in a.tools}
+        assert "device_open_app" in adv
+        assert "device_rarely_used" not in adv and "device_never_used" not in adv
+        assert {"device_rarely_used", "device_never_used"} <= a._lazy_all_tool_names
+        assert "device_rarely_used" in a._lazy_tools_manifest
+    finally:
+        for n in ("device_open_app", "device_rarely_used", "device_never_used"):
+            registry.deregister(n)
+
+
+def test_fingerprint_changes_when_a_tool_moves_between_loaded_and_on_demand(monkeypatch):
+    """A stored prompt's frozen catalogue must be rebuilt when the daily device
+    ranking moves a tool from loaded to on-demand (same names, new split)."""
+    _enable_lazy(monkeypatch)
+    names = ["tool_search", "web_search", "device_a", "device_b"] + [f"d{i}" for i in range(7)]
+    for n in ("device_a", "device_b"):
+        registry.register(name=n, toolset="devices", schema={"name": n, "description": n, "parameters": {}},
+                          handler=lambda args, **kw: "{}")
+    import tools.device_tool_rank as rank
+    try:
+        monkeypatch.setattr(rank, "always_loaded_device_tools", lambda c: ["device_a"])
+        a = _AgentForPartition(names)
+        lt.apply_lazy_partition(a)
+        monkeypatch.setattr(rank, "always_loaded_device_tools", lambda c: ["device_b"])
+        b = _AgentForPartition(names)
+        lt.apply_lazy_partition(b)
+        assert a._toolset_fingerprint != b._toolset_fingerprint
+    finally:
+        for n in ("device_a", "device_b"):
+            registry.deregister(n)

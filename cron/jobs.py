@@ -128,8 +128,9 @@ def _normalize_job_record(job: Dict[str, Any]) -> Dict[str, Any]:
         state = "scheduled" if normalized.get("enabled", True) else "paused"
     normalized["state"] = state
 
-    profile = _coerce_job_text(normalized.get("profile")).strip()
-    normalized["profile"] = profile or None
+    normalized.pop("profile", None)
+    harness_id = _coerce_job_text(normalized.get("harness_id")).strip()
+    normalized["harness_id"] = harness_id or None
 
     return normalized
 
@@ -410,7 +411,10 @@ def load_jobs() -> List[Dict[str, Any]]:
     try:
         with open(JOBS_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            return data.get("jobs", [])
+        jobs = data.get("jobs", [])
+        if _drop_job_profiles(jobs):
+            _migrate_job_profiles_on_disk()
+        return jobs
     except json.JSONDecodeError:
         # Retry with strict=False to handle bare control chars in string values
         try:
@@ -482,28 +486,140 @@ def _normalize_workdir(workdir: Optional[str]) -> Optional[str]:
     return str(resolved)
 
 
-def _normalize_profile(profile: Optional[str]) -> Optional[str]:
-    """Normalize and validate an optional cron job profile name.
+def _drop_job_profiles(jobs: List[Dict[str, Any]]) -> bool:
+    """One-time migration: schedules no longer run under a per-job profile
+    (each picks a model or a harness instead). Drop the old field; True when
+    anything changed, so the caller saves once."""
+    changed = 0
+    for job in jobs:
+        if isinstance(job, dict) and "profile" in job:
+            job.pop("profile", None)
+            changed += 1
+    if changed:
+        logger.info("Cron: cleared the per-job profile from %d schedule(s)", changed)
+    return bool(changed)
 
-    Empty / None disables per-job profile selection. Otherwise the profile name
-    is canonicalized with the same rules as ``jarviscopilot -p`` and must refer to an
-    existing profile at create/update time. ``default`` is the built-in root
-    profile and is always valid.
+
+def _migrate_job_profiles_on_disk() -> None:
+    """Persist the profile migration without racing another writer.
+
+    Only under ``_jobs_file_lock`` and from a fresh read, so a concurrent
+    advance_next_run / mark_job_run is never reverted. When the lock is busy
+    (another writer, or this very thread inside a locked load→save cycle) the
+    save is skipped: the holder saves the already-migrated jobs it loaded, and
+    any later load retries.
     """
-    if profile is None:
-        return None
-    raw = str(profile).strip()
-    if not raw:
-        return None
+    if not _jobs_file_lock.acquire(blocking=False):
+        return
+    try:
+        with open(JOBS_FILE, 'r', encoding='utf-8') as f:
+            jobs = json.load(f).get("jobs", [])
+        if _drop_job_profiles(jobs):
+            save_jobs(jobs)
+    except (OSError, ValueError, AttributeError):
+        logger.debug("Cron: profile migration not saved this time", exc_info=True)
+    finally:
+        _jobs_file_lock.release()
 
-    from jarviscopilot_cli.profiles import normalize_profile_name, resolve_profile_env
 
-    normalized = normalize_profile_name(raw)
-    # resolve_profile_env validates the canonical name and checks that named
-    # profiles exist. Store only the stable profile id, not the filesystem path,
-    # so profile directories can move with the JarvisCopilot root.
-    resolve_profile_env(normalized)
-    return normalized
+def _clean_text(value: Any) -> Optional[str]:
+    if value is None or value is False:
+        return None
+    return str(value).strip() or None
+
+
+def _split_model_ref(model: Optional[str], provider: Optional[str]) -> tuple:
+    """``("@provider:model", None)`` → ``("model", "provider")``; a bare model
+    keeps the provider it was given."""
+    if model and model.startswith("@") and ":" in model:
+        from agent.harness.refs import split_ref
+
+        q = split_ref(model)
+        if q:
+            return q[1], q[0]
+    return model, provider
+
+
+def _normalize_runs_on_updates(updates: Dict[str, Any],
+                               current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """A schedule runs on exactly one of: Default, a model, or a harness.
+
+    Setting a harness clears the model (and its provider / base URL); setting
+    a model clears the harness; an explicit empty model (``""`` / None) with no
+    harness clears the model and its provider. Raises ValueError when both a
+    model and a harness are set at once.
+
+    On an update (``current`` = the stored job): a bare model equal to the
+    stored one, sent without a provider (older clients resend it on every
+    save), keeps the stored provider; and when what the job runs on changes,
+    a ``base_url`` not sent with the change is cleared — it belonged to the
+    old model.
+    """
+    if not ({"model", "harness_id"} & set(updates)):
+        if "provider" in updates:
+            updates["provider"] = _clean_text(updates["provider"])
+        return updates
+    harness_id = _clean_text(updates.get("harness_id")) if "harness_id" in updates else None
+    model = _clean_text(updates.get("model")) if "model" in updates else None
+    provider = _clean_text(updates.get("provider")) if "provider" in updates else None
+    if harness_id and model:
+        raise ValueError("A schedule runs on a model or a harness, not both.")
+    if harness_id:
+        updates.update(harness_id=harness_id, model=None, provider=None, base_url=None)
+        return updates
+    if "harness_id" in updates:
+        updates["harness_id"] = None
+    if model:
+        if (current is not None and "provider" not in updates and not model.startswith("@")
+                and model == _clean_text(current.get("model"))):
+            provider = _clean_text(current.get("provider"))
+        model, provider = _split_model_ref(model, provider)
+        updates.update(model=model, provider=provider, harness_id=None)
+    elif "model" in updates:
+        updates.update(model=None, provider=None)
+    elif "provider" in updates:
+        updates["provider"] = provider
+    if current is not None and "base_url" not in updates:
+        def _runs_on(src):
+            return tuple(_clean_text(src.get(k)) for k in ("model", "provider", "harness_id"))
+        if _runs_on({**current, **updates}) != _runs_on(current):
+            updates["base_url"] = None
+    return updates
+
+
+def runs_on(job: Dict[str, Any], *, harness_names: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """What a schedule runs on, for lists and editors.
+
+    ``{"kind": "default" | "model" | "harness", "label": str, "value": str}``;
+    ``value`` is the editor choice (``default``, ``model:@provider:model``,
+    ``harness:<id>``). A harness that no longer exists is labelled by its id
+    with ``missing: True`` (the run falls back to Default).
+    """
+    harness_id = _clean_text((job or {}).get("harness_id"))
+    if harness_id:
+        out = {"kind": "harness", "label": harness_id, "value": f"harness:{harness_id}"}
+        name = None
+        if harness_names is not None:
+            name = harness_names.get(harness_id)
+        else:
+            try:
+                from agent.harness.store import store_for_home
+
+                doc = store_for_home().get(harness_id)
+                name = (doc or {}).get("name") or (harness_id if doc else None)
+            except Exception:
+                logger.debug("runs_on: harness lookup failed", exc_info=True)
+        if name:
+            out["label"] = name
+        else:
+            out["missing"] = True
+        return out
+    model = _clean_text((job or {}).get("model"))
+    if model:
+        provider = _clean_text((job or {}).get("provider"))
+        ref = f"@{provider}:{model}" if provider else model
+        return {"kind": "model", "label": model, "value": f"model:{ref}"}
+    return {"kind": "default", "label": "Default", "value": "default"}
 
 
 def create_job(
@@ -522,9 +638,9 @@ def create_job(
     context_from: Optional[Union[str, List[str]]] = None,
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
-    profile: Optional[str] = None,
     no_agent: bool = False,
     integration: Optional[str] = None,
+    harness_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a new cron job.
@@ -539,7 +655,8 @@ def create_job(
         origin: Source info where job was created (for "origin" delivery)
         skill: Optional legacy single skill name to load before running the prompt
         skills: Optional ordered list of skills to load before running the prompt
-        model: Optional per-job model override
+        model: Optional per-job model (bare, or ``@provider:model`` — split on save).
+               Omit (with no harness) to run on the server's default model.
         provider: Optional per-job provider override
         base_url: Optional per-job base URL override
         script: Optional path to a script whose stdout feeds the job. With
@@ -565,11 +682,9 @@ def create_job(
                 With ``no_agent=True``, ``workdir`` is still applied as the
                 script's cwd so relative paths inside the script behave
                 predictably.
-        profile: Optional JarvisCopilot profile name. When set, the job runs with
-                that profile's HERMES_HOME so profile-specific config,
-                credentials, scripts, skills, and memory paths resolve
-                consistently. ``default`` selects the root profile; empty /
-                None preserves the scheduler's existing behaviour.
+        harness_id: Optional harness to run the job through (its Route picks
+                the Answer node; Background / Review nodes run after it). A job
+                runs on a model or a harness, never both.
         no_agent: When True, skip the agent entirely — run ``script`` on schedule
                 and deliver its stdout directly. Empty stdout = silent (no
                 delivery). Requires ``script`` to be set. Ideal for classic
@@ -596,8 +711,13 @@ def create_job(
     now = _hermes_now().isoformat()
 
     normalized_skills = _normalize_skill_list(skill, skills)
-    normalized_model = str(model).strip() if isinstance(model, str) else None
-    normalized_provider = str(provider).strip() if isinstance(provider, str) else None
+    runs = _normalize_runs_on_updates({k: v for k, v in (("model", model), ("provider", provider),
+                                                         ("harness_id", harness_id))
+                                       if isinstance(v, str) and v.strip()})
+    if runs.get("harness_id"):
+        base_url = None
+    normalized_model = runs.get("model")
+    normalized_provider = runs.get("provider")
     normalized_base_url = str(base_url).strip().rstrip("/") if isinstance(base_url, str) else None
     normalized_model = normalized_model or None
     normalized_provider = normalized_provider or None
@@ -607,7 +727,6 @@ def create_job(
     normalized_toolsets = [str(t).strip() for t in enabled_toolsets if str(t).strip()] if enabled_toolsets else None
     normalized_toolsets = normalized_toolsets or None
     normalized_workdir = _normalize_workdir(workdir)
-    normalized_profile = _normalize_profile(profile)
     normalized_no_agent = bool(no_agent)
 
     # no_agent jobs are meaningless without a script — the script IS the job.
@@ -638,6 +757,7 @@ def create_job(
         "model": normalized_model,
         "provider": normalized_provider,
         "base_url": normalized_base_url,
+        "harness_id": runs.get("harness_id"),
         "script": normalized_script,
         "no_agent": normalized_no_agent,
         "context_from": context_from,
@@ -665,7 +785,6 @@ def create_job(
         "origin": origin,  # Tracks where job was created for "origin" delivery
         "enabled_toolsets": normalized_toolsets,
         "workdir": normalized_workdir,
-        "profile": normalized_profile,
     }
 
     jobs = load_jobs()
@@ -746,14 +865,9 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
             else:
                 updates["workdir"] = _normalize_workdir(_wd)
 
-        # Validate / normalize profile if present in updates.  Empty string or
-        # None both mean "clear the field" (restore old behaviour).
-        if "profile" in updates:
-            _profile = updates["profile"]
-            if _profile is None or _profile == "" or _profile is False:
-                updates["profile"] = None
-            else:
-                updates["profile"] = _normalize_profile(_profile)
+        # The per-job profile is gone (a schedule picks a model or a harness).
+        updates.pop("profile", None)
+        _normalize_runs_on_updates(updates, job)
 
         if "integration" in updates:
             updates["integration"] = (str(updates["integration"] or "")).strip().lower() or "general"
@@ -784,6 +898,7 @@ def update_job(job_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]
         if updated.get("enabled", True) and updated.get("state") != "paused" and not updated.get("next_run_at"):
             updated["next_run_at"] = compute_next_run(updated["schedule"])
 
+        updated.pop("profile", None)
         jobs[i] = updated
         save_jobs(jobs)
         return _normalize_job_record(jobs[i])

@@ -464,8 +464,10 @@ class JarvisMemoryProvider(MemoryProvider):
             n = 0
         if not n:
             return ""
+        # No item count: it changed with every saved memory, and this block is
+        # part of the prompt every agent sends (and the provider caches).
         return (
-            f"# Long-term memory (jarvis_memory) — {n} items stored.\n"
+            "# Long-term memory (jarvis_memory)\n"
             "Call `memory_recall` before answering questions about the user, "
             "people, projects, or prior decisions.\n"
         )

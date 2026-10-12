@@ -301,8 +301,8 @@ def test_manual_cron_run_does_not_hold_profile_lock_for_job_duration(tmp_path, m
     run_started = threading.Event()
     release_run = threading.Event()
 
-    def fake_run_job_subprocess(job, execution_profile_home):
-        events.append(("run", job["id"], str(execution_profile_home)))
+    def fake_run_job_subprocess(job, cron_home):
+        events.append(("run", job["id"], str(cron_home)))
         run_started.set()
         assert release_run.wait(2), "test timed out waiting to release fake cron run"
         return True, "output", "final", None
@@ -311,13 +311,12 @@ def test_manual_cron_run_does_not_hold_profile_lock_for_job_duration(tmp_path, m
     monkeypatch.setattr(routes, "_run_cron_job_in_profile_subprocess", fake_run_job_subprocess)
 
     job_home = tmp_path / "owner"
-    exec_home = tmp_path / "exec"
     other_home = tmp_path / "other"
 
     routes._mark_cron_running("job1574")
     worker = threading.Thread(
         target=routes._run_cron_tracked,
-        args=({"id": "job1574"}, job_home, exec_home),
+        args=({"id": "job1574"}, job_home),
     )
     worker.start()
     assert run_started.wait(2), "fake run_job did not start"
@@ -343,7 +342,8 @@ def test_manual_cron_run_does_not_hold_profile_lock_for_job_duration(tmp_path, m
 
     assert not worker.is_alive()
     assert not contender_thread.is_alive()
-    assert ("run", "job1574", str(exec_home)) in events
+    # The job runs under its store owner's home (no per-job execution profile).
+    assert ("run", "job1574", str(job_home)) in events
     assert ("save", "job1574", "output") in events
     assert ("mark", "job1574", True, None) in events
     assert routes._is_cron_running("job1574") == (False, 0.0)

@@ -432,6 +432,34 @@ def interruptible_api_call(agent, api_kwargs: dict):
 
 
 
+def _mark_last_tool(tools: list, marker: dict) -> list:
+    """A copy of ``tools`` with ``marker`` on the last tool that can carry one
+    (not a deferred tool, not a server tool)."""
+    out = list(tools)
+    for i in range(len(out) - 1, -1, -1):
+        t = out[i]
+        if isinstance(t, dict) and t.get("name") and not t.get("defer_loading") and not t.get("type"):
+            out[i] = dict(t, cache_control=dict(marker))
+            break
+    return out
+
+
+def _prefix_cache_key(agent) -> str:
+    """A stable key for this agent's prompt start (model + tools + stable
+    system block): every agent sharing it shares one cached prefix. Cached on
+    the agent and recomputed when the tools list object changes."""
+    tools = getattr(agent, "tools", None) or []
+    memo = getattr(agent, "_prefix_cache_key_memo", None)
+    if memo and memo[0] is tools and memo[1] == len(tools):
+        return memo[2]
+    import hashlib
+    stable = (getattr(agent, "_system_prompt_parts", None) or {}).get("stable") or ""
+    blob = json.dumps([getattr(agent, "model", "") or "", tools, stable], sort_keys=True, default=str)
+    key = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:24]
+    agent._prefix_cache_key_memo = (tools, len(tools), key)
+    return key
+
+
 def build_api_kwargs(agent, api_messages: list) -> dict:
     """Build the keyword arguments dict for the active API mode."""
     tools_for_api = agent.tools
@@ -464,11 +492,19 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         # Post-processing here (rather than through the transport) keeps
         # agent/transports/anthropic.py — owned by another workstream — untouched.
         try:
-            from tools.lazy_tools import apply_native_tool_search, uses_native_tool_search
+            from tools.lazy_tools import (apply_eager_device_streaming, apply_native_tool_search,
+                                          native_anthropic_endpoint, uses_native_tool_search)
             if uses_native_tool_search(agent):
                 apply_native_tool_search(_kwargs, agent)
+            elif native_anthropic_endpoint(agent):
+                apply_eager_device_streaming(_kwargs)
         except Exception:
             logger.debug("native tool-search shaping skipped", exc_info=True)
+        # The tools are the head of every agent's prompt on this model: cache
+        # them on their own breakpoint (the messages take the other three).
+        if getattr(agent, "_use_prompt_caching", False) and _kwargs.get("tools"):
+            from agent.prompt_caching import marker_retention, tool_cache_marker
+            _kwargs["tools"] = _mark_last_tool(_kwargs["tools"], tool_cache_marker(marker_retention(agent)))
         return _kwargs
 
     # AWS Bedrock native Converse API — bypasses the OpenAI client entirely.
@@ -631,6 +667,8 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
             reasoning_config=agent.reasoning_config,
             request_overrides=agent.request_overrides,
             session_id=getattr(agent, "session_id", None),
+            cache_retention=getattr(agent, "_cache_retention", "standard"),
+            prefix_cache_key=_prefix_cache_key(agent),
             provider_profile=_profile,
             ollama_num_ctx=agent._ollama_num_ctx,
             # Context forwarded to profile hooks:
@@ -663,6 +701,8 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         reasoning_config=agent.reasoning_config,
         request_overrides=agent.request_overrides,
         session_id=getattr(agent, "session_id", None),
+        cache_retention=getattr(agent, "_cache_retention", "standard"),
+        prefix_cache_key=_prefix_cache_key(agent),
         model_lower=(agent.model or "").lower(),
         is_openrouter=_is_or,
         is_nous=_is_nous,

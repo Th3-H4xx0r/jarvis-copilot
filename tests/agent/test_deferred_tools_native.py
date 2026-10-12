@@ -136,15 +136,21 @@ class TestNativeDeferredToolShaping:
 
 
 class TestNativeToolSearchGating:
-    def test_enabled_by_default(self, monkeypatch):
+    def test_off_by_default_so_every_provider_shares_one_route(self, monkeypatch):
         monkeypatch.setattr(lazy_tools, "load_config", lambda: {})
+        assert lazy_tools.native_tool_search_enabled() is False
+
+    def test_config_can_enable(self, monkeypatch):
+        monkeypatch.setattr(lazy_tools, "load_config", lambda: {"tools": {"deferred": True}})
         assert lazy_tools.native_tool_search_enabled() is True
 
     def test_config_can_disable(self, monkeypatch):
         monkeypatch.setattr(lazy_tools, "load_config", lambda: {"tools": {"deferred": False}})
         assert lazy_tools.native_tool_search_enabled() is False
 
-    def test_only_native_anthropic_endpoints(self):
+    def test_only_native_anthropic_endpoints(self, monkeypatch):
+        monkeypatch.setattr(lazy_tools, "load_config", lambda: {"tools": {"deferred": True}})
+
         class _Agent:
             api_mode = "anthropic_messages"
             _anthropic_base_url = None
@@ -160,7 +166,7 @@ class TestNativeToolSearchGating:
 
     def test_lazy_partition_is_skipped_for_native_search(self, monkeypatch):
         """The in-repo manifest + tool_search round trip must not also run."""
-        monkeypatch.setattr(lazy_tools, "load_config", lambda: {})
+        monkeypatch.setattr(lazy_tools, "load_config", lambda: {"tools": {"deferred": True}})
 
         class _Agent:
             api_mode = "anthropic_messages"
@@ -203,3 +209,13 @@ class TestRequestBodyShape:
         # Nothing else about the request shape changed.
         assert kwargs["model"] == "claude-haiku-4-5"
         assert kwargs["tool_choice"] == {"type": "auto"}
+
+
+class TestEagerDeviceStreamingWithoutNativeSearch:
+    def test_loaded_device_tools_stream_their_args(self, device_tool, monkeypatch):
+        kwargs = {"tools": _anthropic_tools(["open_app", "terminal"])}
+        lazy_tools.apply_eager_device_streaming(kwargs)
+        body = {t.get("name"): t for t in kwargs["tools"]}
+        assert body["open_app"].get("eager_input_streaming") is True
+        assert "eager_input_streaming" not in body["terminal"]
+        assert all("defer_loading" not in t for t in kwargs["tools"])

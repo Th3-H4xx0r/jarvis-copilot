@@ -134,7 +134,7 @@ function _intgDetailHtml(d) {
               <span class="intg-row-name">${esc(s.name || s.id)}</span>
               <span class="intg-row-sub">${esc(_intgWhen(s))}</span>
             </div>
-            ${_intgProfileBadge(s)}${_intgStatusPill(s)}
+            ${_intgRunsOnBadge(s)}${_intgStatusPill(s)}
             ${_intgDeleteButton('schedule', s.id, s.name || s.id)}
           </div>`).join('') : `<div class="intg-empty-row">No schedules yet.</div>`}
       </section>
@@ -227,12 +227,13 @@ function _intgBindDetail(d) {
 // saveCronForm() in panels.js when it POSTs, then cleared.
 let _intgPendingForNewJob = null;
 
-// Which agent profile a schedule runs under. This used to sit on the Tasks list
-// row; the schedule row inside its integration is where it lives now.
-function _intgProfileBadge(s) {
+// What a schedule runs on: Default, a model or a harness (cron_runs_on.js).
+function _intgRunsOnBadge(s) {
   const job = _intgJob(s.id);
-  if (!job || typeof _cronProfileLabel !== 'function') return '';
-  return `<span class="cron-profile-badge" title="${esc(_cronProfileTitle(job.profile))}">${esc(_cronProfileLabel(job.profile))}</span>`;
+  if (!job || job.no_agent || !window.CronRunsOn || typeof _cronRunsOnCtx !== 'function') return '';
+  const text = CronRunsOn.label(job, _cronRunsOnCtx(job));
+  const title = (t('cron_runs_on_label') || 'Runs on') + ': ' + text;
+  return `<span class="cron-runs-on-badge" title="${esc(title)}">${esc(text)}</span>`;
 }
 
 function _intgJob(id) {
@@ -379,7 +380,7 @@ async function openIntegrationCreate() {
     setup = await api('/api/integrations/setup/start', {
       method: 'POST',
       // The profile this tab is on, like every other session we create.
-      body: JSON.stringify({ name: '', profile: (typeof _cronProfile !== 'undefined' && _cronProfile) || (S && S.profile) || '' }),
+      body: JSON.stringify({ name: '', profile: (S && S.profile) || '' }),
     });
   } catch (e) {
     showToast('Could not start: ' + e.message, 4000);

@@ -194,12 +194,23 @@ def _resolve_model_override(model_obj: Optional[Dict[str, Any]]) -> tuple:
     If provider is omitted, pins the current main provider from config so the
     job doesn't drift when the user later changes their default via jarviscopilot model.
 
-    Returns (provider_str_or_none, model_str_or_none).
+    Returns (provider_str_or_none, model_str_or_none). An explicit empty model
+    (``{"model": ""}`` or ``""``) returns ``("", "")``: clear the model so the
+    job runs on the server default. ``@provider:model`` names its provider.
     """
-    if not model_obj or not isinstance(model_obj, dict):
+    if isinstance(model_obj, str):
+        model_obj = {"model": model_obj}
+    if not isinstance(model_obj, dict) or "model" not in model_obj:
         return (None, None)
     model_name = (model_obj.get("model") or "").strip() or None
     provider_name = (model_obj.get("provider") or "").strip() or None
+    if not model_name:
+        return ("", "")
+    if model_name.startswith("@") and ":" in model_name:
+        from agent.harness.refs import split_ref
+        qualified = split_ref(model_name)
+        if qualified:
+            provider_name, model_name = qualified
     # Bare "custom" is an incomplete spec — the canonical form is
     # "custom:<name>" matching a custom_providers entry. LLMs frequently
     # supply the bare type because the schema does not advertise the
@@ -229,6 +240,18 @@ def _normalize_optional_job_value(value: Optional[Any], *, strip_trailing_slash:
     if strip_trailing_slash:
         text = text.rstrip("/")
     return text or None
+
+
+def _resolve_harness_ref(ref: str) -> str:
+    """A harness name or id → its id. Raises ValueError naming the choices."""
+    from agent.harness.store import store_for_home
+
+    store = store_for_home()
+    doc = store.find(ref)
+    if doc is None:
+        names = ", ".join(sorted({str(d.get("name") or d.get("id")) for d in store.all_harnesses()}))
+        raise ValueError(f"No harness named {ref!r}. Harnesses: {names or 'none'}.")
+    return str(doc["id"])
 
 
 def _normalize_deliver_param(value: Any) -> Optional[str]:
@@ -325,8 +348,13 @@ def _format_job(job: Dict[str, Any]) -> Dict[str, Any]:
         result["enabled_toolsets"] = job["enabled_toolsets"]
     if job.get("workdir"):
         result["workdir"] = job["workdir"]
-    if job.get("profile"):
-        result["profile"] = job["profile"]
+    if job.get("harness_id"):
+        result["harness_id"] = job["harness_id"]
+    try:
+        from cron.jobs import runs_on
+        result["runs_on"] = runs_on(job)
+    except Exception:
+        pass
     return result
 
 
@@ -350,7 +378,7 @@ def cronjob(
     enabled_toolsets: Optional[List[str]] = None,
     workdir: Optional[str] = None,
     integration: Optional[str] = None,
-    profile: Optional[str] = None,
+    harness: Optional[str] = None,
     no_agent: Optional[bool] = None,
     task_id: str = None,
 ) -> str:
@@ -390,6 +418,8 @@ def cronjob(
                 if script_error:
                     return tool_error(script_error, success=False)
 
+            harness_id = _resolve_harness_ref(harness.strip()) if harness and harness.strip() else None
+
             # Validate context_from references existing jobs
             if context_from:
                 from cron.jobs import get_job as _get_job
@@ -417,9 +447,9 @@ def cronjob(
                 context_from=context_from,
                 enabled_toolsets=enabled_toolsets or None,
                 workdir=_normalize_optional_job_value(workdir),
-                profile=_normalize_optional_job_value(profile),
                 no_agent=_no_agent,
                 integration=_normalize_optional_job_value(integration),
+                harness_id=harness_id,
             )
             return json.dumps(
                 {
@@ -517,9 +547,14 @@ def cronjob(
                 updates["skills"] = canonical_skills
                 updates["skill"] = canonical_skills[0] if canonical_skills else None
             if model is not None:
+                # "" clears the model (and its provider): the job runs on Default.
                 updates["model"] = _normalize_optional_job_value(model)
             if provider is not None:
                 updates["provider"] = _normalize_optional_job_value(provider)
+            if harness is not None:
+                # "" clears the harness; a name or id runs the job through it
+                # (and clears the model — a job runs on one or the other).
+                updates["harness_id"] = _resolve_harness_ref(harness.strip()) if harness.strip() else None
             if base_url is not None:
                 updates["base_url"] = _normalize_optional_job_value(base_url, strip_trailing_slash=True)
             if script is not None:
@@ -556,10 +591,6 @@ def cronjob(
                 # Empty string clears the field (restores old behaviour);
                 # otherwise pass raw — update_job() validates / normalizes.
                 updates["workdir"] = _normalize_optional_job_value(workdir) or None
-            if profile is not None:
-                # Empty string clears the field (restores old behaviour);
-                # otherwise pass raw — update_job() validates / normalizes.
-                updates["profile"] = _normalize_optional_job_value(profile) or None
             if no_agent is not None:
                 # Toggling no_agent on/off at update time. If flipping to True,
                 # we need a script to already exist on the job (or be part of
@@ -656,7 +687,7 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
             },
             "model": {
                 "type": "object",
-                "description": "Optional per-job model override. If provider is omitted, the current main provider is pinned at creation time so the job stays stable.",
+                "description": "Optional model the job runs on (instead of the server default). If provider is omitted, the current main provider is pinned at creation time so the job stays stable. model may also be '@provider:model'. Setting a model clears the job's harness. On update, pass {\"model\": \"\"} to clear it (the job then runs on the server default).",
                 "properties": {
                     "provider": {
                         "type": "string",
@@ -717,9 +748,9 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                 "type": "string",
                 "description": "Optional absolute path to run the job from. When set, AGENTS.md / CLAUDE.md / .cursorrules from that directory are injected into the system prompt, and the terminal/file/code_exec tools use it as their working directory — useful for running a job inside a specific project repo. Must be an absolute path that exists. When unset (default), preserves the original behaviour: no project context files, tools use the scheduler's cwd. On update, pass an empty string to clear. Jobs with workdir run sequentially (not parallel) to keep per-job directories isolated."
             },
-            "profile": {
+            "harness": {
                 "type": "string",
-                "description": "Optional JarvisCopilot profile name to run the job under. When set, the scheduler resolves that profile, applies a context-local JarvisCopilot home override, loads that profile's config/.env for the run, and bridges HERMES_HOME into subprocesses. Any temporary process-environment changes from profile .env loading are restored after the job exits. Use 'default' for the root JarvisCopilot profile. Named profiles must already exist. When unset (default), preserves the scheduler's existing profile. On update, pass an empty string to clear. Jobs with profile run sequentially (not parallel) to keep profile-scoped runtime state isolated."
+                "description": "Optional harness (by name or id) to run the job through instead of one model: its Route picks the answering node, and its Background / Review nodes run after the answer, each result delivered in turn. Setting a harness clears the job's model. On update, pass an empty string to clear it (the job then runs on the server default)."
             },
         },
         "required": ["action"]
@@ -768,14 +799,14 @@ registry.register(
         skill=args.get("skill"),
         skills=args.get("skills"),
         model=_mo[1],
-        provider=_mo[0] or args.get("provider"),
+        provider=_mo[0] if _mo[0] is not None else args.get("provider"),
         base_url=args.get("base_url"),
         reason=args.get("reason"),
         script=args.get("script"),
         context_from=args.get("context_from"),
         enabled_toolsets=args.get("enabled_toolsets"),
         workdir=args.get("workdir"),
-        profile=args.get("profile"),
+        harness=args.get("harness"),
         no_agent=args.get("no_agent"),
         integration=args.get("integration"),
         task_id=kw.get("task_id"),

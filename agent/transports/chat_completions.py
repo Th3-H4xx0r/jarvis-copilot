@@ -497,6 +497,10 @@ class ChatCompletionsTransport(ProviderTransport):
         )
         if profile_body:
             extra_body.update(profile_body)
+        cache_extras = profile.prompt_cache_extras(
+            params.get("cache_retention") or "standard", params.get("prefix_cache_key") or "")
+        if cache_extras:
+            extra_body.update(cache_extras)
 
         # Profile's reasoning/thinking extra_body entries
         if extra_body_from_profile:

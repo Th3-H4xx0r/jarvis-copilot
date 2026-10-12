@@ -439,10 +439,29 @@ def _device_offers(device_id: str, skill: str) -> bool:
         return False
 
 
+def _reachable(candidates: list[dict]) -> list[dict]:
+    """The candidates a call can reach now. Outside the webui process the
+    bridge isn't here to ask, so every candidate stays (the loopback decides)."""
+    try:
+        from api import device_bridge
+        if not device_bridge.in_process_available():
+            return candidates
+        ids = device_bridge.reachable_device_ids()
+    except Exception:
+        return candidates
+    return [c for c in candidates if c.get("device_id") in ids]
+
+
 def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     def _handler(args=None, **_kw):
+        # The tool lists every paired device that offers the skill; only the
+        # ones reachable now (live socket or push) can take the call.
+        reachable = _reachable(candidates)
+        if not reachable:
+            names = ", ".join(sorted({c.get("device_name") or "device" for c in candidates}))
+            return json.dumps({"ok": False, "error": f"{names} is offline right now."})
         # task_id is the chat session id for webui turns.
-        device_id, err = _resolve_device(args or {}, candidates, _origin_device(_kw.get("task_id")))
+        device_id, err = _resolve_device(args or {}, reachable, _origin_device(_kw.get("task_id")))
         if err:
             return json.dumps({"ok": False, "error": err})
         # Opening a link on the user's Mac drives its browser: only when asked
@@ -553,7 +572,9 @@ def rebuild_device_tools() -> list[dict]:
     """
     try:
         from api import device_bridge
-        flat = device_bridge.all_device_skills()
+        # Paired devices too, online or not: the tools list must not change as
+        # devices come and go (it heads every agent's cached prompt).
+        flat = device_bridge.catalog_device_skills()
         server_only = device_bridge.SERVER_ONLY_SKILLS
     except Exception:
         flat, server_only = [], frozenset()
@@ -572,10 +593,24 @@ def rebuild_device_tools() -> list[dict]:
             "input_schema": entry.get("input_schema"),
         })
 
-    tools = [_build_tool_entry(name, cands) for name, cands in grouped.items()]
+    # Sorted tools, and candidates in a fixed order: which device connected
+    # first must not change a schema's bytes.
+    tools = [_build_tool_entry(name, sorted(cands, key=lambda c: (c["device_name"], str(c["device_id"]))))
+             for name, cands in sorted(grouped.items())]
 
+    # The catalogue no longer depends on who is online, so most device events
+    # change nothing: leave the registry alone then. When it did change,
+    # register the new set over the old and only then drop what's gone — an
+    # agent built mid-rebuild never sees a half-empty device list.
+    signature = json.dumps([[t["name"], t["schema"],
+                             [str(c.get("device_id")) for c in cands]]
+                            for t, (_n, cands) in zip(tools, sorted(grouped.items()))],
+                           sort_keys=True, default=str)
     with _LOCK:
-        _deregister_all_locked()
+        if (signature == globals().get("_current_signature") and _registered_names
+                and all(registry.get_entry(n) is not None for n in _registered_names)):
+            return list(_current_tools)
+        fresh: set = set()
         for t in tools:
             try:
                 registry.register(
@@ -586,11 +621,18 @@ def rebuild_device_tools() -> list[dict]:
                     description=t["description"],
                     emoji="\U0001F4F1",  # 📱
                 )
-                _registered_names.add(t["name"])
+                fresh.add(t["name"])
             except Exception:
                 logger.warning("failed to register device tool %s", t["name"], exc_info=True)
-        _current_tools = tools
+        for name in list(_registered_names - fresh):
+            try:
+                registry.deregister(name)
+            except Exception:
+                logger.debug("failed to deregister stale device tool %s", name, exc_info=True)
+        _registered_names.clear()
+        _registered_names.update(fresh)
         globals()["_current_tools"] = tools
+        globals()["_current_signature"] = signature
 
     return tools
 

@@ -201,8 +201,10 @@ def test_cron_run_does_not_silently_swallow_profile_resolution_errors():
 
 def test_webui_installs_profile_context_on_in_process_scheduler_run_job(tmp_path, monkeypatch):
     """If WebUI ever runs cron.scheduler.tick in-process, scheduled run_job calls
-    must execute under the job's selected profile home, not the process-global
-    HERMES_HOME that happened to be active when the scheduler thread fired.
+    must execute pinned to the store owner's home (the active profile), not the
+    process-global HERMES_HOME that happened to be active when the scheduler
+    thread fired. A stale per-job ``profile`` field is ignored: schedules pick a
+    model or a harness instead.
     """
     import types
 
@@ -234,14 +236,15 @@ def test_webui_installs_profile_context_on_in_process_scheduler_run_job(tmp_path
     monkeypatch.setitem(sys.modules, "cron.scheduler", cron_scheduler)
     monkeypatch.setattr(p, "_DEFAULT_HERMES_HOME", default_home)
     monkeypatch.setattr(p, "cron_profile_context_for_home", Ctx)
+    monkeypatch.setattr(p, "get_active_hermes_home", lambda: default_home)
 
     p.install_cron_scheduler_profile_isolation()
 
     assert cron_scheduler.run_job({"id": "job1575", "profile": "research"}) == "ok"
     assert events == [
-        ("enter", str(research_home)),
+        ("enter", str(default_home)),
         ("run", "job1575"),
-        ("exit", str(research_home)),
+        ("exit", str(default_home)),
     ]
 
 
@@ -302,7 +305,7 @@ def test_cron_worker_does_not_silently_fall_back_on_profile_context_failure():
     assert idx != -1, "_cron_job_subprocess_main not found"
     body = src[idx : idx + 2000]
 
-    assert "with cron_profile_context_for_home(execution_profile_home):" in body
+    assert "with cron_profile_context_for_home(cron_home):" in body
     assert "result = _run()" in body
     assert "ctx = None" not in body
     assert "except Exception" not in body[:body.find("with cron_profile_context_for_home")], (

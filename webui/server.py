@@ -490,6 +490,24 @@ def main() -> None:
     except Exception as exc:
         print(f"[journal] retention janitor could not start: {exc}", flush=True)
 
+    # ── Warm agents: drop idle ones once a minute ───────────────────────
+    # An agent idle past its prompt-cache retention holds memory for a cold
+    # cache; this sweeps even when no new chat starts (api/config.py).
+    try:
+        from api.config import start_agent_cache_janitor
+        start_agent_cache_janitor()
+    except Exception as exc:
+        print(f"[agents] cache janitor could not start: {exc}", flush=True)
+
+    # ── Device tools: which ones stay loaded (by use) ────────────────────
+    # Recounts in the background when the daily count is missing or stale, so
+    # the first agent after a deploy isn't built from an alphabetical guess.
+    try:
+        from tools.device_tool_rank import usage_counts
+        usage_counts()
+    except Exception as exc:
+        print(f"[tools] device tool ranking could not start: {exc}", flush=True)
+
     # ── Live Jarvis: adopt audio a crash left unregistered ───────────────
     # A chunk is registered when it rolls, so a crash mid-chunk leaves a real
     # file no live_audio row knows about — invisible to the storage panel and

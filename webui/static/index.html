@@ -1080,6 +1080,12 @@
               <div id="compactionSettingsBody" style="display:flex;flex-direction:column;gap:10px;margin-top:6px"></div>
               <div id="compactionSettingsStatus" style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8;min-height:14px"></div>
             </div>
+            <div class="settings-field" id="promptCacheSettings" style="margin-top:24px;display:flex;flex-direction:column;gap:8px;width:100%">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-dim,#9aa3b2)">Keep prompts cached</div>
+              <div style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8">Every chat, voice turn, harness step and schedule on a model starts with the same prompt, and the model provider keeps it cached so it isn't paid for in full again. Longer keeps it warm through pauses between messages, so a new message re-sends less. Providers without a longer option ignore it.</div>
+              <div id="promptCacheSettingsBody" style="display:flex;flex-direction:column;gap:10px;margin-top:6px"></div>
+              <div id="promptCacheSettingsStatus" style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8;min-height:14px"></div>
+            </div>
             <div class="settings-field" id="webBrowserSettings" style="margin-top:24px;display:flex;flex-direction:column;gap:8px;width:100%">
               <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--fg-dim,#9aa3b2)">Web &amp; browser</div>
               <div style="font-size:11px;color:var(--fg-dim,#9aa3b2);opacity:0.8">How Jarvis researches on the web. Everything runs headless on the server; your Mac's browser is only used when you ask for it.</div>
@@ -1571,6 +1577,7 @@
 <script src="static/harness_jobs.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/harness_graph.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/harness_editor.js?v=__WEBUI_VERSION__" defer></script>
+<script src="static/cron_runs_on.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/panels.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/integrations.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/coding.js?v=__WEBUI_VERSION__" defer></script>

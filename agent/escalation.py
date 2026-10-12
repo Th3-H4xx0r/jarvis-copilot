@@ -626,8 +626,9 @@ HANDOFF_TOOL_NAME = "handoff"
 HANDOFF_TOOL_SCHEMA = {
     "name": HANDOFF_TOOL_NAME,
     "description": (
-        "Hand this task to the bigger background model when it needs deep work, "
-        "many tool calls or a long answer. Say one short line to the user first "
+        "Only when this turn's notes say a bigger model works behind you: hand "
+        "this task to it when it needs deep work, many tool calls or a long "
+        "answer. Without such a note it is refused. Say one short line to the user first "
         "(e.g. \"On it — Claude is digging into that\"); your reply ends there and "
         "the full result is delivered separately when it is ready. Do NOT call "
         "this for anything you can answer or do yourself."

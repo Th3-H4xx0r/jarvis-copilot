@@ -395,7 +395,28 @@ def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str
     warm across turns.
     """
     parts = build_system_prompt_parts(agent, system_message=system_message)
-    return "\n\n".join(p for p in (parts["stable"], parts["context"], parts["volatile"]) if p)
+    # Two cache blocks: what every agent on a model shares (identity, guidance,
+    # skills + tool catalogues, context files) and the per-agent tail (memory,
+    # profile, date, model line). A provider that needs explicit cache markers
+    # caches the first on its own, so a memory change doesn't re-send it.
+    stable = "\n\n".join(p for p in (parts["stable"], parts["context"]) if p)
+    try:
+        agent._system_prompt_parts = {"stable": stable, "volatile": parts["volatile"]}
+    except Exception:
+        pass
+    return "\n\n".join(p for p in (stable, parts["volatile"]) if p)
+
+
+def split_stored_prompt(stored: str, stable: str) -> Optional[Dict[str, str]]:
+    """The two cache blocks of a STORED system prompt, when it starts with the
+    stable block built now (``None`` → send it as one block, as before)."""
+    if not stable or not isinstance(stored, str):
+        return None
+    if stored == stable:
+        return {"stable": stable, "volatile": ""}
+    if stored.startswith(stable + "\n\n"):
+        return {"stable": stable, "volatile": stored[len(stable) + 2:]}
+    return None
 
 
 def invalidate_system_prompt(agent: Any) -> None:

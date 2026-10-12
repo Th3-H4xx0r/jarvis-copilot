@@ -1,42 +1,20 @@
 """One tool-less model call for harness steps that only need text back: a
-model Route labelling a message, a Review node checking an answer."""
+model Route labelling a message, a Review node checking an answer.
+
+The call lives in ``agent.harness.llm`` (the scheduler makes it too); here it
+resolves the model the web UI's way (custom providers, Anthropic picks on the
+Claude Code CLI) and runs as the web UI platform."""
 from __future__ import annotations
+
+
+def _webui_resolve(model_ref):
+    import api.config as cfg
+    return cfg.route_anthropic_via_claude_code(*cfg.resolve_model_provider(model_ref))
 
 
 def one_shot_completion(model_ref: str, prompt: str, max_tokens: int = 8, reasoning_off: bool = False) -> str:
     """Run ``prompt`` once on ``model_ref`` (``@provider:model``) with no tools,
-    no memory and no context files; return the reply text ('' when empty).
-    ``reasoning_off`` keeps a thinking model (Celeris Magnus) from spending a
-    tiny budget on reasoning — a Route's label needs no thought."""
-    import api.config as cfg
-    from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
-    from run_agent import AIAgent
-
-    model, provider, base_url = cfg.route_anthropic_via_claude_code(
-        *cfg.resolve_model_provider(model_ref))
-    import inspect
-
-    rt = resolve_runtime_provider(requested=provider) or {}
-    kwargs = dict(
-        model=model,
-        provider=provider or rt.get("provider"),
-        base_url=base_url or rt.get("base_url"),
-        api_key=rt.get("api_key"),
-        api_mode=rt.get("api_mode"),
-        acp_command=rt.get("command"),
-        acp_args=rt.get("args"),
-        credential_pool=rt.get("credential_pool"),
-        quiet_mode=True,
-        enabled_toolsets=[],
-        skip_context_files=True,
-        skip_memory=True,
-        max_iterations=1,
-        max_tokens=max_tokens,
-        platform="webui",
-    )
-    if reasoning_off:
-        kwargs["reasoning_config"] = {"enabled": False}
-    # Same defensive filter as api.streaming: only pass what this build accepts.
-    accepted = set(inspect.signature(AIAgent.__init__).parameters)
-    agent = AIAgent(**{k: v for k, v in kwargs.items() if k in accepted})
-    return str(agent.chat(prompt) or "").strip()
+    no memory and no context files; return the reply text ('' when empty)."""
+    from agent.harness.llm import one_shot_completion as _core_one_shot
+    return _core_one_shot(model_ref, prompt, max_tokens=max_tokens, reasoning_off=reasoning_off,
+                          platform="webui", resolve=_webui_resolve)

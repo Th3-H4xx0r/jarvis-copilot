@@ -1,8 +1,8 @@
 """A failed hand-off (harness node / escalation) reports its error — never an old reply, never silence.
 
-The hidden session starts as a copy of the parent chat, so "the newest assistant
-reply" without a guard is the parent's previous answer; and an error-only run
-used to come back as "" and be dropped.
+The hidden session starts from the parent chat's history, so "the newest
+assistant reply" without a guard is the parent's previous answer; and an
+error-only run used to come back as "" and be dropped.
 """
 
 import sys
@@ -39,7 +39,9 @@ def sessions(monkeypatch, tmp_path):
         return _Hidden(session_id="hidden1", messages=[], **kw)
 
     def _run(sid, prompt, *a, **k):
-        s = store[sid]
+        # An escalation's scratch session, or a harness node's worker (which
+        # lives only in SESSIONS, seeded from the chat).
+        s = store.get(sid) or models.SESSIONS[sid]
         s.messages = list(s.messages) + [
             {"role": "user", "content": prompt},
             {"role": "assistant", "content": ERR, "_error": True},

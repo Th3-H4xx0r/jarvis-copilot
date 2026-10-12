@@ -481,6 +481,11 @@ def init_agent(
     # 1h tier costs 2x on write vs 1.25x for 5m, but amortizes across long
     # sessions with >5-minute pauses between turns (#14971).
     agent._cache_ttl = "5m"
+    # Generic retention (prompt_caching.retention: standard | long, default
+    # long) — each provider maps it to what it offers; for explicit markers
+    # "long" is the 1-hour tier on the shared prompt start. The old cache_ttl
+    # is only consulted when retention is missing or invalid.
+    agent._cache_retention = "long"
     try:
         from jarviscopilot_cli.config import load_config as _load_pc_cfg
 
@@ -488,6 +493,12 @@ def init_agent(
         _ttl = _pc_cfg.get("cache_ttl", "5m")
         if _ttl in {"5m", "1h"}:
             agent._cache_ttl = _ttl
+        _ret = _pc_cfg.get("retention")
+        if _ret in {"standard", "long"}:
+            agent._cache_retention = _ret
+        elif _ttl == "1h":
+            agent._cache_retention = "long"
+        agent._cache_ttl = "1h" if agent._cache_retention == "long" else "5m"
     except Exception:
         pass
 

@@ -4134,28 +4134,197 @@ def unregister_active_run(stream_id: str) -> None:
 # LRU cache with size limit to prevent memory bloat.
 # All cache operations (get, set, move_to_end, popitem) are protected by
 # SESSION_AGENT_CACHE_LOCK for thread safety in multi-threaded ASGI servers.
+#
+# Bounded (the webui was OOM-killed holding agents): an agent idle longer than
+# its prompt-cache retention (5 min standard / 1 h long) is dropped -- its
+# cache is cold by then anyway -- and past HERMES_WEBUI_AGENT_CACHE_MAX the
+# least recently used goes. An agent with a running stream is never dropped.
+# sweep_session_agents() runs when the streaming worker caches a new agent and
+# once a minute from the janitor thread (start_agent_cache_janitor).
 import collections
-SESSION_AGENT_CACHE: collections.OrderedDict = collections.OrderedDict()  # LRU cache
-SESSION_AGENT_CACHE_MAX = 50  # Maximum cached agents (each holds full conversation history)
+
+# A Background node's jobs run on a hidden worker session "<chat>~<node>"
+# (api.harness_runner.worker_session_id). "~" is outside the saved-session id
+# alphabet, so it never loads from disk, never collides with a chat, and is
+# never listed.
+WORKER_SESSION_SEP = "~"
+
+
+class _AgentCache(collections.OrderedDict):
+    """The LRU of warm agents, also noting when each was last used.
+
+    Every cache hit and put already goes through ``move_to_end`` or an
+    assignment, so stamping there tracks use at every call site."""
+
+    def __init__(self, *args, **kwargs):
+        self.last_used = {}
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.last_used[key] = time.monotonic()
+
+    def move_to_end(self, key, last=True):
+        super().move_to_end(key, last)
+        self.last_used[key] = time.monotonic()
+
+
+_AGENT_CACHE_MAX_DEFAULT = 24
+
+
+def _agent_cache_max_from_env() -> int:
+    try:
+        n = int(os.getenv("HERMES_WEBUI_AGENT_CACHE_MAX", "") or _AGENT_CACHE_MAX_DEFAULT)
+    except ValueError:
+        return _AGENT_CACHE_MAX_DEFAULT
+    return n if n > 0 else _AGENT_CACHE_MAX_DEFAULT
+
+
+SESSION_AGENT_CACHE: collections.OrderedDict = _AgentCache()  # LRU cache
+SESSION_AGENT_CACHE_MAX = _agent_cache_max_from_env()  # Maximum cached agents (each holds full conversation history)
 SESSION_AGENT_CACHE_LOCK = threading.Lock()
+
+# prompt_caching.retention → seconds a prompt stays cached (and so how long a
+# warm agent is worth keeping idle).
+_RETENTION_SECONDS = {"standard": 300, "long": 3600}
+
+
+def retention_seconds(config_data: dict | None = None) -> int:
+    """The prompt-cache retention in seconds: ``prompt_caching.retention``
+    (standard | long, default long) — read as agent_init reads it: when
+    ``retention`` is unset only an old ``cache_ttl: 1h`` counts (``5m`` was the
+    default written into every config, so it says nothing)."""
+    section = (get_config() if config_data is None else config_data) or {}
+    section = section.get("prompt_caching") or {}
+    if not isinstance(section, dict):
+        section = {}
+    name = str(section.get("retention") or "").strip().lower()
+    if name not in _RETENTION_SECONDS:
+        name = "long"
+    return _RETENTION_SECONDS.get(name, _RETENTION_SECONDS["long"])
+
+
+def _cached_agent(entry):
+    return entry[0] if isinstance(entry, tuple) and entry else None
+
+
+def _close_agent_db(agent) -> None:
+    """Release a dropped agent's SessionDB handles now, not at GC time (#1421)."""
+    try:
+        if agent is not None and getattr(agent, "_session_db", None) is not None:
+            agent._session_db.close()
+    except Exception:
+        pass
+
+
+def sweep_session_agents(now: float | None = None, keep=()) -> int:
+    """Drop warm agents idle past their prompt-cache retention, then the least
+    recently used past ``SESSION_AGENT_CACHE_MAX``. Never an agent with a
+    running stream, nor a key in ``keep``. Returns how many were dropped."""
+    now = time.monotonic() if now is None else now
+    with STREAMS_LOCK:
+        running = {id(a) for a in AGENT_INSTANCES.values() if a is not None}
+    default_ttl = None
+    dropped = []
+    with SESSION_AGENT_CACHE_LOCK:
+        cache = SESSION_AGENT_CACHE
+        stamps = getattr(cache, "last_used", None)
+        if not isinstance(stamps, dict):
+            stamps = {}
+        for key in [k for k in stamps if k not in cache]:
+            stamps.pop(key, None)
+
+        def _spared(key, entry):
+            agent = _cached_agent(entry)
+            return key in keep or (agent is not None and id(agent) in running)
+
+        for key, entry in list(cache.items()):
+            if _spared(key, entry):
+                continue
+            ttl = _RETENTION_SECONDS.get(getattr(_cached_agent(entry), "_cache_retention", None))
+            if ttl is None:
+                if default_ttl is None:
+                    try:
+                        default_ttl = retention_seconds()
+                    except Exception:
+                        default_ttl = _RETENTION_SECONDS["long"]
+                ttl = default_ttl
+            if now - stamps.setdefault(key, now) > ttl:
+                dropped.append(cache.pop(key))
+                stamps.pop(key, None)
+        overflow = len(cache) - SESSION_AGENT_CACHE_MAX
+        for key, entry in list(cache.items()):  # oldest first
+            if overflow <= 0:
+                break
+            if _spared(key, entry):
+                continue
+            dropped.append(cache.pop(key))
+            stamps.pop(key, None)
+            overflow -= 1
+    for entry in dropped:
+        _close_agent_db(_cached_agent(entry))
+    if dropped:
+        logger.debug("[webui] dropped %d idle or least-recently-used agents", len(dropped))
+    return len(dropped)
+
+
+_agent_janitor_lock = threading.Lock()
+_agent_janitor_started = False
+
+
+def start_agent_cache_janitor(interval: float = 60.0) -> bool:
+    """Sweep the agent cache from a daemon thread once a minute, so idle agents
+    go even when no new chat starts. Idempotent; whether this call started it."""
+    global _agent_janitor_started
+    with _agent_janitor_lock:
+        if _agent_janitor_started:
+            return False
+        _agent_janitor_started = True
+
+    def _loop():
+        while True:
+            time.sleep(interval)
+            try:
+                sweep_session_agents()
+            except Exception:
+                logger.warning("agent cache sweep failed", exc_info=True)
+
+    threading.Thread(target=_loop, name="agent-cache-janitor", daemon=True).start()
+    return True
+
+
+def _is_worker_agent_key(key, session_id: str) -> bool:
+    """One of a chat's Background workers' agents, ``<sid>~<node>…``."""
+    return str(key).startswith(f"{session_id}{WORKER_SESSION_SEP}")
+
+
+def _is_chat_agent_key(key, session_id: str) -> bool:
+    """A chat's own agent, a harness node's ``<sid>#<harness>:<node>``, or one
+    of its Background workers ``<sid>~<node>…``."""
+    k = str(key)
+    return k == session_id or k.startswith(f"{session_id}#") or _is_worker_agent_key(k, session_id)
 
 
 def evict_session_agents(session_id: str) -> int:
-    """Drop a chat's cached agents: the plain key and every harness-node
-    ``<sid>#<harness>:<node>`` key. Closes their SessionDB handles."""
-    dropped = 0
+    """Drop a chat's cached agents: the plain key, every harness-node
+    ``<sid>#<harness>:<node>`` key and its Background workers' agents. Closes
+    their SessionDB handles.
+
+    A worker whose job is running keeps its agent (clearing or deleting the
+    chat, or a credential self-heal on it, must not close the SessionDB under
+    the job); sweep_session_agents drops it once it is idle."""
+    with STREAMS_LOCK:
+        running = {id(a) for a in AGENT_INSTANCES.values() if a is not None}
+    dropped = []
     with SESSION_AGENT_CACHE_LOCK:
-        for key in [k for k in SESSION_AGENT_CACHE
-                    if k == session_id or str(k).startswith(f"{session_id}#")]:
-            entry = SESSION_AGENT_CACHE.pop(key, None)
-            dropped += 1
-            agent = entry[0] if isinstance(entry, tuple) else None
-            try:
-                if agent is not None and getattr(agent, "_session_db", None) is not None:
-                    agent._session_db.close()
-            except Exception:
-                pass
-    return dropped
+        for key in [k for k in SESSION_AGENT_CACHE if _is_chat_agent_key(k, session_id)]:
+            agent = _cached_agent(SESSION_AGENT_CACHE.get(key))
+            if _is_worker_agent_key(key, session_id) and agent is not None and id(agent) in running:
+                continue
+            dropped.append(SESSION_AGENT_CACHE.pop(key, None))
+    for entry in dropped:
+        _close_agent_db(_cached_agent(entry))
+    return len(dropped)
 
 
 def latest_session_agent(session_id: str):

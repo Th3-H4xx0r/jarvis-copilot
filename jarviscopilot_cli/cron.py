@@ -32,6 +32,15 @@ def _normalize_skills(single_skill=None, skills: Optional[Iterable[str]] = None)
     return normalized
 
 
+def _runs_on_label(job) -> str:
+    from cron.jobs import runs_on
+
+    ro = runs_on(job)
+    if ro["kind"] == "harness":
+        return f"harness {ro['label']}" + (" (missing — runs on Default)" if ro.get("missing") else "")
+    return ro["label"]
+
+
 def _cron_api(**kwargs):
     from tools.cronjob_tools import cronjob as cronjob_tool
 
@@ -98,9 +107,8 @@ def cron_list(show_all: bool = False):
         workdir = job.get("workdir")
         if workdir:
             print(f"    Workdir:   {workdir}")
-        profile = job.get("profile")
-        if profile:
-            print(f"    Profile:   {profile}")
+        if not job.get("no_agent"):
+            print(f"    Runs on:   {_runs_on_label(job)}")
 
         # Execution history
         last_status = job.get("last_status")
@@ -177,7 +185,8 @@ def cron_create(args):
         skills=_normalize_skills(getattr(args, "skill", None), getattr(args, "skills", None)),
         script=getattr(args, "script", None),
         workdir=getattr(args, "workdir", None),
-        profile=getattr(args, "profile", None),
+        model=getattr(args, "model", None),
+        harness=getattr(args, "harness", None),
         no_agent=getattr(args, "no_agent", False) or None,
     )
     if not result.get("success"):
@@ -195,8 +204,8 @@ def cron_create(args):
         print("  Mode: no-agent (script stdout delivered directly)")
     if job_data.get("workdir"):
         print(f"  Workdir: {job_data['workdir']}")
-    if job_data.get("profile"):
-        print(f"  Profile: {job_data['profile']}")
+    if job_data.get("runs_on"):
+        print(f"  Runs on: {job_data['runs_on']['label']}")
     print(f"  Next run: {result['next_run_at']}")
     return 0
 
@@ -242,7 +251,8 @@ def cron_edit(args):
         skills=final_skills,
         script=getattr(args, "script", None),
         workdir=getattr(args, "workdir", None),
-        profile=getattr(args, "profile", None),
+        model=getattr(args, "model", None),
+        harness=getattr(args, "harness", None),
         no_agent=getattr(args, "no_agent", None),
     )
     if not result.get("success"):
@@ -263,8 +273,8 @@ def cron_edit(args):
         print("  Mode: no-agent (script stdout delivered directly)")
     if updated.get("workdir"):
         print(f"  Workdir: {updated['workdir']}")
-    if updated.get("profile"):
-        print(f"  Profile: {updated['profile']}")
+    if updated.get("runs_on"):
+        print(f"  Runs on: {updated['runs_on']['label']}")
     return 0
 
 

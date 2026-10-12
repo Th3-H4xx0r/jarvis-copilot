@@ -19,6 +19,7 @@ for invariants and PR review criteria.
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import os
@@ -397,6 +398,47 @@ def build_memory_write_metadata(
     return {k: v for k, v in metadata.items() if v not in {None, ""}}
 
 
+# What the parent's request starts with, beyond the cached system prompt. A
+# fork built from the parent's toolset CONFIG still differs: a live agent's
+# tools are reshaped after construction (device tools, the hand-off tool, the
+# lazy partition), and the system message also carries the ephemeral prompt.
+# Reusing these as they are keeps the fork on the parent's prompt cache.
+_PROMPT_SHAPE_ATTRS = (
+    "tools",
+    "valid_tool_names",
+    "ephemeral_system_prompt",
+    "_system_prompt_parts",
+    "_lazy_tools_manifest",
+    "_lazy_all_tool_names",
+    "_toolset_fingerprint",
+    "_prefix_cache_key",
+    "_cache_retention",
+    "_cache_ttl",
+)
+_MISSING = object()
+
+
+def _prompt_shape(agent: Any) -> Dict[str, Any]:
+    """The parent's prompt-shape attributes it actually has (by reference)."""
+    shape = {}
+    for name in _PROMPT_SHAPE_ATTRS:
+        value = getattr(agent, name, _MISSING)
+        if value is not _MISSING:
+            shape[name] = value
+    return shape
+
+
+def _inherit_prompt_shape(review_agent: Any, shape: Dict[str, Any]) -> None:
+    """Give the fork the parent's exact tools and prompt state. Copies, so
+    nothing the fork does can change the parent's (live) agent."""
+    for name, value in shape.items():
+        if isinstance(value, (list, dict)):
+            value = copy.deepcopy(value)
+        elif isinstance(value, (set, frozenset)):
+            value = set(value)
+        setattr(review_agent, name, value)
+
+
 def _run_review_in_thread(
     agent: Any,
     messages_snapshot: List[Dict],
@@ -471,8 +513,9 @@ def _run_review_in_thread(
             # parent below so memory(action="add") writes from
             # the review still land on disk; the review just
             # has zero side effects on external providers.
-            # Match parent's toolset config so ``tools[]`` is byte-identical
-            # in the request body — Anthropic's cache key includes it.
+            # Match parent's toolset config; the parent's live ``tools[]`` is
+            # then copied over verbatim (_inherit_prompt_shape below) so the
+            # request reads the parent's prompt cache.
             # (The runtime whitelist below still restricts dispatch.)
             review_agent = AIAgent(
                 model=agent.model,
@@ -547,6 +590,10 @@ def _run_review_in_thread(
             else:
                 review_agent.session_start = agent.session_start
                 review_agent.session_id = agent.session_id
+            _inherit_prompt_shape(
+                review_agent,
+                (state_override or {}).get("prompt_shape") or _prompt_shape(agent),
+            )
 
             from model_tools import get_tool_definitions
             from jarviscopilot_cli.plugins import (
@@ -729,6 +776,7 @@ def spawn_background_review_thread(
             "session_id": getattr(agent, "session_id", None),
             "session_start": getattr(agent, "session_start", None),
             "cached_system_prompt": getattr(agent, "_cached_system_prompt", None),
+            "prompt_shape": _prompt_shape(agent),
             "own_store": True,
             "memory_only": True,
         }

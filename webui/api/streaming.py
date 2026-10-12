@@ -2912,6 +2912,36 @@ def _refresh_cached_agent_primary_runtime_snapshot(agent) -> None:
             rt['is_anthropic_oauth'] = getattr(agent, '_is_anthropic_oauth')
 
 
+def _ensure_canonical_tools(agent) -> None:
+    """Once per agent: add the `handoff` tool and sort the tools list.
+
+    Every webui agent on a model then sends byte-identical tools (the head of
+    the cached prompt), whatever node, chat or job it serves. `handoff` only
+    works where the turn wires a Background node (`agent._handoff_wired`;
+    agent/tool_policy.block_message refuses it elsewhere). Device tools come
+    from the stored device catalogue at build time, so nothing is refreshed
+    per turn — a mid-life change to the list would re-send the whole prompt.
+    """
+    if getattr(agent, "_canonical_tools_done", False):
+        return
+    try:
+        import importlib
+        importlib.import_module("agent.escalation")  # registers `handoff`
+        from tools.registry import registry
+        from agent.tool_policy import canonical_tools
+        tools = list(getattr(agent, "tools", None) or [])
+        names = {(t.get("function") or {}).get("name") for t in tools if isinstance(t, dict)}
+        if "handoff" not in names:
+            tools += list(registry.get_definitions({"handoff"}) or [])
+        agent.tools = canonical_tools(tools)
+        agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {
+            (t.get("function") or {}).get("name") for t in agent.tools if isinstance(t, dict)}
+        agent.valid_tool_names.discard(None)
+    except Exception:
+        logger.warning("could not settle the agent's tools list", exc_info=True)
+    agent._canonical_tools_done = True
+
+
 def _refresh_device_tools(agent) -> None:
     """plan 3.1 — merge the CURRENT native ``device_<skill>`` tools into a warm agent.
 
@@ -3793,6 +3823,14 @@ def _run_agent_streaming(
                     _toolsets = list(_toolsets) + ["devices"]
             except Exception:
                 pass
+            # Register the device_<skill> tools (from the stored device
+            # catalogue) before the agent resolves its toolsets: a warm agent's
+            # list is never refreshed afterwards.
+            try:
+                import importlib as _importlib
+                _importlib.import_module("tools.device_skill_tools")
+            except Exception:
+                logger.debug("device tools unavailable", exc_info=True)
 
             # Fallback model from profile config (e.g. for rate-limit recovery)
             _fallback = _cfg.get('fallback_model') or _cfg.get('fallback_providers') or None
@@ -3878,12 +3916,13 @@ def _run_agent_streaming(
             except Exception:
                 _reasoning_config = None
 
-            # The harness node's own tools / step budget / fallback model.
+            # The harness node's step budget / fallback model. Its tool setting
+            # leaves the tools list alone (one canonical list per model keeps the
+            # shared prompt cache) and limits what the node may call instead.
+            _node_allowed_tools, _node_tool_note = None, ""
             if _harness_plan is not None:
-                if isinstance(_harness_plan.tools, list):
-                    _toolsets = list(_harness_plan.tools) + ["devices"]
-                elif _harness_plan.tools == "none":
-                    _toolsets = []
+                from agent.tool_policy import node_tool_policy as _node_tool_policy
+                _node_allowed_tools, _node_tool_note = _node_tool_policy(_harness_plan.tools)
                 if _harness_plan.max_steps:
                     _max_iterations_cfg = int(_harness_plan.max_steps)
                 if _harness_plan.fallback_model:
@@ -4055,21 +4094,12 @@ def _run_agent_streaming(
                     with SESSION_AGENT_CACHE_LOCK:
                         SESSION_AGENT_CACHE[_agent_cache_key] = (agent, _agent_sig)
                         SESSION_AGENT_CACHE.move_to_end(_agent_cache_key)  # LRU: mark as recently used
-                        from api.config import SESSION_AGENT_CACHE_MAX
-                        while len(SESSION_AGENT_CACHE) > SESSION_AGENT_CACHE_MAX:
-                            evicted_sid, evicted_entry = SESSION_AGENT_CACHE.popitem(last=False)
-                            # Same FD-leak shape as the cached-agent reuse path
-                            # in #1421: the evicted agent's _session_db won't be
-                            # released until GC finalizes the agent, which on a
-                            # long-running server may be never. Close it
-                            # explicitly so the WAL handles release immediately.
-                            try:
-                                _evicted_agent = evicted_entry[0] if isinstance(evicted_entry, tuple) else None
-                                if _evicted_agent is not None and getattr(_evicted_agent, '_session_db', None) is not None:
-                                    _evicted_agent._session_db.close()
-                            except Exception:
-                                pass
-                            logger.debug('[webui] Evicted LRU agent from cache: %s', evicted_sid)
+                    # Bounded: agents idle past their prompt-cache retention and
+                    # the least recently used past the cap go, never one with a
+                    # running stream (nor this one, not registered as running
+                    # yet). Dropped agents' SessionDB handles are closed (#1421).
+                    from api.config import sweep_session_agents
+                    sweep_session_agents(keep=(_agent_cache_key,))
                     logger.debug('[webui] Created new agent for session %s', session_id)
 
             # Store agent instance for cancel/interrupt propagation
@@ -4186,21 +4216,20 @@ def _run_agent_streaming(
             if _process_notifications:
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
-            # Harness hand-off (attached BEFORE the device refresh so the tool order
-            # is the same every turn). This node is wired to a Background node, so it gets
-            # the `handoff` tool (same list every turn → the prompt prefix holds)
-            # and the turn binds where the job goes.
+            # One canonical tools list per model: every webui agent carries
+            # `handoff`, sorted with the rest, once — so chats, nodes and jobs on a
+            # model send the same prompt start. Whether this node may hand off, and
+            # what else it may call, is decided per turn.
+            _ensure_canonical_tools(agent)
+            agent.allowed_tool_names = _node_allowed_tools
+            agent._handoff_wired = bool(_harness_plan is not None and _harness_plan.handoff_node)
             _handoff_rule = ""
-            if _harness_plan is not None and _harness_plan.handoff_node:
+            if agent._handoff_wired:
+                # This node is wired to a Background node: the turn binds where
+                # the job goes.
                 try:
-                    import agent.escalation as _esc  # registers the handoff tool
-                    from tools.registry import registry as _reg
+                    import agent.escalation as _esc
                     from api.harness_runner import background_runner as _bg_runner, job_node as _job_node
-                    if "handoff" not in (getattr(agent, "valid_tool_names", None) or set()):
-                        _hs = _reg.get_definitions({"handoff"})
-                        if _hs:
-                            agent.tools = list(agent.tools or []) + list(_hs)
-                            agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {"handoff"}
                     _esc.bind_turn_context(
                         session_id, session_id=session_id,
                         runner=_bg_runner(_harness_plan.handoff_node, session_id),
@@ -4210,14 +4239,7 @@ def _run_agent_streaming(
                     # Rides this turn's context (set below with the node's notes).
                     _handoff_rule = HANDOFF_RULE
                 except Exception:
-                    logger.warning("harness: hand-off tool not attached", exc_info=True)
-            _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
-            if _harness_plan is not None and _harness_plan.tools == "all":
-                try:
-                    from tools.lazy_tools import load_all_deferred
-                    load_all_deferred(agent)
-                except Exception:
-                    logger.debug("harness: load_all_deferred failed", exc_info=True)
+                    logger.warning("harness: hand-off not bound", exc_info=True)
             # A harness Claude node keeps its claude CLI process warm across turns
             # (agent/claude_code_structured_runtime.warm_enabled).
             agent._harness_warm = (bool(_harness_plan) and _harness_plan.harness_id != "single"
@@ -4260,7 +4282,7 @@ def _run_agent_streaming(
             except Exception:
                 logger.debug("integration setup directive not applied", exc_info=True)
             agent._turn_user_context = _collect_turn_context(
-                _harness_plan.instructions if _harness_plan else "", _handoff_rule,
+                _harness_plan.instructions if _harness_plan else "", _node_tool_note, _handoff_rule,
                 _voice_directive, _origin_directive, _setup_directive)
             _turn_started_wall = time.time()
             _turn_handed_off = False
@@ -4514,6 +4536,9 @@ def _run_agent_streaming(
                             if 'credential_pool' in _agent_params:
                                 _agent_kwargs['credential_pool'] = _heal_rt.get('credential_pool')
                             agent = _AIAgent(**_agent_kwargs)
+                            _ensure_canonical_tools(agent)
+                            agent.allowed_tool_names = _node_allowed_tools
+                            agent._handoff_wired = bool(_harness_plan is not None and _harness_plan.handoff_node)
                             with STREAMS_LOCK:
                                 AGENT_INSTANCES[stream_id] = agent
                             from api.config import SESSION_AGENT_CACHE as _SAC, SESSION_AGENT_CACHE_LOCK as _SAC_L

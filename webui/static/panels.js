@@ -366,55 +366,53 @@ function _cronStatusMeta(job) {
 }
 
 
-function _cronProfileName(profile){
-  return (profile || '').toString().trim();
-}
+// ── Runs on: Default (the server's default model), a model, or a harness ──
+// Value/label/option logic lives in cron_runs_on.js (window.CronRunsOn); the
+// model list is api/models through HarnessGraph.modelOptions (as in the
+// harness editor) and the harnesses are window.Harness.list().
+let _cronModelChoices = null;   // {groups:[{label, options:[{value,label}]}], defaultModel}
 
-function _cronProfileLabel(profile){
-  const name = _cronProfileName(profile);
-  return name || (t('cron_profile_server_default') || 'server default');
-}
-
-function _cronProfileTitle(profile){
-  const name = _cronProfileName(profile);
-  if (name) return (t('cron_profile_label') || 'Profile') + ': ' + name;
-  return t('cron_profile_server_default_hint') || 'Uses the WebUI server default profile at run time';
-}
-
-async function loadCronProfiles(){
-  if (_cronProfilesCache) return _cronProfilesCache;
+async function loadCronRunsOnChoices(){
+  if (!_cronModelChoices) {
+    try {
+      const data = await api('/api/models');
+      _cronModelChoices = {
+        groups: (typeof HarnessGraph !== 'undefined' && HarnessGraph.modelOptions) ? HarnessGraph.modelOptions(data && data.groups) : [],
+        defaultModel: String((data && data.default_model) || ''),
+      };
+    } catch(e) {
+      // Not cached: the next form open asks again.
+      console.warn('[cron] models failed', e);
+    }
+  }
   try {
-    const data = await api('/api/profiles');
-    _cronProfilesCache = Array.isArray(data.profiles) ? data.profiles : [];
-  } catch(e) {
-    _cronProfilesCache = [];
-  }
-  return _cronProfilesCache;
+    if (window.Harness && !(window.Harness.list() || []).length) await window.Harness.load();
+  } catch(e) {}
+  return _cronModelChoices || { groups: [], defaultModel: '' };
 }
 
-function _cronProfileOptions(selected){
-  const current = _cronProfileName(selected);
-  const profiles = Array.isArray(_cronProfilesCache) ? _cronProfilesCache : [];
-  const seen = new Set(['']);
-  const opts = [`<option value=""${current ? '' : ' selected'}>${esc(t('cron_profile_server_default') || 'server default')}</option>`];
-  for (const p of profiles) {
-    const name = _cronProfileName(p && p.name);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    const label = p && p.is_default ? `${name} (${t('default') || 'default'})` : name;
-    opts.push(`<option value="${esc(name)}"${current === name ? ' selected' : ''}>${esc(label)}</option>`);
-  }
-  if (current && !seen.has(current)) {
-    opts.push(`<option value="${esc(current)}" selected>${esc(current)} (${esc(t('not_available') || 'not available')})</option>`);
-  }
-  return opts.join('');
+function _cronRunsOnCtx(job){
+  const models = _cronModelChoices || { groups: [], defaultModel: '' };
+  return {
+    modelGroups: models.groups,
+    defaultModel: models.defaultModel,
+    harnesses: (window.Harness && window.Harness.list()) || [],
+    currentRunsOn: job && job.runs_on,
+    t,
+  };
 }
 
-function _refreshCronProfileSelect(selected){
-  const sel = $('cronFormProfile');
-  if (!sel) return;
-  const keep = selected === undefined ? sel.value : selected;
-  sel.innerHTML = _cronProfileOptions(keep);
+// The job the open form edits or duplicates (null for a new job).
+function _cronFormJob(){
+  return (_cronMode === 'create' && !_cronIsDuplicate) ? null : _cronPreFormDetail;
+}
+
+// Fill the select once the model and harness lists have loaded, keeping
+// whatever is selected (the job's own choice, or a pick made meanwhile).
+function _refreshCronRunsOnSelect(){
+  const sel = $('cronFormRunsOn');
+  if (!sel || !window.CronRunsOn) return;
+  sel.innerHTML = CronRunsOn.optionsHtml(sel.value || 'default', _cronRunsOnCtx(_cronFormJob()));
 }
 
 function _cronDiagnostics(job) {
@@ -444,7 +442,7 @@ async function loadCrons(animate) {
     refreshBtn.disabled = true;
   }
   try {
-    await loadCronProfiles();
+    loadCronRunsOnChoices().catch(()=>{});
     const data = await api('/api/crons');
     _cronList = data.jobs || [];
     await renderIntegrationsSidebar(box);
@@ -517,14 +515,8 @@ function _renderCronDetail(job){
   const deliver = job.deliver || 'local';
   const isNoAgent = !!job.no_agent;
   const cronJobMode = isNoAgent ? 'no-agent' : 'agent';
-  const modelProvider =
-    job.provider && job.model ? `${esc(job.provider)}/${esc(job.model)}` :
-    job.model ? esc(job.model) :
-    job.provider ? esc(job.provider) :
-    isNoAgent ? '' : 'default';
   const script = job.script || '';
-  const profileLabel = _cronProfileLabel(job.profile);
-  const profileTitle = _cronProfileTitle(job.profile);
+  const runsOnLabel = window.CronRunsOn ? CronRunsOn.label(job, _cronRunsOnCtx(job)) : ((job.runs_on && job.runs_on.label) || '');
   const lastError = job.last_error ? `<div class="detail-row"><div class="detail-row-label">${esc(t('error_prefix').replace(/:\s*$/,''))}</div><div class="detail-row-value" style="color:var(--accent-text)">${esc(job.last_error)}</div></div>` : '';
   const attention = status.state === 'needs_attention' || status.state === 'schedule_error';
   const croniterHint = job.last_error && /croniter/i.test(job.last_error)
@@ -554,9 +546,9 @@ function _renderCronDetail(job){
         <div class="detail-row"><div class="detail-row-label">${esc(t('cron_next'))}</div><div class="detail-row-value">${esc(nextRun)}</div></div>
         <div class="detail-row"><div class="detail-row-label">${esc(t('cron_last'))}</div><div class="detail-row-value">${esc(lastRun)}</div></div>
         <div class="detail-row"><div class="detail-row-label">Deliver</div><div class="detail-row-value">${esc(deliver)}</div></div>
-        <div class="detail-row"><div class="detail-row-label">Mode</div><div class="detail-row-value"><span class="detail-badge" id="cronJobMode">${esc(cronJobMode)}</span>${modelProvider ? ` <code>${modelProvider}</code>` : ''}</div></div>
+        <div class="detail-row"><div class="detail-row-label">Mode</div><div class="detail-row-value"><span class="detail-badge" id="cronJobMode">${esc(cronJobMode)}</span></div></div>
         ${isNoAgent ? `<div class="detail-row"><div class="detail-row-label">No-agent script</div><div class="detail-row-value"><code>${esc(script || '—')}</code></div></div>` : ''}
-        <div class="detail-row"><div class="detail-row-label">${esc(t('cron_profile_label') || 'Profile')}</div><div class="detail-row-value"><span class="detail-badge active" title="${esc(profileTitle)}">${esc(profileLabel)}</span></div></div>
+        ${isNoAgent ? '' : `<div class="detail-row"><div class="detail-row-label">${esc(t('cron_runs_on_label') || 'Runs on')}</div><div class="detail-row-value"><span class="detail-badge active">${esc(runsOnLabel)}</span></div></div>`}
         <div class="detail-row"><div class="detail-row-label">${esc(t('cron_toast_notifications_label') || 'Completion toasts')}</div><div class="detail-row-value"><span class="detail-badge ${toastNotifications ? 'active' : ''}">${esc(toastNotifications ? (t('cron_toast_notifications_enabled') || 'Enabled') : (t('cron_toast_notifications_disabled') || 'Disabled'))}</span></div></div>
         <div class="detail-row"><div class="detail-row-label">Skills</div><div class="detail-row-value">${esc(skills)}</div></div>
         ${lastError}
@@ -758,10 +750,11 @@ function duplicateCurrentCron(){
     schedule: job.schedule_display || (job.schedule && job.schedule.expression) || '',
     prompt: job.prompt || '',
     deliver: job.deliver || 'local',
-    profile: job.profile || '',
+    runsOn: window.CronRunsOn ? CronRunsOn.valueFor(job) : 'default',
     toast_notifications: job.toast_notifications !== false,
     isEdit: false,
   });
+  loadCronRunsOnChoices().then(()=>_refreshCronRunsOnSelect()).catch(()=>{});
   if (!_cronSkillsCache) {
     api('/api/skills').then(d=>{_cronSkillsCache=d.skills||[]; _bindCronSkillPicker();}).catch(()=>{});
   } else {
@@ -784,7 +777,6 @@ async function deleteCurrentCron(){
 let _cronSelectedSkills=[];
 let _cronIsDuplicate = false;
 let _cronSkillsCache=null;
-let _cronProfilesCache=null;
 
 function openCronCreate(){
   _intgPendingForNewJob = null;   // the integrations page re-sets it right after
@@ -794,10 +786,10 @@ function openCronCreate(){
   _cronMode = 'create';
   _cronIsDuplicate = false;
   _cronSelectedSkills = [];
-  _renderCronForm({ name:'', schedule:'', prompt:'', deliver:'local', profile:'', toast_notifications:true, isEdit:false });
+  _renderCronForm({ name:'', schedule:'', prompt:'', deliver:'local', runsOn:'default', toast_notifications:true, isEdit:false });
   _cronSkillsCache = null;
   api('/api/skills').then(d=>{_cronSkillsCache=d.skills||[]; _bindCronSkillPicker();}).catch(()=>{});
-  loadCronProfiles().then(()=>_refreshCronProfileSelect('')).catch(()=>{});
+  loadCronRunsOnChoices().then(()=>_refreshCronRunsOnSelect()).catch(()=>{});
 }
 
 function openCronEdit(job){
@@ -811,7 +803,7 @@ function openCronEdit(job){
     schedule: job.schedule_display || (job.schedule && job.schedule.expression) || '',
     prompt: job.prompt || '',
     deliver: job.deliver || 'local',
-    profile: job.profile || '',
+    runsOn: window.CronRunsOn ? CronRunsOn.valueFor(job) : 'default',
     toast_notifications: job.toast_notifications !== false,
     no_agent: !!job.no_agent,
     script: job.script || '',
@@ -822,10 +814,10 @@ function openCronEdit(job){
   } else {
     _bindCronSkillPicker();
   }
-  loadCronProfiles().then(()=>_refreshCronProfileSelect(job.profile || '')).catch(()=>{});
+  loadCronRunsOnChoices().then(()=>_refreshCronRunsOnSelect()).catch(()=>{});
 }
 
-function _renderCronForm({ name, schedule, prompt, deliver, profile, toast_notifications=true, no_agent=false, script='', isEdit }){
+function _renderCronForm({ name, schedule, prompt, deliver, runsOn='default', toast_notifications=true, no_agent=false, script='', isEdit }){
   const title = $('taskDetailTitle');
   const body = $('taskDetailBody');
   const empty = $('taskDetailEmpty');
@@ -861,13 +853,13 @@ function _renderCronForm({ name, schedule, prompt, deliver, profile, toast_notif
             ${deliverOpt('slack','Slack')}
           </select>
         </div>
-        <div class="detail-form-row">
-          <label for="cronFormProfile">${esc(t('cron_profile_label') || 'Profile')}</label>
-          <select id="cronFormProfile">
-            ${_cronProfileOptions(profile)}
+        ${isNoAgent ? '' : `<div class="detail-form-row">
+          <label for="cronFormRunsOn">${esc(t('cron_runs_on_label') || 'Runs on')}</label>
+          <select id="cronFormRunsOn">
+            ${window.CronRunsOn ? CronRunsOn.optionsHtml(runsOn, _cronRunsOnCtx(_cronFormJob())) : '<option value="default">Default</option>'}
           </select>
-          <div class="detail-form-hint">${esc(t('cron_profile_server_default_hint') || 'Uses the WebUI server default profile at run time')}</div>
-        </div>
+          <div class="detail-form-hint">${esc(t('cron_runs_on_hint') || "Default is the server's default model. A harness picks a node for each run and can follow up with review or background steps.")}</div>
+        </div>`}
         <div class="detail-form-row">
           <label for="cronFormToastNotifications">${esc(t('cron_toast_notifications_label') || 'Completion toasts')}</label>
           <label class="detail-form-check" for="cronFormToastNotifications">
@@ -966,7 +958,7 @@ async function saveCronForm(){
   const schEl=$('cronFormSchedule');
   const promptEl=$('cronFormPrompt');
   const delivEl=$('cronFormDeliver');
-  const profileEl=$('cronFormProfile');
+  const runsOnEl=$('cronFormRunsOn');
   const toastEl=$('cronFormToastNotifications');
   const errEl=$('cronFormError');
   if(!schEl||!promptEl||!errEl) return;
@@ -974,7 +966,8 @@ async function saveCronForm(){
   const schedule=schEl.value.trim();
   const prompt=promptEl.value.trim();
   const deliver=delivEl?delivEl.value:'local';
-  const profile=profileEl?profileEl.value:'';
+  // Default / a model / a harness: all three fields go, so a change clears the others.
+  const runsOn = (runsOnEl && window.CronRunsOn) ? CronRunsOn.body(runsOnEl.value) : {};
   const toastNotifications=toastEl?!!toastEl.checked:true;
   const isNoAgent = !!(_cronPreFormDetail && _cronPreFormDetail.no_agent);
   errEl.style.display='none';
@@ -982,7 +975,8 @@ async function saveCronForm(){
   if(!isNoAgent && !prompt){errEl.textContent=t('cron_prompt_required');errEl.style.display='';return;}
   try{
     if (_editingCronId) {
-      const updates = {job_id: _editingCronId, schedule, profile: profile, toast_notifications: toastNotifications};
+      const updates = {job_id: _editingCronId, schedule, toast_notifications: toastNotifications};
+      Object.assign(updates, runsOn);
       if (!isNoAgent) updates.prompt = prompt;
       if (name) updates.name = name;
       await api('/api/crons/update', {method:'POST', body: JSON.stringify(updates)});
@@ -995,7 +989,8 @@ async function saveCronForm(){
       if (job) openCronDetail(editedId);
       return;
     }
-    const body={schedule,prompt,deliver,profile: profile, toast_notifications: toastNotifications};
+    const body={schedule,prompt,deliver, toast_notifications: toastNotifications};
+    Object.assign(body, runsOn);
     if(_intgPendingForNewJob) body.integration=_intgPendingForNewJob;
     if(_cronIsDuplicate) body.enabled=false;
     if(name)body.name=name;
@@ -6669,11 +6664,64 @@ async function loadWebBrowserSettings(){
   pick.value = current;
 }
 
+// ── Keep prompts cached (prompt_caching.retention) ──────────────────────────
+// The same setting the phone's Settings → Keep prompts cached edits.
+
+function _promptCacheStatus(text, color, sticky){
+  const el = $('promptCacheSettingsStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--fg-dim,#9aa3b2)';
+  if (el._fadeT) clearTimeout(el._fadeT);
+  if (!sticky) el._fadeT = setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+const _PROMPT_CACHE_LABELS = { standard: '5 minutes', long: '1 hour' };
+
+async function loadPromptCacheSettings(){
+  const body = $('promptCacheSettingsBody');
+  if (!body) return;
+  let st;
+  try {
+    st = await api('/api/cache/config');
+  } catch (e) {
+    body.innerHTML = '';
+    _promptCacheStatus('Could not load the prompt-cache setting: ' + (e && e.message || e), '#ff8080', true);
+    return;
+  }
+  body.innerHTML = '';
+  const row = _speechEl('div', 'display:flex;gap:16px;flex-wrap:wrap');
+  const name = 'promptCacheRetention';
+  for (const value of (st.options || ['standard', 'long'])) {
+    const label = _speechEl('label', 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg,#e8eef6);cursor:pointer');
+    const radio = _speechEl('input');
+    radio.type = 'radio';
+    radio.name = name;
+    radio.value = value;
+    radio.checked = st.config && st.config.retention === value;
+    radio.addEventListener('change', async () => {
+      if (!radio.checked) return;
+      try {
+        const res = await api('/api/cache/config', { method: 'PUT', body: JSON.stringify({ retention: value }) });
+        _promptCacheStatus('Saved.', '#9be09b');
+        if (res && res.config) [...row.querySelectorAll('input')].forEach(r => { r.checked = r.value === res.config.retention; });
+      } catch (e) {
+        _promptCacheStatus('Not saved: ' + (e && e.message || e), '#ff8080', true);
+        [...row.querySelectorAll('input')].forEach(r => { r.checked = r.value === st.config.retention; });
+      }
+    });
+    label.append(radio, document.createTextNode(_PROMPT_CACHE_LABELS[value] || value));
+    row.append(label);
+  }
+  body.append(row);
+}
+
 async function loadSettingsPanel(){
   loadPersonalityPicker();
   loadVoiceProvidersSettings();
   loadSpeechSettings();
   loadCompactionSettings();
+  loadPromptCacheSettings();
   loadWebBrowserSettings();
   try{
     const settings=await api('/api/settings');

@@ -57,10 +57,11 @@ NATIVE_ALWAYS_LOADED_TOOLS = (
     # model has to run a tool search just to admit it needs the big one.
     "escalate",
 )
-# Toolsets whose tools are never deferred.  Looked up in the live registry at
-# REQUEST-BUILD time (not import time) — WS-C registers tools/device_skill_tools
-# dynamically as devices connect, so an import-time snapshot would be empty.
-NATIVE_ALWAYS_LOADED_TOOLSETS = ("devices",)
+# Toolsets whose tools are never deferred. Empty now: device tools used to be
+# (all ~170 of the iPhone's, ~28k tokens at the head of every prompt); now the
+# ones the user actually calls stay loaded (tools/device_tool_rank.py) and the
+# rest are reached on demand like any other deferred tool.
+NATIVE_ALWAYS_LOADED_TOOLSETS: tuple = ()
 
 # Fine-grained tool streaming (plan 2.4): device tool arguments stream token by
 # token so ``open_app{"name":"Safari"}`` is complete — and dispatchable — before
@@ -87,12 +88,39 @@ def lazy_tools_enabled() -> bool:
 
 
 def native_tool_search_enabled() -> bool:
-    """True when ``tools.deferred`` is on (default True) — plan 2.3."""
+    """True when ``tools.deferred`` is on — plan 2.3. Off by default: every
+    provider now reaches deferred tools the same way (``tool_search`` +
+    ``tool_call``), so agents on any model build the same prompt."""
     try:
         cfg = (load_config() or {}).get("tools", {}) or {} if load_config else {}
-        return bool(cfg.get("deferred", True))
+        return bool(cfg.get("deferred", False))
     except Exception:
-        return True
+        return False
+
+
+def _schema_tokens(tool: Dict[str, Any]) -> int:
+    """Rough token cost of one tool definition (chars / 4)."""
+    return len(json.dumps(tool, sort_keys=True)) // 4
+
+
+def loaded_device_tool_names(tool_defs) -> set:
+    """The device tools among ``tool_defs`` (OpenAI or Anthropic format) that
+    stay fully loaded — see tools/device_tool_rank.py."""
+    candidates: Dict[str, int] = {}
+    for t in tool_defs or []:
+        if not isinstance(t, dict):
+            continue
+        name = (t.get("function") or {}).get("name") or t.get("name")
+        if name and registry.get_toolset_for_tool(name) == "devices":
+            candidates[name] = _schema_tokens(t)
+    if not candidates:
+        return set()
+    try:
+        from tools.device_tool_rank import always_loaded_device_tools
+        return set(always_loaded_device_tools(candidates))
+    except Exception:
+        logger.debug("device tool ranking unavailable", exc_info=True)
+        return set()
 
 
 def _tool_names_for_toolsets(toolsets) -> set:
@@ -152,9 +180,9 @@ def build_native_deferred_tools(anthropic_tools: List[Dict[str, Any]],
     if not anthropic_tools:
         return list(anthropic_tools or [])
 
-    always_loaded = set(NATIVE_ALWAYS_LOADED_TOOLS) | _tool_names_for_toolsets(
-        NATIVE_ALWAYS_LOADED_TOOLSETS
-    )
+    always_loaded = (set(NATIVE_ALWAYS_LOADED_TOOLS)
+                     | _tool_names_for_toolsets(NATIVE_ALWAYS_LOADED_TOOLSETS)
+                     | loaded_device_tool_names(anthropic_tools))
     eager = _tool_names_for_toolsets(EAGER_STREAMING_TOOLSETS)
 
     out: List[Dict[str, Any]] = []
@@ -189,6 +217,36 @@ def build_native_deferred_tools(anthropic_tools: List[Dict[str, Any]],
     out.append({"type": ANTHROPIC_TOOL_SEARCH_TYPE,
                 "name": ANTHROPIC_TOOL_SEARCH_NAME})
     return out
+
+
+def native_anthropic_endpoint(agent) -> bool:
+    """True for a NATIVE Anthropic Messages endpoint (not a third-party gateway
+    speaking the protocol) — where ``eager_input_streaming`` is understood."""
+    try:
+        if getattr(agent, "api_mode", None) != "anthropic_messages":
+            return False
+        from agent.anthropic_adapter import _is_third_party_anthropic_endpoint
+        return not _is_third_party_anthropic_endpoint(getattr(agent, "_anthropic_base_url", None))
+    except Exception:
+        return False
+
+
+def apply_eager_device_streaming(api_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Device tools in a native Anthropic request stream their arguments token
+    by token (plan 2.4), so ``open_app{"name":"Safari"}`` is dispatchable before
+    the sentence ends. Same flag on every request, so the cached prefix holds."""
+    try:
+        eager = _tool_names_for_toolsets(EAGER_STREAMING_TOOLSETS)
+        tools = api_kwargs.get("tools")
+        if eager and tools:
+            api_kwargs["tools"] = [
+                dict(t, eager_input_streaming=True)
+                if isinstance(t, dict) and t.get("name") in eager and not t.get("defer_loading") else t
+                for t in tools
+            ]
+    except Exception:
+        _warn_once("eager device-arg streaming shaping failed")
+    return api_kwargs
 
 
 def apply_native_tool_search(api_kwargs: Dict[str, Any], agent=None) -> Dict[str, Any]:
@@ -417,9 +475,10 @@ def apply_lazy_partition(agent) -> None:
         agent._lazy_tools_manifest = ""
         return
     core_names = get_lazy_core_names() | set(agent._lazy_loaded_tools)
-    # Device tools are never deferred on any provider (voice-first: "open
-    # directions" must be one call, not tool_search then the call).
+    # The device tools the user actually calls stay loaded (voice-first: "open
+    # directions" is one call); the rest are on demand like any deferred tool.
     core_names |= _tool_names_for_toolsets(NATIVE_ALWAYS_LOADED_TOOLSETS)
+    core_names |= loaded_device_tool_names(agent.tools)
     core, deferred = partition_lazy_tools(agent.tools, core_names)
     agent._lazy_all_tool_names = (
         {c.get("function", {}).get("name") for c in core}
@@ -432,9 +491,13 @@ def apply_lazy_partition(agent) -> None:
     # pick up new tools instead of reusing a stale manifest forever. Stable per
     # toolset (changes only on register/deregister), so it does NOT cause
     # per-turn cache churn. See conversation_loop._restore_or_build_system_prompt.
+    # Loaded and on-demand are hashed apart: the daily device ranking moves
+    # tools between them without changing the name set, and a stored prompt's
+    # frozen catalogue must follow.
     import hashlib
+    _core_names = sorted(n for n in ((c.get("function", {}) or {}).get("name") for c in core) if n)
     agent._toolset_fingerprint = hashlib.sha1(
-        ",".join(sorted(agent._lazy_all_tool_names)).encode("utf-8")
+        (",".join(_core_names) + "|" + ",".join(sorted(d["name"] for d in deferred))).encode("utf-8")
     ).hexdigest()[:16]
     if len(deferred) < _LAZY_MIN_DEFERRED:
         return  # not worth the manifest + tool_search round-trips
@@ -633,11 +696,10 @@ def handle_tool_search(agent, args: dict) -> str:
     if getattr(agent, "_lazy_loaded_tools", None) is None:
         agent._lazy_loaded_tools = set()
     agent._lazy_loaded_tools.update(loaded)
-    # Device tools are never deferred: a hit on one means it was in the tools
-    # list all along, and routing it through tool_call is a wasted hop.
+    # A hit on a tool that is already in the list (a loaded device tool, a core
+    # tool): routing it through tool_call would be a wasted hop.
     advertised = {(t.get("function", {}) or {}).get("name") for t in (getattr(agent, "tools", None) or [])}
-    always = _tool_names_for_toolsets(NATIVE_ALWAYS_LOADED_TOOLSETS)
-    direct = [n for n in loaded if n in always and n in advertised]
+    direct = [n for n in loaded if n in advertised]
     bridged = [n for n in loaded if n not in set(direct)]
     out: Dict[str, Any] = {"loaded": loaded, "schemas": [d["function"] for d in defs]}
     if direct:

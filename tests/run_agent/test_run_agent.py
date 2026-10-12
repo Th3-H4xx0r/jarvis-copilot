@@ -749,7 +749,8 @@ class TestInit:
             assert a._use_prompt_caching is True
 
     def test_prompt_caching_cache_ttl_defaults_without_config(self):
-        """cache_ttl stays 5m when prompt_caching is absent from config."""
+        """Retention defaults to long (the 1h tier on the shared prompt start)
+        when prompt_caching is absent from config."""
         with (
             patch("run_agent.get_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -764,7 +765,7 @@ class TestInit:
                 skip_context_files=True,
                 skip_memory=True,
             )
-            assert a._cache_ttl == "5m"
+            assert a._cache_retention == "long" and a._cache_ttl == "1h"
 
     def test_prompt_caching_cache_ttl_custom_1h(self):
         """prompt_caching.cache_ttl 1h is applied when present in config."""
@@ -786,6 +787,27 @@ class TestInit:
                 skip_memory=True,
             )
             assert a._cache_ttl == "1h"
+
+    def test_prompt_caching_standard_retention_is_5m(self):
+        """prompt_caching.retention: standard keeps every marker on the 5-minute tier."""
+        with (
+            patch("run_agent.get_tool_definitions", return_value=[]),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+            patch(
+                "jarviscopilot_cli.config.load_config",
+                return_value={"prompt_caching": {"retention": "standard", "cache_ttl": "1h"}},
+            ),
+        ):
+            a = AIAgent(
+                api_key="test-k...7890",
+                model="anthropic/claude-sonnet-4-20250514",
+                base_url="https://openrouter.ai/api/v1",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+            )
+            assert a._cache_retention == "standard" and a._cache_ttl == "5m"
 
     def test_model_max_tokens_from_config(self):
         """model.max_tokens config populates the chat-completions request cap."""
@@ -838,7 +860,7 @@ class TestInit:
         assert a.max_tokens == 8192
 
     def test_prompt_caching_cache_ttl_invalid_falls_back(self):
-        """Non-Anthropic TTL values keep default 5m without raising."""
+        """A bad legacy TTL is ignored without raising; the default retention holds."""
         with (
             patch("run_agent.get_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -856,7 +878,7 @@ class TestInit:
                 skip_context_files=True,
                 skip_memory=True,
             )
-            assert a._cache_ttl == "5m"
+            assert a._cache_retention == "long" and a._cache_ttl == "1h"
 
     def test_valid_tool_names_populated(self):
         """valid_tool_names should contain names from loaded tools."""

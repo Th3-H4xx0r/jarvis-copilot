@@ -17,7 +17,6 @@ import os
 import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
 
 # fcntl is Unix-only; on Windows use msvcrt for file locking
 try:
@@ -147,69 +146,198 @@ def _get_lock_paths() -> tuple[Path, Path]:
     return lock_dir, lock_dir / ".tick.lock"
 
 
-@contextmanager
-def _job_profile_context(job_id: str, profile: Optional[str]):
-    """Temporarily run a job under a specific JarvisCopilot profile.
+# A harness run's after-node results (Review / Background), delivered after
+# the answer through the job's normal target. run_job leaves them on the job
+# dict it was given; tick() and the web UI's "Run now" deliver them.
+AFTER_DELIVERIES_KEY = "_after_deliveries"
 
-    Cron jobs are stored and scheduled by the profile running the scheduler, but
-    an individual job can opt into a different runtime profile. While active,
-    the scheduler's test/override hook and a context-local JarvisCopilot home override
-    both point at the resolved profile directory so _get_hermes_home(),
-    .env/config loading, script resolution, AIAgent construction, and downstream
-    get_hermes_home() callers agree on the same home.
+_SCHEDULE_HANDOFF_PROMPT = (
+    "The scheduled task above already has a first answer. Finish the task fully with "
+    "your tools, then reply with the final result for the user."
+)
 
-    Some existing provider/config paths still load profile .env values through
-    os.environ, so profile jobs also snapshot and restore the process
-    environment on exit. tick() runs profile jobs sequentially to keep that
-    temporary mutation isolated from other scheduled jobs.
-    """
-    raw_profile = str(profile or "").strip()
-    if not raw_profile:
-        yield None
-        return
 
-    global _hermes_home
-    prior_override = _hermes_home
-    env_snapshot = os.environ.copy()
+# A wired Answer node's hand-off rule on a schedule (the tool's description
+# alone is not enough: small models rarely call it unprompted).
+_SCHEDULE_HANDOFF_RULE = (
+    "A bigger model works behind you on this scheduled task. Call `handoff` with a "
+    "self-contained summary straight away, before any other tool, when the task needs "
+    "several steps, research, creates or changes something, or needs a long answer; then "
+    "reply with one short line. Do quick tasks yourself."
+)
 
-    from jarviscopilot_cli.profiles import normalize_profile_name, resolve_profile_env
-    from jarviscopilot_constants import reset_hermes_home_override, set_hermes_home_override
 
-    normalized_profile = normalize_profile_name(raw_profile)
+def _schedule_handoff_message(note: str) -> str:
+    parts = ["The first model handed this scheduled task over to you. Finish it fully with "
+             "your tools, then reply with the final result for the user."]
+    if note:
+        parts.append(f"Hand-off note: {note}")
+    return "\n\n".join(parts)
+
+
+def _claude_code_redirect(model: str, provider: Optional[str], cfg: Optional[dict]) -> tuple:
+    """Chat's Anthropic → Claude Code redirect for a schedule run
+    (``agent.harness.refs.route_anthropic_via_claude_code``), Default included:
+    with no provider of its own the job runs on the configured one."""
+    from agent.harness.refs import route_anthropic_via_claude_code
+
+    effective = provider
+    if not effective:
+        model_cfg = (cfg or {}).get("model")
+        effective = model_cfg.get("provider") if isinstance(model_cfg, dict) else None
+    _model, routed, _base = route_anthropic_via_claude_code(model, effective, None)
+    return model, (routed if routed != effective else provider)
+
+
+def _record_handoff_only(_job: dict) -> str:
+    """A schedule's hand-off runner: nothing runs in the background. The
+    escalation registry keeps the request (with its summary) and the scheduler
+    runs the wired node itself, inside the job, once the answer is in."""
+    return ""
+
+
+def _attach_handoff_tool(agent) -> None:
+    """Give a wired Answer node's agent the ``handoff`` tool (cron toolsets
+    don't carry it), sorted into its tools list like the web UI's agents."""
     try:
-        profile_home = Path(resolve_profile_env(normalized_profile)).resolve()
-    except (FileNotFoundError, ValueError) as exc:
-        logger.warning(
-            "Job '%s': configured profile %r no longer valid (%s) — "
-            "falling back to scheduler default",
-            job_id, raw_profile, exc,
-        )
-        yield None
-        return
+        import importlib
+        importlib.import_module("agent.escalation")  # registers `handoff`
+        from tools.registry import registry
 
-    override_token = None
+        tools = list(getattr(agent, "tools", None) or [])
+        names = {(t.get("function") or {}).get("name") for t in tools if isinstance(t, dict)}
+        if "handoff" not in names:
+            tools += list(registry.get_definitions({"handoff"}) or [])
+            try:
+                from agent.tool_policy import canonical_tools
+                tools = canonical_tools(tools)
+            except Exception:
+                pass
+            agent.tools = tools
+        agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {"handoff"}
+    except Exception:
+        logger.warning("Cron: could not attach the handoff tool", exc_info=True)
+
+
+def _bind_schedule_handoff(agent, node: dict, task_id: str, *, question: str) -> None:
+    """Let a wired Answer node hand off on a schedule: the tool, permission
+    (agent/tool_policy.block_message), the rule in its turn notes, and the
+    turn binding agent/escalation reads (with the automatic hand-off budget)."""
+    from agent import escalation
+
+    _attach_handoff_tool(agent)
+    agent._handoff_wired = True
+    allowed = getattr(agent, "allowed_tool_names", None)
+    if allowed is not None:
+        agent.allowed_tool_names = frozenset(allowed) | {"handoff"}
+    escalation.bind_turn_context(
+        task_id, session_id=task_id, runner=_record_handoff_only,
+        escalation_model=node.get("model"), question=question,
+        auto_handoff_after=escalation.AUTO_HANDOFF_AFTER, schedule_handoff=True,
+        node_id=node.get("id") or "", node_label=node.get("label") or node.get("id") or "",
+        kind=node.get("type") or "")
+    agent._turn_user_context = "\n\n".join(
+        p for p in (getattr(agent, "_turn_user_context", "") or "", _SCHEDULE_HANDOFF_RULE) if p)
+
+
+def _recorded_handoff(task_id: str) -> Optional[str]:
+    """The summary of the hand-off this run's answer requested (latest wins),
+    or None when it answered on its own."""
+    from agent import escalation
+
+    jobs = [j for j in escalation.get_jobs(task_id) if (j.get("parent") or {}).get("schedule_handoff")]
+    if not jobs:
+        return None
+    latest = max(jobs, key=lambda j: j.get("started_at") or 0)
+    return str(latest.get("summary") or latest.get("reason") or "").strip()
+
+
+def _unbind_schedule_handoff(task_id: Optional[str]) -> None:
+    if not task_id:
+        return
     try:
-        override_token = set_hermes_home_override(profile_home)
-        _hermes_home = profile_home
-        logger.info(
-            "Job '%s': using JarvisCopilot profile '%s' (%s)",
-            job_id,
-            normalized_profile,
-            profile_home,
-        )
-        yield normalized_profile
-    finally:
-        _hermes_home = prior_override
-        if override_token is not None:
-            reset_hermes_home_override(override_token)
-        # Delta-based restore: remove added keys, restore changed keys.
-        # Avoids a brief window where other threads see an empty env.
-        added = set(os.environ.keys()) - set(env_snapshot.keys())
-        for k in added:
-            os.environ.pop(k, None)
-        for k, v in env_snapshot.items():
-            if os.environ.get(k) != v:
-                os.environ[k] = v
+        from agent import escalation
+        escalation.clear_turn_context(task_id)
+    except Exception:
+        logger.debug("Cron: hand-off unbind failed", exc_info=True)
+
+
+def _split_job_model(model: Optional[str], provider: Optional[str]) -> tuple:
+    """``("@provider:model", _)`` → ``("model", "provider")``; a bare model keeps
+    the provider it was given."""
+    model = (model or "").strip()
+    if model.startswith("@") and ":" in model:
+        from agent.harness.refs import split_ref
+
+        qualified = split_ref(model)
+        if qualified:
+            return qualified[1], qualified[0]
+    return model, provider
+
+
+def _plan_job_harness(job: dict, prompt: str, *, default_model: str, default_provider: Optional[str]):
+    """``(plan, doc, note)`` for a harness job. A harness that is missing or
+    invalid gives ``(None, None, note)``: the run falls back to Default and the
+    note says why (the Pod's fallback, copied)."""
+    from agent.harness.planner import plan_turn
+    from agent.harness.schema import validate_harness
+    from agent.harness.store import store_for_home
+
+    harness_id = str(job.get("harness_id") or "").strip()
+    try:
+        doc = store_for_home().get(harness_id)
+    except Exception as exc:
+        logger.warning("Job '%s': harness %r could not be read: %s", job.get("id"), harness_id, exc)
+        doc = None
+    if doc is None:
+        return None, None, f"harness '{harness_id}' not found; ran on Default"
+    errors = validate_harness(doc, strict=False)[1]
+    if errors:
+        return None, None, f"harness '{harness_id}' is invalid ({errors[0]['message']}); ran on Default"
+    plan = plan_turn(doc, session_model=default_model, session_provider=default_provider,
+                     text=prompt, surface="schedule", has_attachments=False)
+    return plan, doc, None
+
+
+def _apply_node(agent, tools_setting, instructions: str = "") -> None:
+    """A harness node's tool setting and notes on its agent: the tools array
+    stays the job's (one stable list per model); the setting limits what may be
+    CALLED, and the node's notes ride the turn context, never the system prompt."""
+    from agent.tool_policy import node_tool_policy
+
+    allowed, note = node_tool_policy(tools_setting)
+    agent.allowed_tool_names = allowed
+    agent._turn_user_context = "\n\n".join(p.strip() for p in (instructions or "", note or "") if p and p.strip())
+
+
+def _node_fallback(ref: Optional[str]) -> Optional[dict]:
+    if not ref:
+        return None
+    model, provider = _split_job_model(ref, None)
+    return {"model": model, "provider": provider or "", "base_url": None, "api_key": None, "key_env": None}
+
+
+def _tool_call_count(result: dict) -> int:
+    return sum(len(m.get("tool_calls") or []) for m in (result or {}).get("messages") or []
+               if isinstance(m, dict) and m.get("role") == "assistant")
+
+
+def deliver_after_results(job: dict, adapters=None, loop=None) -> Optional[str]:
+    """Deliver (and clear) a harness run's after-node results, in order, after
+    its answer. ``[SILENT]`` or empty results are skipped. Returns the first
+    delivery error, or None."""
+    first_error = None
+    for text in job.pop(AFTER_DELIVERIES_KEY, None) or []:
+        content = str(text or "").strip()
+        if not content or SILENT_MARKER in content.upper():
+            continue
+        try:
+            error = _deliver_result(job, content, adapters=adapters, loop=loop)
+        except Exception as exc:
+            error = str(exc)
+            logger.error("After-node delivery failed for job %s: %s", job.get("id"), exc)
+        first_error = first_error or error
+    return first_error
 
 
 def _resolve_origin(job: dict) -> Optional[dict]:
@@ -1158,10 +1286,10 @@ def _scan_assembled_cron_prompt(assembled: str, job: dict) -> str:
 
 
 def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
-    """Execute a single cron job, applying any per-job profile override."""
-    job_id = job["id"]
-    with _job_profile_context(job_id, job.get("profile")):
-        return _run_job_impl(job)
+    """Execute a single cron job on its model, through its harness, or on
+    Default. A harness run leaves its after-node results on
+    ``job[AFTER_DELIVERIES_KEY]`` for the caller to deliver after the answer."""
+    return _run_job_impl(job)
 
 
 def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
@@ -1351,6 +1479,10 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     logger.info("Prompt: %s", prompt[:100])
 
     agent = None
+    # Background after-node agents of a harness run: (agent, session_id).
+    _after_agents = []
+    # The task id a wired Answer node's hand-off is bound to (unbound in finally).
+    _handoff_task_id = None
 
     # Mark this as a cron session so the approval system can apply cron_mode.
     # This env var is process-wide and persists for the lifetime of the
@@ -1402,7 +1534,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     #   - the terminal, file, and code-exec tools run commands from there.
     #
     # tick() serializes jobs that mutate process-global runtime state (workdir
-    # and/or profile jobs) outside the parallel pool, so mutating
+    # jobs) outside the parallel pool, so mutating
     # os.environ["TERMINAL_CWD"] here is safe for those jobs. For workdir-less
     # jobs we leave TERMINAL_CWD untouched — preserves the original behaviour
     # (skip_context_files=True, tools use whatever cwd the scheduler has).
@@ -1492,6 +1624,37 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
 
         # Max iterations
         max_iterations = _cfg.get("agent", {}).get("max_turns") or _cfg.get("max_turns") or 90
+        _config_max_iterations = max_iterations
+
+        # What this job runs on: its own model, its harness's answer node, or
+        # Default (the server's default model, read above).
+        requested_provider = job.get("provider")
+        if job.get("model"):
+            model, requested_provider = _split_job_model(job.get("model"), requested_provider)
+        harness_plan, harness_doc, runs_on_note = None, None, None
+        if str(job.get("harness_id") or "").strip():
+            # Route on the user's instruction, not the assembled prompt (skill
+            # text + the scheduler's own hints); the agent still gets the latter.
+            harness_plan, harness_doc, runs_on_note = _plan_job_harness(
+                job, str(job.get("prompt") or "").strip() or prompt,
+                default_model=model, default_provider=requested_provider)
+            if harness_plan is None:
+                logger.warning("Job '%s': %s", job_id, runs_on_note)
+            else:
+                model, requested_provider = _split_job_model(harness_plan.model, harness_plan.provider)
+                if harness_plan.max_steps:
+                    max_iterations = int(harness_plan.max_steps)
+        _picked_provider = requested_provider
+        model, requested_provider = _claude_code_redirect(model, requested_provider, _cfg)
+        if harness_plan is not None:
+            runs_on_line = (f"harness {harness_doc.get('name') or harness_doc['id']} → "
+                            f"{harness_plan.node_id} ({model})")
+            if harness_plan.route:
+                runs_on_line += f", route: {harness_plan.route.get('label')}"
+        elif runs_on_note:
+            runs_on_line = f"Default ({model}) — {runs_on_note}"
+        else:
+            runs_on_line = f"{'model' if job.get('model') else 'Default'} ({model})"
 
         # Provider routing
         pr = _cfg.get("provider_routing", {})
@@ -1501,66 +1664,75 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             format_runtime_provider_error,
         )
         from jarviscopilot_cli.auth import AuthError
-        try:
-            # Do not inject HERMES_INFERENCE_PROVIDER here. resolve_runtime_provider()
-            # already prefers persisted config over stale shell/env overrides when
-            # no explicit provider is requested. Passing the env var here short-
-            # circuits that precedence and can resurrect old providers (for
-            # example DeepSeek) for cron jobs that do not pin provider/model.
-            runtime_kwargs = {
-                "requested": job.get("provider"),
-            }
-            if job.get("base_url"):
-                runtime_kwargs["explicit_base_url"] = job.get("base_url")
-            runtime = resolve_runtime_provider(**runtime_kwargs)
-        except AuthError as auth_exc:
-            # No API key / no Claude account: fail the job with that message —
-            # a fallback provider must not run it in its place.
-            from agent.error_classifier import is_missing_credential
-            if is_missing_credential(auth_exc):
-                raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
-            # Primary provider auth failed — try fallback chain before giving up.
-            logger.warning("Job '%s': primary auth failed (%s), trying fallback", job_id, auth_exc)
-            fb = _cfg.get("fallback_providers") or _cfg.get("fallback_model")
-            fb_list = (fb if isinstance(fb, list) else [fb]) if fb else []
-            runtime = None
-            for entry in fb_list:
-                if not isinstance(entry, dict):
-                    continue
-                try:
-                    fb_kwargs = {"requested": entry.get("provider")}
-                    if entry.get("base_url"):
-                        fb_kwargs["explicit_base_url"] = entry["base_url"]
-                    if entry.get("api_key"):
-                        fb_kwargs["explicit_api_key"] = entry["api_key"]
-                    runtime = resolve_runtime_provider(**fb_kwargs)
-                    logger.info("Job '%s': fallback resolved to %s", job_id, runtime.get("provider"))
-                    break
-                except Exception as fb_exc:
-                    logger.debug("Job '%s': fallback %s failed: %s", job_id, entry.get("provider"), fb_exc)
-            if runtime is None:
-                raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
-        except Exception as exc:
-            message = format_runtime_provider_error(exc)
-            raise RuntimeError(message) from exc
 
-        fallback_model = _cfg.get("fallback_providers") or _cfg.get("fallback_model") or None
-        credential_pool = None
-        runtime_provider = str(runtime.get("provider") or "").strip().lower()
-        if runtime_provider:
+        def _runtime_for(requested, explicit_base_url=None):
+            try:
+                # Do not inject HERMES_INFERENCE_PROVIDER here. resolve_runtime_provider()
+                # already prefers persisted config over stale shell/env overrides when
+                # no explicit provider is requested. Passing the env var here short-
+                # circuits that precedence and can resurrect old providers (for
+                # example DeepSeek) for cron jobs that do not pin provider/model.
+                runtime_kwargs = {
+                    "requested": requested,
+                }
+                if explicit_base_url:
+                    runtime_kwargs["explicit_base_url"] = explicit_base_url
+                return resolve_runtime_provider(**runtime_kwargs)
+            except AuthError as auth_exc:
+                # No API key / no Claude account: fail the job with that message —
+                # a fallback provider must not run it in its place.
+                from agent.error_classifier import is_missing_credential
+                if is_missing_credential(auth_exc):
+                    raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
+                # Primary provider auth failed — try fallback chain before giving up.
+                logger.warning("Job '%s': primary auth failed (%s), trying fallback", job_id, auth_exc)
+                fb = _cfg.get("fallback_providers") or _cfg.get("fallback_model")
+                fb_list = (fb if isinstance(fb, list) else [fb]) if fb else []
+                for entry in fb_list:
+                    if not isinstance(entry, dict):
+                        continue
+                    try:
+                        fb_kwargs = {"requested": entry.get("provider")}
+                        if entry.get("base_url"):
+                            fb_kwargs["explicit_base_url"] = entry["base_url"]
+                        if entry.get("api_key"):
+                            fb_kwargs["explicit_api_key"] = entry["api_key"]
+                        fb_runtime = resolve_runtime_provider(**fb_kwargs)
+                        logger.info("Job '%s': fallback resolved to %s", job_id, fb_runtime.get("provider"))
+                        return fb_runtime
+                    except Exception as fb_exc:
+                        logger.debug("Job '%s': fallback %s failed: %s", job_id, entry.get("provider"), fb_exc)
+                raise RuntimeError(format_runtime_provider_error(auth_exc)) from auth_exc
+            except Exception as exc:
+                message = format_runtime_provider_error(exc)
+                raise RuntimeError(message) from exc
+
+        def _pool_for(runtime):
+            runtime_provider = str(runtime.get("provider") or "").strip().lower()
+            if not runtime_provider:
+                return None
             try:
                 from agent.credential_pool import load_pool
                 pool = load_pool(runtime_provider)
                 if pool.has_credentials():
-                    credential_pool = pool
                     logger.info(
                         "Job '%s': loaded credential pool for provider %s with %d entries",
                         job_id,
                         runtime_provider,
                         len(pool.entries()),
                     )
+                    return pool
             except Exception as e:
                 logger.debug("Job '%s': failed to load credential pool for %s: %s", job_id, runtime_provider, e)
+            return None
+
+        # A redirected pick runs on the CLI, so the job's own base URL doesn't apply.
+        runtime = _runtime_for(requested_provider,
+                               job.get("base_url") if requested_provider == _picked_provider else None)
+
+        fallback_model = _cfg.get("fallback_providers") or _cfg.get("fallback_model") or None
+        if harness_plan is not None and harness_plan.fallback_model:
+            fallback_model = _node_fallback(harness_plan.fallback_model)
 
         # Initialize MCP servers so configured mcp_servers are available to
         # the agent's tool registry before AIAgent is constructed. Without
@@ -1583,39 +1755,49 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 job_id, _mcp_exc,
             )
 
-        agent = AIAgent(
-            model=model,
-            api_key=runtime.get("api_key"),
-            base_url=runtime.get("base_url"),
-            provider=runtime.get("provider"),
-            api_mode=runtime.get("api_mode"),
-            acp_command=runtime.get("command"),
-            acp_args=runtime.get("args"),
-            max_iterations=max_iterations,
-            reasoning_config=reasoning_config,
-            prefill_messages=prefill_messages,
-            fallback_model=fallback_model,
-            credential_pool=credential_pool,
-            providers_allowed=pr.get("only"),
-            providers_ignored=pr.get("ignore"),
-            providers_order=pr.get("order"),
-            provider_sort=pr.get("sort"),
-            openrouter_min_coding_score=(_cfg.get("openrouter") or {}).get("min_coding_score"),
-            enabled_toolsets=_resolve_cron_enabled_toolsets(job, _cfg),
-            disabled_toolsets=["cronjob", "messaging", "clarify"],
-            quiet_mode=True,
-            # Cron jobs should always inherit the user's SOUL.md identity from
-            # HERMES_HOME. When a workdir is configured, also inject project
-            # context files (AGENTS.md / CLAUDE.md / .cursorrules) from there.
-            # Without a workdir, keep cwd context discovery disabled.
-            skip_context_files=not bool(_job_workdir),
-            load_soul_identity=True,
-            skip_memory=True,  # Cron system prompts would corrupt user representations
-            platform="cron",
-            session_id=_cron_session_id,
-            session_db=_session_db,
-        )
-        
+        def _build_agent(agent_model, agent_runtime, *, iterations, fallback, session_id):
+            return AIAgent(
+                model=agent_model,
+                api_key=agent_runtime.get("api_key"),
+                base_url=agent_runtime.get("base_url"),
+                provider=agent_runtime.get("provider"),
+                api_mode=agent_runtime.get("api_mode"),
+                acp_command=agent_runtime.get("command"),
+                acp_args=agent_runtime.get("args"),
+                max_iterations=iterations,
+                reasoning_config=reasoning_config,
+                prefill_messages=prefill_messages,
+                fallback_model=fallback,
+                credential_pool=_pool_for(agent_runtime),
+                providers_allowed=pr.get("only"),
+                providers_ignored=pr.get("ignore"),
+                providers_order=pr.get("order"),
+                provider_sort=pr.get("sort"),
+                openrouter_min_coding_score=(_cfg.get("openrouter") or {}).get("min_coding_score"),
+                enabled_toolsets=_resolve_cron_enabled_toolsets(job, _cfg),
+                disabled_toolsets=["cronjob", "messaging", "clarify"],
+                quiet_mode=True,
+                # Cron jobs should always inherit the user's SOUL.md identity from
+                # HERMES_HOME. When a workdir is configured, also inject project
+                # context files (AGENTS.md / CLAUDE.md / .cursorrules) from there.
+                # Without a workdir, keep cwd context discovery disabled.
+                skip_context_files=not bool(_job_workdir),
+                load_soul_identity=True,
+                skip_memory=True,  # Cron system prompts would corrupt user representations
+                platform="cron",
+                session_id=session_id,
+                session_db=_session_db,
+            )
+
+        agent = _build_agent(model, runtime, iterations=max_iterations, fallback=fallback_model,
+                             session_id=_cron_session_id)
+        if harness_plan is not None:
+            _apply_node(agent, harness_plan.tools, harness_plan.instructions)
+            if harness_plan.handoff_node:
+                _handoff_task_id = _cron_session_id
+                _bind_schedule_handoff(agent, harness_plan.handoff_node, _handoff_task_id,
+                                       question=str(job.get("prompt") or "").strip() or prompt)
+
         # Run the agent with an *inactivity*-based timeout: the job can run
         # for hours if it's actively calling tools / receiving stream tokens,
         # but a hung API call or stuck tool with no activity for the configured
@@ -1638,92 +1820,109 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             _cron_timeout = 600.0
         _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
         _POLL_INTERVAL = 5.0
-        _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        # Preserve scheduler-scoped ContextVar state (for example skill-declared
-        # env passthrough registrations) when the cron run hops into the worker
-        # thread used for inactivity timeout monitoring.
-        _cron_context = contextvars.copy_context()
-        _cron_future = _cron_pool.submit(_cron_context.run, agent.run_conversation, prompt)
-        _inactivity_timeout = False
-        try:
-            if _cron_inactivity_limit is None:
-                # Unlimited — just wait for the result.
-                result = _cron_future.result()
-            else:
-                result = None
-                while True:
-                    done, _ = concurrent.futures.wait(
-                        {_cron_future}, timeout=_POLL_INTERVAL,
-                    )
-                    if done:
-                        result = _cron_future.result()
-                        break
-                    # Agent still running — check inactivity.
-                    _idle_secs = 0.0
-                    if hasattr(agent, "get_activity_summary"):
-                        try:
-                            _act = agent.get_activity_summary()
-                            _idle_secs = _act.get("seconds_since_activity", 0.0)
-                        except Exception:
-                            pass
-                    if _idle_secs >= _cron_inactivity_limit:
-                        _inactivity_timeout = True
-                        break
-        except Exception:
-            _cron_pool.shutdown(wait=False, cancel_futures=True)
-            raise
-        finally:
-            _cron_pool.shutdown(wait=False, cancel_futures=True)
 
-        if _inactivity_timeout:
-            # Build diagnostic summary from the agent's activity tracker.
-            _activity = {}
-            if hasattr(agent, "get_activity_summary"):
-                try:
-                    _activity = agent.get_activity_summary()
-                except Exception:
-                    pass
-            _last_desc = _activity.get("last_activity_desc", "unknown")
-            _secs_ago = _activity.get("seconds_since_activity", 0)
-            _cur_tool = _activity.get("current_tool")
-            _iter_n = _activity.get("api_call_count", 0)
-            _iter_max = _activity.get("max_iterations", 0)
+        def _run_with_timeout(run_agent_obj, message, history=None, task_id=None):
+            _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            # Preserve scheduler-scoped ContextVar state (for example skill-declared
+            # env passthrough registrations) when the cron run hops into the worker
+            # thread used for inactivity timeout monitoring.
+            _cron_context = contextvars.copy_context()
+            _run_kwargs = {}
+            if history is not None:
+                _run_kwargs["conversation_history"] = history
+            if task_id:
+                # The hand-off binding (agent/escalation) is keyed by the task id.
+                _run_kwargs["task_id"] = task_id
+            _cron_future = _cron_pool.submit(
+                _cron_context.run, run_agent_obj.run_conversation, message, **_run_kwargs)
+            _inactivity_timeout = False
+            try:
+                if _cron_inactivity_limit is None:
+                    # Unlimited — just wait for the result.
+                    run_result = _cron_future.result()
+                else:
+                    run_result = None
+                    while True:
+                        done, _ = concurrent.futures.wait(
+                            {_cron_future}, timeout=_POLL_INTERVAL,
+                        )
+                        if done:
+                            run_result = _cron_future.result()
+                            break
+                        # Agent still running — check inactivity.
+                        _idle_secs = 0.0
+                        if hasattr(run_agent_obj, "get_activity_summary"):
+                            try:
+                                _act = run_agent_obj.get_activity_summary()
+                                _idle_secs = _act.get("seconds_since_activity", 0.0)
+                            except Exception:
+                                pass
+                        if _idle_secs >= _cron_inactivity_limit:
+                            _inactivity_timeout = True
+                            break
+            except Exception:
+                _cron_pool.shutdown(wait=False, cancel_futures=True)
+                raise
+            finally:
+                _cron_pool.shutdown(wait=False, cancel_futures=True)
 
-            logger.error(
-                "Job '%s' idle for %.0fs (inactivity limit %.0fs) "
-                "| last_activity=%s | iteration=%s/%s | tool=%s",
-                job_name, _secs_ago, _cron_inactivity_limit,
-                _last_desc, _iter_n, _iter_max,
-                _cur_tool or "none",
-            )
-            if hasattr(agent, "interrupt"):
-                agent.interrupt("Cron job timed out (inactivity)")
-            raise TimeoutError(
-                f"Cron job '{job_name}' idle for "
-                f"{int(_secs_ago)}s (limit {int(_cron_inactivity_limit)}s) "
-                f"— last activity: {_last_desc}"
-            )
+            if _inactivity_timeout:
+                # Build diagnostic summary from the agent's activity tracker.
+                _activity = {}
+                if hasattr(run_agent_obj, "get_activity_summary"):
+                    try:
+                        _activity = run_agent_obj.get_activity_summary()
+                    except Exception:
+                        pass
+                _last_desc = _activity.get("last_activity_desc", "unknown")
+                _secs_ago = _activity.get("seconds_since_activity", 0)
+                _cur_tool = _activity.get("current_tool")
+                _iter_n = _activity.get("api_call_count", 0)
+                _iter_max = _activity.get("max_iterations", 0)
 
-        # Guard against non-dict returns from run_conversation under error conditions
-        if not isinstance(result, dict):
-            raise RuntimeError(
-                f"agent.run_conversation returned {type(result).__name__} instead of dict: {result!r}"
-            )
+                logger.error(
+                    "Job '%s' idle for %.0fs (inactivity limit %.0fs) "
+                    "| last_activity=%s | iteration=%s/%s | tool=%s",
+                    job_name, _secs_ago, _cron_inactivity_limit,
+                    _last_desc, _iter_n, _iter_max,
+                    _cur_tool or "none",
+                )
+                if hasattr(run_agent_obj, "interrupt"):
+                    run_agent_obj.interrupt("Cron job timed out (inactivity)")
+                raise TimeoutError(
+                    f"Cron job '{job_name}' idle for "
+                    f"{int(_secs_ago)}s (limit {int(_cron_inactivity_limit)}s) "
+                    f"— last activity: {_last_desc}"
+                )
 
-        # If the agent itself reported failure (e.g. all retries exhausted on
-        # API errors, model abort, mid-run interrupt), do not silently mark the
-        # job as successful. run_agent populates `failed=True`/`completed=False`
-        # on these paths and may put the error into `final_response`, which
-        # would otherwise be delivered as if it were the agent's reply and the
-        # job's `last_status` set to "ok". Raise so the except handler below
-        # builds the proper failure tuple. (issue #17855)
-        if result.get("failed") is True or result.get("completed") is False:
-            _err_text = (
-                result.get("error")
-                or (result.get("final_response") or "").strip()
-                or "agent reported failure"
-            )
-            raise RuntimeError(_err_text)
+            # Guard against non-dict returns from run_conversation under error conditions
+            if not isinstance(run_result, dict):
+                raise RuntimeError(
+                    f"agent.run_conversation returned {type(run_result).__name__} instead of dict: {run_result!r}"
+                )
+
+            # If the agent itself reported failure (e.g. all retries exhausted on
+            # API errors, model abort, mid-run interrupt), do not silently mark the
+            # job as successful. run_agent populates `failed=True`/`completed=False`
+            # on these paths and may put the error into `final_response`, which
+            # would otherwise be delivered as if it were the agent's reply and the
+            # job's `last_status` set to "ok". Raise so the except handler below
+            # builds the proper failure tuple. (issue #17855)
+            if run_result.get("failed") is True or run_result.get("completed") is False:
+                _err_text = (
+                    run_result.get("error")
+                    or (run_result.get("final_response") or "").strip()
+                    or "agent reported failure"
+                )
+                raise RuntimeError(_err_text)
+            return run_result
+
+        _answer_started = _hermes_now()
+        result = _run_with_timeout(agent, prompt, task_id=_handoff_task_id)
+        handoff_note = None
+        if _handoff_task_id:
+            handoff_note = _recorded_handoff(_handoff_task_id)
+            _unbind_schedule_handoff(_handoff_task_id)
 
         final_response = result.get("final_response", "") or ""
         # Strip leaked placeholder text that upstream may inject on empty completions.
@@ -1732,12 +1931,78 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # Use a separate variable for log display; keep final_response clean
         # for delivery logic (empty response = no delivery).
         logged_response = final_response if final_response else "(No response generated)"
-        
+
+        after_texts, after_sections = [], []
+
+        def _run_node_agent(node, message):
+            """A Background / hand-off node as its own agent (its model, tool
+            setting, notes; the configured step budget) on the job prompt plus
+            the answer."""
+            node_model, node_provider = _claude_code_redirect(
+                *_split_job_model(node.get("model"), None), _cfg)
+            node_session = f"{_cron_session_id}_{node.get('id')}"
+            node_agent = _build_agent(
+                node_model, _runtime_for(node_provider), iterations=_config_max_iterations,
+                fallback=_cfg.get("fallback_providers") or _cfg.get("fallback_model") or None,
+                session_id=node_session)
+            _after_agents.append((node_agent, node_session))
+            _apply_node(node_agent, node.get("tools", "lean"), node.get("instructions", ""))
+            node_result = _run_with_timeout(
+                node_agent, message,
+                history=[{"role": "user", "content": prompt},
+                         {"role": "assistant", "content": final_response}])
+            return str(node_result.get("final_response") or "").strip()
+
+        def _keep(node, text):
+            if text:
+                after_texts.append(text)
+                after_sections.append(f"### {node.get('label') or node.get('id')}\n\n{text}")
+
+        # The answer handed the task over: the wired node does it now, inside
+        # this job, and its result is delivered after the answer.
+        if handoff_note is not None:
+            node = harness_plan.handoff_node
+            try:
+                text = _run_node_agent(node, _schedule_handoff_message(handoff_note))
+            except Exception as node_exc:
+                logger.warning("Job '%s': hand-off node %s failed: %s", job_id, node.get("id"), node_exc)
+                text = f"{node.get('label') or node.get('id')} couldn't finish: {node_exc}"
+            _keep(node, text)
+
+        # A harness's after-nodes run inside the same job, after the answer: a
+        # Review as one tool-less call, a Background as its own agent on the job
+        # prompt plus the answer. A silent or empty answer has nothing to follow up.
+        if (harness_plan is not None and harness_plan.after and final_response.strip()
+                and SILENT_MARKER not in final_response.upper()):
+            from agent.harness import llm as _harness_llm
+            from agent.harness.planner import after_condition_holds, review_prompt, review_result
+
+            _elapsed_s = (_hermes_now() - _answer_started).total_seconds()
+            _tools_used = _tool_call_count(result)
+            for node, when in harness_plan.after:
+                if not after_condition_holds(when, elapsed_s=_elapsed_s, tool_count=_tools_used):
+                    continue
+                try:
+                    if node.get("type") == "review":
+                        raw = _harness_llm.one_shot_completion(
+                            node.get("model"), review_prompt(prompt, final_response), max_tokens=600)
+                        text = review_result(node, raw)
+                    else:
+                        text = _run_node_agent(node, _SCHEDULE_HANDOFF_PROMPT)
+                except Exception as node_exc:
+                    logger.warning("Job '%s': harness node %s failed: %s", job_id, node.get("id"), node_exc)
+                    text = ("" if node.get("type") == "review"
+                            else f"{node.get('label') or node.get('id')} couldn't finish: {node_exc}")
+                _keep(node, text)
+        if after_texts:
+            job[AFTER_DELIVERIES_KEY] = after_texts
+
         output = f"""# Cron Job: {job_name}
 
 **Job ID:** {job_id}
 **Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
 **Schedule:** {job.get('schedule_display', 'N/A')}
+**Runs on:** {runs_on_line}
 
 ## Prompt
 
@@ -1747,7 +2012,9 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
 
 {logged_response}
 """
-        
+        if after_sections:
+            output += "\n## After the answer\n\n" + "\n\n".join(after_sections) + "\n"
+
         logger.info("Job '%s' completed successfully", job_name)
         return True, output, final_response, None
         
@@ -1787,10 +2054,11 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         for _var_name in _cron_delivery_vars:
             _VAR_MAP[_var_name].set("")
         if _session_db:
-            try:
-                _session_db.end_session(_cron_session_id, "cron_complete")
-            except (Exception, KeyboardInterrupt) as e:
-                logger.debug("Job '%s': failed to end session: %s", job_id, e)
+            for _sid in [_cron_session_id] + [sid for _a, sid in _after_agents]:
+                try:
+                    _session_db.end_session(_sid, "cron_complete")
+                except (Exception, KeyboardInterrupt) as e:
+                    logger.debug("Job '%s': failed to end session: %s", job_id, e)
             try:
                 _session_db.close()
             except (Exception, KeyboardInterrupt) as e:
@@ -1799,11 +2067,13 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # main OpenAI/httpx client held by this ephemeral cron agent. Without
         # this, a gateway that ticks cron every N minutes leaks fds per job
         # until it hits EMFILE (#10200 / "too many open files").
-        try:
-            if agent is not None:
-                agent.close()
-        except (Exception, KeyboardInterrupt) as e:
-            logger.debug("Job '%s': failed to close agent resources: %s", job_id, e)
+        _unbind_schedule_handoff(_handoff_task_id)
+        for _closing in [agent] + [a for a, _sid in _after_agents]:
+            try:
+                if _closing is not None:
+                    _closing.close()
+            except (Exception, KeyboardInterrupt) as e:
+                logger.debug("Job '%s': failed to close agent resources: %s", job_id, e)
         # Each cron run spins up a short-lived worker thread whose event loop
         # dies as soon as the ``ThreadPoolExecutor`` shuts down. Any async
         # httpx clients cached under that loop are now unusable — reap them
@@ -1924,6 +2194,9 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                     except Exception as de:
                         delivery_error = str(de)
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
+                # A harness run's Review / Background results follow the answer.
+                if success:
+                    delivery_error = deliver_after_results(job, adapters=adapters, loop=loop) or delivery_error
 
                 # Treat empty final_response as a soft failure so last_status
                 # is not "ok" — the agent ran but produced nothing useful.
@@ -1940,21 +2213,12 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 mark_job_run(job["id"], False, str(e))
                 return False
 
-        # Partition due jobs: jobs with a per-job workdir and/or profile touch
-        # process-global runtime state inside run_job. Workdir jobs temporarily
-        # set os.environ["TERMINAL_CWD"]; profile jobs use a context-local
-        # JarvisCopilot home override, scheduler _hermes_home hook, and temporary
-        # profile .env load into os.environ with snapshot/restore. They MUST run
-        # sequentially to avoid corrupting each other. Jobs without either field
-        # stay parallel-safe.
-        sequential_jobs = [
-            j for j in due_jobs
-            if (j.get("workdir") or "").strip() or (j.get("profile") or "").strip()
-        ]
-        parallel_jobs = [
-            j for j in due_jobs
-            if not ((j.get("workdir") or "").strip() or (j.get("profile") or "").strip())
-        ]
+        # Partition due jobs: jobs with a per-job workdir touch process-global
+        # runtime state inside run_job (they temporarily set
+        # os.environ["TERMINAL_CWD"]), so they MUST run sequentially to avoid
+        # corrupting each other. Jobs without one stay parallel-safe.
+        sequential_jobs = [j for j in due_jobs if (j.get("workdir") or "").strip()]
+        parallel_jobs = [j for j in due_jobs if not (j.get("workdir") or "").strip()]
 
         _results: list = []
 

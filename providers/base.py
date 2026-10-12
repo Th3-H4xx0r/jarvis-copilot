@@ -111,6 +111,14 @@ class ProviderProfile:
         a provider that serves each model on its own URL overrides this."""
         return base_url
 
+    def prompt_cache_extras(self, retention: str, prefix_key: str) -> dict[str, Any]:
+        """extra_body fields that ask this provider to keep a prompt prefix
+        cached (``retention``: "standard" | "long"; ``prefix_key``: a stable
+        hash of model + tools + stable system prompt, shared by every agent
+        with that prefix). Default: nothing — providers that cache identical
+        prefixes on their own need no hint, and unknown fields are never sent."""
+        return {}
+
     def build_extra_body(
         self, *, session_id: str | None = None, **context: Any
     ) -> dict[str, Any]:

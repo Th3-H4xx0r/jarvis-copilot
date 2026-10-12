@@ -131,6 +131,10 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             )
         except Exception:
             block_message = None
+        if block_message is None:
+            # A harness node's tool setting (agent/tool_policy.py).
+            from agent.tool_policy import block_message as _policy_block
+            block_message = _policy_block(agent, function_name, function_args)
 
         if block_message is not None:
             block_result = json.dumps({"error": block_message}, ensure_ascii=False)
@@ -516,6 +520,10 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             )
         except Exception:
             pass
+        if _block_msg is None:
+            # A harness node's tool setting (agent/tool_policy.py).
+            from agent.tool_policy import block_message as _policy_block
+            _block_msg = _policy_block(agent, function_name, function_args)
 
         _guardrail_block_decision: ToolGuardrailDecision | None = None
         if _block_msg is None:

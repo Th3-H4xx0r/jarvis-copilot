@@ -61,7 +61,7 @@ from agent.nous_rate_guard import (
     record_nous_rate_limit,
 )
 from agent.process_bootstrap import _install_safe_stdio
-from agent.prompt_caching import apply_anthropic_cache_control
+from agent.prompt_caching import apply_anthropic_cache_control, marker_retention
 from agent.retry_utils import jittered_backoff
 from agent.trajectory import has_incomplete_scratchpad
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
@@ -215,13 +215,17 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
         if (not _cur_sig) or (_stored_sig == _cur_sig):
             # Continuing session, toolset unchanged — reuse the exact prompt.
             agent._cached_system_prompt = stored_prompt
-            # Populate _prompt_sections for the per-message insights composition
-            # (the stored prompt is a flat string with no section labels).
+            # The two cache blocks of the stored prompt (shared stable block,
+            # per-agent tail) — so a rebuilt agent on an existing chat still
+            # reads the warm shared entry. Building the parts also fills
+            # _prompt_sections for the per-message insights composition.
             # Best-effort; does NOT touch the cached prompt the model sees.
+            agent._system_prompt_parts = None
             try:
-                if not getattr(agent, "_prompt_sections", None):
-                    from agent.system_prompt import build_system_prompt_parts
-                    build_system_prompt_parts(agent, system_message)
+                from agent.system_prompt import build_system_prompt_parts, split_stored_prompt
+                _p = build_system_prompt_parts(agent, system_message)
+                _stable = "\n\n".join(x for x in (_p.get("stable"), _p.get("context")) if x)
+                agent._system_prompt_parts = split_stored_prompt(stored_prompt, _stable)
             except Exception:
                 pass
             return
@@ -520,7 +524,16 @@ def run_conversation(
     messages.append(user_msg)
     current_turn_user_idx = len(messages) - 1
     agent._persist_user_message_idx = current_turn_user_idx
-    
+    # Skills and tools first: the skill / on-demand tools that fit this
+    # message, worked out ONCE per turn so every step of the turn sends the
+    # same user message (a hint that vanished after the skill loaded would
+    # break the cached prompt mid-turn).
+    try:
+        from agent.skill_matcher import hint_for as _skill_hint_for
+        _turn_skill_hint = _skill_hint_for(agent, user_message, messages[:current_turn_user_idx])
+    except Exception:
+        _turn_skill_hint = ""
+
     if not agent.quiet_mode:
         _print_preview = _summarize_user_message_for_log(user_message)
         agent._safe_print(f"💬 Starting conversation: '{_print_preview[:60]}{'...' if len(_print_preview) > 60 else ''}'")
@@ -879,6 +892,8 @@ def run_conversation(
                         _injections.append(_fenced)
                 if _plugin_user_context:
                     _injections.append(_plugin_user_context)
+                if _turn_skill_hint:
+                    _injections.append(_turn_skill_hint)
                 # Per-turn notes from the caller (voice rules, interrupt note,
                 # speaking device…) ride here instead of the system prompt so
                 # the cached prefix stays byte-stable across turns.
@@ -946,10 +961,23 @@ def run_conversation(
         # to reduce input token costs by ~75% on multi-turn
         # conversations.
         if agent._use_prompt_caching:
+            # The shared layout: the tools (marked at request build) and the
+            # stable system block are cached on their own, the volatile tail
+            # (memory, profile, ephemeral notes) after them.
+            _parts = getattr(agent, "_system_prompt_parts", None)
+            _system_parts = None
+            if isinstance(_parts, dict) and _parts.get("stable"):
+                _vol = _parts.get("volatile") or ""
+                if agent.ephemeral_system_prompt:
+                    _vol = (_vol + "\n\n" + agent.ephemeral_system_prompt).strip()
+                _system_parts = {"stable": _parts["stable"], "volatile": _vol}
             api_messages = apply_anthropic_cache_control(
                 api_messages,
                 cache_ttl=agent._cache_ttl,
                 native_anthropic=agent._use_native_cache_layout,
+                system_parts=_system_parts,
+                retention=marker_retention(agent),
+                reserve_for_tools=(agent.api_mode == "anthropic_messages" and bool(agent.tools)),
             )
 
         # Safety net: strip orphaned tool results / add stubs for missing

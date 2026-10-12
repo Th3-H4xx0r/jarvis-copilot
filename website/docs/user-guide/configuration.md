@@ -691,6 +691,43 @@ Points at a custom OpenAI-compatible endpoint. Uses `OPENAI_API_KEY` for auth.
 The summary model **must** have a context window at least as large as your main agent model's. The compressor sends the full middle section of the conversation to the summary model — if that model's context window is smaller than the main model's, the summarization call will fail with a context length error. When this happens, the middle turns are **dropped without a summary**, losing conversation context silently. If you override the model, verify its context length meets or exceeds your main model's.
 :::
 
+## Prompt Caching
+
+Every agent on a model starts its prompt with the same bytes: chat, voice, each harness node, background jobs, the memory/skill review, and schedule runs. Providers cache a prompt start they have just seen, so only the first agent pays for it in full. The rest of that window it's read back at a fraction of the price.
+
+The layout is fixed so the start stays identical:
+
+1. The **tools**, one sorted list per model.
+   - A harness node's tool setting (lean, all, none or a list) limits what that node may *call*; it doesn't change the list.
+   - Device tools come from the stored device catalogue, so a device connecting or dropping off doesn't change the list either.
+2. A **stable system block**: identity, guidance, the skills and on-demand tool catalogues, context files.
+3. A **per-agent tail**: memory, user profile, the date and the model line.
+4. The **chat history**, then this turn's notes. Harness node notes, voice rules and the skill hint ride the current message, never the system prompt.
+
+```yaml
+prompt_caching:
+  retention: long        # standard (≈5 min) | long (1 hour where the provider offers it)
+
+agent:
+  device_tools:
+    always_loaded_tokens: 8000   # budget for the device tools kept loaded (ranked by your last 30 days of calls)
+    pinned: [device_open_app]    # always loaded, whatever the ranking
+
+tools:
+  deferred: false        # true = Anthropic's server-side tool search instead of tool_search + tool_call
+```
+
+**Retention.** `retention` is generic, and each provider maps it to what it offers.
+
+- For providers that need explicit cache markers, such as the Anthropic API, `long` puts the 1-hour tier on the tools and the stable block. The newest message stays on 5 minutes.
+- Providers that cache identical prompts on their own ignore the setting.
+- Set it from Settings → Conversation → **Keep prompts cached** (web) or Settings → **Keep prompts cached** (iPhone).
+
+**Device tools.** Only the device tools you actually use stay loaded.
+
+- The ranking is recounted in the background once a day.
+- Every other device skill sits in the on-demand catalogue: the model finds it with `tool_search` and calls it through `tool_call`, so the tools list never changes mid-chat.
+
 ## Context Engine
 
 The context engine controls how conversations are managed when approaching the model's token limit. The built-in `compressor` engine uses lossy summarization (see [Context Compression](/docs/developer-guide/context-compression-and-caching)). Plugin engines can replace it with alternative strategies.

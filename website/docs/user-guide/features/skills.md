@@ -53,6 +53,27 @@ Level 2: skill_view(name, path)  → Specific reference file       (varies)
 
 The agent only loads the full skill content when it actually needs it.
 
+### Skill matching
+
+A model that only sees the skill catalogue often improvises instead of loading the skill that fits. So on every turn the server matches your message against your skills itself.
+
+- **What it matches.** Each skill's name, description, tags and any `triggers` phrases, plus the on-demand tool catalogue.
+- **What a match does.** A confident match adds one line to the turn, for example: *"The `morning-brief` skill matches this request. Load it with skill_view and follow its steps before answering."*
+- **How it scores.** Locally, with no model call.
+- **When it holds back.** It skips a skill already loaded in the chat. A single shared word is never enough: "set an alarm" doesn't pull in a door-alarm skill.
+- **New skills.** The index rebuilds itself when a skill is added or edited, so a new skill is matched from the next message.
+
+Give a skill extra phrasings to match with `triggers`, for example common voice mis-hearings or short forms:
+
+```yaml
+metadata:
+  jarviscopilot:
+    tags: [briefing, morning]
+    triggers: [morning breeze, brief me, start my day]
+```
+
+Turn it off with `skills.match.enabled: false`. `skills.match.threshold` (default 1.7) trades fewer, surer hints for more of them.
+
 ## SKILL.md Format
 
 ```markdown

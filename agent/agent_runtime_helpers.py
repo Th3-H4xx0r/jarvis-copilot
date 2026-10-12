@@ -1569,6 +1569,11 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
             )
         except Exception:
             pass
+        if block_message is None:
+            # A harness node's tool setting (agent/tool_policy.py): the
+            # claude-code engine dispatches every tool through here.
+            from agent.tool_policy import block_message as _policy_block
+            block_message = _policy_block(agent, function_name, function_args)
     if block_message is not None:
         return json.dumps({"error": block_message}, ensure_ascii=False)
 

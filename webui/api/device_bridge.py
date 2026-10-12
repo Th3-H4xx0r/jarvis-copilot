@@ -310,6 +310,36 @@ def all_device_skills() -> list[dict]:
     return out
 
 
+def catalog_device_skills() -> list[dict]:
+    """Every skill of every paired or connected device, reachable or not.
+
+    The agent's device tools are built from this, not from who is online right
+    now: a device dropping off (the Pod, a board, the Mac) must not change the
+    tools list — that list is the head of the cached prompt every agent on a
+    model shares. Calling an offline device's skill says it is offline.
+    """
+    out = list(all_device_skills())
+    seen = {e.get("device_id") for e in out}
+    try:
+        from api.pairing import list_devices
+        for d in list_devices():
+            did = d.get("id")
+            if not did or did in seen:
+                continue
+            for s in (d.get("skills") or []):
+                if isinstance(s, dict):
+                    out.append({"device_id": did, "device_name": d.get("name", "device"), **s})
+    except Exception as exc:
+        logger.debug("could not list remembered skills: %s", exc)
+    return out
+
+
+def reachable_device_ids() -> set[str]:
+    """Devices a skill call can reach right now (a live socket or a push
+    token) — the ones ``all_device_skills`` reports."""
+    return {e.get("device_id") for e in all_device_skills() if isinstance(e, dict) and e.get("device_id")}
+
+
 def all_device_notification_channels() -> list[dict]:
     """Merged notification channels from all reachable devices.
 

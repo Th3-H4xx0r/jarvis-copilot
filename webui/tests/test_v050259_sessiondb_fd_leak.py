@@ -59,37 +59,34 @@ def test_cached_agent_reuse_closes_old_session_db():
 # ── 2: source-level pin: LRU eviction path also closes _session_db ──────────
 
 
-def test_lru_eviction_closes_evicted_agent_session_db():
+def test_lru_eviction_closes_evicted_agent_session_db(monkeypatch):
     """SAME LEAK SHAPE on the LRU eviction path: when SESSION_AGENT_CACHE
-    grows beyond SESSION_AGENT_CACHE_MAX (50), the LRU agent gets popped via
-    `popitem(last=False)`. Without explicit close, its `_session_db` waits
-    on GC finalization which may never run on a long-lived server.
+    grows beyond SESSION_AGENT_CACHE_MAX, the LRU agent is dropped. Without
+    explicit close, its `_session_db` waits on GC finalization which may never
+    run on a long-lived server.
 
-    Fix: capture the evicted entry, close its agent's `_session_db` before
-    dropping the reference.
+    The eviction lives in `api.config.sweep_session_agents` (the streaming
+    worker sweeps when it caches a new agent); it must close every dropped
+    agent's `_session_db`. (Opus pre-release follow-up to PR #1421.)
     """
-    src = (REPO / "api" / "streaming.py").read_text(encoding="utf-8")
+    import api.config as cfg
 
-    # The eviction site uses popitem(last=False). The evicted entry must be
-    # captured (not discarded with `_`) and the agent's _session_db closed.
-    eviction_idx = src.find("Evicted LRU agent from cache")
-    assert eviction_idx != -1, "LRU eviction debug log missing"
-    # Look in a window around the eviction.
-    block = src[max(0, eviction_idx - 1500) : eviction_idx + 200]
+    class _DB:
+        closed = 0
 
-    # Negative pattern: the old `evicted_sid, _ = ...` discard form must NOT
-    # be present — that's the bug shape.
-    assert "evicted_sid, _ = SESSION_AGENT_CACHE.popitem" not in block, (
-        "LRU eviction must capture the evicted entry so the agent\'s "
-        "_session_db can be closed. The `evicted_sid, _ = ...` discard form "
-        "is the original bug shape."
-    )
+        def close(self):
+            self.closed += 1
 
-    # Positive pattern: must close on the evicted agent.
-    assert "_evicted_agent._session_db.close()" in block, (
-        "LRU eviction must close the evicted agent\'s _session_db. "
-        "(Opus pre-release follow-up to PR #1421.)"
-    )
+    dbs = [_DB(), _DB(), _DB()]
+    cache = cfg._AgentCache()
+    for i, db in enumerate(dbs):
+        cache[f"sid-{i}"] = (type("A", (), {"_session_db": db})(), "sig")
+    monkeypatch.setattr(cfg, "SESSION_AGENT_CACHE", cache)
+    monkeypatch.setattr(cfg, "SESSION_AGENT_CACHE_MAX", 2)
+
+    assert cfg.sweep_session_agents() == 1
+    assert "sid-0" not in cache
+    assert [db.closed for db in dbs] == [1, 0, 0]
 
 
 # ── 3: behavioral: SessionDB.close() is idempotent + safe ──────────────────

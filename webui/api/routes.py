@@ -572,89 +572,88 @@ def _cron_output_content_window(text: str, limit: int = _CRON_OUTPUT_CONTENT_LIM
 
 
 
-def _cron_job_for_api(job: dict) -> dict:
+def _cron_harness_names():
+    """``{id: name}`` of the active profile's harnesses (None when unreadable)."""
+    try:
+        from api.harness_store import store_for_request
+
+        return store_for_request().names()
+    except Exception:
+        logger.debug("cron: harness list unavailable", exc_info=True)
+        return None
+
+
+def _cron_job_for_api(job: dict, harness_names=None) -> dict:
     """Return a cron job payload with optional UI settings normalized.
 
-    Legacy jobs intentionally persist without ``profile`` so they keep the
-    scheduler's server-default behavior. The API still returns ``profile: None``
-    so the UI can label that state explicitly instead of guessing.
+    ``runs_on`` says what the schedule runs on — ``{kind: default|model|harness,
+    label, value}`` (``value`` is the editor choice: ``default``,
+    ``model:@provider:model`` or ``harness:<id>``). Schedules no longer carry a
+    per-job profile.
 
     ``toast_notifications`` is a WebUI preference for completion toasts. Legacy
     jobs default to enabled so existing behavior is preserved unless a job is
     explicitly muted.
     """
     payload = dict(job or {})
-    payload.setdefault("profile", None)
+    payload.pop("profile", None)
     payload["toast_notifications"] = payload.get("toast_notifications") is not False
+    try:
+        from cron.jobs import runs_on
+
+        names = harness_names if harness_names is not None else _cron_harness_names()
+        payload["runs_on"] = runs_on(payload, harness_names=names)
+    except Exception:
+        logger.debug("cron: runs_on summary unavailable", exc_info=True)
     return payload
 
 
 def _cron_jobs_for_api(jobs) -> list[dict]:
-    return [_cron_job_for_api(job) for job in (jobs or [])]
+    names = _cron_harness_names()
+    return [_cron_job_for_api(job, names) for job in (jobs or [])]
 
 
-def _available_cron_profile_names() -> set[str]:
-    from api.profiles import list_profiles_api
+def _cron_runs_on_fields(body: dict, current_harness_id=None) -> dict:
+    """``model`` / ``provider`` / ``harness_id`` from a create or update body.
 
-    names = {"default"}
-    for profile in list_profiles_api():
-        try:
-            name = str(profile.get("name") or "").strip()
-        except AttributeError:
-            continue
-        if name:
-            names.add(name)
-    return names
-
-
-def _normalize_cron_profile_value(value) -> str | None:
-    if value is None:
-        return None
-    profile = str(value).strip()
-    if not profile:
-        return None
-    if profile not in _available_cron_profile_names():
-        raise ValueError(f"Unknown profile: {profile}")
-    return profile
-
-
-def _profile_home_for_cron_job(job: dict):
-    """Resolve the execution profile for a cron job, with graceful fallback.
-
-    A missing/blank profile preserves legacy server-default behavior. If a job
-    points at a profile that was deleted after save, fall back to the active
-    server profile and log a warning instead of crashing the Run Now path.
+    A key that is present is passed on even when null or "", so an editor can
+    clear it (Default = all three cleared). An unknown harness raises
+    ValueError — unless it is the one the job already has (``current_harness_id``):
+    an edit of a job whose harness was deleted resends it, and the run falls
+    back to Default anyway.
     """
-    from api.profiles import get_active_hermes_home, get_hermes_home_for_profile
+    out = {}
+    for key in ("model", "provider", "harness_id"):
+        if key in body:
+            value = body.get(key)
+            out[key] = str(value).strip() if value is not None else None
+    harness_id = out.get("harness_id")
+    if harness_id and harness_id != (current_harness_id or None):
+        names = _cron_harness_names()
+        if names is not None and harness_id not in names:
+            raise ValueError(f"Unknown harness: {harness_id}")
+    return out
 
-    raw = str((job or {}).get("profile") or "").strip()
-    if not raw:
-        return get_active_hermes_home()
-    if raw not in _available_cron_profile_names():
-        logger.warning(
-            "Cron job %s references missing profile %r; falling back to server default",
-            (job or {}).get("id", "?"), raw,
-        )
-        return get_active_hermes_home()
-    return get_hermes_home_for_profile(raw)
 
+def _cron_job_subprocess_main(job, cron_home, result_queue):
+    """Run one cron job inside a child process pinned to its store owner's home.
 
-def _cron_job_subprocess_main(job, execution_profile_home, result_queue):
-    """Run one cron job inside a child process pinned to a profile home."""
+    A harness run's after-node results (``job["_after_deliveries"]``) travel
+    back with the result so the parent delivers them after the answer."""
     try:
         def _run():
             from cron.scheduler import run_job
 
             return run_job(job)
 
-        if execution_profile_home is None:
+        if cron_home is None:
             result = _run()
         else:
             from api.profiles import cron_profile_context_for_home
 
-            with cron_profile_context_for_home(execution_profile_home):
+            with cron_profile_context_for_home(cron_home):
                 result = _run()
-        result_queue.put(("ok", result))
+        result_queue.put(("ok", result, list(job.get("_after_deliveries") or [])))
     except BaseException as exc:  # pragma: no cover - surfaced in parent
         import traceback
 
@@ -678,7 +677,7 @@ def _cron_subprocess_result_timeout_seconds(job):
     return 6 * 60 * 60.0
 
 
-def _run_cron_job_in_profile_subprocess(job, execution_profile_home):
+def _run_cron_job_in_profile_subprocess(job, cron_home):
     """Execute cron.scheduler.run_job without holding the parent cron env lock.
 
     cron.scheduler/cron.jobs still rely on process-global HERMES_HOME and module
@@ -694,7 +693,7 @@ def _run_cron_job_in_profile_subprocess(job, execution_profile_home):
     result_queue = ctx.Queue(maxsize=1)
     process = ctx.Process(
         target=_cron_job_subprocess_main,
-        args=(job, execution_profile_home, result_queue),
+        args=(job, cron_home, result_queue),
     )
     process.start()
 
@@ -738,6 +737,8 @@ def _run_cron_job_in_profile_subprocess(job, execution_profile_home):
         result_queue.join_thread()
 
     if status == "ok":
+        if len(payload) > 1 and payload[1]:
+            job["_after_deliveries"] = list(payload[1])
         return payload[0]
 
     message = payload[0]
@@ -747,13 +748,12 @@ def _run_cron_job_in_profile_subprocess(job, execution_profile_home):
     raise RuntimeError(message)
 
 
-def _run_cron_tracked(job, profile_home=None, execution_profile_home=None):
+def _run_cron_tracked(job, profile_home=None):
     """Wrapper that tracks running state around cron.scheduler.run_job.
 
-    ``profile_home`` is the cron store that owns the job row/output metadata.
-    ``execution_profile_home`` is the selected per-job profile used to load
-    agent config/.env while running. When no job profile is selected, both homes
-    are the same and legacy server-default behavior is preserved.
+    ``profile_home`` is the cron store that owns the job: the run reads its
+    config/.env, and the job row/output metadata are written back there. What
+    the job runs on (Default, a model, a harness) is the job's own setting.
     """
     import importlib
 
@@ -763,9 +763,9 @@ def _run_cron_tracked(job, profile_home=None, execution_profile_home=None):
 
     _silent_marker = getattr(_cron_scheduler, "SILENT_MARKER", "[SILENT]")
     _deliver_result = getattr(_cron_scheduler, "_deliver_result", None)
+    _deliver_after_results = getattr(_cron_scheduler, "deliver_after_results", None)
 
     job_id = job.get("id", "")
-    execution_profile_home = execution_profile_home or profile_home
 
     def _with_cron_home(home, fn):
         if home is None:
@@ -777,12 +777,12 @@ def _run_cron_tracked(job, profile_home=None, execution_profile_home=None):
 
     try:
         success, output, final_response, error = _run_cron_job_in_profile_subprocess(
-            job, execution_profile_home
+            job, profile_home
         )
 
         # Persist output, deliver the same content the scheduled cron path would
-        # send, and write run metadata back to the job's owning cron store even
-        # when the selected execution profile is different.
+        # send (a harness run's after-node results follow the answer), and write
+        # run metadata back to the job's owning cron store.
         def _persist_success():
             save_job_output(job_id, output)
 
@@ -802,6 +802,12 @@ def _run_cron_tracked(job, profile_home=None, execution_profile_home=None):
                 except Exception as de:
                     delivery_error = str(de)
                     logger.error("Delivery failed for manual cron job %s: %s", job_id, de)
+            if success and _deliver_after_results is not None:
+                try:
+                    delivery_error = _deliver_after_results(job) or delivery_error
+                except Exception as de:
+                    delivery_error = delivery_error or str(de)
+                    logger.error("After-node delivery failed for manual cron job %s: %s", job_id, de)
 
             # Match the scheduled cron path: an apparently successful run with no
             # final response should not leave the job looking healthy.
@@ -3797,6 +3803,10 @@ def handle_get(handler, parsed) -> bool:
         from api.speech_config import handle_speech_get
         if handle_speech_get(handler, parsed):
             return True
+    if parsed.path.startswith("/api/cache/"):
+        from api.cache_config import handle_cache_get
+        if handle_cache_get(handler, parsed):
+            return True
     if parsed.path.startswith("/api/compression/"):
         from api.compression_config import handle_compression_get
         if handle_compression_get(handler, parsed):
@@ -4961,6 +4971,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path.startswith("/api/speech/"):
         from api.speech_config import handle_speech_post
         if handle_speech_post(handler, parsed, body):
+            return True
+    if parsed.path.startswith("/api/cache/"):
+        from api.cache_config import handle_cache_post
+        if handle_cache_post(handler, parsed, body):
             return True
     if parsed.path.startswith("/api/compression/"):
         from api.compression_config import handle_compression_post
@@ -6909,6 +6923,10 @@ def handle_put(handler, parsed) -> bool:
     if parsed.path.startswith("/api/speech/"):
         from api.speech_config import handle_speech_put
         if handle_speech_put(handler, parsed, body):
+            return True
+    if parsed.path.startswith("/api/cache/"):
+        from api.cache_config import handle_cache_put
+        if handle_cache_put(handler, parsed, body):
             return True
     if parsed.path.startswith("/api/compression/"):
         from api.compression_config import handle_compression_put
@@ -9748,7 +9766,7 @@ def _handle_cron_create(handler, body):
     try:
         from cron.jobs import create_job, update_job
 
-        profile = _normalize_cron_profile_value(body.get("profile"))
+        runs_on_fields = _cron_runs_on_fields(body)
         toast_notifications = body.get("toast_notifications") is not False
         job = create_job(
             prompt=body["prompt"],
@@ -9756,12 +9774,12 @@ def _handle_cron_create(handler, body):
             name=body.get("name") or None,
             deliver=body.get("deliver") or "local",
             skills=body.get("skills") or [],
-            model=body.get("model") or None,
+            model=runs_on_fields.get("model") or None,
+            provider=runs_on_fields.get("provider") or None,
+            harness_id=runs_on_fields.get("harness_id") or None,
             integration=_known_integration(body.get("integration")),
         )
         post_create_updates = {}
-        if profile is not None:
-            post_create_updates["profile"] = profile
         if not toast_notifications:
             post_create_updates["toast_notifications"] = False
         if post_create_updates:
@@ -9795,20 +9813,22 @@ def _handle_cron_update(handler, body):
         require(body, "job_id")
     except ValueError as e:
         return bad(handler, str(e))
-    from cron.jobs import update_job
+    from cron.jobs import get_job, update_job
 
     try:
         updates = {}
         for k, v in body.items():
-            if k == "job_id":
+            # The per-job profile is gone; runs_on is derived, never stored.
+            if k in ("job_id", "profile", "runs_on", "model", "provider", "harness_id"):
                 continue
-            if k == "profile":
-                updates[k] = _normalize_cron_profile_value(v)
-            elif v is not None:
+            if v is not None:
                 updates[k] = v
+        # Sent explicitly so an editor can clear them (Default clears all three).
+        stored = get_job(body["job_id"]) or {}
+        updates.update(_cron_runs_on_fields(body, current_harness_id=stored.get("harness_id")))
+        job = update_job(body["job_id"], updates)
     except ValueError as e:
         return bad(handler, str(e))
-    job = update_job(body["job_id"], updates)
     if not job:
         return bad(handler, "Job not found", 404)
     return j(handler, {"ok": True, "job": _cron_job_for_api(job)})
@@ -9857,8 +9877,7 @@ def _handle_cron_run(handler, body):
     from api.profiles import get_active_hermes_home
 
     _profile_home = get_active_hermes_home()
-    _execution_profile_home = _profile_home_for_cron_job(job)
-    threading.Thread(target=_run_cron_tracked, args=(job, _profile_home, _execution_profile_home), daemon=True).start()
+    threading.Thread(target=_run_cron_tracked, args=(job, _profile_home), daemon=True).start()
     return j(handler, {"ok": True, "job_id": job_id, "status": "running"})
 
 

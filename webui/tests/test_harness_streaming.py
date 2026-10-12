@@ -71,11 +71,35 @@ def test_node_override_runs_the_background_nodes_own_settings(tmp_path, monkeypa
     assert plan.instructions == "Be thorough." and plan.harness_id != "single"
 
 
-def test_handoff_tool_is_attached_before_device_tools_refresh():
+def _tool(name):
+    return {"type": "function", "function": {"name": name, "parameters": {}}}
+
+
+def test_every_agent_gets_one_sorted_list_with_handoff_once():
+    """One canonical tools list per model: `handoff` is always there (refused
+    where no Background node is wired) and the order never depends on how the
+    toolsets resolved, so chats, nodes and jobs share the cached prompt."""
+    from api.streaming import _ensure_canonical_tools
+    a = SimpleNamespace(tools=[_tool("web_search"), _tool("device_open_app"), _tool("clarify")],
+                        valid_tool_names={"web_search", "device_open_app", "clarify"})
+    b = SimpleNamespace(tools=[_tool("clarify"), _tool("web_search"), _tool("device_open_app")],
+                        valid_tool_names={"web_search", "device_open_app", "clarify"})
+    _ensure_canonical_tools(a)
+    _ensure_canonical_tools(b)
+    names = [t["function"]["name"] for t in a.tools]
+    assert names == sorted(names) and names.count("handoff") == 1
+    assert "handoff" in a.valid_tool_names
+    assert json.dumps(a.tools, sort_keys=True) == json.dumps(b.tools, sort_keys=True)
+    _ensure_canonical_tools(a)  # once per agent: a warm agent's list never moves
+    assert [t["function"]["name"] for t in a.tools] == names
+
+
+def test_node_tool_setting_no_longer_changes_the_toolsets():
     import inspect
     import api.streaming as st
     src = inspect.getsource(st._run_agent_streaming)
-    assert src.index('_reg.get_definitions({"handoff"})') < src.index("_refresh_device_tools(agent)")
+    assert "load_all_deferred" not in src
+    assert "_refresh_device_tools(agent)" not in src
 
 
 def test_only_real_harness_claude_nodes_are_kept_warm():

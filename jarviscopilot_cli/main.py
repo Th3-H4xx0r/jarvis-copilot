@@ -11018,8 +11018,12 @@ def main():
         help="Absolute path for the job to run from. Injects AGENTS.md / CLAUDE.md / .cursorrules from that directory and uses it as the cwd for terminal/file/code_exec tools. Omit to preserve old behaviour (no project context files).",
     )
     cron_create.add_argument(
-        "--profile",
-        help="JarvisCopilot profile name to run the job under. Use 'default' for the root profile. Named profiles must already exist. Omit to preserve the scheduler's existing profile.",
+        "--model",
+        help="Model the job runs on, e.g. '@anthropic-api:claude-haiku-5-5'. Omit (with no --harness) to run on the server's default model.",
+    )
+    cron_create.add_argument(
+        "--harness",
+        help="Harness (name or id) to run the job through instead of one model.",
     )
 
     # cron edit
@@ -11086,8 +11090,12 @@ def main():
         help="Absolute path for the job to run from (injects AGENTS.md etc. and sets terminal cwd). Pass empty string to clear.",
     )
     cron_edit.add_argument(
-        "--profile",
-        help="JarvisCopilot profile name to run the job under. Use 'default' for the root profile. Pass empty string to clear.",
+        "--model",
+        help="Run the job on this model (clears its harness). Pass empty string to clear (server default).",
+    )
+    cron_edit.add_argument(
+        "--harness",
+        help="Run the job through this harness, by name or id (clears its model). Pass empty string to clear.",
     )
 
     # lifecycle actions

@@ -1,232 +1,55 @@
 """Harness runner: which node answers this turn, and what runs after it.
 
-``resolve_harness`` picks the harness (the turn's requested one, else the
-chat's own, else the surface default; an old client's explicit model runs
-as Single). ``plan_turn`` walks the graph from the Message node through any
-Route nodes to the Answer node the user waits on, and lists the Background /
-Review nodes wired to run after it.
+Planning lives in ``agent.harness.planner`` (the scheduler plans schedule runs
+with it too) and is re-exported here: ``resolve_harness`` picks the harness
+(the turn's requested one, else the chat's own, else the surface default; an
+old client's explicit model runs as Single). ``plan_turn`` walks the graph from
+the Message node through any Route nodes to the Answer node the user waits on,
+and lists the Background / Review nodes wired to run after it. A model Route
+asks through ``api.harness_llm`` (the web UI's model resolution).
 """
 from __future__ import annotations
 
 import logging
-import re
+import re  # noqa: F401
 import threading
-import time
-from dataclasses import dataclass, field
+import time  # noqa: F401
+from dataclasses import dataclass, field  # noqa: F401
 
+import api.config  # noqa: F401  (puts the JarvisCopilot checkout on sys.path for agent.*)
+from agent.harness import planner as _planner
+from agent.harness.planner import (  # noqa: F401  (re-exported)
+    _NONE,
+    _NONE_NOTE,
+    _ROUTE_QUESTION,
+    SESSION_MODEL,
+    RouteDecision,
+    TurnPlan,
+    _model_and_provider,
+    _parse_label,
+    _route_choices,
+    _route_prompt,
+    _rule_matches,
+    resolve_harness,
+    single_harness,
+)
 from api.harness_schema import parse_when, validate_harness
 
 logger = logging.getLogger(__name__)
-SESSION_MODEL = "@session"
-
-
-def single_harness() -> dict:
-    from api.harness_builtins import builtin_harnesses
-    return next(b for b in builtin_harnesses(SESSION_MODEL) if b["id"] == "single")
-
-
-@dataclass
-class TurnPlan:
-    harness_id: str
-    harness_name: str
-    node_id: str
-    model: str
-    provider: str | None
-    tools: object = "lean"
-    instructions: str = ""
-    max_steps: int | None = None
-    fallback_model: str | None = None
-    handoff_node: dict | None = None
-    after: list = field(default_factory=list)
-    note: str | None = None
-    surface: str = "chat"
-    route: dict | None = None
-
-    def cache_key(self, session_id: str) -> str:
-        """Each node keeps its own warm agent (and so its own prompt cache)."""
-        if self.harness_id == "single":
-            return session_id
-        return f"{session_id}#{self.harness_id}:{self.node_id}"
-
-    def meta(self) -> dict:
-        out = {"harness": self.harness_id, "harness_name": self.harness_name, "node": self.node_id,
-               "model": self.model, "provider": self.provider, "kind": "answer", "note": self.note}
-        if self.route:
-            out["route"] = self.route
-        return out
-
-
-def _model_and_provider(ref, session_model, session_provider):
-    if not ref or ref == SESSION_MODEL:
-        return session_model, session_provider
-    from api.config import split_provider_qualified_model
-    q = split_provider_qualified_model(ref)
-    return (ref, q[0]) if q else (ref, None)
-
-
-def resolve_harness(store, *, session, surface, requested_id, explicit_model):
-    """Return ``(doc, note)``; ``note`` explains a fallback to Single."""
-    if requested_id:
-        hid = requested_id
-    elif explicit_model:
-        return single_harness(), None
-    else:
-        hid = getattr(session, "harness_id", None) or store.get_assignments().get(surface) or "single"
-    doc = store.get(hid)
-    if doc is None:
-        return single_harness(), f"harness '{hid}' not found; ran Single model"
-    errors = validate_harness(doc, strict=False)[1]
-    if errors:
-        return single_harness(), f"harness '{hid}' is invalid ({errors[0]['message']}); ran Single model"
-    return doc, None
-
-
-def _rule_matches(rule, text, surface, has_attachments):
-    match, value = rule.get("match"), rule.get("value")
-    if match == "keywords":
-        low = (text or "").lower()
-        words = (w.strip().lower() for w in str(value or "").split(","))
-        return any(re.search(rf"\b{re.escape(w)}\b", low) for w in words if w)
-    if match == "regex":
-        try:
-            return re.search(str(value or ""), text or "", re.I) is not None
-        except re.error:
-            return False
-    if match == "surface":
-        return str(value or "").strip().lower() == (surface or "")
-    if match == "has_attachment":
-        return bool(has_attachments) == (True if value is None else bool(value))
-    return False
-
-
-_NONE = "none"
-_NONE_NOTE = "None of the other routes fit."
-_ROUTE_QUESTION = "Which route should handle the user's message?"
-
-
-@dataclass
-class RouteDecision:
-    """What a Route node picked; ``label`` None means the default wire."""
-    label: str | None
-    by: str  # rules · model · decision
-    model: str | None = None
-    confidence: float | None = None
-    ms: int = 0
-    error: str | None = None
-
-
-def _route_choices(node):
-    """``[(label, description|None)]`` (unique) plus a "none" option (→ default wire)."""
-    labels = list(dict.fromkeys(node.get("labels") or []))
-    notes = node.get("label_descriptions") or {}
-    out = [(l, notes.get(l) or None) for l in labels]
-    if not any(l.lower() == _NONE for l in labels):
-        out.append((_NONE, _NONE_NOTE))
-    return out
-
-
-def _route_prompt(node, text):
-    lines = [node.get("instructions") or "Pick the route that should handle the user's message.", "", "Routes:"]
-    lines += [f"- {v}: {d}" if d else f"- {v}" for v, d in _route_choices(node)]
-    lines += ["", "Reply with the route name only.", "", "Message: " + (text or "")[:1500]]
-    return "\n".join(lines)
-
-
-def _parse_label(out, labels):
-    """The label a chat model replied with: exact first, else the first label
-    named as a whole word; a reply starting "none" means the default wire."""
-    o = (out or "").strip().strip(" .\"'`*").lower()
-    if o.startswith(_NONE) and not any(l.lower().startswith(_NONE) for l in labels):
-        return None
-    exact = next((l for l in labels if l.lower() == o), None)
-    if exact:
-        return exact
-    return next((l for l in sorted(labels, key=len, reverse=True)
-                 if re.search(rf"\b{re.escape(l.lower())}\b", o)), None)
 
 
 def classify_with_model(node, text, timeout=1.5):
-    """Ask the Route's model which label fits. Never raises; a slow or failing
-    router means the default wire, with the reason in ``error``. A decision
-    model (Celeris-1 Decision) gets one choice question; a chat model a
-    one-line prompt with reasoning off."""
-    ref = str(node.get("model") or "")
-    labels = node.get("labels") or []
-    try:
-        from api.config import split_provider_qualified_model
-        from providers import is_decision_model
-        q = split_provider_qualified_model(ref)
-        decision = bool(q) and is_decision_model(q[0], q[1])
-    except Exception:
-        q, decision = None, False
-    by = "decision" if decision else "model"
-    if not any(l.lower() != _NONE for l in labels):
-        return RouteDecision(None, by, ref, error="no labels to pick from")
-    result = {}
-
-    def _run():
-        try:
-            if decision:
-                from agent import decision_client
-                d = decision_client.choose(
-                    q[0], q[1], instructions=node.get("instructions") or _ROUTE_QUESTION,
-                    choices=_route_choices(node), text=(text or "")[:4000], timeout=timeout)
-                result["label"] = next((l for l in labels if l == d.choice), None)
-                result["confidence"] = d.confidence
-            else:
-                from api import harness_llm
-                out = harness_llm.one_shot_completion(ref, _route_prompt(node, text), max_tokens=8,
-                                                      reasoning_off=True)
-                result["label"] = _parse_label(out, labels)
-        except Exception as exc:
-            logger.debug("harness: model route failed", exc_info=True)
-            result["error"] = str(exc)[:160] or type(exc).__name__
-
-    started = time.monotonic()
-    t = threading.Thread(target=_run, daemon=True, name="jc-harness-route")
-    t.start()
-    t.join(timeout)
-    ms = int((time.monotonic() - started) * 1000)
-    if t.is_alive():
-        return RouteDecision(None, by, ref, None, ms, "timed out")
-    return RouteDecision(result.get("label"), by, ref, result.get("confidence"), ms, result.get("error"))
+    """Ask the Route's model which label fits (see the core); a chat-model
+    router answers through ``api.harness_llm.one_shot_completion``."""
+    from api import harness_llm
+    return _planner.classify_with_model(
+        node, text, timeout, one_shot=lambda *a, **k: harness_llm.one_shot_completion(*a, **k))
 
 
 def plan_turn(doc, *, session_model, session_provider, text, surface, has_attachments, classify=None):
-    nodes = {n["id"]: n for n in doc["nodes"]}
-    out = {}
-    for e in doc["edges"]:
-        out.setdefault(e["from"], []).append(e)
-    nid = next(n["id"] for n in doc["nodes"] if n["type"] == "message")
-    hops = 0
-    route = None
-    while nodes[nid]["type"] != "answer" and hops < len(nodes):
-        hops += 1
-        node, edges = nodes[nid], out.get(nid, [])
-        if node["type"] == "route":
-            if node.get("by") == "model":
-                d = (classify or classify_with_model)(node, text)
-            else:
-                d = RouteDecision(next((r["label"] for r in node.get("rules") or []
-                                        if _rule_matches(r, text, surface, has_attachments)), None), "rules")
-            wired = next((e for e in edges if d.label and e["when"] == f"label:{d.label}"), None)
-            chosen = wired or next(e for e in edges if e["when"] == "default")
-            route = {"node": node["id"], "label": d.label if wired else "default", "by": d.by,
-                     "model": d.model, "confidence": d.confidence, "ms": d.ms, "error": d.error}
-            nid = chosen["to"]
-        else:
-            nid = edges[0]["to"]
-    answer = nodes[nid]
-    model, provider = _model_and_provider(answer.get("model"), session_model, session_provider)
-    handoff = next((nodes[e["to"]] for e in out.get(nid, []) if e["when"] == "handoff"), None)
-    after = [(nodes[e["to"]], e["when"]) for e in out.get(nid, [])
-             if parse_when(e["when"])[0] in ("always", "slow", "tools")
-             and nodes[e["to"]]["type"] in ("background", "review")]
-    return TurnPlan(harness_id=doc["id"], harness_name=doc.get("name") or doc["id"], node_id=nid,
-                    model=model, provider=provider, tools=answer.get("tools", "lean"),
-                    instructions=answer.get("instructions", ""), max_steps=answer.get("max_steps"),
-                    fallback_model=answer.get("fallback_model"), handoff_node=handoff, after=after,
-                    surface=surface, route=route)
+    return _planner.plan_turn(doc, session_model=session_model, session_provider=session_provider,
+                              text=text, surface=surface, has_attachments=has_attachments,
+                              classify=classify or classify_with_model)
 
 
 # ── after the answer: hand-off, background and review jobs ───────────────────
@@ -551,58 +374,123 @@ def hidden_turn_prompt(summary, messages):
     return "\n\n".join(parts)
 
 
+# ── a Background node's warm worker ─────────────────────────────────────────
+# Each (chat, node) runs its jobs on one hidden worker session with a stable id,
+# so the streaming worker's agent cache keeps that node's agent -- and its prompt
+# cache -- warm from job to job (the cache's idle TTL and LRU cap bound it). A
+# job starts from the chat's COMPACTED context, what the chat's own model sees:
+# never the display transcript, never an earlier job's working steps (the chat
+# already holds their results). The worker lives in memory only, is never
+# listed, and two jobs for one worker take turns on it.
+
+_WORKER_LOCKS: dict = {}
+_WORKER_LOCKS_LOCK = threading.Lock()
+
+
+def worker_session_id(parent_sid, node_id):
+    """The hidden session a chat's Background node runs its jobs on."""
+    from api.config import WORKER_SESSION_SEP
+    return f"{parent_sid}{WORKER_SESSION_SEP}{node_id or 'background'}"
+
+
+def _worker_lock(worker_sid):
+    with _WORKER_LOCKS_LOCK:
+        return _WORKER_LOCKS.setdefault(worker_sid, threading.Lock())
+
+
+def _acquire_worker(lock, session_id, job_id):
+    """Wait for the worker's previous job to finish. False when this job is
+    stopped while it waits (it then never runs)."""
+    if lock.acquire(blocking=False):
+        return True
+    if job_id:
+        _record_job(session_id, job_id, activity="Waiting for the previous job")
+    while not lock.acquire(timeout=0.5):
+        if _stop_requested(job_id):
+            return False
+    if job_id:
+        _record_job(session_id, job_id, activity="")
+    return True
+
+
+def _rewind_worker_agents(worker_sid):
+    """A job starts from the chat's context, not where the last job left off.
+    The agent's state.db flush cursor (run_agent._flush_messages_to_session_db
+    writes from max(len(history), cursor)) is still past the end of the last
+    job's longer history, so without a rewind the start of every later job --
+    its prompt and first tool calls -- never reaches state.db (session search,
+    the device-tool usage ranking). The worker's lock is held: no job runs."""
+    from api.config import SESSION_AGENT_CACHE, SESSION_AGENT_CACHE_LOCK
+    with SESSION_AGENT_CACHE_LOCK:
+        agents = [e[0] for k, e in SESSION_AGENT_CACHE.items()
+                  if (k == worker_sid or str(k).startswith(f"{worker_sid}#"))
+                  and isinstance(e, tuple) and e]
+    for agent in agents:
+        agent._last_flushed_db_idx = 0
+
+
 def _run_hidden_turn(node, session_id, summary, job_id=None):
-    """The node's model with the parent chat's full history, on a throwaway session."""
+    """The node's model on the chat's compacted context, on the node's warm worker."""
     import uuid as _uuid
-    from api.config import (SESSION_DIR, STREAMS, STREAMS_LOCK, create_stream_channel,
-                            split_provider_qualified_model)
-    from api.models import Session, new_session
+    from api.config import (LOCK, SESSIONS, STREAMS, STREAMS_LOCK, create_stream_channel,
+                            evict_session_agents, split_provider_qualified_model)
+    from api.models import Session, WorkerSession
     from api.streaming import _run_agent_streaming
     if _stop_requested(job_id):
         return ""
-    parent = Session.load(session_id)
-    q = split_provider_qualified_model(node.get("model") or "")
-    model, provider = node.get("model"), (q[0] if q else None)
-    hidden = new_session(workspace=parent.workspace, model=model, model_provider=provider,
-                         profile=getattr(parent, "profile", None))
-    hidden.title = f"harness: {node.get('id')}"
-    hidden.messages = _copy.deepcopy(getattr(parent, "messages", None) or [])
-    copied = len(hidden.messages)
-    stream_id = _uuid.uuid4().hex
-    hidden.active_stream_id = stream_id
-    hidden._turn_node_override = node   # its own tools + instructions, not Single's
-    hidden.save()
-    with STREAMS_LOCK:
-        STREAMS[stream_id] = channel = create_stream_channel()
-    watching = threading.Event()
-    if job_id:
-        # The card's live step, and the stream its Stop button cancels.
-        from agent import escalation
-        escalation.update_job(job_id, stream_id=stream_id)
-        threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
-                         daemon=True, name=f"jc-harness-job-{job_id}").start()
-    # The current turn's message isn't in parent.messages until the turn ends.
-    pending = getattr(parent, "pending_user_message", None)
-    history = list(getattr(parent, "messages", None) or [])
-    if pending:
-        history.append({"role": "user", "content": pending})
-    prompt = hidden_turn_prompt(summary, history)
-    # The user's Mac browser: the background job follows the parent turn's
-    # decision, not the hand-off note's wording (agent/mac_browser_gate.py).
-    try:
-        from agent import mac_browser_gate
-        mac_browser_gate.pin(hidden.session_id, mac_browser_gate.allowed(session_id))
-    except Exception:
-        logger.debug("mac browser gate: hidden turn not pinned", exc_info=True)
+    wid = worker_session_id(session_id, node.get("id"))
+    lock = _worker_lock(wid)
+    if not _acquire_worker(lock, session_id, job_id):
+        return ""
+    worker, stream_id, watching = None, None, threading.Event()
     try:
         if _stop_requested(job_id):
             return ""
-        _run_agent_streaming(hidden.session_id, prompt, model, parent.workspace, stream_id, None,
+        parent = Session.load(session_id)
+        if parent is None:
+            raise RuntimeError("the chat is gone")
+        q = split_provider_qualified_model(node.get("model") or "")
+        model, provider = node.get("model"), (q[0] if q else None)
+        context = getattr(parent, "context_messages", None) or getattr(parent, "messages", None) or []
+        worker = WorkerSession(session_id=wid, title=f"harness: {node.get('id')}",
+                               workspace=parent.workspace, model=model, model_provider=provider,
+                               profile=getattr(parent, "profile", None),
+                               messages=_copy.deepcopy(context), context_messages=_copy.deepcopy(context))
+        seeded = len(worker.messages)
+        stream_id = _uuid.uuid4().hex
+        worker.active_stream_id = stream_id
+        worker._turn_node_override = node   # its own tools + instructions, not Single's
+        with LOCK:
+            SESSIONS[wid] = worker
+        with STREAMS_LOCK:
+            STREAMS[stream_id] = channel = create_stream_channel()
+        if job_id:
+            # The card's live step, and the stream its Stop button cancels.
+            from agent import escalation
+            escalation.update_job(job_id, stream_id=stream_id)
+            threading.Thread(target=_watch_progress, args=(channel.subscribe(), session_id, job_id, watching),
+                             daemon=True, name=f"jc-harness-job-{job_id}").start()
+        # The current turn's message isn't in parent.messages until the turn ends.
+        pending = getattr(parent, "pending_user_message", None)
+        history = list(getattr(parent, "messages", None) or [])
+        if pending:
+            history.append({"role": "user", "content": pending})
+        prompt = hidden_turn_prompt(summary, history)
+        # The user's Mac browser: the background job follows the parent turn's
+        # decision, not the hand-off note's wording (agent/mac_browser_gate.py).
+        try:
+            from agent import mac_browser_gate
+            mac_browser_gate.pin(wid, mac_browser_gate.allowed(session_id))
+        except Exception:
+            logger.debug("mac browser gate: hidden turn not pinned", exc_info=True)
+        if _stop_requested(job_id):
+            return ""
+        _rewind_worker_agents(wid)
+        _run_agent_streaming(wid, prompt, model, parent.workspace, stream_id, None,
                              model_provider=provider)
-        reloaded = Session.load(hidden.session_id)
-        # Only this run's messages: the copied history ends with the parent's
+        # Only this run's messages: the seeded history ends with the chat's
         # previous answer, which must never come back as this node's reply.
-        added = ((reloaded.messages if reloaded else None) or [])[copied:]
+        added = (worker.messages or [])[seeded:]
         for m in reversed(added):
             if isinstance(m, dict) and m.get("role") == "assistant":
                 content = str(m.get("content") or "").strip()
@@ -613,21 +501,28 @@ def _run_hidden_turn(node, session_id, summary, job_id=None):
         return ""
     finally:
         watching.set()
+        # The worker's row and stream channel go; its cached agent stays warm.
+        # Compression may have given the worker a new id mid-job: that agent no
+        # longer matches the worker id, so it goes too.
         try:
-            (SESSION_DIR / f"{hidden.session_id}.json").unlink(missing_ok=True)
+            from api.config import SESSION_AGENT_LOCKS, SESSION_AGENT_LOCKS_LOCK
+            rotated = worker is not None and worker.session_id != wid
+            with LOCK:
+                SESSIONS.pop(wid, None)
+                if rotated:
+                    SESSIONS.pop(worker.session_id, None)
+            with SESSION_AGENT_LOCKS_LOCK:
+                SESSION_AGENT_LOCKS.pop(wid, None)
+                if rotated:
+                    SESSION_AGENT_LOCKS.pop(worker.session_id, None)
+            if rotated:
+                evict_session_agents(worker.session_id)
+            if stream_id:
+                with STREAMS_LOCK:
+                    STREAMS.pop(stream_id, None)
         except Exception:
-            pass
-        # Nothing of the throwaway session may linger: its cached agent, its
-        # in-memory row (it would show in the sidebar), its stream channel.
-        try:
-            from api.config import LOCK as _LOCK, SESSIONS as _SESSIONS, evict_session_agents
-            evict_session_agents(hidden.session_id)
-            with _LOCK:
-                _SESSIONS.pop(hidden.session_id, None)
-            with STREAMS_LOCK:
-                STREAMS.pop(stream_id, None)
-        except Exception:
-            logger.debug("hidden harness session cleanup failed", exc_info=True)
+            logger.debug("harness worker cleanup failed", exc_info=True)
+        lock.release()
 
 
 def background_runner(node, session_id):

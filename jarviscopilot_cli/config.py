@@ -1026,6 +1026,11 @@ DEFAULT_CONFIG = {
     # Anthropic prompt caching (Claude via OpenRouter or native Anthropic API).
     # cache_ttl must be "5m" or "1h" (Anthropic-supported tiers); other values are ignored.
     "prompt_caching": {
+        # How long providers keep the shared prompt start cached:
+        # "standard" (≈5 min) or "long" (1 hour on providers that offer it).
+        # Every agent on a model shares it, so "long" saves re-sending it
+        # between pauses. Settings → Conversation → Keep prompts cached.
+        "retention": "long",
         "cache_ttl": "5m",
     },
 
