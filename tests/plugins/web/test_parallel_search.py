@@ -105,6 +105,8 @@ def test_credits_only_pay_for_searches(monkeypatch):
     """The config Settings → Providers writes on save: Parallel searches, the free
     local reader reads pages (a saved key must not take over web_extract/read_top)."""
     from agent import web_search_registry as reg
+    from jarviscopilot_cli.plugins import _ensure_plugins_discovered
+    _ensure_plugins_discovered()
     monkeypatch.setenv("PARALLEL_API_KEY", "par-test-key-123")
     monkeypatch.setattr(wt, "_load_web_config",
                         lambda: {"backend": "ddgs", "search_backend": "parallel", "extract_backend": "local"})
