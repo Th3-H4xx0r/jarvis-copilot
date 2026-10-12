@@ -3805,6 +3805,10 @@ def handle_get(handler, parsed) -> bool:
         from api.web_config import handle_web_config_get
         if handle_web_config_get(handler, parsed):
             return True
+    if parsed.path == "/api/tool-keys":
+        from api.tool_keys import handle_tool_keys_get
+        if handle_tool_keys_get(handler, parsed):
+            return True
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -4965,6 +4969,10 @@ def handle_post(handler, parsed) -> bool:
     if parsed.path == "/api/web/config":
         from api.web_config import handle_web_config_post
         if handle_web_config_post(handler, parsed, body):
+            return True
+    if parsed.path == "/api/tool-keys":
+        from api.tool_keys import handle_tool_keys_post
+        if handle_tool_keys_post(handler, parsed, body):
             return True
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe

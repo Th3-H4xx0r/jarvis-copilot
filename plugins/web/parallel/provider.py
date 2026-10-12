@@ -17,13 +17,15 @@ Config keys this provider responds to::
       search_backend: "parallel"      # explicit per-capability
       extract_backend: "parallel"     # explicit per-capability
       backend: "parallel"             # shared fallback
-      # Optional: search mode (default "agentic"; also "fast" or "one-shot")
-      # via the PARALLEL_SEARCH_MODE env var.
+      parallel_mode: "fast"           # turbo | fast ($1 / 1k) | basic | advanced ($5 / 1k)
 
 Env vars::
 
-    PARALLEL_API_KEY=...             # https://parallel.ai (required)
-    PARALLEL_SEARCH_MODE=agentic     # optional: agentic|fast|one-shot
+    PARALLEL_API_KEY=...             # https://parallel.ai (required; Settings → Providers)
+    PARALLEL_SEARCH_MODE=fast        # legacy override when web.parallel_mode is unset
+
+Search calls ``POST https://api.parallel.ai/v1/search`` directly over httpx, so it
+needs no SDK; extract still uses the SDK.
 """
 
 from __future__ import annotations
@@ -32,9 +34,17 @@ import logging
 import os
 from typing import Any, Dict, List
 
+import httpx
+
 from agent.web_search_provider import WebSearchProvider
 
 logger = logging.getLogger(__name__)
+
+SEARCH_URL = "https://api.parallel.ai/v1/search"
+SEARCH_MODES = ("turbo", "fast", "basic", "advanced")
+DEFAULT_SEARCH_MODE = "fast"  # $1 per 1,000 searches, ~700 ms
+MAX_SNIPPET_CHARS = 1500
+_TIMEOUT_S = 20.0
 
 # Module-level note: the canonical cache slots ``_parallel_client`` and
 # ``_async_parallel_client`` live on :mod:`tools.web_tools` so tests that do
@@ -133,11 +143,23 @@ _get_async_parallel_client = _get_async_client
 
 
 def _resolve_search_mode() -> str:
-    """Return the validated PARALLEL_SEARCH_MODE value (default "agentic")."""
-    mode = os.getenv("PARALLEL_SEARCH_MODE", "agentic").lower().strip()
-    if mode not in {"fast", "one-shot", "agentic"}:
-        mode = "agentic"
-    return mode
+    """``web.parallel_mode`` (or the legacy PARALLEL_SEARCH_MODE env var), else "fast".
+    Old SDK modes ("agentic", "one-shot") and typos fall back to "fast"."""
+    import tools.web_tools as _wt
+
+    mode = str(_wt._load_web_config().get("parallel_mode") or os.getenv("PARALLEL_SEARCH_MODE") or "")
+    mode = mode.lower().strip()
+    return mode if mode in SEARCH_MODES else DEFAULT_SEARCH_MODE
+
+
+def _http_error(status: int) -> str:
+    if status in (401, 403):
+        return "Parallel refused the API key (check it in Settings → Providers)"
+    if status == 402:
+        return "Parallel credits are used up"
+    if status == 429:
+        return "Parallel rate limit hit"
+    return f"Parallel search failed (HTTP {status})"
 
 
 class ParallelWebSearchProvider(WebSearchProvider):
@@ -162,52 +184,70 @@ class ParallelWebSearchProvider(WebSearchProvider):
         return True
 
     def search(self, query: str, limit: int = 5) -> Dict[str, Any]:
-        """Execute a Parallel search (sync).
+        """One Parallel ``/v1/search`` call in the configured mode (default "fast").
 
-        Uses the ``beta.search`` endpoint with the configured mode
-        (``PARALLEL_SEARCH_MODE`` env var, default "agentic"). Limit is
-        capped at 20 server-side.
+        Never raises: a missing/refused key, used-up credits, a rate limit or a
+        network error comes back as ``{"success": False, "error": ...}``.
         """
         try:
             from tools.interrupt import is_interrupted
 
             if is_interrupted():
                 return {"success": False, "error": "Interrupted"}
+        except ImportError:
+            pass
 
-            mode = _resolve_search_mode()
-            logger.info(
-                "Parallel search: '%s' (mode=%s, limit=%d)", query, mode, limit
-            )
-            response = _get_sync_client().beta.search(
-                search_queries=[query],
-                objective=query,
-                mode=mode,
-                max_results=min(limit, 20),
-            )
-
-            web_results = []
-            for i, result in enumerate(response.results or []):
-                excerpts = result.excerpts or []
-                web_results.append(
-                    {
-                        "url": result.url or "",
-                        "title": result.title or "",
-                        "description": " ".join(excerpts) if excerpts else "",
-                        "position": i + 1,
-                    }
-                )
-
-            return {"success": True, "data": {"web": web_results}}
-        except ValueError as exc:
-            return {"success": False, "error": str(exc)}
-        except ImportError as exc:
+        api_key = os.getenv("PARALLEL_API_KEY", "").strip()
+        if not api_key:
             return {
                 "success": False,
-                "error": f"Parallel SDK not installed: {exc}",
+                "error": "PARALLEL_API_KEY is not set. Add your Parallel key in Settings → Providers.",
             }
-        except Exception as exc:  # noqa: BLE001
+
+        mode = _resolve_search_mode()
+        logger.info("Parallel search: '%s' (mode=%s, limit=%d)", query, mode, limit)
+        body = {
+            "objective": query,
+            "search_queries": [query],
+            "mode": mode,
+            "advanced_settings": {
+                "max_results": max(1, min(int(limit or 5), 20)),
+                "excerpt_settings": {"max_chars_per_result": MAX_SNIPPET_CHARS},
+            },
+        }
+        try:
+            resp = httpx.post(
+                SEARCH_URL,
+                json=body,
+                headers={"x-api-key": api_key, "Content-Type": "application/json"},
+                timeout=_TIMEOUT_S,
+            )
+        except Exception as exc:  # noqa: BLE001 — network trouble is a plain failure
             logger.warning("Parallel search error: %s", exc)
-            return {"success": False, "error": f"Parallel search failed: {exc}"}
+            return {"success": False, "error": f"Parallel search failed: {type(exc).__name__}"}
+
+        if resp.status_code != 200:
+            logger.warning("Parallel search HTTP %s", resp.status_code)
+            return {"success": False, "error": _http_error(resp.status_code)}
+        try:
+            results = resp.json().get("results") or []
+        except Exception:  # noqa: BLE001
+            return {"success": False, "error": "Parallel search returned an unreadable reply"}
+
+        web_results = []
+        for i, result in enumerate(results):
+            if not isinstance(result, dict):
+                continue
+            excerpts = [str(e) for e in (result.get("excerpts") or []) if e]
+            web_results.append(
+                {
+                    "url": result.get("url") or "",
+                    "title": result.get("title") or "",
+                    "description": " ".join(excerpts)[:MAX_SNIPPET_CHARS],
+                    "position": i + 1,
+                }
+            )
+        return {"success": True, "data": {"web": web_results}}
 
     async def extract(
         self, urls: List[str], **kwargs: Any

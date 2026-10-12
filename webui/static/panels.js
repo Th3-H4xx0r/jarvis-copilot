@@ -7039,6 +7039,7 @@ async function loadProvidersPanel(){
   const list=$('providersList');
   const empty=$('providersEmpty');
   if(!list) return;
+  _loadToolKeyCards(list);
   try{
     const data=await api('/api/providers');
     const quota=await _fetchProviderQuotaStatus(false).catch(e=>({ok:false,status:'unavailable',quota:null,message:e.message||t('provider_quota_unavailable'),client_fetched_at:new Date().toISOString()}));
@@ -7485,6 +7486,147 @@ function _buildProviderCard(p){
     if(card.classList.contains('open')) setTimeout(()=>input.focus(),0);
   });
   return card;
+}
+
+// ── Tool keys (/api/tool-keys): API keys for tools, e.g. Parallel web search ──
+// Rendered under the model providers in their own box so a provider reload
+// never wipes them. The server never sends a saved key back.
+async function _loadToolKeyCards(list){
+  let box=$('toolKeysList');
+  if(!box){
+    box=document.createElement('div');
+    box.id='toolKeysList';
+    box.style.cssText='display:flex;flex-direction:column;margin-top:18px';
+    list.after(box);
+  }
+  let data;
+  try{ data=await api('/api/tool-keys'); }
+  catch(e){
+    box.innerHTML='<div style="color:var(--error);padding:12px;font-size:13px">Could not load tool keys: '+esc(e.message||String(e))+'</div>';
+    return;
+  }
+  _renderToolKeyCards(box,(data&&data.tools)||[]);
+}
+
+function _renderToolKeyCards(box,tools,openId){
+  box.innerHTML='';
+  if(!tools.length) return;
+  const head=document.createElement('div');
+  head.className='settings-section-meta';
+  head.style.cssText='margin:0 0 6px';
+  head.textContent='Tool keys: services Jarvis\'s tools use, not chat models.';
+  box.appendChild(head);
+  for(const tk of tools) box.appendChild(_buildToolKeyCard(box,tk,tk.id===openId));
+}
+
+function _buildToolKeyCard(box,tk,open){
+  const card=document.createElement('div');
+  card.className='provider-card'+(open?' open':'');
+  card.dataset.toolKey=tk.id;
+  const status=tk.has_key?(tk.in_use?'Key saved · used for '+tk.purpose.toLowerCase():'Key saved'):'No key';
+  const header=document.createElement('button');
+  header.type='button';
+  header.className='provider-card-header';
+  header.innerHTML=`
+    <div class="provider-card-info">
+      <div class="provider-card-name">${esc(tk.display_name)}</div>
+      <div class="provider-card-meta">${esc(tk.purpose+' · '+status)}</div>
+    </div>
+    ${tk.in_use?'<span class="provider-card-badge">In use</span>':''}
+    <svg class="provider-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg>
+  `;
+  card.appendChild(header);
+
+  const body=document.createElement('div');
+  body.className='provider-card-body';
+  const hint=document.createElement('div');
+  hint.className='provider-card-hint';
+  hint.textContent=tk.hint+' ';
+  const link=document.createElement('a');
+  link.href=tk.url;
+  link.target='_blank';
+  link.rel='noopener noreferrer';
+  link.textContent='Get a key';
+  link.style.cssText='color:var(--accent);text-decoration:none;font-weight:500';
+  hint.appendChild(link);
+  body.appendChild(hint);
+
+  const field=document.createElement('div');
+  field.className='provider-card-field';
+  const label=document.createElement('label');
+  label.className='provider-card-label';
+  label.textContent='API key';
+  const inputId='toolKeyInput-'+tk.id;
+  label.htmlFor=inputId;
+  field.appendChild(label);
+  const row=document.createElement('div');
+  row.className='provider-card-row';
+  const input=document.createElement('input');
+  input.type='password';
+  input.id=inputId;
+  input.className='provider-card-input';
+  input.placeholder=tk.has_key?'Paste a new key to replace the saved one':'Paste your '+tk.display_name+' API key';
+  input.autocomplete='off';
+  input.spellcheck=false;
+  const showBtn=document.createElement('button');
+  showBtn.type='button';
+  showBtn.className='provider-card-btn provider-card-btn-ghost';
+  showBtn.textContent='Show';
+  showBtn.onclick=()=>{
+    const shown=input.type==='text';
+    input.type=shown?'password':'text';
+    showBtn.textContent=shown?'Show':'Hide';
+  };
+  const saveBtn=document.createElement('button');
+  saveBtn.type='button';
+  saveBtn.className='provider-card-btn provider-card-btn-primary';
+  saveBtn.textContent='Save';
+  saveBtn.disabled=true;
+  input.addEventListener('input',()=>{saveBtn.disabled=!input.value.trim();});
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&input.value.trim()) saveBtn.click();});
+  row.appendChild(input);
+  row.appendChild(showBtn);
+  row.appendChild(saveBtn);
+  const buttons=[saveBtn];
+  if(tk.has_key){
+    const removeBtn=document.createElement('button');
+    removeBtn.type='button';
+    removeBtn.className='provider-card-btn provider-card-btn-danger';
+    removeBtn.textContent='Remove';
+    removeBtn.onclick=()=>_saveToolKey(box,tk,null,buttons,removeBtn);
+    row.appendChild(removeBtn);
+    buttons.push(removeBtn);
+  }
+  saveBtn.onclick=()=>{
+    const key=input.value.trim();
+    if(key) _saveToolKey(box,tk,key,buttons,saveBtn);   // an empty Save would remove the key
+  };
+  field.appendChild(row);
+  body.appendChild(field);
+  card.appendChild(body);
+  header.addEventListener('click',()=>{
+    card.classList.toggle('open');
+    if(card.classList.contains('open')) setTimeout(()=>input.focus(),0);
+  });
+  return card;
+}
+
+async function _saveToolKey(box,tk,key,buttons,busyBtn){
+  const label=busyBtn.textContent;
+  buttons.forEach(b=>{b.disabled=true;});
+  busyBtn.textContent=key?'Saving…':'Removing…';
+  try{
+    const res=await api('/api/tool-keys',{method:'POST',body:JSON.stringify({tool:tk.id,api_key:key})});
+    const now=(res.tools||[]).find(t=>t.id===tk.id)||{};
+    showToast(res.action==='saved'
+      ? tk.display_name+' key saved.'+(now.in_use?' '+tk.purpose+' now uses '+tk.display_name+'.':'')
+      : tk.display_name+' key removed.'+(tk.in_use?' '+tk.purpose+' is back on the free engine.':''));
+    _renderToolKeyCards(box,res.tools||[],tk.id);
+  }catch(e){
+    showToast('Not saved: '+(e&&e.message||e));
+    busyBtn.textContent=label;
+    buttons.forEach(b=>{b.disabled=false;});
+  }
 }
 
 async function _saveProviderKey(providerId){

@@ -802,6 +802,31 @@ def _clamp_read_top(value: Any) -> int:
     return min(max(n, 0), MAX_READ_TOP)
 
 
+_FREE_SEARCH_BACKEND = "ddgs"
+
+
+def _retry_on_free_search(provider, response: Dict[str, Any], query: str, limit: int,
+                          get_provider) -> Dict[str, Any]:
+    """When a paid search fails (credits used up, key refused, outage), run the same
+    search on the free DuckDuckGo provider and say so in a ``note``. The paid error
+    stands when there is no free provider, it fails too, or the turn was interrupted."""
+    error = str(response.get("error") or "")
+    if response.get("success") is not False or error == "Interrupted":
+        return response
+    if getattr(provider, "name", "") == _FREE_SEARCH_BACKEND:
+        return response
+    free = get_provider(_FREE_SEARCH_BACKEND)
+    if free is None or not free.supports_search() or not free.is_available():
+        return response
+    logger.warning("Web search via %s failed (%s); retrying on %s", provider.name, error, free.name)
+    retry = free.search(query, limit)
+    if retry.get("success") is False:
+        return response
+    retry["note"] = (f"{provider.display_name} search failed ({error}); "
+                     f"these results are from {free.display_name}.")
+    return retry
+
+
 def _read_top_pages(results: List[Dict[str, Any]], n: int) -> None:
     """Attach the page text of the first ``n`` search results, in place.
 
@@ -962,6 +987,7 @@ def web_search_tool(query: str, limit: int = 5, read_top: int = 0) -> str:
                 provider.name, query, limit,
             )
             response_data = provider.search(query, limit)
+            response_data = _retry_on_free_search(provider, response_data, query, limit, _wsp_get_provider)
 
             if read_top and response_data.get("success") is not False and not is_interrupted():
                 web_results = (response_data.get("data") or {}).get("web")
