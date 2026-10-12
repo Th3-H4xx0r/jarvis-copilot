@@ -124,11 +124,13 @@ final class CronsStore {
 
     /// Create or update from the form. `existing` nil ⇒ create.
     ///
-    /// Blank optionals (name/model/profile) are dropped so the server keeps its
-    /// defaults rather than being handed an empty string.
+    /// What the job runs on is always sent in full (`model` / `provider` /
+    /// `harness_id`, blanks included) so an edit can clear a model or a harness.
+    /// A blank name is dropped on create (the server names the job) but sent on
+    /// an edit, where it clears the name.
     @discardableResult
     func save(prompt: String, schedule: String, name: String, deliver: String,
-              skills: Set<String>, model: String, profile: String,
+              skills: Set<String>, runsOn: CronRunsOn,
               toastNotifications: Bool, existing: CronJob? = nil,
               integration: String = "") async -> Bool {
         var body: JSONObject = [
@@ -138,14 +140,13 @@ final class CronsStore {
             "skills": Array(skills).sorted(),
             "toast_notifications": toastNotifications,
         ]
-        for (key, value) in [("name", name), ("model", model), ("profile", profile),
-                             // A schedule started from an integration's screen
-                             // is created inside it; elsewhere the server files
-                             // it under General.
-                             ("integration", integration)] {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { body[key] = trimmed }
-        }
+        body.merge(runsOn.body) { _, new in new }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty || existing != nil { body["name"] = trimmedName }
+        // A schedule started from an integration's screen is created inside it;
+        // elsewhere the server files it under General.
+        let trimmedIntegration = integration.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedIntegration.isEmpty { body["integration"] = trimmedIntegration }
         do {
             if let existing {
                 body["job_id"] = existing.id

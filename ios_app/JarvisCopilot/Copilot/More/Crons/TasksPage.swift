@@ -76,8 +76,7 @@ struct TasksPage: View {
             CronFormSheet(existing: nil, allSkills: store.skillOptions()) { form in
                 await store.save(prompt: form.prompt, schedule: form.schedule,
                                  name: form.name, deliver: form.deliver,
-                                 skills: form.skills, model: form.model,
-                                 profile: form.profile,
+                                 skills: form.skills, runsOn: form.runsOn,
                                  toastNotifications: form.toastNotifications,
                                  existing: nil)
             }
@@ -86,8 +85,7 @@ struct TasksPage: View {
                           allSkills: store.skillOptions(including: Set(job.skills))) { form in
                 await store.save(prompt: form.prompt, schedule: form.schedule,
                                  name: form.name, deliver: form.deliver,
-                                 skills: form.skills, model: form.model,
-                                 profile: form.profile,
+                                 skills: form.skills, runsOn: form.runsOn,
                                  toastNotifications: form.toastNotifications,
                                  existing: job)
             }

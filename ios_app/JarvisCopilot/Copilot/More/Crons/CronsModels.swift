@@ -1,7 +1,65 @@
 import Foundation
 
+/// What a schedule runs on: the server's default model, one model, or a
+/// harness. The editor value strings match the web form's:
+/// `default` · `model:@provider:model` · `harness:<id>`.
+enum CronRunsOn: Hashable, Sendable {
+    case `default`
+    /// `@provider:model` (or a bare model name on an older job).
+    case model(String)
+    /// A harness id.
+    case harness(String)
+
+    init(value: String) {
+        if value.hasPrefix("harness:"), value.count > 8 {
+            self = .harness(String(value.dropFirst(8)))
+        } else if value.hasPrefix("model:"), value.count > 6 {
+            self = .model(String(value.dropFirst(6)))
+        } else {
+            self = .default
+        }
+    }
+
+    /// The server's `runs_on` summary first, else the job's own fields.
+    init(job json: JSONObject) {
+        let summary = MoreJSON.text((json["runs_on"] as? JSONObject)?["value"])
+        if !summary.isEmpty {
+            self.init(value: summary)
+            return
+        }
+        let harness = MoreJSON.text(json["harness_id"]).trimmingCharacters(in: .whitespaces)
+        let model = MoreJSON.text(json["model"]).trimmingCharacters(in: .whitespaces)
+        let provider = MoreJSON.text(json["provider"]).trimmingCharacters(in: .whitespaces)
+        if !harness.isEmpty {
+            self = .harness(harness)
+        } else if !model.isEmpty {
+            self = .model(model.hasPrefix("@") || provider.isEmpty ? model : "@\(provider):\(model)")
+        } else {
+            self = .default
+        }
+    }
+
+    var value: String {
+        switch self {
+        case .default: return "default"
+        case .model(let ref): return "model:\(ref)"
+        case .harness(let id): return "harness:\(id)"
+        }
+    }
+
+    /// The create/update fields. All three are always sent, so a change clears
+    /// the others: a job runs on exactly one of Default, a model, a harness.
+    var body: JSONObject {
+        switch self {
+        case .default: return ["model": "", "provider": "", "harness_id": ""]
+        case .model(let ref): return ["model": ref, "provider": "", "harness_id": ""]
+        case .harness(let id): return ["model": "", "provider": "", "harness_id": id]
+        }
+    }
+}
+
 /// One scheduled job. The raw payload is kept because the create/edit form
-/// round-trips fields this struct doesn't name (model, profile, skills, …).
+/// round-trips fields this struct doesn't name (schedule, skills, …).
 struct CronJob: Identifiable, Equatable, Sendable {
     var id: String
     var name: String
@@ -9,14 +67,15 @@ struct CronJob: Identifiable, Equatable, Sendable {
     var deliver: String
     var skills: [String]
     var model: String
-    var profile: String
+    var runsOn: CronRunsOn
     var toastNotifications: Bool
     var raw: JSONObject
 
     static func == (l: CronJob, r: CronJob) -> Bool {
         l.id == r.id && l.name == r.name && l.prompt == r.prompt
             && l.deliver == r.deliver && l.skills == r.skills && l.model == r.model
-            && l.profile == r.profile && l.toastNotifications == r.toastNotifications
+            && l.runsOn == r.runsOn && l.runsOnLabel == r.runsOnLabel
+            && l.toastNotifications == r.toastNotifications
             && l.statusKey == r.statusKey && l.schedule == r.schedule
     }
 
@@ -28,10 +87,26 @@ struct CronJob: Identifiable, Equatable, Sendable {
         deliver = d.isEmpty ? "local" : d
         skills = MoreJSON.stringList(json["skills"])
         model = MoreJSON.text(json["model"])
-        profile = MoreJSON.text(json["profile"])
+        runsOn = CronRunsOn(job: json)
         // Absent → true (the Flutter form defaults new jobs to toasts on).
         toastNotifications = (json["toast_notifications"] as? Bool) ?? true
         raw = json
+    }
+
+    /// What the detail tile says: "Default", a model's short name, or the
+    /// harness's name (flagged when it no longer exists — the run then uses Default).
+    var runsOnLabel: String {
+        let summary = raw["runs_on"] as? JSONObject
+        switch runsOn {
+        case .default:
+            return "Default"
+        case .model(let ref):
+            return HarnessFormat.shortModel(ref)
+        case .harness(let id):
+            let label = MoreJSON.text(summary?["label"])
+            let name = label.isEmpty ? id : label
+            return (summary?["missing"] as? Bool) == true ? "\(name) (not found — runs on Default)" : name
+        }
     }
 
     var title: String { name.isEmpty ? (prompt.isEmpty ? id : prompt) : name }

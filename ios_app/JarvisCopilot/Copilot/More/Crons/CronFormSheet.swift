@@ -8,8 +8,8 @@ struct CronFormValues {
     var name = ""
     var deliver = "local"
     var skills: Set<String> = []
-    var model = ""
-    var profile = ""
+    /// Default (the server's default model), one model, or a harness.
+    var runsOn: CronRunsOn = .default
     var toastNotifications = true
 }
 
@@ -24,6 +24,7 @@ struct CronFormSheet: View {
     let onSave: (CronFormValues) async -> Bool
 
     @State private var form: CronFormValues
+    @State private var runsOnChoices = CronRunsOnChoices()
 
     init(existing: CronJob?, allSkills: [String],
          onSave: @escaping (CronFormValues) async -> Bool) {
@@ -37,8 +38,7 @@ struct CronFormSheet: View {
             values.name = existing.name
             values.deliver = existing.deliver.isEmpty ? "local" : existing.deliver
             values.skills = Set(existing.skills)
-            values.model = existing.model
-            values.profile = existing.profile
+            values.runsOn = existing.runsOn
             values.toastNotifications = existing.toastNotifications
         }
         _form = State(initialValue: values)
@@ -73,8 +73,8 @@ struct CronFormSheet: View {
             if !skillChoices.isEmpty {
                 FormChipMulti(label: "Skills", all: skillChoices, selected: $form.skills)
             }
-            FormTextField(label: "Model (optional)", text: $form.model)
-            FormTextField(label: "Profile (optional)", text: $form.profile)
+            CronRunsOnField(selection: $form.runsOn, choices: runsOnChoices,
+                            fallbackLabel: existing?.runsOn == form.runsOn ? (existing?.runsOnLabel ?? "") : "")
             FormToggle(label: "Completion toasts", isOn: $form.toastNotifications)
         }
     }

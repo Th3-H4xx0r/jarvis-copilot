@@ -161,6 +161,7 @@
 		26A87DEE1276CE7429D29A1A /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */; };
 		2705BB8AEBCCAAA34B25AD89 /* AppleFMEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A2FA671760513674F72292 /* AppleFMEngine.swift */; };
 		2745DE46AB58EF90B08F0241 /* JarvisWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AE7CDDC0AA6CE5E6B8AFB40E /* JarvisWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		279CEE096A400E1CF855BC46 /* PromptCacheSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD03C89004C0F46A02A23CD /* PromptCacheSettings.swift */; };
 		27C476A6C1AB62D5BB1D99D9 /* DeviceDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF98CD83F0B1658BF3885C3 /* DeviceDetailsView.swift */; };
 		27C8030A44A9CD18C8B27B0A /* BandWearAsk.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBA3BC0C08FE5CE01DC3349D /* BandWearAsk.swift */; };
 		282A9291D4315EEB3EBF66EA /* VoiceOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE132EB6D237CEF1D190BA1E /* VoiceOrb.swift */; };
@@ -440,6 +441,7 @@
 		67E5D07257C3B152084C6456 /* WidgetDesignStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4470617425A5653F88F3892E /* WidgetDesignStore.swift */; };
 		689A792CAE9E330F4353949F /* PendingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BFBB82CA0EF423335E59D1 /* PendingActions.swift */; };
 		690B8053A1E0D4AF0B80D469 /* HarnessFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21915389EA029FBBBA5A02A1 /* HarnessFormat.swift */; };
+		69270A554BFAA9F49B663E81 /* PromptCacheSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90B23E91BEA3BA4CCE0D6F9E /* PromptCacheSettingsTests.swift */; };
 		69795684A73D247B3CD6F51B /* HarnessJobCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A5A1C84749861FC4570518 /* HarnessJobCard.swift */; };
 		6997ECAF515028D839242519 /* TerminalBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F573A48CA3121C4DED2FC /* TerminalBuffer.swift */; };
 		69EB6F91D5084C3029B5A40D /* RingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BFA5645662596C18A8F7236 /* RingModel.swift */; };
@@ -900,6 +902,7 @@
 		DD26BE85045163864B8266E7 /* ScaleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04A36F3466DF1D868E03D03 /* ScaleModels.swift */; };
 		DD3776C118ED240C7466B619 /* X5Ring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D7DCD0D66F9964AC4FB6B64 /* X5Ring.swift */; };
 		DD63E14CDF272F8ACD2A0765 /* SleepDebtCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E71F54F49B4EA0504D0ED2 /* SleepDebtCard.swift */; };
+		DDCD38808F836FE6342970CB /* CronRunsOnPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02F199A541ECA2B88E11287 /* CronRunsOnPicker.swift */; };
 		DE8EE766A101DDB164E2D4BB /* HealthWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE767EAA3E22D6AF2F404FC7 /* HealthWidget.swift */; };
 		DEC2FDC52FB7B31E11FEC74F /* BandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B95871CA93FF456CB5A4E83 /* BandTransport.swift */; };
 		DECAFCAF16F1680FAA0F3E32 /* ImageViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70499B1F9F6547FD70A78EFD /* ImageViewer.swift */; };
@@ -1452,6 +1455,7 @@
 		5B92B909F10DA943B349800F /* LiveCaptionComposerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveCaptionComposerTests.swift; sourceTree = "<group>"; };
 		5BA5D1D7A7E6B01264839350 /* X5Decoders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Decoders.swift; sourceTree = "<group>"; };
 		5BAE6306B13C898FA86964CE /* GlassesTranslateView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslateView.swift; sourceTree = "<group>"; };
+		5BD03C89004C0F46A02A23CD /* PromptCacheSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PromptCacheSettings.swift; sourceTree = "<group>"; };
 		5BEDB4932823AFB869B91F56 /* LiveTranscript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveTranscript.swift; sourceTree = "<group>"; };
 		5D01C409D24FB62BBB311997 /* RouteThumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteThumbnail.swift; sourceTree = "<group>"; };
 		5DF08E42FFF02544C887B94F /* WorkoutWearable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutWearable.swift; sourceTree = "<group>"; };
@@ -1647,6 +1651,7 @@
 		9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatDashboardStoreTests.swift; sourceTree = "<group>"; };
 		90955E444C718E5493C81D0D /* OutdoorWorkoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OutdoorWorkoutTests.swift; sourceTree = "<group>"; };
 		909C387EC141D206ED743368 /* NavShell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NavShell.swift; sourceTree = "<group>"; };
+		90B23E91BEA3BA4CCE0D6F9E /* PromptCacheSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PromptCacheSettingsTests.swift; sourceTree = "<group>"; };
 		90CA73235F950D5093A695CF /* EnergyReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnergyReport.swift; sourceTree = "<group>"; };
 		90CD5656BB029323B728179C /* RouteRecording.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteRecording.swift; sourceTree = "<group>"; };
 		911130C5D9F9EBCB12B39CE3 /* VoicePagePresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoicePagePresentation.swift; sourceTree = "<group>"; };
@@ -1977,6 +1982,7 @@
 		DF92DEBDA1CDCB88B6640D5B /* DashcamSyncAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamSyncAttributes.swift; sourceTree = "<group>"; };
 		DFB31C1D5D1C17CAEA923456 /* SettingsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsPage.swift; sourceTree = "<group>"; };
 		E028C31FBB80B7691BCAA529 /* MoreSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreSupport.swift; sourceTree = "<group>"; };
+		E02F199A541ECA2B88E11287 /* CronRunsOnPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CronRunsOnPicker.swift; sourceTree = "<group>"; };
 		E0572D9FE6F17A755CEDBB2F /* InmoAdvancedControlsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InmoAdvancedControlsTests.swift; sourceTree = "<group>"; };
 		E064318F1F811F1B9FCEEBA5 /* AmbientAudioInput.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientAudioInput.swift; sourceTree = "<group>"; };
 		E0AC099F6C80E176473558B6 /* DashcamRemux.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRemux.swift; sourceTree = "<group>"; };
@@ -2306,6 +2312,7 @@
 			isa = PBXGroup;
 			children = (
 				445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */,
+				90B23E91BEA3BA4CCE0D6F9E /* PromptCacheSettingsTests.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -2781,6 +2788,7 @@
 				1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */,
 				22D79C8FBD50C7E46F2D368E /* SFSymbolCatalog.swift */,
 				37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */,
+				5BD03C89004C0F46A02A23CD /* PromptCacheSettings.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -3560,6 +3568,7 @@
 				9D40CD36F5BCA868C3EA8015 /* CronDetailView.swift */,
 				1449F3D6EF57843C53341D70 /* CronFormSheet.swift */,
 				11C68CD5E3CB910CEC450F59 /* TasksPage.swift */,
+				E02F199A541ECA2B88E11287 /* CronRunsOnPicker.swift */,
 			);
 			path = Crons;
 			sourceTree = "<group>";
@@ -4586,6 +4595,7 @@
 				4649C041E7A42194D458520B /* DoorAlarmTests.swift in Sources */,
 				EC2D097DF484B3B7CD4585DC /* HarnessJobTests.swift in Sources */,
 				5883F765C8903D49794BCC99 /* WebBrowserSettingsTests.swift in Sources */,
+				69270A554BFAA9F49B663E81 /* PromptCacheSettingsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5290,6 +5300,8 @@
 				E319EBCCF685E0CD4B3E34F7 /* DoorAlarmAlert.swift in Sources */,
 				69795684A73D247B3CD6F51B /* HarnessJobCard.swift in Sources */,
 				7150CB675D8ED34FC94D1535 /* WebBrowserSettings.swift in Sources */,
+				DDCD38808F836FE6342970CB /* CronRunsOnPicker.swift in Sources */,
+				279CEE096A400E1CF855BC46 /* PromptCacheSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

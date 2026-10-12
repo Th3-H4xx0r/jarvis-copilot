@@ -279,8 +279,7 @@ struct IntegrationDetailView: View {
             CronFormSheet(existing: nil, allSkills: crons.skillOptions()) { form in
                 await crons.save(prompt: form.prompt, schedule: form.schedule,
                                  name: form.name, deliver: form.deliver,
-                                 skills: form.skills, model: form.model,
-                                 profile: form.profile,
+                                 skills: form.skills, runsOn: form.runsOn,
                                  toastNotifications: form.toastNotifications,
                                  integration: pushed.id)
             }
@@ -288,8 +287,7 @@ struct IntegrationDetailView: View {
             CronFormSheet(existing: job, allSkills: crons.skillOptions(including: Set(job.skills))) { form in
                 await crons.save(prompt: form.prompt, schedule: form.schedule,
                                  name: form.name, deliver: form.deliver,
-                                 skills: form.skills, model: form.model,
-                                 profile: form.profile,
+                                 skills: form.skills, runsOn: form.runsOn,
                                  toastNotifications: form.toastNotifications,
                                  existing: job)
             }

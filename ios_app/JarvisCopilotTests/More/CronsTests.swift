@@ -321,13 +321,14 @@ final class CronsTests: XCTestCase {
 
         let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         let ok = await store.save(prompt: " do it ", schedule: " every day ", name: "   ",
-                                  deliver: "local", skills: ["notify"], model: "  ",
-                                  profile: "coder", toastNotifications: false)
+                                  deliver: "local", skills: ["notify"], runsOn: .default,
+                                  toastNotifications: false)
 
         XCTAssertTrue(ok)
         assertJSONEqual(transport.body(0), [
             "prompt": "do it", "schedule": "every day", "deliver": "local",
-            "skills": ["notify"], "toast_notifications": false, "profile": "coder",
+            "skills": ["notify"], "toast_notifications": false,
+            "model": "", "provider": "", "harness_id": "",
         ])
     }
 
@@ -340,7 +341,7 @@ final class CronsTests: XCTestCase {
         let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         let existing = CronJob(json: ["id": "j9", "prompt": "old"])
         let ok = await store.save(prompt: "new", schedule: "s", name: "N", deliver: "slack",
-                                  skills: [], model: "", profile: "",
+                                  skills: [], runsOn: .model("@ollama-cloud:gemma4:31b"),
                                   toastNotifications: true, existing: existing)
 
         XCTAssertTrue(ok)
@@ -348,7 +349,78 @@ final class CronsTests: XCTestCase {
         assertJSONEqual(transport.body(0), [
             "job_id": "j9", "prompt": "new", "schedule": "s", "name": "N",
             "deliver": "slack", "skills": [String](), "toast_notifications": true,
+            "model": "@ollama-cloud:gemma4:31b", "provider": "", "harness_id": "",
         ])
+    }
+
+    /// Default is sent as three explicit blanks, so an edit can clear a model or
+    /// a harness the job had (blank values used to be dropped and never cleared).
+    @MainActor
+    func testStoreSaveDefaultClearsModelProviderAndHarness() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/crons/update", json: ["ok": true])
+        transport.route("/api/crons", json: ["jobs": []])
+
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
+        let existing = CronJob(json: ["id": "j1", "prompt": "p", "harness_id": "mail"])
+        _ = await store.save(prompt: "p", schedule: "s", name: "", deliver: "local", skills: [],
+                             runsOn: .default, toastNotifications: true, existing: existing)
+
+        let body = transport.body(0)
+        XCTAssertEqual(body["model"] as? String, "")
+        XCTAssertEqual(body["provider"] as? String, "")
+        XCTAssertEqual(body["harness_id"] as? String, "")
+        // Clearing the name on an edit is sent too.
+        XCTAssertEqual(body["name"] as? String, "")
+    }
+
+    @MainActor
+    func testStoreSaveWithAHarnessCarriesItAndClearsTheModel() async {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/crons/create", json: ["ok": true])
+        transport.route("/api/crons", json: ["jobs": []])
+
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
+        _ = await store.save(prompt: "p", schedule: "s", name: "", deliver: "local", skills: [],
+                             runsOn: .harness("mail"), toastNotifications: true)
+
+        let body = transport.body(0)
+        XCTAssertEqual(body["harness_id"] as? String, "mail")
+        XCTAssertEqual(body["model"] as? String, "")
+        XCTAssertEqual(body["provider"] as? String, "")
+        XCTAssertNil(body["profile"])
+    }
+
+    // MARK: Runs on
+
+    func testRunsOnReadsTheServerSummaryFirst() {
+        let job = CronJob(json: ["id": "j", "model": "ignored",
+                                 "runs_on": ["kind": "harness", "label": "Mail triage",
+                                             "value": "harness:mail"]])
+        XCTAssertEqual(job.runsOn, .harness("mail"))
+        XCTAssertEqual(job.runsOnLabel, "Mail triage")
+    }
+
+    func testRunsOnFallsBackToTheJobFields() {
+        XCTAssertEqual(CronJob(json: ["id": "j"]).runsOn, .default)
+        XCTAssertEqual(CronJob(json: ["id": "j", "harness_id": "mail"]).runsOn, .harness("mail"))
+        XCTAssertEqual(CronJob(json: ["id": "j", "model": "gemma4:31b", "provider": "ollama-cloud"]).runsOn,
+                       .model("@ollama-cloud:gemma4:31b"))
+        XCTAssertEqual(CronJob(json: ["id": "j", "model": "bare"]).runsOn, .model("bare"))
+    }
+
+    func testRunsOnValueRoundTrips() {
+        for choice: CronRunsOn in [.default, .model("@a:b"), .harness("mail")] {
+            XCTAssertEqual(CronRunsOn(value: choice.value), choice)
+        }
+        XCTAssertEqual(CronRunsOn(value: "nonsense"), .default)
+    }
+
+    func testAMissingHarnessSaysItRunsOnDefault() {
+        let job = CronJob(json: ["id": "j", "runs_on": ["kind": "harness", "label": "gone",
+                                                         "value": "harness:gone", "missing": true]])
+        XCTAssertTrue(job.runsOnLabel.contains("gone"))
+        XCTAssertTrue(job.runsOnLabel.contains("Default"))
     }
 
     @MainActor

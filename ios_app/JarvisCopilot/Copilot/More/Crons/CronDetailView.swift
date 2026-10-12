@@ -44,9 +44,9 @@ struct CronDetailView: View {
             ("clock", "Schedule", job.schedule),
             ("arrow.right", "Next run", job.nextRunLabel()),
             ("clock.arrow.circlepath", "Last run", job.lastRunLabel()),
-            ("person", "Profile", job.profile),
             (CronDeliver.iconName(job.deliver), "Deliver", CronDeliver.label(job.deliver)),
-            ("memorychip", "Model", job.model),
+            // A no-agent job runs its script, not a model.
+            ("memorychip", "Runs on", (job.raw["no_agent"] as? Bool) == true ? "" : job.runsOnLabel),
             ("puzzlepiece", "Skills", job.skills.joined(separator: ", ")),
             ("bell", "Toasts", job.toastNotifications ? "Enabled" : "Disabled"),
         ]

@@ -262,6 +262,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    PromptCacheScreen()
+                } label: {
+                    GlassRow(symbol: "clock.arrow.circlepath", title: "Keep prompts cached",
+                             subtitle: "How long the shared prompt stays warm between messages")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     WebBrowserSettingsScreen()
                 } label: {
                     GlassRow(symbol: "globe", title: "Web & browser",
