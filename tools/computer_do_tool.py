@@ -17,7 +17,8 @@ COMPUTER_DO_SCHEMA = {
         "Do something on the user's Mac fast: a decision model clicks and types through the UI one step at a "
         "time from screenshots. Only when the user asked for their Mac/computer. Give `steps` with the exact "
         "text to type (it skips a planning call). Returns what happened, the final screen's numbered elements "
-        "and a screenshot; if it stops stuck, continue from there yourself."
+        "and a screenshot; if it stops stuck, continue from there yourself. Prefer it over chrome_* and "
+        "mouse/keyboard tools for anything on the Mac."
     ),
     "parameters": {
         "type": "object",

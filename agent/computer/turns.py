@@ -21,6 +21,8 @@ from agent.computer import loop as _loop
 logger = logging.getLogger(__name__)
 
 TOOL_NAME = "computer_do"
+HANDS_NOTE = ("For anything on the user's Mac (apps, websites, clicking, typing) use computer_do — one call per "
+              "sub-goal, it is fast; don't drive the Mac with chrome_* or mouse/keyboard tools.")
 _MAX = 2000
 _lock = threading.Lock()
 _bound: "OrderedDict[str, Binding]" = OrderedDict()
