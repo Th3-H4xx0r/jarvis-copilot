@@ -17,6 +17,11 @@ the device speaks a tiny JSON protocol:
     Device → Server:   {"type":"result","call_id":"...","result":{...}}
                   or:  {"type":"error","call_id":"...","error":"..."}
     Either way:        {"type":"ping"} / {"type":"pong"}
+    Device → Server:   {"type":"subscribe","topics":{"pods":0,"widgets":1800}}
+    Server → Device:   {"type":"topic","topic":"pods","data":{...}}
+
+Topics are what the phone would otherwise poll for: it says which it wants and how
+often at most, and ``publish()`` pushes changes instead (see "Topics" below).
 
 The agent (or any authed caller) invokes a device skill through
 ``invoke_skill(device_id, skill_name, args, timeout)`` which does the
@@ -29,6 +34,7 @@ from __future__ import annotations
 import http.cookies
 import json
 import logging
+import os
 import secrets
 import select
 import sys
@@ -74,6 +80,13 @@ class _DeviceConn:
         # final piece. We accumulate text data here until the full
         # message arrives before parsing JSON.
         self._text_buf: str = ""
+        # Topics this device wants pushed: name -> minimum seconds between pushes. The
+        # bookkeeping below is guarded by `topic_lock` (publish runs on any thread).
+        self.topics: dict[str, float] = {}
+        self.topic_sent: dict[str, float] = {}
+        self.topic_pending: dict[str, dict] = {}
+        self.topic_timers: dict[str, threading.Timer] = {}
+        self.topic_lock = threading.Lock()
 
 
 _REG: dict[str, _DeviceConn] = {}
@@ -192,6 +205,11 @@ def _unregister(device_id: str, conn: Optional[_DeviceConn] = None) -> None:
 
 def _safe_close(conn: _DeviceConn) -> None:
     conn.closed = True
+    with conn.topic_lock:
+        for timer in conn.topic_timers.values():
+            timer.cancel()
+        conn.topic_timers.clear()
+        conn.topic_pending.clear()
     try:
         conn.sock.shutdown(2)
     except Exception:
@@ -224,6 +242,149 @@ def _safe_close(conn: _DeviceConn) -> None:
         get_desktop_bridge().on_device_disconnect(conn.device_id)
     except Exception:
         pass
+
+
+# ── Topics ──────────────────────────────────────────────────────────────────
+# The phone used to poll for things that change rarely (Pod status, dashcam
+# destinations, widget data) every 15-30 s, all night, because the app is never
+# suspended. Each poll woke its radio. Now it subscribes and the server pushes a
+# change, at most once per the interval the phone asked for: a change inside the
+# interval is held and merged, and the merged frame goes when the interval ends.
+
+_MAX_TOPICS = 16
+_TOPIC_NAME_MAX = 32
+_TOPIC_HOOKS: list = []
+
+
+def on_subscribe(callback) -> None:
+    """``callback(device_id, topics)`` after a device replaces its subscription — lets a
+    watcher (pod_watch) start only once someone wants what it produces."""
+    if callback not in _TOPIC_HOOKS:
+        _TOPIC_HOOKS.append(callback)
+
+
+def _set_topics(conn: _DeviceConn, raw) -> None:
+    topics: dict[str, float] = {}
+    if isinstance(raw, dict):
+        for name, every in list(raw.items())[:_MAX_TOPICS]:
+            if not isinstance(name, str) or not name or len(name) > _TOPIC_NAME_MAX:
+                continue
+            try:
+                seconds = float(every)
+            except (TypeError, ValueError):
+                seconds = 0.0
+            if seconds != seconds:  # NaN
+                seconds = 0.0
+            topics[name] = min(max(seconds, 0.0), 86400.0)
+    with conn.topic_lock:
+        conn.topics = topics
+        for name in [n for n in conn.topic_timers if n not in topics]:
+            conn.topic_timers.pop(name).cancel()
+            conn.topic_pending.pop(name, None)
+    for cb in list(_TOPIC_HOOKS):
+        try:
+            cb(conn.device_id, dict(topics))
+        except Exception:
+            logger.debug("device-bridge subscribe hook raised", exc_info=True)
+
+
+def _merge_topic_data(old: dict, new: dict) -> dict:
+    out = dict(old)
+    for key, value in new.items():
+        if key == "what" and isinstance(value, list) and isinstance(out.get("what"), list):
+            out["what"] = list(dict.fromkeys([*out["what"], *value]))
+        elif isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = {**out[key], **value}
+        else:
+            out[key] = value
+    return out
+
+
+def _send_topic(conn: _DeviceConn, topic: str, data: dict) -> None:
+    try:
+        _ws_send_text(conn, json.dumps({"type": "topic", "topic": topic, "data": data}))
+    except Exception:
+        pass  # a dead socket: the pump notices and unregisters it
+
+
+def _flush_topic(conn: _DeviceConn, topic: str) -> None:
+    with conn.topic_lock:
+        conn.topic_timers.pop(topic, None)
+        data = conn.topic_pending.pop(topic, None)
+        if data is None or conn.closed or topic not in conn.topics:
+            return
+        conn.topic_sent[topic] = time.monotonic()
+    _send_topic(conn, topic, data)
+
+
+def publish(topic: str, data: Optional[dict] = None, exclude: Optional[str] = None) -> int:
+    """Push ``data`` on ``topic`` to every connected device that subscribed to it, except
+    ``exclude`` (the device whose own request caused the change — it already knows, and an
+    echo would make it fetch what it just wrote). Returns how many devices it was sent or
+    queued for."""
+    payload = dict(data or {})
+    with _REG_LOCK:
+        conns = [c for c in _REG.values() if not c.closed and c.device_id != exclude]
+    count = 0
+    for conn in conns:
+        send = None
+        with conn.topic_lock:
+            every = conn.topics.get(topic)
+            if every is None:
+                continue
+            count += 1
+            now = time.monotonic()
+            last = conn.topic_sent.get(topic)
+            if last is None or now - last >= every:
+                conn.topic_sent[topic] = now
+                send = _merge_topic_data(conn.topic_pending.pop(topic, {}), payload)
+            else:
+                conn.topic_pending[topic] = _merge_topic_data(conn.topic_pending.get(topic, {}), payload)
+                if topic not in conn.topic_timers:
+                    timer = threading.Timer(every - (now - last), _flush_topic, args=(conn, topic))
+                    timer.daemon = True
+                    conn.topic_timers[topic] = timer
+                    timer.start()
+        if send is not None:
+            _send_topic(conn, topic, send)
+    return count
+
+
+def subscribers(topic: str) -> list[str]:
+    """Connected devices that want ``topic`` pushed."""
+    with _REG_LOCK:
+        conns = [c for c in _REG.values() if not c.closed]
+    out = []
+    for conn in conns:
+        with conn.topic_lock:
+            if topic in conn.topics:
+                out.append(conn.device_id)
+    return out
+
+
+# ── Wearables the phone holds ───────────────────────────────────────────────
+# The phone sends its wearables roster when it changes ({"type":"event","name":
+# "wearables_state",...}); the Mac's menu reads it from /api/devices instead of
+# invoking wearables_list on the phone every 45 s. Kept across reconnects: a phone
+# whose socket dropped still has the same wearables paired.
+
+_WEARABLES: dict[str, tuple[list, float]] = {}
+_WEARABLES_MAX = 64
+
+
+def _cache_wearables(device_id: str, data: dict) -> None:
+    rows = data.get("wearables")
+    if not isinstance(rows, list):
+        return
+    clean = [r for r in rows[:_WEARABLES_MAX] if isinstance(r, dict)]
+    with _REG_LOCK:
+        _WEARABLES[device_id] = (clean, time.time())
+
+
+def wearables_for(device_id: str) -> Optional[tuple[list, float]]:
+    """(rows, when) the device last sent, or None if it never has."""
+    with _REG_LOCK:
+        return _WEARABLES.get(device_id)
 
 
 # ── Public API used by routes ───────────────────────────────────────────────
@@ -1197,9 +1358,20 @@ _RECV_CHUNK = 65536  # 64 KB per recv; reassembly handles larger messages
 # — protects against a misbehaving device flooding us. 8 MB is enough
 # for an uncompressed-but-downscaled screenshot or a large skill result.
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
-_PING_INTERVAL = 18.0  # server keepalive cadence; a text data ping every ~18s
-                       # keeps cloudflared/Cloudflare from idle-closing the
-                       # mostly-idle bridge (a WS control Ping alone didn't)
+def _ping_interval() -> float:
+    try:
+        return max(5.0, float(os.environ.get("JC_BRIDGE_PING_S") or 40))
+    except ValueError:
+        return 40.0
+
+
+_PING_INTERVAL = _ping_interval()
+                       # server keepalive cadence: a text data frame keeps
+                       # cloudflared/Cloudflare from idle-closing the mostly-idle
+                       # bridge (a WS control Ping alone didn't; the edge cut idle
+                       # links at ~51 s, measured 2026-06-06). Every frame wakes the
+                       # phone's radio, so it is as slow as that limit safely allows
+                       # with the pump's 5 s poll on top — it was 18 s.
 _RECV_POLL = 5.0       # how long the pump waits for inbound data before looping
                        # to run the keepalive — so an idle connection still pings
                        # AND an ungraceful disconnect is detected within
@@ -1443,7 +1615,13 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
         _dispatch_coding_frame(conn, msg)
         return
     if t == "event":
+        if msg.get("name") == "wearables_state" and isinstance(msg.get("data"), dict):
+            _cache_wearables(conn.device_id, msg["data"])
+            return
         _dispatch_event(conn, msg)
+        return
+    if t == "subscribe":
+        _set_topics(conn, msg.get("topics"))
         return
     if t == "ping":
         try:
