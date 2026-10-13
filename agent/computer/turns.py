@@ -73,15 +73,15 @@ def clean_steps(steps) -> Optional[list]:
     return out or None
 
 
-def run_task(goal, steps, task_id) -> tuple:
-    """``(Result, None)`` or ``(None, error)``: find the Mac, run the loop."""
+def run_task(goal, steps, task_id, app=None) -> tuple:
+    """``(Result, None)`` or ``(None, error)``: find the Mac, run the loop (on ``app`` when named)."""
     from agent.computer import mac
     device, name, err = mac.find_mac(task_id)
     if err:
         return None, err
     b = bound(task_id) or Binding(None, None)
     result = _loop.run(goal, clean_steps(steps), config_for(b.node, b.own_ref), device=device, device_name=name,
-                       should_stop=b.should_stop)
+                       should_stop=b.should_stop, app=str(app or "").strip() or None)
     return result, None
 
 

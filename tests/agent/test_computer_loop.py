@@ -54,7 +54,7 @@ def test_done_path_opens_app_directly_and_reports():
     decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 10),
                       Move({"action": "done"}, 0.95, "decision", 10),
                       Move({"action": "done"}, 0.95, "decision", 10))
-    r = L.run("work out 7", [{"do": "open Calculator", "app": "Calculator"}, {"do": "press 7"}], _cfg(),
+    r = L.run("work out 7", [{"do": "open Calculator", "app": "Calculator"}, {"do": "enter seven"}], _cfg(),
               device="mac1", progress=lines.append, decide=decide, fallback=_never, mac=mac)
     assert r.status == "done"
     assert mac.acts[0][0] == {"action": "open_app", "app": "Calculator"}
@@ -72,7 +72,7 @@ def test_loop_low_conf_uses_fallback():
         return Move({"action": "click", "element": 2}, None, "fallback", 50)
 
     decide = _decider(Move({"action": "click", "element": 1}, 0.3, "decision", 10))
-    r = L.run("g", [{"do": "press ="}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
+    r = L.run("g", [{"do": "get the result"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
     assert used == ["@f:m"] and mac.acts[0][0] == {"action": "click", "element": 2}
     assert r.status == "done" and r.actions[0]["by"] == "fallback"
 
@@ -213,3 +213,20 @@ def test_fallback_can_open_an_app():
     assert _valid({"action": "open_app", "app": "Notes"}, {"elements": []}, {}) == {"action": "open_app",
                                                                                   "app": "Notes"}
     assert _valid({"action": "open_app"}, {"elements": []}, {}) == {"action": "stuck"}
+
+
+def test_steps_naming_a_button_click_it_without_a_decision():
+    mac = FakeMac()
+    r = L.run("12×7", [{"do": "click 7 button"}, {"do": "press ="}], _cfg(), device="m",
+              decide=_decider(Move({"action": "click", "element": 2}, 0.9, "decision", 1),
+                              Move({"action": "done"}, 0.9, "decision", 1)),
+              fallback=_never, mac=mac)
+    assert r.status == "done"
+    assert mac.acts[0][0] == {"action": "click", "element": 1} and r.actions[0]["by"] == "match"
+
+
+def test_run_starts_on_the_named_app():
+    mac = AppMac()
+    r = L.run("g", [{"do": "click 7 button"}], _cfg(), device="m", app="Calculator",
+              decide=_decider(), fallback=_never, mac=mac)
+    assert mac.looked[0] == "Calculator" and r.status == "done"

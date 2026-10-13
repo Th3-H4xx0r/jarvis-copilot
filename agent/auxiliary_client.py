@@ -1029,6 +1029,12 @@ class _AnthropicCompletionsAdapter:
             from agent.anthropic_adapter import _forbids_sampling_params
             if not _forbids_sampling_params(model):
                 anthropic_kwargs["temperature"] = temperature
+        # A caller may set Claude's thinking itself, e.g. {"type": "disabled"}:
+        # 5.x models think by default and a short JSON helper can spend its whole
+        # max_tokens thinking (agent/computer/decide.py).
+        _thinking = (kwargs.get("extra_body") or {}).get("thinking")
+        if isinstance(_thinking, dict):
+            anthropic_kwargs["thinking"] = _thinking
 
         response = self._client.messages.create(**anthropic_kwargs)
         _transport = get_transport("anthropic_messages")

@@ -466,6 +466,38 @@ def _reachable(candidates: list[dict]) -> list[dict]:
     return [c for c in candidates if c.get("device_id") in ids]
 
 
+_UI_SKILLS = frozenset({"ui_look", "ui_do"})
+
+
+def _ui_for_model(skill_name: str, result: dict) -> Any:
+    """jc-client's ui_look / ui_do (fast computer control) for a main model: the
+    numbered elements as text and the screenshot as an image — never the base64
+    as text (a ui_do's next look is nested under ``look``)."""
+    from agent.computer.choices import element_line
+    inner = result.get("result") if isinstance(result.get("result"), dict) else result
+    if not result.get("ok", True) or not isinstance(inner, dict):
+        return json.dumps({"ok": False, "error": str((inner or {}).get("error") or result.get("error") or "failed")})
+    lines = []
+    if skill_name == "ui_do":
+        lines.append(f"{inner.get('did')} via {inner.get('via')}" if inner.get("ok", True)
+                     else f"ui_do failed: {inner.get('error')}")
+        look = inner.get("look") if isinstance(inner.get("look"), dict) else None
+    else:
+        look = inner
+    if look and look.get("ok", True) and look.get("look_id"):
+        lines.append(f"Screen: {look.get('app')} — {look.get('window') or ''} (look_id {look['look_id']}):")
+        lines += [element_line(e) for e in look.get("elements") or []]
+    elif look:
+        lines.append(f"Could not read the screen: {look.get('error')}")
+    text = "\n".join(lines)
+    b64 = (look or {}).get("base64")
+    if b64 and _model_sees_images():
+        url = f"data:{look.get('mime') or 'image/jpeg'};base64,{b64}"
+        return {"_multimodal": True, "text_summary": text,
+                "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": url}}]}
+    return json.dumps({"ok": bool(inner.get("ok", True)), "summary": text}, ensure_ascii=False)
+
+
 def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     def _handler(args=None, **_kw):
         # The tool lists every paired device that offers the skill; only the
@@ -493,6 +525,8 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             return json.dumps({"ok": False, "error": str(exc)})
         if not isinstance(result, dict):
             result = {"ok": True, "result": result}
+        if skill_name in _UI_SKILLS:
+            return _ui_for_model(skill_name, result)
         result = _materialize_image(result, skill_name, call_args)
         if _is_multimodal(result):
             # Returned as a dict, not JSON: the agent loop unwraps this into a

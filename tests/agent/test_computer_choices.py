@@ -44,3 +44,19 @@ def test_parse():
 def test_element_line():
     assert element_line({"i": 7, "role": "AXButton", "label": "Send"}) == "7. button 'Send'"
     assert element_line({"i": 8, "role": "text", "label": "Total"}) == "8. text 'Total'"
+
+
+def test_a_step_naming_one_visible_button_matches_it_directly():
+    from agent.computer.choices import match_step
+    look = {"elements": [{"i": 1, "role": "AXButton", "label": "All Clear"},
+                         {"i": 2, "role": "AXButton", "label": "2"},
+                         {"i": 3, "role": "AXButton", "label": "Multiply"},
+                         {"i": 4, "role": "AXButton", "label": "Send"},
+                         {"i": 5, "role": "AXMenuItem", "label": "Send"}]}
+    assert match_step({"do": "click 2 button"}, look) == 2
+    assert match_step({"do": "Click the “Multiply” button"}, look) == 3
+    assert match_step({"do": "press All Clear"}, look) == 1
+    assert match_step({"do": "tap 'multiply'"}, look) == 3
+    assert match_step({"do": "click Send"}, look) is None          # two elements named Send
+    assert match_step({"do": "search for lo-fi", "text": "lo-fi"}, look) is None
+    assert match_step({"do": "click the 9 button"}, look) is None   # not on screen

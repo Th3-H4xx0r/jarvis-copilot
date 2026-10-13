@@ -47,7 +47,10 @@ Frontmost app now: {app}
 Reply with ONLY one JSON object:
 {{"steps": [{{"do": "<one step>", "text": "<exact text to type, if any>", "app": "<app to open first, if any>"}}], \
 "say": "<one short line for the user when it's done, e.g. Playing lo-fi in Spotify.>"}}
-Use as few steps as possible (1-6). Put text the user wants typed or searched in "text", word for word."""
+Use as few steps as possible (1-8). Each step is one UI move: "click the <label> button" (name buttons by \
+their visible label, one press per step), "search for …" / "type … into …" only where there is a text field \
+(put the text in "text", word for word), or "press <key>". The first step opens the app ("app") unless it is \
+already in front."""
 
 
 @dataclass
@@ -117,8 +120,12 @@ def _call(call, ref, prompt, look, max_tokens):
     url = data_url(look)
     if url:
         content.append({"type": "image_url", "image_url": {"url": url}})
+    # A fast JSON answer needs no thinking; Claude 5.x thinks by default and
+    # spent the whole max_tokens on it (empty reply → every fallback "stuck").
+    extra = {"thinking": {"type": "disabled"}} if str(provider or "").startswith("anthropic") else None
     resp = call(task="vision", provider=provider, model=model, temperature=0,
-                messages=[{"role": "user", "content": content}], max_tokens=max_tokens, timeout=FALLBACK_TIMEOUT)
+                messages=[{"role": "user", "content": content}], max_tokens=max_tokens, timeout=FALLBACK_TIMEOUT,
+                extra_body=extra)
     from agent.auxiliary_client import extract_content_or_reasoning
     return extract_content_or_reasoning(resp)
 

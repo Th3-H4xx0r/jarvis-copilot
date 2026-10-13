@@ -23,6 +23,8 @@ COMPUTER_DO_SCHEMA = {
         "type": "object",
         "properties": {
             "goal": {"type": "string", "description": "What should be true on the Mac when done."},
+            "app": {"type": "string", "description": "The app it happens in, e.g. 'Calculator' (opened if needed; "
+                                                    "works even when another app is in front)."},
             "steps": {
                 "type": "array",
                 "description": "Short UI steps in order.",
@@ -47,7 +49,7 @@ def handle_computer_do(args: dict, task_id=None, **_kw):
     goal = str((args or {}).get("goal") or "").strip()
     if not goal:
         return json.dumps({"ok": False, "error": "goal is required"})
-    result, err = turns.run_task(goal, (args or {}).get("steps"), task_id)
+    result, err = turns.run_task(goal, (args or {}).get("steps"), task_id, app=(args or {}).get("app"))
     if err:
         return json.dumps({"ok": False, "error": err})
     return turns.tool_result(result)

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from agent.computer import decide as _decide_mod
 from agent.computer import mac as _mac_mod
-from agent.computer.choices import element_line
+from agent.computer.choices import element_line, match_step
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def describe(action: dict, look: dict) -> str:
 
 
 def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, should_stop=None,
-        decide=None, fallback=None, mac=None, plan=None) -> Result:
+        decide=None, fallback=None, mac=None, plan=None, app=None) -> Result:
     decide = decide or _decide_mod.decide
     fallback = fallback or _decide_mod.fallback_step
     plan = plan or _decide_mod.plan_steps
@@ -95,7 +95,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     started = time.monotonic()
     out = Result("done", device_name=device_name)
 
-    look = mac.look(device)
+    # Start on the task's app when it is named (its window, even behind others),
+    # else on whatever is in front.
+    look = mac.look(device, app=app) if app else mac.look(device)
+    if app and not look.get("ok"):
+        opened = mac.act(device, {"action": "open_app", "app": app}, None)
+        look = opened.get("look") if opened.get("ok") and isinstance(opened.get("look"), dict) else look
     if not look.get("ok"):
         out.status, out.reason = "error", look.get("error") or "could not see the screen"
         return out
@@ -138,6 +143,21 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=step["app"])
             anchor = look.get("app") or step["app"]
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
+        # "click the Send button" with exactly one Send on screen: click it, no decision.
+        idx = match_step(step, look)
+        if idx is not None:
+            t = time.monotonic()
+            action = {"action": "click", "element": idx}
+            res = mac.act(device, action, look.get("look_id"))
+            record(action, res, _decide_mod.Move(action, None, "match", 0), int((time.monotonic() - t) * 1000))
+            if not res.get("ok") and res.get("device"):
+                out.status, out.reason = "error", res.get("error") or "the Mac stopped answering"
+                break
+            if res.get("ok"):
+                nxt = res.get("look") if isinstance(res.get("look"), dict) else None
+                look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=anchor)
+                history.append(f"step done: {step.get('do')}")
+                continue
         while True:
             if should_stop and should_stop():
                 out.status, out.reason = "error", "stopped"

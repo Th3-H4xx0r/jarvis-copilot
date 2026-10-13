@@ -195,3 +195,28 @@ def test_mac_screenshot_img_b64_is_unwrapped(monkeypatch, tmp_path):
     assert _PNG_1PX not in str(out)
     parsed = json.loads(out)
     assert parsed["result"]["image_path"].endswith(".png")
+
+
+def test_ui_do_look_reaches_the_model_as_numbers_and_an_image(monkeypatch, tmp_path):
+    """device_ui_do answered with the next look's base64 nested under `look`:
+    it went into the prompt as text (the chat hit 227k tokens)."""
+    monkeypatch.setattr(device_bridge, "all_device_skills", lambda: [
+        {"device_id": "mac1", "device_name": "MacBook", "name": "ui_do",
+         "description": "Do.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    device_skill_tools.rebuild_device_tools()
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    look = {"ok": True, "look_id": "L9", "app": "Calculator", "window": "Calculator", "base64": _PNG_1PX,
+            "mime": "image/png", "elements": [{"i": 1, "role": "AXButton", "label": "7"}]}
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a: {
+        "ok": True, "result": {"ok": True, "did": "click", "via": "ax", "look": look}})
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: True)
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    out = tools["device_ui_do"]["handler"]({"action": "click", "element": 1})
+    assert out["_multimodal"] is True
+    text = out["content"][0]["text"]
+    assert "click via ax" in text and "look_id L9" in text and "1. button '7'" in text
+    assert _PNG_1PX not in text and out["content"][1]["image_url"]["url"].endswith(_PNG_1PX)
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    out = tools["device_ui_do"]["handler"]({"action": "click", "element": 1})
+    assert isinstance(out, str) and _PNG_1PX not in out and "1. button '7'" in out

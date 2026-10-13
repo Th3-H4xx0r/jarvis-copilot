@@ -50,6 +50,24 @@ def build_choices(look: dict, step: dict) -> list[tuple[str, str]]:
     return out + list(FIXED)
 
 
+_CLICK_STEP = re.compile(r"^\s*(?:click|press|tap|hit|select|choose)\s+(?:on\s+)?(?:the\s+)?['\"“‘]?(.+?)['\"”’]?"
+                         r"(?:\s+(?:button|key|tab|link|item|option|icon))?\s*\.?\s*$", re.I)
+
+
+def match_step(step: dict, look: dict) -> int | None:
+    """The element a "click the Send button" step names, when exactly one visible
+    element has that label — clicked straight away, no decision call needed."""
+    if (step or {}).get("text"):
+        return None
+    m = _CLICK_STEP.match(str((step or {}).get("do") or ""))
+    if not m:
+        return None
+    want = m.group(1).strip().strip("'\"“”‘’").lower()
+    hits = [el["i"] for el in (look or {}).get("elements") or []
+            if str(el.get("label") or "").strip().lower() == want]
+    return hits[0] if len(hits) == 1 else None
+
+
 def parse_choice(value: str, look: dict, step: dict) -> dict:
     """The ``ui_do`` action a picked value means (``stuck`` when it names nothing)."""
     v = str(value or "").strip()
