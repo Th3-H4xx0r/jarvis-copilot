@@ -5243,6 +5243,12 @@ def _run_agent_streaming(
             _done = bounded_journal_payload('done', {'session': raw_session, 'usage': usage})
             _done['session'] = redact_session_data(_done['session'])
             put('done', _done)
+            # The phone's chat widgets show the latest reply; pushed, coalesced to 30 min.
+            try:
+                from api.device_bridge import publish as _publish_topic
+                _publish_topic('widgets', {'what': ['chats']})
+            except Exception:
+                pass
             # Emit one last metering packet for the live message-header TPS label.
             meter_stats = meter().get_stats()
             meter_stats['session_id'] = session_id

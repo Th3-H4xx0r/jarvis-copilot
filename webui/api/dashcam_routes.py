@@ -174,6 +174,33 @@ def schedule_rebuild(store) -> None:
         logger.exception("dashcam drive rebuild failed")
 
 
+# ── telling the phone ────────────────────────────────────────────────────────
+
+def phone_should_hear(method: str, path: str, status: int) -> list[str] | None:
+    """What a successful change means for the phone's uploads (the ``what`` of a ``dashcam``
+    push), or None. The phone used to fetch destinations every 15 s to notice these."""
+    if status >= 400 or method not in ("POST", "DELETE"):
+        return None
+    p, _ = _split(path)
+    if p == "/settings":
+        return ["rules"]
+    if p == "/destinations" or (p.startswith("/destinations/") and not p.endswith(("/test", "/token", "/oauth"))):
+        return ["destinations"]
+    return None
+
+
+def tell_phone(method: str, path: str, status: int, caller_id: str | None) -> None:
+    """Push the change to subscribed devices, except the one that made it (it knows)."""
+    what = phone_should_hear(method, path, status)
+    if not what:
+        return
+    try:
+        from api.device_bridge import publish
+        publish("dashcam", {"what": what}, exclude=caller_id or None)
+    except Exception:
+        logger.debug("dashcam: could not tell the phone", exc_info=True)
+
+
 # ── JSON dispatcher ──────────────────────────────────────────────────────────
 
 def handle_dashcam_request(method: str, path: str, query, body, store, *, relay=None) -> tuple[int, dict]:

@@ -958,6 +958,43 @@ from api.request_diagnostics import RequestDiagnostics
 from api.system_health import build_system_health_payload
 
 
+def _tell_phone_dashcam(handler, method: str, sub: str, status: int) -> None:
+    """A dashcam change the phone's uploads care about, pushed to it unless it made it."""
+    try:
+        from api.auth import parse_cookie
+        from api.dashcam_routes import tell_phone
+        from api.pairing import find_device_by_session
+        caller = find_device_by_session(parse_cookie(handler) or "") or {}
+        tell_phone(method, sub, status, caller.get("id"))
+    except Exception:
+        pass
+
+
+_ENERGY_FILE = "energy.jsonl"
+_ENERGY_KEEP = 400
+_ENERGY_FIELDS = ("received", "cpuSeconds", "foregroundSeconds", "backgroundSeconds",
+                  "backgroundAudioSeconds", "backgroundLocationSeconds", "app_version")
+
+
+def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
+    """One MetricKit day from a phone, kept so a battery change can be checked without a cable."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    row = {"device_id": device_id, "at": time.time()}
+    for key in _ENERGY_FIELDS:
+        value = body.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            row[key] = float(value)
+        elif isinstance(value, str):
+            row[key] = value[:40]
+    path = _Path(state_dir or STATE_DIR) / _ENERGY_FILE
+    lines = path.read_text().splitlines()[-(_ENERGY_KEEP - 1):] if path.exists() else []
+    lines.append(_json.dumps(row, sort_keys=True))
+    path.write_text("\n".join(lines) + "\n")
+    return row
+
+
 def _kanban_unknown_endpoint(handler, parsed, method: str) -> bool:
     """Return a Kanban-specific 404 for stale clients/obsolete endpoint shapes."""
     return bad(
@@ -3708,6 +3745,15 @@ def handle_get(handler, parsed) -> bool:
                 dd["skills"] = skills_for_device(d.get("id", "")) or []
             else:
                 dd["skills"] = []
+            # The wearables the phone last reported (the Mac's menu reads these instead of
+            # asking the phone every 45 s).
+            try:
+                from api.device_bridge import wearables_for
+                held = wearables_for(d.get("id", ""))
+                if held is not None:
+                    dd["wearables"], dd["wearables_at"] = held
+            except Exception:
+                pass
             out.append(dd)
         return j(handler, {"devices": out})
 
@@ -4939,6 +4985,7 @@ def handle_post(handler, parsed) -> bool:
         from api.dashcam_store import store_for_request as dashcam_store
         status, payload = handle_dashcam_request(
             "POST", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
+        _tell_phone_dashcam(handler, "POST", parsed.path[len(DASHCAM_PATH_PREFIX):], status)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -6583,6 +6630,21 @@ def handle_post(handler, parsed) -> bool:
         queue_items = take_mobile_queue(device["id"], include_foreground=include_foreground)
         return j(handler, {"invokes": queue_items, "ts": time.time()})
 
+    # ── Mobile client: MetricKit's daily energy numbers ──
+    # POST /api/devices/mobile/energy  {"cpuSeconds":…, "backgroundSeconds":…, …}
+    if parsed.path == "/api/devices/mobile/energy":
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session
+        device = find_device_by_session(parse_cookie(handler) or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        row = _append_energy_report(device["id"], body if isinstance(body, dict) else {})
+        bg_h = (row.get("backgroundSeconds") or 0) / 3600
+        cpu = row.get("cpuSeconds") or 0
+        logger.info("energy %s: cpu %.0f s over %.1f h in the background (%.1f s/h)", device.get("name") or device["id"],
+                    cpu, bg_h, cpu / bg_h if bg_h else 0)
+        return j(handler, {"ok": True})
+
     # ── Mobile client: post a skill result ──
     # POST /api/devices/mobile/result
     # body: {"call_id":"...","result": <any>}   OR  {"call_id":"...","error":"..."}
@@ -7007,6 +7069,7 @@ def handle_delete(handler, parsed) -> bool:
         dashcam_relay.ensure_worker(dashcam_store)
         status, payload = handle_dashcam_request(
             "DELETE", parsed.path[len(DASHCAM_PATH_PREFIX):], parse_qs(parsed.query), body, dashcam_store())
+        _tell_phone_dashcam(handler, "DELETE", parsed.path[len(DASHCAM_PATH_PREFIX):], status)
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/kanban/"):

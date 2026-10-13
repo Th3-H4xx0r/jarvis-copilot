@@ -98,6 +98,16 @@ class _Down(Exception):
         self.refused = refused
 
 
+def _tell_phone_clips() -> None:
+    """A clip reached (or gave up on) a destination: the phone's copy may go now. It used to ask
+    every 30 s whether any had; now it is told."""
+    try:
+        from api.device_bridge import publish
+        publish("dashcam", {"what": ["clips"]})
+    except Exception:
+        pass
+
+
 def default_state_dir() -> Path:
     root = os.environ.get("HERMES_WEBUI_STATE_DIR")
     return Path(root) if root else Path.home() / ".jarviscopilot" / "webui"
@@ -901,6 +911,7 @@ class RelayWorker(threading.Thread):
                     elif status["success"]:
                         store.set_destination_state(cid, dest_id, "done", remote_path=entry.get("remote_path"),
                                                     attempts=attempts, upload_id=job.upload_id)
+                        _tell_phone_clips()
                         continue
                     else:
                         self._fail(store, cid, dest_id, attempts, status["error"] or "copy failed", job.upload_id)
@@ -938,6 +949,7 @@ class RelayWorker(threading.Thread):
         if attempts >= MAX_ATTEMPTS:
             store.set_destination_state(cid, dest_id, "failed", error, attempts=attempts, upload_id=upload_id)
             logger.warning("dashcam relay: %s -> %s failed after %d attempts: %s", cid, dest_id, attempts, error)
+            _tell_phone_clips()
         else:
             store.set_destination_state(cid, dest_id, "pending", error, attempts=attempts, upload_id=upload_id,
                                         next_at=self.clock() + BACKOFF_BASE_S * 4 ** (attempts - 1))

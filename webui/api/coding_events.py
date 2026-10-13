@@ -52,6 +52,12 @@ def notify(payload: dict | None = None) -> None:
     and the bound prevents an unbounded memory leak.
     """
     payload = payload or {"type": "coding-changed"}
+    # The phone's widgets show coding sessions too; it hears of it at most every 30 min.
+    try:
+        from api.device_bridge import publish
+        publish("widgets", {"what": ["coding"]})
+    except Exception:
+        pass
     with _lock:
         subs = list(_subscribers)
     for q in subs:

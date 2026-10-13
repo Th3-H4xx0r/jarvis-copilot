@@ -286,6 +286,9 @@ class Handler(BaseHTTPRequestHandler):
             'path': safe_path,
             'status': int(code) if str(code).isdigit() else code,
             'ms': duration_ms,
+            # The phone marks requests it makes from the background, so its idle traffic can be
+            # counted (scripts/phone_bg_traffic.py) — the battery number that matters.
+            **({'bg': 1} if ((getattr(self, 'headers', None) or {}).get('X-JC-App-State') or '') == 'background' else {}),
         })
         print(f'[webui] {record}', flush=True)
 

@@ -297,6 +297,13 @@ def handle_post(handler, parsed, body) -> bool:
             device_id = raw.get("device_id") or body.get("device_id") or ""
             day = day_from_ring_json(raw, raw["date"], raw.get("timezone") or "UTC", source=kind)
             store.put_day(day, device_key_for(kind, device_id))
+            # The phone's health widgets read the merged history: pushed, at most every 30 min,
+            # instead of the phone fetching seven histories after every band sync.
+            try:
+                from api.device_bridge import publish
+                publish("widgets", {"what": ["health"]})
+            except Exception:
+                pass
             j(handler, {"ok": True, "date": day.date, "timezone": day.timezone})
             return True
 

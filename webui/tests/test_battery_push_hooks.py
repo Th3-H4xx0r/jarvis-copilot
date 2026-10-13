@@ -1,0 +1,79 @@
+"""What the server pushes to the phone instead of the phone polling (battery drain, 2026-10-13)."""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import pytest  # noqa: E402
+
+from api import dashcam_routes  # noqa: E402
+
+
+@pytest.mark.parametrize("method,path,status,what", [
+    ("POST", "/destinations", 200, ["destinations"]),
+    ("POST", "/destinations/d_0123abcd", 200, ["destinations"]),
+    ("POST", "/destinations/d_0123abcd/delete", 200, ["destinations"]),
+    ("POST", "/destinations/d_0123abcd/reconnect", 200, ["destinations"]),
+    ("DELETE", "/destinations/d_0123abcd", 200, ["destinations"]),
+    ("POST", "/settings", 200, ["rules"]),
+    ("POST", "/destinations/d_0123abcd/token", 200, None),
+    ("POST", "/destinations/d_0123abcd/test", 200, None),
+    ("POST", "/clips/c_0123456789abcdef0123/phone", 200, None),
+    ("POST", "/uploads", 200, None),
+    ("POST", "/destinations", 400, None),
+    ("GET", "/destinations", 200, None),
+])
+def test_which_dashcam_changes_reach_the_phone(method, path, status, what):
+    assert dashcam_routes.phone_should_hear(method, path, status) == what
+
+
+def test_the_device_that_made_the_change_is_excluded(monkeypatch):
+    calls = []
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "publish", lambda topic, data=None, exclude=None: calls.append((topic, data, exclude)))
+    dashcam_routes.tell_phone("POST", "/destinations", 200, "phone-1")
+    dashcam_routes.tell_phone("POST", "/clips/c_0123456789abcdef0123/phone", 200, "phone-1")
+    assert calls == [("dashcam", {"what": ["destinations"]}, "phone-1")]
+
+
+def test_relay_finishing_tells_the_phone(monkeypatch):
+    calls = []
+    from api import dashcam_relay, device_bridge
+    monkeypatch.setattr(device_bridge, "publish", lambda topic, data=None, exclude=None: calls.append((topic, data)))
+    dashcam_relay._tell_phone_clips()
+    assert calls == [("dashcam", {"what": ["clips"]})]
+
+
+def test_coding_changes_tell_widgets(monkeypatch):
+    calls = []
+    from api import coding_events, device_bridge
+    monkeypatch.setattr(device_bridge, "publish", lambda topic, data=None, exclude=None: calls.append((topic, data)))
+    coding_events.notify()
+    assert calls == [("widgets", {"what": ["coding"]})]
+
+
+def test_energy_reports_are_appended_and_capped(tmp_path, monkeypatch):
+    from api import routes
+    monkeypatch.setattr(routes, "_ENERGY_KEEP", 3)
+    for n in range(5):
+        routes._append_energy_report("phone-1", {"cpuSeconds": n, "backgroundSeconds": 3600, "junk": "x",
+                                                 "received": "2026-10-14T06:00:00Z", "flag": True}, state_dir=tmp_path)
+    rows = [json.loads(line) for line in (tmp_path / "energy.jsonl").read_text().splitlines()]
+    assert [r["cpuSeconds"] for r in rows] == [2.0, 3.0, 4.0]
+    assert rows[-1]["device_id"] == "phone-1" and "junk" not in rows[-1] and "flag" not in rows[-1]
+
+
+def test_bg_traffic_summary():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+    import phone_bg_traffic
+    lines = [
+        '[webui] {"ts": "2026-10-14T03:01:00Z", "method": "GET", "path": "/api/dashcam/clips/c_0123456789abcdef0123", "status": 404, "ms": 1, "bg": 1}',
+        '[webui] {"ts": "2026-10-14T03:02:00Z", "method": "GET", "path": "/api/devices?x=1", "status": 200, "ms": 1, "bg": 1}',
+        '[webui] {"ts": "2026-10-14T03:03:00Z", "method": "GET", "path": "/api/devices", "status": 200, "ms": 1}',
+        "noise",
+    ]
+    per_hour, per_path = phone_bg_traffic.summarize(lines)
+    assert per_hour == {"2026-10-14T03": 2}
+    assert per_path == {"GET /api/dashcam/clips/…": 1, "GET /api/devices": 1}
