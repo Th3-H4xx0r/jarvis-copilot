@@ -245,3 +245,32 @@ def test_done_before_any_move_on_a_step_needs_the_fallback():
     r = L.run("12x7", [{"do": "press the times key"}], _cfg(), device="m", decide=decide, fallback=fallback, mac=mac)
     assert asked == ["press the times key"] and mac.acts[0][0] == {"action": "click", "element": 2}
     assert r.status == "done"
+
+
+def test_a_failed_look_after_opening_is_retried_then_reported():
+    """Demo: a cold-launched app's first looks failed and the deciders ran on nothing."""
+    class SlowMac(FakeMac):
+        def __init__(self):
+            super().__init__()
+            self.fails = 2
+
+        def look(self, device, app=None):
+            if app and self.fails:
+                self.fails -= 1
+                return {"ok": False, "error": "Calculator has no open window."}
+            return super().look(device, app)
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": action["action"], "via": "app", "look": {"ok": False, "error": "no window"}}
+
+    mac = SlowMac()
+    r = L.run("g", [{"do": "clear it", "app": "Calculator"}], _cfg(), device="m",
+              decide=_decider(Move({"action": "done"}, 0.9, "decision", 1)), fallback=_never, mac=mac)
+    assert r.status == "done" and mac.fails == 0
+
+    mac = SlowMac()
+    mac.fails = 99
+    r = L.run("g", [{"do": "clear it", "app": "Calculator"}], _cfg(), device="m", decide=_never, fallback=_never,
+              mac=mac)
+    assert r.status == "error" and "no open window" in r.reason

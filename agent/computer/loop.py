@@ -88,6 +88,17 @@ def describe(action: dict, look: dict) -> str:
     return str(a)
 
 
+def _look_soon(mac, device, app, tries=4, wait=0.5) -> dict:
+    """A just-opened app's window can take a moment: look a few times before giving up."""
+    look = mac.look(device, app=app)
+    for _ in range(tries - 1):
+        if look.get("ok"):
+            break
+        time.sleep(wait)
+        look = mac.look(device, app=app)
+    return look
+
+
 def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, should_stop=None,
         decide=None, fallback=None, mac=None, plan=None, app=None) -> Result:
     decide = decide or _decide_mod.decide
@@ -143,7 +154,10 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", res.get("error") or "could not open the app"
                 break
             nxt = res.get("look") if isinstance(res.get("look"), dict) else None
-            look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=step["app"])
+            look = nxt if nxt and nxt.get("ok", True) else _look_soon(mac, device, step["app"])
+            if not look.get("ok", True):
+                out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
+                break
             anchor = look.get("app") or step["app"]
             if _OPEN_ONLY.match(str(step.get("do") or "")):
                 history.append(f"step done: {step.get('do')}")

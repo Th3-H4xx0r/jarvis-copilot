@@ -249,3 +249,18 @@ def test_static_text_changes_count_as_a_screen_change():
     a = ui.quick_sig_of(FakeAX(win), win)
     win["children"][0]["children"][1]["attrs"]["AXValue"] = "84"
     assert ui.quick_sig_of(FakeAX(win), win) != a
+
+
+def test_frontmost_and_find_app_come_from_the_live_window_list(monkeypatch):
+    """NSWorkspace goes stale in the long-running client (no main run loop): a just
+    launched Calculator read as "not running" and the frontmost app never changed."""
+    wins = [{"kCGWindowOwnerPID": 7, "kCGWindowOwnerName": "Dock", "kCGWindowLayer": 20},
+            {"kCGWindowOwnerPID": 42, "kCGWindowOwnerName": "Calculator", "kCGWindowLayer": 0},
+            {"kCGWindowOwnerPID": 9, "kCGWindowOwnerName": "Brave Browser", "kCGWindowLayer": 0}]
+    monkeypatch.setattr(ui, "_window_list", lambda on_screen: wins)
+    ax = ui._MacAX.__new__(ui._MacAX)
+    assert ax.frontmost() == (42, "Calculator")
+    assert ax.find_app("calculator") == (42, "Calculator")
+    assert ax.find_app("Brave Browser") == (9, "Brave Browser")
+    assert ax.find_app("Notes") is None
+    assert ax.app_name(9) == "Brave Browser"

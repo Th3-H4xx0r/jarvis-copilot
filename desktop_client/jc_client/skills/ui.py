@@ -57,23 +57,32 @@ class _MacAX:
     def trusted(self) -> bool:
         return bool(self.AS.AXIsProcessTrusted())
 
+    # NSWorkspace's app list and frontmost app go stale in this long-running
+    # process (nothing pumps a main run loop): a just-launched app read as "not
+    # running" and the frontmost app never changed. The window server's list is live.
     def frontmost(self) -> tuple:
-        from AppKit import NSWorkspace
-        app = NSWorkspace.sharedWorkspace().frontmostApplication()
-        return int(app.processIdentifier()), str(app.localizedName() or "")
+        for w in _window_list(True):
+            if int(w.get("kCGWindowLayer", 1)) == 0:
+                return int(w["kCGWindowOwnerPID"]), str(w.get("kCGWindowOwnerName") or "")
+        return 0, ""
 
     def find_app(self, name: str):
-        from AppKit import NSWorkspace
         want = name.strip().lower()
-        for app in NSWorkspace.sharedWorkspace().runningApplications():
-            if str(app.localizedName() or "").lower() == want or str(app.bundleIdentifier() or "").lower() == want:
+        for w in _window_list(False):
+            owner = str(w.get("kCGWindowOwnerName") or "")
+            if owner.lower() == want and int(w.get("kCGWindowLayer", 1)) == 0:
+                return int(w["kCGWindowOwnerPID"]), owner
+        if "." in want:  # a bundle id
+            from AppKit import NSRunningApplication
+            for app in NSRunningApplication.runningApplicationsWithBundleIdentifier_(name.strip()) or []:
                 return int(app.processIdentifier()), str(app.localizedName() or name)
         return None
 
     def app_name(self, pid: int):
-        from AppKit import NSRunningApplication
-        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
-        return None if app is None or app.isTerminated() else str(app.localizedName() or "")
+        for w in _window_list(False):
+            if int(w.get("kCGWindowOwnerPID", -1)) == pid:
+                return str(w.get("kCGWindowOwnerName") or "")
+        return None
 
     def activate(self, pid: int) -> None:
         from AppKit import NSRunningApplication
@@ -134,6 +143,15 @@ class _MacAX:
 
     def focus(self, el) -> bool:
         return self.AS.AXUIElementSetAttributeValue(el, "AXFocused", True) == 0
+
+
+def _window_list(on_screen: bool) -> list:
+    """The window server's windows, front to back (live, unlike NSWorkspace here)."""
+    from Quartz import (CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+                        kCGWindowListOptionAll, kCGWindowListOptionOnScreenOnly)
+    opt = (kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements) if on_screen \
+        else kCGWindowListOptionAll
+    return list(CGWindowListCopyWindowInfo(opt, kCGNullWindowID) or [])
 
 
 _ax_impl: Any = None
