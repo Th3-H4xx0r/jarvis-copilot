@@ -66,11 +66,22 @@ def match_step(step: dict, look: dict) -> int | None:
         return None
     m = _CLICK_STEP.match(str((step or {}).get("do") or ""))
     if not m:
-        return None
+        # (Not for the navigation steps a read adds: they quote the read's own words.)
+        return None if (step or {}).get("_max") else _named_in_passing(str((step or {}).get("do") or ""), look)
     want = m.group(1).strip().strip("'\"“”‘’").lower()
     names = {want, _SYMBOLS.get(want, want)}
     hits = [el["i"] for el in (look or {}).get("elements") or []
             if str(el.get("label") or "").strip().lower() in names]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _named_in_passing(do: str, look: dict) -> int | None:
+    """"create a new note" → the one "New Note" button; "open the Downloads folder" →
+    the one "Downloads" row. Only labels of 5+ letters, as whole words, one hit."""
+    low = do.lower()
+    hits = [el["i"] for el in (look or {}).get("elements") or []
+            if len(str(el.get("label") or "").strip()) >= 5
+            and re.search(rf"(?<!\w){re.escape(str(el['label']).strip().lower())}(?!\w)", low)]
     return hits[0] if len(hits) == 1 else None
 
 

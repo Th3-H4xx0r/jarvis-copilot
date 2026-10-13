@@ -76,3 +76,16 @@ def test_symbol_buttons_match_their_accessibility_names():
     assert match_step({"do": "click the − button"}, look) == 3
     assert match_step({"do": "click ÷"}, look) == 4
     assert match_step({"do": "click +"}, look) == 5
+
+
+def test_a_step_that_names_a_visible_button_in_passing_matches_it():
+    """Live (Notes): "create a new note" didn't match the "New Note" button and a fallback pixel-clicked."""
+    from agent.computer.choices import match_step
+    look = {"elements": [{"i": 1, "role": "AXButton", "label": "New Note"},
+                         {"i": 2, "role": "AXRow", "label": "Downloads"},
+                         {"i": 3, "role": "AXButton", "label": "Format"},
+                         {"i": 4, "role": "AXButton", "label": "Go"}]}
+    assert match_step({"do": "create a new note"}, look) == 1
+    assert match_step({"do": "open the Downloads folder"}, look) == 2
+    assert match_step({"do": "go back to the list"}, look) is None       # "Go" is too short to trust
+    assert match_step({"do": "type milk into the note", "text": "milk"}, look) is None
