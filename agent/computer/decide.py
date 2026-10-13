@@ -37,6 +37,8 @@ Reply with ONLY one JSON object:
 - click: an element number, or x/y in screenshot pixels when no box covers the target.
 - fill: an element number and the exact text to type into it.
 - open_app: switch to or launch an app by name. Never use Spotlight (cmd+space) or cmd+tab for that.
+- A popup in the way (cookies, notifications, location, sign-in): close it (Close / Not now / Don't Allow / ×) \
+— never Allow or Accept unless the task says so.
 - done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
 not the app this task is about."""
 
@@ -171,6 +173,10 @@ def _valid(raw, look, step) -> dict:
     el = int(el) if isinstance(el, (int, float)) or (isinstance(el, str) and el.isdigit()) else None
     if act in ("done", "stuck", "wait"):
         return {"action": act}
+    if act in ("click", "fill") and el in ids:
+        from agent.computer.choices import _permission
+        if _permission(next(e for e in look.get("elements") or [] if e.get("i") == el), step):
+            return {"action": "stuck"}  # never grant a site permission the task didn't ask for
     if act == "click":
         if el in ids:
             return {"action": "click", "element": el}

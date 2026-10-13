@@ -18,7 +18,8 @@ COMPUTER_DO_SCHEMA = {
         "time from screenshots. Only when the user asked for their Mac/computer. Give `steps` with the exact "
         "text to type (it skips a planning call). Returns what happened, the final screen's numbered elements "
         "and a screenshot; if it stops stuck, continue from there yourself. Prefer it over chrome_* and "
-        "mouse/keyboard tools for anything on the Mac."
+        "mouse/keyboard tools for anything on the Mac. Reads use the whole page's text, so don't add steps "
+        "that only scroll to read."
     ),
     "parameters": {
         "type": "object",

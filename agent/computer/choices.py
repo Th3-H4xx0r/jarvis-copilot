@@ -32,7 +32,21 @@ def role_name(role: str) -> str:
 
 def _thing(el: dict) -> str:
     label = str(el.get("label") or "").strip()
-    return f"{role_name(el.get('role'))} '{label}'" if label else role_name(el.get("role"))
+    kind = str(el.get("kind") or "").strip().lower() or role_name(el.get("role"))  # macOS's "tab", "link"…
+    return f"{kind} '{label}'" if label else kind
+
+
+# Granting a site permission or accepting terms is never a move the task didn't ask for.
+_PERMISSION = re.compile(r"^\s*(?:allow|always allow|allow once|accept(?:\s+all)?(?:\s+cookies)?|agree|i agree|"
+                         r"accept\s*&\s*continue)\s*$", re.I)
+
+
+def _permission(el: dict, step: dict) -> bool:
+    label = str(el.get("label") or "")
+    if not _PERMISSION.match(label):
+        return False
+    words = str((step or {}).get("do") or "").lower()
+    return not any(w in words for w in ("allow", "accept", "agree"))
 
 
 def element_line(el: dict) -> str:
@@ -44,6 +58,8 @@ def build_choices(look: dict, step: dict) -> list[tuple[str, str]]:
     text = str((step or {}).get("text") or "")
     out = []
     for el in (look or {}).get("elements") or []:
+        if _permission(el, step):
+            continue
         out.append((f"click {el['i']}", f"Click the {_thing(el)}"))
         if text and el.get("role") in TEXT_ROLES:
             out.append((f"fill {el['i']}", f"Type “{text}” into the {_thing(el)}"))
@@ -95,7 +111,8 @@ def parse_choice(value: str, look: dict, step: dict) -> dict:
     if v in ("scroll down", "scroll up"):
         return {"action": "scroll", "direction": v.split()[1]}
     m = re.fullmatch(r"(click|fill) (\d+)", v)
-    if m and any(el.get("i") == int(m.group(2)) for el in (look or {}).get("elements") or []):
+    el = next((e for e in (look or {}).get("elements") or [] if m and e.get("i") == int(m.group(2))), None)
+    if m and el is not None and not _permission(el, step):
         action = {"action": m.group(1), "element": int(m.group(2))}
         if m.group(1) == "fill":
             action["text"] = str((step or {}).get("text") or "")

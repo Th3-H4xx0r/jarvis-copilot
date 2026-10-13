@@ -89,3 +89,17 @@ def test_a_step_that_names_a_visible_button_in_passing_matches_it():
     assert match_step({"do": "open the Downloads folder"}, look) == 2
     assert match_step({"do": "go back to the list"}, look) is None       # "Go" is too short to trust
     assert match_step({"do": "type milk into the note", "text": "milk"}, look) is None
+
+
+def test_elements_show_their_kind_and_permission_buttons_are_not_moves():
+    from agent.computer.choices import build_choices, element_line, match_step, parse_choice
+    look = {"elements": [{"i": 1, "role": "AXRadioButton", "kind": "tab", "label": "AirPods Pro 3 - Best Buy"},
+                         {"i": 2, "role": "AXButton", "label": "Allow"},
+                         {"i": 3, "role": "AXButton", "label": "Accept All Cookies"},
+                         {"i": 4, "role": "AXLink", "kind": "link", "label": "Apple AirPods Pro 3"}]}
+    assert element_line(look["elements"][0]) == "1. tab 'AirPods Pro 3 - Best Buy'"
+    values = dict(build_choices(look, {"do": "open the first result"}))
+    assert "click 2" not in values and "click 3" not in values and "click 4" in values
+    assert parse_choice("click 2", look, {"do": "open the first result"}) == {"action": "stuck"}
+    assert parse_choice("click 3", look, {"do": "accept the cookies"}) == {"action": "click", "element": 3}
+    assert match_step({"do": "click Allow"}, look) == 2  # he (or the plan) named it

@@ -31,7 +31,7 @@ ACTIONABLE = frozenset({
     "AXDateField", "AXStepper", "AXSwitch", "AXToggle",
 })
 _ATTRS = ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXPlaceholderValue", "AXPosition", "AXSize",
-          "AXChildren", "AXEnabled", "AXSubrole", "AXHelp"]
+          "AXChildren", "AXEnabled", "AXSubrole", "AXHelp", "AXRoleDescription"]
 # Browser chrome walked after the page: the toolbar, Safari's tab bar, menu bars.
 # (Not AXTabGroup: Safari's page content lives inside one.)
 _CHROME_ROLES = frozenset({"AXToolbar", "AXOpaqueProviderGroup", "AXMenuBar"})
@@ -229,7 +229,8 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             x1, y1 = min(x + w, wx + ww), min(y + h, wy + wh)
             if x1 - x0 > 2 and y1 - y0 > 2:
                 label = _label(a) or _inner_text(ax, el) or _subrole_label(a)
-                out.append({"role": role, "label": label, "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
+                out.append({"role": role, "label": label, "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el,
+                            "kind": str(a.get("AXRoleDescription") or "")[:30]})
                 if texts is not None and role == "AXLink" and label:
                     texts.append(label)  # a page's titles and results are links
         elif texts is not None and role in ("AXStaticText", "AXHeading"):
@@ -421,7 +422,8 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
     return {"ok": True, "look_id": look_id, "app": name, "window": title[:120], "width": img.width,
             "height": img.height, "origin": list(frame[:2]), "scale": round(scale, 4),
             "base64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime": "image/jpeg",
-            "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"]} for e in elements],
+            "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"],
+                          **({"kind": e["kind"]} if e.get("kind") else {})} for e in elements],
             "source": source, "sig": sig, "ms": int((time.monotonic() - started) * 1000),
             # The window's text from accessibility: readable even under a banner or popup.
             "text": "\n".join(t for t in texts if t.strip())[:TEXT_CAP]}
