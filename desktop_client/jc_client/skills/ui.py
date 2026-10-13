@@ -222,6 +222,8 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             if x1 - x0 > 2 and y1 - y0 > 2:
                 label = _label(a) or _inner_text(ax, el) or _subrole_label(a)
                 out.append({"role": role, "label": label, "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
+                if texts is not None and role == "AXLink" and label:
+                    texts.append(label)  # a page's titles and results are links
         elif texts is not None and role in ("AXStaticText", "AXHeading"):
             t = next((str(a[k]) for k in ("AXValue", "AXTitle", "AXDescription")
                       if isinstance(a.get(k), (str, int, float)) and str(a.get(k)).strip()), "")

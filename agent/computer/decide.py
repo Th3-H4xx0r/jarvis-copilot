@@ -242,7 +242,8 @@ _READ_PROMPT = """Look at the screenshot of the user's Mac ({app} — {window}) 
 (it includes text a banner or popup may cover).
 Task: {goal}
 {do}
-Reply with ONLY that value, exactly as shown (e.g. $449.99). If this screen clearly shows there is nothing \
+Reply with ONLY that value, exactly as shown and complete (e.g. $449.99, or the full title) — no sentence \
+around it, at most 25 words. If this screen clearly shows there is nothing \
 (an empty day, no results), say so briefly (e.g. "no events"). Reply NONE only if this is not the right screen.
 
 Window text:

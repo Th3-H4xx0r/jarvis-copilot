@@ -335,3 +335,9 @@ def test_unlabelled_rows_and_icon_buttons_take_a_label_from_inside():
     r = ui.read_window(ax=FakeAX(win), capture=_capture)
     labels = {e["role"]: e["label"] for e in r["elements"]}
     assert labels["AXRow"] == "Downloads" and labels["AXButton"] == "Share"
+
+
+def test_link_text_is_part_of_the_window_text():
+    win = _el("AXWindow", "HN", pos=(0, 0), size=(300, 300), actions=(), children=[
+        _el("AXLink", "Language Models Can Hide Things", pos=(10, 10), size=(200, 20))])
+    assert "Language Models Can Hide Things" in ui.read_window(ax=FakeAX(win), capture=_capture)["text"]
