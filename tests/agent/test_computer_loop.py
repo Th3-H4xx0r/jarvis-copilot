@@ -389,3 +389,11 @@ def test_deciders_see_the_step_list_with_progress():
     text = context({"elements": []}, "g", {"do": "open the first result"}, [],
                    plan=[{"do": "search for pc"}, {"do": "open the first result"}], at=1)
     assert "1) ✓ search for pc" in text and "2) ▶ open the first result" in text
+
+
+def test_a_wait_does_not_finish_a_one_move_step():
+    """Live (YouTube): the page was loading, the decider waited, and "click the first video" counted as done."""
+    mac = FakeMac()
+    decide = _decider(Move({"action": "wait"}, 0.7, "decision", 1), Move({"action": "click", "element": 2}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "click the first video"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert [a[0]["action"] for a in mac.acts] == ["wait", "click"] and r.status == "done"

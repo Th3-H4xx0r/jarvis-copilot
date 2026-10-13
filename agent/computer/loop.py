@@ -307,7 +307,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                                                    f"“{step.get('do')}”; stopped (the screen shows where it got to).")
                 break
             if res.get("ok") and ((field is not None and not step.get("text"))
-                                  or (_ONE_MOVE.match(str(step.get("do") or "")) and action.get("action") != "scroll")):
+                                  or (_ONE_MOVE.match(str(step.get("do") or ""))
+                                      and action.get("action") not in ("scroll", "wait"))):
                 # A field click, or a one-move step whose move just worked: no "is it done?" call.
                 history.append(f"step done: {step.get('do')}")
                 break
