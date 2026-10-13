@@ -239,8 +239,15 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
             nid = edges[0]["to"]
     answer = nodes[nid]
     model, provider = _model_and_provider(answer.get("model"), session_model, session_provider)
-    handoff = next((nodes[e["to"]] for e in out.get(nid, []) if e["when"] == "handoff"), None)
-    after = [(nodes[e["to"]], e["when"]) for e in out.get(nid, [])
+    # A Background/Review node wired as some Computer node's hands carries it along,
+    # so the job's own computer_do uses that node (``_computer``).
+    hands_of = {e["from"]: nodes[e["to"]] for e in doc["edges"] if e["when"] == "hands"}
+
+    def _with_hands(n):
+        return {**n, "_computer": hands_of[n["id"]]} if n["id"] in hands_of else n
+
+    handoff = next((_with_hands(nodes[e["to"]]) for e in out.get(nid, []) if e["when"] == "handoff"), None)
+    after = [(_with_hands(nodes[e["to"]]), e["when"]) for e in out.get(nid, [])
              if parse_when(e["when"])[0] in ("always", "slow", "tools")
              and nodes[e["to"]]["type"] in ("background", "review")]
     hands = next((nodes[e["to"]] for e in out.get(nid, []) if e["when"] == "hands"), None)

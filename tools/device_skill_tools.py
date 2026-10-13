@@ -491,7 +491,7 @@ def _ui_for_model(skill_name: str, result: dict) -> Any:
         lines.append(f"Could not read the screen: {look.get('error')}")
     text = "\n".join(lines)
     b64 = (look or {}).get("base64")
-    if b64 and _model_sees_images():
+    if b64:  # the agent makes this image parts or a text summary for its own model
         url = f"data:{look.get('mime') or 'image/jpeg'};base64,{b64}"
         return {"_multimodal": True, "text_summary": text,
                 "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": url}}]}

@@ -447,6 +447,10 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
             except Exception as exc:
                 errored = True
                 result = json.dumps({"error": f"tool '{name}' failed: {exc}"}, ensure_ascii=False)
+            if isinstance(result, dict) and result.get("_multimodal") is True:
+                # An image result goes to the CLI as its text summary, never as base64.
+                from agent.tool_dispatch_helpers import _multimodal_text_summary
+                result = _multimodal_text_summary(result)
             result = "" if result is None else (result if isinstance(result, str) else str(result))
             if not errored and _looks_like_error_result(result):
                 errored = True

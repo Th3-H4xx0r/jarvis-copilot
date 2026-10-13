@@ -625,6 +625,11 @@ def _coerce_result(name: str, result):
         return result
     if result is None:
         return json.dumps({"ok": True})
+    if isinstance(result, dict) and result.get("_multimodal") is True and isinstance(result.get("content"), list):
+        # An image result: the agent turns it into image parts for a vision model
+        # or a text summary otherwise (_tool_result_content_for_active_model).
+        # As JSON text the screenshot reached the model as base64.
+        return result
     try:
         coerced = json.dumps(result, ensure_ascii=False, default=str)
     except Exception:

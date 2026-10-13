@@ -1824,7 +1824,9 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         if harness_plan is not None:
             _apply_node(agent, harness_plan.tools, harness_plan.instructions)
             agent._computer_node = harness_plan.computer
-            agent._computer_first = harness_plan.computer_first
+            # A schedule's prompt may be model-written (cronjob tool): no Route →
+            # Computer pre-step here; its model can still call computer_do.
+            agent._computer_first = False
             if harness_plan.handoff_node:
                 _handoff_task_id = _cron_session_id
                 _bind_schedule_handoff(agent, harness_plan.handoff_node, _handoff_task_id,
@@ -1979,6 +1981,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 session_id=node_session)
             _after_agents.append((node_agent, node_session))
             _apply_node(node_agent, node.get("tools", "lean"), node.get("instructions", ""))
+            node_agent._computer_node = node.get("_computer")  # its hands wire (agent/computer)
             node_result = _run_with_timeout(
                 node_agent, message,
                 history=[{"role": "user", "content": prompt},

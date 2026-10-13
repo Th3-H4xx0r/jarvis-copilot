@@ -86,16 +86,12 @@ def run_task(goal, steps, task_id, app=None) -> tuple:
 
 
 def tool_result(result: _loop.Result):
-    """The tool result: the summary, plus the final screenshot when the model takes images."""
+    """The tool result: the summary, plus the final screenshot as an image envelope —
+    the agent turns it into image parts or a text summary for its own model."""
     text = result.summary()
     from agent.computer.decide import data_url
     url = data_url(result.look or {})
-    try:
-        from tools.device_skill_tools import _model_sees_images
-        sees = _model_sees_images()
-    except Exception:
-        sees = False
-    if url and sees:
+    if url:
         return {"_multimodal": True, "text_summary": text,
                 "content": [{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": url}}]}
     return json.dumps({"ok": result.status == "done", "status": result.status, "summary": text},
@@ -135,16 +131,22 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
     messages.append({"role": "assistant", "content": "", "tool_calls": [{
         "id": call_id, "type": "function",
         "function": {"name": TOOL_NAME, "arguments": json.dumps({"goal": goal}, ensure_ascii=False)}}]})
-    messages.append({"role": "tool", "tool_call_id": call_id, "name": TOOL_NAME, "content": tool_result(result)})
+    content = tool_result(result)
+    to_model = getattr(agent, "_tool_result_content_for_active_model", None)
+    if callable(to_model):  # image parts or a text summary, whatever this agent's model takes
+        content = to_model(TOOL_NAME, content)
+    from agent.tool_dispatch_helpers import make_tool_result_message
+    messages.append(make_tool_result_message(TOOL_NAME, content, call_id))
     if result.status == "done":
         from agent.computer.decide import closing_line, needs_reading
         b = bound(task_id) or Binding(None, None)
         say = ""
         if needs_reading(goal):  # an answer to read off the screen (a sum, what's playing…)
             say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look)
-        if not say:  # an action: say where it ended up, no extra model call
-            where = " — ".join(x for x in ((result.look or {}).get("app"), (result.look or {}).get("window")) if x)
-            say = f"Done. {where}." if where else "Done."
+        if not say:  # an action: say what was done, no extra model call
+            last = (result.actions or [{}])[-1].get("did") or ""
+            app = (result.look or {}).get("app") or ""
+            say = (f"Done — {last}" + (f" ({app})" if app else "") + ".") if last else "Done."
         messages.append({"role": "assistant", "content": say})
         return say
     return None

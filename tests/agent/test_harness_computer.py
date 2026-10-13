@@ -104,3 +104,18 @@ def test_plan_without_computer():
     plan = plan_turn(clean, session_model="m", session_provider="p", text="hello",
                      surface="chat", has_attachments=False)
     assert plan.node_id == "fast" and plan.computer is None and plan.computer_first is False
+
+
+def test_background_nodes_carry_their_hands_computer():
+    doc = {"id": "h", "name": "H", "nodes": [
+        {"id": "in", "type": "message"},
+        {"id": "fast", "type": "answer", "model": HAIKU, "tools": "lean"},
+        {"id": "big", "type": "background", "model": SONNET, "tools": "all"},
+        {"id": "mac", "type": "computer", "model": DEC, "max_steps": 5}],
+        "edges": [{"from": "in", "to": "fast", "when": "always"},
+                  {"from": "fast", "to": "big", "when": "handoff"},
+                  {"from": "big", "to": "mac", "when": "hands"}]}
+    clean, errors = validate_harness(doc)
+    assert errors == []
+    plan = plan_turn(clean, session_model="m", session_provider="p", text="x", surface="chat", has_attachments=False)
+    assert plan.handoff_node["id"] == "big" and plan.handoff_node["_computer"]["max_steps"] == 5

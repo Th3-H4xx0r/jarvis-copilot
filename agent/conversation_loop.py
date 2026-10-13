@@ -381,7 +381,11 @@ def run_conversation(
     # (agent/mac_browser_gate.py) — record this turn's words before any tool runs.
     try:
         from agent import mac_browser_gate
-        mac_browser_gate.note_turn(effective_task_id, persist_user_message or user_message)
+        # His "yes" to Jarvis asking about the Mac counts: pass the last reply.
+        _prev_reply = next((m.get("content") for m in reversed(conversation_history or [])
+                            if isinstance(m, dict) and m.get("role") == "assistant" and m.get("content")), None)
+        mac_browser_gate.note_turn(effective_task_id, persist_user_message or user_message,
+                                   prev_assistant=_prev_reply)
     except Exception:
         logger.debug("mac browser gate: turn not recorded", exc_info=True)
     # The harness Computer node (if any) this turn's computer_do uses, and the

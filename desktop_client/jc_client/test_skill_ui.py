@@ -162,7 +162,7 @@ def test_fill_sets_the_value_or_types(monkeypatch):
     assert ax.values == [("Search", "lo-fi")]
     ax.set_ok = False
     typed, keys = [], []
-    monkeypatch.setattr(ui, "_type", typed.append)
+    monkeypatch.setattr(ui, "_type", lambda ax_, pid, t: typed.append(t))
     monkeypatch.setattr(ui, "_keys", lambda ax_, pid, k: keys.append(k))
     out = ui.do_action("fill", look_id=r["look_id"], element=2, text="lo-fi", ax=ax)
     assert out["via"] == "keys" and keys == ["cmd+a"] and typed == ["lo-fi"] and ax.focused == ["Search"]
@@ -209,6 +209,7 @@ def test_keys_refused_when_the_target_app_is_not_in_front(monkeypatch):
     """He switched apps mid-task: keys/cursor must never land in the app he is using."""
     ax = FakeAX(_window(), front=(99, "Brave Browser"))
     r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_user_idle_s", lambda: 5.0)  # he is idle; the app just won't come forward
     sent = []
     monkeypatch.setattr("jc_client.skills.common.key_press", lambda keys: sent.append(keys))
     monkeypatch.setattr(ui.time, "sleep", lambda s: None)
@@ -282,3 +283,37 @@ def test_open_url_opens_the_page_in_the_app_and_waits_for_its_title(monkeypatch)
     assert out == {"ok": True, "did": "open_url", "via": "app"}
     assert opened == [["-a", "Safari", "https://www.amazon.com/s?k=computer"]]
     assert ui.do_action("open_url", url="file:///etc/passwd", app="Safari", ax=ax)["ok"] is False
+
+
+def test_keys_need_a_live_look():
+    ui._looks.clear()
+    out = ui.do_action("key", keys="return", ax=FakeAX(_window()))
+    assert out["ok"] is False and "look again" in out["error"]
+
+
+def test_no_typing_or_cursor_while_he_is_using_the_mac(monkeypatch):
+    """Keys/clicks only when his last input is older than ours (else he is typing / in Spotlight)."""
+    ax = FakeAX(_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    monkeypatch.setattr(ui, "_user_idle_s", lambda: 0.1)      # he touched the Mac 0.1 s ago
+    monkeypatch.setattr(ui, "_last_own", [0.0])               # we haven't sent anything since
+    monkeypatch.setattr(ui, "USER_WAIT_S", 0.0)
+    sent = []
+    monkeypatch.setattr("jc_client.skills.common.key_press", lambda keys: sent.append(keys))
+    out = ui.do_action("key", look_id=r["look_id"], keys="return", ax=ax)
+    assert out["ok"] is False and "using the Mac" in out["error"] and sent == []
+    assert ui.do_action("click", look_id=r["look_id"], element=1, ax=ax)["via"] == "ax"  # presses still fine
+    monkeypatch.setattr(ui, "_user_idle_s", lambda: 5.0)
+    assert ui.do_action("key", look_id=r["look_id"], keys="return", ax=ax)["ok"] is True and sent
+
+
+def test_typing_stops_if_the_app_leaves_the_front(monkeypatch):
+    ax = FakeAX(_window())
+    monkeypatch.setattr(ui, "_user_idle_s", lambda: 5.0)
+    typed = []
+    monkeypatch.setattr("jc_client.skills.common.type_text", lambda text: typed.append(text))
+    fronts = iter([(10, "Calc")] * 2 + [(99, "Brave Browser")] * 10)
+    ax.frontmost = lambda: next(fronts)
+    with pytest.raises(ui.NotInFront):
+        ui._type(ax, 10, "a long sentence to type")
+    assert typed and "".join(typed) != "a long sentence to type"

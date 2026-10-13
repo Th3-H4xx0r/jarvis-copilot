@@ -319,3 +319,39 @@ def test_click_on_a_text_field_fills_it_or_finishes_the_step():
     r = L.run("g", [{"do": "focus the address bar"}], _cfg(), device="m",
               decide=_decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1)), fallback=_never, mac=mac)
     assert len(mac.acts) == 1 and r.status == "done"
+
+
+def test_stop_is_checked_right_before_a_move():
+    mac = FakeMac()
+    stop = {"now": False}
+
+    def decide(*a, **k):
+        stop["now"] = True  # he says stop while the move is being decided
+        return Move({"action": "click", "element": 1}, 0.9, "decision", 1)
+
+    r = L.run("g", [{"do": "enter seven"}], _cfg(), device="m", should_stop=lambda: stop["now"],
+              decide=decide, fallback=_never, mac=mac)
+    assert r.status == "error" and r.reason == "stopped" and mac.acts == []
+
+
+def test_open_only_means_just_opening_the_app():
+    assert L._open_only({"do": "open Spotify", "app": "Spotify"})
+    assert L._open_only({"do": "Launch the Calculator app", "app": "Calculator"})
+    assert not L._open_only({"do": "Go to the Library tab", "app": "Spotify"})
+    assert not L._open_only({"do": "open Spotify and play lo-fi", "app": "Spotify"})
+
+
+def test_a_one_move_step_ends_with_its_move():
+    """Speed: "click the first result" needs no extra "is it done?" decision."""
+    mac = FakeMac()
+    decide = _decider(Move({"action": "click", "element": 2}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "click the first result"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert r.status == "done" and len(decide.calls) == 1 and len(mac.acts) == 1
+
+
+def test_he_is_using_the_mac_twice_stops_politely():
+    busy = {"ok": False, "error": "You're using the Mac right now, so I won't type or move the cursor"}
+    mac = FakeMac(act_results=[busy, busy])
+    decide = _decider(*[Move({"action": "key", "keys": "return"}, 0.9, "decision", 1)] * 3)
+    r = L.run("g", [{"do": "x"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert r.status == "stuck" and "using the Mac" in r.reason

@@ -129,8 +129,11 @@ def _call(call, ref, prompt, look, max_tokens):
     resp = call(task="vision", provider=provider, model=model, temperature=0,
                 messages=[{"role": "user", "content": content}], max_tokens=max_tokens, timeout=FALLBACK_TIMEOUT,
                 extra_body=extra)
-    from agent.auxiliary_client import extract_content_or_reasoning
-    return extract_content_or_reasoning(resp)
+    # The answer only, never a reasoning model's thoughts (they could be read out).
+    try:
+        return str(resp.choices[0].message.content or "")
+    except Exception:
+        return ""
 
 
 def _valid(raw, look, step) -> dict:

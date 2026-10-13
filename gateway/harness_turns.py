@@ -182,6 +182,7 @@ def _run_background_node(node: dict, prompt: str, *, platform: str, toolsets) ->
     agent = AIAgent(model=model, **runtime, max_iterations=int(node.get("max_steps") or 90),
                     quiet_mode=True, verbose_logging=False, enabled_toolsets=toolsets,
                     platform=platform, skip_memory=True)
+    agent._computer_node = node.get("_computer")  # its hands wire (agent/computer)
     instructions = str(node.get("instructions") or "").strip()
     with unattended_run():
         return str(agent.chat(f"{instructions}\n\n{prompt}" if instructions else prompt) or "").strip()

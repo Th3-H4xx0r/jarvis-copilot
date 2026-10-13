@@ -217,6 +217,5 @@ def test_ui_do_look_reaches_the_model_as_numbers_and_an_image(monkeypatch, tmp_p
     text = out["content"][0]["text"]
     assert "click via ax" in text and "look_id L9" in text and "1. button '7'" in text
     assert _PNG_1PX not in text and out["content"][1]["image_url"]["url"].endswith(_PNG_1PX)
-    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
-    out = tools["device_ui_do"]["handler"]({"action": "click", "element": 1})
-    assert isinstance(out, str) and _PNG_1PX not in out and "1. button '7'" in out
+    from agent.tool_dispatch_helpers import _multimodal_text_summary
+    assert _PNG_1PX not in _multimodal_text_summary(out) and "1. button '7'" in _multimodal_text_summary(out)

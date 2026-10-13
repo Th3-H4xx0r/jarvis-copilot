@@ -398,9 +398,36 @@ class NotInFront(Exception):
     """The app a move is for can't be brought in front (he is using another one)."""
 
 
+class UserBusy(NotInFront):
+    """He is typing or clicking on the Mac right now."""
+
+
+USER_WAIT_S = 1.5
+_last_own = [0.0]  # monotonic time of our last real key/cursor event
+
+
+def _user_idle_s() -> float:
+    from Quartz import CGEventSourceSecondsSinceLastEventType, kCGAnyInputEventType, kCGEventSourceStateHIDSystemState
+    return float(CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType))
+
+
+def _wait_for_user():
+    """Real keys/clicks only when his last input is older than ours: if he is typing,
+    clicking or in Spotlight, wait a moment, then refuse rather than take over."""
+    deadline = time.monotonic() + USER_WAIT_S
+    while True:
+        idle = _user_idle_s()
+        if idle >= 0.8 or idle >= (time.monotonic() - _last_own[0]) - 0.05:
+            return
+        if time.monotonic() >= deadline:
+            raise UserBusy()
+        time.sleep(0.1)
+
+
 def _front(ax, pid):
     """Bring ``pid`` in front before any real cursor or key event, or refuse: a
     key or click must never land in the app the user is working in."""
+    _wait_for_user()
     if not pid or ax.frontmost()[0] == pid:
         return
     ax.activate(pid)
@@ -419,6 +446,7 @@ def _cursor_click(ax, pid, x, y, count=1):
     mouse.position = (x, y)
     time.sleep(0.03)
     mouse.click(Button.left, count)
+    _last_own[0] = time.monotonic()
     time.sleep(0.03)
     mouse.position = old
 
@@ -427,11 +455,17 @@ def _keys(ax, pid, keys: str):
     from jc_client.skills.common import key_press
     _front(ax, pid)
     key_press([k.strip() for k in str(keys).split("+") if k.strip()])
+    _last_own[0] = time.monotonic()
 
 
-def _type(text: str):
-    from jc_client.skills.common import type_text
-    type_text(text)
+def _type(ax, pid, text: str, chunk: int = 8):
+    """Type in short bursts, checking the app is still in front before each one."""
+    from jc_client.skills import common
+    for i in range(0, len(text), chunk):
+        if ax.frontmost()[0] != pid:
+            raise NotInFront()
+        common.type_text(text[i:i + chunk])
+        _last_own[0] = time.monotonic()
 
 
 def _scroll(ax, pid, x, y, direction):
@@ -440,6 +474,7 @@ def _scroll(ax, pid, x, y, direction):
     old = mouse.position
     mouse.position = (x, y)
     mouse.scroll(0, -5 if direction == "down" else 5)
+    _last_own[0] = time.monotonic()
     time.sleep(0.05)
     mouse.position = old
 
@@ -472,6 +507,9 @@ def do_action(action: str, look_id: str | None = None, element: int | None = Non
         return {"ok": False, "error": _NOT_TRUSTED}
     try:
         return _do(ax, action, look_id, element, text, keys, direction, x, y, app, url)
+    except UserBusy:
+        return {"ok": False, "error": "You're using the Mac right now, so I won't type or move the cursor; "
+                                      "only buttons can be pressed in the background."}
     except NotInFront:
         with _looks_lock:
             seen = _looks.get(look_id or "")
@@ -484,7 +522,9 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
     with _looks_lock:
         # No look_id: the latest look (a model calling ui_do by hand often leaves it out).
         seen = _looks.get(look_id) if look_id else (next(reversed(_looks.values())) if _looks else None)
-    if seen is None and (action == "fill" or (action == "click" and (element is not None or x is not None))):
+    if seen is None and (action in ("fill", "key", "scroll")
+                         or (action == "click" and (element is not None or x is not None))):
+        # Keys need to know which app they are for: never guess the frontmost one.
         return {"ok": False, "error": "That screen is gone; look again."}
     pid = seen["pid"] if seen else ax.frontmost()[0]
     el = None
@@ -512,7 +552,7 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
         if el.get("ref") is None or not ax.focus(el["ref"]):
             _cursor_click(ax, pid, *_center(el["pt"]))
         _keys(ax, pid, "cmd+a")
-        _type(text)
+        _type(ax, pid, text)
         return {"ok": True, "did": "fill", "via": "keys"}
     if action == "key":
         if not str(keys or "").strip():
@@ -565,9 +605,17 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
     return {"ok": False, "error": f"unknown action {action!r}"}
 
 
+_act_lock = threading.Lock()  # one move on the Mac at a time, whoever asks
+
+
 def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> dict:
     """One move, then (unless ``look_after`` is off) the next screen of the same
     app, read as soon as it differs from the screen the move was made on."""
+    with _act_lock:
+        return _do_and_look(action, look_after=look_after, reader=reader, **kw)
+
+
+def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
     reader = reader or read_window
     started = time.monotonic()
     with _looks_lock:

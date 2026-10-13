@@ -164,3 +164,40 @@ def test_on_my_screen_counts_as_an_ask():
 def test_other_device_tools_are_not_mac_control():
     gate.note_turn("t1", "what's my heart rate")
     assert gate.block_message("device_ring_get_hr", "t1") is None
+
+
+def test_a_yes_to_jarvis_asking_about_the_mac_counts():
+    """Live: Jarvis asked to use his Mac, he said "Yes, you have full authorization", still blocked."""
+    asked = "I can't open that in your Mac's browser without your OK — want me to?"
+    assert gate.explicit_mac_request("Yes, you have full authorization.", prev_assistant=asked)
+    assert gate.explicit_mac_request("go ahead", prev_assistant=asked)
+    assert not gate.explicit_mac_request("no, don't", prev_assistant=asked)
+    assert not gate.explicit_mac_request("yes please", prev_assistant="Want me to set a timer?")
+
+
+def test_show_me_requests_from_the_mac_itself_count():
+    """Live: "Can you open Amazon…" said to the Mac's voice panel was blocked."""
+    assert gate.explicit_mac_request("Can you open Amazon and look for the best deals", from_mac=True)
+    assert gate.explicit_mac_request("play lo-fi in Spotify", from_mac=True)
+    assert not gate.explicit_mac_request("Can you open Amazon and look for the best deals", from_mac=False)
+    assert not gate.explicit_mac_request("research the best robot vacuums", from_mac=True)
+
+
+def test_the_screen_alone_is_not_an_ask():
+    assert not gate.explicit_mac_request("what does the error on the screen mean?")
+    assert gate.explicit_mac_request("click the blue button on my screen")
+
+
+def test_note_turn_uses_origin_and_history(monkeypatch):
+    monkeypatch.setattr(gate, "_from_mac", lambda task_id: task_id == "mac-turn")
+    gate.note_turn("mac-turn", "open amazon")
+    gate.note_turn("web-turn", "open amazon")
+    assert gate.allowed("mac-turn") and not gate.allowed("web-turn")
+    gate.note_turn("t3", "yes go ahead", prev_assistant="Should I open it on your Mac?")
+    assert gate.allowed("t3")
+
+
+@pytest.mark.parametrize("name", ["device_run_shell", "device_quit_app", "device_focus_window"])
+def test_more_mac_control_tools_are_gated(name):
+    gate.note_turn("t1", "hello")
+    assert gate.block_message(name, "t1")

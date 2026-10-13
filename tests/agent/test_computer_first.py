@@ -36,12 +36,12 @@ def test_done_appends_call_result_and_line(monkeypatch):
     monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (_result("done", "Calculator is open."), None))
     agent, messages = _agent(), [{"role": "user", "content": "on my mac open calculator"}]
     said = turns.computer_first(agent, messages, "on my mac open calculator", "t1")
-    assert said == "Done. Calc."  # an action: no extra model call, says where it ended up
+    assert said == "Done — click button '7' (Calc)."  # an action: no extra model call
     call, result, line = messages[1:]
     assert call["tool_calls"][0]["function"]["name"] == "computer_do"
     assert json.loads(call["tool_calls"][0]["function"]["arguments"]) == {"goal": "on my mac open calculator"}
     assert result["role"] == "tool" and result["tool_call_id"] == call["tool_calls"][0]["id"]
-    assert line == {"role": "assistant", "content": "Done. Calc."}
+    assert line == {"role": "assistant", "content": "Done — click button '7' (Calc)."}
     assert agent.events == [("tool.started", "computer_do"), ("tool.completed", "computer_do")]
 
 
@@ -89,3 +89,24 @@ def test_a_question_gets_its_answer_read_off_the_screen(monkeypatch):
     monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
     said = turns.computer_first(_agent(), [{"role": "user", "content": "x"}], "on my mac work out 23 times 4", "t1")
     assert said == "Calculator shows 92."
+
+
+def test_tool_message_is_built_for_the_active_model(monkeypatch):
+    mac_browser_gate.note_turn("t1", "on my mac open safari")
+    monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (_result("stuck"), None))
+    agent = _agent()
+    agent._tool_result_content_for_active_model = lambda name, result: "TEXT-ONLY SUMMARY"
+    messages = [{"role": "user", "content": "x"}]
+    turns.computer_first(agent, messages, "on my mac open safari", "t1")
+    assert messages[-1]["role"] == "tool" and messages[-1]["content"] == "TEXT-ONLY SUMMARY"
+
+
+def test_quick_reply_names_the_last_move(monkeypatch):
+    mac_browser_gate.note_turn("t1", "on my mac open the first amazon result")
+    res = _result("done")
+    res.actions = [{"did": "click link 'Dell Pro Tower'", "by": "decision", "conf": 0.9, "ms": 900}]
+    res.look = {"app": "Safari", "window": "Amazon.com: Dell Pro Tower"}
+    monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (res, None))
+    said = turns.computer_first(_agent(), [{"role": "user", "content": "x"}], "on my mac open the first amazon result",
+                                "t1")
+    assert said == "Done — click link 'Dell Pro Tower' (Safari)."

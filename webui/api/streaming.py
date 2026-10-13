@@ -212,7 +212,7 @@ def _plan_for_turn(s, msg_text, attachments):
         return TurnPlan(harness_id="node", harness_name=node.get("id") or "background",
                         node_id=node.get("id") or "background", model=model, provider=provider,
                         tools=node.get("tools", "all"), instructions=node.get("instructions", ""),
-                        surface=surface)
+                        surface=surface, computer=node.get("_computer"))
     doc, note = resolve_harness(store_for_request(), session=s, surface=surface,
                                 requested_id=requested, explicit_model=explicit)
     sess_model, sess_provider = explicit or (getattr(s, "model", None), getattr(s, "model_provider", None))

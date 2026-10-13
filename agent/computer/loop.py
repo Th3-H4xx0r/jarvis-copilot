@@ -20,7 +20,17 @@ from agent.computer import mac as _mac_mod
 from agent.computer.choices import TEXT_ROLES, element_line, match_step
 
 logger = logging.getLogger(__name__)
-_OPEN_ONLY = re.compile(r"^\s*(?:open|launch|start|switch to|go to|bring up|activate)\b(?!.*\b(?:and|then)\b)", re.I)
+_OPEN_VERB = re.compile(r"^\s*(?:open|launch|start|switch\s+to|go\s+to|bring\s+up|activate)\s+(?:the\s+)?(.*?)"
+                        r"(?:\s+app(?:lication)?)?\s*\.?\s*$", re.I)
+# A step that is one move ("click the first result", "press Return"): done once that move works.
+_ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
+_REFUSED = ("isn't in front", "using the Mac")
+
+
+def _open_only(step: dict) -> bool:
+    """"open Spotify" (the whole step is opening its app) — not "go to the Library tab"."""
+    m = _OPEN_VERB.match(str(step.get("do") or ""))
+    return bool(m and step.get("app") and m.group(1).strip().lower() == str(step["app"]).strip().lower())
 
 
 @dataclass
@@ -181,13 +191,13 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", look.get("error") or f"could not see {step['app']}"
                 break
             anchor = look.get("app") or step["app"]
-            if _OPEN_ONLY.match(str(step.get("do") or "")):
+            if _open_only(step):
                 history.append(f"step done: {step.get('do')}")
                 continue  # "open Calculator": opening it was the whole step
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
         # "click the Send button" with exactly one Send on screen: click it, no decision.
         idx = match_step(step, look)
-        if idx is not None:
+        if idx is not None and not (should_stop and should_stop()):
             t = time.monotonic()
             action = {"action": "click", "element": idx}
             res = mac.act(device, action, look.get("look_id"))
@@ -250,6 +260,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if refused:
                 out.status, out.reason = "stuck", refused[0].upper() + refused[1:] + "."
                 break
+            if should_stop and should_stop():  # he may have said stop while the move was decided
+                out.status, out.reason = "error", "stopped"
+                break
             res = mac.act(device, action, look.get("look_id"))
             ms = int((time.monotonic() - t) * 1000)
             if not res.get("ok") and "look again" in str(res.get("error") or "") and not relooked:
@@ -263,11 +276,14 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if not res.get("ok") and res.get("device"):
                 out.status, out.reason = "error", res.get("error") or "the Mac stopped answering"
                 break
-            if not res.get("ok") and "isn't in front" in str(res.get("error") or ""):
+            if not res.get("ok") and any(r in str(res.get("error") or "") for r in _REFUSED):
                 refusals += 1
                 if refusals >= 2:
-                    out.status, out.reason = "stuck", (f"{anchor or 'The app'} isn't in front (another app is "
-                                                       "in use), so I stopped instead of typing into it.")
+                    out.status, out.reason = "stuck", (
+                        "You're using the Mac right now, so I stopped instead of typing into it."
+                        if "using the Mac" in str(res.get("error")) else
+                        f"{anchor or 'The app'} isn't in front (another app is in use), so I stopped instead of "
+                        "typing into it.")
                     break
                 continue
             if action.get("action") == "open_app":
@@ -283,7 +299,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append("nothing changed on screen")
             if new_look.get("ok", True):
                 look = new_look
-            if field is not None and not step.get("text") and res.get("ok"):
+            if res.get("ok") and ((field is not None and not step.get("text"))
+                                  or (_ONE_MOVE.match(str(step.get("do") or "")) and action.get("action") != "scroll")):
+                # A field click, or a one-move step whose move just worked: no "is it done?" call.
                 history.append(f"step done: {step.get('do')}")
                 break
             if repeats >= 2:
