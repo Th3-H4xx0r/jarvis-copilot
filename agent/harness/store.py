@@ -1,7 +1,11 @@
-"""Reading harness designs + the per-surface defaults.
+"""Reading harness designs + the one default and its per-surface overrides.
 
     <state>/harnesses/<profile>/designs/<id>.json
-    <state>/harnesses/<profile>/assignments.json   {"voice": id, "chat": id}
+    <state>/harnesses/<profile>/assignments.json   {"default": id, "voice": id|"", "chat": id|""}
+
+``default`` is what every surface runs (chat, voice, the Pod, messaging,
+schedules); Voice and Chat may override it ("" = same as default). Single is the
+default model (config.yaml ``model.default``).
 
 ``<state>`` is the web UI state dir (``HERMES_WEBUI_STATE_DIR``, else
 ``<JarvisCopilot root>/webui``); ``<profile>`` is the profile whose home
@@ -20,8 +24,9 @@ from pathlib import Path
 from agent.harness.builtins import CLAUDE_REF, builtin_harnesses, fast_model_ref
 from agent.harness.schema import validate_harness
 
-DEFAULT_ASSIGNMENTS = {"voice": "fast-claude", "chat": "single"}
-SURFACES = ("voice", "chat")
+DEFAULT_ASSIGNMENTS = {"default": "single", "voice": "fast-claude", "chat": ""}
+OVERRIDE_SURFACES = ("voice", "chat")
+SURFACES = ("default",) + OVERRIDE_SURFACES  # the keys POST /api/harnesses/assign takes
 
 
 def read_json(path: Path, default):
@@ -30,6 +35,23 @@ def read_json(path: Path, default):
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return default
+
+
+def normalize_assignments(raw) -> dict:
+    """The stored form, ``{"default": id, "voice": id|"", "chat": id|""}``. A file
+    written before the one default (no ``default`` key) migrates without changing
+    behaviour: its Chat harness becomes the default and Chat stops overriding."""
+    raw = raw if isinstance(raw, dict) else {}
+
+    def text(v):
+        return v.strip() if isinstance(v, str) else ""
+
+    if "default" in raw:
+        return {"default": text(raw.get("default")) or DEFAULT_ASSIGNMENTS["default"],
+                "voice": text(raw.get("voice")), "chat": text(raw.get("chat"))}
+    return {"default": text(raw.get("chat")) or DEFAULT_ASSIGNMENTS["default"],
+            "voice": text(raw.get("voice")) if "voice" in raw else DEFAULT_ASSIGNMENTS["voice"],
+            "chat": ""}
 
 
 def safe_id(s) -> str:
@@ -107,16 +129,32 @@ class HarnessStore:
             out.append(item)
         return out
 
+    def stored_assignments(self) -> dict:
+        return normalize_assignments(read_json(self._assign_path, None))
+
+    def overrides(self) -> dict:
+        """Voice/Chat's own harness, "" when it follows the default."""
+        stored = self.stored_assignments()
+        return {s: stored[s] for s in OVERRIDE_SURFACES}
+
+    def effective(self, surface) -> str:
+        """The harness a surface runs: its override (when that harness exists),
+        else the default (when it exists), else Single. Surfaces without an
+        override (messaging, schedules, …) run the default."""
+        stored = self.stored_assignments()
+        override = stored[surface] if surface in OVERRIDE_SURFACES else ""
+        if override and self.get(override) is not None:
+            return override
+        return stored["default"] if self.get(stored["default"]) is not None else "single"
+
     def get_assignments(self):
-        raw = read_json(self._assign_path, None) or {}
-        out = dict(DEFAULT_ASSIGNMENTS)
-        for s in SURFACES:
-            if isinstance(raw.get(s), str) and raw[s]:
-                out[s] = raw[s]
-        return out
+        """The effective harness per surface plus ``default`` (clients that predate
+        the one default read ``voice``/``chat`` as the harness to show)."""
+        return {s: self.effective(s) for s in SURFACES}
 
     def snapshot(self):
-        return {"harnesses": self.all_harnesses(), "assignments": self.get_assignments()}
+        return {"harnesses": self.all_harnesses(), "assignments": self.get_assignments(),
+                "overrides": self.overrides()}
 
 
 def webui_state_dir() -> Path:

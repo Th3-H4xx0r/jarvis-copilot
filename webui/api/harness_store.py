@@ -1,7 +1,7 @@
-"""Per-profile storage for harness designs + the per-surface defaults.
+"""Per-profile storage for harness designs + the one default and its overrides.
 
     <state>/harnesses/<profile>/designs/<id>.json
-    <state>/harnesses/<profile>/assignments.json   {"voice": id, "chat": id}
+    <state>/harnesses/<profile>/assignments.json   {"default": id, "voice": id|"", "chat": id|""}
 
 Reading lives in ``agent.harness.store`` (the scheduler reads designs too);
 this adds the writes. Built-ins live in code and are merged in on read; they
@@ -16,7 +16,8 @@ import time
 from pathlib import Path
 
 import api.config  # noqa: F401  (puts the JarvisCopilot checkout on sys.path for agent.*)
-from agent.harness.store import DEFAULT_ASSIGNMENTS, SURFACES  # noqa: F401  (re-exported)
+from agent.harness.store import DEFAULT_ASSIGNMENTS, OVERRIDE_SURFACES, SURFACES  # noqa: F401  (re-exported)
+from agent.harness.store import normalize_assignments
 from agent.harness.store import HarnessStore as _ReadOnlyStore
 from agent.harness.store import is_safe as _is_safe
 from api.harness_builtins import fast_model_ref
@@ -54,23 +55,34 @@ class HarnessStore(_ReadOnlyStore):
             if not path.exists():
                 return False
             path.unlink()
-            assign = self.get_assignments()
+            # An override naming it goes back to following the default; a
+            # default naming it goes back to Single.
+            stored = normalize_assignments(_read_json(self._assign_path, None))
             changed = False
-            for s in SURFACES:
-                if assign.get(s) == hid:
-                    assign[s] = DEFAULT_ASSIGNMENTS[s]
+            for s in OVERRIDE_SURFACES:
+                if stored[s] == hid:
+                    stored[s] = ""
                     changed = True
+            if stored["default"] == hid:
+                stored["default"] = "single"
+                changed = True
             if changed:
-                _write_json(self._assign_path, assign)
+                _write_json(self._assign_path, stored)
         return True
 
     def set_assignment(self, surface, harness_id) -> bool:
-        if surface not in SURFACES or self.get(harness_id) is None:
+        """``surface`` is default, voice or chat; "" clears a Voice/Chat override."""
+        if surface not in SURFACES or not isinstance(harness_id, str):
+            return False
+        hid = harness_id.strip()
+        if not hid and surface not in OVERRIDE_SURFACES:
+            return False
+        if hid and self.get(hid) is None:
             return False
         with _LOCK:
-            assign = self.get_assignments()
-            assign[surface] = harness_id
-            _write_json(self._assign_path, assign)
+            stored = normalize_assignments(_read_json(self._assign_path, None))
+            stored[surface] = hid
+            _write_json(self._assign_path, stored)
         return True
 
 

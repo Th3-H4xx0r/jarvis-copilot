@@ -71,7 +71,7 @@ def resolve_harness(store, *, session, surface, requested_id, explicit_model):
     elif explicit_model:
         return single_harness(), None
     else:
-        hid = getattr(session, "harness_id", None) or store.get_assignments().get(surface) or "single"
+        hid = getattr(session, "harness_id", None) or store.effective(surface)
     doc = store.get(hid)
     if doc is None:
         return single_harness(), f"harness '{hid}' not found; ran Single model"

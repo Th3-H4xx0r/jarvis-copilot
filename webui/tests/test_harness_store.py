@@ -34,13 +34,14 @@ def test_invalid_design_is_rejected(tmp_path):
 
 def test_assignments_default_set_and_reset_on_delete(tmp_path):
     st = HarnessStore(tmp_path)
-    assert st.get_assignments() == DEFAULT_ASSIGNMENTS
+    assert st.get_assignments() == {"default": "single", "voice": DEFAULT_ASSIGNMENTS["voice"], "chat": "single"}
     assert st.set_assignment("chat", "router") is True and st.get_assignments()["chat"] == "router"
     assert st.set_assignment("chat", "nope") is False and st.set_assignment("toaster", "router") is False
     st.upsert_design(DOC)
     st.set_assignment("voice", "mine")
     st.delete_design("mine")
-    assert st.get_assignments()["voice"] == DEFAULT_ASSIGNMENTS["voice"]
+    # A deleted Voice harness: Voice follows the default again.
+    assert st.overrides()["voice"] == "" and st.get_assignments()["voice"] == "single"
 
 
 def test_corrupt_file_reads_as_empty(tmp_path):

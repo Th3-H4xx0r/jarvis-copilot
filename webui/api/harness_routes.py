@@ -4,11 +4,12 @@
 the parsed JSON body and a ``HarnessStore``; it returns ``(status, payload)``.
 The webui server has no ``do_PUT``, so the API is GET/POST/DELETE only::
 
-    GET    ""                          -> {harnesses, assignments}
+    GET    ""                          -> {harnesses, assignments, overrides}
     POST   /designs {design}           -> {ok, design} | 400 {ok:false, errors}
     POST   /designs/<id>/delete        -> {ok} | 404          (alias for DELETE)
     DELETE /designs/<id>               -> {ok} | 404
-    POST   /assign {surface, harness_id} -> {ok, assignments} | 400
+    POST   /assign {surface: default|voice|chat, harness_id ("" clears voice/chat)}
+                                       -> {ok, assignments, overrides} | 400
     GET    /jobs/<session_id>          -> {jobs: [card]}   (Background job cards)
     POST   /jobs/<session_id>/<job_id>/stop -> {ok} | 404
 """
@@ -57,6 +58,7 @@ def handle_harness_request(method, path, body, store):
             return _delete(store, m.group(1))
         if p == "/assign":
             if store.set_assignment(body.get("surface"), body.get("harness_id")):
-                return 200, {"ok": True, "assignments": store.get_assignments()}
+                return 200, {"ok": True, "assignments": store.get_assignments(),
+                             "overrides": store.overrides()}
             return 400, {"ok": False, "error": "unknown surface or harness"}
     return 404, {"ok": False, "error": "unknown harness endpoint"}
