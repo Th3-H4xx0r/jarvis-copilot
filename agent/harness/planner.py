@@ -42,6 +42,10 @@ class TurnPlan:
     note: str | None = None
     surface: str = "chat"
     route: dict | None = None
+    # The Computer node this turn's computer_do uses; computer_first when a Route
+    # sent the turn to it (its fast loop runs before the Answer node's model).
+    computer: dict | None = None
+    computer_first: bool = False
 
     def cache_key(self, session_id: str) -> str:
         """Each node keeps its own warm agent (and so its own prompt cache)."""
@@ -208,10 +212,14 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
     nid = next(n["id"] for n in doc["nodes"] if n["type"] == "message")
     hops = 0
     route = None
+    computer = None
     while nodes[nid]["type"] != "answer" and hops < len(nodes):
         hops += 1
         node, edges = nodes[nid], out.get(nid, [])
-        if node["type"] == "route":
+        if node["type"] == "computer":
+            computer = node
+            nid = next(e["to"] for e in edges if e["when"] == "stuck")
+        elif node["type"] == "route":
             if node.get("by") == "model":
                 if classify is not None:
                     d = classify(node, text)
@@ -235,11 +243,13 @@ def plan_turn(doc, *, session_model, session_provider, text, surface, has_attach
     after = [(nodes[e["to"]], e["when"]) for e in out.get(nid, [])
              if parse_when(e["when"])[0] in ("always", "slow", "tools")
              and nodes[e["to"]]["type"] in ("background", "review")]
+    hands = next((nodes[e["to"]] for e in out.get(nid, []) if e["when"] == "hands"), None)
     return TurnPlan(harness_id=doc["id"], harness_name=doc.get("name") or doc["id"], node_id=nid,
                     model=model, provider=provider, tools=answer.get("tools", "lean"),
                     instructions=answer.get("instructions", ""), max_steps=answer.get("max_steps"),
                     fallback_model=answer.get("fallback_model"), handoff_node=handoff, after=after,
-                    surface=surface, route=route)
+                    surface=surface, route=route, computer=computer or hands,
+                    computer_first=computer is not None)
 
 
 def after_condition_holds(when, *, elapsed_s, tool_count) -> bool:

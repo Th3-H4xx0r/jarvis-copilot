@@ -4,8 +4,11 @@ A harness is ``{id, name, icon, nodes:[…], edges:[…]}``. Node types: message
 (start, exactly one), answer (a model answers while the user waits), route
 (picks an outgoing edge by label: by rules, a chat model or a decision model),
 background (a non-blocking model job),
-review (checks the answer just given). Edge ``when``: always · handoff ·
-label:<name> · default · slow:<seconds> · tools:<count>.
+review (checks the answer just given), computer (a decision model drives the
+user's Mac, agent/computer/). Edge ``when``: always · handoff · label:<name> ·
+default · slow:<seconds> · tools:<count> · stuck (Computer → the Answer node an
+unfinished Mac job goes to) · hands (Answer/Background → the Computer node its
+``computer_do`` tool uses; a tool link, not part of the flow).
 """
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ import re
 
 from agent.harness.refs import is_decision_ref
 
-NODE_TYPES = ("message", "answer", "route", "background", "review")
+NODE_TYPES = ("message", "answer", "route", "background", "review", "computer")
 TOOLS_PRESETS = ("lean", "all", "none")
 DELIVER_BACKGROUND = ("speak_or_notify", "post", "notify")
 DELIVER_REVIEW = ("post_if_changed", "post")
@@ -26,7 +29,7 @@ _MAX_NODES = 24
 
 def parse_when(when):
     w = str(when or "always").strip()
-    if w in ("always", "handoff", "default"):
+    if w in ("always", "handoff", "default", "stuck", "hands"):
         return (w, None)
     kind, _, value = w.partition(":")
     value = value.strip()
@@ -113,6 +116,22 @@ def _clean_node(raw, errors):
         if deliver not in DELIVER_REVIEW:
             _err(errors, "Unknown delivery for a Review node.", node=nid)
         node["deliver"] = deliver
+    if ntype == "computer":
+        model = str(raw.get("model") or "").strip()
+        if model:
+            if not _is_decision_ref(model):
+                _err(errors, f"{model} is not a decision model; a Computer node's model picks each move.", node=nid)
+            node["model"] = model
+        fallback = str(raw.get("fallback_model") or "").strip()
+        if fallback:
+            if _is_decision_ref(fallback):
+                _err(errors, f"{fallback} is a decision model — the fallback must be a chat model.", node=nid)
+            node["fallback_model"] = fallback
+        if raw.get("max_steps") not in (None, ""):
+            try:
+                node["max_steps"] = max(1, min(200, int(raw["max_steps"])))
+            except (TypeError, ValueError):
+                _err(errors, "max_steps must be a number.", node=nid)
     if ntype == "route":
         by = raw.get("by") or "rules"
         if by not in ("rules", "model"):
@@ -192,6 +211,12 @@ def validate_harness(doc, *, strict=True):
         st, dt = by_id[src]["type"], by_id[dst]["type"]
         if kind == "handoff" and (st != "answer" or dt != "background"):
             _err(errors, "A hand-off wire goes from an Answer node to a Background node.", edge=i)
+        if kind == "stuck" and (st != "computer" or dt != "answer"):
+            _err(errors, "A stuck wire goes from a Computer node to an Answer node.", edge=i)
+        if kind == "hands" and (st not in ("answer", "background") or dt != "computer"):
+            _err(errors, "A hands wire goes from an Answer or Background node to a Computer node.", edge=i)
+        if st == "computer" and kind != "stuck":
+            _err(errors, "Wires out of a Computer node are stuck wires.", edge=i)
         if kind in ("label", "default") and st != "route":
             _err(errors, "Only Route nodes have labelled wires.", edge=i)
         if st == "route" and kind not in ("label", "default"):
@@ -203,8 +228,17 @@ def validate_harness(doc, *, strict=True):
                  edge=i)
         edge = {"from": src, "to": dst, "when": kind if value is None else f"{kind}:{value}"}
         edges.append(edge)
-        out[src].append(edge)
         incoming[dst].add(kind)
+        if kind != "hands":  # a tool link, not a step in the flow
+            out[src].append(edge)
+
+    for n in nodes:
+        if n["type"] != "computer":
+            continue
+        stuck = [e for e in out.get(n["id"], []) if e["when"] == "stuck"]
+        if (incoming.get(n["id"], set()) - {"hands"}) and len(stuck) != 1:
+            _err(errors, "A Computer node on the path needs exactly one stuck wire (where an unfinished job goes).",
+                 node=n["id"])
 
     for n in nodes:
         if n["type"] != "route":
@@ -250,6 +284,8 @@ def validate_harness(doc, *, strict=True):
                 _walk(e["to"], answered or ntype == "answer")
 
         _walk(starts[0]["id"], False)
+        # A Computer node used only as some node's hands is connected through it.
+        seen |= {e["to"] for e in edges if e["when"] == "hands" and e["from"] in seen}
         for nid in by_id:
             if nid not in seen:
                 _err(errors, "This node is not connected to the Message node.", node=nid)
