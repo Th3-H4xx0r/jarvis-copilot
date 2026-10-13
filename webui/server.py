@@ -508,6 +508,13 @@ def main() -> None:
     except Exception as exc:
         print(f"[tools] device tool ranking could not start: {exc}", flush=True)
 
+    # ── Pod status pushed to the phone while its Devices tab is open ────
+    try:
+        from api.pod_watch import install as _install_pod_watch
+        _install_pod_watch()
+    except Exception as exc:
+        print(f"[devices] pod watcher could not start: {exc}", flush=True)
+
     # ── Live Jarvis: adopt audio a crash left unregistered ───────────────
     # A chunk is registered when it rolls, so a crash mid-chunk leaves a real
     # file no live_audio row knows about — invisible to the storage panel and
