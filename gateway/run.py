@@ -15596,6 +15596,21 @@ class GatewayRunner:
                     "tools": [],
                 }
 
+            # The one default harness (agent/harness): a Route picks the node whose
+            # model answers; a /model override on this chat, a Single default or
+            # anything that can't be planned keeps the model resolved above.
+            from gateway import harness_turns as _harness_turns
+            _msg_plan = _harness_turns.plan_message(
+                message, session_model=model, session_provider=runtime_kwargs.get("provider"),
+                has_session_override=bool(session_key and self._session_model_overrides.get(session_key)))
+            if _msg_plan is not None:
+                model = _msg_plan.model
+                if _msg_plan.runtime:
+                    runtime_kwargs = dict(runtime_kwargs, **_msg_plan.runtime)
+                logger.info("Messaging harness %s → %s (%s)%s", _msg_plan.harness_id,
+                            _msg_plan.plan.node_id, model,
+                            f", route: {_msg_plan.plan.route.get('label')}" if _msg_plan.plan.route else "")
+
             pr = self._provider_routing
             reasoning_config = self._resolve_session_reasoning_config(
                 source=source,
@@ -15786,6 +15801,30 @@ class GatewayRunner:
             agent.reasoning_config = reasoning_config
             agent.service_tier = self._service_tier
             agent.request_overrides = turn_route.get("request_overrides") or {}
+
+            # A harness node's result that finishes after the reply (a hand-off
+            # or a Background node) arrives as its own message in this chat.
+            def _deliver_harness_followup(text: str) -> None:
+                if not _status_adapter or not str(text or "").strip():
+                    return
+                safe_schedule_threadsafe(
+                    _status_adapter.send(_status_chat_id, text, metadata=_status_thread_metadata),
+                    _loop_for_step,
+                    logger=logger,
+                    log_message="harness follow-up scheduling error",
+                )
+
+            if _msg_plan is not None:
+                try:
+                    _harness_turns.set_toolsets(enabled_toolsets)
+                    _harness_turns.apply_node(agent, _msg_plan, task_id=session_id,
+                                              deliver=_deliver_harness_followup, platform=platform_key)
+                except Exception:
+                    logger.warning("Messaging harness: could not apply node %s; answering without its settings",
+                                   _msg_plan.plan.node_id, exc_info=True)
+                    _harness_turns.clear_node(agent)
+            else:
+                _harness_turns.clear_node(agent)
 
             _bg_review_release = threading.Event()
             _bg_review_pending: list[str] = []
@@ -16197,8 +16236,23 @@ class GatewayRunner:
                 else:
                     _run_message = message
 
+                _harness_t0 = time.monotonic()
                 result = agent.run_conversation(_run_message, conversation_history=agent_history, task_id=session_id)
+                if _msg_plan is not None:
+                    try:
+                        _harness_turns.after_turn(
+                            _msg_plan, task_id=session_id, question=message,
+                            answer=str((result or {}).get("final_response") or ""),
+                            elapsed_s=time.monotonic() - _harness_t0,
+                            tool_count=sum(len(m.get("tool_calls") or [])
+                                           for m in (result or {}).get("messages") or []
+                                           if isinstance(m, dict) and m.get("role") == "assistant"),
+                            deliver=_deliver_harness_followup, platform=platform_key)
+                    except Exception:
+                        logger.warning("Messaging harness: after-answer nodes failed to start", exc_info=True)
             finally:
+                if _msg_plan is not None:
+                    _harness_turns.release(session_id)
                 unregister_gateway_notify(_approval_session_key)
                 # Cancel any pending clarify entries so blocked agent
                 # threads don't hang past the end of the run (interrupt,
