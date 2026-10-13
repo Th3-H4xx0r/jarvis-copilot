@@ -174,9 +174,10 @@ def _valid(raw, look, step) -> dict:
     if act in ("done", "stuck", "wait"):
         return {"action": act}
     if act in ("click", "fill") and el in ids:
-        from agent.computer.choices import _permission
-        if _permission(next(e for e in look.get("elements") or [] if e.get("i") == el), step):
-            return {"action": "stuck"}  # never grant a site permission the task didn't ask for
+        from agent.computer.choices import _other_tab, _permission
+        target = next(e for e in look.get("elements") or [] if e.get("i") == el)
+        if _permission(target, step) or _other_tab(target, step):
+            return {"action": "stuck"}  # no unasked site permission; no tab clicks for a non-tab step
     if act == "click":
         if el in ids:
             return {"action": "click", "element": el}

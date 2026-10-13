@@ -467,3 +467,24 @@ def test_deciders_and_planner_know_today():
     from agent.computer.decide import context
     import datetime
     assert datetime.date.today().strftime("%B") in context({"elements": []}, "g", {"do": "x"}, [])
+
+
+def test_a_just_opened_page_waits_for_its_text():
+    class SlowPage(FakeMac):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def look(self, device, app=None):
+            self.calls += 1
+            return {**_look(self.n), "text": "x" * (50 if self.calls < 3 else 900)}
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": action["action"], "via": "app", "look": {**_look(1), "text": ""}}
+
+    mac = SlowPage()
+    r = L.run("g", [{"do": "open results", "app": "Safari", "url": "https://example.com/s?q=x"},
+                    {"do": "read the price", "read": "price"}], _cfg(), device="m", decide=_never, fallback=_never,
+              mac=mac, read=lambda ref, look, goal, step, **k: "$1" if len(look.get("text", "")) > 400 else "")
+    assert r.status == "done" and r.values == {"price": "$1"} and mac.calls >= 3

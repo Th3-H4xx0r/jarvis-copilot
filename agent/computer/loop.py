@@ -25,6 +25,7 @@ _OPEN_VERB = re.compile(r"^\s*(?:open|launch|start|switch\s+to|go\s+to|bring\s+u
 # A step that is one move ("click the first result", "press Return"): done once that move works.
 _ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
 _REFUSED = ("isn't in front", "using the Mac")
+_PAGE_TEXT_MIN = 400  # chars of window text before a just-opened page counts as loaded
 # "tell the user the date": not a move on the Mac — the reply is written afterwards.
 _TELL = re.compile(r"^\s*(?:tell|say|report|answer|inform|reply|let\s+(?:the\s+user|him|her|them|me)\s+know)\b", re.I)
 
@@ -215,6 +216,14 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if not look.get("ok", True):
                 out.status, out.reason = "error", look.get("error") or "could not see the page"
                 break
+            # Live (Best Buy): the title arrives long before the page; wait (≤3 s) for its text.
+            for _ in range(6):
+                if len(str(look.get("text") or "")) >= _PAGE_TEXT_MIN or "text" not in look:
+                    break
+                time.sleep(0.5)
+                fresh = mac.look(device, app=action["app"])
+                if fresh.get("ok"):
+                    look = fresh
             anchor = look.get("app") or action["app"]
             history.append(f"step done: {step.get('do')}")
             continue  # opening the page was the whole step
