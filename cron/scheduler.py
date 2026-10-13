@@ -275,7 +275,23 @@ def _split_job_model(model: Optional[str], provider: Optional[str]) -> tuple:
     return model, provider
 
 
-def _plan_job_harness(job: dict, prompt: str, *, default_model: str, default_provider: Optional[str]):
+def _job_harness_id(job: dict) -> str:
+    """The harness a job runs: its own; else (no model of its own) the one
+    default when that is a harness; else "" (its model, or the default model)."""
+    own = str(job.get("harness_id") or "").strip()
+    if own or str(job.get("model") or "").strip():
+        return own
+    try:
+        from agent.harness.store import store_for_home
+        hid = store_for_home().effective("schedule")
+    except Exception:
+        logger.debug("Cron: the default harness could not be read", exc_info=True)
+        return ""
+    return "" if hid == "single" else hid
+
+
+def _plan_job_harness(job: dict, prompt: str, *, harness_id: str, default_model: str,
+                      default_provider: Optional[str]):
     """``(plan, doc, note)`` for a harness job. A harness that is missing or
     invalid gives ``(None, None, note)``: the run falls back to Default and the
     note says why (the Pod's fallback, copied)."""
@@ -283,7 +299,6 @@ def _plan_job_harness(job: dict, prompt: str, *, default_model: str, default_pro
     from agent.harness.schema import validate_harness
     from agent.harness.store import store_for_home
 
-    harness_id = str(job.get("harness_id") or "").strip()
     try:
         doc = store_for_home().get(harness_id)
     except Exception as exc:
@@ -1632,11 +1647,13 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         if job.get("model"):
             model, requested_provider = _split_job_model(job.get("model"), requested_provider)
         harness_plan, harness_doc, runs_on_note = None, None, None
-        if str(job.get("harness_id") or "").strip():
+        # Its own harness, or — on Default — the one default when that is a harness.
+        job_harness_id = _job_harness_id(job)
+        if job_harness_id:
             # Route on the user's instruction, not the assembled prompt (skill
             # text + the scheduler's own hints); the agent still gets the latter.
             harness_plan, harness_doc, runs_on_note = _plan_job_harness(
-                job, str(job.get("prompt") or "").strip() or prompt,
+                job, str(job.get("prompt") or "").strip() or prompt, harness_id=job_harness_id,
                 default_model=model, default_provider=requested_provider)
             if harness_plan is None:
                 logger.warning("Job '%s': %s", job_id, runs_on_note)
@@ -1647,7 +1664,8 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         _picked_provider = requested_provider
         model, requested_provider = _claude_code_redirect(model, requested_provider, _cfg)
         if harness_plan is not None:
-            runs_on_line = (f"harness {harness_doc.get('name') or harness_doc['id']} → "
+            runs_on_line = (f"{'' if str(job.get('harness_id') or '').strip() else 'Default → '}"
+                            f"harness {harness_doc.get('name') or harness_doc['id']} → "
                             f"{harness_plan.node_id} ({model})")
             if harness_plan.route:
                 runs_on_line += f", route: {harness_plan.route.get('label')}"
