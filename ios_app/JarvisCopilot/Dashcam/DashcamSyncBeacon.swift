@@ -2,8 +2,10 @@ import ActivityKit
 import Foundation
 
 /// Runs the dashcam's own Live Activity: up while clips come off the camera (on its Wi‑Fi) or go up to the
-/// cloud (from anywhere), gone 20 s after they stop. Watches `DashcamSync` every 2 s; events go out at once, progress at most every 8 s (iOS throttles
-/// an app that updates more, and the update it drops is usually the one that mattered).
+/// cloud (from anywhere), gone 20 s after they stop. Clips merely waiting to go (a backoff, the rules) show
+/// nothing: a "0 %" island sat there all night for two clips that could never go. `DashcamSync` pokes it when
+/// a transfer starts; it then watches every 2 s until its activity is gone. Events go out at once, progress at
+/// most every 8 s (iOS throttles an app that updates more, and the update it drops is usually the one that mattered).
 @MainActor
 final class DashcamSyncBeacon {
     static let shared = DashcamSyncBeacon()
@@ -25,33 +27,46 @@ final class DashcamSyncBeacon {
     static let enabledKey = "jc.dashcam.liveActivity"
     static var enabled: Bool {
         get { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
-    }
-
-    func start() {
-        guard watch == nil else { return }
-        // A previous run's activity (killed app): nothing is syncing a moment from now.
-        for old in Activity<DashcamSyncAttributes>.activities { Task { await old.end(nil, dismissalPolicy: .immediate) } }
-        watch = Task { [weak self] in
-            while !Task.isCancelled {
-                self?.tick()
-                try? await Task.sleep(for: .seconds(2))
-            }
+        set {
+            UserDefaults.standard.set(newValue, forKey: enabledKey)
+            if newValue { shared.poke() }           // switched on mid-transfer: show it now
         }
     }
 
-    private func tick() {
+    private var started = false
+
+    func start() {
+        guard !started else { return }
+        started = true
+        // A previous run's activity (killed app): nothing is syncing a moment from now.
+        for old in Activity<DashcamSyncAttributes>.activities { Task { await old.end(nil, dismissalPolicy: .immediate) } }
+        poke()
+    }
+
+    /// Clips may be moving (a transfer started, the app came to the foreground): watch until nothing is up.
+    func poke() {
+        guard started, watch == nil else { return }
+        watch = Task { [weak self] in
+            while !Task.isCancelled, self?.tick() == true {
+                try? await Task.sleep(for: .seconds(2))
+            }
+            self?.watch = nil
+        }
+    }
+
+    /// One look at the sync. False once nothing moves and no activity is up: the watch stops.
+    private func tick() -> Bool {
         let sync = DashcamSync.shared
-        guard Self.enabled else { end(); return }
-        // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere —
-        // or still queued to go up. The queue counts even between batches: iOS only STARTS an activity while
-        // the app is in the foreground, so one that ended in a lull couldn't come back in the background.
-        let queued = sync.rules.upload && sync.pendingUploads > 0
-        let moving = (DashcamWiFi.shared.onCamera && sync.downloading != nil) || sync.uploading != nil || queued
+        guard Self.enabled else { end(); return false }
+        // Clips coming off the camera (only possible on its Wi‑Fi), or going up to the cloud — from anywhere.
+        // iOS only STARTS an activity while the app is in the foreground, so a background upload after a lull
+        // shows none; the page header keeps the waiting note.
+        let moving = (DashcamWiFi.shared.onCamera && sync.downloading != nil) || sync.uploading != nil
         if !moving {
+            guard activity != nil else { idleSince = nil; return false }
             if idleSince == nil { idleSince = Date() }
-            if let since = idleSince, Date().timeIntervalSince(since) > Self.lingerAfter { end() }
-            return
+            if let since = idleSince, Date().timeIntervalSince(since) > Self.lingerAfter { end(); return false }
+            return true
         }
         idleSince = nil
         var s = DashcamSyncAttributes.ContentState()
@@ -64,11 +79,9 @@ final class DashcamSyncBeacon {
             s.uploading = true
             s.uploadFraction = u.total > 0 ? Double(u.done) / Double(u.total) : 0
             s.toUpload = max(1, sync.pendingUploads)
-        } else if queued {
-            s.uploading = true                    // between clips: the bar sits at 0 with the count
-            s.toUpload = sync.pendingUploads
         }
         push(s)
+        return true
     }
 
     private func push(_ s: DashcamSyncAttributes.ContentState) {

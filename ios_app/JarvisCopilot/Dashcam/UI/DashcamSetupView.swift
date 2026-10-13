@@ -24,6 +24,7 @@ struct DashcamSetupView: View {
     @State private var done = false
     @State private var detected: Detected?
     @State private var currentSSID: String?
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
@@ -51,7 +52,9 @@ struct DashcamSetupView: View {
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle("Dashcam")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await watch() }
+        // Only while the app is in the foreground: the keepalive keeps it running in the background, where a
+        // setup screen left open probed the network every 3 s.
+        .task(id: scenePhase == .active) { if scenePhase == .active { await watch() } }
     }
 
     // MARK: Live detection

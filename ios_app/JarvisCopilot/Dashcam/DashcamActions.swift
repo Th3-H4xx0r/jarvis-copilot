@@ -133,6 +133,9 @@ enum DashcamClipActions {
                        sync: DashcamSync? = nil) async -> (done: [String], failed: [String]) {
         let sync = sync ?? .shared
         var done: [String] = [], failed: [String] = []
+        // Remembered before anything else: a download of this clip still running lands after the delete,
+        // and must not bring it back (two clips came back that way and retried their upload all week).
+        if places.contains(.phone) { DashcamTombstones.add(clip.id, defaults: sync.defaults) }
         if places.contains(.cloud) {
             do { try await DashcamAPI().deleteFromCloud(clipID: clip.id); done.append("cloud") }
             catch { failed.append("cloud: \(error.localizedDescription)") }

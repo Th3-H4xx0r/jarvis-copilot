@@ -200,6 +200,18 @@ struct DashcamAPI: Sendable {
         case tooLarge
         /// 409: no enabled destination takes this kind of clip — nothing to send it to yet.
         case noDestination
+        /// 404: the server has no such clip any more (deleted everywhere) — nothing will ever take it.
+        case clipGone
+    }
+
+    /// The server's "clip not found" 404 — the clip was forgotten (deleted everywhere). Matched on the
+    /// message too: a 404 from anything else (an older server, a proxy, an unknown route) must never
+    /// cost him the phone's copy of a clip. `upload not found` (a chunk or complete after the server
+    /// dropped the upload) is not this either: that upload just starts over.
+    static func isClipGone(_ error: Error) -> Bool {
+        guard case APIError.http(let status, let message) = error, status == 404 else { return false }
+        let m = message.lowercased()
+        return m.contains("clip not found") || m.contains("clip_not_found")
     }
 
     func state() async throws -> DashcamServerState {
@@ -367,6 +379,8 @@ struct DashcamAPI: Sendable {
             return .tooLarge
         } catch APIError.http(let status, _) where status == 409 {
             return .noDestination
+        } catch where Self.isClipGone(error) {
+            return .clipGone
         }
     }
 

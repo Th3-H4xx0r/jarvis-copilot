@@ -131,8 +131,17 @@ final class DashcamSync: ObservableObject {
     @Published private(set) var recording: Bool?
     @Published private(set) var cameraFiles: [DashcamFile] = []
     @Published private(set) var lastSync: Date?
-    @Published private(set) var downloading: (name: String, done: Int64, total: Int64)?
-    @Published private(set) var uploading: (clipID: String, done: Int64, total: Int64)?
+    @Published private(set) var downloading: (name: String, done: Int64, total: Int64)? {
+        didSet { if oldValue == nil, downloading != nil { DashcamSyncBeacon.shared.poke() } }
+    }
+    /// A transfer to the cloud in flight: it alone (with a camera pass) holds the keepalive.
+    @Published private(set) var uploading: (clipID: String, done: Int64, total: Int64)? {
+        didSet {
+            guard (oldValue == nil) != (uploading == nil) else { return }
+            BridgeClient.shared.syncKeepalive()
+            if uploading != nil { DashcamSyncBeacon.shared.poke() }
+        }
+    }
     @Published private(set) var queuedDownloads = 0
     @Published private(set) var pendingUploads = 0
     @Published var rules = DashcamRules()
@@ -162,11 +171,12 @@ final class DashcamSync: ObservableObject {
     /// Sizes from the previous listing: a clip still being written grows between listings.
     private var lastSizes: [String: Int64] = [:]
     private var cameraLoop: Task<Void, Never>?
-    private var uploadLoop: Task<Void, Never>?
     private var passRunning = false { didSet { passActive = passRunning; BridgeClient.shared.syncKeepalive() } }
     /// A pass is running (the Sync button shows it; tapping it then queues the next pass).
     @Published private(set) var passActive = false
     private var statusWatch: Task<Void, Never>?
+    /// Who wants the live status read (the phone's page, the CarPlay screen): it runs while anyone does.
+    private var statusWatchers = Set<String>()
     private var statusReads = 0
     private let pathMonitor = NWPathMonitor()
     private var internetPath: NWPath?
@@ -185,11 +195,53 @@ final class DashcamSync: ObservableObject {
             Task { @MainActor in self?.internetPath = path; self?.kickUploads() }
         }
         pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
+        wireTopics()
+        cleanUpDue = true                       // what reached its destinations while the app was closed
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
         // What earlier runs left in the caches, even with cloud backup paused (then no upload run sweeps).
         Task.detached(priority: .utility) { DashcamPlayable.sweep() }
         Task { [uploader] in await uploader.sweepTemp() }
         DashcamSyncBeacon.shared.start()
+    }
+
+    /// The app came to the foreground (AppServices): catch up on the server once, then send what can go.
+    func foregrounded() {
+        guard setupProvider() != nil else { return }
+        cleanUpDue = true
+        DashcamSyncBeacon.shared.poke()           // an activity can only start now, in the foreground
+        Task { await uploader.invalidateDestinations(); kickUploads() }
+    }
+
+    // MARK: Server pushes
+
+    private var topicsWired = false
+
+    /// The server pushes what changed on the `dashcam` topic (while the upload loop listens) instead of
+    /// the loop asking every 15–30 s.
+    private func wireTopics() {
+        guard !topicsWired else { return }
+        topicsWired = true
+        BridgeTopics.shared.on("dashcam") { [weak self] data in self?.pushed(data) }
+        BridgeTopics.shared.onResync { [weak self] in self?.resynced() }
+    }
+
+    /// `what` names the changes: `destinations`, `rules`, `clips`. A bare push counts as all of them.
+    func pushed(_ data: [String: Any]) {
+        guard setupProvider() != nil else { return }
+        var what = Set(data["what"] as? [String] ?? (data["what"] as? String).map { [$0] } ?? [])
+        if what.isEmpty { what = ["destinations", "rules", "clips"] }
+        if what.contains("clips") { cleanUpDue = true }
+        if what.contains("destinations") { destinationsChanged() }
+        if what.contains("rules") { Task { await refreshRules(); kickUploads() } }
+        kickUploads()
+    }
+
+    /// The socket came back: anything pushed while it was down was missed. Only a loop that was
+    /// listening can have missed anything (no loop = nothing waited on a push).
+    func resynced() {
+        guard setupProvider() != nil, uploadLoop != nil else { return }
+        cleanUpDue = true
+        Task { await uploader.invalidateDestinations(); kickUploads() }
     }
 
     func cameraChanged(_ on: Bool) {
@@ -285,11 +337,16 @@ final class DashcamSync: ObservableObject {
         if statusReads % 6 == 1, let card = try? await cam.sdInfo() { sd = card }
     }
 
-    /// Polls the status every few seconds while the dashcam page is open.
-    func watchStatus(_ on: Bool) {
-        statusWatch?.cancel()
-        statusWatch = nil
-        guard on else { return }
+    /// Polls the status every few seconds while a dashcam screen is really on screen (`owner`: "page",
+    /// "carplay"). The phone's page lets go in the background without stopping CarPlay's.
+    func watchStatus(_ on: Bool, by owner: String) {
+        if on { statusWatchers.insert(owner) } else { statusWatchers.remove(owner) }
+        guard !statusWatchers.isEmpty else {
+            statusWatch?.cancel()
+            statusWatch = nil
+            return
+        }
+        guard statusWatch == nil else { return }
         statusWatch = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshStatus()
@@ -468,6 +525,10 @@ final class DashcamSync: ObservableObject {
         cameraFiles = files.sorted { $0.start > $1.start }
         let rows = (try? await server.inventory(cameraID: cameraID, files: files)) ?? [:]
         func clipID(_ f: DashcamFile) -> String { rows[f.path]?.id ?? DashcamIDs.clipID(cameraID: cameraID, path: f.path) }
+        // Queued while the server didn't know them yet: it does now, so a "clip not found" means deleted.
+        if !rows.isEmpty { await uploader.confirm(Set(rows.values.map(\.id))) }
+        /// Deleted on this phone in the last two weeks (read once a pass, not once a file).
+        let deleted = DashcamTombstones.ids(defaults: defaults)
         /// Still on the camera's Wi‑Fi, not cancelled — and, in playback mode, still parked.
         func mayContinue() async -> Bool {
             guard onCameraProvider(), !Task.isCancelled, !liveActive else { return false }
@@ -506,6 +567,8 @@ final class DashcamSync: ObservableObject {
         var normalOnPhone = storage.normalBytes(camera: cameraID) + cacheBytes()
         func wanted(_ f: DashcamFile) -> Bool {
             guard !storage.exists(camera: cameraID, file: f), rows[f.path]?.uploaded != true else { return false }
+            // Deleted on this phone (even everywhere, and the card lists it again): only a pull by hand brings it back.
+            if !deleted.isEmpty, deleted.contains(clipID(f)), !forced.contains(f.path) { return false }
             // Deleted from the phone on purpose: stays deleted until "Download again".
             if rows[f.path]?.phoneDeleted == true && !isForced(f) { return false }
             guard stable(f) else { report.skippedUnstable += 1; return false }
@@ -517,7 +580,7 @@ final class DashcamSync: ObservableObject {
         func takeAsked() async {
             for f in DashcamRules.order(files.filter { forced.contains($0.path) && wanted($0) }) {
                 guard await mayContinue() else { return }
-                await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+                await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
             }
         }
         await takeAsked()
@@ -529,7 +592,7 @@ final class DashcamSync: ObservableObject {
             guard await mayContinue() else { return report }
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
-            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
         }
 
         // 2. GPS + speed (two small range reads a clip; none for clips already on the phone), newest first and
@@ -593,7 +656,7 @@ final class DashcamSync: ObservableObject {
             await takeAsked()
             guard !storage.exists(camera: cameraID, file: f) else { continue }
             if !isForced(f), !rules.wants(f, parked: isParked, normalBytesOnPhone: normalOnPhone) { continue }
-            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), report: &report)
+            await download(f, camera: cam, cameraID: cameraID, id: clipID(f), known: rows[f.path] != nil, report: &report)
             if storage.exists(camera: cameraID, file: f) { normalOnPhone += f.size }
             if !onCameraProvider() { break }
         }
@@ -601,8 +664,13 @@ final class DashcamSync: ObservableObject {
         return report
     }
 
-    private func download(_ f: DashcamFile, camera cam: DashcamCamera, cameraID: String, id: String,
+    /// `known`: the server listed the clip this pass (its inventory answered). Only then does a
+    /// "clip not found" mean deleted — otherwise the server just hasn't heard of it yet.
+    private func download(_ f: DashcamFile, camera cam: DashcamCamera, cameraID: String, id: String, known: Bool,
                           report: inout Report) async {
+        // A pull by hand ("Download again") is the one thing that brings back a clip deleted here.
+        if forced.contains(f.path) { DashcamTombstones.remove(id, defaults: defaults) }
+        guard !DashcamTombstones.contains(id, defaults: defaults) else { return }
         let dest = storage.localURL(camera: cameraID, file: f)
         phase = .syncing("Downloading \(f.name)")
         try? await server.setPhone(clipID: id, state: "downloading", error: nil)
@@ -618,11 +686,23 @@ final class DashcamSync: ObservableObject {
                 return
             }
             forced.remove(f.path)
+            // Deleted while it came down (here, or everywhere from elsewhere): the delete wins. Two clips
+            // deleted mid-download came back this way and asked the server to upload them all week.
+            var deleted = DashcamTombstones.contains(id, defaults: defaults)
+            if !deleted {
+                do { try await server.setPhone(clipID: id, state: "local", error: nil) }
+                catch { deleted = known && DashcamAPI.isClipGone(error) }
+            }
+            if deleted {
+                try? FileManager.default.removeItem(at: dest)
+                DashcamTombstones.add(id, defaults: defaults)
+                queuedDownloads = max(0, queuedDownloads - 1)
+                return
+            }
             report.downloaded.append(f.path)
-            try? await server.setPhone(clipID: id, state: "local", error: nil)
             // The listing's size is rounded to whole KB on Viidure cameras; upload the real one.
             let actual = storage.localSize(camera: cameraID, file: f) ?? f.size
-            await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind)
+            await uploader.enqueue(clipID: id, local: dest, size: actual, kind: f.kind, confirmed: known)
             kickUploads()                                   // uploads run beside the downloads
             queuedDownloads = max(0, queuedDownloads - 1)
         } catch {
@@ -649,48 +729,119 @@ final class DashcamSync: ObservableObject {
 
     // MARK: Uploads
 
-    /// Starts the upload loop if there is anything to send and nothing is running.
+    /// Clips are moving (a camera pass, or a transfer in flight): the app stays awake in the background.
+    /// Jobs merely waiting (a backoff, the rules, no network) don't hold it — that kept it awake all night
+    /// for two clips that could never go.
+    var holdsKeepalive: Bool { passRunning || uploading != nil }
+
+    /// The upload loop: one at a time, asleep while nothing can go, woken by `kickUploads()`.
     /// Uploads run beside the camera sync, not after it: a clip goes up as soon as it's on the phone, and the
     /// phone's copy goes once every destination has it. The loop lives while there is anything to send or
     /// anything on the server still on its way to a destination.
-    /// Clips are moving (a camera pass, or uploads still to send): the app stays awake in the background.
-    var holdsKeepalive: Bool { passRunning || uploadLoop != nil }
+    private var uploadLoop: Task<Void, Never>?
+    private var uploadLoopID: UUID?
+    /// Set by `kickUploads()` while the loop runs: it goes round again instead of sleeping.
+    private var kicked = false
+    private var napper: Task<Bool, Never>?
+    /// Reconcile with the server on the next round: launch, foreground, a `dashcam {clips}` push, a resync.
+    private var cleanUpDue = false
+    /// Clips on the server not yet at every destination, as of the last clean-up.
+    private var relaying = 0
+    /// `uploader.run` is in flight: progress landing after it ended is dropped, or a stale "uploading"
+    /// would hold the keepalive and the Live Activity.
+    private var uploadRunning = false
+    /// The loop subscribed to the `dashcam` push topic.
+    private var listening = false
+    /// The longest it sleeps with jobs waiting and nothing due: what a missed push costs at most.
+    static let maxNap: TimeInterval = 1800
+    /// "Upload only when parked" and the car isn't: no event says it parked, so motion (local) is asked
+    /// again every minute.
+    static let parkedNap: TimeInterval = 60
+    static let topicOwner = "dashcam.uploads"
 
+    /// Starts the upload loop, or wakes the one asleep. Called for every reason a clip might go now:
+    /// a new job, a network path change, the rules, a push, foregrounding.
     func kickUploads() {
-        guard uploadLoop == nil else { return }
-        defer { BridgeClient.shared.syncKeepalive() }
+        guard uploadLoop == nil else {
+            kicked = true
+            napper?.cancel()
+            return
+        }
+        let id = UUID()
+        uploadLoopID = id
         uploadLoop = Task { [weak self] in
-            defer { Task { @MainActor in self?.uploadLoop = nil; BridgeClient.shared.syncKeepalive() } }
-            var lastCleanUp = Date.distantPast
+            // No loop was listening for pushes: what it knew about the destinations may be stale.
+            await self?.uploader.invalidateDestinations()
             while !Task.isCancelled {
                 guard let self else { return }
+                self.kicked = false
                 let pending = await self.uploader.pendingCount
                 self.pendingUploads = pending
-                if pending > 0 { await self.uploadOnce() }
-                var relaying = 0
-                if Date().timeIntervalSince(lastCleanUp) > 30 || pending == 0 {
-                    relaying = await self.cleanUpUploaded()
-                    lastCleanUp = Date()
+                let waitingForPark = pending > 0 ? await self.uploadOnce() : false
+                if self.cleanUpDue {
+                    self.cleanUpDue = false
+                    await self.cleanUpUploaded()
                 }
-                if pending == 0 && relaying == 0 { return }
-                try? await Task.sleep(for: .seconds(pending > 0 ? 15 : 30))
+                let left = await self.uploader.pendingCount
+                self.pendingUploads = left
+                if left == 0 && self.relaying == 0 { break }
+                if self.kicked || Task.isCancelled { continue }
+                if !self.listening {
+                    self.listening = true
+                    BridgeTopics.shared.want("dashcam", owner: Self.topicOwner, every: 0)
+                }
+                // Asleep until the earliest retry (a backoff, the quota, a sign-in hold) or a kick.
+                let due = await self.uploader.nextDue(now: Date())
+                var nap = min(due.map { $0.timeIntervalSinceNow } ?? Self.maxNap, Self.maxNap)
+                if waitingForPark { nap = min(nap, Self.parkedNap) }
+                let ranOut = await self.nap(max(1, nap))
+                // Something may have reached its destinations with no push to say so (an older server).
+                if ranOut && self.relaying > 0 { self.cleanUpDue = true }
             }
+            if let self, self.uploadLoopID == id { self.endUploadLoop() }
         }
     }
 
-    func uploadOnce() async {
+    /// Sleeps up to `seconds`; true when it ran out, false when a kick (or a cancel) cut it short.
+    private func nap(_ seconds: TimeInterval) async -> Bool {
+        guard !kicked else { return false }
+        let sleeper = Task { () -> Bool in (try? await Task.sleep(for: .seconds(seconds))) != nil }
+        napper = sleeper
+        let ranOut = await withTaskCancellationHandler { await sleeper.value } onCancel: { sleeper.cancel() }
+        napper = nil
+        return ranOut
+    }
+
+    private func endUploadLoop() {
+        uploadLoop = nil
+        uploadLoopID = nil
+        napper?.cancel()
+        napper = nil
+        if listening {
+            listening = false
+            BridgeTopics.shared.drop("dashcam", owner: Self.topicOwner)
+        }
+        // Motion ran for "upload only when parked"; the camera pass still wants it on the camera's Wi‑Fi.
+        if !onCameraProvider() { DashcamMotion.shared.stop() }
+    }
+
+    /// One round over the queue (no request at all when nothing may go). True when clips wait only for
+    /// the car to park.
+    @discardableResult
+    func uploadOnce() async -> Bool {
         let path = internetPath
         let onCam = onCameraProvider()
         // On the camera's Wi‑Fi the internet goes over mobile data (LTE); off it, Wi‑Fi unless only cellular
         // is up. Metered = mobile data, a personal hotspot or Low Data Mode — what the upload rules gate.
         let cellular = onCam || (path.map { $0.isExpensive || $0.isConstrained || !$0.usesInterfaceType(.wifi) } ?? false)
-        if path?.status == .unsatisfied && !onCam { return }
+        if path?.status == .unsatisfied && !onCam { return false }
         let rules = self.rules
-        guard rules.upload else { return }
+        guard rules.upload else { return false }
         let isParked = rules.uploadWhen == .parked ? await parked() : true
         let throttle = DashcamThrottle()
         let keep = rules.keepOnPhone
         let server = self.server
+        uploadRunning = true
         let done = await uploader.run(server: uploadServer, cellular: cellular,
                                       allow: { rules.mayUpload($0, metered: cellular, parked: isParked) },
                                       finished: { id, path in
@@ -701,10 +852,12 @@ final class DashcamSync: ObservableObject {
         }) { id, sent, total in
             guard throttle.pass(final: sent >= total) else { return }
             Task { @MainActor in
+                guard self.uploadRunning else { return }
                 self.uploading = (id, sent, total)
                 if sent >= total { self.pendingUploads = await self.uploader.pendingCount }
             }
         }
+        uploadRunning = false
         uploading = nil
         pendingUploads = await uploader.pendingCount
         if await !uploader.expiredSignIns().isEmpty {
@@ -714,7 +867,8 @@ final class DashcamSync: ObservableObject {
         } else {
             uploadNote = nil
         }
-        if !done.isEmpty { _ = await cleanUpUploaded() }
+        if !done.isEmpty { await cleanUpUploaded() }
+        return !isParked
     }
 
     /// Why uploads are waiting, for the page header (nil when they aren't).
@@ -725,12 +879,14 @@ final class DashcamSync: ObservableObject {
         rules.upload = on
         let r = rules
         Task { try? await DashcamAPI().updateRules(r) }
-        if on { kickUploads() } else { uploadLoop?.cancel(); uploadLoop = nil; uploading = nil }
+        if on { kickUploads() } else { uploadLoop?.cancel(); endUploadLoop(); uploading = nil }
     }
 
-    /// A destination was added or changed: clips parked on "no destination" go now.
+    /// A destination was added or changed (here, or pushed from elsewhere): clips parked on "no destination"
+    /// or a dead sign-in go now, with the new list.
     func destinationsChanged() {
         Task {
+            await uploader.invalidateDestinations()
             await uploader.retryParked()
             kickUploads()
         }
@@ -738,16 +894,18 @@ final class DashcamSync: ObservableObject {
 
     /// Reconciles the phone's copies with the server: deletes those every destination already has
     /// (unless "keep on phone"), and queues again any the server no longer holds or never got
-    /// (its staging was dropped, e.g. the only destination was removed).
+    /// (its staging was dropped, e.g. the only destination was removed). Never a clip deleted here.
     /// Returns how many clips are on the server but not yet at every destination (worth checking again).
     @discardableResult
     func cleanUpUploaded() async -> Int {
         guard let setup = setupProvider() else { return 0 }
         let cameraID = info?.id ?? setup.cameraID
-        guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return 0 }
+        guard let page = try? await server.clips(DashcamAPI.ClipFilter(state: "on_phone"), cursor: nil, limit: 200) else { return relaying }
+        await uploader.confirm(Set(page.clips.map(\.id)))
+        let deleted = DashcamTombstones.ids(defaults: defaults)
         var requeued = false
-        var relaying = 0
-        for clip in page.clips {
+        var count = 0
+        for clip in page.clips where !deleted.contains(clip.id) {
             let f = DashcamFile(path: clip.path, kind: clip.kind, lens: clip.lens, start: clip.start,
                                 durationS: clip.durationS, size: clip.size)
             let url = storage.localURL(camera: clip.cameraID.isEmpty ? cameraID : clip.cameraID, file: f)
@@ -757,7 +915,7 @@ final class DashcamSync: ObservableObject {
                 if local { try? FileManager.default.removeItem(at: url) }
                 try? await server.setPhone(clipID: clip.id, state: "deleted", error: nil)
             } else if clip.uploadState == "staged" || clip.uploading {
-                relaying += 1
+                count += 1
             } else if local, clip.uploadState == "none", await !uploader.contains(clip.id) {
                 await uploader.enqueue(clipID: clip.id, local: url,
                                        size: (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? clip.size,
@@ -765,8 +923,9 @@ final class DashcamSync: ObservableObject {
                 requeued = true
             }
         }
+        relaying = count
         if requeued { kickUploads() }
-        return relaying
+        return count
     }
 
     // MARK: Requests from Jarvis / the UI

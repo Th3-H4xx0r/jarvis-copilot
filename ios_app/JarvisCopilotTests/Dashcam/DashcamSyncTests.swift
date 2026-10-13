@@ -67,6 +67,8 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
     var uploadedIDs = Set<String>()
     var rules = DashcamRules()
     var unreachable = false
+    /// Forgotten by the server (deleted everywhere): their phone-state updates 404.
+    var gone = Set<String>()
 
     func upsertCamera(_ info: DashcamCameraInfo, ssid: String) async throws {}
     func inventory(cameraID: String, files: [DashcamFile]) async throws -> [String: DashcamInventoryRow] {
@@ -82,7 +84,10 @@ final class FakeSyncServer: DashcamSyncServer, @unchecked Sendable {
     }
     func putFixes(clipID: String, fixes f: [DashcamFix]) async throws { fixes[clipID] = f.count }
     func putThumb(clipID: String, jpeg: Data) async throws { thumbs.insert(clipID) }
-    func setPhone(clipID: String, state: String, error: String?) async throws { phone[clipID] = state }
+    func setPhone(clipID: String, state: String, error: String?) async throws {
+        if gone.contains(clipID) { throw APIError.http(status: 404, message: "clip not found") }
+        phone[clipID] = state
+    }
     func state() async throws -> DashcamServerState {
         DashcamServerState(rules: rules, destinations: [], counts: [:], stagingBytes: 0, stagingCap: 0)
     }
@@ -114,7 +119,10 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
     var completed: [String] = []
     var failChunk: Int?
     var start: DashcamAPI.UploadStart?
+    var startCalls = 0
+    var completeError: Error?
     func startUpload(clipID: String, size: Int64, sha256: String) async throws -> DashcamAPI.UploadStart {
+        startCalls += 1
         if let start { return start }
         if full { return .full(retryAfter: 60) }
         return .ticket(DashcamUploadTicket(uploadID: "u_" + clipID, chunkSize: 4, received: received))
@@ -128,14 +136,22 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
         lock.unlock()
         sent(Int64(data.count))
     }
-    func completeUpload(_ uploadID: String) async throws { completed.append(uploadID) }
+    func completeUpload(_ uploadID: String) async throws {
+        if let completeError { throw completeError }
+        completed.append(uploadID)
+    }
 
     // Direct (Drive) uploads.
     var destinations: [DashcamDestination] = []
     var accessError: Error?
     var accessCalls = 0
     var recorded: [String] = []
-    func uploadDestinations() async throws -> [DashcamDestination] { destinations }
+    var destinationCalls = 0
+    var clipInfoError: Error?
+    func uploadDestinations() async throws -> [DashcamDestination] {
+        destinationCalls += 1
+        return destinations
+    }
     func driveAccess(destinationID: String) async throws -> DashcamDriveAccess {
         accessCalls += 1
         if let accessError { throw accessError }
@@ -143,7 +159,8 @@ final class FakeUploadServer: DashcamUploadServer, @unchecked Sendable {
                                   basePath: "Dashcam", teamDrive: nil)
     }
     func clipInfo(_ clipID: String) async throws -> DashcamServerClip {
-        DashcamServerClip(json: ["id": clipID, "path": "/sd/video_front/\(clipID).ts", "camera_id": "CAM", "kind": "normal"])!
+        if let clipInfoError { throw clipInfoError }
+        return DashcamServerClip(json: ["id": clipID, "path": "/sd/video_front/\(clipID).ts", "camera_id": "CAM", "kind": "normal"])!
     }
     func recordDirect(clipID: String, destinationID: String, remotePath: String, fileID: String, size: Int64,
                       preview: (path: String, fileID: String)?) async throws { recorded.append(clipID) }
@@ -188,13 +205,14 @@ final class DashcamSyncTests: XCTestCase {
         sync.cameraFactory = { [unowned self] _ in self.cam }
         sync.server = server
         sync.fetcher = fetcher
-        sync.uploader = DashcamUploader(file: root.appendingPathComponent("uploads.json"), tempDir: root.appendingPathComponent("up"))
+        sync.defaults = UserDefaults(suiteName: "dashcam-sync-\(UUID().uuidString)")!
+        sync.uploader = DashcamUploader(file: root.appendingPathComponent("uploads.json"), tempDir: root.appendingPathComponent("up"),
+                                        tombstones: sync.defaults)
         sync.storage = DashcamStorage(root: root)
         sync.cacheBytes = { 0 }
         sync.parked = { [unowned self] in self.parked }
         sync.onCameraProvider = { [unowned self] in self.onCamera }
         sync.timeZone = { TimeZone(secondsFromGMT: 0)! }
-        sync.defaults = UserDefaults(suiteName: "dashcam-sync-\(UUID().uuidString)")!
         sync.now = { Date(timeIntervalSince1970: 1_790_010_000) }
         cam.files = [
             file(.normal, .front, at: 0), file(.normal, .front, at: 60), file(.normal, .front, at: 120),
@@ -411,6 +429,62 @@ final class DashcamSyncTests: XCTestCase {
         relaunched.now = { Date(timeIntervalSince1970: 1_790_010_000) }
         _ = await relaunched.syncPass()
         XCTAssertTrue(fetcher.fetched.map(\.lastPathComponent).contains("rear_0.mp4"), "asked for while away, pulled after relaunch")
+    }
+
+    // MARK: Deleted clips stay deleted
+
+    private var eventClip: DashcamFile { cam.files.first { $0.kind == .event }! }
+    private var eventID: String { DashcamIDs.clipID(cameraID: "CAM", path: eventClip.path) }
+
+    /// The Oct 3 / Oct 9 race: he deleted a clip everywhere while its download was still running. It landed
+    /// seconds later, was queued, and asked the server to upload it every 10 minutes for a week.
+    func testAClipDeletedWhileItDownloadsIsDiscardedWhenItLands() async {
+        let defaults = sync.defaults, id = eventID, name = eventClip.name, fetcher = self.fetcher!
+        fetcher.onFetch = { if fetcher.fetched.last?.lastPathComponent == name { DashcamTombstones.add(id, defaults: defaults) } }
+        let report = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == name }, "its download was already running")
+        XCTAssertFalse(report.downloaded.contains(eventClip.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sync.storage.localURL(camera: "CAM", file: eventClip).path))
+        let queued = await sync.uploader.jobs.map(\.clipID)
+        XCTAssertFalse(queued.contains(id), "never queued")
+        XCTAssertEqual(queued.count, 1, "the photo still goes")
+    }
+
+    /// Deleted everywhere from somewhere else (the web): the server forgot it during the download.
+    func testAClipTheServerForgotDuringItsDownloadIsDiscardedAndRemembered() async {
+        let server = self.server!, id = eventID, name = eventClip.name, fetcher = self.fetcher!
+        fetcher.onFetch = { if fetcher.fetched.last?.lastPathComponent == name { server.gone.insert(id) } }
+        _ = await sync.syncPass()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sync.storage.localURL(camera: "CAM", file: eventClip).path))
+        XCTAssertTrue(DashcamTombstones.contains(id, defaults: sync.defaults))
+        let queued = await sync.uploader.jobs.map(\.clipID)
+        XCTAssertFalse(queued.contains(id))
+    }
+
+    /// The inventory failed (LTE on the camera's Wi‑Fi), so the server hasn't heard of the clip yet:
+    /// its "clip not found" is not a delete, and fresh footage must never be thrown away for it.
+    func testAClipTheServerHasNotListedYetIsKept() async {
+        server.unreachable = true
+        server.gone = [eventID]
+        _ = await sync.syncPass()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sync.storage.localURL(camera: "CAM", file: eventClip).path))
+        XCTAssertFalse(DashcamTombstones.contains(eventID, defaults: sync.defaults))
+        let id = eventID
+        let job = await sync.uploader.jobs.first { $0.clipID == id }
+        XCTAssertEqual(job?.unconfirmed, true, "a 404 for it later means 'not yet', until an inventory lists it")
+    }
+
+    func testAPassNeverPullsAClipDeletedHereUnlessPulledByHand() async {
+        DashcamTombstones.add(eventID, defaults: sync.defaults)
+        _ = await sync.syncPass()
+        XCTAssertFalse(fetcher.fetched.contains { $0.lastPathComponent == self.eventClip.name })
+        // "Download again" (passSoon is skipped off the camera's Wi‑Fi; the pass below takes it).
+        onCamera = false
+        sync.pull(eventClip.path)
+        onCamera = true
+        _ = await sync.syncPass()
+        XCTAssertTrue(fetcher.fetched.contains { $0.lastPathComponent == self.eventClip.name })
+        XCTAssertFalse(DashcamTombstones.contains(eventID, defaults: sync.defaults))
     }
 
     func testClipIDMatchesTheServerFormula() {
@@ -649,5 +723,151 @@ final class DashcamUploaderTests: XCTestCase {
         let job = await uploader.jobs.first
         XCTAssertEqual(job?.lastError, "the server's upload space is full")
         XCTAssertNotNil(job?.notBefore)
+    }
+
+    // MARK: Deleted clips, and waiting without asking
+
+    private func suite() -> UserDefaults { UserDefaults(suiteName: "dashcam-up-\(UUID().uuidString)")! }
+
+    /// He deleted two clips everywhere while their downloads ran; the server said "clip not found" on every
+    /// retry for a week. Now the first answer ends it: the job and the phone's copy go, and it stays deleted.
+    func testAClipTheServerNoLongerHasIsDroppedWithItsPhoneCopy() async throws {
+        let tombstones = suite()
+        let url = try tempFile(4)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: tombstones)
+        await uploader.enqueue(clipID: "gone", local: url, size: 4, kind: .event)
+        let server = FakeUploadServer()
+        server.start = .clipGone
+        let done = await uploader.run(server: server, cellular: false)
+        XCTAssertTrue(done.isEmpty)
+        let jobs = await uploader.jobs
+        XCTAssertTrue(jobs.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "the phone's copy goes too")
+        XCTAssertTrue(DashcamTombstones.contains("gone", defaults: tombstones))
+        try Data([1]).write(to: url)
+        await uploader.enqueue(clipID: "gone", local: url, size: 1, kind: .event)
+        let again = await uploader.jobs
+        XCTAssertTrue(again.isEmpty, "never queued again")
+    }
+
+    func testADeletedClipBoundForDriveIsDroppedToo() async throws {
+        let tombstones = suite()
+        let mp4 = try tempDir().appendingPathComponent("clip.mp4")
+        try Data(count: 64).write(to: mp4)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), drive: FakeDrive(),
+                                       tempDir: try tempDir(), tombstones: tombstones)
+        await uploader.enqueue(clipID: "gone", local: mp4, size: 64, kind: .normal)
+        let server = FakeUploadServer()
+        server.destinations = [Self.drive]
+        server.clipInfoError = APIError.http(status: 404, message: "clip not found")
+        let done = await uploader.run(server: server, cellular: false)
+        XCTAssertTrue(done.isEmpty)
+        let jobs = await uploader.jobs
+        XCTAssertTrue(jobs.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mp4.path))
+        XCTAssertTrue(DashcamTombstones.contains("gone", defaults: tombstones))
+        XCTAssertTrue(server.recorded.isEmpty)
+    }
+
+    /// "upload not found" means the server dropped the upload's chunks, not the clip: it starts over.
+    func testAnUploadTheServerLostIsRetriedNotDeleted() async throws {
+        let tombstones = suite()
+        let url = try tempFile(8)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: tombstones)
+        await uploader.enqueue(clipID: "c1", local: url, size: 8, kind: .event)
+        let server = FakeUploadServer()
+        server.completeError = APIError.http(status: 404, message: "upload not found")
+        let clock = Date(timeIntervalSince1970: 1000)
+        let first = await uploader.run(server: server, cellular: false, now: { clock })
+        XCTAssertTrue(first.isEmpty)
+        let job = await uploader.jobs.first
+        XCTAssertEqual(job?.attempts, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(DashcamTombstones.contains("c1", defaults: tombstones))
+        server.completeError = nil
+        let later = await uploader.run(server: server, cellular: false, now: { clock.addingTimeInterval(31) })
+        XCTAssertEqual(later, ["c1"])
+    }
+
+    /// Queued while the server hadn't heard of the clip (its inventory failed): a 404 is "not yet".
+    func testANotYetListedClipWaitsInsteadOfBeingDeleted() async throws {
+        let tombstones = suite()
+        let url = try tempFile(4)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: tombstones)
+        await uploader.enqueue(clipID: "new", local: url, size: 4, kind: .event, confirmed: false)
+        let server = FakeUploadServer()
+        server.start = .clipGone
+        let clock = Date(timeIntervalSince1970: 1000)
+        _ = await uploader.run(server: server, cellular: false, now: { clock })
+        let job = await uploader.jobs.first
+        XCTAssertEqual(job?.attempts, 1, "an ordinary retry")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(DashcamTombstones.contains("new", defaults: tombstones))
+        await uploader.confirm(["new"])                 // the next inventory listed it
+        _ = await uploader.run(server: server, cellular: false, now: { clock.addingTimeInterval(31) })
+        let left = await uploader.jobs
+        XCTAssertTrue(left.isEmpty, "listed, then gone: deleted")
+        XCTAssertTrue(DashcamTombstones.contains("new", defaults: tombstones))
+    }
+
+    func testAClipDeletedHereIsNeverQueued() async throws {
+        let tombstones = suite()
+        DashcamTombstones.add("c", defaults: tombstones)
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: tombstones)
+        await uploader.enqueue(clipID: "c", local: try tempFile(4), size: 4, kind: .event)
+        let jobs = await uploader.jobs
+        XCTAssertTrue(jobs.isEmpty)
+    }
+
+    /// A queue saved with these retry times (the uploader reloads it at launch).
+    private func savedQueue(_ times: [String: TimeInterval?], kind: DashcamClipKind = .event, now: Date) throws -> URL {
+        let jobs = times.keys.sorted().map { id -> DashcamUploadJob in
+            var job = DashcamUploadJob(clipID: id, localPath: "/nowhere/\(id).mp4", size: 1, kind: kind)
+            job.notBefore = times[id]!.map { now.addingTimeInterval($0) }
+            return job
+        }
+        let file = try tempDir().appendingPathComponent("q.json")
+        try JSONEncoder().encode(jobs).write(to: file)
+        return file
+    }
+
+    /// The loop sleeps until the earliest retry still ahead — not one already past, not one far off.
+    func testNextDueIsTheEarliestRetryStillAhead() async throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let file = try savedQueue(["past": -10, "later": 600, "soon": 120, "free": nil], now: now)
+        let uploader = DashcamUploader(file: file, tombstones: suite())
+        let due = await uploader.nextDue(now: now)
+        XCTAssertEqual(due, now.addingTimeInterval(120))
+        let empty = DashcamUploader(file: try tempDir().appendingPathComponent("none.json"), tombstones: suite())
+        let none = await empty.nextDue(now: now)
+        XCTAssertNil(none, "nothing waits on the clock")
+    }
+
+    /// Two clips that could never go had the loop asking for the destinations 231 times an hour all night.
+    func testARunWithNothingAllowedNowMakesNoRequest() async throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let server = FakeUploadServer()
+        let backingOff = DashcamUploader(file: try savedQueue(["a": 60, "b": 600], now: now), tombstones: suite())
+        let none = await backingOff.run(server: server, cellular: false, now: { now })
+        XCTAssertTrue(none.isEmpty)
+        let normalOnLTE = DashcamUploader(file: try savedQueue(["n": nil], kind: .normal, now: now), tombstones: suite())
+        _ = await normalOnLTE.run(server: server, cellular: true, now: { now })
+        XCTAssertEqual(server.destinationCalls, 0)
+        XCTAssertEqual(server.startCalls, 0)
+    }
+
+    func testDestinationsAreAskedForOnceUntilSomethingSaysTheyChanged() async throws {
+        let uploader = DashcamUploader(file: try tempDir().appendingPathComponent("q.json"), tombstones: suite())
+        let server = FakeUploadServer()
+        await uploader.enqueue(clipID: "a", local: try tempFile(4), size: 4, kind: .event)
+        _ = await uploader.run(server: server, cellular: false)
+        await uploader.enqueue(clipID: "b", local: try tempFile(4), size: 4, kind: .event)
+        let second = await uploader.run(server: server, cellular: false)
+        XCTAssertEqual(second, ["b"])
+        XCTAssertEqual(server.destinationCalls, 1, "kept between runs")
+        await uploader.invalidateDestinations()          // a push, foreground, a sign-in error
+        await uploader.enqueue(clipID: "c", local: try tempFile(4), size: 4, kind: .event)
+        _ = await uploader.run(server: server, cellular: false)
+        XCTAssertEqual(server.destinationCalls, 2)
     }
 }

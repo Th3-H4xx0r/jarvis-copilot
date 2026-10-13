@@ -58,7 +58,8 @@ final class DoorAlarmStore: ObservableObject {
         }
     }
 
-    /// A screen that shows live state calls this on appear and `unwatch` on disappear.
+    /// A screen that shows live state calls this while it's on screen with the app in the foreground, and
+    /// `unwatch` when either ends (the loop itself would otherwise wake every few seconds all night).
     func watch() {
         watchers += 1
         guard poller == nil else { return }

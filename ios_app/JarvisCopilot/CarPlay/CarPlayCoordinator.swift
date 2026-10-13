@@ -92,7 +92,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
     func stop() {
         running = false
         cancellables.removeAll()
-        if watchingDashcam { sync.watchStatus(false); watchingDashcam = false }
+        if watchingDashcam { sync.watchStatus(false, by: "carplay"); watchingDashcam = false }
         stopLive()
         voice.stop()
         OrbFrames.clear()
@@ -175,7 +175,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
             .removeDuplicates()
             .sink { [weak self] on in
                 guard let self, self.watchingDashcam else { return }
-                self.sync.watchStatus(on)
+                self.sync.watchStatus(on, by: "carplay")
                 if on { Task { self.mic = await DashcamControls.mic() } }
             }
             .store(in: &cancellables)
@@ -401,7 +401,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         case .dashcam:
             watchingDashcam = true
             hasWifiPassword = DashcamSetupStore.password != nil
-            sync.watchStatus(wifi.onCamera)
+            sync.watchStatus(wifi.onCamera, by: "carplay")
             Task { await library.reload() }
             if !sync.rulesLoaded { Task { await sync.refreshRules() } }
             if wifi.onCamera { Task { mic = await DashcamControls.mic(); refresh() } }
@@ -694,7 +694,7 @@ final class CarPlayCoordinator: NSObject, CPInterfaceControllerDelegate {
         }
         if watchingDashcam, !stack.contains(where: { $0.screen == .dashcam }) {
             watchingDashcam = false
-            sync.watchStatus(false)
+            sync.watchStatus(false, by: "carplay")
         }
         if live != nil, !stack.contains(where: { $0.screen == .live }) { stopLive() }
     }

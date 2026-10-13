@@ -16,6 +16,12 @@ struct DashcamPage: View {
     @State private var askPassword = false
     @State private var typedPassword = ""
     @State private var reconnectNote: String?
+    @State private var onScreen = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// The camera's status is read every 4 s only while this page is really looked at: the keepalive keeps
+    /// the app running in the background, where an open page went on reading it.
+    private var readsStatus: Bool { onScreen && scenePhase == .active && wifi.onCamera }
 
     var body: some View {
         ScrollView {
@@ -52,9 +58,9 @@ struct DashcamPage: View {
         } message: {
             Text("The password for \(DashcamSetupStore.load()?.ssid ?? "the camera") — it's on the camera's screen. Kept for rejoining on its own.")
         }
-        .onAppear { sync.watchStatus(wifi.onCamera) }
-        .onChange(of: wifi.onCamera) { _, on in sync.watchStatus(on) }
-        .onDisappear { sync.watchStatus(false) }
+        .onAppear { onScreen = true }
+        .onChange(of: readsStatus, initial: true) { _, on in sync.watchStatus(on, by: "page") }
+        .onDisappear { onScreen = false; sync.watchStatus(false, by: "page") }
         .navigationTitle(DashcamSetupStore.load()?.displayName ?? "Dashcam")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

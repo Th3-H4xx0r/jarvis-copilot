@@ -177,6 +177,16 @@ struct DashcamUploadJob: Codable, Equatable, Sendable {
     /// Direct uploads (Drive): open resumable sessions by destination id, and destinations already done.
     var directSessions: [String: String]?
     var directDone: [String]?
+    /// Queued before the server had listed the clip (its inventory failed that pass): until it does, a
+    /// "clip not found" means "not yet", not "deleted". Nil on jobs from before this existed.
+    var unconfirmed: Bool?
+}
+
+enum DashcamUploadError: LocalizedError, Equatable {
+    /// The server has no record of the clip any more: it was deleted everywhere.
+    case clipGone
+
+    var errorDescription: String? { "the server has no record of this clip" }
 }
 
 /// Anything that can take a chunk upload (the server, or a fake in tests).
@@ -294,6 +304,13 @@ actor DashcamUploader {
     static let signInHold: TimeInterval = 1800
     /// MP4 copies made for direct uploads (`DashcamPaths.uploadTemp`).
     let tempDir: URL
+    /// Where deleted clips are remembered (`DashcamTombstones`).
+    let tombstones: UserDefaults
+    /// The destinations list, kept between runs: fetched when a run first has something to send, and
+    /// again only after something says it changed (`invalidateDestinations`). Asking on every run was
+    /// 231 requests an hour all night.
+    private var cachedDestinations: [DashcamDestination]?
+    private var destinationsGeneration = 0
 
     static func isQuota(_ error: Error) -> Bool {
         guard case DashcamDriveError.http(let code, let message) = error, code == 403 || code == 429 else { return false }
@@ -302,10 +319,12 @@ actor DashcamUploader {
     }
     static let maxBackoff: TimeInterval = 600
 
-    init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared, tempDir: URL? = nil) {
+    init(file: URL? = nil, drive: DashcamDriveClient = DashcamGoogleDrive.shared, tempDir: URL? = nil,
+         tombstones: UserDefaults = .standard) {
         self.drive = drive
         self.file = file ?? DashcamPaths.support.appendingPathComponent("uploads.json")
         self.tempDir = tempDir ?? DashcamPaths.uploadTemp
+        self.tombstones = tombstones
         try? FileManager.default.createDirectory(at: self.tempDir, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: self.file),
            let saved = try? JSONDecoder().decode([DashcamUploadJob].self, from: data) {
@@ -313,15 +332,52 @@ actor DashcamUploader {
         }
     }
 
-    func enqueue(clipID: String, local: URL, size: Int64, kind: DashcamClipKind) {
+    /// `confirmed` = the server has listed this clip (see `DashcamUploadJob.unconfirmed`).
+    /// A clip he deleted is never queued again.
+    func enqueue(clipID: String, local: URL, size: Int64, kind: DashcamClipKind, confirmed: Bool = true) {
+        guard !DashcamTombstones.contains(clipID, defaults: tombstones) else { return }
         if let existing = jobs.first(where: { $0.clipID == clipID }) {
             // The same clip downloaded again (a fuller copy): start its upload over.
             guard existing.size != size || Self.resolve(existing.localPath) != local.path else { return }
             jobs.removeAll { $0.clipID == clipID }
         }
-        jobs.append(DashcamUploadJob(clipID: clipID, localPath: local.path, size: size, kind: kind))
+        jobs.append(DashcamUploadJob(clipID: clipID, localPath: local.path, size: size, kind: kind,
+                                     unconfirmed: confirmed ? nil : true))
         jobs.sort { rank($0.kind) < rank($1.kind) }
         persist()
+    }
+
+    /// The server listed these clips (an inventory, a clean-up): a "clip not found" for them now means deleted.
+    func confirm(_ ids: Set<String>) {
+        var changed = false
+        for i in jobs.indices where jobs[i].unconfirmed == true && ids.contains(jobs[i].clipID) {
+            jobs[i].unconfirmed = nil
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    /// The destinations may have changed (a push, launch, foreground, a sign-in or destination error):
+    /// the next run that has something to send asks for them again.
+    func invalidateDestinations() {
+        cachedDestinations = nil
+        destinationsGeneration += 1
+    }
+
+    /// Nil when the server can't be asked (unreachable, older server): everything goes through the server.
+    private func destinations(from server: DashcamUploadServer) async -> [DashcamDestination]? {
+        if let cachedDestinations { return cachedDestinations }
+        let generation = destinationsGeneration
+        guard let fresh = try? await server.uploadDestinations() else { return nil }
+        if generation == destinationsGeneration { cachedDestinations = fresh }   // not if invalidated meanwhile
+        return fresh
+    }
+
+    /// When the queue next has something to try on its own: the earliest backoff, quota wait or sign-in
+    /// hold still ahead. Nil = nothing is waiting on the clock (only on the network, the rules or a push).
+    func nextDue(now: Date = Date()) -> Date? {
+        let times = jobs.compactMap(\.notBefore) + Array(signInHolds.values) + [driveQuotaUntil].compactMap { $0 }
+        return times.filter { $0 > now }.min()
     }
 
     func remove(clipID: String) {
@@ -387,13 +443,14 @@ actor DashcamUploader {
              now: @Sendable () -> Date = { Date() },
              progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
-        // Fetched once a run; nil (server unreachable, older server) = everything through the server.
-        let destinations = try? await server.uploadDestinations()
         if let until = driveQuotaUntil, until > now() { return [] }
         guard !running else { return [] }
+        // Nothing may go now (every job backing off, or held by the rules): no request at all.
+        guard jobs.contains(where: { job in (job.notBefore.map { $0 <= now() } ?? true) && allowed(job.kind) }) else { return [] }
         running = true
         defer { running = false }
         sweepTempNow()
+        let destinations = await destinations(from: server)
         var done: [String] = []
         for clipID in jobs.map(\.clipID) {
             guard let index = jobs.firstIndex(where: { $0.clipID == clipID }) else { continue }
@@ -443,6 +500,9 @@ actor DashcamUploader {
                     job.notBefore = now().addingTimeInterval(300)
                     job.lastError = "no upload destination takes \(job.kind.label.lowercased()) clips — add one in Destinations"
                     update(job)
+                    invalidateDestinations()          // ours may be out of date
+                case .clipGone:
+                    throw DashcamUploadError.clipGone
                 case .tooLarge:
                     job.notBefore = now().addingTimeInterval(24 * 3600)
                     job.lastError = "bigger than the server's upload space — raise the staging cap"
@@ -469,11 +529,16 @@ actor DashcamUploader {
                     jobs.removeAll { $0.clipID == clipID }
                     persist()
                 }
+            } catch DashcamUploadError.clipGone where job.unconfirmed != true {
+                // Deleted everywhere (often while its download was still running): nothing will ever take it.
+                // Retrying it every 10 minutes forever is what kept the loop polling all night.
+                discardGone(clipID, path: path)
             } catch DashcamDriveError.signInExpired(let destID) {
                 // Retrying can't help and it isn't this clip's fault: every clip for that Drive waits for a new sign-in.
                 signInHolds[destID] = now().addingTimeInterval(Self.signInHold)
                 job.lastError = DashcamDriveError.signInExpired(destID).localizedDescription
                 update(job)
+                invalidateDestinations()
             } catch where Self.isQuota(error) {
                 // Not this clip's fault: everything waits a moment, then carries on by itself.
                 let until = now().addingTimeInterval(Self.quotaCooldown)
@@ -487,9 +552,30 @@ actor DashcamUploader {
                 job.notBefore = now().addingTimeInterval(Self.backoff(attempts: job.attempts))
                 job.lastError = error.localizedDescription
                 update(job)
+                if Self.isDestinationError(error) { invalidateDestinations() }
             }
         }
         return done
+    }
+
+    /// The destination itself is the problem (gone, or Google refusing it): the list is asked for again.
+    static func isDestinationError(_ error: Error) -> Bool {
+        if case DashcamDriveError.unauthorized = error { return true }
+        if case APIError.http(let status, let message) = error, status == 404,
+           message.lowercased().contains("destination") { return true }
+        return false
+    }
+
+    /// A clip the server no longer has: its job, the phone's copy and any converted copy go, and the
+    /// id is remembered so nothing queues it again.
+    private func discardGone(_ clipID: String, path: String) {
+        jobs.removeAll { $0.clipID == clipID }
+        persist()
+        try? FileManager.default.removeItem(atPath: path)
+        try? FileManager.default.removeItem(at: tempURL(clipID))
+        try? FileManager.default.removeItem(at: tempDir.appendingPathComponent(clipID + ".preview.mp4"))
+        DashcamTombstones.add(clipID, defaults: tombstones)
+        JcLog.devices.notice("dashcam upload: \(clipID, privacy: .public) is gone from the server; dropped with its phone copy")
     }
 
     /// One clip to one Drive destination: converted to MP4 (plays anywhere; the original if that fails),
@@ -500,7 +586,10 @@ actor DashcamUploader {
         let clipID = job.clipID, destID = dest.id
         // The sign-in first: a dead one must not cost a conversion (each is a second copy of the clip).
         let key = try await accessFor(destID, server: server, renew: false)
-        let clip = try await server.clipInfo(job.clipID)
+        let clip: DashcamServerClip
+        do { clip = try await server.clipInfo(job.clipID) } catch where DashcamAPI.isClipGone(error) {
+            throw DashcamUploadError.clipGone
+        }
         let local = URL(fileURLWithPath: job.localPath)
         var upload = local
         var converted = false

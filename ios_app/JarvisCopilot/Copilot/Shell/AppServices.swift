@@ -374,7 +374,7 @@ final class AppServices {
             // queued while we were away.
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
             WearablesHub.shared.appDidBecomeActive()
-            Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.kickUploads() }
+            Task { await DashcamWiFi.shared.refresh(); DashcamSync.shared.foregrounded() }
             WatchBridge.shared.pushLoginState()
             liveActivity.onResume()
             Task { [weak self] in

@@ -9,6 +9,18 @@ struct DoorAlarmPage: View {
     @State private var editing: DoorContact?
     @State private var renaming = false
     @State private var shared = BridgeClient.isExposed(DoorAlarmDevice.shared.deviceID)
+    @State private var onScreen = false
+    @State private var watching = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// The store's 1–3 s refresh runs only while the page is open AND the app is in the foreground: the
+    /// keepalive keeps the app running in the background, where the tick went on waking it all night.
+    private func syncWatch() {
+        let want = onScreen && scenePhase == .active
+        guard want != watching else { return }
+        watching = want
+        if want { store.watch() } else { store.unwatch() }
+    }
 
     var body: some View {
         ScrollView {
@@ -36,8 +48,9 @@ struct DoorAlarmPage: View {
             .padding(.vertical, 12)
         }
         .refreshable { await store.load(); await store.loadHistory() }
-        .onAppear { store.watch() }
-        .onDisappear { store.unwatch() }
+        .onAppear { onScreen = true; syncWatch() }
+        .onDisappear { onScreen = false; syncWatch() }
+        .onChange(of: scenePhase) { _, _ in syncWatch() }
         .task {
             await store.loadHistory()
             // Ask for the alarm-sound permission now, on screen: iOS can't ask while the app is in

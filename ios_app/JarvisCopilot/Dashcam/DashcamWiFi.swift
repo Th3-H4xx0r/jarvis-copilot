@@ -114,6 +114,8 @@ final class DashcamWiFi: ObservableObject {
         monitor = nil
         debugPoll?.cancel()
         debugPoll = nil
+        watchdog?.cancel()                // it woke every 8 s for good otherwise
+        watchdog = nil
     }
 
     func refresh() async {
