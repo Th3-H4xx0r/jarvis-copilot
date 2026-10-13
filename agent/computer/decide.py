@@ -229,6 +229,7 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
 
 
 _CLOSING_PROMPT = """The user asked: {goal}
+Today: {today}.{values}
 That was just done on their Mac; the screenshot and the window's text below show the result. Write ONE short line \
 for them (it may be read aloud): what was done and the answer or result shown. Only state what the screen or its \
 text shows.
@@ -270,10 +271,12 @@ def needs_reading(goal: str) -> bool:
     return bool(_READING.search(str(goal or "")))
 
 
-def closing_line(ref, goal, look, *, call=None) -> str:
+def closing_line(ref, goal, look, *, call=None, values=None) -> str:
     """The reply after a Mac job, read off the final screen ('' if the model fails)."""
+    read = ("\nRead on screen during the task: " + "; ".join(f"{k} = {v}" for k, v in values.items())) if values else ""
     try:
-        out = _call(call, ref, _CLOSING_PROMPT.format(goal=goal, text=str((look or {}).get("text") or "(none)")[:4000]),
+        out = _call(call, ref, _CLOSING_PROMPT.format(goal=goal, today=_today(), values=read,
+                                                      text=str((look or {}).get("text") or "(none)")[:4000]),
                     look or {}, 120)
     except Exception:
         logger.debug("computer: closing line failed", exc_info=True)

@@ -142,7 +142,7 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
         b = bound(task_id) or Binding(None, None)
         say = ""
         if needs_reading(goal):  # an answer to read off the screen (a sum, what's playing…)
-            say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look)
+            say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look, values=result.values)
         if not say:  # an action: say where it ended up (the window's title), no extra model call
             window = str((result.look or {}).get("window") or "").strip()
             last = (result.actions or [{}])[-1].get("did") or ""
