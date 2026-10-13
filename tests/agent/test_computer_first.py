@@ -109,4 +109,4 @@ def test_quick_reply_names_the_last_move(monkeypatch):
     monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (res, None))
     said = turns.computer_first(_agent(), [{"role": "user", "content": "x"}], "on my mac open the first amazon result",
                                 "t1")
-    assert said == "Done — click link 'Dell Pro Tower' (Safari)."
+    assert said == "Done — Amazon.com: Dell Pro Tower (Safari)."

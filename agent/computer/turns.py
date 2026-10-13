@@ -143,10 +143,12 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
         say = ""
         if needs_reading(goal):  # an answer to read off the screen (a sum, what's playing…)
             say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look)
-        if not say:  # an action: say what was done, no extra model call
+        if not say:  # an action: say where it ended up (the window's title), no extra model call
+            window = str((result.look or {}).get("window") or "").strip()
             last = (result.actions or [{}])[-1].get("did") or ""
             app = (result.look or {}).get("app") or ""
-            say = (f"Done — {last}" + (f" ({app})" if app else "") + ".") if last else "Done."
+            where = window if window and not window.startswith(("http://", "https://")) else last
+            say = (f"Done — {where[:120]}" + (f" ({app})" if app else "") + ".") if where else "Done."
         messages.append({"role": "assistant", "content": say})
         return say
     return None
