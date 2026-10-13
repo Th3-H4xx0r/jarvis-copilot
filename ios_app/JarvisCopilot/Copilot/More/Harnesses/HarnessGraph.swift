@@ -26,6 +26,9 @@ enum HarnessGraph {
         case .review:
             n.model = ""
             n.deliver = "post_if_changed"
+        case .computer:
+            // No model = the first decision model; no fallback = the calling node's model.
+            n.maxSteps = 30
         case .message:
             break
         }
@@ -78,7 +81,8 @@ enum HarnessGraph {
 
     /// The condition a new wire starts with: a Route's first wire is `default`,
     /// later ones get the next unused label; Answer → Background is a hand-off;
-    /// everything else runs `always`.
+    /// Answer/Background → Computer gives that model the Mac (`hands`); Computer →
+    /// Answer is where an unfinished Mac job goes (`stuck`); everything else runs `always`.
     static func defaultWhen(_ h: AgentHarness, from: String, to: String? = nil) -> String {
         guard let source = h.node(from) else { return "always" }
         if source.type == .route {
@@ -90,8 +94,45 @@ enum HarnessGraph {
             while labels.contains("path-\(n)") || used.contains("label:path-\(n)") { n += 1 }
             return "label:path-\(n)"
         }
-        if source.type == .answer, let to, h.node(to)?.type == .background { return "handoff" }
+        let target = to.flatMap { h.node($0)?.type }
+        if source.type == .answer, target == .background { return "handoff" }
+        if source.type == .answer || source.type == .background, target == .computer { return "hands" }
+        if source.type == .computer, target == .answer { return "stuck" }
         return "always"
+    }
+
+    /// The conditions the wire sheet offers for wire `index`. A wire into a
+    /// Computer node from an Answer/Background node is only ever its `hands`, and
+    /// a Computer node's wire to an Answer node only ever `stuck`.
+    static func wireChoices(_ h: AgentHarness, edge index: Int) -> [String] {
+        guard h.edges.indices.contains(index), let source = h.node(h.edges[index].from) else { return [] }
+        let target = h.node(h.edges[index].to)?.type
+        switch source.type {
+        case .route:
+            return ["default"] + wireLabelChoices(h, edge: index).map { "label:\($0)" }
+        case .answer:
+            return target == .computer ? ["hands"] : ["always", "handoff", "slow:20", "tools:5"]
+        case .background:
+            return target == .computer ? ["hands"] : ["always"]
+        case .computer:
+            return target == .answer ? ["stuck"] : ["always"]
+        case .message, .review:
+            return ["always"]
+        }
+    }
+
+    /// How a wire's condition reads on the canvas and in the wire sheet.
+    static func wireTitle(_ when: String) -> String {
+        switch when {
+        case "hands": return "Hands"
+        case "stuck": return "When stuck"
+        default: return when
+        }
+    }
+
+    /// A Background step's only wires out are `hands` to a Computer step.
+    static func canWire(_ h: AgentHarness, from: String, to: String) -> Bool {
+        h.node(from)?.type != .background || h.node(to)?.type == .computer
     }
 
     /// Wires `from` → `to` with ``defaultWhen``. A label made up for a Route's new

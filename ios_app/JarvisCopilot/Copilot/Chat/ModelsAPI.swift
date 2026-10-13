@@ -83,8 +83,15 @@ struct ModelCatalog: Equatable, Sendable {
     /// A Route's router picker: decision models first, in their own section, then every chat model.
     func forRouter() -> ModelCatalog {
         var c = self
+        c.models = decisionOnly().models + models
+        return c
+    }
+
+    /// A harness Computer node's picker: the decision models alone, in their own section.
+    func decisionOnly() -> ModelCatalog {
+        var c = self
         c.models = decisionModels.map { ChatModel(id: $0.id, label: $0.label, provider: "Decision models",
-                                                  providerID: $0.providerID) } + models
+                                                  providerID: $0.providerID) }
         return c
     }
 }

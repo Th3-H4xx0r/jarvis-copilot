@@ -46,4 +46,21 @@ final class HarnessRenderTests: XCTestCase {
                                 size: size, name: "harness-sheet-voice-default")
         try RenderHarness.write(NavigationStack { DefaultChoiceScreen() }, size: size, name: "settings-default")
     }
+
+    /// Sonnet --hands--> Computer --stuck--> Sonnet, and the Computer step's sheet.
+    func testRenderComputerNode() throws {
+        _ = seed()
+        let json = """
+        {"id":"mac","name":"Mac","icon":"🖥","nodes":[
+          {"id":"in","type":"message","x":40,"y":40},
+          {"id":"sonnet","type":"answer","model":"@anthropic-api:claude-sonnet-5-5","tools":"lean","x":40,"y":180},
+          {"id":"computer-1","type":"computer","label":"Mac","model":"@celeris:celeris-1-decision","max_steps":30,"x":120,"y":360}],
+         "edges":[{"from":"in","to":"sonnet","when":"always"},{"from":"sonnet","to":"computer-1","when":"hands"},
+                  {"from":"computer-1","to":"sonnet","when":"stuck"}]}
+        """.data(using: .utf8)!
+        let h = try JSONDecoder().decode(AgentHarness.self, from: json)
+        try RenderHarness.write(NavigationStack { HarnessEditorView(harness: h) }, size: size, name: "harness-editor-computer")
+        try RenderHarness.write(HarnessNodeSheet(harness: .constant(h), nodeID: "computer-1", readOnly: false, problems: []),
+                                size: size, name: "harness-node-computer")
+    }
 }

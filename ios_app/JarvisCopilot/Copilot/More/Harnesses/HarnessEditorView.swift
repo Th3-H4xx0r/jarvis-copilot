@@ -83,15 +83,18 @@ struct HarnessEditorView: View {
                 for edge in harness.edges {
                     guard let a = harness.node(edge.from), let b = harness.node(edge.to) else { continue }
                     // Steps flow top to bottom: out of a step's bottom, into the next one's top.
-                    let start = CGPoint(x: a.x + w / 2, y: a.y + h)
-                    let end = CGPoint(x: b.x + w / 2, y: b.y)
-                    let dy = max(40, abs(end.y - start.y) / 2)
+                    // The upward wire of a pair (Answer --hands--> Computer --stuck--> Answer)
+                    // runs top to bottom beside its partner instead of looping behind both steps.
+                    let up = b.y + h <= a.y && harness.edges.contains { $0.from == edge.to && $0.to == edge.from }
+                    let start = up ? CGPoint(x: a.x + w / 2 + 14, y: a.y) : CGPoint(x: a.x + w / 2, y: a.y + h)
+                    let end = up ? CGPoint(x: b.x + w / 2 + 14, y: b.y + h) : CGPoint(x: b.x + w / 2, y: b.y)
+                    let dy = max(40, abs(end.y - start.y) / 2) * (up ? -1 : 1)
                     var path = Path()
                     path.move(to: start)
                     path.addCurve(to: end, control1: CGPoint(x: start.x, y: start.y + dy),
                                   control2: CGPoint(x: end.x, y: end.y - dy))
                     ctx.stroke(path, with: .color(JcTheme.accent.opacity(0.85)),
-                               style: StrokeStyle(lineWidth: 1.5, dash: edge.when == "handoff" ? [5, 4] : []))
+                               style: StrokeStyle(lineWidth: 1.5, dash: edge.isDashed ? [5, 4] : []))
                 }
             }
             .frame(width: canvasSize.width, height: canvasSize.height)
@@ -99,15 +102,19 @@ struct HarnessEditorView: View {
 
             ForEach(Array(harness.edges.enumerated()), id: \.offset) { index, edge in
                 if let a = harness.node(edge.from), let b = harness.node(edge.to) {
+                    // A wire and its reverse (Answer --hands--> Computer --stuck--> Answer)
+                    // share a midpoint; their labels step apart so both stay tappable.
+                    let twin = harness.edges.contains { $0.from == edge.to && $0.to == edge.from }
+                    let nudge: CGFloat = twin ? (edge.from < edge.to ? -12 : 12) : 0
                     Button { if !readOnly { editingEdge = index } } label: {
-                        Text(edge.when == "always" ? "•" : edge.when)
+                        Text(edge.when == "always" ? "•" : HarnessGraph.wireTitle(edge.when))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(edgeHasProblem(index) ? JcTheme.danger : JcTheme.accent)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(JcTheme.surface))
                     }
                     .buttonStyle(.plain)
-                    .position(x: (a.x + b.x) / 2 + w / 2, y: (a.y + h + b.y) / 2)
+                    .position(x: (a.x + b.x) / 2 + w / 2, y: (a.y + h + b.y) / 2 + nudge)
                 }
             }
 
@@ -116,7 +123,7 @@ struct HarnessEditorView: View {
                                 problems: problems.filter { $0.node == node.id },
                                 isWireSource: wiringFrom == node.id,
                                 wiring: wiringFrom != nil,
-                                canWireOut: !readOnly && node.type != .background && node.type != .review,
+                                canWireOut: !readOnly && node.type != .review,
                                 onTap: { tap(node) },
                                 onOutput: { wiringFrom = (wiringFrom == node.id) ? nil : node.id })
                     .position(x: node.x + w / 2, y: node.y + h / 2)
@@ -140,8 +147,12 @@ struct HarnessEditorView: View {
 
     private func tap(_ node: HarnessNode) {
         if let from = wiringFrom {
-            if from != node.id, !HarnessGraph.wire(&harness, from: from, to: node.id) {
-                banner = "Those two are already wired."
+            if from != node.id {
+                if !HarnessGraph.canWire(harness, from: from, to: node.id) {
+                    banner = "A Background step only wires to a Computer step."
+                } else if !HarnessGraph.wire(&harness, from: from, to: node.id) {
+                    banner = "Those two are already wired."
+                }
             }
             wiringFrom = nil
             return
@@ -154,10 +165,9 @@ struct HarnessEditorView: View {
     // MARK: Wire actions
 
     @ViewBuilder private var edgeActions: some View {
-        if let index = editingEdge, harness.edges.indices.contains(index),
-           let source = harness.node(harness.edges[index].from) {
-            ForEach(conditions(for: source, edge: index), id: \.self) { when in
-                Button(when) { setWhen(when, edge: index); editingEdge = nil }
+        if let index = editingEdge, harness.edges.indices.contains(index) {
+            ForEach(HarnessGraph.wireChoices(harness, edge: index), id: \.self) { when in
+                Button(HarnessGraph.wireTitle(when)) { setWhen(when, edge: index); editingEdge = nil }
             }
             Button("Remove wire", role: .destructive) {
                 HarnessGraph.disconnect(&harness, index: index)
@@ -179,17 +189,6 @@ struct HarnessEditorView: View {
         }
     }
 
-    private func conditions(for source: HarnessNode, edge index: Int) -> [String] {
-        switch source.type {
-        case .route:
-            return ["default"] + HarnessGraph.wireLabelChoices(harness, edge: index).map { "label:\($0)" }
-        case .answer:
-            return ["always", "handoff", "slow:20", "tools:5"]
-        default:
-            return ["always"]
-        }
-    }
-
     // MARK: Chrome
 
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
@@ -200,8 +199,8 @@ struct HarnessEditorView: View {
         } else {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    ForEach([HarnessNodeType.answer, .route, .background, .review], id: \.self) { type in
-                        Button(type.label) {
+                    ForEach([HarnessNodeType.answer, .route, .background, .review, .computer], id: \.self) { type in
+                        Button(type.label, jcIcon: type.symbol) {
                             let point = CGPoint(x: (-pan.width + 60) / scale, y: (-pan.height + 140) / scale)
                             editingNodeID = HarnessGraph.addNode(&harness, type: type, at: point)
                         }
@@ -321,7 +320,8 @@ struct HarnessNodeCard: View {
     }
 }
 
-/// A step's settings: model, tools, delivery, route rules, instructions.
+/// A step's settings: model, tools, delivery, route rules, a Computer step's
+/// models and step budget, instructions.
 struct HarnessNodeSheet: View {
     @Binding var harness: AgentHarness
     let nodeID: String
@@ -362,7 +362,27 @@ struct HarnessNodeSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .sheet(item: $pickingModel) { field in
+        .sheet(item: $pickingModel) { field in modelPicker(field) }
+    }
+
+    private var isComputer: Bool { index.map { harness.nodes[$0].type == .computer } == true }
+
+    @ViewBuilder private func modelPicker(_ field: ModelField) -> some View {
+        if isComputer {
+            // Decision model: decision models only, "Automatic" = the first one
+            // available. Fallback: chat models only, empty = the calling node's model.
+            let decision = field == .model
+            let list = decision ? catalog?.decisionOnly() : catalog
+            let ref = index.flatMap { decision ? harness.nodes[$0].model : harness.nodes[$0].fallbackModel }
+            CatalogModelPickerSheet(title: decision ? "Decision model" : "Fallback model",
+                                    catalog: list,
+                                    selectedID: catalogID(ref, in: list),
+                                    autoTitle: decision ? "Automatic" : "Same as the main model",
+                                    autoSubtitle: decision ? "The first decision model available."
+                                                           : "The model that handed this step the Mac.",
+                                    load: { catalog = try? await ModelsAPI().list() },
+                                    select: { picked in setModel(field, picked) })
+        } else {
             let router = isRouterPick(field)
             CatalogModelPickerSheet(title: router ? "Router model" : field == .model ? "Step model" : "Fallback model",
                                     catalog: router ? catalog?.forRouter() : catalog,
@@ -372,6 +392,16 @@ struct HarnessNodeSheet: View {
                                     load: { catalog = try? await ModelsAPI().list() },
                                     select: { picked in setModel(field, picked) })
         }
+    }
+
+    /// The catalog id a stored ref names (refs carry `@provider:`, catalog ids may not).
+    private func catalogID(_ ref: String?, in list: ModelCatalog?) -> String? {
+        guard let ref, !ref.isEmpty else { return nil }
+        return list?.models.first { Self.ref(for: $0) == ref }?.id ?? ref
+    }
+
+    private static func ref(for m: ChatModel) -> String {
+        m.id.hasPrefix("@") || m.providerID.isEmpty ? m.id : "@\(m.providerID):\(m.id)"
     }
 
     /// A Route's model is its router: decision models lead the list, and there is
@@ -386,6 +416,7 @@ struct HarnessNodeSheet: View {
             TextField("Label", text: Binding(get: { harness.nodes[i].label ?? "" },
                                             set: { harness.nodes[i].label = $0.isEmpty ? nil : $0 }))
         }
+        if type == .computer { computerFields(i) }
         if type == .answer || type == .background || type == .review || (type == .route && harness.nodes[i].by == "model") {
             Section(type == .route ? "Router model" : "Model") {
                 Button { pickingModel = .model } label: {
@@ -448,6 +479,39 @@ struct HarnessNodeSheet: View {
                                         set: { harness.nodes[i].instructions = $0.isEmpty ? nil : $0 }),
                           axis: .vertical)
                     .lineLimit(2...6)
+            }
+        }
+    }
+
+    @ViewBuilder private func computerFields(_ i: Int) -> some View {
+        Section {
+            pickerRow(harness.nodes[i].model.flatMap { $0.isEmpty ? nil : HarnessFormat.shortModel($0) }
+                      ?? "Automatic") { pickingModel = .model }
+        } header: {
+            Text("Decision model")
+        } footer: {
+            Text("Drives your Mac: the decision model picks each click; the fallback model takes steps it's unsure about.")
+        }
+        Section("Fallback model") {
+            pickerRow(harness.nodes[i].fallbackModel.flatMap { $0.isEmpty ? nil : HarnessFormat.shortModel($0) }
+                      ?? "Same as the main model") { pickingModel = .fallback }
+        }
+        Section {
+            let steps = harness.nodes[i].maxSteps ?? 30
+            Stepper("Max steps: \(steps)", value: Binding(get: { steps },
+                                                          set: { harness.nodes[i].maxSteps = $0 }),
+                    in: 1...60)
+        } footer: {
+            Text("A Hands wire gives an Answer or Background step the Mac. A When stuck wire to an Answer step finishes what this can't.")
+        }
+    }
+
+    private func pickerRow(_ text: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(text).foregroundStyle(JcTheme.text)
+                Spacer()
+                JcIcon("chevron.right").foregroundStyle(JcTheme.muted)
             }
         }
     }
@@ -517,11 +581,10 @@ struct HarnessNodeSheet: View {
 
     private func setModel(_ field: ModelField, _ picked: ChatModel?) {
         guard let i = index else { return }
-        let ref: String? = picked.map { m in
-            m.id.hasPrefix("@") || m.providerID.isEmpty ? m.id : "@\(m.providerID):\(m.id)"
-        }
+        let ref: String? = picked.map(Self.ref(for:))
         switch field {
-        case .model: harness.nodes[i].model = ref ?? "@session"
+        // A Computer step's "Automatic" is no model at all, not the chat's own.
+        case .model: harness.nodes[i].model = harness.nodes[i].type == .computer ? ref : (ref ?? "@session")
         case .fallback: harness.nodes[i].fallbackModel = ref
         }
     }

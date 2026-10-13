@@ -6,7 +6,7 @@ import Foundation
 /// A decoded JSON value. Tool arguments arrive as arbitrary JSON, and the UI both
 /// renders them (pretty-printed in the expanded tool card) and diffs them — which
 /// `[String: Any]` can do neither of.
-enum JSONValue: Equatable, Sendable {
+enum JSONValue: Hashable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -64,6 +64,34 @@ enum JSONValue: Equatable, Sendable {
         case .array, .object:
             guard let data = try? JSONSerialization.data(withJSONObject: anyValue, options: [.sortedKeys]) else { return "…" }
             return String(decoding: data, as: UTF8.self)
+        }
+    }
+}
+
+/// Codable, so a model can carry keys it doesn't know (a newer server's) through
+/// a decode and re-encode untouched (``HarnessNode``).
+extension JSONValue: Codable {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        // Bool before Double: a JSON `true` must not come back as the number 1.
+        if c.decodeNil() { self = .null }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let d = try? c.decode(Double.self) { self = .number(d) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
+        else { self = .object(try c.decode([String: JSONValue].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .bool(let b): try c.encode(b)
+        case .number(let d):
+            if d == d.rounded(), abs(d) < 1e15 { try c.encode(Int(d)) } else { try c.encode(d) }
+        case .array(let a): try c.encode(a)
+        case .object(let o): try c.encode(o)
+        case .null: try c.encodeNil()
         }
     }
 }

@@ -27,6 +27,8 @@ struct CatalogModelPickerSheet: View {
     let catalog: ModelCatalog?
     /// Nil means "Auto" is the current choice.
     let selectedID: String?
+    /// The "Auto" row's name, where empty means something else ("Same as the main model").
+    var autoTitle: String = "Auto"
     /// How "Auto" reads. Nil gives the server's own default, named.
     var autoSubtitle: String? = nil
     /// False where only a real model will do (a harness Route's router).
@@ -87,7 +89,7 @@ struct CatalogModelPickerSheet: View {
             List {
                 if showsAuto {
                     Section {
-                        row(title: "Auto",
+                        row(title: autoTitle,
                             subtitle: autoSubtitle ?? defaultSubtitle,
                             selected: selectedID == nil) { select(nil) }
                     }

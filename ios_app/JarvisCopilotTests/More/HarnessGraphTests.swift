@@ -57,6 +57,72 @@ final class HarnessGraphTests: XCTestCase {
         XCTAssertEqual(HarnessGraph.defaultWhen(h, from: "in"), "always")
     }
 
+    // MARK: Computer node
+
+    /// Message → Sonnet, Sonnet --hands--> Computer --stuck--> Sonnet, a Background and a Route.
+    private func computerHarness() -> (AgentHarness, answer: String, computer: String, background: String, route: String) {
+        var h = HarnessGraph.newHarness(id: "m", name: "M")
+        let a = HarnessGraph.addNode(&h, type: .answer, at: .zero)
+        let c = HarnessGraph.addNode(&h, type: .computer, at: .zero)
+        let b = HarnessGraph.addNode(&h, type: .background, at: .zero)
+        let r = HarnessGraph.addNode(&h, type: .route, at: .zero)
+        return (h, a, c, b, r)
+    }
+
+    func testComputerDefaults() {
+        let n = HarnessGraph.defaults(for: .computer)
+        XCTAssertEqual(n.maxSteps, 30)
+        XCTAssertNil(n.model, "no model = the first decision model")
+        XCTAssertNil(n.fallbackModel, "no fallback = the calling node's model")
+        var h = HarnessGraph.newHarness(id: "m", name: "M")
+        XCTAssertEqual(HarnessGraph.addNode(&h, type: .computer, at: .zero), "computer-1")
+    }
+
+    func testComputerWiresStartAsHandsAndStuck() {
+        var (h, a, c, b, r) = computerHarness()
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: a, to: c), "hands")
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: b, to: c), "hands")
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: c, to: a), "stuck")
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: r, to: c), "default", "a Route wires in by label/default")
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: "in", to: c), "always")
+        XCTAssertEqual(HarnessGraph.defaultWhen(h, from: a, to: b), "handoff", "the hand-off is unchanged")
+        // Sonnet --hands--> Computer --stuck--> Sonnet: both directions are separate wires.
+        XCTAssertTrue(HarnessGraph.wire(&h, from: a, to: c))
+        XCTAssertTrue(HarnessGraph.wire(&h, from: c, to: a))
+        XCTAssertEqual(h.edges.map(\.when), ["hands", "stuck"])
+    }
+
+    func testWireChoicesForComputerWires() {
+        var (h, a, c, b, r) = computerHarness()
+        _ = HarnessGraph.connect(&h, from: a, to: c, when: "hands")    // 0
+        _ = HarnessGraph.connect(&h, from: b, to: c, when: "hands")    // 1
+        _ = HarnessGraph.connect(&h, from: c, to: a, when: "stuck")    // 2
+        _ = HarnessGraph.connect(&h, from: r, to: c, when: "default")  // 3
+        _ = HarnessGraph.connect(&h, from: a, to: b, when: "handoff")  // 4
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 0), ["hands"])
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 1), ["hands"])
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 2), ["stuck"])
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 3).first, "default")
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 4), ["always", "handoff", "slow:20", "tools:5"])
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 9), [])
+    }
+
+    func testOnlyComputerStepsTakeABackgroundWire() {
+        let (h, a, c, b, _) = computerHarness()
+        XCTAssertTrue(HarnessGraph.canWire(h, from: b, to: c))
+        XCTAssertFalse(HarnessGraph.canWire(h, from: b, to: a))
+        XCTAssertTrue(HarnessGraph.canWire(h, from: a, to: b))
+        XCTAssertTrue(HarnessGraph.canWire(h, from: c, to: a))
+    }
+
+    func testWireTitles() {
+        XCTAssertEqual(HarnessGraph.wireTitle("hands"), "Hands")
+        XCTAssertEqual(HarnessGraph.wireTitle("stuck"), "When stuck")
+        XCTAssertEqual(HarnessGraph.wireTitle("label:deep"), "label:deep")
+        XCTAssertTrue(HarnessEdge(from: "a", to: "b", when: "handoff").isDashed)
+        XCTAssertFalse(HarnessEdge(from: "a", to: "b").isDashed)
+    }
+
     // MARK: Route labels (the editor's label rows)
 
     private func routeHarness() -> (AgentHarness, route: String, answer: String) {
