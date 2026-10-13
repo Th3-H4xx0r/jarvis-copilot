@@ -317,3 +317,8 @@ def test_typing_stops_if_the_app_leaves_the_front(monkeypatch):
     with pytest.raises(ui.NotInFront):
         ui._type(ax, 10, "a long sentence to type")
     assert typed and "".join(typed) != "a long sentence to type"
+
+
+def test_look_returns_the_window_text():
+    r = ui.read_window(ax=FakeAX(_window()), capture=_capture)
+    assert r["text"] == "42"  # the static text, even though it isn't clickable

@@ -146,3 +146,15 @@ def test_plan_keeps_read_steps_and_read_value_answers_briefly():
     assert D.read_value("@x:y", LOOK, "g", {"do": "read the price", "read": "price"},
                         call=lambda **kw: _reply("  $449.99\n")) == "$449.99"
     assert D.read_value("@x:y", LOOK, "g", {"do": "read it", "read": "x"}, call=lambda **kw: _reply("NONE")) == ""
+
+
+def test_reads_use_the_window_text_too():
+    seen = {}
+
+    def call(**kw):
+        seen["prompt"] = kw["messages"][-1]["content"][0]["text"]
+        return _reply("23 June 1912")
+
+    look = {**LOOK, "text": "Alan Turing\nBorn 23 June 1912 Maida Vale, London"}
+    assert D.read_value("@x:y", look, "g", {"do": "read his birth date", "read": "born"}, call=call) == "23 June 1912"
+    assert "Born 23 June 1912" in seen["prompt"]

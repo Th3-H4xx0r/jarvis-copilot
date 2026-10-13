@@ -214,21 +214,30 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
 
 
 _CLOSING_PROMPT = """The user asked: {goal}
-That was just done on their Mac; the screenshot shows the result. Write ONE short line for them (it may be read \
-aloud): what was done and any answer or result you can read on screen. Only state what the screen shows."""
+That was just done on their Mac; the screenshot and the window's text below show the result. Write ONE short line \
+for them (it may be read aloud): what was done and the answer or result shown. Only state what the screen or its \
+text shows.
+
+Window text:
+{text}"""
 
 
-_READ_PROMPT = """Look at the screenshot of the user's Mac ({app} — {window}).
+_READ_PROMPT = """Look at the screenshot of the user's Mac ({app} — {window}) and the window's text below \
+(it includes text a banner or popup may cover).
 Task: {goal}
 {do}
-Reply with ONLY that value, exactly as shown (e.g. $449.99), or NONE if it is not visible."""
+Reply with ONLY that value, exactly as shown (e.g. $449.99), or NONE if it is not there.
+
+Window text:
+{text}"""
 
 
 def read_value(ref, look, goal, step, *, call=None) -> str:
     """A value read off the screen for a later step ('' when it isn't visible)."""
     try:
         out = _call(call, ref, _READ_PROMPT.format(app=look.get("app") or "?", window=look.get("window") or "",
-                                                   goal=goal, do=step.get("do") or ""), look, 60)
+                                                   goal=goal, do=step.get("do") or "",
+                                                   text=str(look.get("text") or "(none)")[:4000]), look, 60)
     except Exception:
         logger.debug("computer: read failed", exc_info=True)
         return ""
@@ -248,7 +257,8 @@ def needs_reading(goal: str) -> bool:
 def closing_line(ref, goal, look, *, call=None) -> str:
     """The reply after a Mac job, read off the final screen ('' if the model fails)."""
     try:
-        out = _call(call, ref, _CLOSING_PROMPT.format(goal=goal), look or {}, 120)
+        out = _call(call, ref, _CLOSING_PROMPT.format(goal=goal, text=str((look or {}).get("text") or "(none)")[:4000]),
+                    look or {}, 120)
     except Exception:
         logger.debug("computer: closing line failed", exc_info=True)
         return ""

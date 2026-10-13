@@ -36,6 +36,7 @@ WALK_BUDGET_S = 0.45
 MAX_NODES = 4000
 MAX_DEPTH = 30
 OCR_BELOW = 5
+TEXT_CAP = 6000
 _KEEP_LOOKS = 4
 _NOT_TRUSTED = ("Turn on Accessibility for the JarvisCopilot Mac app: System Settings → Privacy & Security → "
                 "Accessibility → enable the jc-client Python, then restart jc-client.")
@@ -199,8 +200,11 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             x1, y1 = min(x + w, wx + ww), min(y + h, wy + wh)
             if x1 - x0 > 2 and y1 - y0 > 2:
                 out.append({"role": role, "label": _label(a), "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
-        elif texts is not None and role == "AXStaticText" and a.get("AXValue") is not None:
-            texts.append(str(a.get("AXValue"))[:80])
+        elif texts is not None and role in ("AXStaticText", "AXHeading"):
+            t = next((str(a[k]) for k in ("AXValue", "AXTitle", "AXDescription")
+                      if isinstance(a.get(k), (str, int, float)) and str(a.get(k)).strip()), "")
+            if t:
+                texts.append(t[:200])
         if depth < MAX_DEPTH:
             queue.extend((c, depth + 1) for c in (a.get("AXChildren") or []))
     return out
@@ -384,7 +388,9 @@ def read_window(app: str | None = None, max_elements: int = 150, width: int = 10
             "height": img.height, "origin": list(frame[:2]), "scale": round(scale, 4),
             "base64": base64.b64encode(buf.getvalue()).decode("ascii"), "mime": "image/jpeg",
             "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"]} for e in elements],
-            "source": source, "sig": sig, "ms": int((time.monotonic() - started) * 1000)}
+            "source": source, "sig": sig, "ms": int((time.monotonic() - started) * 1000),
+            # The window's text from accessibility: readable even under a banner or popup.
+            "text": "\n".join(t for t in texts if t.strip())[:TEXT_CAP]}
 
 
 # ── acting ───────────────────────────────────────────────────────────────────
