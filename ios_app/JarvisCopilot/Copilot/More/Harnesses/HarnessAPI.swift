@@ -42,11 +42,21 @@ struct HarnessAPI {
         _ = try await api.post("/api/harnesses/designs/\(id)/delete")
     }
 
-    /// Set the Voice or Chat default harness; returns the new assignments.
-    func assign(surface: String, id: String) async throws -> [String: String] {
+    /// Set the default harness (`surface` "default"), or Voice/Chat's own pick
+    /// ("" = same as the default); returns what the server now holds.
+    func assign(surface: String, id: String) async throws -> HarnessAssignmentReply {
         let obj = try await api.post("/api/harnesses/assign",
                                      json: ["surface": surface, "harness_id": id]).object()
-        return (obj["assignments"] as? [String: String]) ?? [:]
+        return HarnessAssignmentReply(assignments: (obj["assignments"] as? [String: String]) ?? [:],
+                                      overrides: obj["overrides"] as? [String: String])
+    }
+
+    /// `model.default`: what Single answers with and every fallback runs. Takes
+    /// a bare id or `@provider:model`; returns the form the server saved.
+    @discardableResult
+    func setDefaultModel(_ model: String) async throws -> String {
+        let obj = try await api.post("/api/default-model", json: ["model": model]).object()
+        return (obj["model"] as? String) ?? model
     }
 
     /// A chat's own harness (`nil` = follow the Chat default).
@@ -58,4 +68,11 @@ struct HarnessAPI {
 
 struct HarnessSaveRejection: Error, Hashable {
     let problems: [HarnessProblem]
+}
+
+/// `POST /api/harnesses/assign`'s reply: effective ids per surface, plus the
+/// Voice/Chat overrides (absent from servers older than the one default).
+struct HarnessAssignmentReply: Hashable {
+    var assignments: [String: String]
+    var overrides: [String: String]?
 }

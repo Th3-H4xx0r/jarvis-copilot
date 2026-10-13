@@ -220,6 +220,15 @@ struct SettingsPage: View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("More")
             GlassGroup {
+                // The one default every surface follows: a model or a harness.
+                NavigationLink {
+                    DefaultChoiceScreen()
+                } label: {
+                    GlassRow(symbol: "flowchart", title: "Default",
+                             subtitle: "The model or harness everything runs")
+                }
+                .buttonStyle(.plain)
+
                 NavigationLink {
                     OnDeviceAISettingsPage()
                 } label: {

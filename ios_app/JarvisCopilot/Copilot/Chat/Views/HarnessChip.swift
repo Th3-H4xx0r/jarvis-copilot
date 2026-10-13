@@ -25,9 +25,12 @@ struct HarnessMiniDiagram: View {
 /// The list of harnesses for one surface, the current one ticked.
 struct HarnessSheet: View {
     let surface: VoiceSurface
+    /// The surface's own pick; "" = it follows the default.
     let current: String
     let onSelect: (String) -> Void
     let onSingleModel: () -> Void
+    /// Offers "Same as default (Name)" first, which clears the surface's own pick.
+    var onSameAsDefault: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var editing = false
@@ -36,6 +39,22 @@ struct HarnessSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if let onSameAsDefault {
+                    Section {
+                        Button {
+                            onSameAsDefault()
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(store.sameAsDefaultTitle).foregroundStyle(JcTheme.text)
+                                Spacer()
+                                if current.isEmpty { JcIcon("checkmark").foregroundStyle(JcTheme.accent) }
+                            }
+                        }
+                    } footer: {
+                        Text("Settings → Default sets it for chats, voice, your devices and schedules.")
+                    }
+                }
                 Section {
                     ForEach(store.harnesses.filter { $0.id != "single" }) { harness in
                         Button {
@@ -152,7 +171,7 @@ struct ChatHarnessChip: View {
     }
 }
 
-/// The Voice header chip: the Voice default harness.
+/// The Voice header chip: Voice's own harness, else the one default.
 struct VoiceHarnessChip: View {
     let modelLabel: String
     @Binding var showModelPicker: Bool
@@ -161,6 +180,8 @@ struct VoiceHarnessChip: View {
 
     private var current: String { harnesses.current(for: .voice, sessionHarnessID: nil) }
     private var label: String { harnesses.label(for: .voice, sessionHarnessID: nil, singleModelLabel: modelLabel) }
+    /// Voice's own pick ("" = same as default) — what the sheet ticks.
+    private var own: String { harnesses.overrides["voice"] ?? "" }
 
     var body: some View {
         Button { picking = true } label: {
@@ -168,12 +189,13 @@ struct VoiceHarnessChip: View {
         }
         .accessibilityLabel("Voice harness: \(label)")
         .sheet(isPresented: $picking) {
-            HarnessSheet(surface: .voice, current: current,
+            HarnessSheet(surface: .voice, current: own,
                          onSelect: { id in Task { await harnesses.assign(id, to: .voice) } },
                          onSingleModel: {
                              Task { await harnesses.assign("single", to: .voice) }
                              showModelPicker = true
-                         })
+                         },
+                         onSameAsDefault: { Task { await harnesses.assign("", to: .voice) } })
         }
         .task { if harnesses.harnesses.isEmpty { await harnesses.refresh() } }
     }

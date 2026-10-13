@@ -9,6 +9,9 @@ final class PodVoiceChoice {
     private(set) var voice = JarvisPodVoice()
     private(set) var sessions: [ChatSessionSummary] = []
     private(set) var harnesses: [AgentHarness] = []
+    /// The harness Voice runs (its own pick, else the one default) — what the
+    /// Pod's "" choice follows.
+    private(set) var voiceDefaultID: String?
     private(set) var loaded = false
     private(set) var error: String?
 
@@ -25,7 +28,10 @@ final class PodVoiceChoice {
             self.error = apiErrorMessage(error)
         }
         if let list = try? await SessionsAPI().list() { sessions = list.filter { !$0.archived } }
-        if let snapshot = try? await HarnessAPI().snapshot() { harnesses = snapshot.harnesses }
+        if let snapshot = try? await HarnessAPI().snapshot() {
+            harnesses = snapshot.harnesses
+            voiceDefaultID = snapshot.assignments["voice"]
+        }
     }
 
     var chatTitle: String {
@@ -33,15 +39,23 @@ final class PodVoiceChoice {
         return sessions.first { $0.id == voice.sessionID }?.displayTitle ?? "A chat"
     }
 
-    var harnessTitle: String {
-        Self.harnessTitle(voice.harnessID,
-                          names: Dictionary(harnesses.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }))
+    var harnessTitle: String { Self.harnessTitle(voice.harnessID, names: names, voiceDefaultID: voiceDefaultID) }
+
+    /// The "" row: "Voice default (Fast + Claude)".
+    var voiceDefaultTitle: String { Self.harnessTitle("", names: names, voiceDefaultID: voiceDefaultID) }
+
+    private var names: [String: String] {
+        Dictionary(harnesses.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     }
 
-    /// "Voice default" for no choice; a harness deleted since reads "A harness"
-    /// (the server then runs the Voice harness).
-    static func harnessTitle(_ id: String, names: [String: String]) -> String {
-        if id.isEmpty { return "Voice default" }
+    /// "Voice default (Name)" for no choice — Name is what Voice runs (its own
+    /// pick, else the one default), bare until the harnesses load. A harness
+    /// deleted since reads "A harness" (the server then runs the Voice harness).
+    static func harnessTitle(_ id: String, names: [String: String], voiceDefaultID: String? = nil) -> String {
+        if id.isEmpty {
+            guard let voice = voiceDefaultID, !voice.isEmpty else { return "Voice default" }
+            return "Voice default (\(names[voice] ?? voice))"
+        }
         return names[id] ?? "A harness"
     }
 
@@ -150,8 +164,8 @@ struct PodHarnessPicker: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 GlassGroup {
-                    GlassRow(symbol: "waveform", title: "Voice default",
-                             subtitle: "The harness Voice uses (Settings → Harnesses)",
+                    GlassRow(symbol: "waveform", title: choice.voiceDefaultTitle,
+                             subtitle: "The harness Voice uses (Settings → Default, Harnesses)",
                              subtitleLineLimit: 2, last: true,
                              action: { pick("") }) {
                         VoicePickerCheck(on: choice.voice.harnessID.isEmpty)

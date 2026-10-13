@@ -29,8 +29,7 @@ final class HarnessRenderTests: XCTestCase {
          "assignments":{"voice":"fast-claude","chat":"router"}}
         """.data(using: .utf8)!
         let snap = try! JSONDecoder().decode(HarnessSnapshot.self, from: json)
-        HarnessStore.shared.harnesses = snap.harnesses
-        HarnessStore.shared.assignments = snap.assignments
+        HarnessStore.shared.apply(snap)
         return snap.harnesses
     }
 
@@ -42,5 +41,9 @@ final class HarnessRenderTests: XCTestCase {
         try RenderHarness.write(NavigationStack { HarnessEditorView(harness: all[2]) }, size: size, name: "harness-editor-problem")
         try RenderHarness.write(HarnessSheet(surface: .chat, current: "router", onSelect: { _ in }, onSingleModel: {}),
                                 size: size, name: "harness-sheet")
+        try RenderHarness.write(HarnessSheet(surface: .voice, current: "", onSelect: { _ in }, onSingleModel: {},
+                                             onSameAsDefault: {}),
+                                size: size, name: "harness-sheet-voice-default")
+        try RenderHarness.write(NavigationStack { DefaultChoiceScreen() }, size: size, name: "settings-default")
     }
 }

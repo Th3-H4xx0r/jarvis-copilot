@@ -152,7 +152,12 @@ struct HarnessProblem: Codable, Hashable {
     var message: String
 }
 
+/// `GET /api/harnesses`. `assignments` holds the EFFECTIVE harness per surface
+/// (`default`, `voice`, `chat`; older servers send just voice/chat), and
+/// `overrides` the Voice/Chat picks of their own ("" = same as the default),
+/// absent on servers from before the one default.
 struct HarnessSnapshot: Codable {
     var harnesses: [AgentHarness]
     var assignments: [String: String]
+    var overrides: [String: String]?
 }

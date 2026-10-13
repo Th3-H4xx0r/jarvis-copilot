@@ -49,8 +49,8 @@ final class HarnessModelsTests: XCTestCase {
     }
 
     @MainActor func testCurrentPrefersSessionThenAssignment() {
-        let store = HarnessStore()
-        store.assignments = ["voice": "fast-claude", "chat": "single"]
+        let store = HarnessStore(defaults: UserDefaults(suiteName: "HarnessModelsTests")!)
+        store.applyAssignments(["voice": "fast-claude", "chat": "single"], overrides: nil)
         XCTAssertEqual(store.current(for: .chat, sessionHarnessID: "router"), "router")
         XCTAssertEqual(store.current(for: .chat, sessionHarnessID: nil), "single")
         XCTAssertEqual(store.current(for: .voice, sessionHarnessID: nil), "fast-claude")
@@ -58,10 +58,10 @@ final class HarnessModelsTests: XCTestCase {
 
     /// The chip (phone) and the Jarvis tab (CarPlay) name a surface the same way.
     @MainActor func testLabelNamesTheModelForSingleElseTheHarness() throws {
-        let store = HarnessStore()
+        let store = HarnessStore(defaults: UserDefaults(suiteName: "HarnessModelsTests")!)
         store.harnesses = try JSONDecoder().decode(HarnessSnapshot.self, from: json).harnesses
         let named = store.harnesses[0]
-        store.assignments = ["voice": named.id, "chat": "single"]
+        store.applyAssignments(["voice": named.id, "chat": "single"], overrides: nil)
         XCTAssertEqual(store.label(for: .voice, sessionHarnessID: nil, singleModelLabel: "Opus"), named.title)
         XCTAssertEqual(store.label(for: .chat, sessionHarnessID: nil, singleModelLabel: "Opus"), "Opus")
         XCTAssertEqual(store.label(for: .chat, sessionHarnessID: "gone", singleModelLabel: "Opus"), "gone",

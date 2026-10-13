@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// More → Harnesses: the built-ins and your own harnesses, the Voice and Chat
-/// defaults, and the way into the canvas editor. Built-ins open read-only and
-/// are duplicated to edit.
+/// More → Harnesses: the built-ins and your own harnesses, the one Default with
+/// Voice/Chat's own picks, and the way into the canvas editor. Built-ins open
+/// read-only and are duplicated to edit.
 struct HarnessesPage: View {
     @State private var editing: AgentHarness?
     private var store: HarnessStore { HarnessStore.shared }
@@ -10,16 +10,18 @@ struct HarnessesPage: View {
     var body: some View {
         List {
             Section {
-                Picker("Voice", selection: defaultBinding(.voice)) {
+                Picker("Default", selection: Binding(
+                    get: { store.defaultID },
+                    set: { id in Task { await store.assign(id, to: "default") } })) {
                     ForEach(store.harnesses) { Text($0.title).tag($0.id) }
                 }
-                Picker("Chat", selection: defaultBinding(.chat)) {
-                    ForEach(store.harnesses) { Text($0.title).tag($0.id) }
-                }
+                overridePicker("Voice", .voice)
+                overridePicker("Chat", .chat)
             } header: {
                 Text("Defaults")
             } footer: {
-                Text("A chat can still switch to another harness from its header.")
+                Text("New chats, your devices, Telegram/iMessage and schedules use the Default; "
+                   + "Voice and Chat can use their own. A chat can still switch from its header.")
             }
 
             Section("Harnesses") {
@@ -62,11 +64,11 @@ struct HarnessesPage: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(harness.title).foregroundStyle(JcTheme.text)
-                let uses = [store.assignments["voice"] == harness.id ? "Voice" : nil,
-                            store.assignments["chat"] == harness.id ? "Chat" : nil].compactMap { $0 }
+                let uses = [store.defaultID == harness.id ? "Default" : nil,
+                            store.overrides["voice"] == harness.id ? "Voice" : nil,
+                            store.overrides["chat"] == harness.id ? "Chat" : nil].compactMap { $0 }
                 if harness.isBuiltin || !uses.isEmpty {
-                    Text(((harness.isBuiltin ? ["Built-in"] : []) + uses.map { "\($0) default" })
-                        .joined(separator: " · "))
+                    Text(((harness.isBuiltin ? ["Built-in"] : []) + uses).joined(separator: " · "))
                         .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                 }
@@ -79,10 +81,14 @@ struct HarnessesPage: View {
         }
     }
 
-    private func defaultBinding(_ surface: VoiceSurface) -> Binding<String> {
-        Binding(
-            get: { store.assignments[surface.rawValue] ?? HarnessStore.defaultAssignments[surface.rawValue] ?? "single" },
-            set: { id in Task { await store.assign(id, to: surface) } })
+    /// "Same as default (Name)" (tag "", clears the override), then each harness.
+    private func overridePicker(_ title: String, _ surface: VoiceSurface) -> some View {
+        Picker(title, selection: Binding(
+            get: { store.overrides[surface.rawValue] ?? "" },
+            set: { id in Task { await store.assign(id, to: surface) } })) {
+            Text(store.sameAsDefaultTitle).tag("")
+            ForEach(store.harnesses) { Text($0.title).tag($0.id) }
+        }
     }
 
     private func copy(of harness: AgentHarness) -> AgentHarness {
