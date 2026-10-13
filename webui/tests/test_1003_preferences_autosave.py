@@ -115,12 +115,15 @@ def test_autosave_clears_dirty_flag_and_hides_unsaved_bar():
         "clearing _settingsDirty (Opus SHOULD-FIX Q1: autosave was clobbering "
         "pending password edits)"
     )
-    assert "settingsModel" in block, (
-        "_autosavePreferencesSettings must check the model selector before "
+    # The Default (a model or a harness, 2026-10-12) is checked through
+    # _defaultChoiceChanged(), which reads the selector against the on-open snapshot.
+    assert "_defaultChoiceChanged()" in block, (
+        "_autosavePreferencesSettings must check for a pending Default change before "
         "clearing _settingsDirty (autosave was clobbering pending model changes)"
     )
-    assert "_settingsHermesDefaultModelOnOpen" in block, (
-        "_autosavePreferencesSettings must compare the model selector value "
+    check = _function_block(PANELS_JS, "_defaultChoiceChanged")
+    assert "settingsModel" in check and "_settingsHermesDefaultModelOnOpen" in check, (
+        "_defaultChoiceChanged must compare the Default selector value "
         "against the on-open snapshot to detect a pending change"
     )
     # The clear-and-hide block must be conditional, not unconditional

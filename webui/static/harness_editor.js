@@ -11,7 +11,7 @@
   const NODE_W = 160, NODE_H = 58;
   const TYPES = { message: 'Message', answer: 'Answer', route: 'Route', background: 'Background', review: 'Review' };
   const E = {
-    harnesses: [], assignments: { voice: 'fast-claude', chat: 'single' }, models: null,
+    harnesses: [], assignments: { default: 'single', voice: 'fast-claude', chat: 'single' }, overrides: {}, models: null,
     view: 'list', doc: null, readOnly: false, dirty: false, isNew: false,
     sel: null, tx: 40, ty: 40, k: 1, gesture: null, saving: false,
   };
@@ -31,7 +31,8 @@
       const data = await api('api/harnesses');
       if (data && Array.isArray(data.harnesses)) {
         E.harnesses = data.harnesses;
-        E.assignments = Object.assign({ voice: 'fast-claude', chat: 'single' }, data.assignments || {});
+        E.assignments = Object.assign({ default: 'single', voice: 'fast-claude', chat: 'single' }, data.assignments || {});
+        E.overrides = data.overrides || {};
       }
     } catch (e) { console.warn('[harness-editor] load failed', e); }
   }
@@ -83,10 +84,18 @@
     return `<svg class="harness-card-mini" viewBox="-20 -20 ${w + 40} ${hgt + 40}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${lines}${boxes}</svg>`;
   }
 
+  const harnessName = id => {
+    const h = E.harnesses.find(x => x.id === id);
+    return h ? ((h.icon || '') + ' ' + (h.name || h.id)).trim() : String(id || '');
+  };
+
+  // Default: every harness. Voice/Chat: "Same as default (Name)" (no override) first.
   function assignSelect(surface) {
-    const cur = E.assignments[surface];
-    return `<select data-assign="${surface}">` + E.harnesses.map(h =>
-      `<option value="${esc(h.id)}"${h.id === cur ? ' selected' : ''}>${esc(((h.icon || '') + ' ' + (h.name || h.id)).trim())}</option>`).join('') + '</select>';
+    const own = surface === 'default' ? E.assignments.default : (E.overrides[surface] || '');
+    const follow = surface === 'default' ? '' :
+      `<option value=""${own ? '' : ' selected'}>Same as default (${esc(harnessName(E.assignments.default))})</option>`;
+    return `<select data-assign="${surface}">` + follow + E.harnesses.map(h =>
+      `<option value="${esc(h.id)}"${h.id === own ? ' selected' : ''}>${esc(harnessName(h.id))}</option>`).join('') + '</select>';
   }
 
   function renderList() {
@@ -98,8 +107,9 @@
     const cards = E.harnesses.map(h => {
       const badges = [];
       if (h.builtin) badges.push('<span class="harness-badge">Built-in</span>');
-      if (E.assignments.voice === h.id) badges.push('<span class="harness-badge on">Voice default</span>');
-      if (E.assignments.chat === h.id) badges.push('<span class="harness-badge on">Chat default</span>');
+      if (E.assignments.default === h.id) badges.push('<span class="harness-badge on">Default</span>');
+      if (E.overrides.voice === h.id) badges.push('<span class="harness-badge on">Voice</span>');
+      if (E.overrides.chat === h.id) badges.push('<span class="harness-badge on">Chat</span>');
       const probs = (h.problems || []).length;
       if (probs) badges.push(`<span class="harness-badge warn" title="${esc((h.problems[0] || {}).message || '')}">${probs} problem${probs > 1 ? 's' : ''}</span>`);
       return `<div class="harness-card" data-id="${esc(h.id)}">
@@ -115,9 +125,10 @@
     }).join('');
     body.innerHTML = `<div class="harness-list">
         <div class="harness-defaults">
-          <label class="harness-field"><span>Voice default</span>${assignSelect('voice')}</label>
-          <label class="harness-field"><span>Chat default</span>${assignSelect('chat')}</label>
-          <div class="harness-hint">A chat can pick its own harness from the chip in the composer; new chats start on the Chat default.</div>
+          <label class="harness-field"><span>Default</span>${assignSelect('default')}</label>
+          <label class="harness-field"><span>Voice</span>${assignSelect('voice')}</label>
+          <label class="harness-field"><span>Chat</span>${assignSelect('chat')}</label>
+          <div class="harness-hint">New chats, the Pod, Telegram/iMessage and schedules use the Default; Voice and Chat can use their own. A chat can still pick its own harness from the chip in the composer.</div>
         </div>
         <div class="harness-cards">${cards || '<div class="harness-hint">Loading harnesses…</div>'}</div>
       </div>`;
@@ -142,6 +153,7 @@
     try {
       const r = await api('api/harnesses/assign', { method: 'POST', body: JSON.stringify({ surface: sel.dataset.assign, harness_id: sel.value }) });
       if (r && r.assignments) E.assignments = Object.assign(E.assignments, r.assignments);
+      if (r && r.overrides) E.overrides = r.overrides;
       refreshChip();
       renderList();
     } catch (e) { toast('Could not set the default: ' + (e.message || e), 'error'); }

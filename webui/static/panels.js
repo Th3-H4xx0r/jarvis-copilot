@@ -5427,6 +5427,7 @@ let _settingsThemeOnOpen = null; // track theme at open time for discard revert
 let _settingsSkinOnOpen = null; // track skin at open time for discard revert
 let _settingsFontSizeOnOpen = null; // track font size at open time for discard revert
 let _settingsHermesDefaultModelOnOpen = '';
+let _settingsDefaultHarnessOnOpen = 'single';
 let _settingsSection = 'conversation';
 let _currentSettingsSection = 'conversation';
 let _settingsAppearanceAutosaveTimer = null;
@@ -5819,8 +5820,7 @@ async function _autosavePreferencesSettings(payload){
     // review of v0.50.250, SHOULD-FIX Q1.)
     const pwField=$('settingsPassword');
     const pwDirty=!!(pwField&&pwField.value);
-    const modelSel=$('settingsModel');
-    const modelDirty=!!(modelSel&&((modelSel.value||'')!==(_settingsHermesDefaultModelOnOpen||'')));
+    const modelDirty=_defaultChoiceChanged();
     if(!pwDirty&&!modelDirty){
       _settingsDirty=false;
       const bar=$('settingsUnsavedBar');
@@ -6832,6 +6832,7 @@ async function loadSettingsPanel(){
         modelSel.value=_settingsHermesDefaultModelOnOpen;
       }
       modelSel.addEventListener('change',_markSettingsDirty,{once:false});
+      await _fillDefaultHarnessChoices(modelSel);
     }
     // Send key preference
     const sendKeySel=$('settingsSendKey');
@@ -7877,9 +7878,87 @@ async function checkUpdatesNow(){
   }
 }
 
+// Settings → Default: harnesses first (value harness:<id>), then the models. With a
+// harness chosen, #settingsSingleModel picks the model Single and fallbacks use.
+async function _fillDefaultHarnessChoices(modelSel){
+  const singleSel=$('settingsSingleModel');
+  const row=$('settingsSingleModelRow');
+  if(singleSel){
+    singleSel.innerHTML='';
+    for(const og of modelSel.querySelectorAll('optgroup')) singleSel.appendChild(og.cloneNode(true));
+    singleSel.value=modelSel.value;
+  }
+  let snap=null;
+  try{ snap=await api('api/harnesses'); }catch(e){ console.warn('[settings] harnesses unavailable', e); }
+  _settingsDefaultHarnessOnOpen=(snap&&snap.assignments&&snap.assignments.default)||'single';
+  const harnesses=((snap&&snap.harnesses)||[]).filter(h=>h&&h.id&&h.id!=='single');
+  if(harnesses.length){
+    const og=document.createElement('optgroup');
+    og.label='Harnesses';
+    for(const h of harnesses){
+      const opt=document.createElement('option');
+      opt.value='harness:'+h.id;
+      opt.textContent=((h.icon||'')+' '+(h.name||h.id)).trim()+((h.problems||[]).length?' (has problems)':'');
+      og.appendChild(opt);
+    }
+    modelSel.insertBefore(og, modelSel.firstChild);
+  }
+  const current='harness:'+_settingsDefaultHarnessOnOpen;
+  if(_settingsDefaultHarnessOnOpen!=='single'&&[...modelSel.options].some(o=>o.value===current)) modelSel.value=current;
+  const sync=()=>{ if(row) row.style.display=(modelSel.value||'').startsWith('harness:')?'':'none'; };
+  sync();
+  if(!modelSel.dataset.defaultHarnessWired){
+    modelSel.dataset.defaultHarnessWired='1';
+    modelSel.addEventListener('change',()=>{
+      const s=$('settingsSingleModel');
+      if((modelSel.value||'').startsWith('harness:')&&s&&!s.value) s.value=_settingsHermesDefaultModelOnOpen;
+      const r=$('settingsSingleModelRow');
+      if(r) r.style.display=(modelSel.value||'').startsWith('harness:')?'':'none';
+    });
+    if(singleSel) singleSel.addEventListener('change',_markSettingsDirty);
+  }
+}
+
+function _defaultChoiceChanged(){
+  const choice=($('settingsModel')||{}).value||'';
+  if(!choice) return false;
+  if(choice.startsWith('harness:')){
+    const single=($('settingsSingleModel')||{}).value||'';
+    return choice.slice(8)!==_settingsDefaultHarnessOnOpen||(!!single&&single!==(_settingsHermesDefaultModelOnOpen||''));
+  }
+  return choice!==(_settingsHermesDefaultModelOnOpen||'')||_settingsDefaultHarnessOnOpen!=='single';
+}
+
+// Save the one default: a harness (plus, if changed, the model Single uses), or a
+// model — saved first, and only then does the default harness go back to Single,
+// so a refused model changes nothing.
+async function _saveDefaultChoice(body){
+  const choice=($('settingsModel')||{}).value||'';
+  if(choice.startsWith('harness:')){
+    const id=choice.slice(8);
+    const single=($('settingsSingleModel')||{}).value||'';
+    if(single&&single!==(_settingsHermesDefaultModelOnOpen||'')){
+      await api('/api/default-model',{method:'POST',body:JSON.stringify({model:single})});
+      body.default_model=single;
+    }
+    if(id!==_settingsDefaultHarnessOnOpen){
+      await api('api/harnesses/assign',{method:'POST',body:JSON.stringify({surface:'default',harness_id:id})});
+      _settingsDefaultHarnessOnOpen=id;
+    }
+  }else if(choice){
+    if(choice!==(_settingsHermesDefaultModelOnOpen||'')){
+      await api('/api/default-model',{method:'POST',body:JSON.stringify({model:choice})});
+      body.default_model=choice;
+    }
+    if(_settingsDefaultHarnessOnOpen!=='single'){
+      await api('api/harnesses/assign',{method:'POST',body:JSON.stringify({surface:'default',harness_id:'single'})});
+      _settingsDefaultHarnessOnOpen='single';
+    }
+  }
+  if(window.Harness&&typeof window.Harness.load==='function') window.Harness.load();
+}
+
 async function saveSettings(andClose){
-  const model=($('settingsModel')||{}).value;
-  const modelChanged=(model||'')!==(_settingsHermesDefaultModelOnOpen||'');
   const sendKey=($('settingsSendKey')||{}).value;
   const showTokenUsage=!!($('settingsShowTokenUsage')||{}).checked;
   const showQuotaChip=!!($('settingsShowQuotaChip')||{}).checked;
@@ -7925,12 +8004,11 @@ async function saveSettings(andClose){
   if(pw && pw.trim()){
     try{
       const saved=await api('/api/settings',{method:'POST',body:JSON.stringify({...body,_set_password:pw.trim()})});
-      if(modelChanged && model){
+      if(_defaultChoiceChanged()){
         try{
-          await api('/api/default-model',{method:'POST',body:JSON.stringify({model})});
-          body.default_model=model;
+          await _saveDefaultChoice(body);
         }catch(_modelErr){
-          if(typeof showToast==='function') showToast('Failed to update default model — settings saved');
+          if(typeof showToast==='function') showToast('Failed to update the default — settings saved');
         }
       }
       _applySavedSettingsUi(saved, body, {sendKey,showTokenUsage,showQuotaChip,showTps,fadeTextEffect,showCliSessions,theme,skin,language,sidebarDensity,fontSize});
@@ -7944,12 +8022,11 @@ async function saveSettings(andClose){
   }
   try{
     const saved=await api('/api/settings',{method:'POST',body:JSON.stringify(body)});
-    if(modelChanged && model){
+    if(_defaultChoiceChanged()){
       try{
-        await api('/api/default-model',{method:'POST',body:JSON.stringify({model})});
-        body.default_model=model;
+        await _saveDefaultChoice(body);
       }catch(_modelErr){
-        if(typeof showToast==='function') showToast('Failed to update default model — settings saved');
+        if(typeof showToast==='function') showToast('Failed to update the default — settings saved');
       }
     }
     _applySavedSettingsUi(saved, body, {sendKey,showTokenUsage,showQuotaChip,showTps,fadeTextEffect,showCliSessions,theme,skin,language,sidebarDensity,fontSize});

@@ -2,16 +2,17 @@
 // and the per-turn harness id. The server validates and stores harnesses
 // (api/harnesses); this file only reads them and records which one is in use.
 //
-//   chat current  = the open chat's own harness_id, else the Chat default
-//   voice current = the Voice default
+//   chat current  = the open chat's own harness_id, else Chat's (its own, else the Default)
+//   voice current = Voice's own harness, else the Default
 //
 // Picking for Chat sets the open chat's harness (POST api/session/harness);
-// picking for Voice changes the Voice default (POST api/harnesses/assign).
+// picking for Voice sets Voice's own harness, or "Same as default" clears it
+// (POST api/harnesses/assign).
 (function () {
-  const DEFAULTS = { voice: 'fast-claude', chat: 'single' };
+  const DEFAULTS = { default: 'single', voice: 'fast-claude', chat: 'single' };
   // pendingChat: a pick made before any chat exists. It rides the first turn
   // (chat/start pins it on the new chat) instead of changing the Chat default.
-  const H = { data: { harnesses: [], assignments: Object.assign({}, DEFAULTS) }, loaded: false, sheetSurface: null, pendingChat: null };
+  const H = { data: { harnesses: [], assignments: Object.assign({}, DEFAULTS), overrides: null }, loaded: false, sheetSurface: null, pendingChat: null };
 
   // ui.js declares `const S` at top level: reachable by name, never on window.
   function session() {
@@ -26,7 +27,8 @@
     try {
       const data = await api('api/harnesses');
       if (data && Array.isArray(data.harnesses)) {
-        H.data = { harnesses: data.harnesses, assignments: Object.assign({}, DEFAULTS, data.assignments || {}) };
+        H.data = { harnesses: data.harnesses, assignments: Object.assign({}, DEFAULTS, data.assignments || {}),
+                   overrides: data.overrides || null };
         H.loaded = true;
       }
     } catch (e) { console.warn('[harness] load failed', e); }
@@ -81,6 +83,7 @@
     } else {
       const r = await api('api/harnesses/assign', { method: 'POST', body: JSON.stringify({ surface, harness_id: id }) });
       if (r && r.assignments) H.data.assignments = Object.assign({}, DEFAULTS, r.assignments);
+      if (r && r.overrides) H.data.overrides = r.overrides;
     }
     render();
   }
@@ -126,11 +129,25 @@
       nodes.map(n => `<i class="t-${esc(n.type)}"></i>`).join('<s></s>') + '</span>';
   }
 
+  // Voice following the Default (no harness of its own); null when the server
+  // predates overrides.
+  function voiceFollowsDefault() {
+    const o = H.data.overrides;
+    return !!o && !o.voice;
+  }
+
   function renderSheet(surface) {
     const sheet = document.getElementById('harnessSheet');
     if (!sheet) return;
-    const cur = currentFor(surface);
-    const rows = list().map(h => {
+    const follows = surface === 'voice' && voiceFollowsDefault();
+    const cur = follows ? null : currentFor(surface);
+    const sameAsDefault = surface === 'voice' && H.data.overrides
+      ? `<button type="button" class="harness-row${follows ? ' on' : ''}" role="menuitemradio" aria-checked="${follows}" data-id="">
+          <span class="harness-row-icon" aria-hidden="true">↺</span>
+          <span class="harness-row-name">Same as default (${esc(label(H.data.assignments.default || 'single'))})</span>
+          <span class="harness-row-check" aria-hidden="true">${follows ? '✓' : ''}</span></button>`
+      : '';
+    const rows = sameAsDefault + list().map(h => {
       const problems = h.problems || [];
       const warn = problems.length
         ? `<span class="harness-row-warn" title="${esc(problems[0].message || 'Has problems')}">⚠︎</span>` : '';
@@ -207,8 +224,9 @@
   // before the chat existed), else '' = "follow the Chat default". Sending the
   // default itself would make the server save it onto the chat for good.
   function turnHarnessFor(surface) {
-    // Voice: '' until the list has loaded, so the server's Voice default wins.
-    if (surface !== 'chat') return H.loaded ? currentFor(surface) : '';
+    // Voice: '' until the list has loaded, or while Voice follows the Default,
+    // so the server resolves it.
+    if (surface !== 'chat') return H.loaded && !voiceFollowsDefault() ? currentFor(surface) : '';
     // Chat: only a pick made before the chat existed. A pick on an existing
     // chat is already saved (api/session/harness); re-sending a possibly stale
     // copy every turn would overwrite a newer pick made on another device.
