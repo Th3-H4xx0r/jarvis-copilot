@@ -166,7 +166,8 @@ extension VoiceStore {
         diagnostics.append(stamped)
         diagnostics = VoiceDiagnostics.trimmed(diagnostics)
         VoiceDiagnostics.mirror(stamped)
-        #if DEBUG
+        // The glasses layer is the phone's; the Mac voice build leaves it out.
+        #if DEBUG && !JC_MAC_VOICE
         if (InmoSession.shared.isReady || InmoAIChannel.shared.enabled),
            !line.hasPrefix("ws← audio "), !line.hasPrefix("mic under reply:") {
             InmoRuntimeDiagnostics.note("voice: " + line)

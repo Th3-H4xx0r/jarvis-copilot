@@ -133,19 +133,102 @@ final class MacSessionPicker {
 
 // MARK: - Model
 
+/// The harnesses this Mac can pick, from `GET /api/harnesses`.
+///
+/// Read here rather than through the phone's `HarnessStore`, which is not in
+/// this build and would not do anyway: it mirrors the SERVER's Voice pick into
+/// `sel_voice_harness`, the key that holds this Mac's own.
+struct MacHarnessList: Equatable {
+    struct Harness: Equatable {
+        let id: String
+        let title: String
+        /// No validation problems — one with problems would run as Single.
+        let ok: Bool
+    }
+
+    var harnesses: [Harness] = []
+    /// What Voice runs on the server (its own pick, else the one default): what
+    /// "Voice default" follows.
+    var voiceDefaultID = ""
+
+    init() {}
+
+    init(json: [String: Any]) {
+        for h in (json["harnesses"] as? [[String: Any]]) ?? [] {
+            guard let id = h["id"] as? String, !id.isEmpty else { continue }
+            let name = (h["name"] as? String) ?? id
+            let title = [h["icon"] as? String, name].compactMap { $0?.isEmpty == false ? $0 : nil }
+                .joined(separator: " ")
+            harnesses.append(Harness(id: id, title: title, ok: ((h["problems"] as? [Any]) ?? []).isEmpty))
+        }
+        voiceDefaultID = ((json["assignments"] as? [String: Any])?["voice"] as? String) ?? ""
+    }
+
+    func title(for id: String) -> String { harnesses.first { $0.id == id }?.title ?? id }
+}
+
+/// What a row of the voice picker sets on this Mac.
+enum MacVoicePick: Equatable {
+    /// No pick of its own: the server's Voice harness answers.
+    case voiceDefault
+    case harness(String)
+    /// The Single harness, answering with this model.
+    case model(ChatModel)
+}
+
 @MainActor
 @Observable
 final class MacModelPicker {
-    private let models = VoiceModelStore.shared
+    private let models: VoiceModelStore
+    @ObservationIgnored private let api: JarvisAPI
+    @ObservationIgnored private let defaults: UserDefaults
+    private(set) var harnessList = MacHarnessList()
+    /// This Mac's harness (`sel_voice_harness`, which the shared voice
+    /// transport sends as the turn's `harness_id`); nil = Voice default.
+    private(set) var harnessID: String?
 
-    var chipLabel: String { models.chipLabel }
+    /// Dependencies are `nil`-defaulted and built in the body: a default argument
+    /// is evaluated in a nonisolated context, which `@MainActor` values can't be.
+    init(api: JarvisAPI = .shared, models: VoiceModelStore? = nil, defaults: UserDefaults = .standard) {
+        self.api = api
+        self.models = models ?? .shared
+        self.defaults = defaults
+        let stored = defaults.string(forKey: voiceHarnessDefaultsKey)
+        harnessID = stored?.isEmpty == false ? stored : nil
+    }
+
+    /// A model with no harness — a pick from before harnesses — is an explicit
+    /// pick the server answers as Single, so it reads as Single here too.
+    private var runsSingle: Bool {
+        harnessID == "single" || (harnessID == nil && models.selectedModelID != nil)
+    }
+
+    /// The harness's name, the model for Single, else "Voice default".
+    var chipLabel: String {
+        if let id = harnessID, id != "single" { return harnessList.title(for: id) }
+        if models.selectedModelID != nil { return models.chipLabel }
+        return harnessID == "single" ? harnessList.title(for: "single") : "Voice default"
+    }
+
+    /// "Voice default (Fast + Claude)", bare until the harnesses load.
+    var voiceDefaultTitle: String {
+        let id = harnessList.voiceDefaultID
+        return id.isEmpty ? "Voice default" : "Voice default (\(harnessList.title(for: id)))"
+    }
 
     func load() async {
         await models.load()
         await SpeechEngineStore.shared.load()
+        await loadHarnesses()
     }
 
-    /// How the conversation works, then the model. The conversation settings
+    /// A failure keeps the last list: "Voice default" and the models still work.
+    func loadHarnesses() async {
+        guard let json = try? await api.get("/api/harnesses").object() else { return }
+        harnessList = MacHarnessList(json: json)
+    }
+
+    /// How the conversation works, then what answers. The conversation settings
     /// come first — they change every turn, and used to sit under the whole
     /// catalogue — and live in this card rather than chips of their own: the
     /// phone keeps them in the same sheet as the model, and the top bar has no
@@ -153,23 +236,59 @@ final class MacModelPicker {
     func rows(store: VoiceStore) -> [PickerRow] {
         var out = Self.conversationRows(store: store)
         out.append(.header(""))
-        out.append(.header("Model"))
-        out.append(PickerRow(title: "Auto",
-                             checked: models.selectedModelID == nil,
-                             action: { self.models.select(nil) }))
+        out += harnessRows()
+        return out
+    }
+
+    /// What answers on this Mac: "Voice default" (the server's Voice harness),
+    /// a harness, or a model (Single with that model). A pick for this Mac only —
+    /// the default everything else follows is set in Settings on the web or phone.
+    func harnessRows() -> [PickerRow] {
+        var out: [PickerRow] = [.header("Harness")]
+        out.append(PickerRow(title: voiceDefaultTitle,
+                             checked: harnessID == nil && models.selectedModelID == nil,
+                             action: { self.choose(.voiceDefault) }))
+        for harness in harnessList.harnesses where harness.ok && harness.id != "single" {
+            out.append(PickerRow(title: harness.title,
+                                 checked: harnessID == harness.id,
+                                 action: { self.choose(.harness(harness.id)) }))
+        }
         if let catalog = models.catalog {
             for provider in catalog.providers {
-                out.append(.header(provider))
+                // "Model · Anthropic API": in the Settings form a header opens a
+                // section, so a bare "Model" header above these would be lost.
+                out.append(.header(provider.isEmpty ? "Model" : "Model · \(provider)"))
                 for model in catalog.models(for: provider) {
                     out.append(PickerRow(title: model.label,
-                                         checked: models.selectedModelID == model.id,
-                                         action: { self.models.select(model) }))
+                                         checked: runsSingle && models.selectedModelID == model.id,
+                                         action: { self.choose(.model(model)) }))
                 }
             }
         } else {
             out.append(.header(models.loading ? "Loading…" : (models.loadError ?? "No models")))
         }
         return out
+    }
+
+    func choose(_ pick: MacVoicePick) {
+        switch pick {
+        case .voiceDefault:
+            setHarness(nil)
+            models.select(nil)
+        case .harness(let id):
+            setHarness(id)
+            // A harness picks its own models; a leftover one would ride along unused.
+            models.select(nil)
+        case .model(let model):
+            setHarness("single")
+            models.select(model)
+        }
+    }
+
+    private func setHarness(_ id: String?) {
+        harnessID = id
+        if let id { defaults.set(id, forKey: voiceHarnessDefaultsKey) }
+        else { defaults.removeObject(forKey: voiceHarnessDefaultsKey) }
     }
 
     static func conversationRows(store: VoiceStore) -> [PickerRow] {
