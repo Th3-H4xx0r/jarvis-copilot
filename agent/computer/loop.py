@@ -52,6 +52,7 @@ class Result:
     reason: str = ""
     steps: list = field(default_factory=list)
     device_name: str = ""
+    values: dict = field(default_factory=dict)  # read off the screen by "read" steps
 
     def summary(self) -> str:
         head = {"done": "Done on the Mac.", "stuck": "Stopped on the Mac (stuck).",
@@ -59,6 +60,8 @@ class Result:
         lines = [head + (f" {self.reason}" if self.reason else "")]
         if self.steps:
             lines.append("Steps: " + "; ".join(f"{i + 1}) {s.get('do')}" for i, s in enumerate(self.steps)))
+        if self.values:
+            lines.append("Read on screen: " + "; ".join(f"{k} = {v}" for k, v in self.values.items()))
         if self.actions:
             ms = [a["ms"] for a in self.actions]
             lines.append(f"Moves ({len(ms)}, median {int(statistics.median(ms))} ms):")
@@ -109,8 +112,17 @@ def _look_soon(mac, device, app, tries=4, wait=0.5) -> dict:
     return look
 
 
+def _with_values(step: dict, values: dict) -> dict:
+    """A step whose text uses ``{name}`` gets the value a read step found."""
+    text = step.get("text")
+    if not text or "{" not in text:
+        return step
+    return {**step, "text": re.sub(r"\{([a-z0-9_]+)\}", lambda m: values.get(m.group(1), m.group(0)), text)}
+
+
 def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, should_stop=None,
-        decide=None, fallback=None, mac=None, plan=None, app=None) -> Result:
+        decide=None, fallback=None, mac=None, plan=None, app=None, read=None) -> Result:
+    read = read or _decide_mod.read_value
     decide = decide or _decide_mod.decide
     fallback = fallback or _decide_mod.fallback_step
     plan = plan or _decide_mod.plan_steps
@@ -160,6 +172,23 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 pass
 
     for at, step in enumerate(steps):
+        step = _with_values(step, out.values)
+        if step.get("read"):
+            # Read a value off this screen for later steps (no move on the Mac).
+            if should_stop and should_stop():
+                out.status, out.reason = "error", "stopped"
+                break
+            value = read(cfg.fallback_ref, look, goal, step)
+            if not value:
+                out.status, out.reason = "stuck", f"Couldn't read “{step['read']}” on the screen ({step.get('do')})."
+                break
+            out.values[step["read"]] = value
+            history.append(f"read {step['read']} = {value}")
+            logger.info("Computer read: %s = %s", step["read"], value)
+            continue
+        if re.search(r"\{[a-z0-9_]+\}", str(step.get("text") or "")):
+            out.status, out.reason = "stuck", f"Nothing was read for “{step.get('text')}”."
+            break
         moves_before = len(out.actions)
         visits: dict = {}  # screens seen during this step (a Go back ↔ open cycle revisits them)
         if step.get("url"):
@@ -257,6 +286,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                           and e.get("role") in TEXT_ROLES), None) if action.get("action") == "click" else None
             if field is not None and step.get("text"):
                 action = {"action": "fill", "element": field["i"], "text": step["text"]}
+            if action.get("text") and out.values:  # a model may echo {price}: type the value read
+                action = {**action, "text": _with_values({"text": action["text"]}, out.values)["text"]}
             refused = _blocked(action)
             if refused:
                 out.status, out.reason = "stuck", refused[0].upper() + refused[1:] + "."

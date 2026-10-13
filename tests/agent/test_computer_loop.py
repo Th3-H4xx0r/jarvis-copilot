@@ -397,3 +397,39 @@ def test_a_wait_does_not_finish_a_one_move_step():
     decide = _decider(Move({"action": "wait"}, 0.7, "decision", 1), Move({"action": "click", "element": 2}, 0.9, "decision", 1))
     r = L.run("g", [{"do": "click the first video"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
     assert [a[0]["action"] for a in mac.acts] == ["wait", "click"] and r.status == "done"
+
+
+def test_a_read_step_carries_a_value_into_later_typing():
+    """Live: "write the Amazon price in a note" typed a placeholder — the plan couldn't know the price."""
+    look = {"ok": True, "look_id": "L1", "app": "Notes", "sig": "a",
+            "elements": [{"i": 1, "role": "AXTextArea", "label": "note body"}]}
+
+    class NoteMac(FakeMac):
+        def look(self, device, app=None):
+            return dict(look)
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": action["action"], "via": "ax", "look": dict(look)}
+
+    mac = NoteMac()
+    reads = []
+
+    def read(ref, look_, goal, step, **kw):
+        reads.append(step["read"])
+        return "$449.99"
+
+    decide = _decider(Move({"action": "fill", "element": 1, "text": "Switch 2: {price}"}, 0.9, "decision", 1),
+                      Move({"action": "done"}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "read the price of the first result", "read": "price"},
+                    {"do": "type the price into the note", "text": "Switch 2: {price}"}], _cfg(), device="m",
+              decide=decide, fallback=_never, mac=mac, read=read)
+    assert reads == ["price"] and r.values == {"price": "$449.99"}
+    assert mac.acts[0][0] == {"action": "fill", "element": 1, "text": "Switch 2: $449.99"}
+
+
+def test_an_unreadable_value_stops_instead_of_typing_a_placeholder():
+    mac = FakeMac()
+    r = L.run("g", [{"do": "read the price", "read": "price"}, {"do": "type it", "text": "{price}"}], _cfg(),
+              device="m", decide=_never, fallback=_never, mac=mac, read=lambda *a, **k: "")
+    assert r.status == "stuck" and "price" in r.reason and mac.acts == []

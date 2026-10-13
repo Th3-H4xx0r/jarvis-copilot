@@ -135,3 +135,14 @@ def test_plan_without_a_screen_and_with_urls():
     p = D.plan_steps("@x:y", "search amazon for pc", None, call=call)
     assert p["steps"] == [{"do": "open results", "app": "Safari", "url": "https://www.amazon.com/s?k=pc"}]
     assert len(seen["messages"][-1]["content"]) == 1  # text only, no screenshot
+
+
+def test_plan_keeps_read_steps_and_read_value_answers_briefly():
+    def call(**kw):
+        return _reply('{"steps": [{"do": "read the price", "read": "Price!"}, {"do": "type it", "text": "{price}"}]}')
+
+    p = D.plan_steps("@x:y", "g", None, call=call)
+    assert p["steps"][0] == {"do": "read the price", "read": "price"}
+    assert D.read_value("@x:y", LOOK, "g", {"do": "read the price", "read": "price"},
+                        call=lambda **kw: _reply("  $449.99\n")) == "$449.99"
+    assert D.read_value("@x:y", LOOK, "g", {"do": "read it", "read": "x"}, call=lambda **kw: _reply("NONE")) == ""

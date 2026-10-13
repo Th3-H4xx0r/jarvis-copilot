@@ -53,7 +53,10 @@ https://www.google.com/search?q=…, https://www.youtube.com/results?search_quer
 the user named, else "Safari". Never type a web address or a search into a page.
 - Apps: the first step opens the app ("app"). Then one move per step: "click the <label> button" (its visible \
 label, one press per step), "type … into the … field" with "text" word for word (no separate step to click \
-the field first), or "press <key>"."""
+the field first), or "press <key>".
+- Something you can only know by looking (a price, a name, a number, a date): add a step \
+{{"do": "read the …", "read": "<short_name>"}} on the screen that shows it, and write {{<short_name>}} in a later \
+step's "text". Never write a placeholder like [price]."""
 
 
 @dataclass
@@ -201,6 +204,9 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
             step = {k: str(s[k]).strip() for k in ("do", "text", "app", "url") if str(s.get(k) or "").strip()}
             if step.get("url") and not step["url"].startswith(("https://", "http://")):
                 step.pop("url")
+            name = re.sub(r"[^a-z0-9_]", "", str(s.get("read") or "").strip().lower())
+            if name:
+                step["read"] = name
             steps.append(step)
     if not steps:
         return {"steps": [{"do": goal}], "say": ""}
@@ -210,6 +216,24 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
 _CLOSING_PROMPT = """The user asked: {goal}
 That was just done on their Mac; the screenshot shows the result. Write ONE short line for them (it may be read \
 aloud): what was done and any answer or result you can read on screen. Only state what the screen shows."""
+
+
+_READ_PROMPT = """Look at the screenshot of the user's Mac ({app} — {window}).
+Task: {goal}
+{do}
+Reply with ONLY that value, exactly as shown (e.g. $449.99), or NONE if it is not visible."""
+
+
+def read_value(ref, look, goal, step, *, call=None) -> str:
+    """A value read off the screen for a later step ('' when it isn't visible)."""
+    try:
+        out = _call(call, ref, _READ_PROMPT.format(app=look.get("app") or "?", window=look.get("window") or "",
+                                                   goal=goal, do=step.get("do") or ""), look, 60)
+    except Exception:
+        logger.debug("computer: read failed", exc_info=True)
+        return ""
+    value = " ".join(str(out or "").split()).strip().strip('"')
+    return "" if not value or value.upper().startswith("NONE") else value[:200]
 
 
 _READING = re.compile(r"\?|\b(?:what|which|how (?:much|many|long)|work out|calculate|compute|tell me|read|"
