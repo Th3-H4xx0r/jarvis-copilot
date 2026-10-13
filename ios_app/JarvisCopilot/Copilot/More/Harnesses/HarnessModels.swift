@@ -27,8 +27,45 @@ struct AgentHarness: Codable, Identifiable, Hashable {
     func node(_ id: String) -> HarnessNode? { nodes.first { $0.id == id } }
 }
 
-enum HarnessNodeType: String, Codable, CaseIterable, Hashable {
+/// A step's type. One this build doesn't know (a newer server's) decodes to
+/// `.unknown(raw)` and encodes back as `raw`, so a harness using it still lists
+/// everywhere and saves back unchanged; the editor shows it read-only by its raw name.
+enum HarnessNodeType: Codable, CaseIterable, Hashable {
     case message, answer, route, background, review, computer
+    case unknown(String)
+
+    /// The types this build knows (never `.unknown`).
+    static let allCases: [HarnessNodeType] = [.message, .answer, .route, .background, .review, .computer]
+
+    init(rawValue: String) {
+        self = Self.allCases.first { $0.rawValue == rawValue } ?? .unknown(rawValue)
+    }
+
+    var rawValue: String {
+        switch self {
+        case .message: return "message"
+        case .answer: return "answer"
+        case .route: return "route"
+        case .background: return "background"
+        case .review: return "review"
+        case .computer: return "computer"
+        case .unknown(let raw): return raw
+        }
+    }
+
+    var isUnknown: Bool {
+        if case .unknown = self { return true }
+        return false
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
 
     var label: String {
         switch self {
@@ -38,6 +75,7 @@ enum HarnessNodeType: String, Codable, CaseIterable, Hashable {
         case .background: return "Background"
         case .review: return "Review"
         case .computer: return "Computer"
+        case .unknown(let raw): return raw
         }
     }
 
@@ -50,6 +88,7 @@ enum HarnessNodeType: String, Codable, CaseIterable, Hashable {
         case .background: return "clock.arrow.circlepath"
         case .review: return "checkmark.seal"
         case .computer: return "desktopcomputer"
+        case .unknown: return "square.dashed"
         }
     }
 }
@@ -206,6 +245,7 @@ struct HarnessNode: Codable, Identifiable, Hashable {
 struct HarnessEdge: Codable, Hashable {
     var from: String
     var to: String
+    /// Kept as the raw string, so a kind this build doesn't know passes through untouched.
     var when: String
 
     /// Wires that aren't the plain flow are drawn dashed: a hand-off, a Computer
@@ -243,4 +283,30 @@ struct HarnessSnapshot: Codable {
     var harnesses: [AgentHarness]
     var assignments: [String: String]
     var overrides: [String: String]?
+}
+
+extension HarnessSnapshot {
+    /// Harnesses decode one by one: one this build can't read is skipped (and
+    /// logged) instead of failing the snapshot and hiding every harness.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        harnesses = try c.decode([Lenient<AgentHarness>].self, forKey: .harnesses).compactMap(\.value)
+        assignments = try c.decode([String: String].self, forKey: .assignments)
+        overrides = try c.decodeIfPresent([String: String].self, forKey: .overrides)
+    }
+}
+
+/// An array element that never fails its array: `value` is nil when it can't
+/// decode (the error is logged).
+private struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        do {
+            value = try T(from: decoder)
+        } catch {
+            JcLog.more.debug("skipped an undecodable \(String(describing: T.self), privacy: .public): \(String(describing: error), privacy: .public)")
+            value = nil
+        }
+    }
 }

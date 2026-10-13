@@ -118,6 +118,60 @@ final class HarnessModelsTests: XCTestCase {
         XCTAssertEqual(String(decoding: try encoder.encode(snap.harnesses[0]), as: UTF8.self), before)
     }
 
+    // MARK: A newer server's types
+
+    private let teleporterHarness = #"""
+    {"id":"beam","name":"Beam","icon":"🛸","version":2,
+     "nodes":[{"id":"in","type":"message","x":40,"y":40},
+              {"id":"tp","type":"teleporter","x":40,"y":180,"label":"Beam up","model":"@x:y",
+               "destination":{"planet":"mars","hops":[1,2.5,null]},"warp":true},
+              {"id":"a","type":"answer","model":"@x:y","tools":"lean","x":40,"y":320}],
+     "edges":[{"from":"in","to":"tp","when":"always"},
+              {"from":"tp","to":"a","when":"warp:9"},
+              {"from":"a","to":"tp","when":"beam"}]}
+    """#
+
+    /// One node type (and wire kind) this build doesn't know must not hide the
+    /// harness, and a save sends that node back exactly as it came.
+    func testUnknownNodeTypeAndWireKindDecodeAndRoundTripUnchanged() throws {
+        let snap = try JSONDecoder().decode(HarnessSnapshot.self, from: Data(#"""
+        {"harnesses":[\#(teleporterHarness)],"assignments":{"default":"beam"}}
+        """#.utf8))
+        XCTAssertEqual(snap.harnesses.map(\.id), ["beam"])
+        let h = snap.harnesses[0]
+        let tp = try XCTUnwrap(h.node("tp"))
+        XCTAssertEqual(tp.type, .unknown("teleporter"))
+        XCTAssertTrue(tp.type.isUnknown)
+        XCTAssertEqual(tp.type.label, "teleporter")
+        XCTAssertEqual(tp.label, "Beam up")
+        XCTAssertEqual(tp.extra?["warp"], .bool(true))
+        XCTAssertEqual(h.edges.map(\.when), ["always", "warp:9", "beam"])
+        XCTAssertFalse(HarnessNodeType.allCases.contains { $0.isUnknown }, "Add step never offers an unknown type")
+        // Its wires keep their own condition; nothing offers to change it.
+        XCTAssertEqual(HarnessGraph.wireChoices(h, edge: 1), ["warp:9"])
+
+        XCTAssertEqual(try object(JSONEncoder().encode(h)), try object(Data(teleporterHarness.utf8)))
+        let node = try JSONDecoder().decode(HarnessNode.self, from: JSONEncoder().encode(tp))
+        XCTAssertEqual(node, tp)
+    }
+
+    /// A harness that still fails to decode is skipped; the rest of the list loads.
+    func testMalformedHarnessIsSkippedAndTheOthersStillLoad() throws {
+        let snap = try JSONDecoder().decode(HarnessSnapshot.self, from: Data(#"""
+        {"harnesses":[
+           {"id":"one","name":"One","nodes":[{"id":"in","type":"message","x":0,"y":0}],"edges":[]},
+           {"id":"broken","name":"Broken","nodes":"not a list","edges":[]},
+           {"id":"no-xy","name":"No position","nodes":[{"id":"in","type":"message"}],"edges":[]},
+           42,
+           \#(teleporterHarness),
+           {"id":"two","name":"Two","nodes":[{"id":"in","type":"message","x":0,"y":0}],"edges":[]}],
+         "assignments":{"default":"two","voice":"one"},"overrides":{"voice":"one","chat":""}}
+        """#.utf8))
+        XCTAssertEqual(snap.harnesses.map(\.id), ["one", "beam", "two"])
+        XCTAssertEqual(snap.assignments["default"], "two")
+        XCTAssertEqual(snap.overrides?["voice"], "one")
+    }
+
     @MainActor func testCurrentPrefersSessionThenAssignment() {
         let store = HarnessStore(defaults: UserDefaults(suiteName: "HarnessModelsTests")!)
         store.applyAssignments(["voice": "fast-claude", "chat": "single"], overrides: nil)

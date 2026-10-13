@@ -123,7 +123,7 @@ struct HarnessEditorView: View {
                                 problems: problems.filter { $0.node == node.id },
                                 isWireSource: wiringFrom == node.id,
                                 wiring: wiringFrom != nil,
-                                canWireOut: !readOnly && node.type != .review,
+                                canWireOut: !readOnly && node.type != .review && !node.type.isUnknown,
                                 onTap: { tap(node) },
                                 onOutput: { wiringFrom = (wiringFrom == node.id) ? nil : node.id })
                     .position(x: node.x + w / 2, y: node.y + h / 2)
@@ -412,9 +412,15 @@ struct HarnessNodeSheet: View {
 
     @ViewBuilder private func fields(_ i: Int) -> some View {
         let type = harness.nodes[i].type
-        Section("Name") {
+        Section {
             TextField("Label", text: Binding(get: { harness.nodes[i].label ?? "" },
                                             set: { harness.nodes[i].label = $0.isEmpty ? nil : $0 }))
+        } header: {
+            Text("Name")
+        } footer: {
+            if type.isUnknown {
+                Text("This app doesn't know \"\(type.rawValue)\" steps yet, so only the name is editable here. Its settings are kept as they are.")
+            }
         }
         if type == .computer { computerFields(i) }
         if type == .answer || type == .background || type == .review || (type == .route && harness.nodes[i].by == "model") {
@@ -472,7 +478,7 @@ struct HarnessNodeSheet: View {
             }
         }
         if type == .route { routeFields(i) }
-        if type != .message && (type != .route || harness.nodes[i].by == "model") {
+        if type != .message && !type.isUnknown && (type != .route || harness.nodes[i].by == "model") {
             Section(type == .route ? "Question for the router" : "Extra instructions") {
                 TextField(type == .route ? "Which route should handle the user's message?" : "Optional",
                           text: Binding(get: { harness.nodes[i].instructions ?? "" },
@@ -500,7 +506,7 @@ struct HarnessNodeSheet: View {
             let steps = harness.nodes[i].maxSteps ?? 30
             Stepper("Max steps: \(steps)", value: Binding(get: { steps },
                                                           set: { harness.nodes[i].maxSteps = $0 }),
-                    in: 1...60)
+                    in: 1...200)
         } footer: {
             Text("A Hands wire gives an Answer or Background step the Mac. A When stuck wire to an Answer step finishes what this can't.")
         }

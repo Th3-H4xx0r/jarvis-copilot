@@ -29,7 +29,7 @@ enum HarnessGraph {
         case .computer:
             // No model = the first decision model; no fallback = the calling node's model.
             n.maxSteps = 30
-        case .message:
+        case .message, .unknown:
             break
         }
         return n
@@ -118,6 +118,9 @@ enum HarnessGraph {
             return target == .answer ? ["stuck"] : ["always"]
         case .message, .review:
             return ["always"]
+        case .unknown:
+            // A newer server's step: its wires keep whatever they have.
+            return [h.edges[index].when]
         }
     }
 
