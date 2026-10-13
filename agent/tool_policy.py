@@ -89,6 +89,8 @@ def block_message(agent, name, args):
             return "No background node is wired here, so there is nothing to hand off to. Finish the task yourself."
         if wired:
             return None  # a wired node may always hand off, whatever its tool setting
+    if real == "computer_do" and getattr(agent, "_computer_node", None):
+        return None  # a node wired to a Computer node may always use it
     allowed = getattr(agent, "allowed_tool_names", None)
     if allowed is None or real == "tool_search" or real in allowed:
         return None

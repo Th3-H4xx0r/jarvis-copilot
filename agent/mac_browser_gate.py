@@ -23,7 +23,11 @@ from typing import Optional
 # chrome_* device skills (the server's own and the Mac app's, which arrive as
 # device_chrome_*), and the desktop Playwright MCP servers (direct + relay).
 _MAC_TOOL_PREFIXES = ("chrome_", "device_chrome_", "mcp_playwright_desktop", "mcp_playwright_relay_")
-_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop)"
+# Driving the Mac itself — the fast computer-control loop and jc-client's
+# screen / mouse / keyboard skills — follows the same rule.
+_MAC_CONTROL_PREFIXES = ("computer_do", "device_ui_", "device_mouse_", "device_type_text", "device_key_",
+                         "device_system_command")
+_TARGET = r"(?:mac(?:book)?(?:\s+(?:pro|air))?|laptop|computer|desktop|screen)"
 _BROWSER = r"(?:chrome|browser)"
 _ASKS = (
     # "on my mac", "in Chrome on the Mac", "pull up kayak on my MacBook"
@@ -68,8 +72,18 @@ def explicit_mac_request(text) -> bool:
     return False
 
 
+CONTROL_BLOCK_MESSAGE = (
+    "Blocked: this drives the user's own Mac (its screen, mouse and keyboard), which is only done when the "
+    "user explicitly asks for it (e.g. \"on my Mac\"). Ask the user first."
+)
+
+
 def is_mac_browser_tool(name: Optional[str]) -> bool:
     return str(name or "").startswith(_MAC_TOOL_PREFIXES)
+
+
+def is_mac_control_tool(name: Optional[str]) -> bool:
+    return str(name or "").startswith(_MAC_CONTROL_PREFIXES)
 
 
 def note_turn(task_id: Optional[str], text) -> None:
@@ -112,9 +126,11 @@ def _remember(task_id: str, value: bool) -> None:
 
 def block_message(tool_name: str, task_id: Optional[str]) -> Optional[str]:
     """The reason to refuse ``tool_name`` this turn, or None to let it run."""
-    if not is_mac_browser_tool(tool_name):
-        return None
-    return None if allowed(task_id) else BLOCK_MESSAGE
+    if is_mac_browser_tool(tool_name):
+        return None if allowed(task_id) else BLOCK_MESSAGE
+    if is_mac_control_tool(tool_name):
+        return None if allowed(task_id) else CONTROL_BLOCK_MESSAGE
+    return None
 
 
 def reset_for_tests() -> None:

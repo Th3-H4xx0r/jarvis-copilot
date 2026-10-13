@@ -93,6 +93,9 @@ _HERMES_CORE_TOOLS = [
     "coding_project_create", "coding_project_list",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
+    # Fast computer control of the user's Mac through jc-client (agent/computer/),
+    # listed once a paired device offers ui_look
+    "computer_do",
     # Lazy tool-loading meta-tool — only surfaces when agent.lazy_tools is on
     # (gated via check_fn in tools/lazy_tools.py); lets the model load deferred
     # tool schemas on demand.
@@ -179,6 +182,15 @@ TOOLSETS = {
             "or keyboard focus. Works with any tool-capable model."
         ),
         "tools": ["computer_use"],
+        "includes": []
+    },
+
+    "computer_do": {
+        "description": (
+            "Fast control of the user's Mac through the JarvisCopilot Mac app: a decision "
+            "model clicks and types from screenshots (agent/computer/)."
+        ),
+        "tools": ["computer_do"],
         "includes": []
     },
 

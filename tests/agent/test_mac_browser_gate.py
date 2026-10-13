@@ -145,3 +145,22 @@ def test_opening_a_link_on_the_mac_counts_as_driving_its_browser(monkeypatch):
     assert not out["ok"] and "Mac browser" in out["error"] and invoked == []
     handler({"url": "https://kayak.com", "device": "iPhone"}, task_id="t5")
     assert invoked == ["ph1"]
+
+
+@pytest.mark.parametrize("name", ["computer_do", "device_ui_do", "device_ui_look", "device_mouse_click",
+                                  "device_type_text", "device_key_press", "device_system_command"])
+def test_mac_control_tools_need_an_ask(name):
+    """Driving his Mac's mouse/keyboard/screen follows the same rule as his browser."""
+    gate.note_turn("t1", "open calculator and add 2 and 2")
+    assert "only done when the user explicitly asks" in gate.block_message(name, "t1")
+    gate.note_turn("t2", "on my Mac open calculator and add 2 and 2")
+    assert gate.block_message(name, "t2") is None
+
+
+def test_on_my_screen_counts_as_an_ask():
+    assert gate.explicit_mac_request("click the blue button on my screen")
+
+
+def test_other_device_tools_are_not_mac_control():
+    gate.note_turn("t1", "what's my heart rate")
+    assert gate.block_message("device_ring_get_hr", "t1") is None
