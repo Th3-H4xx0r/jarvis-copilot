@@ -1271,6 +1271,8 @@ def handle_websocket(handler, parsed) -> bool:
     # One line each way, so "was the device actually offline?" is answerable
     # from agent.log after the fact (a pending call only says "disconnected").
     logger.info("device bridge: %s (%s) connected", conn.name, conn.device_id[:8])
+    # agent.log doesn't always get the webui's loggers; the journal always gets print.
+    print(f"[bridge] {conn.name} ({conn.device_id[:8]}) connected", flush=True)
     try:
         _ws_send_text(conn, json.dumps({
             "type": "hello",
@@ -1292,6 +1294,8 @@ def handle_websocket(handler, parsed) -> bool:
         _notify_registry_change()  # plan 3.1 — device gone, drop its native tools
         logger.info("device bridge: %s (%s) disconnected after %.0fs",
                     conn.name, conn.device_id[:8], time.time() - conn.connected_at)
+        print(f"[bridge] {conn.name} ({conn.device_id[:8]}) disconnected after "
+              f"{time.time() - conn.connected_at:.0f}s", flush=True)
     return True
 
 
@@ -1458,7 +1462,12 @@ def _pump(conn: _DeviceConn) -> None:
                     except Exception as exc:
                         logger.debug("bad json frame from device %s: %s", conn.device_id, exc)
                         continue
-                    _handle_message(conn, msg)
+                    try:
+                        _handle_message(conn, msg)
+                    except Exception as exc:
+                        # One bad frame must not drop the device (it reconnects, re-registers 100+
+                        # skills and re-syncs everything — the phone's radio pays for each round).
+                        print(f"[bridge] {conn.name}: {msg.get('type')!r} frame failed: {exc!r}", flush=True)
                 elif isinstance(event, BytesMessage):
                     # Binary frames aren't part of the bridge protocol yet.
                     # Drop silently — devices shouldn't send these.
