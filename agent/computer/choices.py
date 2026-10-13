@@ -41,6 +41,13 @@ _PERMISSION = re.compile(r"^\s*(?:allow|always allow|allow once|accept(?:\s+all)
                          r"accept\s*&\s*continue)\s*$", re.I)
 
 
+def _other_tab(el: dict, step: dict) -> bool:
+    """A browser tab is only a move when the step is about tabs (live: the decider kept
+    clicking the tab titled like the result it wanted)."""
+    kind = str(el.get("kind") or "").lower()
+    return kind == "tab" and "tab" not in str((step or {}).get("do") or "").lower()
+
+
 def _permission(el: dict, step: dict) -> bool:
     label = str(el.get("label") or "")
     if not _PERMISSION.match(label):
@@ -58,7 +65,7 @@ def build_choices(look: dict, step: dict) -> list[tuple[str, str]]:
     text = str((step or {}).get("text") or "")
     out = []
     for el in (look or {}).get("elements") or []:
-        if _permission(el, step):
+        if _permission(el, step) or _other_tab(el, step):
             continue
         out.append((f"click {el['i']}", f"Click the {_thing(el)}"))
         if text and el.get("role") in TEXT_ROLES:

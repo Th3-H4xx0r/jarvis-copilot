@@ -103,3 +103,10 @@ def test_elements_show_their_kind_and_permission_buttons_are_not_moves():
     assert parse_choice("click 2", look, {"do": "open the first result"}) == {"action": "stuck"}
     assert parse_choice("click 3", look, {"do": "accept the cookies"}) == {"action": "click", "element": 3}
     assert match_step({"do": "click Allow"}, look) == 2  # he (or the plan) named it
+
+
+def test_browser_tabs_are_moves_only_for_tab_steps():
+    from agent.computer.choices import build_choices
+    look = {"elements": [{"i": 1, "role": "AXRadioButton", "kind": "tab", "label": "AirPods Pro 3 - Best Buy"}]}
+    assert "click 1" not in dict(build_choices(look, {"do": "open the first result"}))
+    assert "click 1" in dict(build_choices(look, {"do": "switch to the Best Buy tab"}))
