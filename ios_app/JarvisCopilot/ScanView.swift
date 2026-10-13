@@ -45,7 +45,7 @@ struct ScanView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .task { await JarvisPodStore.shared.pollWhileVisible() }
+        .onTabVisibilityChange(.devices) { JarvisPodStore.shared.setVisible($0) }
     }
 
     @ToolbarContentBuilder private var scanToolbar: some ToolbarContent {

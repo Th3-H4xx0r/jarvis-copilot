@@ -185,6 +185,11 @@ final class WearablesHub: ObservableObject {
     let glasses = InmoGo3Device.shared
 
     private var reconnectTask: Task<Void, Never>?
+    /// Roster changes, debounced, sent to the server so the Mac's menu can show them without
+    /// asking the phone (`sendStateSoon`).
+    private var stateWatch: AnyCancellable?
+    private var stateSoon: Task<Void, Never>?
+    private var sentState: String?
 
     private init() {
         // The X5 tracks workouts through the same controller as the R12: one live sheet,
@@ -219,6 +224,40 @@ final class WearablesHub: ObservableObject {
             state: band.$state.eraseToAnyPublisher()))
         band.workoutHold = { [weak workout] in workout?.holdsLink(for: WearableKeepAlive.band) ?? false }
         band.workouts = workout
+        stateWatch = Publishers.MergeMany(bottle.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          scale.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          esp32.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          ring.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          x5.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          band.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+                                          glasses.objectWillChange.map { _ in () }.eraseToAnyPublisher())
+            // A manager may publish off the main thread (a Bluetooth callback): hop first.
+            .receive(on: DispatchQueue.main)
+            .sink { _ in MainActor.assumeIsolated { WearablesHub.shared.sendStateSoon() } }
+    }
+
+    /// The roster as the server keeps it for the Mac's menu: who is paired and linked, without the
+    /// signal readings that change on every scan (those would make every scan a send).
+    nonisolated static func stateRows(_ entries: [WearableEntry]) -> [[String: Any]] {
+        entries.map { ["device_id": $0.deviceID, "kind": $0.kind, "model": $0.model, "name": $0.name,
+                       "connected": $0.connected] }
+    }
+
+    /// Sends the roster 2 s after the last change, and only when it differs from what the server
+    /// already has. `force` sends it whatever was sent before (the socket just came back).
+    func sendStateSoon(force: Bool = false) {
+        if force { sentState = nil }
+        stateSoon?.cancel()
+        stateSoon = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            let rows = Self.stateRows(self.roster())
+            guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]),
+                  let encoded = String(data: data, encoding: .utf8), encoded != self.sentState,
+                  BridgeClient.shared.status == .online else { return }
+            self.sentState = encoded
+            BridgeClient.shared.sendEvent("wearables_state", ["wearables": rows])
+        }
     }
 
     /// Foreground: resume links, reconnect the remembered bottle, re-register.

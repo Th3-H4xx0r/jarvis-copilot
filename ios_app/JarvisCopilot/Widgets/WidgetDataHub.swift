@@ -7,6 +7,14 @@ import WidgetKit
 @MainActor
 protocol WidgetDataProvider {
     func values() async -> [String: JCJSON]
+    /// Asks the server. In the background such a provider runs only when the server says its data
+    /// changed (`widgets` push) — not after every band sync, which was seven requests every few
+    /// minutes all night.
+    var usesNetwork: Bool { get }
+}
+
+extension WidgetDataProvider {
+    var usesNetwork: Bool { false }
 }
 
 /// Gathers every area's values into the App Group snapshot the widgets read, and reloads the
@@ -36,6 +44,12 @@ final class WidgetDataHub {
     private var watches: [NSObjectProtocol] = []
     private var refreshing = false
     private var again = false
+    private var foreground = true
+    /// Whether any Jarvis widget is on a Home or Lock Screen; nil until asked. With none there is
+    /// nothing to keep fresh, so nothing is fetched.
+    private(set) var installed: Bool?
+    /// A pass that may ask the server is owed (launch, foreground, a `widgets` push).
+    private var networkDue = true
 
     init(providers: [any WidgetDataProvider],
          write: @escaping ([String: JCJSON]) -> Void = { WidgetDataFile.write($0) },
@@ -47,17 +61,67 @@ final class WidgetDataHub {
         self.now = now
     }
 
-    /// Every 15 minutes while the app is alive, and whenever something worth showing changes.
+    /// Every 15 minutes while the app is on screen, whenever something worth showing changes, and
+    /// in the background when the server pushes `widgets` (at most every 30 minutes).
     func start() {
-        guard timer == nil else { return }
-        Task { await refresh() }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.refreshEvery, repeats: true) { _ in
-            Task { @MainActor in await WidgetDataHub.shared.refresh() }
+        guard watches.isEmpty else { return }
+        if foreground { startTimer() }      // a background launch (the watch, a push) waits for the screen
+        checkInstalled()
+        BridgeTopics.shared.on("widgets") { _ in
+            WidgetDataHub.shared.networkDue = true
+            WidgetDataHub.shared.refreshSoon()
         }
         for name in [Notification.Name.jcKeepAliveChanged, UIDevice.batteryStateDidChangeNotification] {
             watches.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { WidgetDataHub.shared.refreshSoon() }
             })
+        }
+    }
+
+    /// The app came forward (true) or went to the background (false).
+    func setForeground(_ on: Bool) {
+        guard on != foreground else { return }
+        foreground = on
+        if on {
+            networkDue = true
+            startTimer()
+            checkInstalled()        // a widget may have been added or removed meanwhile
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
+    /// The background refresh task: everything, the server included.
+    func refreshAll() async {
+        networkDue = true
+        await refresh()
+    }
+
+    private func startTimer() {
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: Self.refreshEvery, repeats: true) { _ in
+            Task { @MainActor in await WidgetDataHub.shared.refresh() }
+        }
+    }
+
+    private func checkInstalled() {
+        WidgetCenter.shared.getCurrentConfigurations { result in
+            // Unknown (the call failed) counts as installed: a widget that stops updating is worse
+            // than a few requests.
+            let has = (try? result.get()).map { $0.contains { $0.kind == WidgetDataHub.widgetKind } } ?? true
+            Task { @MainActor in WidgetDataHub.shared.setInstalled(has) }
+        }
+    }
+
+    func setInstalled(_ has: Bool) {
+        let was = installed
+        installed = has
+        if has {
+            BridgeTopics.shared.want("widgets", owner: "widgets", every: 1800)
+            if was != true { Task { await refresh() } }
+        } else {
+            BridgeTopics.shared.drop("widgets", owner: "widgets")
         }
     }
 
@@ -87,8 +151,13 @@ final class WidgetDataHub {
     }
 
     private func refreshOnce() async {
-        var values: [String: JCJSON] = [:]
-        for provider in providers {
+        guard installed != false else { return }
+        // In the background without a reason to ask the server, only what the phone knows itself
+        // is read again; the server's part stays as it was.
+        let full = foreground || networkDue
+        if full { networkDue = false }
+        var values: [String: JCJSON] = full ? [:] : current
+        for provider in providers where full || !provider.usesNetwork {
             values.merge(await provider.values()) { _, new in new }
         }
         let clock = DateFormatter()
@@ -126,6 +195,7 @@ final class WidgetDataHub {
 /// Scores from the last Jarvis Health run, and each metric's last seven days from the server.
 @MainActor
 final class HealthWidgetData: WidgetDataProvider {
+    let usesNetwork = true
     private var cache: (at: Date, values: [String: JCJSON])?
     private static let metrics = ["steps": "steps", "sleep": "sleep", "heart_rate": "hr", "hrv": "hrv",
                                   "spo2": "spo2", "stress": "stress", "sleep_debt": "sleep_debt"]
@@ -209,6 +279,7 @@ struct WearablesWidgetData: WidgetDataProvider {
 /// The most recent chat: its title, Jarvis's last reply, and whether a turn is running.
 @MainActor
 final class ChatWidgetData: WidgetDataProvider {
+    let usesNetwork = true
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {
@@ -235,6 +306,7 @@ final class ChatWidgetData: WidgetDataProvider {
 /// Coding sessions: how many are working, how many are waiting on you.
 @MainActor
 final class CodingWidgetData: WidgetDataProvider {
+    let usesNetwork = true
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {

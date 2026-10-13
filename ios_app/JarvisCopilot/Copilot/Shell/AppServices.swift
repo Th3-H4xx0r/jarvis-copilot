@@ -366,6 +366,8 @@ final class AppServices {
         // Skills that need the phone's own screen (open a URL, run a Shortcut) still
         // wait for the phone, car or no car — they get the tap-to-run notification.
         lifecycle.isForeground = phone
+        BridgeClient.appInBackground = !foreground
+        WidgetDataHub.shared.setForeground(foreground)
         if carPlayActive, foreground == isForeground { return }
         isForeground = foreground
         if foreground {

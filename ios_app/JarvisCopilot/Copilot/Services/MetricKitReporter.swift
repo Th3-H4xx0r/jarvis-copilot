@@ -10,8 +10,8 @@ import os
 /// Read the logs with:
 /// `log show --predicate 'subsystem == "com.jarviscopilot.jarviscopilotMobileAndIOS.metrickit"' --last 48h`
 ///
-/// Port of `ios/Runner/MetricKitReporter.swift`. It never posted to the server
-/// there and does not here — nothing to keep an endpoint for.
+/// Port of `ios/Runner/MetricKitReporter.swift`. Each day's numbers also go to
+/// `/api/devices/mobile/energy`, so a fix can be checked without a cable.
 final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     static let shared = MetricKitReporter()
     private let log = Logger(subsystem: "com.jarviscopilot.jarviscopilotMobileAndIOS.metrickit", category: "payload")
@@ -44,6 +44,8 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
             // root; the number that decides whether a battery change worked
             // should be readable on the phone that has the battery.
             report.save()
+            // And to the server, so a battery change can be judged from there the next morning.
+            Self.send(report)
             // No `privacy: .public` on the raw payloads: they carry the bundle's
             // signposts, launch times and (for diagnostics) crash call stacks,
             // and a `.public` string is readable by anything that can stream
@@ -53,6 +55,19 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
                 log.debug("payload=\(json)")
             }
         }
+    }
+
+    private static func send(_ report: EnergyReport) {
+        let body: [String: Any] = [
+            "received": ISO8601DateFormatter().string(from: report.received),
+            "cpuSeconds": report.cpuSeconds,
+            "foregroundSeconds": report.foregroundSeconds,
+            "backgroundSeconds": report.backgroundSeconds,
+            "backgroundAudioSeconds": report.backgroundAudioSeconds,
+            "backgroundLocationSeconds": report.backgroundLocationSeconds,
+            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+        ]
+        Task { _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: body) }
     }
 
     func didReceive(_ payloads: [MXDiagnosticPayload]) {

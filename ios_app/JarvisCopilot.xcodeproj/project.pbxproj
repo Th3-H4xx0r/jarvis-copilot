@@ -205,12 +205,14 @@
 		311D83F832D8AF558CA2351A /* LiveStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6942C704808E0CC4A39087C /* LiveStorageTests.swift */; };
 		31CE78430DF9893DB44508B6 /* WorkspacesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B019B56DEE3BBB4264CD0251 /* WorkspacesTests.swift */; };
 		31DDAAE1980229F44305D1BD /* ChatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E8FC71A4C705599FEC75A4 /* ChatModels.swift */; };
+		31F2D7B687F3F702F03A3C0A /* BridgeTopicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B145F905C6C1F52C25BF7D0 /* BridgeTopicsTests.swift */; };
 		323B9D8FE08F13D78CDE3CC6 /* DashcamGPS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB594669E0A8622E0201908 /* DashcamGPS.swift */; };
 		32628C66310E7ED3B48D02FB /* ToyotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */; };
 		32799A707359913FB5986CC5 /* StrengthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0777950E8E0AF9437C9EB6A6 /* StrengthSessionTests.swift */; };
 		32AA30F46877652C37ABC4D0 /* StrengthWorkoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C79C79DEEE34968F8E62367 /* StrengthWorkoutTests.swift */; };
 		32ADDA216B46841F29926194 /* IntegrationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC88EBA9BCFBCBCA019DE32 /* IntegrationsStore.swift */; };
 		32C87E91E5475B870067803E /* CodeMemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3526BAFCD7BC9EC9A661AE62 /* CodeMemoryAPI.swift */; };
+		32CBB6C240EE1D8341C7134F /* BridgeTopics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E176E9603F6B391D2E28857 /* BridgeTopics.swift */; };
 		32F6A1E6E4969180EA4540C7 /* MoreTone+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18882C61E749AD15922B366C /* MoreTone+Color.swift */; };
 		32F7C73B7BF5090D17F70643 /* WearableControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8FF4E306DA24C8DC8DA2112 /* WearableControlTests.swift */; };
 		3380E51BFB8791987ED40488 /* InmoGo3View.swift in Sources */ = {isa = PBXBuildFile; fileRef = C64A5B0161F52695201E17FF /* InmoGo3View.swift */; };
@@ -1219,6 +1221,7 @@
 		1AB72620872144EC212B8790 /* BottleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleModel.swift; sourceTree = "<group>"; };
 		1AC17D45E7912672EDE9E317 /* WorkspacesUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesUITests.swift; sourceTree = "<group>"; };
 		1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDesignsPage.swift; sourceTree = "<group>"; };
+		1B145F905C6C1F52C25BF7D0 /* BridgeTopicsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTopicsTests.swift; sourceTree = "<group>"; };
 		1B7C0CFC162030D5B0A20384 /* HealthGoalRings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthGoalRings.swift; sourceTree = "<group>"; };
 		1B9965207EBAD25BFADF07D9 /* HarnessRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HarnessRenderTests.swift; sourceTree = "<group>"; };
 		1BE58BC58204FA185D02F46C /* BackgroundLocationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundLocationTests.swift; sourceTree = "<group>"; };
@@ -1287,6 +1290,7 @@
 		2D79439207C33B8E5CF27CBF /* CodingUIFormatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingUIFormatTests.swift; sourceTree = "<group>"; };
 		2DAA34CFEF5B70AEA9973969 /* X5SceneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5SceneView.swift; sourceTree = "<group>"; };
 		2DB1DCE5A5277236E8DD6F3D /* GlassesModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesModelRenderTests.swift; sourceTree = "<group>"; };
+		2E176E9603F6B391D2E28857 /* BridgeTopics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeTopics.swift; sourceTree = "<group>"; };
 		2E7F6CFA348BC6D331132861 /* HealthWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthWireTests.swift; sourceTree = "<group>"; };
 		2EAF49343F83819ADBB1C63C /* ChatStreamReducerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatStreamReducerTests.swift; sourceTree = "<group>"; };
 		2EDDD964DC3E96BEC2E2D53B /* JarvisMemoryAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisMemoryAPI.swift; sourceTree = "<group>"; };
@@ -2631,6 +2635,7 @@
 				C56842DEF1D899E094B3AC5A /* BackgroundKeepaliveTests.swift */,
 				76E2F4CF0FD8E7B48221EECB /* LocalConnectionNotifierTests.swift */,
 				57A09704706BFBB7BB071598 /* WearableNotificationTests.swift */,
+				1B145F905C6C1F52C25BF7D0 /* BridgeTopicsTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -3927,6 +3932,7 @@
 				C70D9A5B75C48F0F5001D44C /* PersonaLoader.swift */,
 				90CA73235F950D5093A695CF /* EnergyReport.swift */,
 				91BE871907602BDD31622513 /* CrashNote.swift */,
+				2E176E9603F6B391D2E28857 /* BridgeTopics.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4609,6 +4615,7 @@
 				5883F765C8903D49794BCC99 /* WebBrowserSettingsTests.swift in Sources */,
 				69270A554BFAA9F49B663E81 /* PromptCacheSettingsTests.swift in Sources */,
 				40E29E9419B13DA1FF368078 /* HarnessDefaultTests.swift in Sources */,
+				31F2D7B687F3F702F03A3C0A /* BridgeTopicsTests.swift in Sources */,
 				A24FF31DB478F35628428FDB /* DashcamTombstoneTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -5317,6 +5324,7 @@
 				DDCD38808F836FE6342970CB /* CronRunsOnPicker.swift in Sources */,
 				279CEE096A400E1CF855BC46 /* PromptCacheSettings.swift in Sources */,
 				C62C3E94391BA6C539A55FE3 /* DefaultChoiceScreen.swift in Sources */,
+				32CBB6C240EE1D8341C7134F /* BridgeTopics.swift in Sources */,
 				D478C4AD7FD7CA22F80697A7 /* DashcamTombstones.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

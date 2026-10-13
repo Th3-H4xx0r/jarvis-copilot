@@ -21,6 +21,8 @@ final class JarvisPodStore {
 
     private let api: JarvisPodAPI
     private var lastRefresh = Date.distantPast
+    private var visible = false
+    private var listening = false
 
     init(api: JarvisPodAPI = JarvisPodAPI()) {
         self.api = api
@@ -51,11 +53,39 @@ final class JarvisPodStore {
         }
     }
 
-    /// While a screen showing pods is on screen.
-    func pollWhileVisible() async {
-        while !Task.isCancelled {
-            await refresh(force: true)
-            try? await Task.sleep(for: .seconds(15))
+    /// A screen showing pods came on screen (true) or went away (false): one fetch, then the
+    /// server pushes what changes (`pods` topic, see `webui/api/pod_watch.py`). This was a 15 s
+    /// poll, and since the tab stays mounted and the app is never suspended, it ran all night.
+    func setVisible(_ on: Bool) {
+        guard on != visible else { return }
+        visible = on
+        listen()
+        if on {
+            Task { await refresh(force: true) }
+            BridgeTopics.shared.want("pods", owner: "devices", every: 0)
+        } else {
+            BridgeTopics.shared.drop("pods", owner: "devices")
+        }
+    }
+
+    private func listen() {
+        guard !listening else { return }
+        listening = true
+        BridgeTopics.shared.on("pods") { [weak self] data in self?.apply(data) }
+        // The socket came back: whatever changed while it was down was missed.
+        BridgeTopics.shared.onResync { [weak self] in
+            guard let self, self.visible else { return }
+            Task { await self.refresh(force: true) }
+        }
+    }
+
+    /// One `pods` push: new statuses, or "the list moved" (a pod joined or left).
+    func apply(_ data: [String: Any]) {
+        for (id, raw) in data["statuses"] as? [String: Any] ?? [:] {
+            if let json = raw as? [String: Any] { statuses[id] = JarvisPodStatus(json: json) }
+        }
+        if (data["what"] as? [String] ?? []).contains("list") {
+            Task { await refresh(force: true) }
         }
     }
 

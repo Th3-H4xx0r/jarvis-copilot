@@ -221,8 +221,17 @@ final class BridgeClient: NSObject, ObservableObject {
         while text.hasSuffix("/") { text.removeLast() }
         return URL(string: text)
     }
+    /// Set by `AppServices` as the app goes to and from the background. Every request says
+    /// which (`X-JC-App-State`), so the server can count what the phone does while in a pocket.
+    nonisolated static var appInBackground: Bool {
+        get { appStateLock.withLock { backgroundFlag } }
+        set { appStateLock.withLock { backgroundFlag = newValue } }
+    }
+    private static let appStateLock = NSLock()
+    nonisolated(unsafe) private static var backgroundFlag = false
+
     nonisolated func apiAuthHeaders() -> [String: String] {
-        var h: [String: String] = [:]
+        var h: [String: String] = ["X-JC-App-State": Self.appInBackground ? "background" : "foreground"]
         if let cookie = Keychain.read("bridgeSessionCookie"), !cookie.isEmpty { h["Cookie"] = "hermes_session=\(cookie)" }
         if let id = Keychain.read("bridgeCFClientID"), let secret = Keychain.read("bridgeCFClientSecret"), !id.isEmpty, !secret.isEmpty {
             h["CF-Access-Client-Id"] = id
@@ -398,6 +407,7 @@ final class BridgeClient: NSObject, ObservableObject {
 
     private func handleDrop(_ reason: String) {
         socket = nil
+        BridgeTopics.shared.forget()
         pingTask?.cancel(); pingTask = nil
         // Every connect() builds a fresh URLSession; release the dead one.
         session?.invalidateAndCancel()
@@ -434,12 +444,19 @@ final class BridgeClient: NSObject, ObservableObject {
             syncKeepalive()      // back online: the allowance is worth holding again
             status = .online
             sendRegistration()
+            // What this phone wants pushed, and a catch-up for whatever was missed while away.
+            BridgeTopics.shared.resubscribe()
+            WearablesHub.shared.sendStateSoon(force: true)
         case "registered":
             registeredSkills = msg["count"] as? Int ?? 0
         case "invoke":
             Task { await self.runInvoke(msg) }
         case "ping":
+            // Answered although the server ignores it: the edge's ~50 s idle cut-off may count
+            // each direction, and a reply right after a receive costs little (the radio is up).
             send(["type": "pong"])
+        case "topic":
+            BridgeTopics.shared.deliver(msg)
         default:
             break   // forward-compat: ignore unknown types
         }
@@ -451,6 +468,20 @@ final class BridgeClient: NSObject, ObservableObject {
         var msg: [String: Any] = ["type": "register", "skills": skills]
         if !channels.isEmpty { msg["notification_channels"] = channels }
         send(msg)
+    }
+
+    /// The topics this phone wants pushed (`BridgeTopics`). Dropped while the socket is down:
+    /// `hello` sends the set again.
+    func sendSubscription(_ frame: [String: Any]) {
+        guard status == .online else { return }
+        send(frame)
+    }
+
+    /// State the server keeps for others to read without waking the phone (the Mac's menu reads
+    /// the wearables from it).
+    func sendEvent(_ name: String, _ data: [String: Any]) {
+        guard status == .online else { return }
+        send(["type": "event", "name": name, "data": data])
     }
 
     private func runInvoke(_ msg: [String: Any]) async {
@@ -477,10 +508,10 @@ final class BridgeClient: NSObject, ObservableObject {
 
     /// Liveness, driven by what we RECEIVE rather than by the clock.
     ///
-    /// The server already sends every device a text ping every 18 s
-    /// (`device_bridge.py:_PING_INTERVAL`), because Cloudflare reaps a connection
-    /// with no data frames after ~51 s. So a healthy socket is proving itself
-    /// twice a minute without us saying anything, and the old unconditional ping
+    /// The server sends every device a text ping every 40 s
+    /// (`device_bridge.py:_PING_INTERVAL`) because the edge cuts a connection with no data
+    /// frames after ~50 s.
+    /// So a healthy socket is proving itself without us saying anything, and the old unconditional ping
     /// every 25 s was ~3,500 radio transmissions a day that told us nothing we
     /// did not already know. On LTE each one drags the radio out of idle and the
     /// RRC tail holds it there for another 10-20 s, so at 25 s spacing the radio
@@ -510,10 +541,10 @@ final class BridgeClient: NSObject, ObservableObject {
 
     /// How often the check runs. A CPU wakeup with nothing sent, which is orders
     /// of magnitude cheaper than a cellular transmit.
-    private static let pingCheckEvery: UInt64 = 30_000_000_000
-    /// Well clear of the server's 18 s cadence, so an ordinary jitter or a missed
+    private static let pingCheckEvery: UInt64 = 60_000_000_000
+    /// Well clear of the server's 40 s cadence, so an ordinary jitter or a missed
     /// ping does not make us talk.
-    private static let inboundSilenceLimit: TimeInterval = 55
+    private static let inboundSilenceLimit: TimeInterval = 100
 
     // MARK: Background queue
 

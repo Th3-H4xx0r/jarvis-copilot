@@ -65,6 +65,7 @@ struct JarvisCopilotApp: App {
         }
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
             await BridgeClient.shared.drainQueue(foreground: false)
+            await WidgetDataHub.shared.refreshAll()
             await scheduleBackgroundRefresh()
         }
     }
