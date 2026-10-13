@@ -160,6 +160,7 @@ def fetch() -> tuple:
     now = time.time()
     rows: list = []
     wearable_host = ""
+    reported = None
     for device in devices:
         online = bool(device.get("online"))
         last_seen = float(device.get("last_seen") or 0)
@@ -173,8 +174,15 @@ def fetch() -> tuple:
             names = {s.get("name") for s in (device.get("skills") or [])}
             if _WEARABLE_SKILL in names:
                 wearable_host = str(device.get("id") or "")
+                if isinstance(device.get("wearables"), list):
+                    reported = device["wearables"]
 
-    wearables = _wearables(client, wearable_host) if wearable_host else []
+    # The phone reports its wearables to the server when they change; asking the phone
+    # itself (every 45 s, all day) woke its radio. Only an older phone build needs the ask.
+    if reported is not None:
+        wearables = _wearable_rows(reported)
+    else:
+        wearables = _wearables(client, wearable_host) if wearable_host else []
     # Grouped the way the system's own network menus group things, rather than
     # one long undifferentiated list.
     out: list = []
@@ -203,18 +211,23 @@ def _wearables(client, device_id: str) -> list:
     if not payload.get("ok", True):
         return []
     result = payload.get("result") or payload
-    entries = result.get("devices") or result.get("wearables") or []
+    return _wearable_rows(result.get("devices") or result.get("wearables") or [])
 
+
+def _wearable_rows(entries: list) -> list:
     rows = []
     for entry in entries:
+        if not isinstance(entry, dict):
+            continue
         model = str(entry.get("model") or "")
         name = str(entry.get("name") or model or "Wearable")
         rows.append(DeviceRow(
             name=name,
             kind="wearable",
             online=bool(entry.get("connected")),
-            # The phone already words this ("Connected", "-57 dBm", "Not found").
-            detail=str(entry.get("status") or ""),
+            # The phone words this when asked ("Connected", "-57 dBm", "Not found"); what it
+            # reports on its own carries no signal reading (that changes every scan).
+            detail=str(entry.get("status") or ("Connected" if entry.get("connected") else "Not connected")),
             wearable=wearable_kind(model, name),
         ))
     return rows

@@ -53,3 +53,45 @@ def test_last_seen_reads_in_the_largest_useful_unit():
     assert _ago(600) == "10m ago"
     assert _ago(7200) == "2h ago"
     assert _ago(180000) == "2d ago"
+
+
+class _FakeClient:
+    """Answers /api/devices from `devices`; records every other request."""
+
+    def __init__(self, devices):
+        self.devices = devices
+        self.calls = []
+
+    def request_json(self, method, path, body=None):
+        import json
+        from types import SimpleNamespace
+        self.calls.append((method, path))
+        if path == "/api/devices":
+            return SimpleNamespace(body=json.dumps({"devices": self.devices}))
+        return SimpleNamespace(body=json.dumps({"ok": True, "result": {"devices": [
+            {"model": "R12", "name": "Ring", "connected": True, "status": "Connected"}]}}))
+
+
+def _phone(**extra):
+    return {"id": "phone-1", "name": "iPhone", "kind": "mobile-ios", "online": True, "invokable": True,
+            "skills": [{"name": "wearables_list"}], **extra}
+
+
+def test_reported_wearables_are_read_without_asking_the_phone(monkeypatch):
+    from jc_client import device_roster
+    client = _FakeClient([_phone(wearables=[{"model": "HBand smart band", "name": "Band", "connected": False}])])
+    monkeypatch.setattr(device_roster, "_client", lambda: client)
+    rows, error = device_roster.fetch()
+    assert error == ""
+    assert client.calls == [("GET", "/api/devices")]
+    band = [r for r in rows if r.kind == "wearable"]
+    assert [(r.name, r.online, r.detail, r.wearable) for r in band] == [("Band", False, "Not connected", "band")]
+
+
+def test_an_older_phone_is_still_asked(monkeypatch):
+    from jc_client import device_roster
+    client = _FakeClient([_phone()])
+    monkeypatch.setattr(device_roster, "_client", lambda: client)
+    rows, _ = device_roster.fetch()
+    assert ("POST", "/api/devices/skills/invoke") in client.calls
+    assert [r.name for r in rows if r.kind == "wearable"] == ["Ring"]
