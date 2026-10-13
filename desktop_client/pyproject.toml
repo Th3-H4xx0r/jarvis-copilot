@@ -41,6 +41,11 @@ dependencies = [
   "pyobjc-core>=10; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
   "pyobjc-framework-WebKit>=10; sys_platform == 'darwin'",
+  # Fast computer control (skills/ui.py): the accessibility tree, window capture
+  # and Apple's on-device text recognition.
+  "pyobjc-framework-ApplicationServices>=10,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-Quartz>=10,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-Vision>=10,<13; sys_platform == 'darwin'",
   "pythonnet>=3.0; sys_platform == 'win32'",
   # Windows PTY backend for the local coding-terminal relay (coding_term.py).
   # POSIX uses the stdlib `pty` module; Windows has no equivalent, so we shell

@@ -154,6 +154,13 @@ def load_all(allow_shell: bool = False) -> None:
         except Exception as exc:
             log.warning("Failed to load platform skills %s: %s", mod, exc)
 
+    # Fast computer control (ui_look / ui_do) for the server's decision-model loop.
+    if sys.platform == "darwin":
+        try:
+            import jc_client.skills.ui  # noqa: F401 (registers via decorator)
+        except Exception as exc:
+            log.warning("Failed to load ui skills: %s", exc)
+
     # Browser skills (chrome_*): drive the user's real Chrome via a local
     # Playwright MCP. Only advertise them if npx is available (the engine).
     try:
