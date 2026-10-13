@@ -313,3 +313,19 @@ test('freeLabel picks a label no wire has, else makes one', () => {
   assert.deepEqual(d.nodes[1].labels, ['deep', 'path-2']);
   assert.equal(G.freeLabel(d, 'r'), 'path-2');  // still unwired
 });
+
+test('computer node: defaults, hands and stuck wires', () => {
+  const d = G.newHarness('m', 'M');
+  const c = G.addNode(d, 'computer', 0, 0);
+  const a = G.addNode(d, 'answer', 0, 0);
+  const b = G.addNode(d, 'background', 0, 0);
+  assert.equal(c, 'computer-1');
+  const node = d.nodes.find(n => n.id === c);
+  assert.equal(node.max_steps, 30);
+  assert.equal(node.model, '');
+  assert.equal(G.nextWhen(d, a, c), 'hands');
+  assert.equal(G.nextWhen(d, b, c), 'hands');
+  assert.equal(G.nextWhen(d, c, a), 'stuck');
+  assert.equal(G.edgeLabel('hands'), 'hands');
+  assert.equal(G.edgeLabel('stuck'), 'when stuck');
+});

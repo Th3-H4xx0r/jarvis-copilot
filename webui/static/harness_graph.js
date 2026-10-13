@@ -12,6 +12,7 @@
     route: { by: 'rules', rules: [], labels: [] },
     background: { tools: 'all', model: '', deliver: 'speak_or_notify' },
     review: { model: '', deliver: 'post_if_changed' },
+    computer: { model: '', max_steps: 30 },
     message: {},
   };
   const SERVER_ONLY = ['builtin', 'version', 'problems', 'updated_at'];
@@ -75,6 +76,10 @@
     }
     const dst = to ? nodeById(doc, to) : null;
     if (src.type === 'answer' && dst && dst.type === 'background') return 'handoff';
+    // A Computer node: wired from an Answer/Background it is that node's hands;
+    // its own wire is where an unfinished Mac job goes.
+    if ((src.type === 'answer' || src.type === 'background') && dst && dst.type === 'computer') return 'hands';
+    if (src.type === 'computer') return 'stuck';
     return 'always';
   }
 
@@ -83,6 +88,8 @@
     const w = String(when || 'always');
     if (w === 'always') return '';
     if (w === 'handoff') return 'hand-off';
+    if (w === 'hands') return 'hands';
+    if (w === 'stuck') return 'when stuck';
     if (w === 'default') return 'default';
     const i = w.indexOf(':');
     const kind = i < 0 ? w : w.slice(0, i);

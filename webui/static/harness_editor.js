@@ -9,7 +9,8 @@
 // are drawn on the nodes and wires they name.
 (function () {
   const NODE_W = 160, NODE_H = 58;
-  const TYPES = { message: 'Message', answer: 'Answer', route: 'Route', background: 'Background', review: 'Review' };
+  const TYPES = { message: 'Message', answer: 'Answer', route: 'Route', background: 'Background', review: 'Review',
+    computer: 'Computer' };
   const E = {
     harnesses: [], assignments: { default: 'single', voice: 'fast-claude', chat: 'single' }, overrides: {}, models: null,
     view: 'list', doc: null, readOnly: false, dirty: false, isNew: false,
@@ -75,7 +76,7 @@
     nodes.forEach(n => { pos[n.id] = { x: (Number(n.x) || 0) - minX, y: (Number(n.y) || 0) - minY, type: n.type }; });
     const lines = (h.edges || []).filter(e => pos[e.from] && pos[e.to]).map(e => {
       const a = pos[e.from], b = pos[e.to];
-      return `<line x1="${a.x + NODE_W}" y1="${a.y + NODE_H / 2}" x2="${b.x}" y2="${b.y + NODE_H / 2}"${e.when === 'handoff' ? ' class="dash"' : ''}/>`;
+      return `<line x1="${a.x + NODE_W}" y1="${a.y + NODE_H / 2}" x2="${b.x}" y2="${b.y + NODE_H / 2}"${['handoff', 'hands', 'stuck'].includes(e.when) ? ' class="dash"' : ''}/>`;
     }).join('');
     const boxes = nodes.map(n => {
       const p = pos[n.id];
@@ -222,7 +223,7 @@
     const d = E.doc, ro = E.readOnly ? ' disabled' : '';
     const body = $id('harnessViewBody');
     body.classList.add('harness-body--edit');
-    const adders = E.readOnly ? '' : ['answer', 'route', 'background', 'review'].map(t =>
+    const adders = E.readOnly ? '' : ['answer', 'route', 'background', 'review', 'computer'].map(t =>
       `<button type="button" class="harness-btn" data-add="${t}">+ ${TYPES[t]}</button>`).join('');
     body.innerHTML = `<div class="harness-editor">
         <div class="harness-editor-main">
@@ -253,6 +254,7 @@
   function nodeSubtitle(n) {
     if (n.type === 'message') return 'start';
     if (n.type === 'route') return n.by === 'model' ? `by model · ${shortModel(n.model) || 'pick a model'}` : `by rules · ${(n.rules || []).length} rule${(n.rules || []).length === 1 ? '' : 's'}`;
+    if (n.type === 'computer') return `drives the Mac · ${n.model ? shortModel(n.model) : 'auto'}`;
     if (n.model === '@session') return "the chat's model";
     return n.model ? shortModel(n.model) : 'pick a model';
   }
@@ -440,8 +442,8 @@
   }
 
   // extraGroups: option groups shown first (a Route's decision models).
-  function modelField(field, value, allowNone, extraGroups) {
-    const groups = (extraGroups || []).concat(E.models || []);
+  function modelField(field, value, allowNone, extraGroups, noneLabel, onlyExtra) {
+    const groups = onlyExtra ? (extraGroups || []) : (extraGroups || []).concat(E.models || []);
     if (!groups.length) {
       return `<input class="harness-input" data-field="${field}" value="${esc(value || '')}" placeholder="@provider:model">`;
     }
@@ -453,7 +455,7 @@
     if (value && !known.has(value)) {
       html = opt(value, (value === '@session' ? "The chat's model" : shortModel(value)) + ' (current)', value) + html;
     }
-    html = (allowNone ? opt('', 'None', value) : (value ? '' : opt('', 'Pick a model…', value))) + html;
+    html = (allowNone ? opt('', noneLabel || 'None', value) : (value ? '' : opt('', 'Pick a model…', value))) + html;
     return `<select class="harness-input" data-field="${field}">${html}</select>`;
   }
 
@@ -491,6 +493,16 @@
       rows.push(fieldRow('Deliver', `<select class="harness-input" data-field="deliver">` +
         opt('speak_or_notify', 'Speak if Voice is open, else notify', n.deliver) + opt('post', 'Post in the chat', n.deliver) +
         opt('notify', 'Notify', n.deliver) + '</select>'));
+    }
+    if (n.type === 'computer') {
+      rows.push('<div class="harness-hint">Drives your Mac: the decision model picks each click from a numbered ' +
+        'screenshot; the fallback model takes the steps it is unsure about. Wire a Route here for Mac asks and ' +
+        'this node to an Answer “when stuck”; wire an Answer or Background here as its “hands”.</div>');
+      rows.push(fieldRow('Decision model', modelField('model', n.model || '', true, E.decisions,
+        'Automatic (first decision model)', true)));
+      rows.push(fieldRow('Fallback model', modelField('fallback_model', n.fallback_model || '', true, null,
+        'Same as the main model')));
+      rows.push(fieldRow('Max steps', `<input class="harness-input" type="number" min="1" max="200" data-field="max_steps" value="${esc(n.max_steps || '')}" placeholder="30">`));
     }
     if (n.type === 'review') {
       rows.push(fieldRow('Deliver', `<select class="harness-input" data-field="deliver">` +
@@ -535,8 +547,12 @@
     const kind = when.includes(':') ? when.slice(0, when.indexOf(':')) : when;
     const value = when.includes(':') ? when.slice(when.indexOf(':') + 1) : '';
     const fromRoute = from && from.type === 'route';
-    const kinds = fromRoute ? [['default', 'Default (nothing matched)'], ['label', 'Label']]
+    let kinds = fromRoute ? [['default', 'Default (nothing matched)'], ['label', 'Label']]
       : [['always', 'Always'], ['handoff', 'Hand-off'], ['slow', 'When the answer is slow'], ['tools', 'When it used many tools']];
+    if (from && from.type === 'computer') kinds = [['stuck', 'When stuck (the job goes here)']];
+    else if (to && to.type === 'computer' && (from.type === 'answer' || from.type === 'background')) {
+      kinds = [['hands', 'Hands (its computer_do runs here)']];
+    }
     if (!kinds.some(k => k[0] === kind)) kinds.push([kind, kind]);
     let valueCtl = '';
     if (kind === 'label') {
