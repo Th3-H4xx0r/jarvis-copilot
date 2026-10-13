@@ -433,3 +433,12 @@ def test_an_unreadable_value_stops_instead_of_typing_a_placeholder():
     r = L.run("g", [{"do": "read the price", "read": "price"}, {"do": "type it", "text": "{price}"}], _cfg(),
               device="m", decide=_never, fallback=_never, mac=mac, read=lambda *a, **k: "")
     assert r.status == "stuck" and "price" in r.reason and mac.acts == []
+
+
+def test_a_step_on_the_app_already_in_use_does_not_reopen_it():
+    mac = AppMac(act_results=[None])
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1),
+                      Move({"action": "done"}, 0.9, "decision", 1))
+    L.run("g", [{"do": "open Notes", "app": "Notes"}, {"do": "write in the note body", "app": "Notes"}], _cfg(),
+          device="m", decide=decide, fallback=_never, mac=mac)
+    assert [a[0]["action"] for a in mac.acts].count("open_app") == 1

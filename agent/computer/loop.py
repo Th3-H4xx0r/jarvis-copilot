@@ -207,6 +207,11 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             anchor = look.get("app") or action["app"]
             history.append(f"step done: {step.get('do')}")
             continue  # opening the page was the whole step
+        if step.get("app") and anchor and str(anchor).lower() == str(step["app"]).lower() and look.get("look_id"):
+            step = {k: v for k, v in step.items() if k != "app"}  # already on that app: no re-open
+            if _open_only({**step, "app": anchor}):
+                history.append(f"step done: {step.get('do')}")
+                continue
         if step.get("app"):
             t = time.monotonic()
             action = {"action": "open_app", "app": step["app"]}

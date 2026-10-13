@@ -590,10 +590,14 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
         browser = app or "Safari"
         before = _title_of(ax, browser)
         _open(["-a", browser, url])
-        deadline, last, steady = time.monotonic() + 6.0, None, 0
+        started = time.monotonic()
+        deadline, last, steady = started + 6.0, None, 0
         while time.monotonic() < deadline:
             title = _title_of(ax, browser)
-            steady = steady + 1 if (title and title != before and title == last) else 0
+            # A new title that held for two reads; or, after 1.5 s, the same title
+            # (the browser was already on that page).
+            changed = title != before or time.monotonic() - started > 1.5
+            steady = steady + 1 if (title and changed and title == last) else 0
             if steady >= 2:  # the new page's title held for two reads: loaded enough to read
                 break
             last = title

@@ -148,7 +148,9 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
             last = (result.actions or [{}])[-1].get("did") or ""
             app = (result.look or {}).get("app") or ""
             where = window if window and not window.startswith(("http://", "https://")) else last
-            say = (f"Done — {where[:120]}" + (f" ({app})" if app else "") + ".") if where else "Done."
+            if result.values:  # what it read off the screen is the useful part
+                where = "; ".join(f"{k.replace('_', ' ')} {v}" for k, v in result.values.items())
+            say = (f"Done — {where[:160]}" + (f" ({app})" if app else "") + ".") if where else "Done."
         messages.append({"role": "assistant", "content": say})
         return say
     return None
