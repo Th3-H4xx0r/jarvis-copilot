@@ -164,3 +164,52 @@ def test_summary_mentions_status_moves_and_elements():
               fallback=_never, mac=mac)
     s = r.summary()
     assert "done" in s.lower() and "button '7'" in s and "look_id" in s
+
+
+class AppMac(FakeMac):
+    """Records which app every look asked for."""
+
+    def __init__(self, act_results=None):
+        super().__init__(act_results)
+        self.looked = []
+
+    def look(self, device, app=None):
+        self.looked.append(app)
+        self.n += 1
+        return {**_look(self.n), "app": app or "Brave Browser"}
+
+    def act(self, device, action, look_id):
+        self.acts.append((action, look_id))
+        if self.act_results:
+            r = self.act_results.pop(0)
+            if r is not None:
+                return r
+        self.n += 1
+        return {"ok": True, "did": action["action"], "via": "ax",
+                "look": {**_look(self.n), "app": action.get("app") or "Calculator"}}
+
+
+def test_loop_anchors_to_the_task_app_when_he_switches_away():
+    """He swiped to another app mid-task: every later look is still Calculator's."""
+    mac = AppMac(act_results=[None, {"ok": True, "did": "click", "via": "ax"}])
+    decide = _decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1),
+                      Move({"action": "done"}, 0.9, "decision", 1))
+    r = L.run("g", [{"do": "open Calculator", "app": "Calculator"}], _cfg(), device="m", decide=decide,
+              fallback=_never, mac=mac)
+    assert r.status == "done"
+    assert mac.looked[0] is None and all(a == "Calculator" for a in mac.looked[1:]) and len(mac.looked) >= 2
+
+
+def test_not_in_front_twice_stops_politely():
+    refused = {"ok": False, "error": "Calculator isn't in front (another app is in use), so I won't type"}
+    mac = FakeMac(act_results=[refused, refused])
+    decide = _decider(*[Move({"action": "key", "keys": "return"}, 0.9, "decision", 1)] * 3)
+    r = L.run("g", [{"do": "x"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
+    assert r.status == "stuck" and "in front" in r.reason and len(mac.acts) == 2
+
+
+def test_fallback_can_open_an_app():
+    from agent.computer.decide import _valid
+    assert _valid({"action": "open_app", "app": "Notes"}, {"elements": []}, {}) == {"action": "open_app",
+                                                                                  "app": "Notes"}
+    assert _valid({"action": "open_app"}, {"elements": []}, {}) == {"action": "stuck"}

@@ -99,6 +99,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     if not look.get("ok"):
         out.status, out.reason = "error", look.get("error") or "could not see the screen"
         return out
+    # The task stays on its app: if he switches to another app mid-task, the
+    # looks keep reading this one (presses work in the background).
+    anchor = look.get("app")
     if steps is None:
         planned = plan(cfg.fallback_ref, goal, look, instructions=cfg.instructions)
         steps, out.say = planned["steps"], planned.get("say") or ""
@@ -131,8 +134,10 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if not res.get("ok"):
                 out.status, out.reason = "error", res.get("error") or "could not open the app"
                 break
-            look = res.get("look") or mac.look(device)
-        strikes, last_key, repeats, relooked = 0, None, 0, False
+            nxt = res.get("look") if isinstance(res.get("look"), dict) else None
+            look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=step["app"])
+            anchor = look.get("app") or step["app"]
+        strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
         while True:
             if should_stop and should_stop():
                 out.status, out.reason = "error", "stopped"
@@ -158,7 +163,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                         break
                     history.append(f"unsure ({why}); looking again")
                     time.sleep(0.4)
-                    fresh = mac.look(device)
+                    fresh = mac.look(device, app=anchor)
                     if fresh.get("ok"):
                         look = fresh
                     continue
@@ -175,7 +180,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             ms = int((time.monotonic() - t) * 1000)
             if not res.get("ok") and "look again" in str(res.get("error") or "") and not relooked:
                 relooked = True
-                fresh = mac.look(device)
+                fresh = mac.look(device, app=anchor)
                 if fresh.get("ok"):
                     look = fresh
                 continue
@@ -184,9 +189,18 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if not res.get("ok") and res.get("device"):
                 out.status, out.reason = "error", res.get("error") or "the Mac stopped answering"
                 break
+            if not res.get("ok") and "isn't in front" in str(res.get("error") or ""):
+                refusals += 1
+                if refusals >= 2:
+                    out.status, out.reason = "stuck", (f"{anchor or 'The app'} isn't in front (another app is "
+                                                       "in use), so I stopped instead of typing into it.")
+                    break
+                continue
+            if action.get("action") == "open_app":
+                anchor = action.get("app") or anchor
             new_look = res.get("look") if isinstance(res.get("look"), dict) else None
             if new_look is None or not new_look.get("ok", True):
-                new_look = mac.look(device)
+                new_look = mac.look(device, app=anchor)
             key = json.dumps(action, sort_keys=True)
             unchanged = new_look.get("sig") == look.get("sig")
             repeats = repeats + 1 if (key == last_key and unchanged) else 0

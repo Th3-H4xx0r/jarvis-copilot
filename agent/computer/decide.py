@@ -22,7 +22,7 @@ QUESTION = ("Which single move gets the current step done? Pick done when the sc
             "finished, and stuck when no option moves it forward.")
 DECISION_TIMEOUT = 3.0
 FALLBACK_TIMEOUT = 25.0
-_FALLBACK_ACTIONS = ("click", "fill", "key", "scroll", "wait", "done", "stuck")
+_FALLBACK_ACTIONS = ("click", "fill", "key", "scroll", "open_app", "wait", "done", "stuck")
 
 _FALLBACK_PROMPT = """You are driving the user's Mac one move at a time. The screenshot shows the current window with \
 numbered boxes; the same numbers are listed below.
@@ -30,11 +30,14 @@ numbered boxes; the same numbers are listed below.
 {context}
 
 Reply with ONLY one JSON object:
-{{"action": "click"|"fill"|"key"|"scroll"|"wait"|"done"|"stuck", "element": <number>, "text": "<text to type>", \
-"keys": "<e.g. return or cmd+f>", "direction": "up"|"down", "x": <px>, "y": <px>, "why": "<a few words>"}}
+{{"action": "click"|"fill"|"key"|"scroll"|"open_app"|"wait"|"done"|"stuck", "element": <number>, \
+"text": "<text to type>", "keys": "<e.g. return or cmd+f>", "direction": "up"|"down", "app": "<app name>", \
+"x": <px>, "y": <px>, "why": "<a few words>"}}
 - click: an element number, or x/y in screenshot pixels when no box covers the target.
 - fill: an element number and the exact text to type into it.
-- done: the current step already shows as finished. stuck: you cannot see a way forward."""
+- open_app: switch to or launch an app by name. Never use Spotlight (cmd+space) or cmd+tab for that.
+- done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
+not the app this task is about."""
 
 _PLAN_PROMPT = """The user asked for something to be done on their Mac. Split it into short UI steps.
 
@@ -142,6 +145,8 @@ def _valid(raw, look, step) -> dict:
         return {"action": "key", "keys": str(raw["keys"]).strip()}
     if act == "scroll" and raw.get("direction") in ("up", "down"):
         return {"action": "scroll", "direction": raw["direction"]}
+    if act == "open_app" and str(raw.get("app") or "").strip():
+        return {"action": "open_app", "app": str(raw["app"]).strip()}
     return {"action": "stuck"}
 
 

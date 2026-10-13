@@ -161,8 +161,10 @@ def _label(a: dict) -> str:
     return ""
 
 
-def walk(ax, window, frame, max_elements: int) -> list:
-    """Actionable elements inside ``frame`` (x, y, w, h in points), breadth first."""
+def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> list:
+    """Actionable elements inside ``frame`` (x, y, w, h in points), breadth first.
+    ``texts`` (when given) also collects the static text values: a display's
+    "84" isn't clickable, but it changing means the screen changed."""
     wx, wy, ww, wh = frame
     out, queue, seen = [], [(window, 0)], 0
     deadline = time.monotonic() + WALK_BUDGET_S
@@ -179,9 +181,48 @@ def walk(ax, window, frame, max_elements: int) -> list:
             x1, y1 = min(x + w, wx + ww), min(y + h, wy + wh)
             if x1 - x0 > 2 and y1 - y0 > 2:
                 out.append({"role": role, "label": _label(a), "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
+        elif texts is not None and role == "AXStaticText" and a.get("AXValue") is not None:
+            texts.append(str(a.get("AXValue"))[:80])
         if depth < MAX_DEPTH:
             queue.extend((c, depth + 1) for c in (a.get("AXChildren") or []))
     return out
+
+
+def _sig(title: str, elements: list, texts: list) -> str:
+    h = hashlib.sha1(title.encode())
+    for e in elements:
+        h.update(f"{e['role']}|{e['label']}|{[round(v) for v in e['pt']]}".encode())
+    for t in texts:
+        h.update(f"t|{t}".encode())
+    return h.hexdigest()[:16]
+
+
+def quick_sig_of(ax, window, max_elements: int = 150) -> str:
+    """The screen signature without a screenshot (for settling after a move)."""
+    wa = ax.attrs(window, ["AXTitle", "AXPosition", "AXSize"])
+    if not wa.get("AXPosition") or not wa.get("AXSize"):
+        return ""
+    texts: list = []
+    elements = walk(ax, window, (*wa["AXPosition"], *wa["AXSize"]), max_elements, texts)
+    return _sig(str(wa.get("AXTitle") or ""), elements, texts)
+
+
+def quick_sig(ax, pid: int) -> str:
+    win = ax.window(ax.app_element(pid))
+    return quick_sig_of(ax, win) if win is not None else ""
+
+
+SETTLE_BUDGET_S = 0.5
+SETTLE_STEP_S = 0.06
+
+
+def settle(ax, pid: int, before_sig: str) -> None:
+    """Wait (≤ SETTLE_BUDGET_S) until the screen differs from ``before_sig``."""
+    deadline = time.monotonic() + SETTLE_BUDGET_S
+    while True:
+        time.sleep(SETTLE_STEP_S)
+        if quick_sig(ax, pid) != before_sig or time.monotonic() >= deadline:
+            return
 
 
 def _window_id(pid: int, frame) -> int | None:
@@ -265,13 +306,6 @@ def _draw(img, elements):
         d.text((x + 3, y + 1), tag, fill=(255, 255, 255), font=font)
 
 
-def _sig(app: str, title: str, elements: list) -> str:
-    h = hashlib.sha1(f"{app}|{title}".encode())
-    for e in elements:
-        h.update(f"{e['role']}|{e['label']}|{[round(v) for v in e['pt']]}".encode())
-    return h.hexdigest()[:16]
-
-
 def read_window(app: str | None = None, max_elements: int = 150, width: int = 1024, ax=None,
                 capture=None, pid: int | None = None) -> dict:
     """Read ``app`` (or the app with ``pid``, or the frontmost app)."""
@@ -300,13 +334,16 @@ def read_window(app: str | None = None, max_elements: int = 150, width: int = 10
         return {"ok": False, "error": f"Could not read {name}'s window."}
     frame = (*wa["AXPosition"], *wa["AXSize"])
     max_elements = max(1, min(int(max_elements or 150), 400))
-    elements = walk(ax, win, frame, max_elements)
+    texts: list = []
+    elements = walk(ax, win, frame, max_elements, texts)
+    title = str(wa.get("AXTitle") or "")
+    sig = _sig(title, elements, texts)  # the same signature settle() polls
     img, cg = capture(frame, pid)
     source = "ax"
     if len(elements) < OCR_BELOW:
-        texts = _ocr(cg, frame) if cg is not None else []
-        if texts:
-            elements, source = (elements + texts)[:max_elements], "ocr"
+        found = _ocr(cg, frame) if cg is not None else []
+        if found:
+            elements, source = (elements + found)[:max_elements], "ocr"
     scale = img.width / frame[2] if frame[2] else 1.0
     if width and img.width > width:
         r = width / img.width
@@ -319,8 +356,6 @@ def read_window(app: str | None = None, max_elements: int = 150, width: int = 10
     _draw(img, elements)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=70)
-    title = str(wa.get("AXTitle") or "")
-    sig = _sig(name, title, elements)
     look_id = uuid.uuid4().hex[:10]
     with _looks_lock:
         _looks[look_id] = {"pid": pid, "app": name, "frame": frame, "scale": scale, "elements": elements,
@@ -341,10 +376,21 @@ def _pointer():
     return _mouse()
 
 
+class NotInFront(Exception):
+    """The app a move is for can't be brought in front (he is using another one)."""
+
+
 def _front(ax, pid):
-    if pid and ax.frontmost()[0] != pid:
-        ax.activate(pid)
-        time.sleep(0.15)
+    """Bring ``pid`` in front before any real cursor or key event, or refuse: a
+    key or click must never land in the app the user is working in."""
+    if not pid or ax.frontmost()[0] == pid:
+        return
+    ax.activate(pid)
+    deadline = time.monotonic() + 0.5
+    while ax.frontmost()[0] != pid:
+        if time.monotonic() >= deadline:
+            raise NotInFront()
+        time.sleep(0.05)
 
 
 def _cursor_click(ax, pid, x, y, count=1):
@@ -396,6 +442,17 @@ def do_action(action: str, look_id: str | None = None, element: int | None = Non
     ax = ax or _ax()
     if not ax.trusted():
         return {"ok": False, "error": _NOT_TRUSTED}
+    try:
+        return _do(ax, action, look_id, element, text, keys, direction, x, y, app)
+    except NotInFront:
+        with _looks_lock:
+            seen = _looks.get(look_id or "")
+        name = (seen or {}).get("app") or "That app"
+        return {"ok": False, "error": f"{name} isn't in front (another app is in use), so I won't type or move "
+                                      "the cursor; only its buttons can be pressed in the background."}
+
+
+def _do(ax, action, look_id, element, text, keys, direction, x, y, app) -> dict:
     with _looks_lock:
         seen = _looks.get(look_id or "")
     if seen is None and (action == "fill" or (action == "click" and (element is not None or x is not None))):
@@ -448,8 +505,13 @@ def do_action(action: str, look_id: str | None = None, element: int | None = Non
         if not app:
             return {"ok": False, "error": "open_app needs app"}
         _open_app(app)
+        # Its window is all the next look needs; it may not come in front (a
+        # fullscreen app on another Space), and presses work in the background.
         deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline and ax.frontmost()[1].lower() != app.lower():
+        while time.monotonic() < deadline:
+            found = ax.find_app(app)
+            if found and ax.window(ax.app_element(found[0])) is not None:
+                break
             time.sleep(0.1)
         return {"ok": True, "did": "open_app", "via": "app"}
     if action == "wait":
@@ -459,8 +521,8 @@ def do_action(action: str, look_id: str | None = None, element: int | None = Non
 
 
 def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> dict:
-    """One move, then (unless ``look_after`` is off) the next screen, read again
-    once when it still matches the screen the move was made on."""
+    """One move, then (unless ``look_after`` is off) the next screen of the same
+    app, read as soon as it differs from the screen the move was made on."""
     reader = reader or read_window
     started = time.monotonic()
     with _looks_lock:
@@ -473,13 +535,17 @@ def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> d
     if res.get("ok") and look_after:
         # Keep looking at the app the move was made in (it may sit behind other
         # windows: accessibility presses don't bring it forward); a new app → frontmost.
-        target = {} if action == "open_app" or not before else {"pid": before["pid"]}
-        time.sleep(0.25)
-        nxt = reader(**target)
-        if nxt.get("ok") and before and nxt.get("sig") == before.get("sig"):
-            time.sleep(0.3)  # still settling: one more read
-            nxt = reader(**target)
-        res["look"] = nxt
+        if action == "open_app":
+            target = {"app": kw.get("app")}
+        elif before:
+            target = {"pid": before["pid"]}
+            try:
+                settle(_ax(), before["pid"], before["sig"])
+            except Exception:
+                log.debug("ui_do: settle failed", exc_info=True)
+        else:
+            target = {}
+        res["look"] = reader(**target)
     res["ms"] = int((time.monotonic() - started) * 1000)
     return res
 

@@ -203,3 +203,49 @@ def test_do_and_look_reads_the_same_app_again(monkeypatch):
 
     out = ui.do_and_look("click", reader=reader, look_id=r["look_id"], element=1)
     assert out["ok"] and out["look"] == {"ok": True, "sig": "new"} and calls == [{"pid": 10}]
+
+
+def test_keys_refused_when_the_target_app_is_not_in_front(monkeypatch):
+    """He switched apps mid-task: keys/cursor must never land in the app he is using."""
+    ax = FakeAX(_window(), front=(99, "Brave Browser"))
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    sent = []
+    monkeypatch.setattr("jc_client.skills.common.key_press", lambda keys: sent.append(keys))
+    monkeypatch.setattr(ui.time, "sleep", lambda s: None)
+    out = ui.do_action("key", look_id=r["look_id"], keys="return", ax=ax)
+    assert out["ok"] is False and "in front" in out["error"] and sent == []
+    clicks = []
+    monkeypatch.setattr(ui, "_pointer", lambda: pytest.fail("cursor must not move"))
+    out = ui.do_action("click", look_id=r["look_id"], element=2, ax=ax)  # no AXPress → would need the cursor
+    assert out["ok"] is False and "in front" in out["error"]
+
+
+def test_accessibility_press_still_works_in_the_background():
+    ax = FakeAX(_window(), front=(99, "Brave Browser"))
+    r = ui.read_window(app="calc", ax=ax, capture=_capture)
+    assert ui.do_action("click", look_id=r["look_id"], element=1, ax=ax)["via"] == "ax"
+
+
+def test_after_open_app_the_next_look_reads_that_app(monkeypatch):
+    ax = FakeAX(_window())
+    monkeypatch.setattr(ui, "_ax", lambda: ax)
+    monkeypatch.setattr(ui, "_open_app", lambda name: None)
+    calls = []
+    out = ui.do_and_look("open_app", reader=lambda **kw: calls.append(kw) or {"ok": True, "sig": "x"}, app="Calc")
+    assert out["ok"] and calls == [{"app": "Calc"}]
+
+
+def test_settle_stops_as_soon_as_the_screen_changes(monkeypatch):
+    sigs = iter(["same", "same", "changed", "later"])
+    monkeypatch.setattr(ui, "quick_sig", lambda ax, pid: next(sigs))
+    slept = []
+    monkeypatch.setattr(ui.time, "sleep", slept.append)
+    ui.settle(None, 10, "same")
+    assert len(slept) == 3  # read twice unchanged, third read changed → stop
+
+
+def test_static_text_changes_count_as_a_screen_change():
+    win = _window()
+    a = ui.quick_sig_of(FakeAX(win), win)
+    win["children"][0]["children"][1]["attrs"]["AXValue"] = "84"
+    assert ui.quick_sig_of(FakeAX(win), win) != a
