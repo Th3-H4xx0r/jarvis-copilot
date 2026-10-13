@@ -186,6 +186,17 @@ def _inline_outbound_media(call_args: dict) -> dict:
     return args
 
 
+def _std_image_keys(d: dict) -> dict:
+    """jc-client's ``screenshot`` answers ``{img_b64, format}``; read it as ``{base64, mime}``."""
+    if not isinstance(d.get("img_b64"), str) or isinstance(d.get("base64"), str):
+        return d
+    fmt = str(d.get("format") or "png").lower()
+    out = {k: v for k, v in d.items() if k != "img_b64"}
+    out["base64"] = d["img_b64"]
+    out.setdefault("mime", "image/jpeg" if fmt in ("jpg", "jpeg") else f"image/{fmt}")
+    return out
+
+
 def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     """If `result` carries an image (`base64` + image `mime`), swap the blob for
     an `image_path` and a `description` the model can actually use.
@@ -195,6 +206,9 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     base64 blob in the payload: the model saw a truncated string and invented a
     photo that was never there.
     """
+    result = _std_image_keys(result)
+    if isinstance(result.get("result"), dict):
+        result = {**result, "result": _std_image_keys(result["result"])}
     inner = result
     wrapper_key = None
     if not isinstance(result.get("base64"), str) and isinstance(result.get("result"), dict):

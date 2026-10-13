@@ -174,3 +174,24 @@ def test_a_message_without_media_is_untouched(monkeypatch, tmp_path):
     handler, seen = _sms_handler(monkeypatch, tmp_path)
     handler({"number": "+1", "message": "just words"})
     assert seen == {"number": "+1", "message": "just words"}
+
+
+def test_mac_screenshot_img_b64_is_unwrapped(monkeypatch, tmp_path):
+    """jc-client's `screenshot` answers {img_b64, format}; it must become an image
+    file too, never a base64 string in the prompt."""
+    monkeypatch.setattr(device_bridge, "all_device_skills", lambda: [
+        {"device_id": "mac1", "device_name": "MacBook", "name": "screenshot",
+         "description": "Screenshot.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    device_skill_tools.rebuild_device_tools()
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a: {
+        "ok": True, "result": {"img_b64": _PNG_1PX, "format": "png", "width": 1, "height": 1}})
+    monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: False)
+    monkeypatch.setattr(device_skill_tools, "_describe_image", lambda p, q: "A white pixel.")
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    out = tools["device_screenshot"]["handler"]({})
+    assert _PNG_1PX not in str(out)
+    parsed = json.loads(out)
+    assert parsed["result"]["image_path"].endswith(".png")
