@@ -43,6 +43,7 @@ not the app this task is about."""
 _PLAN_PROMPT = """The user asked for something to be done on their Mac. Split it into as few UI steps as possible.
 
 Request: {goal}
+Today: {today}
 {notes}
 Reply with ONLY one JSON object:
 {{"steps": [{{"do": "<one step>", "app": "<app to open, if any>", "url": "<page to open, if any>", \
@@ -79,7 +80,7 @@ def context(look: dict, goal: str, step: dict, history: list, instructions: str 
     step_line = f"Current step: {step.get('do') or goal}"
     if step.get("text"):
         step_line += f" (text to type: “{step['text']}”)"
-    lines = [f"Goal: {goal}"]
+    lines = [f"Goal: {goal}", f"Today: {_today()}"]
     if plan and at is not None and len(plan) > 1:
         # Which steps are already done, so a decider doesn't undo finished work.
         lines.append("Steps: " + "; ".join(
@@ -93,6 +94,11 @@ def context(look: dict, goal: str, step: dict, history: list, instructions: str 
     lines.append("Numbered elements on screen:")
     lines += [element_line(e) for e in look.get("elements") or []] or ["(none found; use the screenshot)"]
     return "\n".join(lines)
+
+
+def _today() -> str:
+    import datetime
+    return datetime.datetime.now().astimezone().strftime("%A, %B %-d, %Y")
 
 
 def _ref(ref: str) -> tuple[str | None, str]:
@@ -196,7 +202,7 @@ def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
     faster); the goal as one step on failure."""
     notes = f"Notes: {instructions}\n" if instructions else ""
     try:
-        raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, notes=notes), look or {}, 300))
+        raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, notes=notes, today=_today()), look or {}, 300))
     except Exception:
         logger.debug("computer: plan failed", exc_info=True)
         raw = None

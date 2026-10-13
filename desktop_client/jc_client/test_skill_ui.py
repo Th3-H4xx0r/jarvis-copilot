@@ -322,3 +322,16 @@ def test_typing_stops_if_the_app_leaves_the_front(monkeypatch):
 def test_look_returns_the_window_text():
     r = ui.read_window(ax=FakeAX(_window()), capture=_capture)
     assert r["text"] == "42"  # the static text, even though it isn't clickable
+
+
+def test_unlabelled_rows_and_icon_buttons_take_a_label_from_inside():
+    """Finder's sidebar row "Downloads" has no label of its own: its text is a child."""
+    win = _el("AXWindow", "Finder", pos=(0, 0), size=(300, 300), actions=(), children=[
+        _el("AXRow", "", pos=(10, 10), size=(100, 20), children=[
+            _el("AXCell", "", pos=(10, 10), size=(100, 20), actions=(), children=[
+                _el("AXStaticText", "", pos=(12, 12), size=(60, 16), actions=(), AXValue="Downloads")])]),
+        _el("AXButton", "", pos=(200, 10), size=(20, 20), AXHelp="Share"),
+    ])
+    r = ui.read_window(ax=FakeAX(win), capture=_capture)
+    labels = {e["role"]: e["label"] for e in r["elements"]}
+    assert labels["AXRow"] == "Downloads" and labels["AXButton"] == "Share"

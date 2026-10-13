@@ -430,8 +430,9 @@ def test_a_read_step_carries_a_value_into_later_typing():
 
 def test_an_unreadable_value_stops_instead_of_typing_a_placeholder():
     mac = FakeMac()
+    nowhere = lambda *a, **k: Move({"action": "stuck"}, 0.9, "decision", 1, why="not found")  # noqa: E731
     r = L.run("g", [{"do": "read the price", "read": "price"}, {"do": "type it", "text": "{price}"}], _cfg(),
-              device="m", decide=_never, fallback=_never, mac=mac, read=lambda *a, **k: "")
+              device="m", decide=nowhere, fallback=nowhere, mac=mac, read=lambda *a, **k: "")
     assert r.status == "stuck" and "price" in r.reason and mac.acts == []
 
 
@@ -449,3 +450,20 @@ def test_tell_steps_are_skipped():
     r = L.run("g", [{"do": "tell the user her birth date: {born}"}], _cfg(), device="m", decide=_never,
               fallback=_never, mac=mac)
     assert r.status == "done" and mac.acts == []
+
+
+def test_a_read_that_finds_nothing_navigates_then_reads_again():
+    """Live (Calendar): "what's on tomorrow" read today's view; the next-day arrow was one click away."""
+    mac = FakeMac()
+    reads = iter(["", "Dentist 9am"])
+    decide = _decider(Move({"action": "click", "element": 2}, 0.9, "decision", 1),
+                      Move({"action": "done"}, 0.9, "decision", 1))
+    r = L.run("what's on my calendar tomorrow", [{"do": "read tomorrow's events", "read": "events"}], _cfg(),
+              device="m", decide=decide, fallback=_never, mac=mac, read=lambda *a, **k: next(reads))
+    assert r.status == "done" and r.values == {"events": "Dentist 9am"} and len(mac.acts) == 1
+
+
+def test_deciders_and_planner_know_today():
+    from agent.computer.decide import context
+    import datetime
+    assert datetime.date.today().strftime("%B") in context({"elements": []}, "g", {"do": "x"}, [])

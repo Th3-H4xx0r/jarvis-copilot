@@ -137,6 +137,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     if steps is None:
         planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions)
         steps, out.say = planned["steps"], planned.get("say") or ""
+    steps = list(steps)  # read steps may add a navigation step and a second read
     first = steps[0] if steps else {}
     if not app and (first.get("app") or first.get("url")):
         look = {"ok": True, "app": None, "look_id": None, "elements": []}
@@ -183,6 +184,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "error", "stopped"
                 break
             value = read(cfg.fallback_ref, look, goal, step)
+            if not value and not step.get("_retry"):
+                # Not on this screen: a few moves to where it is shown, then read again.
+                steps.insert(at + 1, {"do": f"get to the screen that shows this: {step.get('do')}", "_max": 4})
+                steps.insert(at + 2, {**step, "_retry": True})
+                history.append(f"{step['read']} isn't on this screen; looking for it")
+                continue
             if not value:
                 out.status, out.reason = "stuck", f"Couldn't read “{step['read']}” on the screen ({step.get('do')})."
                 break
@@ -256,6 +263,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if len(out.actions) >= cfg.max_actions:
                 out.status, out.reason = "stuck", f"Reached the {cfg.max_actions}-move limit."
                 break
+            if step.get("_max") and len(out.actions) - moves_before >= step["_max"]:
+                break  # a bounded navigation step: the read after it decides
             if time.monotonic() - started > cfg.max_seconds:
                 out.status, out.reason = "stuck", f"Ran out of time ({int(cfg.max_seconds)} s)."
                 break

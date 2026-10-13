@@ -31,7 +31,8 @@ ACTIONABLE = frozenset({
     "AXDateField", "AXStepper", "AXSwitch", "AXToggle",
 })
 _ATTRS = ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXPlaceholderValue", "AXPosition", "AXSize",
-          "AXChildren", "AXEnabled", "AXSubrole"]
+          "AXChildren", "AXEnabled", "AXSubrole", "AXHelp"]
+_TEXT_ATTRS = ["AXRole", "AXValue", "AXTitle", "AXDescription", "AXChildren"]
 WALK_BUDGET_S = 0.45
 MAX_NODES = 4000
 MAX_DEPTH = 30
@@ -167,11 +168,31 @@ def _ax():
 
 # ── reading the window ───────────────────────────────────────────────────────
 
+def _inner_text(ax, el, depth=0) -> str:
+    """The first text inside an unlabelled row/cell/button (Finder's "Downloads" row)."""
+    if depth > 2:
+        return ""
+    a = ax.attrs(el, _TEXT_ATTRS)
+    if depth and a.get("AXRole") in ("AXStaticText", "AXTextField", "AXImage"):
+        for k in ("AXValue", "AXTitle", "AXDescription"):
+            if isinstance(a.get(k), str) and a[k].strip():
+                return " ".join(a[k].split())[:80]
+    for child in (a.get("AXChildren") or [])[:4]:
+        t = _inner_text(ax, child, depth + 1)
+        if t:
+            return t
+    return ""
+
+
 def _label(a: dict) -> str:
-    for key in ("AXTitle", "AXDescription", "AXValue", "AXPlaceholderValue"):
+    for key in ("AXTitle", "AXDescription", "AXValue", "AXPlaceholderValue", "AXHelp"):
         v = a.get(key)
         if isinstance(v, (str, int, float)) and not isinstance(v, bool) and str(v).strip():
             return " ".join(str(v).split())[:80]
+    return ""
+
+
+def _subrole_label(a: dict) -> str:
     sub = str(a.get("AXSubrole") or "")
     if sub.startswith("AX") and sub not in ("AXStandardWindow", "AXUnknown"):
         # Unlabelled window controls: AXCloseButton → "close button".
@@ -199,7 +220,8 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             x0, y0 = max(x, wx), max(y, wy)
             x1, y1 = min(x + w, wx + ww), min(y + h, wy + wh)
             if x1 - x0 > 2 and y1 - y0 > 2:
-                out.append({"role": role, "label": _label(a), "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
+                label = _label(a) or _inner_text(ax, el) or _subrole_label(a)
+                out.append({"role": role, "label": label, "pt": (x0, y0, x1 - x0, y1 - y0), "ref": el})
         elif texts is not None and role in ("AXStaticText", "AXHeading"):
             t = next((str(a[k]) for k in ("AXValue", "AXTitle", "AXDescription")
                       if isinstance(a.get(k), (str, int, float)) and str(a.get(k)).strip()), "")
