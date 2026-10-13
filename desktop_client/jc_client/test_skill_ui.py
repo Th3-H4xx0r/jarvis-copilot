@@ -341,3 +341,31 @@ def test_link_text_is_part_of_the_window_text():
     win = _el("AXWindow", "HN", pos=(0, 0), size=(300, 300), actions=(), children=[
         _el("AXLink", "Language Models Can Hide Things", pos=(10, 10), size=(200, 20))])
     assert "Language Models Can Hide Things" in ui.read_window(ax=FakeAX(win), capture=_capture)["text"]
+
+
+def test_page_content_comes_before_toolbars_and_tabs():
+    """Live (Safari): tabs + toolbar used up the 150 elements; Hacker News' stories never made it in."""
+    tabs = [_el("AXRadioButton", f"tab {n}", pos=(10 + n, 5), size=(20, 10)) for n in range(5)]
+    win = _el("AXWindow", "HN", pos=(0, 0), size=(300, 300), actions=(), children=[
+        _el("AXOpaqueProviderGroup", "", pos=(0, 0), size=(300, 20), actions=(), children=tabs),
+        _el("AXToolbar", "", pos=(0, 20), size=(300, 20), actions=(),
+            children=[_el("AXButton", "Back", pos=(5, 22), size=(15, 15))]),
+        _el("AXTabGroup", "", pos=(0, 40), size=(300, 260), actions=(), children=[
+            _el("AXWebArea", "", pos=(0, 40), size=(300, 260), actions=(), children=[
+                _el("AXLink", "Top story", pos=(10, 50), size=(100, 15)),
+                _el("AXLink", "120 comments", pos=(10, 70), size=(80, 15))])])])
+    r = ui.read_window(ax=FakeAX(win), capture=_capture, max_elements=3)
+    assert [e["label"] for e in r["elements"]] == ["Top story", "120 comments", "tab 0"]
+    assert r["text"].startswith("Top story")
+
+
+def test_layout_rows_and_cells_in_a_web_page_are_not_elements():
+    """Hacker News lays out with tables: rows/cells used up the budget before the story links."""
+    cells = [_el("AXCell", "", pos=(10, 50 + n), size=(100, 10), children=[
+        _el("AXLink", f"story {n}", pos=(10, 50 + n), size=(100, 10))]) for n in range(3)]
+    win = _el("AXWindow", "HN", pos=(0, 0), size=(300, 300), actions=(), children=[
+        _el("AXWebArea", "", pos=(0, 40), size=(300, 260), actions=(), children=[
+            _el("AXRow", "", pos=(0, 50), size=(300, 30), children=cells)]),
+        _el("AXRow", "Downloads", pos=(0, 280), size=(100, 15))])
+    r = ui.read_window(ax=FakeAX(win), capture=_capture)
+    assert [e["label"] for e in r["elements"]] == ["Downloads", "story 0", "story 1", "story 2"]

@@ -32,6 +32,9 @@ ACTIONABLE = frozenset({
 })
 _ATTRS = ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXPlaceholderValue", "AXPosition", "AXSize",
           "AXChildren", "AXEnabled", "AXSubrole", "AXHelp"]
+# Browser chrome walked after the page: the toolbar, Safari's tab bar, menu bars.
+# (Not AXTabGroup: Safari's page content lives inside one.)
+_CHROME_ROLES = frozenset({"AXToolbar", "AXOpaqueProviderGroup", "AXMenuBar"})
 _TEXT_ATTRS = ["AXRole", "AXValue", "AXTitle", "AXDescription", "AXChildren"]
 WALK_BUDGET_S = 0.45
 MAX_NODES = 4000
@@ -206,15 +209,20 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
     ``texts`` (when given) also collects the static text values: a display's
     "84" isn't clickable, but it changing means the screen changed."""
     wx, wy, ww, wh = frame
-    out, queue, seen = [], [(window, 0)], 0
+    out, queue, later, seen = [], [(window, 0, False)], [], 0
     deadline = time.monotonic() + WALK_BUDGET_S
-    while queue and len(out) < max_elements and seen < MAX_NODES and time.monotonic() < deadline:
-        el, depth = queue.pop(0)
+    while (queue or later) and len(out) < max_elements and seen < MAX_NODES and time.monotonic() < deadline:
+        if not queue:  # the content is done: now the toolbars and tab strips
+            queue, later = later, []
+        el, depth, in_web = queue.pop(0)
         seen += 1
         a = ax.attrs(el, _ATTRS)
         role = str(a.get("AXRole") or "")
         pos, size = a.get("AXPosition"), a.get("AXSize")
-        if role in ACTIONABLE and pos and size and a.get("AXEnabled") is not False:
+        in_web = in_web or role == "AXWebArea"
+        # In a web page, rows and cells are layout tables: the links inside are what get clicked.
+        layout = in_web and role in ("AXRow", "AXCell", "AXColumn")
+        if role in ACTIONABLE and not layout and pos and size and a.get("AXEnabled") is not False:
             x, y = pos
             w, h = size
             x0, y0 = max(x, wx), max(y, wy)
@@ -230,7 +238,9 @@ def walk(ax, window, frame, max_elements: int, texts: list | None = None) -> lis
             if t:
                 texts.append(t[:200])
         if depth < MAX_DEPTH:
-            queue.extend((c, depth + 1) for c in (a.get("AXChildren") or []))
+            kids = [(c, depth + 1, in_web) for c in (a.get("AXChildren") or [])]
+            # A browser's tabs and toolbar would use up the element budget before the page.
+            (later if role in _CHROME_ROLES else queue).extend(kids)
     return out
 
 
@@ -352,7 +362,7 @@ def _draw(img, elements):
         d.text((x + 3, y + 1), tag, fill=(255, 255, 255), font=font)
 
 
-def read_window(app: str | None = None, max_elements: int = 150, width: int = 1024, ax=None,
+def read_window(app: str | None = None, max_elements: int = 250, width: int = 1024, ax=None,
                 capture=None, pid: int | None = None) -> dict:
     """Read ``app`` (or the app with ``pid``, or the frontmost app)."""
     ax = ax or _ax()
@@ -379,7 +389,7 @@ def read_window(app: str | None = None, max_elements: int = 150, width: int = 10
     if not wa.get("AXPosition") or not wa.get("AXSize"):
         return {"ok": False, "error": f"Could not read {name}'s window."}
     frame = (*wa["AXPosition"], *wa["AXSize"])
-    max_elements = max(1, min(int(max_elements or 150), 400))
+    max_elements = max(1, min(int(max_elements or 250), 400))
     texts: list = []
     elements = walk(ax, win, frame, max_elements, texts)
     title = str(wa.get("AXTitle") or "")
@@ -686,10 +696,10 @@ def _do_and_look(action: str, *, look_after: bool, reader, **kw) -> dict:
     "and the same numbered elements (role, label). Pass the numbers and look_id to ui_do.",
     {"type": "object", "properties": {
         "app": {"type": "string", "description": "App name or bundle id; default the frontmost app."},
-        "max_elements": {"type": "integer", "default": 150},
+        "max_elements": {"type": "integer", "default": 250},
     }},
 )
-def ui_look(app: str | None = None, max_elements: int = 150) -> dict:
+def ui_look(app: str | None = None, max_elements: int = 250) -> dict:
     return read_window(app=app, max_elements=max_elements)
 
 
