@@ -72,7 +72,7 @@ def config_for(node, own_ref) -> _loop.Config:
 def clean_steps(steps) -> Optional[list]:
     if not isinstance(steps, list):
         return None
-    out = [{k: str(s[k]).strip() for k in ("do", "text", "app") if str(s.get(k) or "").strip()}
+    out = [{k: str(s[k]).strip() for k in ("do", "text", "app", "url") if str(s.get(k) or "").strip()}
            for s in steps if isinstance(s, dict) and str(s.get("do") or "").strip()]
     return out or None
 

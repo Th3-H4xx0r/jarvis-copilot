@@ -35,7 +35,8 @@ COMPUTER_DO_SCHEMA = {
                     "properties": {
                         "do": {"type": "string", "description": "One step, e.g. 'search for the song'."},
                         "text": {"type": "string", "description": "Exact text to type in this step, if any."},
-                        "app": {"type": "string", "description": "App to open first, if any."},
+                        "app": {"type": "string", "description": "App to open first, if any (for url: the browser)."},
+                        "url": {"type": "string", "description": "A web page to open directly (never type URLs)."},
                     },
                     "required": ["do"],
                 },

@@ -177,6 +177,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
 
     for at, step in enumerate(steps):
         step = _with_values(step, out.values)
+        if not step.get("url") and re.match(r"^https?://\S+$", str(step.get("text") or "").strip()):
+            # "type the URL into the address bar": open it (typing it never loaded the page).
+            step = {**{k: v for k, v in step.items() if k != "text"}, "url": step["text"].strip()}
         if _TELL.match(str(step.get("do") or "")) and not (step.get("app") or step.get("url") or step.get("text")):
             continue
         if step.get("read"):

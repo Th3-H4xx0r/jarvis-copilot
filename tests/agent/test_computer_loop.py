@@ -488,3 +488,14 @@ def test_a_just_opened_page_waits_for_its_text():
                     {"do": "read the price", "read": "price"}], _cfg(), device="m", decide=_never, fallback=_never,
               mac=mac, read=lambda ref, look, goal, step, **k: "$1" if len(look.get("text", "")) > 400 else "")
     assert r.status == "done" and r.values == {"price": "$1"} and mac.calls >= 3
+
+
+def test_a_step_that_types_a_web_address_opens_it_instead():
+    """Live: Sonnet's step "type the URL into the address bar" filled Chrome's field but never loaded the page."""
+    mac = AppMac()
+    r = L.run("g", [{"do": "type the deals page URL into the address bar", "app": "Google Chrome",
+                     "text": "https://www.macrumors.com/guide/airpods-deals/"}], _cfg(), device="m",
+              decide=_never, fallback=_never, mac=mac)
+    assert mac.acts[0][0] == {"action": "open_url", "url": "https://www.macrumors.com/guide/airpods-deals/",
+                              "app": "Google Chrome"}
+    assert r.status == "done" and len(mac.acts) == 1
