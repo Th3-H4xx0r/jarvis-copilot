@@ -15816,9 +15816,9 @@ class GatewayRunner:
 
             if _msg_plan is not None:
                 try:
-                    _harness_turns.set_toolsets(enabled_toolsets)
                     _harness_turns.apply_node(agent, _msg_plan, task_id=session_id,
-                                              deliver=_deliver_harness_followup, platform=platform_key)
+                                              deliver=_deliver_harness_followup, platform=platform_key,
+                                              question=message, toolsets=enabled_toolsets)
                 except Exception:
                     logger.warning("Messaging harness: could not apply node %s; answering without its settings",
                                    _msg_plan.plan.node_id, exc_info=True)
@@ -16247,7 +16247,8 @@ class GatewayRunner:
                             tool_count=sum(len(m.get("tool_calls") or [])
                                            for m in (result or {}).get("messages") or []
                                            if isinstance(m, dict) and m.get("role") == "assistant"),
-                            deliver=_deliver_harness_followup, platform=platform_key)
+                            deliver=_deliver_harness_followup, platform=platform_key,
+                            toolsets=enabled_toolsets)
                     except Exception:
                         logger.warning("Messaging harness: after-answer nodes failed to start", exc_info=True)
             finally:

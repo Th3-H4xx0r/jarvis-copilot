@@ -8,6 +8,7 @@ This module is the single source of truth for the dangerous command system:
 - Permanent allowlist persistence (config.yaml)
 """
 
+import contextlib
 import contextvars
 import fnmatch
 import logging
@@ -58,6 +59,35 @@ def _fire_approval_hook(hook_name: str, **kwargs) -> None:
         # flow is safety-critical, plugin observability is not.
         logger.debug("Approval hook %s dispatch failed: %s", hook_name, exc)
 
+
+
+# A run with nobody there to approve (a messaging harness node working in the
+# background after its turn ended): dangerous commands are refused, like a cron
+# job's default ``approvals.cron_mode: deny``. Context-local, so it follows the
+# run into its tool threads (agent/tool_executor copies the context) and never
+# touches another chat.
+_unattended_run: contextvars.ContextVar[bool] = contextvars.ContextVar("jc_approval_unattended", default=False)
+
+
+@contextlib.contextmanager
+def unattended_run():
+    """Refuse dangerous commands for everything run inside this block."""
+    token = _unattended_run.set(True)
+    try:
+        yield
+    finally:
+        _unattended_run.reset(token)
+
+
+def _unattended_block(description: str) -> dict:
+    return {
+        "approved": False,
+        "message": (
+            f"BLOCKED: Command flagged as dangerous ({description}) but this task runs in "
+            "the background with nobody there to approve it. Find an alternative approach "
+            "that avoids this command, or ask the user to run it themselves."
+        ),
+    }
 
 
 def set_current_session_key(session_key: str) -> contextvars.Token[str]:
@@ -1094,6 +1124,8 @@ def check_dangerous_command(command: str, env_type: str,
     is_dangerous, pattern_key, description = detect_dangerous_command(command)
     if not is_dangerous:
         return {"approved": True, "message": None}
+    if _unattended_run.get():
+        return _unattended_block(description)
 
     session_key = get_current_session_key()
     if is_approved(session_key, pattern_key):
@@ -1230,6 +1262,11 @@ def check_all_command_guards(command: str, env_type: str,
     is_cli = env_var_enabled("HERMES_INTERACTIVE")
     is_gateway = _is_gateway_approval_context()
     is_ask = env_var_enabled("HERMES_EXEC_ASK")
+
+    if _unattended_run.get():
+        is_dangerous, _pk, description = detect_dangerous_command(command)
+        if is_dangerous:
+            return _unattended_block(description)
 
     # Preserve the existing non-interactive behavior: outside CLI/gateway/ask
     # flows, we do not block on approvals and we skip external guard work.

@@ -28,7 +28,7 @@ HANDOFF_RULE = (
     "not sure how to do it. Answer yourself only quick questions and single simple "
     "actions. After handing off, tell the user in one line that you're on it.")
 
-_toolsets: Optional[list] = None
+FAILED_NOTE = "I couldn't finish that in the background — ask me again and I'll retry."
 
 
 @dataclass
@@ -39,12 +39,6 @@ class MessagePlan:
     model: str            # bare model name
     provider: Optional[str]
     runtime: Optional[dict]  # credentials when the node's provider isn't the chat's
-
-
-def set_toolsets(toolsets) -> None:
-    """The gateway's toolsets, for background nodes (they run with the chat's tools)."""
-    global _toolsets
-    _toolsets = list(toolsets) if toolsets else None
 
 
 def _split(ref, provider=None):
@@ -115,37 +109,45 @@ def _attach_handoff_tool(agent) -> None:
     agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {"handoff"}
 
 
-def apply_node(agent, mp: MessagePlan, *, task_id: str, deliver: Callable[[str], None], platform: str) -> None:
+def apply_node(agent, mp: MessagePlan, *, task_id: str, deliver: Callable[[str], None], platform: str,
+               question: str, toolsets) -> None:
     """This turn's node on the (possibly cached) agent: its tool limit, notes and
     step budget, and — when a bigger node is wired behind it — the hand-off."""
     from agent.tool_policy import node_tool_policy
 
     plan = mp.plan
-    agent._jc_harness_node = {"max_iterations": getattr(agent, "max_iterations", None)}
+    if getattr(agent, "_jc_harness_node", None) is None:
+        # The agent's own limits, saved once, before any node changes them.
+        agent._jc_harness_node = {"max_iterations": getattr(agent, "max_iterations", None)}
+    own_steps = agent._jc_harness_node.get("max_iterations")
     allowed, note = node_tool_policy(plan.tools)
     agent.allowed_tool_names = allowed
     notes = [plan.instructions or "", note or ""]
-    if plan.max_steps:
-        agent.max_iterations = int(plan.max_steps)
+    agent.max_iterations = int(plan.max_steps) if plan.max_steps else own_steps
     node = plan.handoff_node
+    agent._handoff_wired = bool(node)
     if node:
         from agent import escalation
 
         _attach_handoff_tool(agent)
-        agent._handoff_wired = True
         if agent.allowed_tool_names is not None:
             agent.allowed_tool_names = frozenset(agent.allowed_tool_names) | {"handoff"}
+        chat_tools = list(toolsets) if toolsets else None
 
         def runner(job: dict) -> str:
-            text = _run_background_node(node, str(job.get("summary") or job.get("reason") or ""),
-                                        platform=platform)
+            try:
+                text = _run_background_node(node, str(job.get("summary") or job.get("reason") or ""),
+                                            platform=platform, toolsets=chat_tools)
+            except Exception:
+                logger.warning("Messaging: hand-off to %s failed", node.get("id"), exc_info=True)
+                text = FAILED_NOTE
             if text and text.strip():
                 deliver(text)
             return ""  # delivered here; nothing for escalation to queue
 
         escalation.bind_turn_context(
             task_id, session_id=task_id, runner=runner, escalation_model=node.get("model"),
-            question="", auto_handoff_after=escalation.AUTO_HANDOFF_AFTER,
+            question=question or "", auto_handoff_after=escalation.AUTO_HANDOFF_AFTER,
             node_id=node.get("id") or "", node_label=node.get("label") or node.get("id") or "",
             kind=node.get("type") or "")
         notes.append(HANDOFF_RULE)
@@ -161,28 +163,34 @@ def clear_node(agent) -> None:
     agent.allowed_tool_names = None
     if saved.get("max_iterations"):
         agent.max_iterations = saved["max_iterations"]
+    agent._handoff_wired = False
     agent._jc_harness_node = None
 
 
-def _run_background_node(node: dict, prompt: str, *, platform: str) -> str:
-    """Run a Background node's model on ``prompt`` with the chat's tools; its reply."""
+def _run_background_node(node: dict, prompt: str, *, platform: str, toolsets) -> str:
+    """Run a Background node's model on ``prompt`` with the chat's tools; its reply.
+    Nobody is there to approve a dangerous command, so those are refused."""
     from run_agent import AIAgent
+    from tools.approval import unattended_run
 
     model, provider = _split(node.get("model"))
     runtime = _runtime_for(provider) if provider else {}
     agent = AIAgent(model=model, **runtime, max_iterations=int(node.get("max_steps") or 90),
-                    quiet_mode=True, verbose_logging=False, enabled_toolsets=_toolsets,
+                    quiet_mode=True, verbose_logging=False, enabled_toolsets=toolsets,
                     platform=platform, skip_memory=True)
     instructions = str(node.get("instructions") or "").strip()
-    return str(agent.chat(f"{instructions}\n\n{prompt}" if instructions else prompt) or "").strip()
+    with unattended_run():
+        return str(agent.chat(f"{instructions}\n\n{prompt}" if instructions else prompt) or "").strip()
 
 
 def after_turn(mp: MessagePlan, *, task_id: str, question: str, answer: str, elapsed_s: float,
-               tool_count: int, deliver: Callable[[str], None], platform: str) -> List[threading.Thread]:
+               tool_count: int, deliver: Callable[[str], None], platform: str,
+               toolsets) -> List[threading.Thread]:
     """Start the Background nodes wired after the answer whose condition holds;
     each posts its result as a follow-up. Returns the threads started."""
     from agent.harness.planner import after_condition_holds
 
+    chat_tools = list(toolsets) if toolsets else None
     started = []
     for node, when in getattr(mp.plan, "after", None) or []:
         if not after_condition_holds(when, elapsed_s=elapsed_s, tool_count=tool_count):
@@ -195,11 +203,12 @@ def after_turn(mp: MessagePlan, *, task_id: str, question: str, answer: str, ela
 
         def work(node=node, prompt=prompt):
             try:
-                text = _run_background_node(node, prompt, platform=platform)
-                if text:
-                    deliver(text)
+                text = _run_background_node(node, prompt, platform=platform, toolsets=chat_tools)
             except Exception:
                 logger.warning("Messaging: background node %s failed", node.get("id"), exc_info=True)
+                text = FAILED_NOTE
+            if text:
+                deliver(text)
 
         t = threading.Thread(target=work, name=f"jc-msg-after-{node.get('id')}", daemon=True)
         t.start()

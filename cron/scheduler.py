@@ -291,10 +291,12 @@ def _job_harness_id(job: dict) -> str:
 
 
 def _plan_job_harness(job: dict, prompt: str, *, harness_id: str, default_model: str,
-                      default_provider: Optional[str]):
+                      default_provider: Optional[str], follows_default: bool = False):
     """``(plan, doc, note)`` for a harness job. A harness that is missing or
     invalid gives ``(None, None, note)``: the run falls back to Default and the
-    note says why (the Pod's fallback, copied)."""
+    note says why (the Pod's fallback, copied). A job that only follows the one
+    default also falls back when its node's provider has no credentials (the
+    messaging gateway's rule); a job's own harness keeps failing loudly."""
     from agent.harness.planner import plan_turn
     from agent.harness.schema import validate_harness
     from agent.harness.store import store_for_home
@@ -311,6 +313,15 @@ def _plan_job_harness(job: dict, prompt: str, *, harness_id: str, default_model:
         return None, None, f"harness '{harness_id}' is invalid ({errors[0]['message']}); ran on Default"
     plan = plan_turn(doc, session_model=default_model, session_provider=default_provider,
                      text=prompt, surface="schedule", has_attachments=False)
+    if follows_default:
+        node_model, node_provider = _split_job_model(plan.model, plan.provider)
+        if node_provider and node_provider != default_provider:
+            try:
+                from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
+                resolve_runtime_provider(requested=node_provider)
+            except Exception as exc:
+                return None, None, (f"default harness '{doc.get('name') or harness_id}' has no credentials "
+                                    f"for {node_provider} ({exc}); ran on Default")
     return plan, doc, None
 
 
@@ -1654,7 +1665,8 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             # text + the scheduler's own hints); the agent still gets the latter.
             harness_plan, harness_doc, runs_on_note = _plan_job_harness(
                 job, str(job.get("prompt") or "").strip() or prompt, harness_id=job_harness_id,
-                default_model=model, default_provider=requested_provider)
+                default_model=model, default_provider=requested_provider,
+                follows_default=not str(job.get("harness_id") or "").strip())
             if harness_plan is None:
                 logger.warning("Job '%s': %s", job_id, runs_on_note)
             else:

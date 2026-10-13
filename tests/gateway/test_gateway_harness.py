@@ -106,9 +106,11 @@ def test_the_handoff_runs_the_background_node_and_posts_the_result(harness, monk
                         lambda task_id, **kw: bound.update(kw, task_id=task_id))
     monkeypatch.setattr(ht, "_run_background_node", lambda node, prompt, **kw: f"{node['id']} did: {prompt[:12]}")
     agent = _agent()
-    ht.apply_node(agent, mp, task_id="t1", deliver=sent.append, platform="telegram")
+    ht.apply_node(agent, mp, task_id="t1", deliver=sent.append, platform="telegram",
+                  question="find flights", toolsets=["web"])
     assert "Be brief." in agent._turn_user_context and "handoff" in agent._turn_user_context
     assert bound["task_id"] == "t1" and "handoff" in agent.valid_tool_names
+    assert bound["question"] == "find flights"  # an automatic hand-off still knows the task
     out = bound["runner"]({"summary": "find flights to SF", "reason": "needs research"})
     assert out == "" and sent == ["bg did: find flights"]
 
@@ -129,9 +131,76 @@ def test_after_nodes_post_a_follow_up_and_skip_reviews(harness, monkeypatch):
     sent = []
     monkeypatch.setattr(ht, "_run_background_node", lambda node, prompt, **kw: f"{node['id']} finished")
     threads = ht.after_turn(mp, task_id="t2", question="research robot vacuums", answer="On it.",
-                            elapsed_s=3.0, tool_count=5, deliver=sent.append, platform="telegram")
+                            elapsed_s=3.0, tool_count=5, deliver=sent.append, platform="telegram",
+                            toolsets=["web"])
     for t in threads:
         t.join(timeout=5)
     assert sent == ["bg finished"]
     assert ht.after_turn(mp, task_id="t2", question="q", answer="a", elapsed_s=1.0, tool_count=1,
-                         deliver=sent.append, platform="telegram") == []
+                         deliver=sent.append, platform="telegram", toolsets=["web"]) == []
+
+
+STEPS = {"id": "steps", "name": "Steps", "nodes": [
+    {"id": "in", "type": "message", "x": 0, "y": 0},
+    {"id": "a", "type": "answer", "model": "@session", "max_steps": 5, "x": 200, "y": 0}],
+    "edges": [{"from": "in", "to": "a", "when": "always"}]}
+
+
+def test_a_nodes_step_limit_never_sticks_to_the_cached_agent(harness):
+    agent = _agent()
+    harness(default="steps", docs={"steps": STEPS, "router": ROUTER})
+    limited = _plan()
+    for _ in range(2):  # the same node twice must not overwrite the agent's own limit
+        ht.apply_node(agent, limited, task_id="t", deliver=print, platform="telegram", question="q", toolsets=[])
+    assert agent.max_iterations == 5
+    harness(default="router", docs={"steps": STEPS, "router": ROUTER})
+    ht.apply_node(agent, _plan(), task_id="t", deliver=print, platform="telegram", question="q", toolsets=[])
+    assert agent.max_iterations == 90
+    ht.clear_node(agent)
+    assert agent.max_iterations == 90 and agent._handoff_wired is False
+
+
+def test_a_node_without_a_handoff_unwires_it(harness, monkeypatch):
+    monkeypatch.setattr("agent.escalation.bind_turn_context", lambda task_id, **kw: None)
+    agent = _agent()
+    harness()
+    ht.apply_node(agent, _plan(), task_id="t", deliver=print, platform="telegram", question="q", toolsets=[])
+    assert agent._handoff_wired is True
+    harness(default="steps", docs={"steps": STEPS})
+    ht.apply_node(agent, _plan(), task_id="t", deliver=print, platform="telegram", question="q", toolsets=[])
+    assert agent._handoff_wired is False
+
+
+def test_a_failed_background_node_tells_the_chat(harness, monkeypatch):
+    harness()
+    mp = _plan("find flights")
+    sent, bound = [], {}
+    monkeypatch.setattr("agent.escalation.bind_turn_context",
+                        lambda task_id, **kw: bound.update(kw, task_id=task_id))
+
+    def boom(node, prompt, **kw):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(ht, "_run_background_node", boom)
+    ht.apply_node(_agent(), mp, task_id="t1", deliver=sent.append, platform="telegram", question="q", toolsets=[])
+    bound["runner"]({"summary": "find flights", "reason": ""})
+    assert len(sent) == 1 and "couldn't finish" in sent[0].lower()
+
+
+def test_background_nodes_run_with_their_own_chats_tools_and_refuse_dangerous_commands(harness, monkeypatch):
+    harness()
+    seen = []
+
+    class FakeAgent:
+        def __init__(self, **kw):
+            seen.append(kw["enabled_toolsets"])
+
+        def chat(self, prompt):
+            from tools import approval
+            seen.append(approval._unattended_run.get())
+            return "done"
+
+    import run_agent
+    monkeypatch.setattr(run_agent, "AIAgent", FakeAgent)
+    node = ROUTER["nodes"][2]
+    assert ht._run_background_node(node, "go", platform="telegram", toolsets=["web", "terminal"]) == "done"
+    assert seen == [["web", "terminal"], True]
