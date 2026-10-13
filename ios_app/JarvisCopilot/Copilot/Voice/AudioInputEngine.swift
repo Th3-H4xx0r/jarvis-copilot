@@ -23,11 +23,7 @@ final class DefaultAudioInput: AudioInput {
     /// An engine can stop on route changes without `stop()` being called. Also
     /// consider a tap that stopped delivering buffers unhealthy.
     var isRunning: Bool {
-        #if os(iOS)
         micStarted && VoiceAudioEngine.shared.isRunning && Date().timeIntervalSince(lastFrameAt) < 3
-        #else
-        engine?.isRunning == true && Date().timeIntervalSince(lastFrameAt) < 3
-        #endif
     }
 
     /// The tap's input format, for diagnostics. Set on start, read on the main
@@ -41,9 +37,9 @@ final class DefaultAudioInput: AudioInput {
     /// `monoMixdown`.
     private var voiceProcessed = false
 
-    private var engine: AVAudioEngine?
-    #if os(iOS)
-    /// The mic's tap is on the shared conversation engine (`VoiceAudioEngine`).
+    /// The mic's tap is on the shared conversation engine (`VoiceAudioEngine`),
+    /// on the Mac as on the phone: the reply plays on that same engine, so voice
+    /// processing cancels exactly what this device is saying.
     private var micStarted = false
     /// Frames delivered since the last start — the voice-processing watchdog's
     /// evidence.
@@ -51,11 +47,8 @@ final class DefaultAudioInput: AudioInput {
     /// Long enough for a healthy graph to deliver many buffers; short enough that
     /// a dead one is replaced before anyone decides the app is not listening.
     static let voiceProcessingWatchdogMs: UInt64 = 2500
-    #endif
     private var lastFrameAt = Date.distantPast
     private var generation = 0
-    /// An engine `prepare` is building, or has built, for the next `start`.
-    private var preparing: Task<BuiltEngine?, Never>?
 
     /// Ask for (or check) microphone access.
     ///
@@ -118,23 +111,16 @@ final class DefaultAudioInput: AudioInput {
 
     func start(sampleRate: Int) async throws {
         await stop()
-        // A start that lands while `prepare` is still building waits for that
-        // engine rather than building a second voice-processing unit beside it.
-        var ready = await takePrepared()
         var lastError: Error?
         for attempt in 0..<Self.startAttempts {
             do {
                 try Task.checkCancellation()
-                try startEngine(sampleRate: sampleRate, built: ready)
-                #if os(iOS)
+                try startEngine(sampleRate: sampleRate)
                 armVoiceProcessingWatchdog(sampleRate: sampleRate)
-                #endif
                 return
             } catch {
                 if Task.isCancelled { throw CancellationError() }
                 lastError = error
-                // A prepared engine that would not start is not retried.
-                ready = nil
                 teardown()
                 if attempt + 1 < Self.startAttempts {
                     try await Task.sleep(nanoseconds: UInt64(Self.retryDelayMs) * 1_000_000)
@@ -148,40 +134,8 @@ final class DefaultAudioInput: AudioInput {
         teardown()
     }
 
-    /// Create the engine in the background so the tap that starts a
-    /// conversation does not pay for it (~100–135 ms on a MacBook).
-    ///
-    /// Only the engine and its input node — NOT voice processing, and not
-    /// `prepare()`. Voice processing is the slower half (~270–375 ms), and it
-    /// used to be done here too, but on macOS it DUCKS EVERY OTHER APP'S AUDIO
-    /// for as long as it is switched on, recording or not: with the panel open
-    /// and the mic off, music and video elsewhere went quiet. It is switched on
-    /// by `start`, so the dimming lasts exactly as long as the conversation.
-    ///
-    /// Mac only. On the phone an engine is only usable once the audio session is
-    /// active, and activating it early would duck whatever else is playing.
-    func prepare(sampleRate: Int) {
-        #if !os(iOS)
-        // Only once access is already granted: touching the input node is
-        // itself enough to raise the system prompt, and a panel that has merely
-        // opened has no business asking.
-        guard engine == nil, preparing == nil,
-              AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
-        preparing = Task.detached(priority: .userInitiated) {
-            let engine = AVAudioEngine()
-            _ = engine.inputNode
-            return BuiltEngine(engine: engine, device: Self.defaultDeviceID)
-        }
-        #endif
-    }
-
-    func releasePrepared() {
-        preparing = nil
-    }
-
     // MARK: - Private
 
-    #if os(iOS)
     /// Some routes run a voice-processing graph that reports itself started and
     /// never delivers a buffer. Found in the Moshi bench; the answer there was
     /// the answer here — no audio in time, rebuild without processing.
@@ -197,85 +151,16 @@ final class DefaultAudioInput: AudioInput {
             }
         }
     }
-    #endif
 
-    /// An engine created ahead, untouched otherwise. Crosses from the building
-    /// task to the main actor exactly once and is only ever used on one side at
-    /// a time.
-    private final class BuiltEngine: @unchecked Sendable {
-        let engine: AVAudioEngine
-        /// The input it was created against. A device plugged in or switched
-        /// since makes it stale.
-        let device: String?
-
-        init(engine: AVAudioEngine, device: String?) {
-            self.engine = engine
-            self.device = device
-        }
-
-        var isCurrent: Bool { DefaultAudioInput.defaultDeviceID == device }
-    }
-
-    private nonisolated static var defaultDeviceID: String? {
-        #if os(iOS)
-        return nil
-        #else
-        return AVCaptureDevice.default(for: .audio)?.uniqueID
-        #endif
-    }
-
-    /// The prepared engine, if one is on the way and still matches the input.
-    private func takePrepared() async -> BuiltEngine? {
-        guard let task = preparing else { return nil }
-        preparing = nil
-        guard let built = await task.value, built.isCurrent else { return nil }
-        return built
-    }
-
-    private func startEngine(sampleRate: Int, built ready: BuiltEngine?) throws {
-        #if os(iOS)
+    private func startEngine(sampleRate: Int) throws {
         // The mic and the reply's player share one voice-processing engine, so
-        // the phone cancels its own speaker — see `VoiceAudioEngine`.
+        // the device cancels its own speaker — see `VoiceAudioEngine`. On the Mac
+        // that engine's voice processing also supplies the gain control a
+        // MacBook's raw mic array lacks (speech peaks ~0.005 without it).
         let shared = VoiceAudioEngine.shared
         let hardware = try shared.micFormat()
         voiceProcessed = shared.voiceProcessing
-        #else
-        let engine = ready?.engine ?? AVAudioEngine()
-        let input = engine.inputNode
-        #endif
 
-        #if !os(iOS)
-        // What `.videoChat` does for the phone, done here.
-        //
-        // On iOS the voice stack asks `AVAudioSession` for `.playAndRecord` +
-        // `.videoChat`, and that mode is what quietly supplies the two things a
-        // conversation depends on: echo cancellation, so the assistant's own
-        // reply doesn't feed back into the live mic, and AUTOMATIC GAIN CONTROL,
-        // so ordinary speech arrives at an ordinary level. macOS has no audio
-        // session, and the arbiter is a no-op here — so without this the engine
-        // reads the mic array raw, and a person talking normally peaks around
-        // 0.005 against an endpointer that wants 0.012. The turn never ends.
-        //
-        // It also asks the OS for the processed MONO stream, which is why the
-        // multi-channel mixdown below usually has nothing left to do.
-        //
-        // Switched on here and never ahead of time: it dims other apps' audio
-        // for as long as it is on (see `prepare`).
-        //
-        // Best-effort: a device that cannot do voice processing (some aggregates
-        // and virtual inputs) throws, and raw input is better than no input.
-        do {
-            try input.setVoiceProcessingEnabled(true)
-            voiceProcessed = true
-        } catch {
-            voiceProcessed = false
-            JcLog.dropped(JcLog.voice, "enable voice processing", error)
-        }
-        #endif
-
-        #if !os(iOS)
-        let hardware = input.inputFormat(forBus: 0)
-        #endif
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
             throw VoiceAudioError.micUnavailable("no input route")
         }
@@ -320,38 +205,22 @@ final class DefaultAudioInput: AudioInput {
                 MainActor.assumeIsolated {
                     guard let self, self.generation == tapGeneration else { return }
                     self.lastFrameAt = Date()
-                    #if os(iOS)
                     self.framesSinceStart += 1
-                    #endif
                     self.onFrame?(data)
                 }
             }
         }
-        #if os(iOS)
         framesSinceStart = 0
         try shared.startMic(bufferSize: Self.tapBufferSize, tap: tap)
         micStarted = true
-        #else
-        input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware, block: tap)
-        self.engine = engine
-        engine.prepare()
-        try engine.start()
-        #endif
         lastFrameAt = Date()
         Self.lastHardwareFormat = "\(Int(hardware.sampleRate))Hz/\(hardware.channelCount)ch"
     }
 
     private func teardown() {
         generation += 1
-        #if os(iOS)
         if micStarted { VoiceAudioEngine.shared.stopMic() }
         micStarted = false
-        #endif
-        if let engine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-        }
-        engine = nil
     }
 
     /// Mix `buffer` down to one channel of `format`.

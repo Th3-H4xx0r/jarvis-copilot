@@ -22,8 +22,6 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
 
     // MARK: Stream
 
-    private var engine: AVAudioEngine?
-    private var node: AVAudioPlayerNode?
     private var streamFormat: AVAudioFormat?
     private var streamGeneration = 0
     /// Latched false once the engine refuses to start, so we don't keep retrying
@@ -46,9 +44,8 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
 
     func startStream(sampleRate: Int) async -> Bool {
         await stopStream()
-        #if os(iOS)
-        // On the phone the reply plays on the conversation engine, beside the
-        // mic, so voice processing cancels it — see `VoiceAudioEngine`.
+        // The reply plays on the conversation engine, beside the mic, so voice
+        // processing cancels it — see `VoiceAudioEngine`. The Mac does the same.
         do {
             streamGeneration += 1
             let generation = streamGeneration
@@ -63,76 +60,11 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
             isStreamAvailable = false
             return false
         }
-        #else
-        let engine = AVAudioEngine()
-        let node = AVAudioPlayerNode()
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                         sampleRate: Double(sampleRate),
-                                         channels: 1, interleaved: false) else {
-            isStreamAvailable = false
-            return false
-        }
-        node.volume = volume
-        engine.attach(node)
-        // The mixer resamples 24 kHz mono to whatever the output runs at.
-        engine.connect(node, to: engine.mainMixerNode, format: format)
-        let generation = streamGeneration
-        // Measure the render side, not incoming network chunks, so the pulse
-        // follows audible syllables even when the server buffers ahead.
-        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            let level = Self.peakAmplitude(buffer)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self, self.streamGeneration == generation, self.clip == nil else { return }
-                    self.onAmplitude?(level)
-                }
-            }
-        }
-        do {
-            try engine.start()
-        } catch {
-            // Gapless playback is off for the rest of the launch after this, so
-            // it needs to be visible in a support log.
-            JcLog.report(JcLog.voice, "start render stream", error)
-            isStreamAvailable = false
-            return false
-        }
-        node.play()
-        self.engine = engine
-        self.node = node
-        self.streamFormat = format
-        return true
-        #endif
     }
 
     func feed(_ pcm: Data) async {
-        #if os(iOS)
         guard let format = streamFormat, let buffer = Self.floatBuffer(pcm, format: format) else { return }
         VoiceAudioEngine.shared.schedule(buffer)
-        #else
-        guard let node, let format = streamFormat, let engine else { return }
-        let frames = pcm.count / 2
-        guard frames > 0,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format,
-                                            frameCapacity: AVAudioFrameCount(frames)),
-              let channel = buffer.floatChannelData?[0] else { return }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        // Copy into an aligned array first: `Data`'s bytes aren't guaranteed to
-        // be 2-byte aligned, so binding them in place would be undefined.
-        var samples = [Int16](repeating: 0, count: frames)
-        _ = samples.withUnsafeMutableBytes { pcm.copyBytes(to: $0, count: frames * 2) }
-        for i in 0..<frames { channel[i] = Float(Int16(littleEndian: samples[i])) / 32768.0 }
-        if !engine.isRunning {
-            // A media-services reset or an interruption stopped us; bring it back.
-            do { try engine.start() }
-            catch {
-                JcLog.dropped(JcLog.voice, "restart render stream after reset", error)
-                return
-            }
-        }
-        node.scheduleBuffer(buffer, completionHandler: nil)
-        if !node.isPlaying { node.play() }
-        #endif
     }
 
     /// PCM16 little-endian → a Float32 buffer in `format`.
@@ -155,44 +87,24 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         let session = AVAudioSession.sharedInstance()
         return Int(((session.outputLatency + session.ioBufferDuration) * 1000).rounded())
         #else
-        guard let engine else { return 0 }
-        return Int((engine.outputNode.presentationLatency * 1000).rounded())
+        return Int((VoiceAudioEngine.shared.outputPresentationLatency * 1000).rounded())
         #endif
     }
 
     func flushStream() async {
-        #if os(iOS)
         VoiceAudioEngine.shared.flushStream()
-        #else
-        guard let node else { return }
-        // `stop()` discards every scheduled buffer; `play()` re-arms for the next feed.
-        node.stop()
-        node.play()
-        #endif
     }
 
     func setVolume(_ volume: Float) {
         let volume = min(max(volume, 0), 1)
         self.volume = volume
-        #if os(iOS)
         VoiceAudioEngine.shared.replyVolume = volume
-        #else
-        node?.volume = volume
-        #endif
         clip?.volume = volume
     }
 
     func stopStream() async {
         streamGeneration += 1
-        #if os(iOS)
         if streamFormat != nil { VoiceAudioEngine.shared.stopStream() }
-        #else
-        node?.stop()
-        engine?.mainMixerNode.removeTap(onBus: 0)
-        engine?.stop()
-        node = nil
-        engine = nil
-        #endif
         streamFormat = nil
         onAmplitude?(0)
     }
