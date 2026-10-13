@@ -2933,6 +2933,10 @@ def _ensure_canonical_tools(agent) -> None:
         names = {(t.get("function") or {}).get("name") for t in tools if isinstance(t, dict)}
         if "handoff" not in names:
             tools += list(registry.get_definitions({"handoff"}) or [])
+        if "computer_do" not in names:
+            # Fast Mac control (agent/computer/); listed once a paired Mac offers ui_look.
+            importlib.import_module("tools.computer_do_tool")
+            tools += list(registry.get_definitions({"computer_do"}) or [])
         agent.tools = canonical_tools(tools)
         agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | {
             (t.get("function") or {}).get("name") for t in agent.tools if isinstance(t, dict)}
@@ -4223,6 +4227,10 @@ def _run_agent_streaming(
             _ensure_canonical_tools(agent)
             agent.allowed_tool_names = _node_allowed_tools
             agent._handoff_wired = bool(_harness_plan is not None and _harness_plan.handoff_node)
+            # The Computer node this turn's computer_do uses; a Route that sent the
+            # turn straight to it runs its fast loop before the model.
+            agent._computer_node = _harness_plan.computer if _harness_plan is not None else None
+            agent._computer_first = bool(_harness_plan is not None and _harness_plan.computer_first)
             _handoff_rule = ""
             if agent._handoff_wired:
                 # This node is wired to a Background node: the turn binds where
@@ -4539,6 +4547,9 @@ def _run_agent_streaming(
                             _ensure_canonical_tools(agent)
                             agent.allowed_tool_names = _node_allowed_tools
                             agent._handoff_wired = bool(_harness_plan is not None and _harness_plan.handoff_node)
+                            # The retry must not drive the Mac a second time.
+                            agent._computer_node = _harness_plan.computer if _harness_plan is not None else None
+                            agent._computer_first = False
                             with STREAMS_LOCK:
                                 AGENT_INSTANCES[stream_id] = agent
                             from api.config import SESSION_AGENT_CACHE as _SAC, SESSION_AGENT_CACHE_LOCK as _SAC_L

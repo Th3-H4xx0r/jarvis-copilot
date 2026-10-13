@@ -384,7 +384,18 @@ def run_conversation(
         mac_browser_gate.note_turn(effective_task_id, persist_user_message or user_message)
     except Exception:
         logger.debug("mac browser gate: turn not recorded", exc_info=True)
-    
+    # The harness Computer node (if any) this turn's computer_do uses, and the
+    # turn's own model as its fallback (agent/computer/turns.py).
+    try:
+        from agent.computer import turns as computer_turns
+        _own = str(getattr(agent, "model", "") or "")
+        _prov = str(getattr(agent, "provider", "") or "")
+        computer_turns.bind(effective_task_id, getattr(agent, "_computer_node", None),
+                            own_ref=f"@{_prov}:{_own}" if _prov and _own else (_own or None),
+                            should_stop=lambda: bool(getattr(agent, "_interrupt_requested", False)))
+    except Exception:
+        logger.debug("computer: turn not bound", exc_info=True)
+
     # Reset retry counters and iteration budget at the start of each turn
     # so subagent usage from a previous turn doesn't eat into the next one.
     agent._invalid_tool_retries = 0
@@ -731,7 +742,25 @@ def run_conversation(
             should_review_memory=_should_review_memory,
         )
 
-    while (api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0) or agent._budget_grace_call:
+    # A harness Route sent this turn straight to a Computer node: its fast loop
+    # drives the Mac first. Done → that is the reply and no model call is made;
+    # stuck → its report is in `messages` and the model below takes over.
+    _computer_said = None
+    if getattr(agent, "_computer_first", False):
+        agent._computer_first = False
+        try:
+            from agent.computer import turns as computer_turns
+            _computer_said = computer_turns.computer_first(agent, messages, original_user_message,
+                                                           effective_task_id)
+        except Exception:
+            logger.warning("computer: the fast loop failed before the model", exc_info=True)
+        if _computer_said:
+            final_response = _computer_said
+            _turn_exit_reason = "computer_done"
+
+    while _computer_said is None and (
+            (api_call_count < agent.max_iterations and agent.iteration_budget.remaining > 0)
+            or agent._budget_grace_call):
         # Reset per-turn checkpoint dedup so each iteration can take one snapshot
         agent._checkpoint_mgr.new_turn()
 

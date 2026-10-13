@@ -1823,6 +1823,8 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
                              session_id=_cron_session_id)
         if harness_plan is not None:
             _apply_node(agent, harness_plan.tools, harness_plan.instructions)
+            agent._computer_node = harness_plan.computer
+            agent._computer_first = harness_plan.computer_first
             if harness_plan.handoff_node:
                 _handoff_task_id = _cron_session_id
                 _bind_schedule_handoff(agent, harness_plan.handoff_node, _handoff_task_id,

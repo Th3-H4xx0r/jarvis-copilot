@@ -124,6 +124,8 @@ def apply_node(agent, mp: MessagePlan, *, task_id: str, deliver: Callable[[str],
     agent.allowed_tool_names = allowed
     notes = [plan.instructions or "", note or ""]
     agent.max_iterations = int(plan.max_steps) if plan.max_steps else own_steps
+    agent._computer_node = getattr(plan, "computer", None)
+    agent._computer_first = bool(getattr(plan, "computer_first", False))
     node = plan.handoff_node
     agent._handoff_wired = bool(node)
     if node:
@@ -164,6 +166,8 @@ def clear_node(agent) -> None:
     if saved.get("max_iterations"):
         agent.max_iterations = saved["max_iterations"]
     agent._handoff_wired = False
+    agent._computer_node = None
+    agent._computer_first = False
     agent._jc_harness_node = None
 
 
