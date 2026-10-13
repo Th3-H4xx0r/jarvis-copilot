@@ -442,3 +442,10 @@ def test_a_step_on_the_app_already_in_use_does_not_reopen_it():
     L.run("g", [{"do": "open Notes", "app": "Notes"}, {"do": "write in the note body", "app": "Notes"}], _cfg(),
           device="m", decide=decide, fallback=_never, mac=mac)
     assert [a[0]["action"] for a in mac.acts].count("open_app") == 1
+
+
+def test_tell_steps_are_skipped():
+    mac = FakeMac()
+    r = L.run("g", [{"do": "tell the user her birth date: {born}"}], _cfg(), device="m", decide=_never,
+              fallback=_never, mac=mac)
+    assert r.status == "done" and mac.acts == []

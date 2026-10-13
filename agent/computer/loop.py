@@ -25,6 +25,8 @@ _OPEN_VERB = re.compile(r"^\s*(?:open|launch|start|switch\s+to|go\s+to|bring\s+u
 # A step that is one move ("click the first result", "press Return"): done once that move works.
 _ONE_MOVE = re.compile(r"^\s*(?:click|press|tap|hit|select|choose|pick|open)\b(?!.*\b(?:and|then|until)\b)", re.I)
 _REFUSED = ("isn't in front", "using the Mac")
+# "tell the user the date": not a move on the Mac — the reply is written afterwards.
+_TELL = re.compile(r"^\s*(?:tell|say|report|answer|inform|reply|let\s+(?:the\s+user|him|her|them|me)\s+know)\b", re.I)
 
 
 def _open_only(step: dict) -> bool:
@@ -173,6 +175,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
 
     for at, step in enumerate(steps):
         step = _with_values(step, out.values)
+        if _TELL.match(str(step.get("do") or "")) and not (step.get("app") or step.get("url") or step.get("text")):
+            continue
         if step.get("read"):
             # Read a value off this screen for later steps (no move on the Mac).
             if should_stop and should_stop():

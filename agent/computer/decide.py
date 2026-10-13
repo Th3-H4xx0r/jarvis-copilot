@@ -56,7 +56,9 @@ label, one press per step), "type … into the … field" with "text" word for w
 the field first), or "press <key>".
 - Something you can only know by looking (a price, a name, a number, a date): add a step \
 {{"do": "read the …", "read": "<short_name>"}} on the screen that shows it, and write {{<short_name>}} in a later \
-step's "text". Never write a placeholder like [price]."""
+step's "text". Never write a placeholder like [price].
+- Only UI moves and read steps: the reply to the user is written afterwards from the screen, so never add a step \
+to tell, say or report something."""
 
 
 @dataclass
