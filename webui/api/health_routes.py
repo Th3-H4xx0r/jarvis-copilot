@@ -297,11 +297,15 @@ def handle_post(handler, parsed, body) -> bool:
             device_id = raw.get("device_id") or body.get("device_id") or ""
             day = day_from_ring_json(raw, raw["date"], raw.get("timezone") or "UTC", source=kind)
             store.put_day(day, device_key_for(kind, device_id))
-            # The phone's health widgets read the merged history: pushed, at most every 30 min,
-            # instead of the phone fetching seven histories after every band sync.
+            # Other devices' health widgets read the merged history: pushed, at most every 30 min.
+            # Not the phone that sent the day — it knows, and refreshes its own (WidgetDataHub)
+            # at most every 2 h in the background instead of seven fetches after every band sync.
             try:
+                from api.auth import parse_cookie
                 from api.device_bridge import publish
-                publish("widgets", {"what": ["health"]})
+                from api.pairing import find_device_by_session
+                caller = find_device_by_session(parse_cookie(handler) or "") or {}
+                publish("widgets", {"what": ["health"]}, exclude=caller.get("id"))
             except Exception:
                 pass
             j(handler, {"ok": True, "date": day.date, "timezone": day.timezone})

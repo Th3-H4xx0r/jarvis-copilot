@@ -161,6 +161,7 @@ def fetch() -> tuple:
     rows: list = []
     wearable_host = ""
     reported = None
+    reported_age = None
     for device in devices:
         online = bool(device.get("online"))
         last_seen = float(device.get("last_seen") or 0)
@@ -176,11 +177,14 @@ def fetch() -> tuple:
                 wearable_host = str(device.get("id") or "")
                 if isinstance(device.get("wearables"), list):
                     reported = device["wearables"]
+                    # Its socket is down (reachable by push only): the report is as old as it says.
+                    if not device.get("bridge_connected"):
+                        reported_age = max(0.0, now - float(device.get("wearables_at") or now))
 
     # The phone reports its wearables to the server when they change; asking the phone
     # itself (every 45 s, all day) woke its radio. Only an older phone build needs the ask.
     if reported is not None:
-        wearables = _wearable_rows(reported)
+        wearables = _wearable_rows(reported, stale_for=reported_age)
     else:
         wearables = _wearables(client, wearable_host) if wearable_host else []
     # Grouped the way the system's own network menus group things, rather than
@@ -214,7 +218,9 @@ def _wearables(client, device_id: str) -> list:
     return _wearable_rows(result.get("devices") or result.get("wearables") or [])
 
 
-def _wearable_rows(entries: list) -> list:
+def _wearable_rows(entries: list, stale_for: float | None = None) -> list:
+    """Menu rows for the phone's wearables. ``stale_for`` = seconds since a phone that is no longer
+    connected reported them: nothing it says can be claimed as live."""
     rows = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -224,10 +230,11 @@ def _wearable_rows(entries: list) -> list:
         rows.append(DeviceRow(
             name=name,
             kind="wearable",
-            online=bool(entry.get("connected")),
+            online=bool(entry.get("connected")) and stale_for is None,
             # The phone words this when asked ("Connected", "-57 dBm", "Not found"); what it
             # reports on its own carries no signal reading (that changes every scan).
-            detail=str(entry.get("status") or ("Connected" if entry.get("connected") else "Not connected")),
+            detail=(f"phone last reported {_ago(stale_for)}" if stale_for is not None
+                    else str(entry.get("status") or ("Connected" if entry.get("connected") else "Not connected"))),
             wearable=wearable_kind(model, name),
         ))
     return rows

@@ -74,7 +74,7 @@ class _FakeClient:
 
 def _phone(**extra):
     return {"id": "phone-1", "name": "iPhone", "kind": "mobile-ios", "online": True, "invokable": True,
-            "skills": [{"name": "wearables_list"}], **extra}
+            "bridge_connected": True, "skills": [{"name": "wearables_list"}], **extra}
 
 
 def test_reported_wearables_are_read_without_asking_the_phone(monkeypatch):
@@ -95,3 +95,15 @@ def test_an_older_phone_is_still_asked(monkeypatch):
     rows, _ = device_roster.fetch()
     assert ("POST", "/api/devices/skills/invoke") in client.calls
     assert [r.name for r in rows if r.kind == "wearable"] == ["Ring"]
+
+
+def test_a_disconnected_phones_report_is_not_shown_as_live(monkeypatch):
+    import time as _time
+    from jc_client import device_roster
+    client = _FakeClient([_phone(bridge_connected=False, wearables_at=_time.time() - 600,
+                                 wearables=[{"model": "R12", "name": "Ring", "connected": True}])])
+    monkeypatch.setattr(device_roster, "_client", lambda: client)
+    rows, _ = device_roster.fetch()
+    ring = [r for r in rows if r.kind == "wearable"]
+    assert [(r.online, r.detail) for r in ring] == [(False, "phone last reported 10m ago")]
+    assert client.calls == [("GET", "/api/devices")]

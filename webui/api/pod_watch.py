@@ -72,6 +72,9 @@ def _run() -> None:
             _running = False
             # The next viewer starts from nothing, so it gets every pod's status once.
             _last.clear()
+        # Someone subscribed between the last check and here: their ensure() saw us running.
+        if device_bridge.subscribers("pods"):
+            ensure()
 
 
 def ensure() -> bool:
