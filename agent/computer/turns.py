@@ -137,7 +137,9 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
         "function": {"name": TOOL_NAME, "arguments": json.dumps({"goal": goal}, ensure_ascii=False)}}]})
     messages.append({"role": "tool", "tool_call_id": call_id, "name": TOOL_NAME, "content": tool_result(result)})
     if result.status == "done":
-        say = result.say or "Done."
+        from agent.computer.decide import closing_line
+        b = bound(task_id) or Binding(None, None)
+        say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look) or "Done."
         messages.append({"role": "assistant", "content": say})
         return say
     return None

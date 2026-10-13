@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import statistics
 import time
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from agent.computer import mac as _mac_mod
 from agent.computer.choices import element_line, match_step
 
 logger = logging.getLogger(__name__)
+_OPEN_ONLY = re.compile(r"^\s*(?:open|launch|start|switch to|go to|bring up|activate)\b(?!.*\b(?:and|then)\b)", re.I)
 
 
 @dataclass
@@ -131,6 +133,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 pass
 
     for step in steps:
+        moves_before = len(out.actions)
         if step.get("app"):
             t = time.monotonic()
             action = {"action": "open_app", "app": step["app"]}
@@ -142,6 +145,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             nxt = res.get("look") if isinstance(res.get("look"), dict) else None
             look = nxt if nxt and nxt.get("ok", True) else mac.look(device, app=step["app"])
             anchor = look.get("app") or step["app"]
+            if _OPEN_ONLY.match(str(step.get("do") or "")):
+                history.append(f"step done: {step.get('do')}")
+                continue  # "open Calculator": opening it was the whole step
         strikes, last_key, repeats, relooked, refusals = 0, None, 0, False, 0
         # "click the Send button" with exactly one Send on screen: click it, no decision.
         idx = match_step(step, look)
@@ -171,7 +177,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             t = time.monotonic()
             move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions) \
                 if cfg.decision_ref else None
-            if move is None or move.action.get("action") == "stuck" or (move.confidence or 0) < cfg.min_conf:
+            # "done" before any move on this step is often wrong (a pressed ×
+            # leaves no trace): only the fallback can confirm it.
+            early_done = (move is not None and move.action.get("action") == "done"
+                          and len(out.actions) == moves_before)
+            if (move is None or early_done or move.action.get("action") == "stuck"
+                    or (move.confidence or 0) < cfg.min_conf):
                 first = move
                 move = fallback(cfg.fallback_ref, look, goal, step, history, instructions=cfg.instructions) \
                     if cfg.fallback_ref else first
@@ -191,6 +202,7 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             action = move.action
             if action.get("action") == "done":
                 history.append(f"step done: {step.get('do')}")
+                logger.info("Computer step done: %s by=%s conf=%s", step.get("do"), move.by, move.confidence)
                 break
             refused = _blocked(action)
             if refused:

@@ -54,6 +54,11 @@ _CLICK_STEP = re.compile(r"^\s*(?:click|press|tap|hit|select|choose)\s+(?:on\s+)
                          r"(?:\s+(?:button|key|tab|link|item|option|icon))?\s*\.?\s*$", re.I)
 
 
+# Keys drawn as a symbol carry a name in accessibility (Calculator's × is "Multiply").
+_SYMBOLS = {"×": "multiply", "*": "multiply", "÷": "divide", "/": "divide", "−": "subtract", "-": "subtract",
+            "+": "add", "=": "equals", "%": "percent", "⌫": "delete", "±": "change sign", "ac": "all clear"}
+
+
 def match_step(step: dict, look: dict) -> int | None:
     """The element a "click the Send button" step names, when exactly one visible
     element has that label — clicked straight away, no decision call needed."""
@@ -63,8 +68,9 @@ def match_step(step: dict, look: dict) -> int | None:
     if not m:
         return None
     want = m.group(1).strip().strip("'\"“”‘’").lower()
+    names = {want, _SYMBOLS.get(want, want)}
     hits = [el["i"] for el in (look or {}).get("elements") or []
-            if str(el.get("label") or "").strip().lower() == want]
+            if str(el.get("label") or "").strip().lower() in names]
     return hits[0] if len(hits) == 1 else None
 
 

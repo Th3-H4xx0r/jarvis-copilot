@@ -45,8 +45,7 @@ Request: {goal}
 Frontmost app now: {app}
 {notes}
 Reply with ONLY one JSON object:
-{{"steps": [{{"do": "<one step>", "text": "<exact text to type, if any>", "app": "<app to open first, if any>"}}], \
-"say": "<one short line for the user when it's done, e.g. Playing lo-fi in Spotify.>"}}
+{{"steps": [{{"do": "<one step>", "text": "<exact text to type, if any>", "app": "<app to open first, if any>"}}]}}
 Use as few steps as possible (1-8). Each step is one UI move: "click the <label> button" (name buttons by \
 their visible label, one press per step), "search for …" / "type … into …" only where there is a text field \
 (put the text in "text", word for word), or "press <key>". The first step opens the app ("app") unless it is \
@@ -188,6 +187,21 @@ def plan_steps(ref, goal, look, *, instructions="", call=None) -> dict:
     if not steps:
         return {"steps": [{"do": goal}], "say": ""}
     return {"steps": steps[:8], "say": str(raw.get("say") or "").strip()[:200]}
+
+
+_CLOSING_PROMPT = """The user asked: {goal}
+That was just done on their Mac; the screenshot shows the result. Write ONE short line for them (it may be read \
+aloud): what was done and any answer or result you can read on screen. Only state what the screen shows."""
+
+
+def closing_line(ref, goal, look, *, call=None) -> str:
+    """The reply after a Mac job, read off the final screen ('' if the model fails)."""
+    try:
+        out = _call(call, ref, _CLOSING_PROMPT.format(goal=goal), look or {}, 120)
+    except Exception:
+        logger.debug("computer: closing line failed", exc_info=True)
+        return ""
+    return " ".join(str(out or "").split())[:240]
 
 
 def _has_key(provider: str) -> bool:

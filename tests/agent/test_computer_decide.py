@@ -101,3 +101,19 @@ def test_pick_decision_ref(monkeypatch):
     assert D.pick_decision_ref("@openai:gpt-5") == "@celeris:celeris-1-decision"
     monkeypatch.setattr(D, "_has_key", lambda provider: False)
     assert D.pick_decision_ref(None) is None
+
+
+def test_closing_line_comes_from_the_final_screen():
+    seen = {}
+
+    def call(**kw):
+        seen.update(kw)
+        return _reply("Calculator shows 84.")
+
+    assert D.closing_line("@x:y", "work out 12 times 7", LOOK, call=call) == "Calculator shows 84."
+    assert seen["messages"][-1]["content"][1]["image_url"]["url"].startswith("data:image/jpeg")
+
+    def boom(**kw):
+        raise RuntimeError("down")
+
+    assert D.closing_line("@x:y", "g", LOOK, call=boom) == ""

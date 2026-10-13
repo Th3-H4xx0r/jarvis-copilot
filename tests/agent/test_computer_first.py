@@ -31,6 +31,8 @@ def _result(status, say=""):
 
 def test_done_appends_call_result_and_line(monkeypatch):
     mac_browser_gate.note_turn("t1", "on my mac open calculator")
+    monkeypatch.setattr("agent.computer.decide.closing_line", lambda ref, goal, look, **k: "Calculator is open.")
+    monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
     monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (_result("done", "Calculator is open."), None))
     agent, messages = _agent(), [{"role": "user", "content": "on my mac open calculator"}]
     said = turns.computer_first(agent, messages, "on my mac open calculator", "t1")

@@ -60,3 +60,19 @@ def test_a_step_naming_one_visible_button_matches_it_directly():
     assert match_step({"do": "click Send"}, look) is None          # two elements named Send
     assert match_step({"do": "search for lo-fi", "text": "lo-fi"}, look) is None
     assert match_step({"do": "click the 9 button"}, look) is None   # not on screen
+
+
+def test_symbol_buttons_match_their_accessibility_names():
+    """Calculator draws × but its accessibility label is "Multiply" (live: the step
+    was skipped and the answer came out 127)."""
+    from agent.computer.choices import match_step
+    look = {"elements": [{"i": 1, "role": "AXButton", "label": "Multiply"},
+                         {"i": 2, "role": "AXButton", "label": "Equals"},
+                         {"i": 3, "role": "AXButton", "label": "Subtract"},
+                         {"i": 4, "role": "AXButton", "label": "Divide"},
+                         {"i": 5, "role": "AXButton", "label": "Add"}]}
+    assert match_step({"do": "click the × button"}, look) == 1
+    assert match_step({"do": "press ="}, look) == 2
+    assert match_step({"do": "click the − button"}, look) == 3
+    assert match_step({"do": "click ÷"}, look) == 4
+    assert match_step({"do": "click +"}, look) == 5
