@@ -205,6 +205,7 @@ final class BridgeClient: NSObject, ObservableObject {
         guard let url = comps.url else { return nil }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        request.setValue(Self.appStateHeader.value, forHTTPHeaderField: Self.appStateHeader.name)
         return request
     }
 
@@ -229,9 +230,13 @@ final class BridgeClient: NSObject, ObservableObject {
     }
     private static let appStateLock = NSLock()
     nonisolated(unsafe) private static var backgroundFlag = false
+    /// The header itself. Kept out of `apiAuthHeaders()`: an empty set of those means "not paired".
+    nonisolated static var appStateHeader: (name: String, value: String) {
+        ("X-JC-App-State", appInBackground ? "background" : "foreground")
+    }
 
     nonisolated func apiAuthHeaders() -> [String: String] {
-        var h: [String: String] = ["X-JC-App-State": Self.appInBackground ? "background" : "foreground"]
+        var h: [String: String] = [:]
         if let cookie = Keychain.read("bridgeSessionCookie"), !cookie.isEmpty { h["Cookie"] = "hermes_session=\(cookie)" }
         if let id = Keychain.read("bridgeCFClientID"), let secret = Keychain.read("bridgeCFClientSecret"), !id.isEmpty, !secret.isEmpty {
             h["CF-Access-Client-Id"] = id
@@ -359,6 +364,7 @@ final class BridgeClient: NSObject, ObservableObject {
         status = .connecting
         var request = URLRequest(url: wsURL)
         for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        request.setValue(Self.appStateHeader.value, forHTTPHeaderField: Self.appStateHeader.name)
 
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
@@ -604,6 +610,7 @@ final class BridgeClient: NSObject, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        request.setValue(Self.appStateHeader.value, forHTTPHeaderField: Self.appStateHeader.name)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await http.data(for: request)
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]

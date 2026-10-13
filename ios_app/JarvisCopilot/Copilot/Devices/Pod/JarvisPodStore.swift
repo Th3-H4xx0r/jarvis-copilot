@@ -23,6 +23,7 @@ final class JarvisPodStore {
     private var lastRefresh = Date.distantPast
     private var visible = false
     private var listening = false
+    private var listSoon: Task<Void, Never>?
 
     init(api: JarvisPodAPI = JarvisPodAPI()) {
         self.api = api
@@ -84,8 +85,14 @@ final class JarvisPodStore {
         for (id, raw) in data["statuses"] as? [String: Any] ?? [:] {
             if let json = raw as? [String: Any] { statuses[id] = JarvisPodStatus(json: json) }
         }
+        // A Mac registering its skills in chunks moves the list several times in a row: one fetch.
         if (data["what"] as? [String] ?? []).contains("list") {
-            Task { await refresh(force: true) }
+            listSoon?.cancel()
+            listSoon = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                await self?.refresh(force: true)
+            }
         }
     }
 

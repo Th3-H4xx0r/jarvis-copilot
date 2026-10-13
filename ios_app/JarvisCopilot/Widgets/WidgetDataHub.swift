@@ -48,8 +48,13 @@ final class WidgetDataHub {
     /// Whether any Jarvis widget is on a Home or Lock Screen; nil until asked. With none there is
     /// nothing to keep fresh, so nothing is fetched.
     private(set) var installed: Bool?
-    /// A pass that may ask the server is owed (launch, foreground, a `widgets` push).
+    /// A pass that may ask the server is owed (launch, foreground, a `widgets` push, a reconnect).
     private var networkDue = true
+    /// When a pass last asked the server. In the background the phone's own changes (its band's
+    /// days, which the server merges into the histories) make one at most every `backgroundFullEvery`.
+    private var lastFull: Date?
+    static let backgroundFullEvery: TimeInterval = 7200
+    private var lastInstalledCheck: Date?
 
     init(providers: [any WidgetDataProvider],
          write: @escaping ([String: JCJSON]) -> Void = { WidgetDataFile.write($0) },
@@ -68,6 +73,12 @@ final class WidgetDataHub {
         if foreground { startTimer() }      // a background launch (the watch, a push) waits for the screen
         checkInstalled()
         BridgeTopics.shared.on("widgets") { _ in
+            WidgetDataHub.shared.networkDue = true
+            WidgetDataHub.shared.refreshSoon()
+        }
+        // Pushes sent while the socket was down never arrive: catch up once it is back.
+        BridgeTopics.shared.onResync {
+            guard WidgetDataHub.shared.installed != false else { return }
             WidgetDataHub.shared.networkDue = true
             WidgetDataHub.shared.refreshSoon()
         }
@@ -95,6 +106,7 @@ final class WidgetDataHub {
     /// The background refresh task: everything, the server included.
     func refreshAll() async {
         networkDue = true
+        checkInstalled()        // a widget added from the Home Screen while the app was away
         await refresh()
     }
 
@@ -106,6 +118,7 @@ final class WidgetDataHub {
     }
 
     private func checkInstalled() {
+        lastInstalledCheck = now()
         WidgetCenter.shared.getCurrentConfigurations { result in
             // Unknown (the call failed) counts as installed: a widget that stops updating is worse
             // than a few requests.
@@ -151,11 +164,19 @@ final class WidgetDataHub {
     }
 
     private func refreshOnce() async {
-        guard installed != false else { return }
+        guard installed != false else {
+            // None installed when last asked; ask again now and then (a local call, no radio).
+            if lastInstalledCheck.map({ now().timeIntervalSince($0) > 600 }) ?? true { checkInstalled() }
+            return
+        }
         // In the background without a reason to ask the server, only what the phone knows itself
         // is read again; the server's part stays as it was.
-        let full = foreground || networkDue
-        if full { networkDue = false }
+        let stale = lastFull.map { now().timeIntervalSince($0) >= Self.backgroundFullEvery } ?? true
+        let full = foreground || networkDue || stale
+        if full {
+            networkDue = false
+            lastFull = now()
+        }
         var values: [String: JCJSON] = full ? [:] : current
         for provider in providers where full || !provider.usesNetwork {
             values.merge(await provider.values()) { _, new in new }
@@ -220,6 +241,8 @@ final class HealthWidgetData: WidgetDataProvider {
                   let name = Self.metrics[metric] else { continue }
             history.merge(Self.values(metric: metric, name: name, history: result)) { _, new in new }
         }
+        // Nothing came back (offline): keep what was shown rather than caching an empty week.
+        guard !history.isEmpty else { return out.merging(cache?.values ?? [:]) { a, _ in a } }
         cache = (Date(), history)
         return out.merging(history) { a, _ in a }
     }

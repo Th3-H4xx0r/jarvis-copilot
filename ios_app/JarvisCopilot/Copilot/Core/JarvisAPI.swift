@@ -409,6 +409,10 @@ final class JarvisAPI: @unchecked Sendable {
         var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = method
         for (k, v) in credentials.headers { req.setValue(v, forHTTPHeaderField: k) }
+        #if os(iOS)
+        // Whether the phone was in a pocket: the server counts background requests (battery).
+        req.setValue(BridgeClient.appStateHeader.value, forHTTPHeaderField: BridgeClient.appStateHeader.name)
+        #endif
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.httpBody = body
         return req

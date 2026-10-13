@@ -12,7 +12,9 @@ echo "$(date '+%H:%M:%S') installing $APP (built $(stat -f '%Sm' "$APP"))"
 BUNDLE_ID="com.jarviscopilot.jarviscopilotMobileAndIOS"
 MAX=${1:-300}; LOG=build/install-watch.log
 for ((i=0; i<MAX/2; i++)); do
-  if xcrun devicectl list devices 2>/dev/null | grep "$DEVICE" | grep -q "available"; then
+  # "available (paired)" over the network or "connected" on a cable — and not "unavailable",
+  # which also contains "available".
+  if xcrun devicectl list devices 2>/dev/null | grep "$DEVICE" | grep -Eq "(^|[[:space:]])(available|connected)"; then
     echo "$(date '+%H:%M:%S') phone available, installing" | tee -a "$LOG"
     if xcrun devicectl device install app --device "$DEVICE" "$APP" >> "$LOG" 2>&1; then
       xcrun devicectl device process launch --device "$DEVICE" --terminate-existing "$BUNDLE_ID" >> "$LOG" 2>&1
