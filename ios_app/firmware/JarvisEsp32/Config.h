@@ -16,7 +16,8 @@ constexpr const char* device_name_prefix = "Jarvis-ESP32";
 // is still encrypted and bonded; iOS shows a plain Pair/Cancel prompt once per phone.
 
 constexpr uint8_t firmware_major = 1;
-constexpr uint8_t firmware_minor = 1;  // 1.1: iPhone-notification relay (NOTIFY_RELAY)
+constexpr uint8_t firmware_minor = 2;  // 1.1: iPhone-notification relay (NOTIFY_RELAY)
+                                       // 1.2: puts back a bond the stack erased (BondKeeper)
 
 // Hold the onboard LED steady on while a phone is connected and blink it slowly while
 // advertising. Set false to keep the LED strictly under app control.

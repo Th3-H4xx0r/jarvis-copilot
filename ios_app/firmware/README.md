@@ -13,6 +13,8 @@ firmware/
     ScriptRuntime.h/.cpp   sandboxed Lua runtime for app/Jarvis-written scripts
     Ancs.h/.cpp            iPhone-notification relay for the glasses (ANCS client)
     AncsParser.h           ANCS wire format, host-tested by tests/ancs_parser_test.cpp
+    BondKeeper.h/.cpp      puts back a phone bond the BLE stack erased (see "Keeping the bond")
+    BondStore.h            the stack's chunked NVS bond store, host-tested by tests/bond_store_test.cpp
     TuyaCodec.h            Tuya LAN framing + crypto (3.3/3.4/3.5), host-tested (tinytuya vectors)
     TuyaSession.h          one Tuya LAN connection, sans socket: handshake, heartbeat, reports
     TuyaLocal.h/.cpp       door-sensor hub link: NVS config, TCP 6668, UDP discovery, bridge events
@@ -151,6 +153,27 @@ notifications") and on the glasses page ("Relay through ESP32").
 
 Parser test, no board needed:
 `c++ -std=c++17 -I JarvisEsp32 tests/ancs_parser_test.cpp -o /tmp/ancs && /tmp/ancs`
+
+### Keeping the bond
+
+ESP-IDF's Bluedroid erases a peer's bond, in RAM and in flash, whenever an encryption
+with it fails, and it treats encryption an iPhone starts as part of SMP
+(`smp_act.c` `smp_link_encrypted`, `bta_dm_act.c`, `btc_dm.c`). So one failed
+re-encryption, such as the phone leaving range mid-handshake, used to leave the board
+without keys while the iPhone kept its own. iOS then refused every connection ("peer
+removed pairing information") until the board was forgotten in Settings.
+
+`BondKeeper` (firmware 1.2) keeps a copy of the stack's bond store, NVS namespace
+`bt_config.conf` (`bt_cfg_key0..N`), in `jc_bt_copy`, refreshed after each pairing or
+encryption. When a bond in that copy disappears, it sets `heal` in `jc_bonds` and
+reboots. The next boot writes the copy back before Bluetooth starts, and the phone
+reconnects with the keys it already has. Three heals with no successful encryption in
+between, and it stops rebooting. The app keeps reconnecting for 30 s after "peer removed
+pairing information" before asking the user to forget the board. Serial lines start with
+`[bond]`.
+
+Store test, no board needed:
+`c++ -std=c++17 -I JarvisEsp32 tests/bond_store_test.cpp -o /tmp/bond && /tmp/bond`
 
 ## Direct link to Jarvis (cloud mode)
 

@@ -31,6 +31,7 @@
 #include "ScriptRuntime.h"
 #include "CloudLink.h"
 #include "Ancs.h"
+#include "BondKeeper.h"
 #include "TuyaLocal.h"
 
 namespace cfg = jarvis::config;
@@ -77,6 +78,8 @@ jarvis::CloudLink g_cloud;
 bool g_cloud_boot = false;   // booted without Bluetooth, holding the bridge instead
 jarvis::AncsClient g_ancs;
 bool g_relay_enabled = false;  // iPhone-notification relay for the glasses (NVS, read at boot)
+// Puts back a phone bond the Bluetooth stack erases after a failed encryption.
+jarvis::BondKeeper g_bonds;
 // Local Tuya LAN session to a door-sensor hub, relayed to Jarvis as bridge events.
 jarvis::TuyaLocal g_door;
 
@@ -1244,6 +1247,8 @@ class SecurityCallbacks : public BLESecurityCallbacks {
   bool onSecurityRequest() override { return true; }
   bool onConfirmPIN(uint32_t) override { return true; }
   void onAuthenticationComplete(esp_ble_auth_cmpl_t desc) override {
+    // On failure the stack has already erased this peer's bond; g_bonds puts it back.
+    g_bonds.on_auth(desc.success);
     if (desc.success) {
       g_ble_authenticated = true;
       g_ancs.on_encrypted();
@@ -1308,7 +1313,8 @@ void setup_ble(const String& name) {
   // board's real access control is the owner key, not the bond.
   // Exception: iOS only shares its notifications (ANCS) with a bonded accessory, so the
   // notification relay turns bonding on. Bonds live in NVS, which reflashing keeps, and
-  // switching the relay off later keeps them too, so the two sides never disagree.
+  // switching the relay off later keeps them too. The stack itself still erases a bond
+  // whenever an encryption with that phone fails; g_bonds (BondKeeper.h) puts it back.
   BLESecurity* security = new BLESecurity();
   security->setCapability(ESP_IO_CAP_NONE);
   security->setAuthenticationMode(/*bonding=*/g_relay_enabled, /*mitm=*/false, /*sc=*/true);
@@ -1370,6 +1376,7 @@ void setup() {
   reset_if_reflashed();
   load_owner_key();
   load_relay_setting();
+  g_bonds.restore_if_pending();  // the stack reads its bond store only when it starts
   Serial.printf("[mem] free heap before radios: %u bytes\n", ESP.getFreeHeap());
 
   const String name = device_name();
@@ -1390,6 +1397,7 @@ void setup() {
     Serial.println("[boot] cloud mode: Bluetooth off, holding the Jarvis bridge over Wi‑Fi");
   } else {
     setup_ble(name);
+    g_bonds.begin();
     Serial.printf("[mem] free heap after BLE: %u bytes\n", ESP.getFreeHeap());
   }
   // Same name as the BLE advertisement, lower-cased, becomes `<name>.local` on the LAN.
@@ -1423,6 +1431,7 @@ void loop() {
   if (g_cloud.take_state_changed()) send_cloud_changed();
   if (!g_pairing_boot) g_script.service(now);
   g_ancs.service(now);
+  if (g_bonds.service(now)) g_cloud.request_reboot(300);
   // Held in the queue until the owner's session is back: a phone that reconnects on its
   // own (iOS keeps bonded ANCS accessories linked) re-authenticates a few seconds later.
   static jarvis::AncsNotification relayed;  // ~300 bytes; kept off loop()'s stack

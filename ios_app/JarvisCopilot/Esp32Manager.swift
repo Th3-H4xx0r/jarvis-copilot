@@ -162,6 +162,9 @@ final class Esp32Manager: NSObject, ObservableObject {
     private var wifiRetryTask: Task<Void, Never>?
     private var keepaliveTask: Task<Void, Never>?
     private var reconnectAttempt = 0
+    /// When iOS first reported the board missing its pairing keys, while it heals itself.
+    private var keysMissingSince: Date?
+    private static let keysMissingGrace: TimeInterval = 30
     /// After a drop, which link to try first on the next attempt.
     private var linkHint: Esp32Link?
 
@@ -380,6 +383,7 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// Explicit user disconnect. The only thing that ends a session.
     func disconnect() {
         sessionWanted = false
+        keysMissingSince = nil
         reconnectTask?.cancel(); reconnectTask = nil
         teardownLinks()
         unpublish()
@@ -661,6 +665,7 @@ final class Esp32Manager: NSObject, ObservableObject {
             state = .ready
             lastError = nil
             reconnectAttempt = 0
+            keysMissingSince = nil
             publish()
             if activeLink == .wifi { startKeepalive() }
             JcLog.devices.debug("esp32 ready over \(self.activeLink?.label ?? "?") as \(info.deviceID)")
@@ -1310,13 +1315,39 @@ extension Esp32Manager: CBCentralManagerDelegate {
         return error.localizedDescription
     }
 
+    /// The board answered without its half of the pairing keys. Its Bluetooth stack erases
+    /// a bond whenever an encryption fails (the phone leaving range mid-handshake is
+    /// enough); firmware 1.2+ puts the bond back and reboots within a few seconds, so keep
+    /// reconnecting for a while before asking the user to forget the board.
+    private func pairingKeysMissing(_ error: Error?) {
+        let since = keysMissingSince ?? Date()
+        keysMissingSince = since
+        guard sessionWanted, connected != nil, Date().timeIntervalSince(since) < Self.keysMissingGrace else {
+            keysMissingSince = nil
+            sessionWanted = false   // retrying can't help until the user forgets the device
+            fail(describe(error))
+            return
+        }
+        teardownLinks()
+        lastError = "Bluetooth keys out of sync; waiting for the board to restore them…"
+        state = .connecting
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            // Short enough to finish inside the background wake a Bluetooth event buys;
+            // the connect it starts then stays pending until the rebooted board is back.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled, let self, self.sessionWanted, let board = self.connected else { return }
+            self.reconnectTask = nil
+            self.connect(board)
+        }
+    }
+
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
             guard self.peripheral === peripheral else { return }
             self.peripheral = nil
             if let cb = error as? CBError, cb.code == .peerRemovedPairingInformation {
-                sessionWanted = false   // retrying can't help until the user forgets the device
-                fail(describe(error))
+                pairingKeysMissing(error)
             } else {
                 linkDropped(describe(error))
             }
@@ -1329,8 +1360,7 @@ extension Esp32Manager: CBCentralManagerDelegate {
             if activeLink == .bluetooth {
                 self.peripheral = nil
                 if let cb = error as? CBError, cb.code == .peerRemovedPairingInformation {
-                    sessionWanted = false
-                    fail(describe(error))
+                    pairingKeysMissing(error)
                 } else {
                     linkDropped(error.map { "Bluetooth dropped: \($0.localizedDescription)" } ?? "Bluetooth disconnected")
                 }
