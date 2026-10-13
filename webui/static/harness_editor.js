@@ -263,6 +263,13 @@
   // tip meets the dot instead of covering it.
   function edgePath(a, b) {
     const x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x - 6, y2 = b.y + NODE_H / 2;
+    if (x2 < x1) {
+      // A wire back to a node on the left (an Answer's "hands" to its Computer):
+      // loop below both nodes instead of crossing them.
+      const low = Math.max(a.y, b.y) + NODE_H + 36;
+      return { d: `M${x1},${y1} C${x1 + 70},${low} ${x2 - 70},${low} ${x2},${y2}`,
+               mx: (x1 + x2) / 2, my: low - 12 };
+    }
     const dx = Math.max(40, Math.abs(x2 - x1) / 2);
     return { d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, mx: (x1 + x2) / 2, my: (y1 + y2) / 2 };
   }
