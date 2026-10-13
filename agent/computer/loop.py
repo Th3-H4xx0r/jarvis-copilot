@@ -159,8 +159,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             except Exception:
                 pass
 
-    for step in steps:
+    for at, step in enumerate(steps):
         moves_before = len(out.actions)
+        visits: dict = {}  # screens seen during this step (a Go back ↔ open cycle revisits them)
         if step.get("url"):
             t = time.monotonic()
             action = {"action": "open_url", "url": step["url"], "app": step.get("app") or "Safari"}
@@ -221,8 +222,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 out.status, out.reason = "stuck", f"Ran out of time ({int(cfg.max_seconds)} s)."
                 break
             t = time.monotonic()
-            move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions) \
-                if cfg.decision_ref else None
+            move = decide(cfg.decision_ref, look, goal, step, history, instructions=cfg.instructions,
+                          plan=steps, at=at) if cfg.decision_ref else None
             # "done" before any move on this step is often wrong (a pressed ×
             # leaves no trace): only the fallback can confirm it.
             early_done = (move is not None and move.action.get("action") == "done"
@@ -230,8 +231,8 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
             if (move is None or early_done or move.action.get("action") == "stuck"
                     or (move.confidence or 0) < cfg.min_conf):
                 first = move
-                move = fallback(cfg.fallback_ref, look, goal, step, history, instructions=cfg.instructions) \
-                    if cfg.fallback_ref else first
+                move = fallback(cfg.fallback_ref, look, goal, step, history, instructions=cfg.instructions,
+                                plan=steps, at=at) if cfg.fallback_ref else first
                 if move is None or move.action.get("action") == "stuck":
                     strikes += 1
                     why = (move.why if move else "") or (first.why if first else "") or "no way forward"
@@ -299,6 +300,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append("nothing changed on screen")
             if new_look.get("ok", True):
                 look = new_look
+            sig = look.get("sig")
+            visits[sig] = visits.get(sig, 0) + 1
+            if sig and visits[sig] >= 3 and not unchanged:
+                out.status, out.reason = "stuck", ("Going in circles between the same screens on step "
+                                                   f"“{step.get('do')}”; stopped (the screen shows where it got to).")
+                break
             if res.get("ok") and ((field is not None and not step.get("text"))
                                   or (_ONE_MOVE.match(str(step.get("do") or "")) and action.get("action") != "scroll")):
                 # A field click, or a one-move step whose move just worked: no "is it done?" call.

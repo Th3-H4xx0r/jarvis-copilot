@@ -355,3 +355,37 @@ def test_he_is_using_the_mac_twice_stops_politely():
     decide = _decider(*[Move({"action": "key", "keys": "return"}, 0.9, "decision", 1)] * 3)
     r = L.run("g", [{"do": "x"}], _cfg(), device="m", decide=decide, fallback=_never, mac=mac)
     assert r.status == "stuck" and "using the Mac" in r.reason
+
+
+def test_going_in_circles_between_two_screens_stops():
+    """Live (his voice, Amazon): Go back ↔ open the same product, six times over."""
+    screens = {"results": {"ok": True, "look_id": "R", "app": "Safari", "sig": "results",
+                           "elements": [{"i": 1, "role": "AXLink", "label": "Gaming PC"}]},
+               "product": {"ok": True, "look_id": "P", "app": "Safari", "sig": "product",
+                           "elements": [{"i": 1, "role": "AXButton", "label": "Go back"}]}}
+
+    class TwoScreens(FakeMac):
+        def __init__(self):
+            super().__init__()
+            self.at = "results"
+
+        def look(self, device, app=None):
+            return dict(screens[self.at])
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            self.at = "product" if self.at == "results" else "results"
+            return {"ok": True, "did": "click", "via": "ax", "look": dict(screens[self.at])}
+
+    mac = TwoScreens()
+    decide = _decider(*[Move({"action": "click", "element": 1}, 0.9, "decision", 1)] * 20)
+    r = L.run("g", [{"do": "make sure the first result is showing"}], _cfg(), device="m", decide=decide,
+              fallback=_never, mac=mac)
+    assert r.status == "stuck" and "circles" in r.reason and len(mac.acts) <= 5
+
+
+def test_deciders_see_the_step_list_with_progress():
+    from agent.computer.decide import context
+    text = context({"elements": []}, "g", {"do": "open the first result"}, [],
+                   plan=[{"do": "search for pc"}, {"do": "open the first result"}], at=1)
+    assert "1) ✓ search for pc" in text and "2) ▶ open the first result" in text

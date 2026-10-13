@@ -70,11 +70,17 @@ def data_url(look: dict) -> str | None:
     return f"data:{look.get('mime') or 'image/jpeg'};base64,{b64}" if b64 else None
 
 
-def context(look: dict, goal: str, step: dict, history: list, instructions: str = "") -> str:
+def context(look: dict, goal: str, step: dict, history: list, instructions: str = "", *, plan=None, at=None) -> str:
     step_line = f"Current step: {step.get('do') or goal}"
     if step.get("text"):
         step_line += f" (text to type: “{step['text']}”)"
-    lines = [f"Goal: {goal}", step_line, f"Window: {look.get('app') or '?'} — {look.get('window') or ''}".rstrip(" —")]
+    lines = [f"Goal: {goal}"]
+    if plan and at is not None and len(plan) > 1:
+        # Which steps are already done, so a decider doesn't undo finished work.
+        lines.append("Steps: " + "; ".join(
+            f"{i + 1}) {'✓' if i < at else '▶' if i == at else ' '} {s.get('do')}".replace("  ", " ")
+            for i, s in enumerate(plan)))
+    lines += [step_line, f"Window: {look.get('app') or '?'} — {look.get('window') or ''}".rstrip(" —")]
     if instructions:
         lines.append(f"Notes: {instructions}")
     if history:
@@ -89,7 +95,8 @@ def _ref(ref: str) -> tuple[str | None, str]:
     return (q[0], q[1]) if q else (None, str(ref or ""))
 
 
-def decide(ref, look, goal, step, history, *, instructions="", choose=None, timeout=DECISION_TIMEOUT) -> Move:
+def decide(ref, look, goal, step, history, *, instructions="", choose=None, timeout=DECISION_TIMEOUT,
+           plan=None, at=None) -> Move:
     """The decision model's move; any failure is a zero-confidence ``stuck``."""
     if choose is None:
         from agent.decision_client import choose
@@ -98,7 +105,8 @@ def decide(ref, look, goal, step, history, *, instructions="", choose=None, time
     started = time.monotonic()
     try:
         d = choose(provider, model, instructions=QUESTION, choices=build_choices(look, step),
-                   text=context(look, goal, step, history, instructions), images=[url] if url else None,
+                   text=context(look, goal, step, history, instructions, plan=plan, at=at),
+                   images=[url] if url else None,
                    timeout=timeout)
     except Exception as exc:
         return Move({"action": "stuck"}, 0.0, "decision", int((time.monotonic() - started) * 1000),
@@ -163,12 +171,12 @@ def _valid(raw, look, step) -> dict:
     return {"action": "stuck"}
 
 
-def fallback_step(ref, look, goal, step, history, *, instructions="", call=None) -> Move:
+def fallback_step(ref, look, goal, step, history, *, instructions="", call=None, plan=None, at=None) -> Move:
     """One move from a vision chat model, as JSON; anything unusable is ``stuck``."""
     started = time.monotonic()
     try:
-        out = _call(call, ref, _FALLBACK_PROMPT.format(context=context(look, goal, step, history, instructions)),
-                    look, 300)
+        out = _call(call, ref, _FALLBACK_PROMPT.format(
+            context=context(look, goal, step, history, instructions, plan=plan, at=at)), look, 300)
     except Exception as exc:
         logger.debug("computer: fallback step failed", exc_info=True)
         return Move({"action": "stuck"}, None, "fallback", int((time.monotonic() - started) * 1000),

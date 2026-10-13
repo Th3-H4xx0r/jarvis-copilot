@@ -119,6 +119,14 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
     decision instead of re-reading model-written text."""
     if not task_id:
         return
+    parent = str(task_id).split("~", 1)[0] if "~" in str(task_id) else None
+    if parent:
+        # A harness background job ("<chat>~<node>"): its text is model-written, so it
+        # follows the chat turn that started it and never unlocks the Mac itself.
+        with _lock:
+            if task_id not in _pinned:
+                _remember(task_id, _allowed.get(parent, False))
+        return
     try:
         allowed = explicit_mac_request(text, from_mac=_from_mac(task_id), prev_assistant=prev_assistant)
     except Exception:

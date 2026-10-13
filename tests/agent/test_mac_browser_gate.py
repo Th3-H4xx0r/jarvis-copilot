@@ -201,3 +201,13 @@ def test_note_turn_uses_origin_and_history(monkeypatch):
 def test_more_mac_control_tools_are_gated(name):
     gate.note_turn("t1", "hello")
     assert gate.block_message(name, "t1")
+
+
+def test_a_harness_background_job_follows_its_chat_turn():
+    """Live: the Long Running job's own text had no "on my Mac", so its computer_do was blocked."""
+    gate.note_turn("chat1", "on my Mac find a gaming pc on amazon")
+    gate.note_turn("chat1~background-1", "Research and open the best gaming PC")
+    assert gate.allowed("chat1~background-1")
+    gate.note_turn("chat2", "find a gaming pc")
+    gate.note_turn("chat2~background-1", "do it on my Mac")  # model-written text can't unlock it
+    assert not gate.allowed("chat2~background-1")
