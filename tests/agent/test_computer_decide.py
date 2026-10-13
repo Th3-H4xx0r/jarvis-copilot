@@ -117,3 +117,21 @@ def test_closing_line_comes_from_the_final_screen():
         raise RuntimeError("down")
 
     assert D.closing_line("@x:y", "g", LOOK, call=boom) == ""
+
+
+def test_needs_reading():
+    assert D.needs_reading("On my Mac, open Calculator and work out 23 times 4.")
+    assert D.needs_reading("what's playing in Spotify on my mac?")
+    assert not D.needs_reading("On my Mac open Safari, search amazon for computer and open the first result")
+
+
+def test_plan_without_a_screen_and_with_urls():
+    seen = {}
+
+    def call(**kw):
+        seen.update(kw)
+        return _reply('{"steps": [{"do": "open results", "app": "Safari", "url": "https://www.amazon.com/s?k=pc"}]}')
+
+    p = D.plan_steps("@x:y", "search amazon for pc", None, call=call)
+    assert p["steps"] == [{"do": "open results", "app": "Safari", "url": "https://www.amazon.com/s?k=pc"}]
+    assert len(seen["messages"][-1]["content"]) == 1  # text only, no screenshot

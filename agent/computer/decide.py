@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -39,17 +40,20 @@ Reply with ONLY one JSON object:
 - done: the current step already shows as finished. stuck: you cannot see a way forward, or the window shown is \
 not the app this task is about."""
 
-_PLAN_PROMPT = """The user asked for something to be done on their Mac. Split it into short UI steps.
+_PLAN_PROMPT = """The user asked for something to be done on their Mac. Split it into as few UI steps as possible.
 
 Request: {goal}
-Frontmost app now: {app}
 {notes}
 Reply with ONLY one JSON object:
-{{"steps": [{{"do": "<one step>", "text": "<exact text to type, if any>", "app": "<app to open first, if any>"}}]}}
-Use as few steps as possible (1-8). Each step is one UI move: "click the <label> button" (name buttons by \
-their visible label, one press per step), "search for …" / "type … into …" only where there is a text field \
-(put the text in "text", word for word), or "press <key>". The first step opens the app ("app") unless it is \
-already in front."""
+{{"steps": [{{"do": "<one step>", "app": "<app to open, if any>", "url": "<page to open, if any>", \
+"text": "<exact text to type, if any>"}}]}}
+Rules (fewer steps = faster):
+- Websites: open the exact page in ONE step with "url" — search results directly (https://www.amazon.com/s?k=…, \
+https://www.google.com/search?q=…, https://www.youtube.com/results?search_query=…) — and "app" = the browser \
+the user named, else "Safari". Never type a web address or a search into a page.
+- Apps: the first step opens the app ("app"). Then one move per step: "click the <label> button" (its visible \
+label, one press per step), "type … into the … field" with "text" word for word (no separate step to click \
+the field first), or "press <key>"."""
 
 
 @dataclass
@@ -171,19 +175,22 @@ def fallback_step(ref, look, goal, step, history, *, instructions="", call=None)
     return Move(_valid(raw, look, step), None, "fallback", int((time.monotonic() - started) * 1000), why=why)
 
 
-def plan_steps(ref, goal, look, *, instructions="", call=None) -> dict:
-    """``{"steps": [{do, text?, app?}], "say"}`` for a direct ask; the goal as one step on failure."""
+def plan_steps(ref, goal, look=None, *, instructions="", call=None) -> dict:
+    """``{"steps": [{do, app?, url?, text?}], "say"}`` from his words alone (no screenshot:
+    faster); the goal as one step on failure."""
     notes = f"Notes: {instructions}\n" if instructions else ""
     try:
-        raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, app=(look or {}).get("app") or "?",
-                                                        notes=notes), look or {}, 400))
+        raw = _json(_call(call, ref, _PLAN_PROMPT.format(goal=goal, notes=notes), look or {}, 300))
     except Exception:
         logger.debug("computer: plan failed", exc_info=True)
         raw = None
     steps = []
     for s in (raw.get("steps") or []) if isinstance(raw, dict) else []:
         if isinstance(s, dict) and str(s.get("do") or "").strip():
-            steps.append({k: str(s[k]).strip() for k in ("do", "text", "app") if str(s.get(k) or "").strip()})
+            step = {k: str(s[k]).strip() for k in ("do", "text", "app", "url") if str(s.get(k) or "").strip()}
+            if step.get("url") and not step["url"].startswith(("https://", "http://")):
+                step.pop("url")
+            steps.append(step)
     if not steps:
         return {"steps": [{"do": goal}], "say": ""}
     return {"steps": steps[:8], "say": str(raw.get("say") or "").strip()[:200]}
@@ -192,6 +199,15 @@ def plan_steps(ref, goal, look, *, instructions="", call=None) -> dict:
 _CLOSING_PROMPT = """The user asked: {goal}
 That was just done on their Mac; the screenshot shows the result. Write ONE short line for them (it may be read \
 aloud): what was done and any answer or result you can read on screen. Only state what the screen shows."""
+
+
+_READING = re.compile(r"\?|\b(?:what|which|how (?:much|many|long)|work out|calculate|compute|tell me|read|"
+                      r"find out|check|show me|is there|are there|look up)\b", re.I)
+
+
+def needs_reading(goal: str) -> bool:
+    """Whether the reply must report something read off the screen (else a quick line will do)."""
+    return bool(_READING.search(str(goal or "")))
 
 
 def closing_line(ref, goal, look, *, call=None) -> str:

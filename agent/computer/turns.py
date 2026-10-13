@@ -137,9 +137,14 @@ def computer_first(agent, messages: list, user_text, task_id) -> Optional[str]:
         "function": {"name": TOOL_NAME, "arguments": json.dumps({"goal": goal}, ensure_ascii=False)}}]})
     messages.append({"role": "tool", "tool_call_id": call_id, "name": TOOL_NAME, "content": tool_result(result)})
     if result.status == "done":
-        from agent.computer.decide import closing_line
+        from agent.computer.decide import closing_line, needs_reading
         b = bound(task_id) or Binding(None, None)
-        say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look) or "Done."
+        say = ""
+        if needs_reading(goal):  # an answer to read off the screen (a sum, what's playing…)
+            say = closing_line(config_for(b.node, b.own_ref).fallback_ref, goal, result.look)
+        if not say:  # an action: say where it ended up, no extra model call
+            where = " — ".join(x for x in ((result.look or {}).get("app"), (result.look or {}).get("window")) if x)
+            say = f"Done. {where}." if where else "Done."
         messages.append({"role": "assistant", "content": say})
         return say
     return None

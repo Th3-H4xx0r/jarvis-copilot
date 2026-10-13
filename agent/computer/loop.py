@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from agent.computer import decide as _decide_mod
 from agent.computer import mac as _mac_mod
-from agent.computer.choices import element_line, match_step
+from agent.computer.choices import TEXT_ROLES, element_line, match_step
 
 logger = logging.getLogger(__name__)
 _OPEN_ONLY = re.compile(r"^\s*(?:open|launch|start|switch to|go to|bring up|activate)\b(?!.*\b(?:and|then)\b)", re.I)
@@ -108,21 +108,27 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
     started = time.monotonic()
     out = Result("done", device_name=device_name)
 
-    # Start on the task's app when it is named (its window, even behind others),
-    # else on whatever is in front.
-    look = mac.look(device, app=app) if app else mac.look(device)
-    if app and not look.get("ok"):
-        opened = mac.act(device, {"action": "open_app", "app": app}, None)
-        look = opened.get("look") if opened.get("ok") and isinstance(opened.get("look"), dict) else look
-    if not look.get("ok"):
-        out.status, out.reason = "error", look.get("error") or "could not see the screen"
-        return out
+    # Plan from his words first (no screenshot: faster), and skip the first look
+    # when the first step opens an app or a page anyway.
+    if steps is None:
+        planned = plan(cfg.fallback_ref, goal, None, instructions=cfg.instructions)
+        steps, out.say = planned["steps"], planned.get("say") or ""
+    first = steps[0] if steps else {}
+    if not app and (first.get("app") or first.get("url")):
+        look = {"ok": True, "app": None, "look_id": None, "elements": []}
+    else:
+        # Start on the task's app when it is named (its window, even behind
+        # others), else on whatever is in front.
+        look = mac.look(device, app=app) if app else mac.look(device)
+        if app and not look.get("ok"):
+            opened = mac.act(device, {"action": "open_app", "app": app}, None)
+            look = opened.get("look") if opened.get("ok") and isinstance(opened.get("look"), dict) else look
+        if not look.get("ok"):
+            out.status, out.reason = "error", look.get("error") or "could not see the screen"
+            return out
     # The task stays on its app: if he switches to another app mid-task, the
     # looks keep reading this one (presses work in the background).
     anchor = look.get("app")
-    if steps is None:
-        planned = plan(cfg.fallback_ref, goal, look, instructions=cfg.instructions)
-        steps, out.say = planned["steps"], planned.get("say") or ""
     out.steps = list(steps)
     history: list[str] = []
 
@@ -145,6 +151,22 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
 
     for step in steps:
         moves_before = len(out.actions)
+        if step.get("url"):
+            t = time.monotonic()
+            action = {"action": "open_url", "url": step["url"], "app": step.get("app") or "Safari"}
+            res = mac.act(device, action, look.get("look_id"))
+            record(action, res, None, int((time.monotonic() - t) * 1000))
+            if not res.get("ok"):
+                out.status, out.reason = "error", res.get("error") or "could not open the page"
+                break
+            nxt = res.get("look") if isinstance(res.get("look"), dict) else None
+            look = nxt if nxt and nxt.get("ok", True) else _look_soon(mac, device, action["app"])
+            if not look.get("ok", True):
+                out.status, out.reason = "error", look.get("error") or "could not see the page"
+                break
+            anchor = look.get("app") or action["app"]
+            history.append(f"step done: {step.get('do')}")
+            continue  # opening the page was the whole step
         if step.get("app"):
             t = time.monotonic()
             action = {"action": "open_app", "app": step["app"]}
@@ -218,6 +240,12 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append(f"step done: {step.get('do')}")
                 logger.info("Computer step done: %s by=%s conf=%s", step.get("do"), move.by, move.confidence)
                 break
+            # Clicking a text field: with text to type that means fill it; without, the
+            # click (focus) is the whole step — the screen won't visibly change.
+            field = next((e for e in look.get("elements") or [] if e.get("i") == action.get("element")
+                          and e.get("role") in TEXT_ROLES), None) if action.get("action") == "click" else None
+            if field is not None and step.get("text"):
+                action = {"action": "fill", "element": field["i"], "text": step["text"]}
             refused = _blocked(action)
             if refused:
                 out.status, out.reason = "stuck", refused[0].upper() + refused[1:] + "."
@@ -255,6 +283,9 @@ def run(goal, steps, cfg: Config, *, device, device_name="", progress=None, shou
                 history.append("nothing changed on screen")
             if new_look.get("ok", True):
                 look = new_look
+            if field is not None and not step.get("text") and res.get("ok"):
+                history.append(f"step done: {step.get('do')}")
+                break
             if repeats >= 2:
                 out.status, out.reason = "stuck", f"“{describe(action, look)}” did nothing three times."
                 break

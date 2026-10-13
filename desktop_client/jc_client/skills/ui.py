@@ -453,15 +453,25 @@ def _open_app(name: str) -> None:
     subprocess.run(["open", "-a", name], check=True, timeout=15)
 
 
+def _open(args: list) -> None:
+    subprocess.run(["open", *args], check=True, timeout=15)
+
+
+def _title_of(ax, app: str) -> str:
+    found = ax.find_app(app)
+    win = ax.window(ax.app_element(found[0])) if found else None
+    return str((ax.attrs(win, ["AXTitle"]) if win is not None else {}).get("AXTitle") or "")
+
+
 def do_action(action: str, look_id: str | None = None, element: int | None = None, text: str | None = None,
               keys: str | None = None, direction: str | None = None, x: float | None = None,
-              y: float | None = None, app: str | None = None, ax=None) -> dict:
+              y: float | None = None, app: str | None = None, ax=None, url: str | None = None) -> dict:
     """Do one move; returns ``{ok, did, via}`` or ``{ok: False, error}``."""
     ax = ax or _ax()
     if not ax.trusted():
         return {"ok": False, "error": _NOT_TRUSTED}
     try:
-        return _do(ax, action, look_id, element, text, keys, direction, x, y, app)
+        return _do(ax, action, look_id, element, text, keys, direction, x, y, app, url)
     except NotInFront:
         with _looks_lock:
             seen = _looks.get(look_id or "")
@@ -470,9 +480,10 @@ def do_action(action: str, look_id: str | None = None, element: int | None = Non
                                       "the cursor; only its buttons can be pressed in the background."}
 
 
-def _do(ax, action, look_id, element, text, keys, direction, x, y, app) -> dict:
+def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None) -> dict:
     with _looks_lock:
-        seen = _looks.get(look_id or "")
+        # No look_id: the latest look (a model calling ui_do by hand often leaves it out).
+        seen = _looks.get(look_id) if look_id else (next(reversed(_looks.values())) if _looks else None)
     if seen is None and (action == "fill" or (action == "click" and (element is not None or x is not None))):
         return {"ok": False, "error": "That screen is gone; look again."}
     pid = seen["pid"] if seen else ax.frontmost()[0]
@@ -532,6 +543,22 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app) -> dict:
                 break
             time.sleep(0.1)
         return {"ok": True, "did": "open_app", "via": "app"}
+    if action == "open_url":
+        # Straight to the page (a search results URL skips typing and a page load).
+        if not str(url or "").startswith(("https://", "http://")):
+            return {"ok": False, "error": "open_url needs an http(s) url"}
+        browser = app or "Safari"
+        before = _title_of(ax, browser)
+        _open(["-a", browser, url])
+        deadline, last, steady = time.monotonic() + 6.0, None, 0
+        while time.monotonic() < deadline:
+            title = _title_of(ax, browser)
+            steady = steady + 1 if (title and title != before and title == last) else 0
+            if steady >= 2:  # the new page's title held for two reads: loaded enough to read
+                break
+            last = title
+            time.sleep(0.15)
+        return {"ok": True, "did": "open_url", "via": "app"}
     if action == "wait":
         time.sleep(0.5)
         return {"ok": True, "did": "wait", "via": ""}
@@ -544,7 +571,8 @@ def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> d
     reader = reader or read_window
     started = time.monotonic()
     with _looks_lock:
-        before = _looks.get(kw.get("look_id") or "")
+        lid = kw.get("look_id")
+        before = _looks.get(lid) if lid else (next(reversed(_looks.values())) if _looks else None)
     try:
         res = do_action(action, **kw)
     except Exception as exc:
@@ -553,8 +581,8 @@ def do_and_look(action: str, *, look_after: bool = True, reader=None, **kw) -> d
     if res.get("ok") and look_after:
         # Keep looking at the app the move was made in (it may sit behind other
         # windows: accessibility presses don't bring it forward); a new app → frontmost.
-        if action == "open_app":
-            target = {"app": kw.get("app")}
+        if action in ("open_app", "open_url"):
+            target = {"app": kw.get("app") or ("Safari" if action == "open_url" else None)}
         elif before:
             target = {"pid": before["pid"]}
             try:
@@ -589,7 +617,8 @@ def ui_look(app: str | None = None, max_elements: int = 150) -> dict:
     "keys (e.g. 'return', 'cmd+f'), scroll up/down, open_app, or wait. Accessibility first; the real cursor "
     "only when needed (and put back).",
     {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "wait"]},
+        "action": {"type": "string", "enum": ["click", "fill", "key", "scroll", "open_app", "open_url", "wait"]},
+        "url": {"type": "string", "description": "open_url: the page to open (default browser Safari)."},
         "look_id": {"type": "string"},
         "element": {"type": "integer"},
         "text": {"type": "string"},
@@ -604,6 +633,6 @@ def ui_look(app: str | None = None, max_elements: int = 150) -> dict:
 )
 def ui_do(action: str, look_id: str | None = None, element: int | None = None, text: str | None = None,
           keys: str | None = None, direction: str | None = None, x: float | None = None, y: float | None = None,
-          app: str | None = None, look: bool = True) -> dict:
+          app: str | None = None, look: bool = True, url: str | None = None) -> dict:
     return do_and_look(action, look_after=look, look_id=look_id, element=element, text=text, keys=keys,
-                       direction=direction, x=x, y=y, app=app)
+                       direction=direction, x=x, y=y, app=app, url=url)

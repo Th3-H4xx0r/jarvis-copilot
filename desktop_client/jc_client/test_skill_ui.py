@@ -264,3 +264,21 @@ def test_frontmost_and_find_app_come_from_the_live_window_list(monkeypatch):
     assert ax.find_app("Brave Browser") == (9, "Brave Browser")
     assert ax.find_app("Notes") is None
     assert ax.app_name(9) == "Brave Browser"
+
+
+def test_ui_do_without_look_id_uses_the_latest_look():
+    ax = FakeAX(_window())
+    ui.read_window(ax=ax, capture=_capture)
+    assert ui.do_action("click", element=1, ax=ax) == {"ok": True, "did": "click", "via": "ax"}
+
+
+def test_open_url_opens_the_page_in_the_app_and_waits_for_its_title(monkeypatch):
+    ax = FakeAX(_window())
+    opened, titles = [], iter(["Start Page", "Start Page", "Amazon.com : computer"])
+    monkeypatch.setattr(ui, "_open", lambda args: opened.append(args))
+    monkeypatch.setattr(ui, "_title_of", lambda ax_, app: next(titles, "Amazon.com : computer"))
+    monkeypatch.setattr(ui.time, "sleep", lambda s: None)
+    out = ui.do_action("open_url", url="https://www.amazon.com/s?k=computer", app="Safari", ax=ax)
+    assert out == {"ok": True, "did": "open_url", "via": "app"}
+    assert opened == [["-a", "Safari", "https://www.amazon.com/s?k=computer"]]
+    assert ui.do_action("open_url", url="file:///etc/passwd", app="Safari", ax=ax)["ok"] is False

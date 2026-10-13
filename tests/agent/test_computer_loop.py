@@ -197,7 +197,8 @@ def test_loop_anchors_to_the_task_app_when_he_switches_away():
     r = L.run("g", [{"do": "clear the display", "app": "Calculator"}], _cfg(), device="m", decide=decide,
               fallback=_never, mac=mac)
     assert r.status == "done"
-    assert mac.looked[0] is None and all(a == "Calculator" for a in mac.looked[1:]) and len(mac.looked) >= 2
+    # No first look (the step opens Calculator); every later look reads Calculator.
+    assert mac.looked and all(a == "Calculator" for a in mac.looked)
 
 
 def test_not_in_front_twice_stops_politely():
@@ -274,3 +275,47 @@ def test_a_failed_look_after_opening_is_retried_then_reported():
     r = L.run("g", [{"do": "clear it", "app": "Calculator"}], _cfg(), device="m", decide=_never, fallback=_never,
               mac=mac)
     assert r.status == "error" and "no open window" in r.reason
+
+
+def test_planned_web_task_opens_the_page_directly_without_a_first_look():
+    """Speed: plan from his words (no screenshot), then open the results page in one step."""
+    mac = AppMac()
+    order = []
+
+    def plan(ref, goal, look, **kw):
+        order.append(("plan", look))
+        return {"steps": [{"do": "open the Amazon results for computer", "app": "Safari",
+                           "url": "https://www.amazon.com/s?k=computer"},
+                          {"do": "click the first product result"}]}
+
+    r = L.run("on my mac search amazon for computer and open the first result", None, _cfg(), device="m",
+              decide=_decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1),
+                              Move({"action": "done"}, 0.9, "decision", 1)),
+              fallback=_never, mac=mac, plan=plan)
+    assert order == [("plan", None)] and mac.looked == []
+    assert mac.acts[0][0] == {"action": "open_url", "url": "https://www.amazon.com/s?k=computer", "app": "Safari"}
+    assert mac.acts[1][0] == {"action": "click", "element": 1} and r.status == "done"
+
+
+def test_click_on_a_text_field_fills_it_or_finishes_the_step():
+    look = {"ok": True, "look_id": "L1", "app": "Safari", "sig": "a",
+            "elements": [{"i": 1, "role": "AXTextField", "label": "smart search field"}]}
+
+    class FieldMac(FakeMac):
+        def look(self, device, app=None):
+            return dict(look)
+
+        def act(self, device, action, look_id):
+            self.acts.append((action, look_id))
+            return {"ok": True, "did": action["action"], "via": "ax", "look": dict(look)}
+
+    mac = FieldMac()
+    r = L.run("g", [{"do": "put amazon.com in the address bar", "text": "amazon.com"}], _cfg(), device="m",
+              decide=_decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1),
+                              Move({"action": "done"}, 0.9, "decision", 1)), fallback=_never, mac=mac)
+    assert mac.acts[0][0] == {"action": "fill", "element": 1, "text": "amazon.com"} and r.status == "done"
+
+    mac = FieldMac()
+    r = L.run("g", [{"do": "focus the address bar"}], _cfg(), device="m",
+              decide=_decider(Move({"action": "click", "element": 1}, 0.9, "decision", 1)), fallback=_never, mac=mac)
+    assert len(mac.acts) == 1 and r.status == "done"

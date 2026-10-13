@@ -36,12 +36,12 @@ def test_done_appends_call_result_and_line(monkeypatch):
     monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (_result("done", "Calculator is open."), None))
     agent, messages = _agent(), [{"role": "user", "content": "on my mac open calculator"}]
     said = turns.computer_first(agent, messages, "on my mac open calculator", "t1")
-    assert said == "Calculator is open."
+    assert said == "Done. Calc."  # an action: no extra model call, says where it ended up
     call, result, line = messages[1:]
     assert call["tool_calls"][0]["function"]["name"] == "computer_do"
     assert json.loads(call["tool_calls"][0]["function"]["arguments"]) == {"goal": "on my mac open calculator"}
     assert result["role"] == "tool" and result["tool_call_id"] == call["tool_calls"][0]["id"]
-    assert line == {"role": "assistant", "content": "Calculator is open."}
+    assert line == {"role": "assistant", "content": "Done. Calc."}
     assert agent.events == [("tool.started", "computer_do"), ("tool.completed", "computer_do")]
 
 
@@ -80,3 +80,12 @@ def test_gateway_apply_and_clear_set_the_computer_node():
     assert agent._computer_node == {"id": "mac"} and agent._computer_first is True
     H.clear_node(agent)
     assert agent._computer_node is None and agent._computer_first is False
+
+
+def test_a_question_gets_its_answer_read_off_the_screen(monkeypatch):
+    mac_browser_gate.note_turn("t1", "on my mac work out 23 times 4")
+    monkeypatch.setattr(turns, "run_task", lambda goal, steps, task_id, app=None: (_result("done"), None))
+    monkeypatch.setattr("agent.computer.decide.closing_line", lambda ref, goal, look, **k: "Calculator shows 92.")
+    monkeypatch.setattr("agent.computer.decide.pick_decision_ref", lambda pref: pref)
+    said = turns.computer_first(_agent(), [{"role": "user", "content": "x"}], "on my mac work out 23 times 4", "t1")
+    assert said == "Calculator shows 92."
