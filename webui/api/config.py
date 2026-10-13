@@ -2358,11 +2358,30 @@ def _models_cache_catalog_fingerprint() -> dict:
     }
 
 
+def _auth_store_fingerprint(path) -> object:
+    """Which providers have credentials in auth.json — not when it was last written.
+
+    auth.json is rewritten on every request (updated_at, credential-pool usage,
+    refreshed tokens), so keying the catalog on its mtime rebuilt the whole
+    /api/models catalog on every chat start (~6.5 s before a turn could begin).
+    Adding or removing a provider's credentials still changes this."""
+    try:
+        data = json.loads(Path(path).read_text())
+        pool = data.get("credential_pool") or {}
+        return {
+            "providers": sorted((data.get("providers") or {}).keys()),
+            "pool": sorted((str(pid), len(v)) for pid, v in pool.items() if isinstance(v, list) and v),
+            "active_provider": data.get("active_provider"),
+        }
+    except Exception:
+        return _models_cache_file_fingerprint(path)
+
+
 def _models_cache_source_fingerprint() -> dict:
     """Return the current config/auth/catalog fingerprint for /api/models cache."""
     return {
         "config_yaml": _models_cache_file_fingerprint(_get_config_path()),
-        "auth_json": _models_cache_file_fingerprint(_get_auth_store_path()),
+        "auth_json": _auth_store_fingerprint(_get_auth_store_path()),
         "catalog": _models_cache_catalog_fingerprint(),
     }
 
