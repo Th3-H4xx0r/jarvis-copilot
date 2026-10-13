@@ -97,9 +97,12 @@ def test_the_pre_tool_check_enforces_it():
     assert get_pre_tool_call_block_message("browser_navigate", {"url": "https://kayak.com"}, task_id="t2") is None
 
 
-def test_a_photo_message_closes_the_gate_again():
+def test_a_later_message_closes_the_gate_again(monkeypatch):
+    clock = {"t": 0.0}
+    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
     gate.note_turn("t3", "open it in my browser")
     assert gate.block_message("chrome_navigate", "t3") is None
+    clock["t"] += gate.STICKY_S + 1  # a follow-up after the window no longer counts
     gate.note_turn("t3", [{"type": "image_url", "image_url": {"url": "data:x"}}])
     assert gate.block_message("chrome_navigate", "t3") is not None
 
@@ -211,3 +214,20 @@ def test_a_harness_background_job_follows_its_chat_turn():
     gate.note_turn("chat2", "find a gaming pc")
     gate.note_turn("chat2~background-1", "do it on my Mac")  # model-written text can't unlock it
     assert not gate.allowed("chat2~background-1")
+
+
+def test_follow_ups_in_the_same_chat_keep_his_mac_ask_for_ten_minutes(monkeypatch):
+    """Live: "Continue." right after a Mac task was blocked ("couldn't … because the Mac control was blocked")."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(gate.time, "monotonic", lambda: clock["t"])
+    gate.note_turn("chat", "Can you do some research for me on my MacBook")
+    gate.note_turn("chat", "Continue.")
+    assert gate.allowed("chat")
+    clock["t"] += 9 * 60
+    gate.note_turn("chat", "now open the second one")
+    assert gate.allowed("chat")
+    clock["t"] += 2 * 60  # 11 min after his ask: follow-ups no longer count
+    gate.note_turn("chat", "keep going")
+    assert not gate.allowed("chat")
+    gate.note_turn("other-chat", "Continue.")
+    assert not gate.allowed("other-chat")

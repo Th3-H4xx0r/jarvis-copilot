@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from collections import OrderedDict
 from typing import Optional
 
@@ -56,6 +57,10 @@ _MAX_TURNS = 2000
 
 _lock = threading.Lock()
 _allowed: "OrderedDict[str, bool]" = OrderedDict()
+# When his last explicit ask in a chat was: follow-ups ("Continue.", "now open the
+# second one") in the same chat keep it for STICKY_S. Only an explicit ask renews it.
+_asked_at: "OrderedDict[str, float]" = OrderedDict()
+STICKY_S = 600.0
 _pinned: set = set()
 
 BLOCK_MESSAGE = (
@@ -131,9 +136,17 @@ def note_turn(task_id: Optional[str], text, *, prev_assistant=None) -> None:
         allowed = explicit_mac_request(text, from_mac=_from_mac(task_id), prev_assistant=prev_assistant)
     except Exception:
         allowed = False
+    now = time.monotonic()
     with _lock:
         if task_id in _pinned:
             return
+        if allowed:
+            _asked_at[task_id] = now
+            _asked_at.move_to_end(task_id)
+            while len(_asked_at) > _MAX_TURNS:
+                _asked_at.popitem(last=False)
+        elif now - _asked_at.get(task_id, -1e9) < STICKY_S:
+            allowed = True
         _remember(task_id, allowed)
 
 
@@ -172,3 +185,4 @@ def reset_for_tests() -> None:
     with _lock:
         _allowed.clear()
         _pinned.clear()
+        _asked_at.clear()
