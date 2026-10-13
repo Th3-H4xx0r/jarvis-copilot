@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 TOOL_NAME = "computer_do"
 HANDS_NOTE = ("For anything on the user's Mac (apps, websites, clicking, typing) use computer_do — one call per "
               "sub-goal, it is fast (it reads the whole page's text, no scrolling needed to read); don't drive the Mac "
-              "with chrome_* or mouse/keyboard tools.")
+              "with chrome_* or mouse/keyboard tools. If they asked for it on their Mac and you researched faster "
+              "elsewhere, still show the result there: open the best page on the Mac with computer_do.")
 _MAX = 2000
 _lock = threading.Lock()
 _bound: "OrderedDict[str, Binding]" = OrderedDict()
