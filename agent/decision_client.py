@@ -55,12 +55,17 @@ def _message(resp: httpx.Response) -> str:
     return (resp.text or "")[:160]
 
 
-def choose(provider, model, *, instructions, choices, text, timeout=1.5, client=None) -> Decision:
-    """One ``choice`` question over ``text``; ``choices`` is ``[(value, description|None)]``."""
+def choose(provider, model, *, instructions, choices, text, timeout=1.5, client=None, images=None) -> Decision:
+    """One ``choice`` question over ``text``; ``choices`` is ``[(value, description|None)]``.
+    ``images`` (``data:`` URLs, at most 8) go with the text as one user message."""
     key, base = _endpoint(provider, model)
     question = {"type": "choice", "name": "route", "instructions": instructions,
                 "choices": [{"value": v, **({"description": d} if d else {})} for v, d in choices]}
-    body = {"model": model, "input": text or "", "questions": [question]}
+    inp = text or ""
+    if images:
+        inp = [{"role": "user", "content": [{"type": "input_text", "text": text or ""}] + [
+            {"type": "input_image", "image_url": url} for url in list(images)[:8]]}]
+    body = {"model": model, "input": inp, "questions": [question]}
     started = time.monotonic()
     try:
         resp = (client or httpx).post(f"{base}/decisions", json=body, timeout=timeout,

@@ -78,3 +78,20 @@ def test_timeout():
     with pytest.raises(DecisionError, match="timed out"):
         choose("celeris", "celeris-1-decision", instructions="q", choices=[("a", None), ("b", None)],
                text="x", client=_client(handler))
+
+
+def test_images_become_one_user_message():
+    """A computer step sends the screenshot: the input turns into one user
+    message of a text part plus image parts (Celeris input_text/input_image)."""
+    from agent.decision_client import choose
+    seen = {}
+
+    def handler(req):
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json=_ok())
+
+    choose("celeris", "celeris-1-decision", instructions="q", choices=[("deep", None), ("none", None)],
+           text="hi", images=["data:image/jpeg;base64,AAAA"], client=_client(handler))
+    assert seen["body"]["input"] == [{"role": "user", "content": [
+        {"type": "input_text", "text": "hi"},
+        {"type": "input_image", "image_url": "data:image/jpeg;base64,AAAA"}]}]
