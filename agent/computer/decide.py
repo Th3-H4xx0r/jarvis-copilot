@@ -58,6 +58,8 @@ the field first), or "press <key>".
 - Something you can only know by looking (a price, a name, a number, a date): add a step \
 {{"do": "read the …", "read": "<short_name>"}} on the screen that shows it, and write {{<short_name>}} in a later \
 step's "text". Never write a placeholder like [price].
+- Dates: write the exact date in steps ("go to Wednesday, October 14", working from Today), never "tomorrow"; \
+in a calendar, first click Today, then move to the date.
 - Only UI moves and read steps: the reply to the user is written afterwards from the screen, so never add a step \
 to tell, say or report something."""
 
@@ -97,8 +99,13 @@ def context(look: dict, goal: str, step: dict, history: list, instructions: str 
 
 
 def _today() -> str:
-    import datetime
-    return datetime.datetime.now().astimezone().strftime("%A, %B %-d, %Y")
+    """Today in the user's own timezone (the server runs on UTC)."""
+    try:
+        from jarviscopilot_time import now
+        return now().strftime("%A, %B %-d, %Y")
+    except Exception:
+        import datetime
+        return datetime.datetime.now().astimezone().strftime("%A, %B %-d, %Y")
 
 
 def _ref(ref: str) -> tuple[str | None, str]:
