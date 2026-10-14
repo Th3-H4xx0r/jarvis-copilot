@@ -90,3 +90,58 @@ def test_instruction_frame_runs_only_when_allowed(tmp_path, monkeypatch):
                                  "remote_instructions": True})
     svc._handle_frame(FakeWs(), frame)
     assert runs == [("s1", "go on")]
+
+
+class FakeUi:
+    def __init__(self):
+        self.sent = []
+
+    def broadcast(self, msg):
+        self.sent.append(msg)
+
+
+def test_ui_decide_goes_to_the_arbiter():
+    svc = service.Service()
+    calls = []
+
+    class Arb:
+        def decide(self, fp, decision, message=None, answers=None):
+            calls.append((fp, decision, answers))
+            return fp == "good"
+
+        def pending(self):
+            return []
+
+    svc._arbiter = Arb()
+    assert svc._ui_request({"type": "decide", "fingerprint": "good", "decision": "allow"}) == {"ok": True}
+    assert svc._ui_request({"type": "decide", "fingerprint": "stale", "decision": "allow"}) == {"ok": False}
+    assert calls[0] == ("good", "allow", None)
+
+
+def test_ui_subscribe_forwards_the_union_to_the_server():
+    svc = service.Service()
+    ws = FakeWs()
+    svc._ws = ws
+    svc._ui_request({"type": "subscribe", "topics": {"services": 0, "portfolio": 5}})
+    assert ws.sent[-1] == {"type": "subscribe", "topics": {"services": 0, "portfolio": 5}}
+
+
+def test_server_topic_frames_reach_the_app():
+    svc = service.Service()
+    svc._ui = FakeUi()
+    svc._handle_frame(FakeWs(), {"type": "topic", "topic": "services", "data": {"services": []}})
+    assert svc._ui.sent == [{"type": "topic", "topic": "services", "data": {"services": []}}]
+
+
+def test_config_change_is_told_to_the_app(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "c.json"))
+    svc = service.Service()
+    svc._ui = FakeUi()
+    svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": True,
+                                 "remote_instructions": False})
+    assert svc._ui.sent == [{"type": "config", "approvals": True, "instructions": False}]
+
+
+def test_unknown_ui_request_is_refused():
+    svc = service.Service()
+    assert svc._ui_request({"type": "frobnicate"})["ok"] is False

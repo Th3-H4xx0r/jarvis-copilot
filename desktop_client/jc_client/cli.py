@@ -1002,6 +1002,44 @@ def cmd_hooks(args) -> int:
         return 1
 
 
+def _ui_socket() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "ui.sock")
+
+
+def cmd_agents(args) -> int:
+    """Print the coding-agent sessions the running service sees (from its hooks)."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(3)
+    try:
+        s.connect(_ui_socket())
+        buf = b""
+        while b"\n" not in buf:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    except OSError:
+        print("jc-client is not running (no ui.sock) — start it with `jc-client start`.", file=sys.stderr)
+        return 1
+    finally:
+        s.close()
+    hello = json.loads(buf.split(b"\n", 1)[0] or b"{}")
+    if getattr(args, "json", False):
+        print(json.dumps({"sessions": hello.get("sessions", []), "pending": hello.get("pending", [])}, indent=2))
+        return 0
+    sessions = hello.get("sessions") or []
+    if not sessions:
+        print("No agent sessions. (Hooks installed? `jc-client hooks status`)")
+    for x in sessions:
+        term = (x.get("terminal") or {}).get("term_program") or (x.get("terminal") or {}).get("tmux") or ""
+        print(f"{x.get('project', '?'):24} {x.get('agent', ''):10} {x.get('state', ''):10} "
+              f"{term:16} {x.get('step', '')}")
+    for p in hello.get("pending") or []:
+        print(f"  waiting: {p.get('kind')} {p.get('summary')}")
+    return 0
+
+
 def cmd_install_mutagen(args) -> int:
     """Download + install the pinned Mutagen binary used by coding-session sync."""
     from jc_client.mutagen_install import ensure_mutagen
@@ -1082,6 +1120,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
     sub.add_parser("tcp-relay", help="SSH ProxyCommand: bridge stdio to the server sync relay").set_defaults(func=cmd_tcp_relay)
     sub.add_parser("install-mutagen", help="Download/refresh the Mutagen sync engine").set_defaults(func=cmd_install_mutagen)
+    ag = sub.add_parser("agents", help="List the coding-agent sessions the service sees")
+    ag.add_argument("--json", action="store_true")
+    ag.set_defaults(func=cmd_agents)
     hk = sub.add_parser("hooks", help="Report Claude Code sessions to Jarvis through its hooks")
     hk_sub = hk.add_subparsers(dest="hooks_command", required=True)
     hk_sub.add_parser("status", help="Show whether the hooks are installed")

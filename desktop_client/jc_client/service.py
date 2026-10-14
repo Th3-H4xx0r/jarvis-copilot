@@ -111,6 +111,9 @@ class Service:
         # Instructions from the phone for sessions outside tmux (claude --resume).
         self._agent_instructions = _cfg.get("remote_instructions") is True
         self._instructions = None
+        # The Jarvis Mac app's link (ui.sock) and the server topics it wants.
+        self._ui = None
+        self._ui_topics: dict = {}
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -126,6 +129,83 @@ class Service:
         self._agent_instructions = frame.get("remote_instructions") is True
         _save_agent_config({"remote_approvals": self._agent_approvals,
                             "remote_instructions": self._agent_instructions})
+        self._ui_broadcast({"type": "config", "approvals": self._agent_approvals,
+                            "instructions": self._agent_instructions})
+
+    # ── the Jarvis Mac app (ui.sock) ──────────────────────────────────
+
+    def _ui_broadcast(self, message: dict) -> None:
+        ui = self._ui
+        if ui is not None:
+            try:
+                ui.broadcast(message)
+            except Exception:  # noqa: BLE001 — the app is optional
+                log.debug("ui broadcast failed", exc_info=True)
+
+    def _ui_hello(self) -> dict:
+        creds = credentials.load()
+        return {"api": _imessage_api_origin(), "paired": creds.paired,
+                "device_name": creds.device_name, "approvals": self._agent_approvals,
+                "instructions": self._agent_instructions,
+                "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
+                "pending": self._arbiter.pending() if self._arbiter else []}
+
+    def _ui_push_sessions(self, _effects=None) -> None:
+        if self._hook_server is not None:
+            self._ui_broadcast({"type": "sessions", "sessions": self._hook_server.engine_sessions()})
+
+    def _ui_push_pending(self) -> None:
+        if self._arbiter is not None:
+            self._ui_broadcast({"type": "pending", "pending": self._arbiter.pending()})
+
+    def _send_subscription(self) -> None:
+        self._forward_up({"type": "subscribe", "topics": dict(self._ui_topics)})
+
+    def _ui_request(self, req: dict) -> dict:
+        kind = req.get("type")
+        if kind == "decide":
+            if self._arbiter is None:
+                return {"ok": False}
+            return {"ok": bool(self._arbiter.decide(str(req.get("fingerprint") or ""),
+                                                    str(req.get("decision") or ""),
+                                                    message=req.get("message"),
+                                                    answers=req.get("answers")))}
+        if kind == "sessions":
+            return {"ok": True, "sessions": self._hook_server.engine_sessions() if self._hook_server else []}
+        if kind == "session":
+            key = str(req.get("key") or "")
+            for s in (self._hook_server.engine_sessions() if self._hook_server else []):
+                if s.get("key") == key:
+                    return {"ok": True, "session": s}
+            return {"ok": False, "error": "no such session"}
+        if kind == "pending":
+            return {"ok": True, "pending": self._arbiter.pending() if self._arbiter else []}
+        if kind == "subscribe":
+            topics = req.get("topics") if isinstance(req.get("topics"), dict) else {}
+            self._ui_topics = {str(k): float(v or 0) for k, v in topics.items()}
+            self._send_subscription()
+            return {"ok": True}
+        if kind == "hooks":
+            return self._ui_hooks(str(req.get("action") or "status"), bool(req.get("statusline", True)))
+        return {"ok": False, "error": f"unknown request {kind!r}"}
+
+    def _ui_hooks(self, action: str, statusline: bool) -> dict:
+        from jc_client import hook_install as hi
+        from jc_client.logger import state_dir
+        settings, bin_dir = hi.default_settings_path(), str(state_dir() / "bin")
+        if action == "status":
+            return {"ok": True, "status": hi.status(settings)}
+        if action == "uninstall":
+            return {"ok": True, "changed": hi.uninstall(settings, bin_dir)}
+        cmd = hi.command_base(sys.executable, os.path.join(bin_dir, "jc-hook"))
+        pv = hi.preview(settings, cmd, bin_dir, statusline=statusline)
+        if action == "preview":
+            return {"ok": True, "diff": pv.diff}
+        if action == "install":
+            hi.install_script(bin_dir)
+            hi.install(settings, pv)
+            return {"ok": True, "status": hi.status(settings)}
+        return {"ok": False, "error": f"unknown hooks action {action!r}"}
 
     def _session_cwd(self, session_id: str):
         """The folder a session runs in, as its own hooks reported it."""
@@ -175,11 +255,17 @@ class Service:
                     self._hook_server.with_engine(lambda e: e.settle(key, fingerprint))
 
             self._arbiter = Arbiter(send_up=self._forward_up, gate=self._approvals_gate,
-                                    on_settled=settled)
+                                    on_settled=settled, on_change=self._ui_push_pending)
             server = HookServer(_hook_socket_path(), self._agent_engine,
-                                forward=self._forward_up, arbiter=self._arbiter)
+                                forward=self._forward_up, arbiter=self._arbiter,
+                                on_effects=self._ui_push_sessions,
+                                on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}))
             server.start()
             self._hook_server = server
+            from jc_client.ui_server import UiServer
+            ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
+            ui.start()
+            self._ui = ui
         except Exception as exc:  # noqa: BLE001 — hooks are optional, never fatal
             log.warning("agent hook server unavailable: %s", exc)
             self._hook_server = None
@@ -188,6 +274,9 @@ class Service:
         server, self._hook_server = self._hook_server, None
         if server is not None:
             server.close()
+        ui, self._ui = self._ui, None
+        if ui is not None:
+            ui.close()
 
     def stop(self) -> None:
         self._stop.set()
@@ -451,6 +540,8 @@ class Service:
             "registered %d skills in %d frame(s)", len(manifest), len(chunks)
         )
         self._agent_hello()
+        if self._ui_topics:
+            self._send_subscription()  # the server forgets subscriptions with the socket
 
         # Periodic ping thread — keeps NATs / load balancers from
         # silently dropping the connection if the server is idle.
@@ -541,6 +632,12 @@ class Service:
 
         if msg_type == "agent_config":
             self._set_agent_config(frame)
+            return
+
+        if msg_type == "topic":
+            # A server push the Mac app subscribed to (services, portfolio…).
+            self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
+                                "data": frame.get("data") or {}})
             return
 
         if msg_type == "agent_instruction":
@@ -678,6 +775,11 @@ class Service:
 def _hook_socket_path() -> str:
     from jc_client.logger import state_dir
     return str(state_dir() / "hook.sock")
+
+
+def _ui_socket_path() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "ui.sock")
 
 
 def _agent_config_path() -> str:

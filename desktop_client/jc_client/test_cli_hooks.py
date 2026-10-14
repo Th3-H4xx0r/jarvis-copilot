@@ -42,3 +42,30 @@ def test_uninstall(tmp_path, monkeypatch):
     cli.main(["hooks", "install", "--yes"])
     assert cli.main(["hooks", "uninstall"]) == 0
     assert hook_install.status(str(settings))["installed"] is False
+
+
+def test_agents_command_prints_the_live_sessions(tmp_path, monkeypatch, capsys):
+    import shutil
+    import tempfile
+    from jc_client.ui_server import UiServer
+    d = tempfile.mkdtemp(dir="/tmp", prefix="jca")
+    path = d + "/ui.sock"
+    srv = UiServer(path, hello=lambda: {"sessions": [
+        {"project": "app", "agent": "claude", "state": "working", "step": "Bash: make",
+         "terminal": {"term_program": "Apple_Terminal"}}], "pending": []},
+        on_request=lambda r: {"ok": True})
+    srv.start()
+    try:
+        monkeypatch.setattr(cli, "_ui_socket", lambda: path)
+        assert cli.main(["agents"]) == 0
+        out = capsys.readouterr().out
+        assert "app" in out and "working" in out and "Bash: make" in out
+    finally:
+        srv.close()
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_agents_command_without_the_service(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_ui_socket", lambda: "/tmp/jc-no-such-ui.sock")
+    assert cli.main(["agents"]) == 1
+    assert "not running" in capsys.readouterr().err
