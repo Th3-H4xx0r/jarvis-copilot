@@ -62,8 +62,15 @@ enum BandDayMapper {
                     day.mergeBloodPressure([RingBloodPressureReading(time: r.date, systolic: s, diastolic: d)])
                 }
                 // The band's automatic readings in its history become the day's readings too, so
-                // Jarvis Health has every one, not only those taken in the app.
-                for reading in readings(r) { upsert(&day, reading) }
+                // Jarvis Health has every one, not only those taken in the app. A reading the
+                // phone took is in the record as well: that copy is left out.
+                for reading in readings(r) {
+                    if takenByPhone(reading, in: day.measurements) {
+                        day.measurements.removeAll { $0.type == reading.type && abs($0.time.timeIntervalSince(reading.time)) < 1 }
+                    } else {
+                        upsert(&day, reading)
+                    }
+                }
             }
         }
 
@@ -132,6 +139,17 @@ enum BandDayMapper {
                                              value: nil, systolic: nil, diastolic: nil, celsius: nil, extra: extra))
         }
         return out
+    }
+
+    /// Whether `copy` (a 5-minute record's reading, timed at its slot's start) is one the phone
+    /// took: a value of the same kind inside that slot, give or take the minute the two clocks
+    /// differ by (seen up to ~35 s). Other records' readings sit exactly on a slot's start.
+    static func takenByPhone(_ copy: RingMeasurementRecord, in readings: [RingMeasurementRecord]) -> Bool {
+        readings.contains {
+            let offset = $0.time.timeIntervalSince(copy.time)
+            let onSlot = $0.time.timeIntervalSince1970.truncatingRemainder(dividingBy: 300) == 0
+            return $0.type == copy.type && $0.outcome == "done" && !onSlot && (-60..<360).contains(offset)
+        }
     }
 
     /// One reading per kind and time: a sync that brings it again replaces it.

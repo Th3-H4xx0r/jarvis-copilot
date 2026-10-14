@@ -80,38 +80,144 @@ final class BandMonitorTests: XCTestCase {
         scheduler.setInterval(240, for: .bloodOxygen)
         XCTAssertEqual(scheduler.due(at: now), .heartRate)
         XCTAssertEqual(BandMeasurePlan.label(120), "Every 2 h")
-        XCTAssertFalse(BandMeasurePlan.autoSwitches.contains("auto_ppg"), "sleep stays the band's")
+        XCTAssertFalse(BandMeasurePlan.autoSwitches.contains("auto_ppg"), "the pulse switch is the night window's")
     }
 
-    /// His 8:15 PM run: heart rate "not worn" (worn), then nothing for its whole 15 minutes.
-    func testAFailedReadingIsTriedAgainSoonAndReadingsWaitForTheSensor() {
+    /// His 8:15 PM run: heart rate "not worn" (worn), then nothing for its whole 15 minutes. And
+    /// his 2026-10-13 log: a failing blood pressure tried at 3, 6, 12, 24… minutes — 7 readings an hour.
+    func testAFailedReadingIsTriedOnceMoreThenWaitsForItsInterval() {
         let defaults = UserDefaults(suiteName: "BandMeasureRetryTests")!
         defaults.removePersistentDomain(forName: "BandMeasureRetryTests")
         let scheduler = BandMeasureScheduler(defaults: defaults)
-        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var clock = start
         scheduler.now = { clock }
         var plan = BandMeasurePlan()
         plan.control = .phone
         plan.intervals = ["heart_rate": 15]
-        scheduler.seedForTests(plan)
+        scheduler.seedForTests(plan, lastRuns: ["heart_rate": start.addingTimeInterval(-15 * 60)])
         XCTAssertEqual(scheduler.due(at: clock), .heartRate)
         scheduler.finished(.heartRate, done: false)
         XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(61)), "a failure waits 3 minutes, not 15")
         clock = clock.addingTimeInterval(181)
         XCTAssertEqual(scheduler.due(at: clock), .heartRate, "then it's tried again")
         scheduler.finished(.heartRate, done: false)
-        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(200)), "a second failure waits 6")
-        XCTAssertEqual(scheduler.due(at: clock.addingTimeInterval(361)), .heartRate)
-        clock = clock.addingTimeInterval(361)
+        XCTAssertNil(scheduler.due(at: start.addingTimeInterval(15 * 60 - 1)), "a second failure waits for the next interval")
+        XCTAssertEqual(scheduler.due(at: start.addingTimeInterval(15 * 60)), .heartRate, "which counts from when it was due")
+        clock = start.addingTimeInterval(15 * 60 + 40)
         scheduler.finished(.heartRate, done: true)
-        XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(14 * 60)), "a value: its interval again")
-        XCTAssertEqual(scheduler.due(at: clock.addingTimeInterval(15 * 60 + 1)), .heartRate)
+        XCTAssertNil(scheduler.due(at: start.addingTimeInterval(30 * 60 - 1)), "a value: its interval again")
+        XCTAssertEqual(scheduler.due(at: start.addingTimeInterval(30 * 60)), .heartRate, "on the cadence, not 40 s later")
         // Back to back the band said "not worn": the next waits a minute after the last ended.
         var two = plan
         two.intervals = ["heart_rate": 15, "spo2": 15]
         scheduler.seedForTests(two)
         scheduler.finished(.bloodOxygen, done: true)
         XCTAssertNil(scheduler.due(at: clock.addingTimeInterval(30)))
+    }
+
+    /// A reading more than an interval late starts its cadence afresh instead of catching up.
+    func testALateReadingStartsItsIntervalAfresh() {
+        let defaults = UserDefaults(suiteName: "BandMeasureLateTests")!
+        defaults.removePersistentDomain(forName: "BandMeasureLateTests")
+        let scheduler = BandMeasureScheduler(defaults: defaults)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var clock = start
+        scheduler.now = { clock }
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        plan.intervals = ["blood_pressure": 60]
+        scheduler.seedForTests(plan, lastRuns: ["blood_pressure": start.addingTimeInterval(-3 * 3600)])
+        scheduler.finished(.bloodPressure, done: true)
+        XCTAssertEqual(scheduler.lastRuns["blood_pressure"], clock)
+        clock = start.addingTimeInterval(3600 + 50)
+        scheduler.finished(.bloodPressure, done: true)
+        XCTAssertEqual(scheduler.lastRuns["blood_pressure"], start.addingTimeInterval(3600))
+    }
+
+    /// Plans saved before the night window and HRV keep their control and intervals.
+    func testAnOlderSavedPlanStillLoads() throws {
+        let old = #"{"control":"phone","intervals":{"heart_rate":15,"blood_pressure":60},"bandSwitches":{"auto_heart_rate":true}}"#
+        let plan = try JSONDecoder().decode(BandMeasurePlan.self, from: Data(old.utf8))
+        XCTAssertEqual(plan.control, .phone)
+        XCTAssertEqual(plan.interval(.heartRate), 15)
+        XCTAssertEqual(plan.interval(BandMeasurePlan.hrv), 60, "HRV takes its default")
+        XCTAssertTrue(plan.nightTracking)
+        XCTAssertEqual(plan.nightStart, 21 * 60)
+        XCTAssertEqual(plan.nightEnd, 11 * 60)
+        XCTAssertEqual(plan.bandSwitches, ["auto_heart_rate": true])
+    }
+
+    /// Managed by phone, the band's every-minute pulse and HRV run only overnight (9 PM–11 AM by
+    /// default) and, by day, through one 5-minute record on HRV's interval.
+    func testTheBandsPulseAndHRVRunOvernightAndForOneRecordOnHRVsInterval() {
+        let defaults = UserDefaults(suiteName: "BandMeasureSensingTests")!
+        defaults.removePersistentDomain(forName: "BandMeasureSensingTests")
+        let scheduler = BandMeasureScheduler(defaults: defaults)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        scheduler.calendar = utc
+        func at(_ h: Int, _ m: Int, _ s: Int = 0) -> Date {
+            utc.date(from: DateComponents(year: 2026, month: 10, day: 14, hour: h, minute: m, second: s))!
+        }
+        var clock = at(14, 2, 30)
+        scheduler.now = { clock }
+        var plan = BandMeasurePlan()
+        plan.control = .phone
+        plan.intervals = [BandMeasurePlan.hrv: 60]
+        scheduler.seedForTests(plan, lastRuns: [BandMeasurePlan.hrv: at(13, 0)])
+
+        let on = ["auto_ppg": true, "auto_hrv": true], off = ["auto_ppg": false, "auto_hrv": false]
+        XCTAssertEqual(scheduler.sensing(at: at(23, 30)), on, "overnight")
+        XCTAssertEqual(scheduler.sensing(at: at(3, 0)), on, "across midnight")
+        XCTAssertEqual(scheduler.sensing(at: at(10, 59)), on)
+        XCTAssertEqual(scheduler.sensing(at: at(11, 0)), off, "the day")
+        XCTAssertEqual(scheduler.sensing(at: at(20, 59)), off)
+
+        // 14:02:30, an hour after the last: on through the 14:05–14:10 record, off 45 s after it.
+        XCTAssertTrue(scheduler.hrvDue(at: clock))
+        scheduler.startHrvIfDue()
+        XCTAssertEqual(scheduler.hrvUntil, at(14, 10, 45))
+        XCTAssertEqual(scheduler.sensing(at: at(14, 9)), on)
+        XCTAssertEqual(scheduler.sensing(at: at(14, 10, 45)), off)
+        XCTAssertFalse(scheduler.hrvDue(at: at(14, 30)))
+        XCTAssertTrue(scheduler.hrvDue(at: at(15, 0)), "the next on its hour, from when it was due")
+        // Overnight the band's HRV is on anyway: no window.
+        clock = at(22, 0)
+        XCTAssertFalse(scheduler.hrvDue(at: clock))
+        // Off: never.
+        plan.intervals = [BandMeasurePlan.hrv: 0]
+        scheduler.seedForTests(plan)
+        XCTAssertFalse(scheduler.hrvDue(at: at(15, 0)))
+        // Sleep tracking off: the band's sensing stays off all night too.
+        plan.nightTracking = false
+        scheduler.seedForTests(plan)
+        XCTAssertEqual(scheduler.sensing(at: at(2, 0)), off)
+        // Managed by the band: the phone never asks.
+        plan.control = .band
+        plan.intervals = [BandMeasurePlan.hrv: 60]
+        scheduler.seedForTests(plan)
+        XCTAssertFalse(scheduler.hrvDue(at: at(15, 0)))
+    }
+
+    /// His 2026-10-13 day: every blood pressure / glucose / blood components reading twice — the
+    /// phone's (05:13:24) and the band's 5-minute record of it (05:10:00).
+    func testTheBandsRecordOfAPhoneReadingIsNotASecondReading() {
+        let slot = Date(timeIntervalSince1970: 1_800_000_000 - 1_800_000_000.truncatingRemainder(dividingBy: 300))
+        func glucose(_ t: Date, _ outcome: String = "done") -> RingMeasurementRecord {
+            RingMeasurementRecord(type: "blood_glucose", time: t, outcome: outcome, value: nil, systolic: nil,
+                                  diastolic: nil, celsius: nil, extra: outcome == "done" ? ["blood_glucose_mmol_l": 4.6] : nil)
+        }
+        let copy = glucose(slot)
+        XCTAssertTrue(BandDayMapper.takenByPhone(copy, in: [glucose(slot.addingTimeInterval(204))]))
+        XCTAssertTrue(BandDayMapper.takenByPhone(copy, in: [glucose(slot.addingTimeInterval(305))]),
+                      "the band's clock ran ~30 s behind: 06:50:05 went in the 06:45 record")
+        XCTAssertFalse(BandDayMapper.takenByPhone(copy, in: [glucose(slot.addingTimeInterval(81), "not_worn")]),
+                       "the phone got no value: the record's is the reading")
+        XCTAssertFalse(BandDayMapper.takenByPhone(copy, in: [glucose(slot.addingTimeInterval(300))]),
+                       "the next record's own reading is another one")
+        XCTAssertFalse(BandDayMapper.takenByPhone(copy, in: [glucose(slot.addingTimeInterval(-600))]))
+        XCTAssertFalse(BandDayMapper.takenByPhone(copy, in: [copy]))
     }
 
     func testEveryMonitoringMetricIsASwitchTheBandFramesKnow() {

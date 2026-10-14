@@ -29,8 +29,8 @@ struct BandMonitorSettings: View {
 
     private var groups: [Group] {
         func toggle(_ title: String, _ icon: String, _ tint: Color, _ name: String, _ metric: String) -> Item? {
-            // Managed by the phone, the band's own measuring switches are off and not shown.
-            if phoneManaged, BandMeasurePlan.autoSwitches.contains(name) { return nil }
+            // Managed by the phone, the band's own measuring switches are the phone's and not shown.
+            if phoneManaged, (BandMeasurePlan.autoSwitches + BandMeasurePlan.sensingSwitches).contains(name) { return nil }
             return has(name) ? .toggle(title: title, icon: icon, tint: tint, name: name, metric: metric) : nil
         }
         let all: [Group] = [
@@ -82,8 +82,8 @@ struct BandMonitorSettings: View {
     }
 
     /// What this band can't be told (the SDK has both, for other models).
-    static let scheduleNote = "On its own the band measures about every 10 minutes into its daily record; its "
-        + "firmware takes no interval of its own. Managed by phone, the intervals above are the phone's."
+    static let scheduleNote = "On its own the band measures heart rate every minute and HRV every 5 minutes into its "
+        + "daily record; its firmware takes no interval of its own. Managed by phone, the intervals above are the phone's."
 
     // MARK: Who measures
 
@@ -100,7 +100,7 @@ struct BandMonitorSettings: View {
 
     private var measuring: some View {
         CardGroup("Measurements", footer: controlError ?? (phoneManaged
-            ? "The phone keeps the band connected and asks it for each reading when it's due; the band's own all-day measuring is off, which saves most of its battery. Sleep and overnight HRV stay on the band."
+            ? "The phone keeps the band connected and asks it for each reading when it's due; the band's own every-minute measuring is off, which saves most of its battery. HRV has no reading of its own: the phone turns the band's HRV on for one 5-minute record each interval. Overnight, the band measures on its own so it can track sleep."
             : "The band measures on its own all day. Managed by phone, it measures only when the phone asks, on the intervals you set.")) {
             Row(minHeight: 52) {
                 HStack {
@@ -119,23 +119,58 @@ struct BandMonitorSettings: View {
             if phoneManaged {
                 ForEach(BandMeasurePlan.types.filter { session.supports($0.name) }, id: \.self) { type in
                     RowDivider()
-                    intervalRow(type)
+                    intervalRow(BandMonitorLabel(title: type.label, icon: type.icon, tint: type.tint), type.name)
                 }
+                if session.settings?.isOn("auto_hrv") != nil {
+                    RowDivider()
+                    intervalRow(BandMonitorLabel(title: "HRV", icon: "waveform.path.ecg", tint: .red), BandMeasurePlan.hrv)
+                }
+                RowDivider()
+                nightRows
             }
         }
     }
 
-    private func intervalRow(_ type: BandMeasure) -> some View {
+    private func intervalRow(_ label: BandMonitorLabel, _ name: String) -> some View {
         Row(minHeight: 52) {
             HStack {
-                BandMonitorLabel(title: type.label, icon: type.icon, tint: type.tint)
+                label
                 Spacer()
-                Picker(type.label, selection: Binding(get: { scheduler.plan.interval(type) },
-                                                      set: { scheduler.setInterval($0, for: type) })) {
+                Picker(label.title, selection: Binding(get: { scheduler.plan.interval(name) },
+                                                       set: { scheduler.setInterval($0, named: name) })) {
                     ForEach(BandMeasurePlan.choices, id: \.self) { Text(BandMeasurePlan.label($0)).tag($0) }
                 }
                 .pickerStyle(.menu)
             }
+        }
+    }
+
+    /// The overnight window the band measures on its own, for sleep.
+    @ViewBuilder private var nightRows: some View {
+        let plan = scheduler.plan
+        Toggle(isOn: Binding(get: { plan.nightTracking },
+                             set: { scheduler.setNight(tracking: $0, start: plan.nightStart, end: plan.nightEnd) })) {
+            BandMonitorLabel(title: "Sleep tracking", icon: "bed.double.fill", tint: .indigo)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        if plan.nightTracking {
+            RowDivider()
+            HStack {
+                Text("Overnight").foregroundStyle(.secondary)
+                Spacer()
+                DatePicker("From", selection: Binding(get: { BandTimeOfDay.date(plan.nightStart) }, set: {
+                    scheduler.setNight(tracking: true, start: BandTimeOfDay.minute($0), end: plan.nightEnd)
+                }), displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                Text("to").foregroundStyle(.secondary)
+                DatePicker("To", selection: Binding(get: { BandTimeOfDay.date(plan.nightEnd) }, set: {
+                    scheduler.setNight(tracking: true, start: plan.nightStart, end: BandTimeOfDay.minute($0))
+                }), displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 52)
         }
     }
 
