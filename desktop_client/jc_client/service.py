@@ -103,8 +103,23 @@ class Service:
         # the local engine (the island) and is simply not forwarded.
         self._agent_engine = None
         self._hook_server = None
+        # Approvals / questions wait in the arbiter while the server's
+        # remote-approvals switch is on (cached so it holds while offline).
+        self._arbiter = None
+        self._agent_approvals = _load_agent_config().get("remote_approvals") is True
 
     # ── public ────────────────────────────────────────────────────────
+
+    def _approvals_gate(self) -> bool:
+        return self._agent_approvals
+
+    def _agent_hello(self) -> None:
+        """Ask the server for the agent config (it answers with agent_config)."""
+        self._forward_up({"type": "event", "name": "agent_hello", "data": {"v": 1}})
+
+    def _set_agent_config(self, frame: dict) -> None:
+        self._agent_approvals = frame.get("remote_approvals") is True
+        _save_agent_config({"remote_approvals": self._agent_approvals})
 
     def _forward_up(self, frame: dict) -> None:
         """Send a frame to the server over the live bridge; drop it when offline."""
@@ -122,10 +137,18 @@ class Service:
             return
         try:
             from jc_client.agent_engine import Engine
+            from jc_client.approval_arbiter import Arbiter
             from jc_client.hook_server import HookServer
             self._agent_engine = Engine()
+
+            def settled(key, fingerprint):
+                if self._hook_server is not None:
+                    self._hook_server.with_engine(lambda e: e.settle(key, fingerprint))
+
+            self._arbiter = Arbiter(send_up=self._forward_up, gate=self._approvals_gate,
+                                    on_settled=settled)
             server = HookServer(_hook_socket_path(), self._agent_engine,
-                                forward=self._forward_up)
+                                forward=self._forward_up, arbiter=self._arbiter)
             server.start()
             self._hook_server = server
         except Exception as exc:  # noqa: BLE001 — hooks are optional, never fatal
@@ -398,6 +421,7 @@ class Service:
         log.info(
             "registered %d skills in %d frame(s)", len(manifest), len(chunks)
         )
+        self._agent_hello()
 
         # Periodic ping thread — keeps NATs / load balancers from
         # silently dropping the connection if the server is idle.
@@ -484,6 +508,19 @@ class Service:
                                          "coding_dir_list_get")):
             if self._coding_discover:
                 self._coding_discover.handle_frame(frame)
+            return
+
+        if msg_type == "agent_config":
+            self._set_agent_config(frame)
+            return
+
+        if msg_type == "agent_decision":
+            # A decision from the phone (via the server) for a waiting hook.
+            if self._arbiter is not None:
+                ok = self._arbiter.decide(frame.get("fingerprint") or "", frame.get("decision") or "",
+                                          message=frame.get("message"), answers=frame.get("answers"))
+                log.info("agent decision %s for %s: %s", frame.get("decision"),
+                         str(frame.get("fingerprint"))[:8], "applied" if ok else "stale")
             return
 
         if msg_type == "mcp_open":
@@ -608,6 +645,31 @@ class Service:
 def _hook_socket_path() -> str:
     from jc_client.logger import state_dir
     return str(state_dir() / "hook.sock")
+
+
+def _agent_config_path() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "agent_config.json")
+
+
+def _load_agent_config() -> dict:
+    try:
+        with open(_agent_config_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_agent_config(data: dict) -> None:
+    try:
+        path = _agent_config_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except OSError as exc:
+        log.debug("agent config save failed: %s", exc)
 
 
 def _pick_server_url(creds: credentials.Credentials) -> str:

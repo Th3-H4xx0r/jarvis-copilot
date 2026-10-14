@@ -38,3 +38,35 @@ def test_start_agent_hooks_is_idempotent(monkeypatch):
         assert not os.path.exists(os.path.join(d, "hook.sock"))
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def test_agent_config_frame_sets_the_gate_and_is_remembered(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
+    svc = service.Service()
+    assert svc._approvals_gate() is False
+    svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": True})
+    assert svc._approvals_gate() is True
+    assert service.Service()._approvals_gate() is True  # a fresh process reads it back
+
+
+def test_agent_decision_frame_reaches_the_arbiter():
+    svc = service.Service()
+    calls = []
+
+    class Arb:
+        def decide(self, fp, decision, message=None, answers=None):
+            calls.append((fp, decision, message, answers))
+            return True
+
+    svc._arbiter = Arb()
+    svc._handle_frame(FakeWs(), {"type": "agent_decision", "fingerprint": "f1",
+                                 "decision": "deny", "message": "nope"})
+    assert calls == [("f1", "deny", "nope", None)]
+
+
+def test_hello_asks_the_server_for_the_agent_config():
+    svc = service.Service()
+    ws = FakeWs()
+    svc._ws = ws
+    svc._agent_hello()
+    assert ws.sent == [{"type": "event", "name": "agent_hello", "data": {"v": 1}}]
