@@ -1827,6 +1827,11 @@ def _escalate_device_gone(device_id: str, gen: int) -> None:
             _push_la_and_notify(store)
     except Exception:  # noqa: BLE001
         pass
+    try:  # hook-tracked sessions on that device are gone too
+        from api.agent_hooks import on_device_gone
+        on_device_gone(device_id)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 _DISMISSED_LOCK = threading.Lock()

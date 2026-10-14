@@ -204,6 +204,11 @@ class Engine:
             self._sessions = copy.deepcopy(snap["sessions"])
 
     # ── writing ──────────────────────────────────────────────────────────
+    def drop(self, key):
+        """Forget one session (its host went away). Returns it, or None."""
+        s = self._sessions.pop(key, None)
+        return copy.deepcopy(s) if s else None
+
     def settle(self, key, fingerprint_=None):
         """A pending approval/question was answered (or dropped)."""
         s = self._sessions.get(key)

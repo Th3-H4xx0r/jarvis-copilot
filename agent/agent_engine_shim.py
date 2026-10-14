@@ -27,6 +27,18 @@ def _load():
     return mod
 
 
+def load_hook_server():
+    """jc-client's HookServer class, loaded by path for the server's own socket."""
+    name = "jarvis_hook_server"
+    if name not in sys.modules:
+        path = os.path.join(os.path.dirname(_PATH), "hook_server.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    return sys.modules[name].HookServer
+
+
 module = _load()
 Engine = module.Engine
 session_key = module.session_key

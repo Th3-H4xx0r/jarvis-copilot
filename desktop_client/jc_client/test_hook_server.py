@@ -177,6 +177,27 @@ def test_statusline_goes_to_usage_not_engine(sockdir):
         hs.close()
 
 
+def test_external_ingest_replaces_the_engine(sockdir):
+    seen = []
+
+    def ingest(kind, agent, payload):
+        seen.append((kind, agent, payload["hook_event_name"]))
+        return [{"kind": "state", "key": "k"}]
+
+    effects = []
+    hs = HookServer(os.path.join(sockdir, "h.sock"), None, forward=lambda f: None,
+                    ingest=ingest, on_effects=effects.extend, host="server", sweep_every=0)
+    hs.start()
+    try:
+        reply = send(hs.path, frame("permission", {"hook_event_name": "PermissionRequest",
+                                                   "session_id": "s", "cwd": "/w"}), wait=True)
+        assert reply == {"decision": "ask"}
+        assert seen == [("permission", "claude", "PermissionRequest")]
+        assert effects == [{"kind": "state", "key": "k"}]
+    finally:
+        hs.close()
+
+
 def test_sweep_runs_on_a_timer(sockdir):
     class Clock:
         t = 1000.0

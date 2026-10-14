@@ -631,6 +631,16 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Coding status loop failed to start: {e}', flush=True)
 
+    # Hook-driven agent tracking: Mac sessions arrive as `agent_hook` device
+    # events, this host's own over $HERMES_HOME/agent-hook.sock. Hooks are the
+    # source of truth for session state; the pane scraper above is the fallback.
+    try:
+        from api import agent_hooks
+        from tools.coding_session_tool import _mgr as _agent_mgr
+        agent_hooks.start(_agent_mgr().store)
+    except Exception as e:
+        print(f'[!!] WARNING: Agent hook tracking failed to start: {e}', flush=True)
+
     # The door alarm: ESP32 bridge events, Tuya's cloud feed and the alarm's 1 s timer (entry/exit
     # delays, siren timeout, health warnings) must run from boot, not from the first page view.
     try:

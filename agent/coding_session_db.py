@@ -67,6 +67,26 @@ CREATE TABLE IF NOT EXISTS coding_transcript_cache (
   csid TEXT PRIMARY KEY, messages TEXT NOT NULL, total INTEGER NOT NULL,
   updated_at REAL NOT NULL
 );
+-- Hook-driven agent sessions (agent/agent_tracking.py): the engine's state per
+-- (host, agent, session) so a webui restart picks up where it was. ``data`` is
+-- the engine's session dict as JSON; ``coding_session_id`` links the row above.
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  key TEXT PRIMARY KEY, host TEXT NOT NULL, device_id TEXT, agent TEXT NOT NULL,
+  session_id TEXT, cwd TEXT, coding_session_id TEXT, state TEXT NOT NULL,
+  data TEXT NOT NULL, last_hook_at REAL NOT NULL, updated_at REAL NOT NULL
+);
+-- One row per finished turn, for the weekly recap.
+CREATE TABLE IF NOT EXISTS agent_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, host TEXT,
+  agent TEXT NOT NULL, project TEXT, cwd TEXT, started_at REAL NOT NULL,
+  ended_at REAL NOT NULL, actions INTEGER NOT NULL DEFAULT 0,
+  files INTEGER NOT NULL DEFAULT 0, added INTEGER NOT NULL DEFAULT 0,
+  removed INTEGER NOT NULL DEFAULT 0, commands INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0, approvals_allowed INTEGER NOT NULL DEFAULT 0,
+  approvals_denied INTEGER NOT NULL DEFAULT 0, questions INTEGER NOT NULL DEFAULT 0,
+  outcome TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_turns_ended ON agent_turns(ended_at);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -319,6 +339,60 @@ class CodingSessionStore:
                 "VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET "
                 "value=excluded.value, updated_at=excluded.updated_at",
                 (key, _json.dumps(value), now))
+
+    # --- hook-driven agent sessions ------------------------------------------
+
+    def upsert_agent_session(self, *, key, host, device_id, agent, session_id, cwd,
+                             coding_session_id, state, data, last_hook_at) -> None:
+        import json as _json
+        now = time.time()
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO agent_sessions(key,host,device_id,agent,session_id,cwd,"
+                "coding_session_id,state,data,last_hook_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                "device_id=excluded.device_id, cwd=excluded.cwd, "
+                "coding_session_id=excluded.coding_session_id, state=excluded.state, "
+                "data=excluded.data, last_hook_at=excluded.last_hook_at, "
+                "updated_at=excluded.updated_at",
+                (key, host, device_id, agent, session_id, cwd, coding_session_id,
+                 state, _json.dumps(data, default=str), last_hook_at, now))
+
+    def list_agent_sessions(self) -> list[dict]:
+        import json as _json
+        with self._conn() as c:
+            rows = [dict(r) for r in c.execute(
+                "SELECT * FROM agent_sessions ORDER BY updated_at DESC").fetchall()]
+        for r in rows:
+            try:
+                r["data"] = _json.loads(r["data"])
+            except (ValueError, TypeError):
+                r["data"] = None
+        return rows
+
+    def delete_agent_session(self, key: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM agent_sessions WHERE key=?", (key,))
+
+    def insert_agent_turn(self, **fields) -> None:
+        cols = ("key", "host", "agent", "project", "cwd", "started_at", "ended_at",
+                "actions", "files", "added", "removed", "commands", "failed",
+                "approvals_allowed", "approvals_denied", "questions", "outcome")
+        vals = [fields.get(k) for k in cols]
+        for i, k in enumerate(cols):
+            if vals[i] is None and k not in ("host", "project", "cwd", "outcome"):
+                vals[i] = 0
+        with self._conn() as c:
+            c.execute(f"INSERT INTO agent_turns({','.join(cols)}) VALUES"
+                      f"({','.join('?' * len(cols))})", vals)
+
+    def list_agent_turns(self, *, since: float, until: float | None = None) -> list[dict]:
+        q, args = "SELECT * FROM agent_turns WHERE ended_at>=?", [since]
+        if until is not None:
+            q += " AND ended_at<?"
+            args.append(until)
+        with self._conn() as c:
+            return [dict(r) for r in c.execute(q + " ORDER BY started_at ASC", args).fetchall()]
 
     # --- transcript chat cache ----------------------------------------------
 

@@ -18,7 +18,10 @@ import threading
 import time
 from typing import Callable, Optional
 
-from jc_client import agent_engine
+try:
+    from jc_client import agent_engine
+except ImportError:  # loaded by file path on the server (agent/agent_engine_shim.py)
+    from agent import agent_engine_shim as agent_engine
 
 log = logging.getLogger(__name__)
 
@@ -28,14 +31,18 @@ _BLOCKING_KINDS = ("permission", "ask")
 
 
 class HookServer:
-    def __init__(self, path: str, engine: agent_engine.Engine,
+    def __init__(self, path: str, engine,
                  forward: Callable[[dict], None], arbiter=None,
                  on_effects: Optional[Callable[[list], None]] = None,
                  on_usage: Optional[Callable[[dict], None]] = None,
-                 host: str = "local", sweep_every: float = 1.0) -> None:
+                 host: str = "local", sweep_every: float = 1.0,
+                 ingest: Optional[Callable[[str, str, dict], list]] = None) -> None:
+        """``ingest(kind, agent, payload) -> effects`` replaces the local engine
+        (the server feeds its own tracker); with it, ``engine`` may be None."""
         self.path = path
         self.host = host
         self._engine = engine
+        self._ingest = ingest
         self._forward = forward
         self._arbiter = arbiter
         self._on_effects = on_effects
@@ -62,7 +69,7 @@ class HookServer:
         sock.listen(32)
         self._sock = sock
         threading.Thread(target=self._accept_loop, daemon=True, name="hook-accept").start()
-        if self._sweep_every:
+        if self._sweep_every and self._engine is not None:
             threading.Thread(target=self._sweep_loop, daemon=True, name="hook-sweep").start()
         log.info("hook server listening on %s", self.path)
 
@@ -147,9 +154,12 @@ class HookServer:
                 return
             key = agent_engine.session_key(self.host, agent, str(payload.get("session_id") or ""),
                                            str(payload.get("cwd") or ""))
-            with self._lock:
-                effects = self._engine.ingest(self.host, agent, payload,
-                                              kind=kind if kind in _BLOCKING_KINDS else "event")
+            engine_kind = kind if kind in _BLOCKING_KINDS else "event"
+            if self._ingest is not None:
+                effects = self._ingest(engine_kind, agent, payload) or []
+            else:
+                with self._lock:
+                    effects = self._engine.ingest(self.host, agent, payload, kind=engine_kind)
             self._emit(effects)
             if kind not in _BLOCKING_KINDS:
                 if self._arbiter is not None:

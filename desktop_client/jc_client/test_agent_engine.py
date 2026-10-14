@@ -297,6 +297,15 @@ def test_snapshot_roundtrip(eng):
     assert other.session(ae.session_key("mac", "claude", "s1", "/w/app"))["turn"]["prompt"] == "keep me"
 
 
+def test_drop_removes_one_session(eng):
+    eng.ingest("mac", "claude", ev("SessionStart", sid="a"))
+    eng.ingest("mac", "claude", ev("SessionStart", sid="b"))
+    gone = eng.drop(ae.session_key("mac", "claude", "a", "/w/app"))
+    assert gone["session_id"] == "a"
+    assert [s["session_id"] for s in eng.sessions()] == ["b"]
+    assert eng.drop("nope") is None
+
+
 def test_unknown_event_is_harmless(eng):
     eng.ingest("mac", "claude", ev("UserPromptSubmit", prompt="x"))
     assert isinstance(eng.ingest("mac", "claude", ev("SomethingNew")), list)
