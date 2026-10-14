@@ -1043,6 +1043,11 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             def _save_settings():
                 merged = _merge_notify_settings(body if isinstance(body, dict) else {})
                 manager.store.set_setting("notifications", merged)
+                try:  # the Macs' hook arbiters follow the remote-approvals switch
+                    from api import agent_hooks
+                    agent_hooks.broadcast_config(merged)
+                except Exception:  # noqa: BLE001
+                    pass
                 return _ok({"ok": True, "settings": merged})
             return _run(_save_settings)
         return _err(404, "not found")
@@ -1353,6 +1358,13 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 cwd=(body.get("cwd") or "").strip(),
                 device_id=(body.get("device_id") or "").strip())
             sid = row["id"] if row else ""
+            try:  # jc-hook's PermissionRequest arbiter owns this session's approvals
+                import agent.agent_tracking as _at
+                if sid and _at.hook_fresh(sid):
+                    return _ok({"ok": True, "request_id": None, "notified": 0,
+                                "disabled": True})
+            except Exception:  # noqa: BLE001
+                pass
             cwd = (body.get("cwd") or (row.get("cwd") if row else "") or "")
             summary = _permission_summary(tool, tinput)
             rid = coding_permission.create_request(
@@ -1381,7 +1393,9 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             rid = (body.get("request_id") or "").strip()
             decision = (body.get("decision") or "").strip().lower()
             message = body.get("message") or ""
-            ok = coding_permission.resolve(rid, decision=decision, message=message)
+            answers = body.get("answers") if isinstance(body.get("answers"), dict) else None
+            ok = coding_permission.resolve(rid, decision=decision, message=message,
+                                           answers=answers)
             return _ok({"ok": ok})
         return _run(_perm_verdict)
 

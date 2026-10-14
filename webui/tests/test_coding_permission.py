@@ -138,3 +138,19 @@ def test_poll_requires_request_id():
     m = _Mgr(_Store(remote=True))
     st, _ = handle_coding_request("GET", "/permission/poll", None, manager=m)
     assert st == 400
+
+
+def test_legacy_request_steps_aside_for_a_hook_tracked_session(monkeypatch):
+    """With jc-hook installed, the PermissionRequest arbiter owns approvals; the
+    old PreToolUse relay (plugin copies in other projects) must not prompt twice."""
+    import agent.agent_tracking as at
+    monkeypatch.setattr(at, "hook_fresh", lambda rid: rid == "sess-X")
+    sess = {"id": "sess-X", "status": "running", "tmux_name": "19",
+            "device_id": "dev1", "cwd": "/w/proj"}
+    m = _Mgr(_Store(remote=True, sessions=[sess]))
+    st, body = handle_coding_request(
+        "POST", "/permission/request",
+        {"tool": "Bash", "input": {"command": "rm -rf build"},
+         "tmux_name": "19", "device_id": "dev1", "cwd": "/w/proj"}, manager=m)
+    assert st == 200 and body["request_id"] is None and body["disabled"] is True
+    assert cp.list_pending() == []

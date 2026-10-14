@@ -27,16 +27,24 @@ def _load():
     return mod
 
 
-def load_hook_server():
-    """jc-client's HookServer class, loaded by path for the server's own socket."""
-    name = "jarvis_hook_server"
+def _load_sibling(name, filename):
     if name not in sys.modules:
-        path = os.path.join(os.path.dirname(_PATH), "hook_server.py")
+        path = os.path.join(os.path.dirname(_PATH), filename)
         spec = importlib.util.spec_from_file_location(name, path)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
-    return sys.modules[name].HookServer
+    return sys.modules[name]
+
+
+def load_hook_server():
+    """jc-client's HookServer class, loaded by path for the server's own socket."""
+    return _load_sibling("jarvis_hook_server", "hook_server.py").HookServer
+
+
+def load_arbiter():
+    """jc-client's approval Arbiter class, for hooks running on this host."""
+    return _load_sibling("jarvis_approval_arbiter", "approval_arbiter.py").Arbiter
 
 
 module = _load()
