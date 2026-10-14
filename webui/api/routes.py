@@ -3522,6 +3522,14 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, manager=default_manager())
         return j(handler, payload, status=status)
 
+    if parsed.path == "/api/services" or parsed.path.startswith("/api/services/"):
+        from api.services_routes import SERVICES_PATH_PREFIX, handle_services_request
+        sub = parsed.path[len(SERVICES_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_services_request("GET", sub, None)
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/island"):
         from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
         from api.island_store import store_for_request
@@ -4935,6 +4943,14 @@ def handle_post(handler, parsed) -> bool:
                 coding_events.notify()
             except Exception:
                 pass
+        return j(handler, payload, status=status)
+
+    if parsed.path == "/api/services" or parsed.path.startswith("/api/services/"):
+        from api.services_routes import SERVICES_PATH_PREFIX, handle_services_request
+        sub = parsed.path[len(SERVICES_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_services_request("POST", sub, body)
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/island"):
