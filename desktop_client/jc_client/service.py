@@ -106,7 +106,11 @@ class Service:
         # Approvals / questions wait in the arbiter while the server's
         # remote-approvals switch is on (cached so it holds while offline).
         self._arbiter = None
-        self._agent_approvals = _load_agent_config().get("remote_approvals") is True
+        _cfg = _load_agent_config()
+        self._agent_approvals = _cfg.get("remote_approvals") is True
+        # Instructions from the phone for sessions outside tmux (claude --resume).
+        self._agent_instructions = _cfg.get("remote_instructions") is True
+        self._instructions = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -119,7 +123,32 @@ class Service:
 
     def _set_agent_config(self, frame: dict) -> None:
         self._agent_approvals = frame.get("remote_approvals") is True
-        _save_agent_config({"remote_approvals": self._agent_approvals})
+        self._agent_instructions = frame.get("remote_instructions") is True
+        _save_agent_config({"remote_approvals": self._agent_approvals,
+                            "remote_instructions": self._agent_instructions})
+
+    def _session_cwd(self, session_id: str):
+        """The folder a session runs in, as its own hooks reported it."""
+        server = self._hook_server
+        if server is None or not session_id:
+            return None
+        for s in server.engine_sessions():
+            if s.get("session_id") == session_id and s.get("cwd"):
+                return s["cwd"]
+        return None
+
+    def _run_instruction(self, frame: dict) -> None:
+        if not self._agent_instructions:
+            log.info("instruction from the phone ignored: the switch is off")
+            return
+        if self._instructions is None:
+            from jc_client.instruction_runner import InstructionRunner
+            from jc_client.logger import state_dir
+            self._instructions = InstructionRunner(session_cwd=self._session_cwd,
+                                                   log_dir=str(state_dir() / "logs"))
+        ok, why = self._instructions.run(str(frame.get("session_id") or ""),
+                                         str(frame.get("cwd") or ""), str(frame.get("text") or ""))
+        log.info("instruction from the phone: %s", why)
 
     def _forward_up(self, frame: dict) -> None:
         """Send a frame to the server over the live bridge; drop it when offline."""
@@ -512,6 +541,10 @@ class Service:
 
         if msg_type == "agent_config":
             self._set_agent_config(frame)
+            return
+
+        if msg_type == "agent_instruction":
+            self._run_instruction(frame)  # Popen returns at once; the run is in the background
             return
 
         if msg_type == "agent_decision":

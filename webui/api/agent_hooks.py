@@ -112,12 +112,22 @@ def _store():
     return default_manager("server").store
 
 
-def _remote_approvals() -> bool:
+def _settings() -> dict:
     try:
         from api.coding_routes import _coding_settings
-        return bool(_coding_settings(_store()).get("remote_approvals"))
+        return _coding_settings(_store())
     except Exception:  # noqa: BLE001
-        return False
+        return {}
+
+
+def _remote_approvals() -> bool:
+    return bool(_settings().get("remote_approvals"))
+
+
+def _config_frame(settings: dict) -> dict:
+    return {"type": "agent_config",
+            "remote_approvals": bool((settings or {}).get("remote_approvals")),
+            "remote_instructions": bool((settings or {}).get("remote_instructions"))}
 
 
 def _local_arbiter():
@@ -199,14 +209,13 @@ def on_agent_settled(device_id, data) -> None:
 
 def on_agent_hello(device_id, _data=None) -> None:
     from api import device_bridge
-    device_bridge.send_frame(device_id, {"type": "agent_config",
-                                         "remote_approvals": _remote_approvals()})
+    device_bridge.send_frame(device_id, _config_frame(_settings()))
 
 
 def broadcast_config(settings: dict) -> None:
     """The Code Master settings changed: tell every connected device."""
     from api import device_bridge
-    frame = {"type": "agent_config", "remote_approvals": bool((settings or {}).get("remote_approvals"))}
+    frame = _config_frame(settings)
     for device_id in device_bridge.connected_device_ids():
         try:
             device_bridge.send_frame(device_id, dict(frame))

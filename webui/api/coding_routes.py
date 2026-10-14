@@ -425,6 +425,9 @@ _DEFAULT_NOTIFY_SETTINGS = {
     },
     "usage_display": True,
     "remote_approvals": False,
+    # Let the phone continue a Mac session that isn't in tmux (the Mac runs
+    # `claude -p <text> --resume <id>` in its folder). Off unless turned on.
+    "remote_instructions": False,
 }
 
 
@@ -440,6 +443,7 @@ def _merge_notify_settings(stored) -> dict:
                    for k, v in _DEFAULT_NOTIFY_SETTINGS["events"].items()},
         "usage_display": _DEFAULT_NOTIFY_SETTINGS["usage_display"],
         "remote_approvals": _DEFAULT_NOTIFY_SETTINGS["remote_approvals"],
+        "remote_instructions": _DEFAULT_NOTIFY_SETTINGS["remote_instructions"],
     }
     if not isinstance(stored, dict):
         return out
@@ -454,6 +458,8 @@ def _merge_notify_settings(stored) -> dict:
         out["usage_display"] = bool(stored["usage_display"])
     if "remote_approvals" in stored:
         out["remote_approvals"] = bool(stored["remote_approvals"])
+    if "remote_instructions" in stored:
+        out["remote_instructions"] = bool(stored["remote_instructions"])
     return out
 
 
@@ -852,6 +858,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     method = (method or "").upper()
     body = body or {}
     p, query = _split_path(path)
+
+    # ── /agents/* — hook-tracked agent sessions (iPhone Agents tab, Mac island) ──
+    if p.startswith("/agents/"):
+        from api.agents_routes import handle_agents_request
+        return handle_agents_request(method, p, query, body, manager=manager,
+                                     manager_for_host=manager_for_host)
 
     # ── /projects ──
     if p == "/projects":

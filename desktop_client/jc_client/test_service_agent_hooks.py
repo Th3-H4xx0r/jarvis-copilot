@@ -70,3 +70,23 @@ def test_hello_asks_the_server_for_the_agent_config():
     svc._ws = ws
     svc._agent_hello()
     assert ws.sent == [{"type": "event", "name": "agent_hello", "data": {"v": 1}}]
+
+
+def test_instruction_frame_runs_only_when_allowed(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
+    svc = service.Service()
+    runs = []
+
+    class Runner:
+        def run(self, sid, cwd, text):
+            runs.append((sid, text))
+            return True, "started"
+
+    svc._instructions = Runner()
+    frame = {"type": "agent_instruction", "session_id": "s1", "cwd": "/w", "text": "go on"}
+    svc._handle_frame(FakeWs(), frame)
+    assert runs == []  # the switch is off by default
+    svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": False,
+                                 "remote_instructions": True})
+    svc._handle_frame(FakeWs(), frame)
+    assert runs == [("s1", "go on")]

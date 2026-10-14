@@ -146,7 +146,8 @@ def test_settled_from_another_device_is_ignored(env):
 def test_hello_answers_with_the_config(env):
     frames, _, store = env
     agent_hooks.on_agent_hello("d1", {"v": 1})
-    assert frames == [("d1", {"type": "agent_config", "remote_approvals": True})]
+    assert frames == [("d1", {"type": "agent_config", "remote_approvals": True,
+                              "remote_instructions": False})]
 
 
 def test_settings_change_is_broadcast(env):
@@ -154,8 +155,8 @@ def test_settings_change_is_broadcast(env):
     m = FakeManager()
     handle_coding_request("POST", "/settings", {"remote_approvals": False}, manager=m)
     sent = {d: f for d, f in frames if f.get("type") == "agent_config"}
-    assert sent == {"d1": {"type": "agent_config", "remote_approvals": False},
-                    "d2": {"type": "agent_config", "remote_approvals": False}}
+    off = {"type": "agent_config", "remote_approvals": False, "remote_instructions": False}
+    assert sent == {"d1": off, "d2": off}
 
 
 def test_server_local_request_goes_to_the_local_arbiter(env, monkeypatch):
