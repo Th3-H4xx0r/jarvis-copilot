@@ -22,6 +22,12 @@ final class BandManager: NSObject, ObservableObject {
     /// The band's measuring, managed by the band or by the phone.
     let measureScheduler = BandMeasureScheduler()
     private(set) lazy var sync = BandSync(session: session, store: { [weak self] in self?.store })
+    /// Changed days go to Jarvis Health at most every 30 minutes, at once while a screen shows them.
+    private(set) lazy var uploads = DayUploadThrottle { [weak self] keys in
+        guard let self else { return true }
+        WidgetDataHub.shared.refreshSoon()
+        return await BandHealthPush.push(keys, manager: self)
+    }
 
     /// Days the sync changed — Jarvis Health pushes them.
     var onDaysChanged: ((Set<String>) -> Void)?
@@ -54,7 +60,13 @@ final class BandManager: NSObject, ObservableObject {
     var screenIsOpen = false {
         didSet {
             guard oldValue != screenIsOpen else { return }
-            if screenIsOpen { idleDropTask?.cancel(); idleDropTask = nil } else { releaseIfIdle() }
+            if screenIsOpen {
+                idleDropTask?.cancel()
+                idleDropTask = nil
+                uploads.flush()
+            } else {
+                releaseIfIdle()
+            }
         }
     }
 
@@ -65,6 +77,7 @@ final class BandManager: NSObject, ObservableObject {
             if healthIsOpen {
                 idleDropTask?.cancel()
                 idleDropTask = nil
+                uploads.flush()
                 if !linkIsUp { Task { _ = await ensureConnected(timeout: 12) } }
             } else {
                 releaseIfIdle()
@@ -100,8 +113,7 @@ final class BandManager: NSObject, ObservableObject {
         measureScheduler.attach(self)
         onDaysChanged = { [weak self] keys in
             guard let self else { return }
-            Task { await BandHealthPush.push(keys, manager: self) }
-            WidgetDataHub.shared.refreshSoon()
+            self.uploads.changed(keys, urgent: self.screenIsOpen || self.healthIsOpen)
         }
         sync.onDaysChanged = { [weak self] keys in self?.onDaysChanged?(keys) }
         session.onMeasured = { [weak self] reading in self?.record(reading) }

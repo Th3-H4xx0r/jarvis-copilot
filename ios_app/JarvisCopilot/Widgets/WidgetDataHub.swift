@@ -103,9 +103,10 @@ final class WidgetDataHub {
         }
     }
 
-    /// The background refresh task: everything, the server included.
+    /// The background refresh task: the phone's own values, and the server's only when a push
+    /// said they changed or the last ask is `backgroundFullEvery` old. Forcing the server here
+    /// made ten requests on every refresh, three or four times an hour.
     func refreshAll() async {
-        networkDue = true
         checkInstalled()        // a widget added from the Home Screen while the app was away
         await refresh()
     }

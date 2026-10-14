@@ -93,3 +93,59 @@ enum BandHealthPush {
         return true
     }
 }
+
+/// Changed days, uploaded at most every `every` — or at once while someone is looking (`urgent`).
+/// Each finished reading used to send the band's whole day (~38 KB) straight away: about twelve
+/// uploads an hour on his schedule, all day in the background. The server's hourly run reads the
+/// day from the phone itself, so it never waits longer than that.
+@MainActor
+final class DayUploadThrottle {
+    let every: TimeInterval
+    private let send: (Set<String>) async -> Bool
+    private let now: () -> Date
+    private(set) var pending: Set<String> = []
+    private(set) var lastSent: Date?
+    private var timer: Task<Void, Never>?
+
+    init(every: TimeInterval = 30 * 60, now: @escaping () -> Date = Date.init,
+         send: @escaping (Set<String>) async -> Bool) {
+        self.every = every
+        self.now = now
+        self.send = send
+    }
+
+    /// When the held days go up (nil: nothing held).
+    var due: Date? { pending.isEmpty ? nil : (lastSent.map { $0.addingTimeInterval(every) } ?? now()) }
+
+    func changed(_ keys: Set<String>, urgent: Bool) {
+        pending.formUnion(keys)
+        guard let due else { return }
+        if urgent || due <= now() {
+            flush()
+            return
+        }
+        guard timer == nil else { return }
+        let wait = max(1, due.timeIntervalSince(now()))
+        timer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.timer = nil
+            self.flush()
+        }
+    }
+
+    /// Sends what is held now. Days that fail to go up are held for the next send.
+    @discardableResult
+    func flush() -> Task<Void, Never>? {
+        timer?.cancel()
+        timer = nil
+        guard !pending.isEmpty else { return nil }
+        let keys = pending
+        pending = []
+        lastSent = now()
+        return Task { [weak self] in
+            guard let self, !(await self.send(keys)) else { return }
+            self.pending.formUnion(keys)
+        }
+    }
+}

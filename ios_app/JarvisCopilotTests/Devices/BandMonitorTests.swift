@@ -220,6 +220,44 @@ final class BandMonitorTests: XCTestCase {
         XCTAssertFalse(BandDayMapper.takenByPhone(copy, in: [copy]))
     }
 
+    /// His 2026-10-14 day: a band day (~38 KB) uploaded after every reading, ~12 times an hour.
+    func testChangedDaysGoUpAtMostEveryHalfHourOrAtOnceWhileSomeoneLooks() async {
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        var sent: [Set<String>] = []
+        var succeed = true
+        let uploads = DayUploadThrottle(every: 1800, now: { clock }) { keys in
+            sent.append(keys)
+            return succeed
+        }
+        uploads.changed(["2026-10-14"], urgent: false)
+        await Task.yield()
+        XCTAssertEqual(sent, [["2026-10-14"]], "the first change goes up at once")
+
+        clock = clock.addingTimeInterval(15 * 60)
+        uploads.changed(["2026-10-14"], urgent: false)
+        uploads.changed(["2026-10-13"], urgent: false)
+        XCTAssertEqual(sent.count, 1, "readings within the half hour are held")
+        XCTAssertEqual(uploads.pending, ["2026-10-13", "2026-10-14"])
+        XCTAssertEqual(uploads.due, Date(timeIntervalSince1970: 1_800_000_000 + 1800))
+
+        clock = clock.addingTimeInterval(60)
+        await uploads.flush()?.value
+        XCTAssertEqual(sent.last, ["2026-10-13", "2026-10-14"], "the Health screen opening sends what is held")
+        XCTAssertNil(uploads.due)
+
+        clock = clock.addingTimeInterval(60)
+        uploads.changed(["2026-10-14"], urgent: true)
+        await Task.yield()
+        XCTAssertEqual(sent.count, 3, "while a screen shows it, a reading goes up at once")
+
+        succeed = false
+        clock = clock.addingTimeInterval(1800)
+        uploads.changed(["2026-10-14"], urgent: false)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(uploads.pending, ["2026-10-14"], "a failed upload is held for the next one")
+    }
+
     func testEveryMonitoringMetricIsASwitchTheBandFramesKnow() {
         let names = Set(BandSettings.switches.map(\.name))
         for (metric, name) in BandDevice.monitorSwitches {
