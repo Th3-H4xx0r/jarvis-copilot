@@ -955,6 +955,53 @@ def _ensure_mutagen_quiet() -> None:
               file=sys.stderr)
 
 
+def _hooks_settings_path() -> str:
+    from jc_client.hook_install import default_settings_path
+    return default_settings_path()
+
+
+def _hooks_bin_dir() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "bin")
+
+
+def cmd_hooks(args) -> int:
+    """Install / inspect the jc-hook relay in Claude Code's settings.json."""
+    from jc_client import hook_install as hi
+    settings, bin_dir = _hooks_settings_path(), _hooks_bin_dir()
+    try:
+        if args.hooks_command == "status":
+            print(json.dumps(hi.status(settings), indent=2))
+            return 0
+        if args.hooks_command == "uninstall":
+            changed = hi.uninstall(settings, bin_dir)
+            print("Removed the Jarvis hooks." if changed else "Nothing to remove.")
+            return 0
+        script = os.path.join(bin_dir, "jc-hook")
+        cmd = hi.command_base(sys.executable, script)
+        pv = hi.preview(settings, cmd, bin_dir, statusline=not getattr(args, "no_statusline", False))
+        if args.hooks_command == "preview":
+            print(pv.diff or "Already up to date.")
+            return 0
+        if pv.new_bytes == pv.original:
+            hi.install_script(bin_dir)
+            print("Already up to date.")
+            return 0
+        print(pv.diff)
+        if not getattr(args, "yes", False):
+            answer = input(f"\nWrite these changes to {settings}? (a backup is kept) [y/N] ")
+            if answer.strip().lower() not in ("y", "yes"):
+                print("Nothing written.")
+                return 1
+        hi.install_script(bin_dir)
+        hi.install(settings, pv)
+        print("Installed. Claude Code sessions started from now on report to Jarvis.")
+        return 0
+    except (hi.SettingsShape, hi.SettingsChanged) as exc:
+        print(f"hooks: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_install_mutagen(args) -> int:
     """Download + install the pinned Mutagen binary used by coding-session sync."""
     from jc_client.mutagen_install import ensure_mutagen
@@ -1035,6 +1082,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
     sub.add_parser("tcp-relay", help="SSH ProxyCommand: bridge stdio to the server sync relay").set_defaults(func=cmd_tcp_relay)
     sub.add_parser("install-mutagen", help="Download/refresh the Mutagen sync engine").set_defaults(func=cmd_install_mutagen)
+    hk = sub.add_parser("hooks", help="Report Claude Code sessions to Jarvis through its hooks")
+    hk_sub = hk.add_subparsers(dest="hooks_command", required=True)
+    hk_sub.add_parser("status", help="Show whether the hooks are installed")
+    hk_sub.add_parser("preview", help="Show the settings.json change without writing it")
+    hk_in = hk_sub.add_parser("install", help="Add the hooks (diff shown, backup kept)")
+    hk_in.add_argument("--yes", action="store_true", help="Don't ask before writing")
+    hk_in.add_argument("--no-statusline", dest="no_statusline", action="store_true",
+                       help="Leave the status line alone (no plan-usage numbers)")
+    hk_sub.add_parser("uninstall", help="Remove the hooks and restore the status line")
+    hk.set_defaults(func=cmd_hooks)
     cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
     cmsubp.add_parser("bootstrap")
