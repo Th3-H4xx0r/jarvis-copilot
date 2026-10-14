@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Jarvis</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Jarvis</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.jarviscopilot.mac</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jarvismac</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Jarvis. Notch island after coucou (github.com/Louis-CFM/coucou, MIT).</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Jarvis listens for "Hey Jarvis", takes dictation and records the calls you ask it to.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Jarvis turns your voice into text on this Mac for the wake word and dictation.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Jarvis brings your terminal forward, reads what's playing in Music and Spotify, and drafts emails in Mail.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Jarvis records the other side of a call when you ask it to take notes.</string>
+</dict>
+</plist>

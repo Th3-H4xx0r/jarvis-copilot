@@ -804,7 +804,27 @@ def _supervised_state(pid: Optional[int]) -> str:
     return last_state
 
 
+def _mac_app_marker() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "mac-app.running")
+
+
+def _mac_app_running() -> bool:
+    """The native Jarvis Mac app (mac_app/JarvisMac) owns the menu-bar item while
+    it runs; it leaves its pid in a marker file. A stale marker is ignored."""
+    try:
+        with open(_mac_app_marker(), encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def run() -> int:
+    if sys.platform == "darwin" and _mac_app_running():
+        print("The Jarvis Mac app is running and owns the menu-bar item; the tray steps aside.")
+        return 0
     try:
         app = TrayApp()
     except RuntimeError as exc:

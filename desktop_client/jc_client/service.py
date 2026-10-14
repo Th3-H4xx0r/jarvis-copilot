@@ -144,7 +144,9 @@ class Service:
 
     def _ui_hello(self) -> dict:
         creds = credentials.load()
+        dylib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "libJarvisVoiceUI.dylib")
         return {"api": _imessage_api_origin(), "paired": creds.paired,
+                "voice_dylib": dylib if os.path.exists(dylib) else None,
                 "device_name": creds.device_name, "approvals": self._agent_approvals,
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
