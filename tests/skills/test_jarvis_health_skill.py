@@ -69,6 +69,16 @@ def test_an_update_sends_the_whole_goal(skill, calls):
     assert calls.made[-1][2] == {"habit": {"id": "h", "name": "Vaping"}}
 
 
+def test_a_limit_change_keeps_its_period_unless_told(skill, calls):
+    _habits(calls, {"id": "h", "name": "Vape", "goal": {"streak_days": None, "limit": {"per": "month", "count": 5}}})
+    assert skill.main(["habit-update", "--habit", "h", "--limit", "3"]) == 0
+    assert calls.made[-1][2]["habit"]["goal"]["limit"] == {"per": "month", "count": 3}
+    assert skill.main(["habit-update", "--habit", "h", "--per", "day"]) == 0
+    assert calls.made[-1][2]["habit"]["goal"]["limit"] == {"per": "day", "count": 5}
+    assert skill.main(["habit-create", "--name", "Sugar", "--limit", "2"]) == 0
+    assert calls.made[-1][2]["habit"]["goal"]["limit"] == {"per": "day", "count": 2}
+
+
 def test_create_carries_a_monthly_limit(skill, calls):
     assert skill.main(["habit-create", "--name", "Sugar", "--limit", "3", "--per", "month", "--streak-days", "14"]) == 0
     assert calls.made[-1] == ("POST", f"{BASE}/habits", {"habit": {

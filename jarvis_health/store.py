@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import re
+import threading
 import uuid
 from datetime import timezone
 from typing import Any, Optional
@@ -69,6 +70,9 @@ TRAINING_SETTINGS = "training-settings"
 HABIT_PREFIX = "habit-"
 RELAPSES = "habit-relapses"
 _UID = re.compile(r"[A-Za-z0-9-]{1,64}")
+# The webui serves each request on its own thread: a resend overlapping its
+# original must not slip between the uid check and the append.
+_RELAPSE_LOCK = threading.Lock()
 # A prefix plus this fits the registry's 64-character keys.
 _TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,54}")
 #: The key a workout's device is filed under: `ring-b6ce93c4`.
@@ -539,15 +543,16 @@ class HealthStore:
         uid = str(uid or uuid.uuid4())
         if not _UID.fullmatch(uid):
             raise ValueError("a relapse's uid is letters, digits and dashes")
-        existing = self._space.records(RELAPSES, where={"uid": uid}, limit=1)
-        if existing:
-            return self._relapse(existing[0])
         body = {"habit": habit["id"], "uid": uid,
                 "at": when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "tz": str(tz or habit.get("timezone") or "UTC")[:64]}
         if note:
             body["note"] = str(note)[:500]
-        self._space.append(RELAPSES, body, ts=when.timestamp(), source="habits")
+        with _RELAPSE_LOCK:
+            existing = self._space.records(RELAPSES, where={"uid": uid}, limit=1)
+            if existing:
+                return self._relapse(existing[0])
+            self._space.append(RELAPSES, body, ts=when.timestamp(), source="habits")
         return body
 
     def delete_relapse(self, uid) -> bool:

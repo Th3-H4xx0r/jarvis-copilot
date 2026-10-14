@@ -207,10 +207,13 @@ def _goal(args, current=None) -> dict:
     goal = dict(current or {"streak_days": None, "limit": None})
     if args.streak_days is not None:
         goal["streak_days"] = args.streak_days or None
+    current_limit = goal.get("limit") or {}
     if args.no_limit:
         goal["limit"] = None
-    elif args.limit is not None:
-        goal["limit"] = {"per": args.per, "count": args.limit}
+    elif args.limit is not None or (args.per and current_limit):
+        # A new count keeps the limit's period, and a new period its count, unless told.
+        goal["limit"] = {"per": args.per or current_limit.get("per") or "day",
+                         "count": args.limit if args.limit is not None else current_limit.get("count")}
     return goal
 
 
@@ -247,7 +250,7 @@ def cmd_habit(args) -> int:
         change["name"] = args.name
     if args.started:
         change["started_at"] = args.started
-    if args.streak_days is not None or args.limit is not None or args.no_limit:
+    if args.streak_days is not None or args.limit is not None or args.per or args.no_limit:
         change["goal"] = _goal(args, habit.get("goal"))
     return _write(f"{BASE}/habits", {"habit": change})
 
@@ -291,7 +294,8 @@ def main(argv=None) -> int:
         p.add_argument("--started", help="the quit date, a UTC instant (default now)")
         p.add_argument("--streak-days", type=int, help="target days without a relapse (0 clears it)")
         p.add_argument("--limit", type=int, help="at most this many relapses …")
-        p.add_argument("--per", choices=("day", "month"), default="day", help="… a day or a month")
+        p.add_argument("--per", choices=("day", "month"),
+                       help="… a day or a month (default: the limit's own period, else day)")
     hr = sub.add_parser("habit-relapse", help="log a relapse, now or --at")
     hr.add_argument("--habit", required=True, help="id or name")
     hr.add_argument("--at", help="a UTC instant, default now")

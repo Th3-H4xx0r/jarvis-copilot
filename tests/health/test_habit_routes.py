@@ -53,6 +53,23 @@ def test_a_relapse_posted_twice_is_stored_once(store):
     assert len(store.relapses("scroll")) == 1
 
 
+def test_the_same_relapse_sent_from_two_threads_at_once_is_stored_once(store):
+    import threading
+
+    store.put_habit(_habit())
+
+    def send():
+        for i in range(150):
+            HealthStore().put_relapse("scroll", at="2026-10-05T07:00:00Z", uid=f"u{i}")
+
+    threads = [threading.Thread(target=send) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(store.relapses("scroll")) == 150
+
+
 def test_relapses_come_back_past_the_registrys_page(store):
     store.put_habit(_habit())
     for i in range(1005):
