@@ -131,8 +131,8 @@ final class AppModel {
         JcLink.shared.request(body) { reply in done?(J.b(reply["ok"])) }
     }
 
-    func hooks(_ action: String, done: @escaping ([String: Any]) -> Void) {
-        JcLink.shared.request(["type": "hooks", "action": action], reply: done)
+    func hooks(_ action: String, agent: String = "claude", done: @escaping ([String: Any]) -> Void) {
+        JcLink.shared.request(["type": "hooks", "action": action, "agent": agent], reply: done)
     }
 
     // MARK: demo support

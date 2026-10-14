@@ -145,3 +145,19 @@ def test_config_change_is_told_to_the_app(tmp_path, monkeypatch):
 def test_unknown_ui_request_is_refused():
     svc = service.Service()
     assert svc._ui_request({"type": "frobnicate"})["ok"] is False
+
+
+def test_ui_hooks_handles_the_other_agents(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    svc = service.Service()
+    r = svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini"})
+    assert r["ok"] is True and r["status"]["installed"] is True
+    assert (tmp_path / ".gemini" / "settings.json").exists()
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+    allr = svc._ui_request({"type": "hooks", "action": "status", "agent": "all"})
+    assert allr["agents"]["gemini"]["installed"] is True
+    assert allr["agents"]["codex"]["installed"] is False
+    assert "claude" in allr["agents"]
+    r = svc._ui_request({"type": "hooks", "action": "uninstall", "agent": "gemini"})
+    assert r["ok"] is True and r["changed"] is True
+    assert svc._ui_request({"type": "hooks", "action": "install", "agent": "nope"})["ok"] is False

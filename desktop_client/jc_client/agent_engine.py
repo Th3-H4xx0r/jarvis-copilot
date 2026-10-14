@@ -305,6 +305,8 @@ class Engine:
         if p.get("cwd") and not s["cwd"]:
             s["cwd"] = str(p["cwd"])
             s["project"] = os.path.basename(s["cwd"].rstrip("/")) or "session"
+        if isinstance(p.get("jc_project"), str) and p["jc_project"].strip():
+            s["project"] = p["jc_project"].strip()[:60]
 
     def _effect(self, kind, s, **extra):
         out = {"kind": kind, "key": s["key"] if s else None,
@@ -376,6 +378,9 @@ class Engine:
     def _settle_matching(self, s, p, tool, inp):
         pend = s.get("pending")
         if not pend or pend.get("kind") != "approval":
+            return
+        if pend.get("from_notification"):
+            s["pending"] = None  # a tool ran, so the prompt we only heard about was answered
             return
         tid = str(p.get("tool_use_id") or "")
         same = (tid and tid == pend.get("tool_use_id")) or (

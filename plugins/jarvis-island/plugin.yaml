@@ -1,0 +1,10 @@
+name: jarvis-island
+version: 1.0.0
+description: "Shows Jarvis's own runs (prompt, tools, approvals, reply) next to the coding agents on the Mac island and the iPhone Agents tab. Display only; cron runs are left out."
+author: Pranav Krishna
+hooks:
+  - pre_llm_call
+  - pre_tool_call
+  - post_tool_call
+  - post_llm_call
+  - pre_approval_request

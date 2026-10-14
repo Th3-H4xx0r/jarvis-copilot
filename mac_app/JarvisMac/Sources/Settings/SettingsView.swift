@@ -127,6 +127,7 @@ private struct AgentsSettings: View {
                         .frame(maxHeight: 160)
                 }
             }
+            OtherAgentsSection(model: model)
             Section("From the phone") {
                 LabeledContent("Approvals and questions", value: model.approvalsOn ? "On" : "Off")
                 LabeledContent("Instructions to Terminal sessions", value: model.instructionsOn ? "On" : "Off")
@@ -198,4 +199,61 @@ extension Notification.Name {
     static let jarvisRelocateIsland = Notification.Name("jarvis.relocateIsland")
     static let jarvisDesktopOrb = Notification.Name("jarvis.desktopOrb")
     static let jarvisShortcutsChanged = Notification.Name("jarvis.shortcutsChanged")
+}
+
+/// Codex, Gemini, Copilot and the rest: each keeps its hooks in its own file
+/// (desktop_client/jc_client/hook_install.py OTHER_AGENTS).
+private struct OtherAgentsSection: View {
+    let model: AppModel
+    @State private var installed: [String: Bool] = [:]
+    @State private var errors: [String: String] = [:]
+    @State private var busy: String?
+
+    static let agents: [(id: String, name: String)] = [
+        ("codex", "Codex"), ("gemini", "Gemini CLI"), ("copilot", "GitHub Copilot CLI"),
+        ("antigravity", "Antigravity"), ("opencode", "OpenCode"), ("amp", "Amp"), ("muse", "Muse Code"),
+    ]
+
+    var body: some View {
+        Section("Other agents") {
+            ForEach(Self.agents, id: \.id) { agent in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(agent.name)
+                        if let err = errors[agent.id] {
+                            Text(err).font(.caption).foregroundStyle(.red)
+                        }
+                    }
+                    Spacer()
+                    if busy == agent.id { ProgressView().controlSize(.small) }
+                    if installed[agent.id] == true {
+                        Button("Remove") { run("uninstall", agent.id) }
+                    } else {
+                        Button("Install") { run("install", agent.id) }
+                    }
+                }
+            }
+            Text("Each agent keeps its own hook file; Jarvis only adds its entries and backs the file up first. Codex asks you once to trust new hooks.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear(perform: refresh)
+    }
+
+    private func refresh() {
+        model.hooks("status", agent: "all") { reply in
+            let all = J.obj(reply["agents"])
+            for (id, _) in Self.agents {
+                installed[id] = J.b(J.obj(all[id])["installed"])
+            }
+        }
+    }
+
+    private func run(_ action: String, _ id: String) {
+        busy = id
+        model.hooks(action, agent: id) { reply in
+            busy = nil
+            errors[id] = J.b(reply["ok"]) ? nil : J.s(reply["error"], "Jarvis isn't running on this Mac.")
+            refresh()
+        }
+    }
 }

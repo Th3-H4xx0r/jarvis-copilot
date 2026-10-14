@@ -965,11 +965,55 @@ def _hooks_bin_dir() -> str:
     return str(state_dir() / "bin")
 
 
+def _hooks_home():
+    return None  # the user's home; tests point it elsewhere
+
+
+def _cmd_agent_hooks(args, hi, agent: str, bin_dir: str) -> int:
+    """`jc-client hooks … --agent codex|gemini|…`: the other agents' hook files."""
+    home = _hooks_home()
+    if args.hooks_command == "uninstall":
+        changed = hi.uninstall_agent(agent, home=home)
+        print(f"Removed the Jarvis hooks from {agent}." if changed else "Nothing to remove.")
+        return 0
+    script = os.path.join(bin_dir, "jc-hook")
+    cmd = hi.command_base(sys.executable, script)
+    pv = hi.agent_preview(agent, cmd, home=home, python=sys.executable, script=script)
+    if args.hooks_command == "preview":
+        print(pv.diff or "Already up to date.")
+        return 0
+    hi.install_script(bin_dir)
+    if pv.new_bytes == pv.original:
+        print("Already up to date.")
+        return 0
+    print(pv.diff)
+    if not getattr(args, "yes", False):
+        answer = input(f"\nWrite these changes to {hi.agent_path(agent, home)}? (a backup is kept) [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Nothing written.")
+            return 1
+    hi.install_agent(agent, cmd, home=home, pv=pv)
+    print(f"Installed. New {agent} sessions report to Jarvis.")
+    return 0
+
+
 def cmd_hooks(args) -> int:
-    """Install / inspect the jc-hook relay in Claude Code's settings.json."""
+    """Install / inspect the jc-hook relay in Claude Code's settings.json (or another agent's)."""
     from jc_client import hook_install as hi
     settings, bin_dir = _hooks_settings_path(), _hooks_bin_dir()
+    agent = getattr(args, "agent", None) or "claude"
     try:
+        if args.hooks_command == "status" and agent == "all":
+            report = {"claude": hi.status(settings)}
+            for name in hi.OTHER_AGENTS:
+                report[name] = hi.agent_status(name, home=_hooks_home())
+            print(json.dumps(report, indent=2))
+            return 0
+        if args.hooks_command == "status" and agent != "claude":
+            print(json.dumps(hi.agent_status(agent, home=_hooks_home()), indent=2))
+            return 0
+        if agent != "claude":
+            return _cmd_agent_hooks(args, hi, agent, bin_dir)
         if args.hooks_command == "status":
             print(json.dumps(hi.status(settings), indent=2))
             return 0
@@ -1123,15 +1167,23 @@ def _build_parser() -> argparse.ArgumentParser:
     ag = sub.add_parser("agents", help="List the coding-agent sessions the service sees")
     ag.add_argument("--json", action="store_true")
     ag.set_defaults(func=cmd_agents)
-    hk = sub.add_parser("hooks", help="Report Claude Code sessions to Jarvis through its hooks")
+    hk = sub.add_parser("hooks", help="Report coding-agent sessions to Jarvis through their hooks")
     hk_sub = hk.add_subparsers(dest="hooks_command", required=True)
-    hk_sub.add_parser("status", help="Show whether the hooks are installed")
-    hk_sub.add_parser("preview", help="Show the settings.json change without writing it")
-    hk_in = hk_sub.add_parser("install", help="Add the hooks (diff shown, backup kept)")
+    from jc_client.hook_install import OTHER_AGENTS as _hook_agents
+    _agent_choices = ["claude", *_hook_agents]
+
+    def _agent_arg(p, extra=()):
+        p.add_argument("--agent", choices=[*_agent_choices, *extra], default="claude",
+                       help="Which coding agent (default: Claude Code)")
+        return p
+
+    _agent_arg(hk_sub.add_parser("status", help="Show whether the hooks are installed"), extra=("all",))
+    _agent_arg(hk_sub.add_parser("preview", help="Show the settings change without writing it"))
+    hk_in = _agent_arg(hk_sub.add_parser("install", help="Add the hooks (diff shown, backup kept)"))
     hk_in.add_argument("--yes", action="store_true", help="Don't ask before writing")
     hk_in.add_argument("--no-statusline", dest="no_statusline", action="store_true",
                        help="Leave the status line alone (no plan-usage numbers)")
-    hk_sub.add_parser("uninstall", help="Remove the hooks and restore the status line")
+    _agent_arg(hk_sub.add_parser("uninstall", help="Remove the hooks and restore the status line"))
     hk.set_defaults(func=cmd_hooks)
     cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)

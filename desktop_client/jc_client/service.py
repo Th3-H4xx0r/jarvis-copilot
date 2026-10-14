@@ -188,13 +188,38 @@ class Service:
             self._send_subscription()
             return {"ok": True}
         if kind == "hooks":
-            return self._ui_hooks(str(req.get("action") or "status"), bool(req.get("statusline", True)))
+            return self._ui_hooks(str(req.get("action") or "status"), bool(req.get("statusline", True)),
+                                  str(req.get("agent") or "claude"))
         return {"ok": False, "error": f"unknown request {kind!r}"}
 
-    def _ui_hooks(self, action: str, statusline: bool) -> dict:
+    def _ui_hooks(self, action: str, statusline: bool, agent: str = "claude") -> dict:
         from jc_client import hook_install as hi
         from jc_client.logger import state_dir
         settings, bin_dir = hi.default_settings_path(), str(state_dir() / "bin")
+        if agent == "all" and action == "status":
+            report = {"claude": hi.status(settings)}
+            report.update({name: hi.agent_status(name) for name in hi.OTHER_AGENTS})
+            return {"ok": True, "agents": report}
+        if agent != "claude":
+            if agent not in hi.OTHER_AGENTS:
+                return {"ok": False, "error": f"unknown agent {agent!r}"}
+            try:
+                if action == "status":
+                    return {"ok": True, "status": hi.agent_status(agent)}
+                if action == "uninstall":
+                    return {"ok": True, "changed": hi.uninstall_agent(agent)}
+                script = os.path.join(bin_dir, "jc-hook")
+                cmd = hi.command_base(sys.executable, script)
+                pv = hi.agent_preview(agent, cmd, python=sys.executable, script=script)
+                if action == "preview":
+                    return {"ok": True, "diff": pv.diff}
+                if action == "install":
+                    hi.install_script(bin_dir)
+                    hi.install_agent(agent, cmd, pv=pv)
+                    return {"ok": True, "status": hi.agent_status(agent)}
+            except (hi.SettingsShape, hi.SettingsChanged) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": f"unknown hooks action {action!r}"}
         if action == "status":
             return {"ok": True, "status": hi.status(settings)}
         if action == "uninstall":

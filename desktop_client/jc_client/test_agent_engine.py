@@ -312,3 +312,22 @@ def test_unknown_event_is_harmless(eng):
     assert one(eng)["state"] == "thinking"
     assert eng.ingest("mac", "claude", {"cwd": "/w"}) == []
     assert eng.ingest("mac", "claude", "not a dict") == []
+
+
+def test_a_session_can_name_its_own_project(eng):
+    """Agents with no folder of their own (Jarvis's chats) send jc_project."""
+    eng.ingest("server", "jarvis", {"hook_event_name": "UserPromptSubmit", "session_id": "j1",
+                                    "cwd": "", "prompt": "hi", "jc_project": "Jarvis · telegram"})
+    s = eng.session(ae.session_key("server", "jarvis", "j1", ""))
+    assert s["project"] == "Jarvis · telegram"
+
+
+def test_a_tool_finishing_clears_an_approval_known_only_from_a_notification(eng):
+    eng.ingest("mac", "claude", ev("UserPromptSubmit", prompt="go"))
+    eng.ingest("mac", "claude", ev("Notification", notification_type="permission_prompt",
+                                   message="Claude needs your permission to use Bash"))
+    assert one(eng)["state"] == "approval"
+    eng.ingest("mac", "claude", ev("PostToolUse", tool_name="Bash", tool_use_id="t9",
+                                   tool_input={"command": "ls"}))
+    s = one(eng)
+    assert s["pending"] is None and s["state"] == "working"

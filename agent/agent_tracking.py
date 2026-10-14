@@ -313,6 +313,8 @@ class AgentTracker:
                     except Exception:  # noqa: BLE001
                         pass
             elif kind == "notify":
+                if session.get("agent") == "jarvis":
+                    continue  # Jarvis notifies about its own replies already
                 event = _NOTIFY_EVENT.get(e.get("event") or "")
                 if event and self._notify_cb is not None:
                     try:

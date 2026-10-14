@@ -187,3 +187,15 @@ def test_statusline_updates_usage(env):
     u = tr.usage()
     assert u["five_hour"]["used_percentage"] == 40
     assert u["source"] == "d1"
+
+
+def test_jarvis_own_runs_show_but_never_notify_or_make_rows(env):
+    """Jarvis already tells you about its own replies; its runs only appear live."""
+    store, tr, calls, _ = env
+    tr.ingest(None, "event", "jarvis", {"hook_event_name": "UserPromptSubmit", "session_id": "j1",
+                                        "cwd": "", "prompt": "hi", "jc_project": "Jarvis · webui"})
+    tr.ingest(None, "event", "jarvis", {"hook_event_name": "Stop", "session_id": "j1", "cwd": "",
+                                        "last_assistant_message": "hello"})
+    assert calls["notify"] == []
+    assert store.list_sessions() == []
+    assert any(s["agent"] == "jarvis" for s in tr.engine.sessions())

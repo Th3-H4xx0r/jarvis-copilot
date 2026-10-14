@@ -247,3 +247,271 @@ def status(settings_path: str) -> dict:
             "outdated": installed and (not wanted <= ours or not has_ask),
             "statusline": isinstance(sl, dict) and MARKER in str(sl.get("command") or ""),
             "events": sorted(ours)}
+
+
+# ---------------------------------------------------------------------------
+# The other coding agents (after coucou's HookServer installers). Each keeps its
+# hooks in its own file and shape; the rules are the same as Claude Code's:
+# strict parse, foreign entries kept, dated backup, write only if unchanged.
+
+def _hook(cmd: str, timeout: int, **extra) -> dict:
+    return {"type": "command", "command": cmd, "timeout": timeout, **extra}
+
+
+def _js_str(s: str) -> str:
+    return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+@dataclass
+class _Agent:
+    name: str
+    rel_path: str
+    kind: str          # "groups" (event -> matcher groups), "namespace", "file", "plugin"
+    events: list       # [(file event, argv event or None, timeout, extra)]
+    matcher: bool = True
+
+
+_STATUS_MSG = {"statusMessage": "Waiting for your answer in Jarvis"}
+
+OTHER_AGENTS = {
+    "codex": _Agent("codex", ".codex/hooks.json", "groups", [
+        ("SessionStart", None, 10, {}), ("UserPromptSubmit", None, 10, {}),
+        ("PreToolUse", None, 10, {}), ("PermissionRequest", None, 120, _STATUS_MSG),
+        ("PostToolUse", None, 10, {}), ("Stop", None, 10, {}),
+        ("SubagentStart", None, 10, {}), ("SubagentStop", None, 10, {}),
+        ("Interrupt", None, 3, {}), ("SessionEnd", None, 3, {}),
+    ], matcher=False),
+    # Timeouts in milliseconds. AfterModel fires once per streamed chunk: left out.
+    "gemini": _Agent("gemini", ".gemini/settings.json", "groups", [
+        ("SessionStart", "SessionStart", 10000, {}), ("SessionEnd", "SessionEnd", 10000, {}),
+        ("BeforeTool", "PreToolUse", 5000, {}), ("AfterTool", "PostToolUse", 5000, {}),
+        ("BeforeAgent", "UserPromptSubmit", 5000, {}), ("AfterAgent", "Stop", 5000, {}),
+    ]),
+    "muse": _Agent("muse", ".config/muse/settings.json", "groups", [
+        (e, e, t * 1000, {}) for e, t in (
+            ("SessionStart", 10), ("UserPromptSubmit", 5), ("PreToolUse", 5),
+            ("PermissionRequest", 120), ("PostToolUse", 5), ("Stop", 5), ("SessionEnd", 3))
+    ]),
+    "antigravity": _Agent("antigravity", ".gemini/config/hooks.json", "namespace", [
+        (e, e, 10, {}) for e in ("PreToolUse", "PostToolUse", "PreInvocation", "PostInvocation", "Stop")
+    ]),
+    "copilot": _Agent("copilot", ".copilot/hooks/jarvis.json", "file", [
+        (e, e, t, {}) for e, t in (
+            ("sessionStart", 10), ("userPromptSubmitted", 10), ("preToolUse", 10),
+            ("permissionRequest", 120), ("postToolUse", 10), ("agentStop", 10),
+            ("sessionEnd", 3), ("notification", 10))
+    ]),
+    "opencode": _Agent("opencode", ".config/opencode/plugins/jarvis.js", "plugin", []),
+    "amp": _Agent("amp", ".config/amp/plugins/jarvis.ts", "plugin", []),
+}
+NAMESPACE = "jarvis"
+
+
+def _home(home: Optional[str]) -> str:
+    return home or os.path.expanduser("~")
+
+
+def agent_path(agent: str, home: Optional[str] = None) -> str:
+    return os.path.join(_home(home), OTHER_AGENTS[agent].rel_path)
+
+
+def _opencode_plugin(python: str, script: str) -> str:
+    return f"""// Jarvis hook plugin for OpenCode, written by jc-client (`jc-client hooks uninstall --agent opencode`).
+// Forwards every event to jc-hook: fire-and-forget, never blocks OpenCode.
+import {{ spawn }} from 'node:child_process';
+
+const PY = {_js_str(python)};
+const HOOK = {_js_str(script)};
+const EVENT_MAP = {{
+  'session.created': 'SessionStart',
+  'session.idle': 'Stop',
+  'session.error': 'StopFailure',
+  'session.deleted': 'SessionEnd',
+  'permission.asked': 'PermissionRequest',
+}};
+
+function forward(hook_event_name, payload) {{
+  try {{
+    const p = spawn(PY, ['-I', HOOK, '--agent', 'opencode'],
+                    {{ stdio: ['pipe', 'ignore', 'ignore'], detached: true }});
+    p.on('error', () => {{}});
+    p.stdin.on('error', () => {{}});
+    p.stdin.write(JSON.stringify({{ hook_event_name, ...payload }}) + '\\n');
+    p.stdin.end();
+    p.unref();
+  }} catch (_) {{}}
+}}
+
+export const JarvisPlugin = async (_ctx) => ({{
+  event: async ({{ event }}) => {{
+    const hook_event_name = EVENT_MAP[event.type];
+    if (!hook_event_name) return;
+    const props = event.properties || {{}};
+    const payload = {{
+      session_id: event.sessionID || event.session_id || props.sessionID || props.session_id || '',
+      cwd: event.cwd || event.directory || props.cwd || props.directory || '',
+    }};
+    if (typeof props.tool === 'string') payload.tool_name = props.tool;
+    if (props.input != null) payload.tool_input = props.input;
+    forward(hook_event_name, payload);
+  }},
+  'tool.execute.before': async (input) => {{
+    forward('PreToolUse', {{
+      session_id: input.sessionID || input.session_id || '',
+      cwd: input.cwd || '',
+      tool_name: typeof input.tool === 'string' ? input.tool : '',
+      tool_input: input.input ?? null,
+    }});
+  }},
+  'tool.execute.after': async (input, _output) => {{
+    forward('PostToolUse', {{
+      session_id: input.sessionID || input.session_id || '',
+      cwd: input.cwd || '',
+      tool_name: typeof input.tool === 'string' ? input.tool : '',
+    }});
+  }},
+}});
+"""
+
+
+def _amp_plugin(python: str, script: str) -> str:
+    return f"""// Jarvis hook plugin for Amp, written by jc-client (`jc-client hooks uninstall --agent amp`).
+// Display only: forwards events to jc-hook and always lets the tool run.
+import {{ spawn }} from 'node:child_process';
+import type {{ Writable }} from 'node:stream';
+
+const PY = {_js_str(python)};
+const HOOK = {_js_str(script)};
+
+function forward(event_name: string, fields: Record<string, unknown>): void {{
+  try {{
+    const p = spawn(PY, ['-I', HOOK, '--agent', 'amp'],
+                    {{ stdio: ['pipe', 'ignore', 'ignore'], detached: true }});
+    p.on('error', () => {{}});
+    const stdin = p.stdin as Writable;
+    stdin.on('error', () => {{}});
+    stdin.write(JSON.stringify({{ hook_event_name: event_name, ...fields }}) + '\\n');
+    stdin.end();
+    p.unref();
+  }} catch (_) {{}}
+}}
+
+export default function (amp: any): void {{
+  amp.on('session.start', (e: any) => {{ forward('SessionStart',     {{ session_id: e.thread?.id ?? '' }}); }});
+  amp.on('agent.start',   (e: any) => {{ forward('UserPromptSubmit', {{ session_id: e.thread?.id ?? '' }}); }});
+  amp.on('tool.call',     (e: any) => {{ try {{ forward('PreToolUse', {{ session_id: e.thread?.id ?? '', tool_name: typeof e.tool === 'string' ? e.tool : '' }}); }} finally {{ return {{ action: 'allow' }}; }} }});
+  amp.on('tool.result',   (e: any) => {{ forward('PostToolUse',      {{ session_id: e.thread?.id ?? '' }}); }});
+  amp.on('agent.end',     (e: any) => {{ forward('Stop',             {{ session_id: e.thread?.id ?? '' }}); }});
+}}
+"""
+
+
+def _agent_new_bytes(a: _Agent, path: str, cmd: str, python: str, script: str):
+    """(original bytes or None, new bytes or None to delete) for installing."""
+    if a.kind == "plugin":
+        try:
+            with open(path, "rb") as f:
+                original = f.read()
+        except FileNotFoundError:
+            original = None
+        body = _opencode_plugin(python, script) if a.name == "opencode" else _amp_plugin(python, script)
+        return original, body.encode()
+    original, obj = _read(path)
+    base = f"{cmd} --agent {a.name}"
+    if a.kind == "file":
+        hooks = {}
+        for event, argv_event, timeout, _ in a.events:
+            hooks[event] = [{"type": "command", "bash": f"{base} {argv_event}", "timeoutSec": timeout}]
+        return original, _dumps({"version": 1, "hooks": hooks})
+    if a.kind == "namespace":
+        ours = {}
+        for event, argv_event, timeout, _ in a.events:
+            h = _hook(f"{base} {argv_event}", timeout)
+            ours[event] = [{"matcher": "*", "hooks": [h]}] if event in ("PreToolUse", "PostToolUse") else [h]
+        new = dict(obj)
+        new[NAMESPACE] = ours
+        return original, _dumps(new)
+    hooks = _hooks(obj, path)
+    new_hooks = {e: [g for g in groups if not _is_ours(g)] for e, groups in hooks.items()}
+    for event, argv_event, timeout, extra in a.events:
+        h = _hook(f"{base} {argv_event}" if argv_event else base, timeout, **extra)
+        group = {"matcher": "*", "hooks": [h]} if a.matcher else {"hooks": [h]}
+        new_hooks.setdefault(event, []).append(group)
+    new = dict(obj)
+    new["hooks"] = {e: g for e, g in new_hooks.items() if g}
+    if a.name == "muse" and original is None:
+        new.setdefault("schema_version", 1)
+    return original, _dumps(new)
+
+
+def agent_preview(agent: str, cmd: str, home: Optional[str] = None,
+                  python: str = "", script: str = "") -> Preview:
+    a = OTHER_AGENTS[agent]
+    path = agent_path(agent, home)
+    original, data = _agent_new_bytes(a, path, cmd, python, script)
+    return Preview(new_bytes=data, original=original, diff=_diff(original, data, path),
+                   previous_statusline=None, bin_dir="")
+
+
+def install_agent(agent: str, cmd: str, home: Optional[str] = None,
+                  python: str = "", script: str = "", pv: Optional[Preview] = None) -> bool:
+    """Write the agent's hooks (the preview's bytes if given). True if anything changed."""
+    path = agent_path(agent, home)
+    pv = pv or agent_preview(agent, cmd, home, python, script)
+    if pv.new_bytes == pv.original:
+        return False
+    _write(path, pv.new_bytes, pv.original)
+    return True
+
+
+def uninstall_agent(agent: str, home: Optional[str] = None) -> bool:
+    a = OTHER_AGENTS[agent]
+    path = agent_path(agent, home)
+    if a.kind in ("plugin", "file"):
+        try:
+            with open(path, "rb") as f:
+                if MARKER.encode() not in f.read():
+                    return False
+            os.unlink(path)
+            return True
+        except FileNotFoundError:
+            return False
+    original, obj = _read(path)
+    if original is None:
+        return False
+    new = dict(obj)
+    if a.kind == "namespace":
+        new.pop(NAMESPACE, None)
+    else:
+        hooks = _without_ours(_hooks(obj, path))
+        if hooks:
+            new["hooks"] = hooks
+        else:
+            new.pop("hooks", None)
+    data = _dumps(new)
+    if data == original:
+        return False
+    _write(path, data, original)
+    return True
+
+
+def agent_status(agent: str, home: Optional[str] = None) -> dict:
+    a = OTHER_AGENTS[agent]
+    path = agent_path(agent, home)
+    out = {"agent": agent, "path": path, "installed": False}
+    try:
+        if a.kind in ("plugin", "file"):
+            with open(path, "rb") as f:
+                out["installed"] = MARKER.encode() in f.read()
+            return out
+        _, obj = _read(path)
+        if a.kind == "namespace":
+            out["installed"] = MARKER in json.dumps(obj.get(NAMESPACE) or {})
+        else:
+            hooks = _hooks(obj, path)
+            out["installed"] = any(_is_ours(g) for groups in hooks.values() for g in groups)
+    except FileNotFoundError:
+        pass
+    except SettingsShape as exc:
+        out["error"] = str(exc)
+    return out
