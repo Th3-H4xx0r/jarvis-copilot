@@ -37,6 +37,12 @@ struct JarvisCopilotApp: App {
                 // Shortcut x-callback results and `jarviscopilot://` deep links
                 // (voice, chat?session=, coding?session=).
                 .onOpenURL { AppServices.shared.open(url: $0) }
+                // A finished agent turn picked in Spotlight opens its session.
+                .onContinueUserActivity("com.apple.corespotlightitem") { activity in
+                    guard let id = activity.userInfo?["kCSSearchableItemActivityIdentifier"] as? String,
+                          let key = AgentsSpotlight.key(from: id) else { return }
+                    AppDeepLinkRouter().open(.agents(key: key))
+                }
                 // WCSession has to be live from LAUNCH, not from the first
                 // foreground: iOS background-launches this app to deliver the
                 // watch's message, and with no delegate set by then the watch

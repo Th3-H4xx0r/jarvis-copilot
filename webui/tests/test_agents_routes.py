@@ -140,3 +140,25 @@ def test_decide_by_fingerprint_reaches_the_waiting_request(env, monkeypatch):
     status, _ = call("POST", "/agents/decide", {"fingerprint": "gone", "decision": "deny"},
                      mgr=mgr)
     assert status == 404
+
+
+def test_focus_switch_is_stored(env):
+    store, _, mgr, _ = env
+    status, body = call("POST", "/agents/focus", {"only_waiting": True}, mgr=mgr)
+    assert status == 200 and body["only_waiting"] is True
+    assert store.get_setting("agents_focus")["only_waiting"] is True
+    call("POST", "/agents/focus", {"only_waiting": False}, mgr=mgr)
+    assert store.get_setting("agents_focus")["only_waiting"] is False
+
+
+def test_history_lists_recent_turns_newest_first(env):
+    store, tr, mgr, _ = env
+    import time as _t
+    now = _t.time()
+    store.insert_agent_turn(key="k", agent="claude", project="old", started_at=now - 9 * 86400,
+                            ended_at=now - 9 * 86400 + 60)
+    store.insert_agent_turn(key="k", agent="claude", project="a", started_at=now - 600, ended_at=now - 500)
+    store.insert_agent_turn(key="k", agent="codex", project="b", started_at=now - 300, ended_at=now - 200)
+    status, body = call("GET", "/agents/history", mgr=mgr)
+    assert status == 200
+    assert [t["project"] for t in body["turns"]] == ["b", "a"]

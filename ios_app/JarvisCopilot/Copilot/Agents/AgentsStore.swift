@@ -80,6 +80,7 @@ final class AgentsStore {
             let overview = try await api.overview()
             sessions = Self.sorted(overview.sessions)
             requests = overview.requests
+            AgentsSpotlight.index(sessions)
             usage = overview.usage ?? usage
             loadError = nil
         } catch {
@@ -94,6 +95,7 @@ final class AgentsStore {
         let next = Self.sorted(raw.compactMap { ($0 as? [String: Any]).map(AgentSessionItem.init(json:)) })
         sessions = next
         loaded = true
+        AgentsSpotlight.index(next)
         let pushed = Set(next.compactMap(\.pendingFingerprint))
         let known = Set(requests.map(\.fingerprint))
         if !pushed.isSubset(of: known) {
@@ -134,6 +136,7 @@ final class AgentsStore {
         do {
             if try await api.verdict(requestId: request.requestId, decision: decision.rawValue,
                                      message: message) {
+                AgentsDecisionLog.record(request, decision: decision.rawValue)
                 return true
             }
         } catch {
@@ -157,6 +160,7 @@ final class AgentsStore {
         do {
             if try await api.verdict(requestId: request.requestId, decision: "answer",
                                      answers: answers) {
+                AgentsDecisionLog.record(request, decision: "answered")
                 return true
             }
         } catch {

@@ -344,12 +344,28 @@ final class CodingWidgetData: WidgetDataProvider {
         var parts: [String] = []
         if working > 0 { parts.append("\(working) working") }
         if waiting > 0 { parts.append("\(waiting) waiting") }
-        let out: [String: JCJSON] = [
+        var out: [String: JCJSON] = [
             "coding.working": .number(Double(working)), "coding.waiting": .number(Double(waiting)),
             "coding.total": .number(Double(running.count)),
             "coding.summary": .string(parts.isEmpty ? (running.isEmpty ? "Nothing running" : "\(running.count) idle")
                                                     : parts.joined(separator: " · ")),
         ]
+        // Hook-tracked agents: the most urgent session, the plan, a short list.
+        if let overview = try? await AgentsAPI().overview() {
+            let live = overview.sessions.filter { $0.state != .idle }
+            let lead = live.first
+            out["coding.lead_agent"] = .string(lead?.agentName ?? "")
+            out["coding.lead_project"] = .string(lead?.project ?? "")
+            out["coding.lead_state"] = .string(lead?.state.label ?? "")
+            out["coding.lead_step"] = .string(lead?.step ?? "")
+            out["coding.lead_waiting"] = .bool(lead?.state.waitsOnYou ?? false)
+            out["coding.claude_5h"] = overview.usage?.fiveHour.map { .number(Double($0.percent)) } ?? .null
+            out["coding.claude_week"] = overview.usage?.sevenDay.map { .number(Double($0.percent)) } ?? .null
+            out["coding.agents"] = .array(live.prefix(4).map { s in
+                .object(["project": .string(s.project), "agent": .string(s.agentName),
+                         "state": .string(s.state.rawValue), "step": .string(s.step)])
+            })
+        }
         cache = (Date(), out)
         return out
     }

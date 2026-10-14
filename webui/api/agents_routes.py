@@ -69,6 +69,16 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
         return _instruction(tr, body, manager, manager_for_host)
     if p == "/agents/decide" and method == "POST":
         return _decide(body)
+    if p == "/agents/focus" and method == "POST":
+        only = bool((body or {}).get("only_waiting"))
+        import time as _time
+        manager.store.set_setting("agents_focus", {"only_waiting": only, "at": _time.time()})
+        return _ok({"ok": True, "only_waiting": only})
+    if p == "/agents/history" and method == "GET":
+        import time as _time
+        turns = manager.store.list_agent_turns(since=_time.time() - 7 * 86400)
+        turns.sort(key=lambda t: t.get("ended_at") or 0, reverse=True)
+        return _ok({"turns": turns[:200]})
     return _err(404, "not found")
 
 

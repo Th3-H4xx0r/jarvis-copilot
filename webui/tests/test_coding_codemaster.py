@@ -299,3 +299,28 @@ def test_parse_pane_prompt_restarts_on_new_menu():
 def test_parse_pane_prompt_no_options():
     q, opts = cr._parse_pane_prompt("Overwrite file? (y/n)")
     assert opts == [] and q is None
+
+
+def test_focus_only_waiting_mutes_finished_pushes(monkeypatch):
+    """The iPhone's Focus filter: while it's on, only what waits on you reaches the phone."""
+    from api import coding_routes as cr
+
+    class S:
+        def __init__(self):
+            self.s = {"agents_focus": {"only_waiting": True}}
+
+        def get_setting(self, k, d=None):
+            return self.s.get(k, d)
+
+        def get_project(self, pid):
+            return None
+
+    pushed = []
+    monkeypatch.setattr(cr, "_push_device_alert", lambda t, b: pushed.append(t) or 1)
+    monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: True)
+    monkeypatch.setattr(cr, "_alert_debounce_ok", lambda sid, ev: True)
+    store = S()
+    cr._dispatch_coding_notifications(store, event="stop", row={"id": "r", "cwd": "/w/a"})
+    assert pushed == []
+    cr._dispatch_coding_notifications(store, event="notification", row={"id": "r", "cwd": "/w/a"})
+    assert len(pushed) == 1

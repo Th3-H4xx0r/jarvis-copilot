@@ -633,7 +633,17 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             _phone_allowed = _alert_debounce_ok(sid, event)
         return _phone_allowed
 
-    if chans.get("mobile"):
+    # The iPhone's Focus filter ("only approvals and questions"): while it's on,
+    # finished / failed don't ring the phone; what waits on you still does.
+    focus_mutes = False
+    if event in ("stop", "error"):
+        try:
+            focus_mutes = bool((store.get_setting("agents_focus", None) or {}).get("only_waiting"))
+        except Exception:
+            focus_mutes = False
+    if chans.get("mobile") and focus_mutes:
+        sent["mobile"] = False
+    elif chans.get("mobile"):
         if not _phone_ok():
             sent["mobile"] = False
         else:

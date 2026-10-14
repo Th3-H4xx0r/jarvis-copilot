@@ -226,4 +226,33 @@ final class AgentsTests: XCTestCase {
         XCTAssertEqual(st.usage5, -1)
         XCTAssertEqual(st.designId, "")
     }
+
+    func testSpotlightIdentifierRoundTripsTheKey() {
+        let id = AgentsSpotlight.identifier(key: "d1|claude|s1", startedAt: Date(timeIntervalSince1970: 1781000000))
+        XCTAssertEqual(AgentsSpotlight.key(from: id), "d1|claude|s1")
+        XCTAssertNil(AgentsSpotlight.key(from: "chat|123"))
+    }
+
+    func testDecisionLogKeepsTheNewestFirst() {
+        let defaults = UserDefaults(suiteName: "agents-log-\(UUID().uuidString)")!
+        let req = AgentRequest.from(approval())!
+        AgentsDecisionLog.record(req, decision: "allow", at: Date(timeIntervalSince1970: 1), defaults: defaults)
+        AgentsDecisionLog.record(req, decision: "deny", at: Date(timeIntervalSince1970: 2), defaults: defaults)
+        let all = AgentsDecisionLog.all(defaults: defaults)
+        XCTAssertEqual(all.map(\.decision), ["deny", "allow"])
+        XCTAssertEqual(all.first?.summary, "rm -rf build")
+    }
+
+    func testSiriSummaryPutsWhatWaitsFirst() {
+        var waiting = item
+        waiting["state"] = "approval"
+        waiting["project"] = "api"
+        let overview = AgentsAPI.Overview(sessions: [AgentSessionItem(json: waiting), AgentSessionItem(json: item)],
+                                          requests: [], usage: nil)
+        let text = AgentsStatusIntent.summary(overview)
+        XCTAssertTrue(text.hasPrefix("Claude Code in api needs your approval."), text)
+        XCTAssertTrue(text.contains("working in app: Bash: npm test"), text)
+        XCTAssertEqual(AgentsStatusIntent.summary(AgentsAPI.Overview(sessions: [], requests: [], usage: nil)),
+                       "No coding agents are running.")
+    }
 }

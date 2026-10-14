@@ -50,6 +50,33 @@ struct AgentsAPI {
         return CodingJSON.bool(reply["ok"])
     }
 
+    struct TurnRecord: Identifiable, Equatable {
+        let id: Int
+        let agent: String
+        let project: String
+        let startedAt: Date
+        let endedAt: Date
+        let files: Int
+        let added: Int
+        let removed: Int
+        let commands: Int
+        let outcome: String
+    }
+
+    /// `GET /api/coding/agents/history` → the last week's finished turns, newest first.
+    func history() async throws -> [TurnRecord] {
+        let body = try await api.get("/api/coding/agents/history").object()
+        return CodingJSON.maps(body["turns"]).map { t in
+            TurnRecord(id: CodingJSON.int(t["id"]), agent: AgentNames.display(CodingJSON.text(t["agent"])),
+                       project: CodingJSON.text(t["project"], "session"),
+                       startedAt: Date(timeIntervalSince1970: CodingJSON.double(t["started_at"]) ?? 0),
+                       endedAt: Date(timeIntervalSince1970: CodingJSON.double(t["ended_at"]) ?? 0),
+                       files: CodingJSON.int(t["files"]), added: CodingJSON.int(t["added"]),
+                       removed: CodingJSON.int(t["removed"]), commands: CodingJSON.int(t["commands"]),
+                       outcome: CodingJSON.text(t["outcome"]))
+        }
+    }
+
     /// `POST /api/coding/agents/instruction` → "terminal" (typed into tmux) or
     /// "resume" (the Mac continues the conversation in the background).
     func sendInstruction(key: String, text: String) async throws -> String {

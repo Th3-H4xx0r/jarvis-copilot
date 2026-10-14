@@ -227,6 +227,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         }
         // Any design from the widget creator.
         JarvisDesignWidget()
+        // Coding agents: the one that needs you, or the list.
+        AgentsWidget()
         // AlarmKit alarm / timer countdown (iOS 26+). The type only exists
         // when the SDK has AlarmKit, so the availability check is not enough.
         #if canImport(AlarmKit)
@@ -239,6 +241,7 @@ struct JarvisWidgetBundle: WidgetBundle {
             JarvisVoiceControl()
             JarvisButtonControl()
             JarvisSwitchControl()
+            AgentsControl()
         }
     }
 }

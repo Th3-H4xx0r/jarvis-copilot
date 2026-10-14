@@ -44,6 +44,14 @@ struct AgentsPage: View {
                 AgentSessionScreen(key: key, store: store)
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        AgentsHistoryView()
+                    } label: {
+                        JcIcon("clock.arrow.circlepath", size: 17)
+                    }
+                    .accessibilityLabel("History")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         router.openMore(.coding)

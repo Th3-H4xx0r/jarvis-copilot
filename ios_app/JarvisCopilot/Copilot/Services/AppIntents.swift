@@ -114,6 +114,23 @@ struct JarvisAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Ask JARVIS",
             systemImageName: "bubble.left.fill")
+        AppShortcut(
+            intent: AgentsStatusIntent(),
+            phrases: [
+                "What are my agents doing in \(.applicationName)",
+                "\(.applicationName) agents status",
+                "Agent status in \(.applicationName)",
+            ],
+            shortTitle: "Agents status",
+            systemImageName: "terminal")
+        AppShortcut(
+            intent: SendAgentInstructionIntent(),
+            phrases: [
+                "Tell my coding agent with \(.applicationName)",
+                "Send an instruction with \(.applicationName)",
+            ],
+            shortTitle: "Tell my agent",
+            systemImageName: "text.bubble")
     }
 }
 
