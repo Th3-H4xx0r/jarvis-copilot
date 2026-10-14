@@ -9,18 +9,24 @@ final class FakeHabitSync: HabitSyncing {
     var failing = false
     /// The server refuses (a habit chat deleted, a bad field).
     var rejecting = false
+    var rejectStatus = 404
+    /// Runs while a relapse is "in flight".
+    var duringRelapse: (() -> Void)?
     var snapshot = HabitSnapshot(habits: [], relapses: [])
 
     private func call(_ name: String) throws {
         if failing { throw URLError(.notConnectedToInternet) }
-        if rejecting { throw APIError.http(status: 404, message: "no habit 'gone'") }
+        if rejecting { throw APIError.http(status: rejectStatus, message: "no habit 'gone'") }
         calls.append(name)
     }
 
     func snapshot() async throws -> HabitSnapshot { try call("snapshot"); return snapshot }
     func put(habit: Habit) async throws { try call("put \(habit.name)") }
     func deleteHabit(id: String) async throws { try call("delete \(id)") }
-    func put(relapse: HabitRelapse) async throws { try call("relapse \(relapse.habit)") }
+    func put(relapse: HabitRelapse) async throws {
+        duringRelapse?()
+        try call("relapse \(relapse.habit)")
+    }
     func deleteRelapse(uid: String) async throws { try call("undo") }
 }
 
@@ -84,13 +90,56 @@ final class HabitStoreTests: XCTestCase {
         XCTAssertEqual(s.error, "no habit 'gone'")
     }
 
-    func testUndoingAnUnsentRelapseNeverReachesTheServer() async {
+    func testUndoingAnUnsentRelapseNeverSendsIt() async {
         let s = store()
         let logged = s.log(vape)
         s.undo(logged)
         XCTAssertTrue(s.relapses(of: "vape").isEmpty)
         await s.flush()
-        XCTAssertEqual(sync.calls, [])
+        // Only the delete goes: it may have reached the server on a send that timed out here.
+        XCTAssertEqual(sync.calls, ["undo"])
+    }
+
+    func testUndoWhileTheSendIsInFlightStillDeletesIt() async {
+        let s = store()
+        let logged = s.log(vape)
+        sync.duringRelapse = { [unowned s] in s.undo(logged) }
+        await s.flush()
+        XCTAssertEqual(sync.calls, ["relapse vape", "undo"])
+        XCTAssertTrue(s.queue.isEmpty && s.relapses(of: "vape").isEmpty)
+    }
+
+    func testAnExpiredSessionOrRateLimitKeepsTheQueue() async {
+        let s = store()
+        s.log(vape)
+        sync.rejecting = true
+        for status in [401, 403, 408, 429] {
+            sync.rejectStatus = status
+            await s.flush()
+            XCTAssertEqual(s.queue.count, 1, "\(status)")
+        }
+        XCTAssertNil(s.error)
+    }
+
+    func testWhatWaitedOfflineIsSentWhenTheSocketComesBack() async throws {
+        let topics = BridgeTopics()
+        topics.send = { _ in }
+        let s = store(topics: topics)
+        s.log(vape)
+        topics.resubscribe()                 // no Habits page open
+        for _ in 0..<50 where sync.calls.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(sync.calls, ["relapse vape"])
+    }
+
+    func testARefreshClearsAnOldRefusal() async {
+        let s = store()
+        s.log(vape)
+        sync.rejecting = true
+        await s.flush()
+        XCTAssertNotNil(s.error)
+        sync.rejecting = false
+        await s.refresh()
+        XCTAssertNil(s.error)
     }
 
     func testUndoingASentRelapseDeletesItThere() async {

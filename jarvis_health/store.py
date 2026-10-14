@@ -493,9 +493,24 @@ class HealthStore:
         from .habits import clean, new_id
 
         habit_id = _training_id(raw.get("id") or new_id(raw.get("name")))
-        habit = clean({**raw, "id": habit_id}, parse_instant(now or utc_now()), self.habit(habit_id))
+        existing = self.habit(habit_id)
+        if existing is None and not raw.get("timezone"):
+            # Chat says no zone: count its days where his phone counts them.
+            raw = {**raw, "timezone": self._person_timezone()}
+        habit = clean({**raw, "id": habit_id}, parse_instant(now or utc_now()), existing)
         self._space.put(HABIT_PREFIX + habit_id, habit, description=f"Habit {habit['name']}.")
         return habit
+
+    def _person_timezone(self) -> str:
+        """The zone the phone last saved a habit in, else his wearable's latest day's, else UTC."""
+        saved = sorted((h for h in self.habits() if h.get("timezone")), key=lambda h: str(h.get("updated_at", "")))
+        if saved:
+            return saved[-1]["timezone"]
+        for date in self.dates(1):
+            for day in self.device_days(date).values():
+                if day.timezone:
+                    return day.timezone
+        return "UTC"
 
     def delete_habit(self, habit_id) -> bool:
         """A habit and every relapse logged against it."""

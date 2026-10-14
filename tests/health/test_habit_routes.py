@@ -120,3 +120,17 @@ def test_route_refusals(routes, pushes):  # noqa: F811
     assert _post(routes, f"{BASE}/habits/relapse/delete", {}).status == 400
     assert _post(routes, f"{BASE}/habits/sideways", {}).status == 404
     assert pushes == []
+
+
+def test_a_habit_chat_creates_counts_days_in_the_persons_timezone(store):
+    from .fixtures import TZ, day
+
+    # No habit yet: the zone his wearable's days were recorded in.
+    store.put_day(day(), "ring-aaaa0000")
+    assert store.put_habit({"name": "Sugar"})["timezone"] == TZ
+    # Otherwise the zone his phone last saved a habit in.
+    store.put_habit(_habit(id="vape", name="Vape", timezone="Asia/Tokyo"))
+    assert store.put_habit({"name": "Soda"})["timezone"] == "Asia/Tokyo"
+    # And an edit never moves an existing habit's zone.
+    assert store.put_habit({"id": "scroll", "name": "Doomscrolling", "timezone": LA})["timezone"] == LA
+    assert store.put_habit({"id": "scroll", "name": "Scrolling"})["timezone"] == LA

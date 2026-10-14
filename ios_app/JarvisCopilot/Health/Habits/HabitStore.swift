@@ -100,9 +100,13 @@ final class HabitStore: ObservableObject {
         relapses = read([HabitRelapse].self, "relapses") ?? []
         queue = read([HabitOp].self, "queue") ?? []
         topics?.on("habits") { [weak self] _ in Task { await self?.refresh() } }
+        // Back online: what was logged offline goes now, page open or not; a
+        // page that is open fetches what chat changed meanwhile.
         topics?.onResync { [weak self] in
-            guard let self, self.topics?.isWanted("habits") == true else { return }
-            Task { await self.refresh() }
+            guard let self else { return }
+            Task {
+                if self.topics?.isWanted("habits") == true { await self.refresh() } else { await self.flush() }
+            }
         }
     }
 
@@ -147,14 +151,12 @@ final class HabitStore: ObservableObject {
     func undo(_ relapse: HabitRelapse) {
         relapses.removeAll { $0.uid == relapse.uid }
         write(relapses, "relapses")
-        // Never sent: forget it here, and the server never hears of it.
-        if queue.contains(.putRelapse(relapse)) {
-            revision += 1
-            queue.removeAll { $0 == .putRelapse(relapse) }
-            write(queue, "queue")
-        } else {
-            enqueue(.deleteRelapse(relapse.uid))
-        }
+        // Not sent yet: it never goes. Either way the server is asked to delete it — a
+        // send in flight, or one that timed out here after the server stored it, may
+        // have reached it, and deleting a relapse it never had is harmless.
+        let inFlight = flushing != nil && queue.first == .putRelapse(relapse)
+        if !inFlight { queue.removeAll { $0 == .putRelapse(relapse) } }
+        enqueue(.deleteRelapse(relapse.uid))
     }
 
     // MARK: Server
@@ -170,8 +172,13 @@ final class HabitStore: ObservableObject {
         if sendsAtOnce { Task { await flush() } }
     }
 
-    /// Send what is waiting, in order. A refusal (4xx) drops that change and
-    /// says why; anything else (offline, a 5xx) stops and keeps the rest.
+    /// What the server answers when it will never take a change (a habit chat
+    /// deleted, a bad field). An expired session (401/403), a timeout (408) or a
+    /// rate limit (429) is not one of them: those changes wait and go later.
+    static let refusals: Set<Int> = [400, 404, 409, 410, 422]
+
+    /// Send what is waiting, in order. A refusal drops that change and says
+    /// why; anything else (offline, a 5xx, a 401) stops and keeps the rest.
     func flush() async {
         if let flushing { return await flushing.value }
         let task = Task { await sendQueued() }
@@ -190,7 +197,7 @@ final class HabitStore: ObservableObject {
                 case .putRelapse(let r): try await sync.put(relapse: r)
                 case .deleteRelapse(let uid): try await sync.deleteRelapse(uid: uid)
                 }
-            } catch APIError.http(let status, let message) where (400..<500).contains(status) {
+            } catch APIError.http(let status, let message) where Self.refusals.contains(status) {
                 error = message.isEmpty ? "Jarvis Health refused a change (\(status))" : message
             } catch {
                 JcLog.dropped(JcLog.devices, "habit sync", error)
@@ -210,6 +217,7 @@ final class HabitStore: ObservableObject {
         guard queue.isEmpty else { return }
         let before = revision
         guard let snapshot = try? await sync.snapshot(), revision == before, queue.isEmpty else { return }
+        error = nil
         habits = snapshot.habits
         relapses = snapshot.relapses.sorted { $0.at < $1.at }
         write(habits, "habits")

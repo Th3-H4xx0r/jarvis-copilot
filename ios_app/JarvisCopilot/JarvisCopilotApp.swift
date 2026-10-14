@@ -61,6 +61,8 @@ struct JarvisCopilotApp: App {
                     // so a fresh foreground — which by definition is not
                     // capturing yet — is where a ghost is caught.
                     if phase == .active { LiveCaptureBeacon.shared.reapOrphans() }
+                    // Relapses logged with no signal go as soon as the app is back in front.
+                    if phase == .active { Task { await HabitStore.shared.flush() } }
                 }
         }
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
