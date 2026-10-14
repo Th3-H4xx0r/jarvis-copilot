@@ -14,6 +14,8 @@ struct HealthTab: View {
     @ObservedObject private var x5Measure: X5MeasureController
     @State private var selection: HealthSelection = .today
     @State private var showingSettings = false
+    /// The habits being quit, from the toolbar.
+    @State private var showingHabits = false
     /// The metric whose history is open.
     @State private var historyMetric: HealthMetric?
     /// A band reading group's page (blood pressure, blood components, body composition…).
@@ -104,6 +106,10 @@ struct HealthTab: View {
                         .accessibilityLabel("Start a workout")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    GlassIconButton(symbol: "calendar.badge.checkmark", size: 34, iconSize: 16) { showingHabits = true }
+                        .accessibilityLabel("Habits")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     GlassIconButton(symbol: "gearshape", size: 34, iconSize: 16) { showingSettings = true }
                         .accessibilityLabel("Health settings")
                 }
@@ -123,6 +129,7 @@ struct HealthTab: View {
             .navigationDestination(item: $vitalsGroup) { group in
                 HealthMetricGroupView(group: group, tab: model, selection: selection)
             }
+            .navigationDestination(isPresented: $showingHabits) { HabitsView() }
             .onChange(of: measure.finished) {
                 // The reading is in the ring's history now; put it on the card.
                 model.mergeSpots(selection)
