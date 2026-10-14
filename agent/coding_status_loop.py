@@ -159,13 +159,20 @@ def _notify_server_transition(store, row, prev, state) -> None:
         pass
 
 
-def run_status_tick(manager, *, classify=classify_pane) -> int:
+def run_status_tick(manager, *, classify=classify_pane, hook_fresh=None) -> int:
     """Classify each live server-host session's pane and persist
     ``activity_state`` when it changed. Returns the count updated.
 
-    Skips desktop-host sessions (classified Mac-side) and any non-live session.
+    Skips desktop-host sessions (classified Mac-side), any non-live session,
+    and any session whose hooks are talking (``hook_fresh``): the hook-driven
+    tracker owns those, this scraper is only the fallback.
     Every per-row failure (tmux gone, capture error) is swallowed.
     """
+    if hook_fresh is None:
+        try:
+            from agent.agent_tracking import hook_fresh
+        except Exception:
+            hook_fresh = lambda _rid: False  # noqa: E731
     try:
         rows = manager.store.list_sessions()
     except Exception:
@@ -207,6 +214,8 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
                         continue
                 except Exception:
                     pass
+            if hook_fresh(row.get("id")):
+                continue  # its hooks own the state (and the notifications)
             state = classify(capture(tmux_name=tmux_name))
             prev = row.get("activity_state")
             if state != prev:

@@ -1883,7 +1883,8 @@ def _push_la_and_notify(store) -> None:
         pass
 
 
-def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
+def ingest_discovered(device_id: str, sessions: list, *, store=None,
+                      hook_fresh=None) -> int:
     """Upsert a desktop device's discovered ``claude`` sessions and reconcile.
 
     The push carries two item kinds in ``sessions`` (see the module header):
@@ -1917,6 +1918,14 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     store = store or _resolve_store()
     if store is None:
         return 0
+    # A row whose coding-agent hooks are talking is owned by the hook tracker
+    # (agent/agent_tracking.py): this scan may still create/reparent it, but it
+    # must not overwrite its live state, lifecycle status or real session id.
+    if hook_fresh is None:
+        try:
+            from agent.agent_tracking import hook_fresh
+        except Exception:  # noqa: BLE001
+            hook_fresh = lambda _rid: False  # noqa: E731
     # A discovery frame means the device is alive — cancel any pending "gone"
     # escalation from a recent WS blip (keeps a brief reconnect from flapping).
     note_device_reconnect(device_id)
@@ -2085,11 +2094,14 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 # push that omits it doesn't wipe a previously-known value.
                 fields = dict(status="running", title=title, cwd=cwd,
                               project_id=pid, external=1, attached=att)
+                hooked = hook_fresh(row["id"])
                 if last_activity is not None:
                     fields["last_activity_at"] = last_activity
-                if csid:  # never wipe a known csid with an empty re-report
+                if csid and not hooked:  # never wipe a known csid with an empty re-report
                     fields["claude_session_id"] = csid
-                if act is not None:
+                if hooked:
+                    pass  # the hooks own its state; the scan's guess is older
+                elif act is not None:
                     fields["activity_state"] = act
                     if act != (row.get("activity_state") or None):
                         live_changed = True
@@ -2173,6 +2185,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 # wrote (e.g. "waiting") would otherwise stick forever.
                 fields = dict(status=status, title=title, cwd=cwd,
                               project_id=pid, external=1, activity_state=None)
+                if hook_fresh(row["id"]):
+                    # A live hook-tracked session (claude outside tmux): the scan
+                    # sees only its transcript and would call it idle history.
+                    fields.pop("status")
+                    fields.pop("activity_state")
                 if last_activity is not None:
                     fields["last_activity_at"] = last_activity
                 store.update_session(row["id"], **fields)

@@ -1272,3 +1272,18 @@ def test_dir_suggest_device_offline_returns_empty(monkeypatch):
         "GET", "/dir-suggest?host=desktop&device_id=dev-9&path=/", None,
         manager=m)
     assert status == 200 and body["dirs"] == [] and "error" in body
+
+
+def test_activity_event_defers_to_fresh_hook_tracking(monkeypatch):
+    """Old plugin hooks (coding_event.sh) still POST here; once the hook tracker
+    owns a session they must not double-write its state or double-notify."""
+    import agent.agent_tracking as at
+    monkeypatch.setattr(at, "hook_fresh", lambda rid: rid == "srv-1")
+    m = FakeManager()
+    m.store.sessions.append(_srv_row(activity_state="working"))
+    status, body = handle_coding_request(
+        "POST", "/activity-event",
+        {"event": "stop", "tmux_name": "jc-aa11", "claude_session_id": "cid-1"}, manager=m)
+    assert status == 200 and body["matched"] is True
+    assert body["changed"] is False and body["notified"] == {}
+    assert m.store.sessions[0]["activity_state"] == "working"

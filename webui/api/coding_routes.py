@@ -1257,6 +1257,18 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 manager.store, tmux_name=tmux_name,
                 claude_session_id=csid, cwd=cwd, device_id=device_id)
             matched = row is not None
+            # Hook-driven tracking (agent/agent_tracking.py) owns this session's
+            # state and notifications: an old plugin hook still posting here
+            # must not write a second, coarser state or ping twice.
+            try:
+                import agent.agent_tracking as _at
+                hooked = matched and _at.hook_fresh(row["id"])
+            except Exception:  # noqa: BLE001
+                hooked = False
+            if hooked:
+                return _ok({"ok": True, "matched": True, "session_id": row["id"],
+                            "state": state, "changed": False, "notified": {},
+                            "deferred": True})
             # A hook fired (Stop/Notification/UserPromptSubmit) — a turn
             # boundary, so the transcript just grew. Invalidate the chat cache
             # now so the next /messages poll re-pulls instead of waiting out the

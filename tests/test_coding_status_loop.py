@@ -250,3 +250,13 @@ def test_no_run_method_skips_reap():
     drv = FakeDriver({"jc-1": ""})  # no _run attr
     run_status_tick(FakeManager(store, drv))
     assert store.rows[0]["status"] == "running"  # not reaped
+
+
+def test_hook_fresh_rows_are_left_to_the_hooks():
+    store = FakeStore([_row("cs_1", "jc-1", activity_state="idle"),
+                       _row("cs_2", "jc-2", activity_state="idle")])
+    drv = FakeDriver({"jc-1": "✻ Running… (esc to interrupt)",
+                      "jc-2": "✻ Running… (esc to interrupt)"})
+    n = run_status_tick(FakeManager(store, drv), hook_fresh=lambda rid: rid == "cs_1")
+    assert n == 1
+    assert store.updates == [("cs_2", {"activity_state": "working"})]
