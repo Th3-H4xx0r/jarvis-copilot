@@ -64,7 +64,11 @@ struct JarvisCopilotApp: App {
                 }
         }
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
-            await BridgeClient.shared.drainQueue(foreground: false)
+            // With the socket up the server sends invokes live and queues nothing: asking is a wasted
+            // request every time iOS runs this (~3 an hour). Silent pushes still drain.
+            if await BridgeClient.shared.status != .online {
+                await BridgeClient.shared.drainQueue(foreground: false)
+            }
             await WidgetDataHub.shared.refreshAll()
             await scheduleBackgroundRefresh()
         }

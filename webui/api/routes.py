@@ -973,7 +973,9 @@ def _tell_phone_dashcam(handler, method: str, sub: str, status: int) -> None:
 _ENERGY_FILE = "energy.jsonl"
 _ENERGY_KEEP = 400
 _ENERGY_FIELDS = ("received", "cpuSeconds", "foregroundSeconds", "backgroundSeconds",
-                  "backgroundAudioSeconds", "backgroundLocationSeconds", "app_version")
+                  "backgroundAudioSeconds", "backgroundLocationSeconds", "app_version",
+                  # the app's own hourly reading (kind "probe"): CPU over wallSeconds
+                  "kind", "wallSeconds", "background")
 
 
 def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
@@ -6639,10 +6641,16 @@ def handle_post(handler, parsed) -> bool:
         if not device:
             return j(handler, {"error": "no matching device for session"}, status=401)
         row = _append_energy_report(device["id"], body if isinstance(body, dict) else {})
-        bg_h = (row.get("backgroundSeconds") or 0) / 3600
         cpu = row.get("cpuSeconds") or 0
-        logger.info("energy %s: cpu %.0f s over %.1f h in the background (%.1f s/h)", device.get("name") or device["id"],
-                    cpu, bg_h, cpu / bg_h if bg_h else 0)
+        if row.get("kind") == "probe":
+            hours = (row.get("wallSeconds") or 0) / 3600
+            where = "background" if row.get("background") else "foreground"
+            print(f"[energy] {device.get('name') or device['id']}: {cpu:.0f} s CPU in {hours:.2f} h "
+                  f"({cpu / hours if hours else 0:.0f} s/h, {where} now)", flush=True)
+        else:
+            bg_h = (row.get("backgroundSeconds") or 0) / 3600
+            print(f"[energy] {device.get('name') or device['id']}: MetricKit day — {cpu:.0f} s CPU, "
+                  f"{bg_h:.1f} h in the background ({cpu / bg_h if bg_h else 0:.0f} s/h)", flush=True)
         return j(handler, {"ok": True})
 
     # ── Mobile client: post a skill result ──

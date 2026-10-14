@@ -19,6 +19,37 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     func register() {
         MXMetricManager.shared.add(self)
         log.info("MetricKit subscriber registered")
+        startHourlyProbe()
+    }
+
+    /// MetricKit reports once a day; this says every hour how much CPU the app burned in it, so a
+    /// battery change shows overnight instead of the next morning's payload. One request an hour.
+    private func startHourlyProbe() {
+        Task.detached(priority: .utility) {
+            var last = (cpu: Self.cpuSeconds(), at: Date())
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3600))
+                let now = (cpu: Self.cpuSeconds(), at: Date())
+                let body: [String: Any] = [
+                    "kind": "probe",
+                    "received": ISO8601DateFormatter().string(from: now.at),
+                    "cpuSeconds": max(0, now.cpu - last.cpu),
+                    "wallSeconds": now.at.timeIntervalSince(last.at),
+                    "background": BridgeClient.appInBackground ? 1 : 0,
+                    "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+                ]
+                last = now
+                _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: body)
+            }
+        }
+    }
+
+    /// User + system CPU time of the whole process so far.
+    static func cpuSeconds() -> Double {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+        func seconds(_ t: timeval) -> Double { Double(t.tv_sec) + Double(t.tv_usec) / 1_000_000 }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
     }
 
     func didReceive(_ payloads: [MXMetricPayload]) {

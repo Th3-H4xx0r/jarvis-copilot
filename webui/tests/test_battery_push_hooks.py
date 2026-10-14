@@ -77,3 +77,10 @@ def test_bg_traffic_summary():
     per_hour, per_path = phone_bg_traffic.summarize(lines)
     assert per_hour == {"2026-10-14T03": 2}
     assert per_path == {"GET /api/dashcam/clips/…": 1, "GET /api/devices": 1}
+
+
+def test_hourly_probe_rows_keep_their_fields(tmp_path):
+    from api import routes
+    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 42.5, "wallSeconds": 3600,
+                                                   "background": 1}, state_dir=tmp_path)
+    assert (row["kind"], row["cpuSeconds"], row["wallSeconds"], row["background"]) == ("probe", 42.5, 3600.0, 1.0)
