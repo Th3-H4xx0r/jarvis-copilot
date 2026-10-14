@@ -246,3 +246,49 @@ def test_push_drops_unregistered_token():
 
     assert push_coding_update(store, sender=fake) == 0
     assert "bad" in store.deleted
+
+
+def _one_live_store():
+    return FakeStore(sessions=[{"id": "s1", "status": "running", "activity_state": "waiting",
+                                "project_id": None, "cwd": "/x/app", "last_activity_at": 100}],
+                     projects=[], tokens=[])
+
+
+def test_lead_session_from_the_hook_tracker(monkeypatch):
+    monkeypatch.setattr(m, "_lead_summary", lambda: {
+        "agent": "claude", "project": "app", "state": "approval", "step": "Bash: rm -rf build " * 10,
+        "fingerprint": "fp1", "kind": "approval", "since": 1781000000.0, "key": "d1|claude|s1"})
+    cs = build_coding_content_state(_one_live_store())
+    assert cs["leadAgent"] == "Claude Code" and cs["leadProject"] == "app"
+    assert cs["leadState"] == "approval" and cs["leadKind"] == "approval"
+    assert cs["leadFingerprint"] == "fp1" and cs["leadKey"] == "d1|claude|s1"
+    assert len(cs["leadStep"]) <= 60 and cs["leadSince"] == 1781000000.0
+
+
+def test_lead_keys_are_always_sent(monkeypatch):
+    monkeypatch.setattr(m, "_lead_summary", lambda: None)
+    cs = build_coding_content_state(_one_live_store())
+    for key in ("leadAgent", "leadProject", "leadState", "leadStep", "leadFingerprint",
+                "leadKind", "leadKey"):
+        assert cs[key] == ""
+    assert cs["leadSince"] == 0
+
+
+def test_a_new_step_alone_does_not_push_again(monkeypatch):
+    """The Live Activity follows state changes only: a session working through
+    tool calls must not push on every step (battery, APNs budget)."""
+    lead = {"agent": "claude", "project": "app", "state": "working", "step": "Bash: one",
+            "fingerprint": "", "kind": "", "since": 1.0, "key": "k"}
+    monkeypatch.setattr(m, "_lead_summary", lambda: dict(lead))
+    store = FakeStore(sessions=[{"id": "s1", "status": "running", "activity_state": "working",
+                                 "project_id": None, "cwd": "/x/app", "last_activity_at": 100}],
+                      projects=[], tokens=[{"token": "t1"}])
+    sent = []
+    sender = lambda token, cs, **kw: sent.append(cs) or {"ok": True}  # noqa: E731
+    assert push_coding_update(store, force=True, sender=sender) == 1
+    lead["step"] = "Bash: two"
+    m._last_push_ts["v"] = 0.0
+    assert push_coding_update(store, sender=sender) == 0
+    lead["state"] = "approval"
+    m._last_push_ts["v"] = 0.0
+    assert push_coding_update(store, sender=sender) == 1

@@ -150,13 +150,14 @@ final class NotificationActionsTests: XCTestCase {
 
     // MARK: Categories
 
-    func testThePermissionCategoryCarriesAllThreeActions() {
+    func testThePermissionCategoryCarriesItsActions() {
         let categories = NotificationCategories.all()
         guard let category = categories.first(where: {
             $0.identifier == NotificationCategories.permissionApproval
         }) else { return XCTFail("PERMISSION_APPROVAL category missing") }
         XCTAssertEqual(category.actions.map(\.identifier),
                        [NotificationAction.Identifier.approve,
+                        NotificationAction.Identifier.always,
                         NotificationAction.Identifier.deny,
                         NotificationAction.Identifier.reply])
     }

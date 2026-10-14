@@ -74,6 +74,58 @@ struct JarvisActivityAttributes: ActivityAttributes {
         /// Kept as a string so the 4KB cap is measured on the wire, not on a
         /// nested Codable. "" → no bindings (render literals / placeholders).
         var data: String = ""
+
+        // ── Coding mode: the most urgent agent session (hook-tracked) ────────
+        /// "Claude Code", "Codex"… ("" → no lead session; the fleet view only).
+        var leadAgent: String = ""
+        var leadProject: String = ""
+        /// working | thinking | approval | question | finished | error | ratelimit | idle
+        var leadState: String = ""
+        /// What it is doing right now, e.g. "Bash: npm test" (≤ 60 chars).
+        var leadStep: String = ""
+        /// The waiting approval's fingerprint: the Allow / Deny buttons answer this one.
+        var leadFingerprint: String = ""
+        /// "approval" | "question" | "" — which buttons the waiting request gets.
+        var leadKind: String = ""
+        /// When the lead session started its turn (Unix seconds; 0 = unknown).
+        var leadSince: Double = 0
+        /// The engine key, for the tap's deep link.
+        var leadKey: String = ""
     }
     var title: String = "JARVIS"
+}
+
+extension JarvisActivityAttributes.ContentState {
+    /// Every key is optional on the wire: a payload from an older server (or a
+    /// pusher that doesn't know a newer field) decodes with the defaults instead
+    /// of failing — a failed decode leaves the Live Activity frozen.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        state = try c.decodeIfPresent(String.self, forKey: .state) ?? d.state
+        transcript = try c.decodeIfPresent(String.self, forKey: .transcript) ?? d.transcript
+        activity = try c.decodeIfPresent(String.self, forKey: .activity) ?? d.activity
+        connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? d.connected
+        devices = try c.decodeIfPresent([String].self, forKey: .devices) ?? d.devices
+        mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? d.mode
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? d.sessions
+        sessionTotal = try c.decodeIfPresent(Int.self, forKey: .sessionTotal) ?? d.sessionTotal
+        entryTotal = try c.decodeIfPresent(Int.self, forKey: .entryTotal) ?? d.entryTotal
+        waitingCount = try c.decodeIfPresent(Int.self, forKey: .waitingCount) ?? d.waitingCount
+        usage5 = try c.decodeIfPresent(Int.self, forKey: .usage5) ?? d.usage5
+        usageWeek = try c.decodeIfPresent(Int.self, forKey: .usageWeek) ?? d.usageWeek
+        usage5Resets = try c.decodeIfPresent(String.self, forKey: .usage5Resets) ?? d.usage5Resets
+        usageWeekResets = try c.decodeIfPresent(String.self, forKey: .usageWeekResets) ?? d.usageWeekResets
+        designId = try c.decodeIfPresent(String.self, forKey: .designId) ?? d.designId
+        designVersion = try c.decodeIfPresent(Int.self, forKey: .designVersion) ?? d.designVersion
+        data = try c.decodeIfPresent(String.self, forKey: .data) ?? d.data
+        leadAgent = try c.decodeIfPresent(String.self, forKey: .leadAgent) ?? d.leadAgent
+        leadProject = try c.decodeIfPresent(String.self, forKey: .leadProject) ?? d.leadProject
+        leadState = try c.decodeIfPresent(String.self, forKey: .leadState) ?? d.leadState
+        leadStep = try c.decodeIfPresent(String.self, forKey: .leadStep) ?? d.leadStep
+        leadFingerprint = try c.decodeIfPresent(String.self, forKey: .leadFingerprint) ?? d.leadFingerprint
+        leadKind = try c.decodeIfPresent(String.self, forKey: .leadKind) ?? d.leadKind
+        leadSince = try c.decodeIfPresent(Double.self, forKey: .leadSince) ?? d.leadSince
+        leadKey = try c.decodeIfPresent(String.self, forKey: .leadKey) ?? d.leadKey
+    }
 }

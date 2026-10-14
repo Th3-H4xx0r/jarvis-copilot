@@ -182,6 +182,7 @@ def on_agent_pending(device_id, data) -> None:
         questions=data.get("questions") if kind == "ask" else None,
         can_always=bool(data.get("can_always")), agent=str(data.get("agent") or "claude"),
         key=_server_key(device_id, data), command=str(data.get("command") or ""))
+    agent_key = _server_key(device_id, data)
     who = _AGENT_NAMES.get(str(data.get("agent") or "claude"), "Claude")
     project = _project(cwd)
     if kind == "ask":
@@ -192,6 +193,7 @@ def on_agent_pending(device_id, data) -> None:
         title, body, category = f"{who} needs approval", f"{project}: {data.get('summary') or ''}", "PERMISSION_APPROVAL"
     _push_agent_alert(title=title, body=body[:240], category=category,
                       data={"type": "coding_permission", "request_id": rid, "kind": kind,
+                            "agent_key": agent_key,
                             "fingerprint": data["fingerprint"], "session_id": data.get("session_id") or "",
                             "tool": data.get("tool") or "", "summary": (data.get("summary") or "")[:200],
                             "project": project, "can_always": bool(data.get("can_always"))})

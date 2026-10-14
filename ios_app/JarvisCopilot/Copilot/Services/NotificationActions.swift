@@ -8,6 +8,8 @@ import UserNotifications
 /// `AppDelegate.userNotificationCenter(_:didReceive:…)` that built its payload.
 enum NotificationVerdict: String, Equatable, Sendable {
     case allow
+    /// Allow, and keep allowing this kind of call (Claude's own suggested rule).
+    case always
     case deny
     /// Deny, carrying a steering message for Claude ("do it this way instead").
     case reply
@@ -21,6 +23,8 @@ struct NotificationAction: Equatable, Sendable {
     var verdict: NotificationVerdict
     var requestID: String = ""
     var sessionID: String = ""
+    /// The hook-tracked agent session (engine key) an agent push is about.
+    var agentKey: String = ""
     /// The typed text on a `reply`; empty otherwise.
     var text: String = ""
     /// The deferred-skill payload written by `notificationActionPayload`, when
@@ -31,6 +35,8 @@ struct NotificationAction: Equatable, Sendable {
     /// what `NotificationCategories` registers.
     enum Identifier {
         static let approve = "APPROVE_PERMISSION"
+        static let always = "ALWAYS_PERMISSION"
+        static let answer = "ANSWER_QUESTION"
         static let deny = "DENY_PERMISSION"
         static let reply = "REPLY_PERMISSION"
     }
@@ -51,6 +57,7 @@ struct NotificationAction: Equatable, Sendable {
         let verdict: NotificationVerdict
         switch actionIdentifier {
         case Identifier.approve: verdict = .allow
+        case Identifier.always:  verdict = .always
         case Identifier.deny:    verdict = .deny
         case Identifier.reply:   verdict = .reply
         default:                 verdict = .open
@@ -59,6 +66,7 @@ struct NotificationAction: Equatable, Sendable {
             verdict: verdict,
             requestID: (envelope["request_id"] as? String) ?? "",
             sessionID: (envelope["session_id"] as? String) ?? "",
+            agentKey: (envelope["agent_key"] as? String) ?? "",
             text: verdict == .reply ? userText : "",
             deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String)
     }
@@ -71,10 +79,19 @@ struct NotificationAction: Equatable, Sendable {
 /// banner and the Approve/Deny/Reply buttons never appear.
 enum NotificationCategories {
     static let permissionApproval = "PERMISSION_APPROVAL"
+    /// An agent's AskUserQuestion: "Answer" opens the app on the question.
+    static let agentQuestion = "AGENT_QUESTION"
 
     static func all() -> Set<UNNotificationCategory> {
+        // Allowing runs something on a computer: iOS asks to unlock the phone first.
         let approve = UNNotificationAction(
-            identifier: NotificationAction.Identifier.approve, title: "Approve", options: [])
+            identifier: NotificationAction.Identifier.approve, title: "Approve",
+            options: [.authenticationRequired])
+        let always = UNNotificationAction(
+            identifier: NotificationAction.Identifier.always, title: "Always allow",
+            options: [.authenticationRequired])
+        let answer = UNNotificationAction(
+            identifier: NotificationAction.Identifier.answer, title: "Answer", options: [.foreground])
         let deny = UNNotificationAction(
             identifier: NotificationAction.Identifier.deny, title: "Deny", options: [.destructive])
         let reply = UNTextInputNotificationAction(
@@ -82,9 +99,12 @@ enum NotificationCategories {
             textInputButtonTitle: "Send",
             textInputPlaceholder: "Tell Claude what to do instead…")
         return [UNNotificationCategory(
-            identifier: permissionApproval,
-            actions: [approve, deny, reply],
-            intentIdentifiers: [], options: [])]
+                    identifier: permissionApproval,
+                    actions: [approve, always, deny, reply],
+                    intentIdentifiers: [], options: []),
+                UNNotificationCategory(
+                    identifier: agentQuestion, actions: [answer],
+                    intentIdentifiers: [], options: [])]
     }
 }
 
@@ -131,12 +151,14 @@ final class NotificationActionHandler {
         case .open:
             // Tapping the banner body of a permission prompt should land on the
             // session that asked. The in-app card takes it from there.
-            if !action.sessionID.isEmpty {
+            if !action.agentKey.isEmpty {
+                router.open(.agents(key: action.agentKey))
+            } else if !action.sessionID.isEmpty {
                 router.open(.coding(session: action.sessionID))
             }
-        case .allow, .deny, .reply:
+        case .allow, .always, .deny, .reply:
             guard !action.requestID.isEmpty else { break }
-            let decision = action.verdict == .allow ? "allow" : "deny"
+            let decision = action.verdict == .allow ? "allow" : action.verdict == .always ? "always" : "deny"
             // Reply is a deny that carries the steering message — the server has
             // no separate "steer" verdict.
             let message = action.verdict == .reply ? action.text : nil

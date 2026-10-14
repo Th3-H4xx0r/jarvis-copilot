@@ -423,6 +423,24 @@ def tracker() -> Optional[AgentTracker]:
     return _TRACKER
 
 
+def lead_summary():
+    """The most urgent live agent session, for the coding Live Activity, or None."""
+    tr = _TRACKER
+    if tr is None:
+        return None
+    for s in tr.sessions():
+        if s["state"] == "idle":
+            continue
+        pend = s.get("pending") or {}
+        turn = s.get("turn_summary") or {}
+        return {"agent": s["agent"], "project": s["project"], "state": s["state"],
+                "step": s["step"], "fingerprint": pend.get("fingerprint") or "",
+                "kind": "question" if pend.get("kind") == "question" else
+                        ("approval" if pend.get("kind") == "approval" else ""),
+                "since": turn.get("started_at") or s["started_at"], "key": s["key"]}
+    return None
+
+
 def hook_fresh(coding_session_id: str) -> bool:
     """True while hooks own this coding_sessions row's state (scrapers keep off)."""
     tr = _TRACKER

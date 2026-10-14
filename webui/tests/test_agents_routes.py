@@ -125,3 +125,18 @@ def test_without_a_tracker_the_list_is_empty(env):
     set_tracker(None)
     status, body = call("GET", "/agents/sessions", mgr=env[2])
     assert status == 200 and body["sessions"] == []
+
+
+def test_decide_by_fingerprint_reaches_the_waiting_request(env, monkeypatch):
+    _, _, mgr, frames = env
+    from api import agent_hooks
+    agent_hooks.on_agent_pending("d1", {"fingerprint": "fp9", "kind": "permission",
+                                        "agent": "claude", "session_id": "s1", "cwd": "/w",
+                                        "tool": "Bash", "summary": "Bash: ls"})
+    status, body = call("POST", "/agents/decide", {"fingerprint": "fp9", "decision": "allow"},
+                        mgr=mgr)
+    assert status == 200 and body["ok"] is True
+    assert frames[-1][1]["fingerprint"] == "fp9" and frames[-1][1]["decision"] == "allow"
+    status, _ = call("POST", "/agents/decide", {"fingerprint": "gone", "decision": "deny"},
+                     mgr=mgr)
+    assert status == 404

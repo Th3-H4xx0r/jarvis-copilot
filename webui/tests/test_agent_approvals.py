@@ -70,6 +70,7 @@ def test_pending_from_a_mac_is_listed_and_pushed(env):
     assert it["summary"] == "Bash: rm -rf build" and it["project"] == "app"
     assert pushes[0]["category"] == "PERMISSION_APPROVAL"
     assert pushes[0]["data"]["request_id"] == it["request_id"]
+    assert pushes[0]["data"]["agent_key"] == "d1|claude|s"  # the tap opens that session
 
 
 def test_the_same_request_announced_twice_is_one_card(env):

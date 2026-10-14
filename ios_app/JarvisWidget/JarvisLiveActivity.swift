@@ -110,7 +110,11 @@ struct JarvisLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     if st.mode == "coding" {
                         VStack(alignment: .leading, spacing: 9) {
-                            JCSegBar(sessions: jcDecodeSessions(st.sessions))
+                            if !st.leadAgent.isEmpty {
+                                JCLeadRow(st: st)
+                            } else {
+                                JCSegBar(sessions: jcDecodeSessions(st.sessions))
+                            }
                             JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                         }
                     } else {
@@ -154,7 +158,11 @@ struct JarvisLiveActivity: Widget {
 /// the island tab; voice (and fallback) → the Voice screen.
 func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
     switch st.mode {
-    case "coding": return "jarviscopilot://coding"
+    case "coding":
+        guard !st.leadKey.isEmpty,
+              let key = st.leadKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+        else { return "jarviscopilot://agents" }
+        return "jarviscopilot://agents?key=\(key)"
     case "custom": return "jarviscopilot://island"
     default: return "jarviscopilot://voice"
     }

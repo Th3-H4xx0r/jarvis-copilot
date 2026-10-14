@@ -3,7 +3,7 @@ import Foundation
 /// The six bottom-nav tabs, in the order `nav.dart` declares them. The native
 /// tabs cover the hot paths; More opens a grid of launchers for the rest.
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-    case chat, voice, health, devices, more
+    case chat, voice, agents, health, devices, more
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat:    return "Chat"
         case .voice:   return "Voice"
+        case .agents:  return "Agents"
         case .health:  return "Health"
         case .devices: return "Devices"
         case .more:    return "More"
@@ -22,6 +23,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat:    return "bubble.left"
         case .voice:   return "waveform"
+        case .agents:  return "terminal"
         case .health:  return "heart.text.square"
         case .devices: return "laptopcomputer.and.iphone"
         case .more:    return "square.grid.2x2"
@@ -33,6 +35,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat:    return "bubble.left.fill"
         case .voice:   return "waveform"
+        case .agents:  return "terminal.fill"
         case .health:  return "heart.text.square.fill"
         case .devices: return "laptopcomputer.and.iphone"
         case .more:    return "square.grid.2x2.fill"

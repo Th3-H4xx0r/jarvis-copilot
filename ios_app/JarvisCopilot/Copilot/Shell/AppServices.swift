@@ -303,6 +303,10 @@ final class AppServices {
         //      a press if it has to. A press that reached the widget extension instead waits
         //      in the App Group until now.
         ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
+        // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).
+        AgentDecisionBridge.decide = { fingerprint, decision in
+            _ = try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)
+        }
         ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
 
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.

@@ -127,6 +127,42 @@ def _sanitize(label) -> str:
     return (t[:21] + "…") if len(t) > 22 else t
 
 
+_AGENT_NAMES = {"claude": "Claude Code", "claude-desktop": "Claude Desktop", "codex": "Codex",
+                "gemini": "Gemini CLI", "cursor": "Cursor", "copilot": "Copilot CLI",
+                "antigravity": "Antigravity", "muse": "Muse Code", "opencode": "OpenCode",
+                "amp": "Amp", "jarvis": "Jarvis"}
+
+
+def _lead_summary():
+    """The most urgent hook-tracked agent session (agent/agent_tracking.py), or None."""
+    try:
+        from agent.agent_tracking import lead_summary
+        return lead_summary()
+    except Exception:
+        return None
+
+
+def _lead_fields(lead) -> dict:
+    """The Live Activity's lead-session keys — ALWAYS all present (see ContentState)."""
+    out = {"leadAgent": "", "leadProject": "", "leadState": "", "leadStep": "",
+           "leadFingerprint": "", "leadKind": "", "leadSince": 0, "leadKey": ""}
+    if not lead:
+        return out
+    agent = str(lead.get("agent") or "claude")
+    step = " ".join(str(lead.get("step") or "").split())
+    out.update({
+        "leadAgent": _AGENT_NAMES.get(agent, agent.capitalize()),
+        "leadProject": _sanitize(lead.get("project") or "session"),
+        "leadState": str(lead.get("state") or ""),
+        "leadStep": step if len(step) <= 60 else step[:59] + "…",
+        "leadFingerprint": str(lead.get("fingerprint") or ""),
+        "leadKind": str(lead.get("kind") or ""),
+        "leadSince": float(lead.get("since") or 0),
+        "leadKey": str(lead.get("key") or ""),
+    })
+    return out
+
+
 def build_coding_content_state(store, usage=None):
     """The coding-mode ContentState dict, or None if there are no live sessions.
 
@@ -187,6 +223,7 @@ def build_coding_content_state(store, usage=None):
         # be present (Swift's synthesized Decodable applies no defaults).
         "designId": "", "designVersion": 0, "data": "",
     }
+    cs.update(_lead_fields(_lead_summary()))
     if usage:
         # Set each ring independently so a missing window (e.g. weekly absent)
         # doesn't blank the other. -1 renders as "—" on the device.
@@ -251,7 +288,11 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
         if not _last_sig["v"] or _last_sig["v"] == _RESTING_SIG:
             return 0
         cs = _resting_content_state()
-    sig = hashlib.sha1(json.dumps(cs, sort_keys=True).encode()).hexdigest()
+    # The lead session's step text changes on every tool call; leaving it out of
+    # the signature keeps the activity on state changes only (the next real push
+    # carries the current step anyway).
+    sig_src = {k: v for k, v in cs.items() if k not in ("leadStep", "leadSince")}
+    sig = hashlib.sha1(json.dumps(sig_src, sort_keys=True).encode()).hexdigest()
     now = time.monotonic()
     if not force:
         if sig == _last_sig["v"]:

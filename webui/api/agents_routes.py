@@ -67,7 +67,25 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
         return _ok({"claude": tr.usage() if tr else None})
     if p == "/agents/instruction" and method == "POST":
         return _instruction(tr, body, manager, manager_for_host)
+    if p == "/agents/decide" and method == "POST":
+        return _decide(body)
     return _err(404, "not found")
+
+
+def _decide(body):
+    """A decision keyed by the request's fingerprint (the Live Activity's buttons)."""
+    from api import coding_permission
+    fingerprint = str((body or {}).get("fingerprint") or "").strip()
+    decision = str((body or {}).get("decision") or "").strip().lower()
+    if not fingerprint or not decision:
+        return _err(400, "fingerprint and decision are required")
+    match = next((r for r in coding_permission.list_pending()
+                  if r.get("fingerprint") == fingerprint), None)
+    if match is None:
+        return _err(404, "that request is no longer waiting")
+    ok = coding_permission.resolve(match["request_id"], decision=decision,
+                                   message=str((body or {}).get("message") or ""))
+    return _ok({"ok": ok})
 
 
 def _instruction(tr, body, manager, manager_for_host):

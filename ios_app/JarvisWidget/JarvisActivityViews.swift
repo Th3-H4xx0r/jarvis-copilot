@@ -316,8 +316,70 @@ struct JarvisCodingBody: View {
         let sessions = jcDecodeSessions(st.sessions)
         VStack(alignment: .leading, spacing: 11) {
             JCHeader(st: st)
-            JCSegBar(sessions: sessions)
+            if !st.leadAgent.isEmpty {
+                JCLeadRow(st: st)
+            } else {
+                JCSegBar(sessions: sessions)
+            }
             JCLegend(sessions: sessions, total: st.entryTotal)
+        }
+    }
+}
+
+/// The most urgent agent session: what it is doing, and — when it waits for an
+/// approval — Deny / Allow right here (Allow asks to unlock the phone).
+struct JCLeadRow: View {
+    let st: JarvisActivityAttributes.ContentState
+
+    private var color: Color {
+        switch st.leadState {
+        case "approval", "question": return jcCodingColor("waiting")
+        case "working", "thinking": return jcCodingColor("working")
+        case "error": return .red
+        default: return jcCodingColor("idle")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                Text("\(st.leadAgent) · \(st.leadProject)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if st.leadSince > 0 && (st.leadState == "working" || st.leadState == "thinking") {
+                    Text(Date(timeIntervalSince1970: st.leadSince), style: .timer)
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.5))
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 52, alignment: .trailing)
+                }
+            }
+            if !st.leadStep.isEmpty {
+                Text(st.leadStep)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(1)
+            }
+            if st.leadKind == "approval" && !st.leadFingerprint.isEmpty {
+                HStack(spacing: 8) {
+                    Button(intent: AgentDenyIntent(fingerprint: st.leadFingerprint)) {
+                        Text("Deny").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .tint(.red)
+                    Button(intent: AgentAllowIntent(fingerprint: st.leadFingerprint)) {
+                        Text("Allow").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .tint(.green)
+                }
+                .buttonStyle(.borderedProminent)
+            } else if st.leadKind == "question" {
+                Text("Tap to answer in Jarvis")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(jcCodingColor("waiting"))
+            }
         }
     }
 }
