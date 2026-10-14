@@ -98,8 +98,44 @@ class Service:
         self._coding_term = None
         self._coding_sync = None
         self._coding_discover = None
+        # Coding-agent hooks (jc-hook → hook.sock): one server per process,
+        # outliving reconnects, so a hook during a bridge drop still updates
+        # the local engine (the island) and is simply not forwarded.
+        self._agent_engine = None
+        self._hook_server = None
 
     # ── public ────────────────────────────────────────────────────────
+
+    def _forward_up(self, frame: dict) -> None:
+        """Send a frame to the server over the live bridge; drop it when offline."""
+        ws = self._ws
+        if ws is None:
+            return
+        try:
+            ws.send_text(json.dumps(frame))  # WsConnection serialises sends itself
+        except Exception as exc:  # noqa: BLE001 — a dead socket is noticed by the pump
+            log.debug("forward up failed: %s", exc)
+
+    def start_agent_hooks(self) -> None:
+        """Start the coding-agent hook server (idempotent; POSIX only)."""
+        if self._hook_server is not None or sys.platform == "win32":
+            return
+        try:
+            from jc_client.agent_engine import Engine
+            from jc_client.hook_server import HookServer
+            self._agent_engine = Engine()
+            server = HookServer(_hook_socket_path(), self._agent_engine,
+                                forward=self._forward_up)
+            server.start()
+            self._hook_server = server
+        except Exception as exc:  # noqa: BLE001 — hooks are optional, never fatal
+            log.warning("agent hook server unavailable: %s", exc)
+            self._hook_server = None
+
+    def stop_agent_hooks(self) -> None:
+        server, self._hook_server = self._hook_server, None
+        if server is not None:
+            server.close()
 
     def stop(self) -> None:
         self._stop.set()
@@ -187,6 +223,7 @@ class Service:
             log.info("skill registry has %d entries", len(skills.registered_names()))
         except Exception as exc:
             log.error("skill registry load failed: %s", exc)
+        self.start_agent_hooks()
         backoff_idx = 0
 
         while not self._stop.is_set():
@@ -233,6 +270,7 @@ class Service:
                 break
 
         log.info("jc-client service stopped")
+        self.stop_agent_hooks()
         self._write_connection_state("stopped")
         self._executor.shutdown(wait=False, cancel_futures=True)
         return 0
@@ -565,6 +603,11 @@ class Service:
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
+
+def _hook_socket_path() -> str:
+    from jc_client.logger import state_dir
+    return str(state_dir() / "hook.sock")
 
 
 def _pick_server_url(creds: credentials.Credentials) -> str:
