@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""jc-hook — the Jarvis relay coding agents run for every hook event.
+
+Reads the hook JSON on stdin, adds where the session runs (terminal app, tab,
+tmux), and hands it to jc-client over a UNIX socket as one JSON line:
+
+    {"jc": 1, "kind": "event"|"permission"|"ask"|"statusline",
+     "agent": "claude", "payload": {...}}
+
+Ordinary events are fire-and-forget (0.3 s, then give up). A PermissionRequest
+and the dedicated AskUserQuestion hook (``--ask``) wait for one reply line
+``{"decision": "allow"|"deny"|"always"|"ask"|"answer", ...}`` and print the
+hook output Claude Code expects. ``--statusline`` forwards ``rate_limits`` and
+then runs the status line command that was there before ours.
+
+Never blocks the agent: every failure path prints nothing (or the agent's
+"ask" form) and exits 0. Standard library only, so ``python3 -I`` starts it
+fast. Event-name and field normalisation follows coucou's nb-hook.py
+(github.com/Louis-CFM/coucou, MIT).
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+
+VERSION = 1
+MAX_FRAME = 48 * 1024
+FIRE_TIMEOUT = 0.3
+PERMISSION_WAIT = 118.0
+ASK_WAIT = 125.0
+
+_EVENT_NAMES = {
+    "BeforeTool": "PreToolUse", "BeforeToolSelection": "PreToolUse",
+    "AfterTool": "PostToolUse", "AfterModel": "PostToolUse",
+    "BeforeAgent": "UserPromptSubmit", "AfterAgent": "Stop",
+    "startup": "SessionStart", "exit": "SessionEnd",
+    "PreInvocation": "UserPromptSubmit", "PostInvocation": "PostToolUse",
+    "pre_tool_use": "PreToolUse", "post_tool_use": "PostToolUse",
+    "user_prompt_submit": "UserPromptSubmit", "session_start": "SessionStart",
+    "session_end": "SessionEnd", "stop": "Stop",
+    "sessionStart": "SessionStart", "userPromptSubmitted": "UserPromptSubmit",
+    "agentStop": "Stop", "notification": "Notification",
+    "preToolUse": "PreToolUse", "postToolUse": "PostToolUse",
+    "permissionRequest": "PermissionRequest", "sessionEnd": "SessionEnd",
+}
+
+# Agents whose hooks expect a JSON object on stdout even when nothing is decided.
+_EMPTY_OBJECT_AGENTS = ("gemini", "antigravity", "muse", "copilot")
+# Agents that read a flat {"permissionDecision": ...} instead of hookSpecificOutput.
+_FLAT_DECISION_AGENTS = ("copilot", "muse")
+
+
+def _previous_statusline_file():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "statusline-previous.json")
+
+
+def _default_socket(env):
+    home = env.get("HOME") or os.path.expanduser("~")
+    return os.path.join(home, ".jarviscopilot-client", "hook.sock")
+
+
+def _parse_args(argv):
+    opts = {"socket": "", "agent": "", "event": "", "ask": False, "statusline": False}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--socket" and i + 1 < len(argv):
+            opts["socket"] = argv[i + 1]
+            i += 2
+            continue
+        if a == "--agent" and i + 1 < len(argv):
+            opts["agent"] = argv[i + 1]
+            i += 2
+            continue
+        if a == "--ask":
+            opts["ask"] = True
+        elif a == "--statusline":
+            opts["statusline"] = True
+        elif not a.startswith("--") and not opts["event"]:
+            opts["event"] = a
+        i += 1
+    return opts
+
+
+def _normalize(payload):
+    """Map other agents' field names onto Claude Code's (coucou normalize_tool_fields)."""
+    if "tool_name" not in payload:
+        if payload.get("toolName"):
+            payload["tool_name"] = payload["toolName"]
+        else:
+            call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
+            name = call.get("name") or payload.get("tool") or ""
+            if name:
+                payload["tool_name"] = name
+    if "tool_input" not in payload:
+        args = payload.get("toolArgs")
+        if isinstance(args, dict):
+            payload["tool_input"] = args
+        else:
+            call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
+            if isinstance(call.get("args"), dict):
+                flat = dict(call["args"])
+                for src, dst in (("CommandLine", "command"), ("FilePath", "file_path"),
+                                 ("Path", "path"), ("Url", "url"), ("Query", "query"),
+                                 ("Pattern", "pattern")):
+                    if src in flat:
+                        flat[dst] = flat[src]
+                payload["tool_input"] = flat
+    if not payload.get("session_id"):
+        for key in ("conversationId", "conversation_id", "sessionId"):
+            if payload.get(key):
+                payload["session_id"] = payload[key]
+                break
+    if not payload.get("cwd") and payload.get("workdir"):
+        payload["cwd"] = payload["workdir"]
+
+
+def _tmux_session(env):
+    pane = env.get("TMUX_PANE") or ""
+    if not env.get("TMUX") or not pane:
+        return ""
+    try:
+        out = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#S"],
+                             capture_output=True, text=True, timeout=0.3)
+        return out.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _add_context(payload, env, event):
+    payload.setdefault("term_program", env.get("TERM_PROGRAM", ""))
+    payload.setdefault("bundle_id", env.get("__CFBundleIdentifier", ""))
+    payload.setdefault("iterm_session_id", env.get("ITERM_SESSION_ID", ""))
+    payload.setdefault("term_session_id", env.get("TERM_SESSION_ID", ""))
+    payload.setdefault("tmux_pane", env.get("TMUX_PANE", ""))
+    # Tool events fire many times a turn; the terminal can't change mid-turn,
+    # so only the turn-level events pay for the tmux lookup.
+    if event not in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
+        payload.setdefault("tmux_session", _tmux_session(env))
+    payload.setdefault("entrypoint", env.get("CLAUDE_CODE_ENTRYPOINT", ""))
+    if not payload.get("cwd"):
+        roots = payload.get("workspacePaths") or payload.get("workspace_roots")
+        if isinstance(roots, list) and roots:
+            payload["cwd"] = roots[0]
+        else:
+            payload["cwd"] = os.getcwd()
+
+
+def _largest_string(node, path=()):
+    """(length, path) of the longest string leaf in a JSON tree."""
+    best = (-1, None)
+    if isinstance(node, str):
+        return (len(node), path)
+    items = node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ()
+    for key, value in items:
+        cand = _largest_string(value, path + (key,))
+        if cand[0] > best[0]:
+            best = cand
+    return best
+
+
+def _trim(frame):
+    """Cut the longest strings until the frame fits MAX_FRAME (never the small ones)."""
+    text = json.dumps(frame)
+    rounds = 0
+    while len(text) >= MAX_FRAME and rounds < 64:
+        length, path = _largest_string(frame["payload"])
+        if path is None or length < 64:
+            break
+        over = len(text) - MAX_FRAME + 1024
+        keep = max(32, min(length // 2, length - over))
+        node = frame["payload"]
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = node[path[-1]][:keep] + "…"
+        frame["payload"]["jc_trimmed"] = True
+        text = json.dumps(frame)
+        rounds += 1
+    return text
+
+
+def _send(sock_path, frame, wait):
+    """Send one frame; with ``wait`` read one reply line. None on any failure."""
+    line = (_trim(frame) + "\n").encode()
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(FIRE_TIMEOUT)
+        s.connect(sock_path)
+        s.sendall(line)
+        if not wait:
+            return None
+        s.settimeout(wait)
+        buf = b""
+        while b"\n" not in buf:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+        text = buf.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
+        if not text:
+            return None
+        reply = json.loads(text)
+        return reply if isinstance(reply, dict) else None
+    except Exception:
+        return None
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _permission_output(agent, reply, payload):
+    decision = (reply or {}).get("decision", "")
+    if agent in _FLAT_DECISION_AGENTS:
+        if decision in ("allow", "always"):
+            return {"permissionDecision": "allow"}
+        if decision == "deny":
+            return {"permissionDecision": "deny"}
+        return {"permissionDecision": "ask"} if agent == "copilot" else None
+    if decision == "allow" or (decision == "always" and agent == "codex"):
+        return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                       "decision": {"behavior": "allow"}}}
+    if decision == "always":
+        rules = reply.get("updated_permissions")
+        if not isinstance(rules, list):
+            rules = payload.get("permission_suggestions") or []
+        return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                       "decision": {"behavior": "allow",
+                                                    "updatedPermissions": rules}}}
+    if decision == "deny":
+        return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                       "decision": {"behavior": "deny",
+                                                    "message": reply.get("message") or "Denied from Jarvis"}}}
+    if decision == "answer":
+        questions = (payload.get("tool_input") or {}).get("questions", [])
+        return {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+                                       "decision": {"behavior": "allow", "updatedInput": {
+                                           "questions": questions,
+                                           "answers": reply.get("answers") or {}}}}}
+    return None
+
+
+def _run_previous_statusline(raw):
+    try:
+        with open(_previous_statusline_file()) as f:
+            cmd = (json.load(f) or {}).get("command", "")
+    except Exception:
+        return ""
+    if not cmd:
+        return ""
+    try:
+        res = subprocess.run(["/bin/sh", "-c", cmd], input=raw, capture_output=True, timeout=10)
+        return res.stdout.decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def main(argv, raw, env):
+    """Pure entry point: returns (stdout_text, exit_code). Never raises."""
+    try:
+        return _main(argv, raw, env)
+    except Exception:
+        return ("", 0)
+
+
+def _main(argv, raw, env):
+    opts = _parse_args(list(argv))
+    sock_path = opts["socket"] or env.get("JC_HOOK_SOCKET") or _default_socket(env)
+    agent = opts["agent"] or ("claude-desktop" if env.get("CLAUDE_CODE_ENTRYPOINT") == "claude-desktop"
+                              else "claude")
+
+    payload = {}
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = None
+    if not isinstance(payload, dict):
+        return ("", 0)
+
+    if opts["statusline"]:
+        frame = {"jc": VERSION, "kind": "statusline", "agent": agent, "payload": {
+            "session_id": payload.get("session_id", ""),
+            "rate_limits": payload.get("rate_limits") or {},
+            "model": payload.get("model"),
+            "cwd": payload.get("cwd") or (payload.get("workspace") or {}).get("current_dir", ""),
+        }}
+        _send(sock_path, frame, wait=0)
+        return (_run_previous_statusline(raw), 0)
+
+    # An empty body still counts when the event comes from argv (Copilot's
+    # fail-closed permissionRequest must answer "ask" even then).
+    if not payload and not opts["event"]:
+        return ("", 0)
+
+    if opts["ask"]:
+        if payload.get("tool_name") != "AskUserQuestion":
+            return ("", 0)
+        _add_context(payload, env, "PreToolUse")
+        reply = _send(sock_path, {"jc": VERSION, "kind": "ask", "agent": agent,
+                                  "payload": payload}, wait=ASK_WAIT)
+        if (reply or {}).get("decision") != "answer":
+            return ("", 0)
+        questions = (payload.get("tool_input") or {}).get("questions", [])
+        out = {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                      "permissionDecision": "allow",
+                                      "updatedInput": {"questions": questions,
+                                                       "answers": reply.get("answers") or {}}}}
+        return (json.dumps(out), 0)
+
+    event = payload.get("hook_event_name") or opts["event"]
+    if event:
+        payload["hook_event_name"] = _EVENT_NAMES.get(event, event)
+    event = payload.get("hook_event_name", "")
+    _normalize(payload)
+    _add_context(payload, env, event)
+    payload["jc_agent"] = agent
+
+    if event == "PermissionRequest":
+        reply = _send(sock_path, {"jc": VERSION, "kind": "permission", "agent": agent,
+                                  "payload": payload}, wait=PERMISSION_WAIT)
+        out = _permission_output(agent, reply, payload)
+        return (json.dumps(out) if out is not None else "", 0)
+
+    _send(sock_path, {"jc": VERSION, "kind": "event", "agent": agent, "payload": payload}, wait=0)
+    if agent == "antigravity" and event == "PreToolUse":
+        return (json.dumps({"decision": "ask"}), 0)
+    if agent in _EMPTY_OBJECT_AGENTS:
+        return ("{}", 0)
+    return ("", 0)
+
+
+if __name__ == "__main__":
+    data = b""
+    try:
+        data = sys.stdin.buffer.read()
+    except Exception:
+        pass
+    text, code = main(sys.argv[1:], data, dict(os.environ))
+    if text:
+        sys.stdout.write(text + ("" if text.endswith("\n") else "\n"))
+        sys.stdout.flush()
+    sys.exit(0)
