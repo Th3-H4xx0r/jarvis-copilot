@@ -14,6 +14,8 @@ Usage:
     python3 health.py run                           # run the analysis now
     python3 health.py settings                      # read settings
     python3 health.py runs | alerts                 # recent runs / alerts
+    python3 health.py habits                        # quit habits: time since the last relapse, goals
+    python3 health.py habit-relapse --habit vaping [--at 2026-10-14T03:00:00Z]   # log one
 
 Exit codes: 0 success, 1 error (a JSON object on stderr).
 """
@@ -175,6 +177,81 @@ def cmd_stream(args) -> int:
     return get(f"{BASE}/{args.what}")
 
 
+# ── quit habits ──────────────────────────────────────────────────────────────
+
+def find_habit(ref: str):
+    """(habit, None) by id, else by name — exact, then one partial match; (None, why) otherwise."""
+    status, data = request("GET", f"{BASE}/habits")
+    if status != 200:
+        return None, data.get("error") or "could not read habits"
+    found = data.get("habits") or []
+    key = ref.strip().casefold()
+    for match in ([h for h in found if h.get("id") == ref],
+                  [h for h in found if str(h.get("name", "")).casefold() == key],
+                  [h for h in found if key in str(h.get("name", "")).casefold()]):
+        if len(match) == 1:
+            return match[0], None
+        if len(match) > 1:
+            break
+    names = ", ".join(f"{h.get('name')} ({h.get('id')})" for h in found) or "none yet"
+    return None, f"no single habit matches {ref!r}; habits: {names}"
+
+
+def _write(path: str, body: dict) -> int:
+    status, data = request("POST", path, body)
+    return show(data) if status == 200 else fail(data.get("error") or f"could not write {path}")
+
+
+def _goal(args, current=None) -> dict:
+    """The habit's whole goal with the flags applied (a goal is replaced whole)."""
+    goal = dict(current or {"streak_days": None, "limit": None})
+    if args.streak_days is not None:
+        goal["streak_days"] = args.streak_days or None
+    if args.no_limit:
+        goal["limit"] = None
+    elif args.limit is not None:
+        goal["limit"] = {"per": args.per, "count": args.limit}
+    return goal
+
+
+def cmd_habits(args) -> int:
+    return get(f"{BASE}/habits")
+
+
+def cmd_habit_create(args) -> int:
+    body = {"name": args.name, "goal": _goal(args)}
+    if args.started:
+        body["started_at"] = args.started
+    return _write(f"{BASE}/habits", {"habit": body})
+
+
+def cmd_habit(args) -> int:
+    habit, error = find_habit(args.habit)
+    if habit is None:
+        return fail(error)
+    if args.command == "habit-days":
+        return get(f"{BASE}/habits/days?id={habit['id']}&days={args.days}")
+    if args.command == "habit-relapse":
+        body = {"habit": habit["id"]}
+        if args.at:
+            body["at"] = args.at
+        if args.note:
+            body["note"] = args.note
+        return _write(f"{BASE}/habits/relapse", body)
+    if args.command == "habit-undo":
+        return _write(f"{BASE}/habits/relapse/delete", {"habit": habit["id"], "latest": True})
+    if args.command == "habit-delete":
+        return _write(f"{BASE}/habits/delete", {"id": habit["id"]})
+    change = {"id": habit["id"]}
+    if args.name:
+        change["name"] = args.name
+    if args.started:
+        change["started_at"] = args.started
+    if args.streak_days is not None or args.limit is not None or args.no_limit:
+        change["goal"] = _goal(args, habit.get("goal"))
+    return _write(f"{BASE}/habits", {"habit": change})
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Wearable health scores and alerts.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -199,6 +276,30 @@ def main(argv=None) -> int:
     for name in ("runs", "alerts"):
         sub.add_parser(name, help=f"recent {name}").set_defaults(what=name)
 
+    sub.add_parser("habits", help="quit habits: time since the last relapse, counts, goals")
+    hd = sub.add_parser("habit-days", help="a habit's relapses per day")
+    hd.add_argument("--habit", required=True, help="id or name")
+    hd.add_argument("--days", type=int, default=30)
+    hc = sub.add_parser("habit-create", help="start tracking a habit to quit")
+    hc.add_argument("--name", required=True)
+    hc.set_defaults(no_limit=False)
+    hu = sub.add_parser("habit-update", help="rename a habit, move its quit date or change its goal")
+    hu.add_argument("--habit", required=True, help="id or name")
+    hu.add_argument("--name")
+    hu.add_argument("--no-limit", action="store_true", help="drop the relapse limit")
+    for p in (hc, hu):
+        p.add_argument("--started", help="the quit date, a UTC instant (default now)")
+        p.add_argument("--streak-days", type=int, help="target days without a relapse (0 clears it)")
+        p.add_argument("--limit", type=int, help="at most this many relapses …")
+        p.add_argument("--per", choices=("day", "month"), default="day", help="… a day or a month")
+    hr = sub.add_parser("habit-relapse", help="log a relapse, now or --at")
+    hr.add_argument("--habit", required=True, help="id or name")
+    hr.add_argument("--at", help="a UTC instant, default now")
+    hr.add_argument("--note")
+    for name, text in (("habit-undo", "remove the latest relapse"),
+                       ("habit-delete", "delete a habit and all its relapses")):
+        sub.add_parser(name, help=text).add_argument("--habit", required=True, help="id or name")
+
     args = parser.parse_args(argv)
     handlers = {
         "devices": cmd_devices,
@@ -210,6 +311,13 @@ def main(argv=None) -> int:
         "settings": cmd_settings,
         "runs": cmd_stream,
         "alerts": cmd_stream,
+        "habits": cmd_habits,
+        "habit-create": cmd_habit_create,
+        "habit-days": cmd_habit,
+        "habit-update": cmd_habit,
+        "habit-relapse": cmd_habit,
+        "habit-undo": cmd_habit,
+        "habit-delete": cmd_habit,
     }
     return handlers[args.command](args)
 
