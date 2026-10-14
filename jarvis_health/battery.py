@@ -1,13 +1,20 @@
 """Body Battery: a reservoir sleep fills and the waking day drains.
 
-Modelled on Garmin/Firstbeat — charge while asleep, drain with stress and
-effort, only sleep charges substantially — and judged the way WHOOP judges
-recovery: every input against your own baseline, never a population. Pure
-functions over stored days; the runner stores each day's curve, so tomorrow's
-charge starts from tonight's real level.
+The core is the two-process model of sleep regulation (Borbély; Daan, Beersma
+& Borbély 1984), the clinical account of why energy falls through a long day:
+sleep pressure, Process S, builds while awake toward its ceiling with a time
+constant of 18.2 h and dissipates while asleep with one of 4.2 h. The battery
+is 100 × (1 − S), so a short night can't refill it, a long day empties it
+even when calm, and an empty battery recovers more per hour than a full one —
+the shape of SAFTE's sleep reservoir (Hursh) too.
 
-The drain rates are tuned to the design's acceptance test, a typical day
-draining 45–65 points (e.g. 85 at wake to 30 at bedtime).
+On top, Garmin/Firstbeat's drains: stress (Firstbeat's 0–100 bands: rest
+0–25, low 26–50, medium 51–75, high 76–100) and physical effort by heart-rate
+reserve cost extra points; only sleep charges. Each night's recovery is
+judged the way WHOOP judges it: HRV and resting heart rate against your own
+baseline speed or slow the overnight dissipation. Pure functions over stored
+days; the runner stores each day's curve, so tomorrow starts from tonight's
+real level.
 """
 from __future__ import annotations
 
@@ -17,26 +24,31 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .baselines import resting_hr, sleeping_hrv
-from .metrics import Baseline, HealthDay, Series, _iso, parse_instant
+from .metrics import Baseline, HealthDay, Series, SleepSession, _iso, parse_instant
 
 FLOOR, CEIL, FIRST_LEVEL = 5.0, 100.0, 50.0
-#: A full, good night adds up to this (Garmin: 40–60 on a real night).
-MAX_CHARGE = 65.0
-#: Until a week of nights has built the HRV baseline, recovery cannot be judged,
-#: so a night cannot charge the battery fully.
-CALIBRATING_CAP, CALIBRATION_NIGHTS = 50.0, 7
+#: Process S time constants, hours: build-up awake, dissipation asleep.
+TAU_WAKE, TAU_SLEEP = 18.2, 4.2
+#: Until a week of nights has built the HRV baseline, recovery cannot be
+#: judged, so a night is never counted better than average.
+CALIBRATION_NIGHTS = 7
 SLEEP_NEED = 480.0
 #: Asleep at least this long is a night; less is a nap.
 MAIN_SLEEP = 180
-NAP_RATE = 0.5
 SLOT = 30
 #: The smallest worthwhile change in log-HRV, in SDs (Plews/Buchheit).
 SWC = 0.5
 
-#: Per 30-minute slot.
-AWAKE_DRAIN = 1.0
-STRESS_DRAIN = 2.0
-REST_GAIN = 0.25
+#: Extra points an hour at the top of each scale.
+STRESS_DRAIN_H = 4.0
+ACTIVITY_DRAIN_H = 20.0
+#: Stress above this costs (Firstbeat's rest band ends at 25).
+STRESS_REST = 25
+#: Effort starts at this share of the heart-rate reserve and peaks at this.
+EFFORT_FROM, EFFORT_PEAK = 0.3, 0.9
+#: Steps in a half hour that count as a brisk walk, when the heart rate is missing.
+BRISK_STEPS = 3000
+WALK_DRAIN_H = 3.0
 
 BANDS = ((76, "High"), (51, "Medium"), (26, "Low"), (0, "Very low"))
 
@@ -80,9 +92,27 @@ def recovery_factor(hrv: Optional[float], rhr: Optional[float], baseline: Baseli
     return round(min(1.15, max(0.5, factor)), 3)
 
 
+def pressure(level: float) -> float:
+    """Process S for a battery level: 0 rested, 1 spent."""
+    return 1.0 - max(FLOOR, min(CEIL, level)) / CEIL
+
+
+def level_of(s: float) -> float:
+    return max(FLOOR, min(CEIL, CEIL * (1.0 - s)))
+
+
+def awake_pressure(s: float, minutes: float) -> float:
+    """S after `minutes` awake: it climbs toward 1, slower the higher it is."""
+    return 1.0 - (1.0 - s) * math.exp(-minutes / 60.0 / TAU_WAKE)
+
+
+def asleep_pressure(s: float, minutes: float, factor: float = 1.0) -> float:
+    """S after `minutes` asleep; a better-recovered night (factor > 1) clears it faster."""
+    return s * math.exp(-minutes / 60.0 / (TAU_SLEEP / max(0.1, factor)))
+
+
 @dataclass
 class Charge:
-    points: float = 0.0
     performance: float = 0.0
     factor: float = 1.0
     need: float = SLEEP_NEED
@@ -90,8 +120,8 @@ class Charge:
     no_sleep: bool = False
 
 
-def overnight_charge(day: HealthDay, baseline: Baseline, prior_nights: list[int]) -> Charge:
-    """What last night put back: sleep performance × recovery, up to 65."""
+def overnight_recovery(day: HealthDay, baseline: Baseline, prior_nights: list[int]) -> Charge:
+    """How last night recovered: how much of the need it slept, and how well (HRV, resting HR)."""
     calibrating = baseline.hrv_nights < CALIBRATION_NIGHTS
     night = day.main_sleep
     if night is None or night.asleep_minutes < MAIN_SLEEP:
@@ -99,33 +129,31 @@ def overnight_charge(day: HealthDay, baseline: Baseline, prior_nights: list[int]
     need = sleep_need(sleep_debt(prior_nights))
     performance = min(1.0, night.asleep_minutes / need)
     factor = recovery_factor(sleeping_hrv(day), resting_hr(day), baseline)
-    points = MAX_CHARGE * performance * factor
     if calibrating:
-        points = min(points, CALIBRATING_CAP)
-    return Charge(round(points, 1), round(performance, 3), factor, need, calibrating)
+        factor = min(1.0, factor)
+    return Charge(round(performance, 3), factor, need, calibrating)
 
 
-def slot_drain(stress, hr, steps, rest_hr: float, hr_max: float) -> tuple[float, dict]:
-    """Points one 30-minute awake slot costs, and what took them.
+def effort(hr: float, rest_hr: float, hr_max: float) -> float:
+    """0–1: how hard a heart rate is working, by heart-rate reserve (Karvonen)."""
+    reserve = (hr - rest_hr) / max(1.0, hr_max - rest_hr)
+    return max(0.0, min(1.0, (reserve - EFFORT_FROM) / (EFFORT_PEAK - EFFORT_FROM))) ** 2
 
-    Nothing measured (the ring off, or out of range) costs being awake only.
+
+def slot_drain(stress: Optional[float], efforts: list[float], steps: Optional[float]) -> tuple[float, dict]:
+    """Points a 30-minute awake slot costs on top of being awake, and what took them.
+
+    `efforts` are `effort()` of the heart rates in the slot: the hard minutes
+    count however few, where a mean heart rate would dilute them.
     """
-    if stress is None and hr is None and steps is None:
-        return AWAKE_DRAIN, {"awake": AWAKE_DRAIN}
-    parts = {"awake": AWAKE_DRAIN, "stress": 0.0, "activity": 0.0, "rest": 0.0}
-    if stress is not None and stress > 25:
-        parts["stress"] = min(STRESS_DRAIN, (stress - 25) / 75 * STRESS_DRAIN)
-    if hr:
-        # Effort starts at half the heart-rate reserve above rest.
-        threshold = rest_hr + 0.5 * (hr_max - rest_hr)
-        if hr > threshold:
-            parts["activity"] = 2.0 + 2.0 * min(1.0, (hr - threshold) / max(1.0, hr_max - threshold))
-    if steps:
-        parts["activity"] += min(0.5, steps / 2000 * 0.5)
-    if stress is not None and stress <= 25 and parts["activity"] == 0 and (steps or 0) < 50:
-        parts["rest"] = REST_GAIN
-    total = parts["awake"] + parts["stress"] + parts["activity"] - parts["rest"]
-    return round(total, 3), parts
+    hours = SLOT / 60.0
+    parts = {"stress": 0.0, "activity": 0.0}
+    if stress is not None and stress > STRESS_REST:
+        parts["stress"] = STRESS_DRAIN_H * min(1.0, (stress - STRESS_REST) / (100.0 - STRESS_REST)) * hours
+    hard = ACTIVITY_DRAIN_H * (sum(efforts) / len(efforts)) * hours if efforts else 0.0
+    walk = WALK_DRAIN_H * min(1.0, (steps or 0.0) / BRISK_STEPS) * hours
+    parts["activity"] = max(hard, walk)
+    return round(sum(parts.values()), 3), parts
 
 
 def _midnight(day: HealthDay) -> datetime:
@@ -147,16 +175,25 @@ def grid_floor(moment: datetime, midnight: datetime) -> datetime:
 EVENING = timedelta(hours=12)
 
 
-def _slot_value(series: Optional[Series], start: datetime, end: datetime, total: bool = False) -> Optional[float]:
+def _slot_values(series: Optional[Series], start: datetime, end: datetime) -> list[float]:
     if series is None or not series.start or not series.values:
-        return None
+        return []
     origin = parse_instant(series.start)
     interval = max(1, series.interval_minutes)
-    picked = [float(v) for i, v in enumerate(series.values)
-              if v and v > 0 and start <= origin + timedelta(minutes=i * interval) < end]
+    return [float(v) for i, v in enumerate(series.values)
+            if v and v > 0 and start <= origin + timedelta(minutes=i * interval) < end]
+
+
+def _slot_value(series: Optional[Series], start: datetime, end: datetime, total: bool = False) -> Optional[float]:
+    picked = _slot_values(series, start, end)
     if not picked:
         return None
     return sum(picked) if total else sum(picked) / len(picked)
+
+
+def _overlap(a0: datetime, a1: datetime, b0: datetime, b1: datetime) -> float:
+    """Minutes the two spans share."""
+    return max(0.0, (min(a1, b1) - max(a0, b0)).total_seconds() / 60.0)
 
 
 @dataclass
@@ -171,7 +208,7 @@ class BatteryDay:
     charged: float = 0.0
     naps: float = 0.0
     drained: float = 0.0
-    drains: dict = field(default_factory=lambda: {"awake": 0.0, "stress": 0.0, "activity": 0.0, "rest": 0.0})
+    drains: dict = field(default_factory=lambda: {"awake": 0.0, "stress": 0.0, "activity": 0.0})
     curve: list = field(default_factory=list)
     biggest_drain: Optional[dict] = None
     calibrating: Optional[dict] = None
@@ -186,8 +223,8 @@ class BatteryDay:
         return out
 
 
-def _workout_hr(workouts: list[dict], start: datetime, end: datetime) -> Optional[float]:
-    """Mean heart rate a workout recorded inside the slot (its samples are 5 s apart)."""
+def _workout_samples(workouts: Optional[list[dict]], start: datetime, end: datetime) -> list[float]:
+    """Heart rates a workout recorded inside the slot (its samples are 5 s apart)."""
     readings = []
     for w in workouts or []:
         if not w.get("start"):
@@ -196,7 +233,7 @@ def _workout_hr(workouts: list[dict], start: datetime, end: datetime) -> Optiona
         for i, bpm in enumerate(w.get("heart_rates") or []):
             if bpm and start <= origin + timedelta(seconds=5 * i) < end:
                 readings.append(float(bpm))
-    return sum(readings) / len(readings) if readings else None
+    return readings
 
 
 def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_nights: list[int],
@@ -205,9 +242,9 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
     """The day's level every 30 minutes from local midnight to midnight, or to `now`.
 
     A night belongs to the day it ends on, all of it: one that began before
-    midnight opens this day's curve at bedtime and charges in full, and
-    `bedtime` — when tomorrow's night began — closes this day there, so
-    those hours are neither drained here nor lost from tomorrow's charge.
+    midnight opens this day's curve at bedtime, and `bedtime` — when
+    tomorrow's night began — closes this day there, so those hours are
+    neither drained here nor lost from tomorrow's charge.
     """
     midnight = _midnight(day)
     stop = midnight + timedelta(days=1)
@@ -218,27 +255,27 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
     rest = resting_hr(day) or baseline.resting_hr or 60.0
     hr_max = 220.0 - float((profile or {}).get("age") or 30)
 
-    charge = overnight_charge(day, baseline, prior_nights)
-    night = None if charge.no_sleep else day.main_sleep
+    recovery = overnight_recovery(day, baseline, prior_nights)
+    night = None if recovery.no_sleep else day.main_sleep
     night_start = parse_instant(night.start) if night else None
     wake = parse_instant(night.end) if night else None
-    naps = [s for s in day.sleep if s is not night and s.end and s.asleep_minutes < MAIN_SLEEP]
+    # Every sleep the day holds, with how fast it clears pressure: the night by
+    # its recovery, a nap at the ordinary rate.
+    sessions: list[tuple[SleepSession, datetime, datetime, float]] = []
+    for s in day.sleep:
+        if not s.start or not s.end or (s is not night and s.asleep_minutes >= MAIN_SLEEP):
+            continue
+        sessions.append((s, parse_instant(s.start), parse_instant(s.end), recovery.factor if s is night else 1.0))
 
     begin = midnight
     if night is not None and midnight - EVENING < night_start < midnight:
         begin = grid_floor(night_start, midnight)
-    # The charge is shared across the slots actually spent in bed, so the
-    # whole night lands however the grid cuts it.
-    bed_slots, slot = 0, begin
-    while night is not None and slot < wake:
-        bed_slots += night_start <= slot
-        slot += timedelta(minutes=SLOT)
 
-    out = BatteryDay(date=day.date, start_level=start_level, no_sleep=charge.no_sleep,
+    out = BatteryDay(date=day.date, start_level=start_level, no_sleep=recovery.no_sleep,
                      bed_at=night.start if night else None,
-                     sleep_performance=charge.performance if night else None,
-                     recovery_factor=charge.factor if night else None)
-    if charge.calibrating:
+                     sleep_performance=recovery.performance if night else None,
+                     recovery_factor=recovery.factor if night else None)
+    if recovery.calibrating:
         out.calibrating = {"nights": baseline.hrv_nights, "needed": CALIBRATION_NIGHTS}
     level = max(FLOOR, min(CEIL, float(start_level)))
     worst_cost, worst_at = 0.0, None
@@ -246,35 +283,64 @@ def day_battery(day: HealthDay, start_level: float, baseline: Baseline, prior_ni
     cursor = begin
     while cursor < stop:
         slot_end = cursor + timedelta(minutes=SLOT)
-        if night is not None and night_start <= cursor < wake:
-            # The night's charge arrives evenly across the time in bed.
-            gain = charge.points / max(1, bed_slots)
-            level = min(CEIL, level + gain)
-            out.charged += gain
-        else:
+        in_bed, sleep_first, asleep = 0.0, False, []
+        for s, s0, s1, factor in sessions:
+            shared = _overlap(cursor, slot_end, s0, s1)
+            if shared <= 0:
+                continue
+            in_bed += shared
+            sleep_first = sleep_first or s0 <= cursor
+            asleep.append((shared * (s.efficiency or 1.0), factor, s is night))
+        awake = max(0.0, SLOT - in_bed)
+
+        def sleep_part() -> None:
+            nonlocal level
+            for minutes, factor, is_night in asleep:
+                before = level
+                level = level_of(asleep_pressure(pressure(level), minutes, factor))
+                if is_night:
+                    out.charged += level - before
+                else:
+                    out.naps += level - before
+
+        def awake_part() -> None:
+            nonlocal level, worst_cost, worst_at, awake_slots, blank_slots
+            if awake <= 0:
+                return
             stress = _slot_value(day.stress, cursor, slot_end)
-            hr = _slot_value(day.heart_rate, cursor, slot_end)
+            heart = _slot_values(day.heart_rate, cursor, slot_end)
             # The ring's 5-minute history can miss a workout; its own
             # second-by-second heart rate says what the slot cost.
-            during = _workout_hr(workouts, cursor, slot_end)
-            if during is not None and (hr is None or during > hr):
-                hr = during
+            during = _workout_samples(workouts, cursor, slot_end)
             steps = _slot_value(day.steps, cursor, slot_end, total=True)
-            cost, parts = slot_drain(stress, hr, steps, rest, hr_max)
-            awake_slots += 1
-            if stress is None and hr is None and steps is None:
-                blank_slots += 1
-            for nap in naps:
-                if cursor <= parse_instant(nap.end) < slot_end:
-                    gain = MAX_CHARGE * min(1.0, nap.asleep_minutes / SLEEP_NEED) * NAP_RATE
-                    out.naps += gain
-                    cost -= gain
-            level = max(FLOOR, min(CEIL, level - cost))
-            out.drained += max(0.0, cost)
+            efforts = [effort(hr, rest, hr_max) for hr in heart]
+            if during:
+                covered = min(1.0, len(during) * 5 / 60 / SLOT)
+                mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+                efforts = [covered * mean([effort(hr, rest, hr_max) for hr in during])
+                           + (1 - covered) * mean(efforts)]
+            share = awake / SLOT
+            extra, parts = slot_drain(stress, efforts, steps)
+            spent = level - level_of(awake_pressure(pressure(level), awake))
+            cost = spent + extra * share
+            level = max(FLOOR, level - cost)
+            out.drained += cost
+            out.drains["awake"] += spent
             for name, value in parts.items():
-                out.drains[name] = out.drains.get(name, 0.0) + value
+                out.drains[name] += value * share
+            if share >= 0.5:
+                awake_slots += 1
+                if stress is None and not heart and not during and steps is None:
+                    blank_slots += 1
             if cost > worst_cost:
                 worst_cost, worst_at = cost, cursor
+
+        if sleep_first:
+            sleep_part()
+            awake_part()
+        else:
+            awake_part()
+            sleep_part()
         if wake is not None and out.wake_level is None and slot_end >= wake:
             out.wake_at, out.wake_level = _iso(wake), round(level, 1)
         cursor = slot_end
