@@ -26,6 +26,12 @@ second place to edit them.
     POST /api/integrations/jarvis-health/health/training/templates  {template}   (…/templates/delete {id})
     POST /api/integrations/jarvis-health/health/training/exercises  {exercise}   (…/exercises/delete {id})
     POST /api/integrations/jarvis-health/health/training/settings   {settings: {exercise id: {...} | null}}
+    GET  /api/integrations/jarvis-health/health/habits[?relapses=1]  quit habits + summaries (+ every relapse)
+    GET  /api/integrations/jarvis-health/health/habits/days?id=&days=30  a habit's relapses per local day
+    POST /api/integrations/jarvis-health/health/habits     {habit}  create (no id: made from the name) or edit
+    POST /api/integrations/jarvis-health/health/habits/delete  {id}  a habit and its relapses
+    POST /api/integrations/jarvis-health/health/habits/relapse  {habit, uid?, at?, tz?, note?}  log one (uid: once)
+    POST /api/integrations/jarvis-health/health/habits/relapse/delete  {uid} | {habit, latest: true}
     POST /api/integrations/jarvis-health/health/day        {day: <ring day JSON>}
     POST /api/integrations/jarvis-health/health/devices/<device>  {linked: bool}
     POST /api/integrations/jarvis-health/health/run        run the analysis now
@@ -212,6 +218,46 @@ def handle_get(handler, parsed) -> bool:
             j(handler, insights(store, end, days=days, weight_unit=unit))
             return True
 
+        if tail == "habits":
+            from urllib.parse import parse_qs
+
+            from jarvis_health.habits import summary
+            from jarvis_health.metrics import parse_instant, utc_now
+
+            now = parse_instant(utc_now())
+            relapses = store.relapses()
+            by_habit: dict = {}
+            for r in relapses:
+                by_habit.setdefault(r["habit"], []).append(r)
+            out = {"habits": [{**h, "summary": summary(h, by_habit.get(h["id"], []), now)} for h in store.habits()]}
+            # The phone draws its charts from every relapse; chat reads the summaries.
+            if (parse_qs(parsed.query).get("relapses") or [""])[0] == "1":
+                out["relapses"] = relapses
+            j(handler, out)
+            return True
+
+        if tail == "habits/days":
+            from urllib.parse import parse_qs
+
+            from jarvis_health.habits import daily
+            from jarvis_health.metrics import parse_instant, utc_now
+
+            query = parse_qs(parsed.query)
+            try:
+                days = int((query.get("days") or ["30"])[0])
+            except ValueError:
+                days = 0
+            if not 1 <= days <= 366:
+                j(handler, {"error": "days is a whole number of days, 1–366"}, status=400)
+                return True
+            habit = store.habit((query.get("id") or [""])[0])
+            if habit is None:
+                j(handler, {"error": "no such habit"}, status=404)
+                return True
+            j(handler, {"habit": habit,
+                        "days": daily(habit, store.relapses(habit["id"]), days, parse_instant(utc_now()))})
+            return True
+
         if tail == "runs":
             j(handler, {"runs": store.runs(limit=20)})
             return True
@@ -359,6 +405,9 @@ def handle_post(handler, parsed, body) -> bool:
         if tail.startswith("training/"):
             return _training_post(handler, store, tail[len("training/"):], body)
 
+        if tail == "habits" or tail.startswith("habits/"):
+            return _habits_post(handler, store, tail, body)
+
         if tail == "weights":
             from jarvis_health.store import device_key_for
 
@@ -465,4 +514,68 @@ def _training_post(handler, store, what: str, body: dict) -> bool:
         j(handler, {"error": str(exc)}, status=400)
         return True
     j(handler, {"error": f"no training endpoint {what!r}"}, status=404)
+    return True
+
+
+def _publish_habits(handler) -> None:
+    """Devices showing habits fetch them again; the one that made the change already knows."""
+    try:
+        from api.auth import parse_cookie
+        from api.device_bridge import publish
+        from api.pairing import find_device_by_session
+
+        try:
+            caller = find_device_by_session(parse_cookie(handler) or "") or {}
+        except Exception:
+            caller = {}     # chat's signed loopback call has no session
+        publish("habits", {"what": ["habits"]}, exclude=caller.get("id"))
+    except Exception:
+        logger.debug("health: habits push failed", exc_info=True)
+
+
+def _habits_post(handler, store, tail: str, body: dict) -> bool:
+    """Quit habits and their relapses, from the phone or from chat."""
+    from api.helpers import j
+
+    try:
+        if tail == "habits":
+            if not isinstance(body.get("habit"), dict):
+                j(handler, {"error": "send {\"habit\": {...}}"}, status=400)
+                return True
+            out = {"ok": True, "habit": store.put_habit(body["habit"])}
+        elif tail == "habits/delete":
+            out = {"ok": True, "deleted": store.delete_habit(body.get("id"))}
+        elif tail == "habits/relapse":
+            from jarvis_health.habits import summary
+            from jarvis_health.metrics import parse_instant, utc_now
+
+            relapse = store.put_relapse(body.get("habit"), at=body.get("at"), uid=body.get("uid"),
+                                        tz=body.get("tz"), note=body.get("note"))
+            habit = store.habit(relapse["habit"])
+            out = {"ok": True, "relapse": relapse,
+                   "summary": summary(habit, store.relapses(habit["id"]), parse_instant(utc_now()))}
+        elif tail == "habits/relapse/delete":
+            uid = body.get("uid")
+            if not uid and body.get("latest") and body.get("habit"):
+                latest = store.latest_relapse(body["habit"])
+                if latest is None:
+                    j(handler, {"ok": True, "deleted": False})
+                    return True
+                uid = latest["uid"]
+            if not uid:
+                j(handler, {"error": "say which relapse: {uid} or {habit, latest: true}"}, status=400)
+                return True
+            out = {"ok": True, "deleted": store.delete_relapse(uid)}
+        else:
+            j(handler, {"error": f"no habits endpoint {tail!r}"}, status=404)
+            return True
+    except LookupError as exc:
+        j(handler, {"error": str(exc.args[0]) if exc.args else "no such habit"}, status=404)
+        return True
+    except ValueError as exc:
+        j(handler, {"error": str(exc)}, status=400)
+        return True
+    if out.get("deleted") is not False:
+        _publish_habits(handler)
+    j(handler, out)
     return True

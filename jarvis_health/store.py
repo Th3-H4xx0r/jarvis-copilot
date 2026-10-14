@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import re
+import uuid
 from datetime import timezone
 from typing import Any, Optional
 
@@ -64,6 +65,10 @@ WEIGHT_PREFIX = "weight-"
 TEMPLATE_PREFIX = "template-"
 EXERCISE_PREFIX = "exercise-"
 TRAINING_SETTINGS = "training-settings"
+# Quit habits: a document each, and every relapse a record (ts = when it happened).
+HABIT_PREFIX = "habit-"
+RELAPSES = "habit-relapses"
+_UID = re.compile(r"[A-Za-z0-9-]{1,64}")
 # A prefix plus this fits the registry's 64-character keys.
 _TRAINING_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,54}")
 #: The key a workout's device is filed under: `ring-b6ce93c4`.
@@ -463,6 +468,91 @@ class HealthStore:
                 current[exercise_id] = dict(change)
         self._space.put(TRAINING_SETTINGS, current, description="Each exercise's rest timers, bar, kind and pinned note.")
         return current
+
+    # ── habits ──────────────────────────────────────────────────────────────
+    #
+    # A quit habit is a document; each relapse is a record, so years of
+    # relapses never outgrow a document. The maths lives in `habits.py`.
+    def habits(self) -> list[dict]:
+        return sorted(self._documents(HABIT_PREFIX),
+                      key=lambda h: (str(h.get("created_at", "")), str(h.get("name", ""))))
+
+    def habit(self, habit_id) -> Optional[dict]:
+        try:
+            raw = self._space.get(HABIT_PREFIX + _training_id(habit_id))
+        except ValueError:
+            return None
+        return raw if isinstance(raw, dict) else None
+
+    def put_habit(self, raw: dict, now: Optional[str] = None) -> dict:
+        """Create or edit a habit; fields left out keep their old values."""
+        from .habits import clean, new_id
+
+        habit_id = _training_id(raw.get("id") or new_id(raw.get("name")))
+        habit = clean({**raw, "id": habit_id}, parse_instant(now or utc_now()), self.habit(habit_id))
+        self._space.put(HABIT_PREFIX + habit_id, habit, description=f"Habit {habit['name']}.")
+        return habit
+
+    def delete_habit(self, habit_id) -> bool:
+        """A habit and every relapse logged against it."""
+        if self.habit(habit_id) is None:
+            return False
+        for row in self._relapse_rows(habit_id):
+            self._space.delete_record(row["id"])
+        return self._space.delete_document(HABIT_PREFIX + _training_id(habit_id))
+
+    def _relapse_rows(self, habit_id=None) -> list[dict]:
+        """Every relapse record (of one habit), oldest first, past the registry's 1000-row page."""
+        where = {"habit": habit_id} if habit_id else None
+        rows, seen, since = [], set(), None
+        while True:
+            page = self._space.records(RELAPSES, since=since, where=where, limit=1000, newest_first=False)
+            fresh = [r for r in page if r["id"] not in seen]
+            rows += fresh
+            seen.update(r["id"] for r in fresh)
+            if len(page) < 1000 or not fresh:
+                return rows
+            since = page[-1]["ts"]
+
+    @staticmethod
+    def _relapse(row: dict) -> dict:
+        return {k: row[k] for k in ("habit", "uid", "at", "tz", "note") if k in row}
+
+    def relapses(self, habit_id=None) -> list[dict]:
+        return [self._relapse(r) for r in self._relapse_rows(habit_id)]
+
+    def latest_relapse(self, habit_id) -> Optional[dict]:
+        rows = self._space.records(RELAPSES, where={"habit": habit_id}, limit=1)
+        return self._relapse(rows[0]) if rows else None
+
+    def put_relapse(self, habit_id, at=None, uid=None, tz=None, note=None, now: Optional[str] = None) -> dict:
+        """One relapse, stored once however often the same `uid` is sent."""
+        from .habits import FUTURE_SLACK, instant
+
+        habit = self.habit(habit_id)
+        if habit is None:
+            raise LookupError(f"no habit {habit_id!r}")
+        moment = parse_instant(now or utc_now())
+        when = instant(at, "a relapse's time") if at else moment
+        if when > moment + FUTURE_SLACK:
+            raise ValueError("a relapse can't be in the future")
+        uid = str(uid or uuid.uuid4())
+        if not _UID.fullmatch(uid):
+            raise ValueError("a relapse's uid is letters, digits and dashes")
+        existing = self._space.records(RELAPSES, where={"uid": uid}, limit=1)
+        if existing:
+            return self._relapse(existing[0])
+        body = {"habit": habit["id"], "uid": uid,
+                "at": when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "tz": str(tz or habit.get("timezone") or "UTC")[:64]}
+        if note:
+            body["note"] = str(note)[:500]
+        self._space.append(RELAPSES, body, ts=when.timestamp(), source="habits")
+        return body
+
+    def delete_relapse(self, uid) -> bool:
+        rows = self._space.records(RELAPSES, where={"uid": str(uid)}, limit=10)
+        return any([self._space.delete_record(r["id"]) for r in rows])
 
     def put_battery(self, date: str, payload: dict) -> None:
         self._space.put(f"{BATTERY_PREFIX}{date}", payload, description=f"Body Battery for {date}.")
