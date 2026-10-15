@@ -57,6 +57,14 @@ enum Prefs {
         set { d.set(newValue.map { [Double($0.x), Double($0.y)] }, forKey: "orb.desktopOrigin") }
     }
 
+    /// Jarvis is the Mac's only Jarvis UI (the tray is retired), so it opens at
+    /// login by default — once; turning it off in Settings sticks.
+    static func openAtLoginByDefault() {
+        guard !d.bool(forKey: "login.defaultApplied") else { return }
+        d.set(true, forKey: "login.defaultApplied")
+        if !launchAtLogin { launchAtLogin = true }
+    }
+
     /// Start Jarvis at login (SMAppService, the system's own list).
     static var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }

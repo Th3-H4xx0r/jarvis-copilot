@@ -19,6 +19,7 @@ struct IslandRootView: View {
     static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40,
                                measured: IslandMeasure? = nil) -> CGFloat {
         if tab == .music { return IslandLayout.musicHeight(topInset: topInset) }
+        if tab == .voice { return IslandLayout.voiceHeight(topInset: topInset) }
         if tab != .agents { return tab.height }
         if let m = measured { return IslandLayout.agentsHeight(topInset: topInset, top: m.top, list: m.list) }
         let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
@@ -76,6 +77,9 @@ struct IslandRootView: View {
                 }
             }
             .frame(width: IslandController.earWidth)
+            .contentShape(Rectangle())
+            .onTapGesture { controller.openVoice() }     // the orb: talk to Jarvis
+            .help("Talk to Jarvis")
             Spacer().frame(width: ui.geometry.width)
             Group {
                 if model.waitingCount > 0 {
@@ -134,6 +138,7 @@ private struct ExpandedIsland: View {
             case .services: ServicesPane(model: model)
             case .music: MusicPane()
             case .mail: MailPane(ui: ui)
+            case .voice: VoicePane(ui: ui, make: controller.voicePanel)
             }
         }
         .padding(.horizontal, 16)
@@ -146,7 +151,7 @@ private struct ExpandedIsland: View {
 
     private var tabs: some View {
         HStack(spacing: 4) {
-            ForEach(IslandTab.allCases) { t in
+            ForEach(IslandTab.tabBar) { t in
                 Button { withAnimation(.easeOut(duration: 0.18)) { ui.tab = t } } label: {
                     HStack(spacing: 5) {
                         Image(systemName: t.icon).font(.system(size: 11, weight: .semibold))
@@ -168,6 +173,13 @@ private struct ExpandedIsland: View {
                 }
                 .buttonStyle(.plain)
             }
+            Button { withAnimation(.easeOut(duration: 0.18)) { ui.tab = ui.tab == .voice ? .agents : .voice } } label: {
+                OrbView(mood: ui.tab == .voice ? .listening : .idle, skin: OrbSkin.current, size: 18)
+                    .padding(4)
+                    .background(Circle().fill(ui.tab == .voice ? JcAccent.color.opacity(0.22) : .white.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+            .help("Talk to Jarvis")
             Button { controller.close() } label: {
                 Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold))
             }

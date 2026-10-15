@@ -27,14 +27,15 @@ final class IslandUI {
 
 /// The island's window: a borderless, non-activating panel over the notch (or a
 /// small bar under the menu bar on screens without one), on every Space and over
-/// full-screen apps. The pointer is polled — 60 Hz while open or close by, 20 Hz
-/// in a band around the panel, 8 Hz otherwise, nothing while the screen sleeps —
+/// full-screen apps. The pointer is polled — 60 Hz close by, 20 Hz while open
+/// or in a band around the panel, once a second otherwise (a mouse-moved
+/// monitor wakes it), nothing while the screen sleeps —
 /// and the panel lets clicks through everywhere but the island itself.
 /// After coucou's IslandWindowController (github.com/Louis-CFM/coucou, MIT).
 @MainActor
 final class IslandController {
     static let earWidth: CGFloat = 40
-    static let panelSize = CGSize(width: 720, height: 520)
+    static let panelSize = CGSize(width: 720, height: 560)   // room for the voice panel under the tabs
 
     let ui = IslandUI()
     private let model: AppModel
@@ -46,9 +47,16 @@ final class IslandController {
     private var screenOff = false
     private var screen: NSScreen?
 
-    private static let fast: TimeInterval = 1.0 / 60
-    private static let near: TimeInterval = 1.0 / 20
-    private static let idle: TimeInterval = 1.0 / 8
+    private static let fast = IslandTick.fast
+    private static let near = IslandTick.near
+    private static let idle = IslandTick.idle
+    private var moveMonitor: Any?
+    private var rightClickMonitor: Any?
+
+    /// The voice panel for the Voice view (JarvisMenu loads it from the dylib).
+    var voicePanel: (() -> NSViewController?)?
+    /// A right-click on the island: the menu (JarvisMenu), at that point.
+    var onMenu: ((NSView, NSPoint) -> Void)?
 
     init(model: AppModel) {
         self.model = model
@@ -56,7 +64,28 @@ final class IslandController {
         relocate()
         observeSystem()
         watchClicksElsewhere()
+        watchPointer()
         start(interval: Self.idle)
+    }
+
+    /// Far from the island the pointer is polled once a second; a move into the
+    /// band around the panel wakes the fast poll at once. Right-clicks on the
+    /// island pop the menu.
+    private func watchPointer() {
+        moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.interval == Self.idle, let panel = self.panel else { return }
+                if panel.frame.insetBy(dx: -120, dy: -120).contains(NSEvent.mouseLocation) { self.tick() }
+            }
+        }
+        rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, event.window === self.panel, let view = self.panel.contentView,
+                      event.type == .rightMouseDown || event.modifierFlags.contains(.control) else { return event }
+                self.onMenu?(view, view.convert(event.locationInWindow, from: nil))
+                return nil
+            }
+        }
     }
 
     /// Clicks in other apps (and on the see-through parts of the panel, which
@@ -103,6 +132,16 @@ final class IslandController {
     func close() {
         machine.close(at: now)
         sync()
+    }
+
+    /// Talk to Jarvis: the island opens on the voice panel, with the keyboard
+    /// (it has a text field).
+    func openVoice() {
+        open(.voice, reason: .typing)
+    }
+
+    func toggleVoice() {
+        if isExpanded && ui.tab == .voice { close() } else { openVoice() }
     }
 
     var isExpanded: Bool { machine.state == .expanded }
@@ -203,7 +242,7 @@ final class IslandController {
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        t.tolerance = interval == Self.idle ? 0.04 : interval == Self.near ? 0.01 : 0.004
+        t.tolerance = interval == Self.idle ? 0.25 : interval == Self.near ? 0.01 : 0.004
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
@@ -248,7 +287,7 @@ final class IslandController {
         sync()
         let nearIsland = rect.offsetBy(dx: pf.minX, dy: pf.minY).insetBy(dx: -200, dy: -160).contains(mouse)
         let inBand = pf.insetBy(dx: -120, dy: -120).contains(mouse)
-        let wanted = machine.state == .expanded || nearIsland ? Self.fast : inBand ? Self.near : Self.idle
+        let wanted = IslandTick.interval(expanded: machine.state == .expanded, nearIsland: nearIsland, inBand: inBand)
         if wanted != interval { start(interval: wanted) }
     }
 

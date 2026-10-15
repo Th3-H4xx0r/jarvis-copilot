@@ -3,7 +3,13 @@ import Foundation
 /// The expanded island's tabs.
 enum IslandTab: String, CaseIterable, Identifiable {
     case agents, chat, services, music, mail
+    /// Talking to Jarvis: the voice panel in the island (the orb in the ear,
+    /// "Hey Jarvis", the tab row's orb). Not one of the tab buttons.
+    case voice
     var id: String { rawValue }
+
+    /// The tab row's buttons.
+    static var tabBar: [IslandTab] { allCases.filter { $0 != .voice } }
 
     var icon: String {
         switch self {
@@ -12,6 +18,7 @@ enum IslandTab: String, CaseIterable, Identifiable {
         case .services: return "gauge.with.needle"
         case .music: return "music.note"
         case .mail: return "envelope"
+        case .voice: return "waveform"
         }
     }
 
@@ -22,6 +29,7 @@ enum IslandTab: String, CaseIterable, Identifiable {
         case .services: return "Services"
         case .music: return "Music"
         case .mail: return "Mail"
+        case .voice: return "Voice"
         }
     }
 
@@ -34,6 +42,7 @@ enum IslandTab: String, CaseIterable, Identifiable {
         case .services: return 440
         case .music: return IslandLayout.musicHeight(topInset: 40)   // sized to its rows
         case .mail: return 430
+        case .voice: return IslandLayout.voiceHeight(topInset: 40)   // the panel under the tab row
         }
     }
 }

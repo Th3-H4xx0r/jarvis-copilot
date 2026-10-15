@@ -240,6 +240,48 @@ private struct PortfolioCard: View {
     }
 }
 
+/// Talking to Jarvis in the notch: the same voice panel the menu-bar popover
+/// used to show (orb, transcript, mute / send), hosted in the island. It holds
+/// the microphone while it's up, so "Hey Jarvis" steps aside, and keeps the
+/// island open while you talk.
+struct VoicePane: View {
+    let ui: IslandUI
+    let make: (() -> NSViewController?)?
+    /// Made once when the view appears (it starts a voice session), not per render.
+    @State private var panel: NSViewController?
+    @State private var tried = false
+
+    var body: some View {
+        Group {
+            if let panel {
+                VoicePanelHost(controller: panel)
+                    .frame(width: 320, height: IslandLayout.voicePanelHeight)
+                    .frame(maxWidth: .infinity)
+            } else if tried {
+                Text("The voice panel isn't available — is jc-client running?")
+                    .font(.system(size: 12)).foregroundStyle(dim)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .onAppear {
+            if panel == nil { panel = make?() }
+            tried = true
+            ui.pinned = true
+            NotificationCenter.default.post(name: .jarvisVoicePanelOpened, object: nil)
+        }
+        .onDisappear {
+            ui.pinned = false
+            NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
+        }
+    }
+}
+
+private struct VoicePanelHost: NSViewControllerRepresentable {
+    let controller: NSViewController
+    func makeNSViewController(context: Context) -> NSViewController { controller }
+    func updateNSViewController(_ vc: NSViewController, context: Context) {}
+}
+
 /// What Apple Music or Spotify is playing, laid out like Apple's Now Playing:
 /// the cover with title and artist (a live waveform and the player's icon on
 /// the right), a thin progress bar between elapsed and remaining time, then

@@ -91,6 +91,15 @@ enum OrbMood: Equatable {
     var pulses: Bool { self == .working || self == .waiting || self == .listening }
 }
 
+/// How often the orb redraws: never while nothing happens (a still frame), a
+/// gentle 12 fps while agents work or wait, full 30 fps for voice and music.
+enum OrbMotion {
+    static func interval(mood: OrbMood, beat: Double) -> TimeInterval? {
+        if beat > 0 || mood == .listening { return 1.0 / 30 }
+        return mood == .idle ? nil : 1.0 / 12
+    }
+}
+
 /// The Jarvis orb: the same liquid-glass shader as the voice panel and the
 /// phone (ios_app/…/Voice/Views/OrbShader.metal, compiled into this app). The
 /// mood shows as a soft ring and pulse around it, never by recolouring the orb;
@@ -106,7 +115,8 @@ struct OrbView: View {
     @State private var phase = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+        let motion = OrbMotion.interval(mood: mood, beat: beat)
+        TimelineView(.animation(minimumInterval: motion ?? 1, paused: motion == nil)) { timeline in
             let t = timeline.date.timeIntervalSince(origin).truncatingRemainder(dividingBy: 38.4)
             let surface = size / 0.53          // the sphere fills 53% of the shader surface
             Rectangle()

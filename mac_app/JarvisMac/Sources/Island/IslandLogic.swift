@@ -172,6 +172,8 @@ enum IslandLayout {
     static let rowHeight: CGFloat = 58
     /// The tab bar's height (IslandViews pins it, so the sums below are exact).
     static let tabsHeight: CGFloat = 26
+    /// The voice panel's own height (its popover was 320 × 438).
+    static let voicePanelHeight: CGFloat = 438
 
     /// The Music tab's rows, each pinned by MusicPane: the cover with title and
     /// artist, the progress bar between its times, the controls.
@@ -198,6 +200,11 @@ enum IslandLayout {
         return ((visible - length) * progress, length)
     }
 
+    /// The Voice view: the tab row, then the voice panel.
+    static func voiceHeight(topInset: CGFloat) -> CGFloat {
+        topInset + tabsHeight + 10 + voicePanelHeight + 14
+    }
+
     /// The open Music tab is as tall as its rows, nothing more.
     static func musicHeight(topInset: CGFloat) -> CGFloat {
         topInset + tabsHeight + 10 + Music.artwork + Music.gap + Music.progress + Music.gap + Music.controls + 14
@@ -213,5 +220,18 @@ enum IslandLayout {
         }
         if flash { h += 50 }
         return min(h, IslandController.panelSize.height)
+    }
+}
+
+/// How often the island polls the pointer: quickly only close to it, a little
+/// while it's open or the pointer is in the band around the panel, and once a
+/// second otherwise (a mouse-moved monitor wakes it as the pointer comes near).
+enum IslandTick {
+    static let fast: TimeInterval = 1.0 / 60
+    static let near: TimeInterval = 1.0 / 20
+    static let idle: TimeInterval = 1.0
+
+    static func interval(expanded: Bool, nearIsland: Bool, inBand: Bool) -> TimeInterval {
+        nearIsland ? fast : (expanded || inBand) ? near : idle
     }
 }

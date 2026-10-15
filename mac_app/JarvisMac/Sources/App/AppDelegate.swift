@@ -1,11 +1,12 @@
 import AppKit
 
-/// Puts the app together: the link to jc-client, the island, the menu-bar item,
-/// the desktop orb and the global shortcuts. Under XCTest it starts nothing.
+/// Puts the app together: the link to jc-client, the island (Jarvis on the Mac
+/// lives only in the notch — its menu pops from a right-click), the desktop orb
+/// and the global shortcuts. Under XCTest it starts nothing.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var island: IslandController?
-    private var menuBar: MenuBarController?
+    private var menu: JarvisMenu?
     private var desktopOrb: DesktopOrbController?
     private let model = AppModel.shared
 
@@ -21,13 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let island = IslandController(model: model)
         self.island = island
-        let menuBar = MenuBarController(model: model, island: island)
-        menuBar.onSettings = { [weak self] in self.map { SettingsWindow.show(model: $0.model) } }
-        menuBar.onDemo = { [weak self] in self.map { DemoEngine.run(model: $0.model, island: island) } }
-        menuBar.onRecap = { [weak self] in self.map { RecapWindow.show(model: $0.model) } }
-        menuBar.onFlow = { FlowWindow.show() }
-        menuBar.onNotes = { FlowWindow.show(.notes) }
-        self.menuBar = menuBar
+        let menu = JarvisMenu(model: model, island: island)
+        menu.onSettings = { [weak self] in self.map { SettingsWindow.show(model: $0.model) } }
+        menu.onDemo = { [weak self] in self.map { DemoEngine.run(model: $0.model, island: island) } }
+        menu.onRecap = { [weak self] in self.map { RecapWindow.show(model: $0.model) } }
+        menu.onFlow = { FlowWindow.show() }
+        menu.onNotes = { FlowWindow.show(.notes) }
+        self.menu = menu
+        island.voicePanel = { [weak menu] in menu?.makeVoicePanel() }
+        island.onMenu = { [weak menu] view, point in menu?.popUp(in: view, at: point) }
+        Prefs.openAtLoginByDefault()
         desktopOrb = DesktopOrbController(model: model, island: island)
 
         model.onMoment = { moment, session in
@@ -51,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerShortcuts()
         MusicController.shared.start()
         WindowContext.startWatching()
-        startVoiceFeatures(island: island, menuBar: menuBar)
+        startVoiceFeatures(island: island)
         model.onIsland = { [weak self] tab, text in
             guard let self else { return }
             if tab == "recap" { RecapWindow.show(model: self.model); return }
@@ -114,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let i = all.firstIndex(of: Prefs.skin) ?? 0
             Prefs.skin = all[(i + 1) % all.count]
             island.attention()
-        case .talk: menuBar?.toggleVoice()
+        case .talk: island.toggleVoice()
         case .recordCall:
             if !NoteTaker.shared.isRecording { FlowWindow.show(.notes) }
             NoteTaker.shared.toggle()
@@ -123,9 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// "Hey Jarvis", Flow dictation and the note-taker. The first two only listen
     /// when turned on in Settings; the note-taker only records on Record.
-    private func startVoiceFeatures(island: IslandController, menuBar: MenuBarController) {
+    private func startVoiceFeatures(island: IslandController) {
         let wake = WakeWord.shared
-        wake.onWake = { [weak menuBar] in menuBar?.showVoice() }
+        wake.onWake = { [weak island] in island?.openVoice() }
         wake.interaction = { [weak self, weak island] in
             let pending = !(self?.model.pending.isEmpty ?? true)
             guard let island, island.isExpanded else { return (pending, false) }

@@ -1,17 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// The Jarvis menu-bar item. Left click: the voice panel (the same SwiftUI
-/// panel the tray used to host, loaded from jc-client's libJarvisVoiceUI.dylib
-/// and pointed at the loopback proxy, so it needs no credentials of its own).
-/// Right click: the menu.
+/// Jarvis's menu — what the menu-bar icon used to show, now popped by a
+/// right-click on the notch (Jarvis on the Mac lives only in the notch). It
+/// also loads the voice panel (from jc-client's libJarvisVoiceUI.dylib,
+/// pointed at the loopback proxy, so it needs no credentials of its own) for
+/// the island's Voice view and the "Voice Orb in a window" window.
 @MainActor
-final class MenuBarController: NSObject, NSPopoverDelegate {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+final class JarvisMenu: NSObject {
     private let model: AppModel
     private let island: IslandController
-    private var popover: NSPopover?
     private var voiceLoaded = false
+    private var voiceWindow: NSWindow?
     var onSettings: (() -> Void)?
     var onDemo: (() -> Void)?
     var onRecap: (() -> Void)?
@@ -22,56 +22,41 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         self.model = model
         self.island = island
         super.init()
-        if let button = item.button {
-            button.image = NSImage(systemSymbolName: "circle.hexagongrid.circle", accessibilityDescription: "Jarvis")
-            button.target = self
-            button.action = #selector(clicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        }
     }
 
-    @objc private func clicked(_ sender: NSStatusBarButton) {
-        if NSApp.currentEvent?.type == .rightMouseUp || NSEvent.modifierFlags.contains(.control) {
-            showMenu()
-        } else {
-            toggleVoice()
-        }
+    /// Pops the menu where you right-clicked.
+    func popUp(in view: NSView, at point: NSPoint) {
+        model.refreshRoster()   // fresh for next time; this menu shows what's cached
+        build().popUp(positioning: nil, at: point, in: view)
     }
 
     // MARK: voice panel
 
-    func toggleVoice() {
-        if let popover, popover.isShown {
-            popover.performClose(nil)
+    /// The voice panel in its own window ("Voice Orb in a window").
+    func showVoiceWindow() {
+        if let voiceWindow, voiceWindow.isVisible {
+            voiceWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate()
             return
         }
-        guard let vc = makeVoicePanel(), let button = item.button else {
-            island.toggle()  // no panel available: the island instead
-            return
+        guard let vc = makeVoicePanel() else { return island.openVoice() }
+        let w = NSWindow(contentViewController: vc)
+        w.title = "Jarvis"
+        w.styleMask = [.titled, .closable, .miniaturizable]
+        w.setContentSize(NSSize(width: 320, height: 438))
+        w.isReleasedWhenClosed = false
+        w.center()
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
+            NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
         }
-        let p = NSPopover()
-        p.behavior = .transient
-        p.contentViewController = vc
-        p.contentSize = NSSize(width: 320, height: 438)
-        p.delegate = self
-        p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover = p
+        voiceWindow = w
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate()
         // The panel holds the microphone while open: "Hey Jarvis" steps aside.
         NotificationCenter.default.post(name: .jarvisVoicePanelOpened, object: nil)
     }
 
-    /// Opens the voice panel (never closes it): what "Hey Jarvis" calls.
-    func showVoice() {
-        if let popover, popover.isShown { return }
-        NSApp.activate()
-        toggleVoice()
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
-    }
-
-    private func makeVoicePanel() -> NSViewController? {
+    func makeVoicePanel() -> NSViewController? {
         guard let origin = model.apiOrigin else { return nil }
         if !voiceLoaded, let path = model.voiceDylib, FileManager.default.fileExists(atPath: path) {
             voiceLoaded = dlopen(path, RTLD_NOW) != nil
@@ -88,10 +73,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     // MARK: menu
 
-    private func showMenu() {
+    func build() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        model.refreshRoster()   // fresh for next time; this menu shows what's cached
         let connection = model.connected ? (model.roster?.statusLine ?? "Connected") : "Jarvis isn't running (jc-client)"
         let status = NSMenuItem(title: "● " + connection, action: nil, keyEquivalent: "")
         status.isEnabled = false
@@ -117,16 +101,14 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             add(menu, "Jarvis settings…", #selector(jarvisSettings))
         }
         add(menu, "Open dashboard", #selector(dashboard))
-        add(menu, "Voice Orb in a window", #selector(voiceWindow))
+        add(menu, "Voice Orb in a window", #selector(openVoiceWindow))
         add(menu, "Re-pair…", #selector(repair))
         add(menu, "View logs", #selector(logs))
         add(menu, "Restart", #selector(restart))
         add(menu, "Demo", #selector(demo))
         menu.addItem(.separator())
         add(menu, "Quit Jarvis", #selector(quit), key: "q")
-        item.menu = menu
-        item.button?.performClick(nil)
-        item.menu = nil
+        return menu
     }
 
     private var statusLine: String {
@@ -142,7 +124,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     @objc private func showIsland() { island.attention() }
-    @objc private func talk() { toggleVoice() }
+    @objc private func talk() { island.openVoice() }
     @objc private func recap() { onRecap?() }
     @objc private func flow() { onFlow?() }
     @objc private func notes() { onNotes?() }
@@ -153,7 +135,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
     @objc private func demo() { onDemo?() }
     @objc private func dashboard() { model.trayAction("dashboard") }
-    @objc private func voiceWindow() { model.trayAction("voice_window") }
+    @objc private func openVoiceWindow() { showVoiceWindow() }
     @objc private func repair() { model.trayAction("repair") }
     @objc private func logs() { model.trayAction("logs") }
     @objc private func restart() { model.trayAction("restart") }
