@@ -69,10 +69,7 @@ enum TerminalTarget {
             """
         }
         guard let script else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSDictionary?
-            NSAppleScript(source: script)?.executeAndReturnError(&error)
-        }
+        Scripts.launch(script)
     }
 
     /// Text placed inside an AppleScript string literal.

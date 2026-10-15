@@ -123,6 +123,15 @@ enum ChatContext {
         let isImage: Bool
         /// The file's text when it is small, readable text; nil otherwise.
         let inlineText: String?
+        var size: Int? = nil
+    }
+
+    static let maxUploadBytes = 50 * 1024 * 1024
+
+    /// Checked from the file's size before a byte of it is read.
+    static func canUpload(size: Int?) -> Bool {
+        guard let size else { return false }
+        return size <= maxUploadBytes
     }
 
     struct Window: Equatable {
@@ -148,7 +157,8 @@ enum ChatContext {
            let data = try? Data(contentsOf: url), !data.contains(0), let s = String(data: data, encoding: .utf8) {
             text = s
         }
-        return Attachment(url: url, name: url.lastPathComponent, isImage: isImage, inlineText: text)
+        return Attachment(url: url, name: url.lastPathComponent, isImage: isImage, inlineText: text,
+                          size: values.fileSize)
     }
 
     static func prompt(_ text: String, attachments: [Attachment], window: Window?) -> String {

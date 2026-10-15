@@ -42,22 +42,31 @@ final class MailController {
         timer = t
     }
 
+    @ObservationIgnored private var refreshing = false
+
     func refresh() {
         mailRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.mail").isEmpty
         guard mailRunning else { inbox = MailInbox(unread: 0, messages: []); return }
-        if let out = run(MailScript.inbox()) { inbox = MailInbox.parse(out) }
+        guard !refreshing else { return }
+        refreshing = true
+        Task { [weak self] in
+            let r = await Scripts.run(MailScript.inbox())
+            guard let self else { return }
+            self.refreshing = false
+            if let out = r.output { self.inbox = MailInbox.parse(out) }
+        }
     }
 
     func markRead(_ m: MailInbox.Message) {
-        _ = run(MailScript.markRead(m.id))
+        Scripts.launch(MailScript.markRead(m.id))
         if let i = inbox.messages.firstIndex(of: m) {
             inbox.messages[i].isRead = true
             inbox.unread = max(0, inbox.unread - 1)
         }
     }
 
-    func reply(_ m: MailInbox.Message) { _ = run(MailScript.reply(m.id)) }
-    func open(_ m: MailInbox.Message) { _ = run(MailScript.open(m.id)) }
+    func reply(_ m: MailInbox.Message) { Scripts.launch(MailScript.reply(m.id)) }
+    func open(_ m: MailInbox.Message) { Scripts.launch(MailScript.open(m.id)) }
 
     func send() {
         let recipients = MailScript.recipients(to)
@@ -67,10 +76,13 @@ final class MailController {
         }
         status = nil
         if via == .appleMail {
-            if run(MailScript.compose(to: recipients, subject: subject, body: body, send: true)) != nil {
-                sent()
-            } else {
-                status = "Mail couldn't send it (\(lastError ?? "no permission?"))."
+            sending = true
+            let script = MailScript.compose(to: recipients, subject: subject, body: body, send: true)
+            Task { [weak self] in
+                let r = await Scripts.run(script)
+                guard let self else { return }
+                self.sending = false
+                if r.ok { self.sent() } else { self.status = "Mail couldn't send it (\(r.error ?? "no permission?"))." }
             }
             return
         }
@@ -101,7 +113,7 @@ final class MailController {
 
     /// Open the draft in Mail instead of sending it.
     func openDraftInMail() {
-        _ = run(MailScript.compose(to: MailScript.recipients(to), subject: subject, body: body, send: false))
+        Scripts.launch(MailScript.compose(to: MailScript.recipients(to), subject: subject, body: body, send: false))
     }
 
     private func sent() {
@@ -109,12 +121,4 @@ final class MailController {
         to = ""; subject = ""; body = ""
     }
 
-    @ObservationIgnored private var lastError: String?
-
-    private func run(_ src: String) -> String? {
-        var err: NSDictionary?
-        let out = NSAppleScript(source: src)?.executeAndReturnError(&err)
-        lastError = err.map { J.s($0[NSAppleScript.errorMessage], "AppleScript error") }
-        return err == nil ? (out?.stringValue ?? "") : nil
-    }
 }

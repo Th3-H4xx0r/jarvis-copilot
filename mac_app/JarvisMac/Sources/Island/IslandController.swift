@@ -67,11 +67,13 @@ final class IslandController {
         sync()
     }
 
-    /// Open on one tab (a shortcut, a dropped file).
-    func open(_ tab: IslandTab) {
+    /// Open on one tab (a shortcut, a dropped file). `typing` (the chat
+    /// shortcuts) also gives the island the keyboard; nothing else does.
+    func open(_ tab: IslandTab, reason: IslandOpenReason = .attention) {
         ui.tab = tab
         machine.attention(at: now)
         sync()
+        if IslandFocus.takesKeyboard(reason) { panel.makeKey() }
     }
 
     func close() {
@@ -93,6 +95,8 @@ final class IslandController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
+        // Key only when you click into a text field (or open the chat by shortcut).
+        panel.becomesKeyOnlyIfNeeded = true
         let root = IslandRootView(model: model, ui: ui, controller: self)
             .environment(\.layoutDirection, .leftToRight)
         let hosting = NSHostingView(rootView: root)
@@ -103,19 +107,20 @@ final class IslandController {
         self.panel = panel
     }
 
-    private func targetScreen() -> NSScreen {
+    /// Nil while displays reconfigure (the screen list can be briefly empty).
+    private func targetScreen() -> NSScreen? {
         let screens = NSScreen.screens
         switch Prefs.display {
         case .notch:
-            return screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? screens[0]
+            return screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? screens.first
         case .menuBar:
-            return screens.first ?? NSScreen.main!
+            return screens.first ?? NSScreen.main
         case .followMouse:
             let mouse = NSEvent.mouseLocation
-            return screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? screens[0]
+            return screens.first { $0.frame.contains(mouse) } ?? NSScreen.main ?? screens.first
         case .display(let uuid):
             return screens.first { Self.uuid(of: $0) == uuid }
-                ?? screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? screens[0]
+                ?? screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? screens.first
         }
     }
 
@@ -127,7 +132,7 @@ final class IslandController {
     }
 
     func relocate() {
-        let s = targetScreen()
+        guard let s = targetScreen() else { return }
         screen = s
         let menuBar = s.frame.maxY - s.visibleFrame.maxY
         ui.geometry = IslandGeometry(screenWidth: s.frame.width, safeAreaTop: s.safeAreaInsets.top,
@@ -222,9 +227,8 @@ final class IslandController {
     private func sync() {
         if ui.state != machine.state {
             withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { ui.state = machine.state }
-            if machine.state == .expanded {
-                panel.makeKey()
-            }
+            // Folded: hand the keyboard back to the app you were in.
+            if machine.state != .expanded, panel.isKeyWindow { panel.resignKey() }
         }
     }
 }

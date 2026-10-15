@@ -273,6 +273,15 @@ final class FlowDictation {
                 if latest { self.pill.rest() }
                 return
             }
+            let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            guard FlowPaste.sameTarget(started: listen.app?.processIdentifier, frontNow: front) else {
+                let board = NSPasteboard.general
+                board.clearContents()
+                board.setString(text, forType: .string)
+                if latest { self.pill.rest() }
+                self.announceMoved()
+                return
+            }
             let result = FlowPaste.insert(text)
             if latest { self.pill.rest() }
             switch result {
@@ -317,6 +326,12 @@ final class FlowDictation {
                                        action: String(localized: "Allow"))) { [weak self] in
             self?.openAccessibilitySettings()
         }
+    }
+
+    private func announceMoved() {
+        pill.announce(FlowAnnouncement(symbol: "doc.on.clipboard.fill",
+                                       text: String(localized: "You switched apps: the words are on the clipboard."),
+                                       action: nil))
     }
 
     private func announceNoField() {

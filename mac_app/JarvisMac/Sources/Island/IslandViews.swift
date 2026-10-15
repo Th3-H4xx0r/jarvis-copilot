@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// "Waiting on you": the amber used across Jarvis.
+let islandAmber = Color(red: 0.98, green: 0.75, blue: 0.14)
+
 /// The island: a black shape hanging from the notch. Compact, it's the notch
 /// with two ears — the orb on the left, what's waiting or working on the right.
 /// Expanded, it shows what waits on you first (approval / question cards you
@@ -178,10 +181,12 @@ private struct ExpandedIsland: View {
                 FlashRow(session: flash)
             }
             if let p = model.pending.first {
+                // Keyed by the request: a card that replaces another starts fresh
+                // (no carried-over deny note) and ignores clicks for a moment.
                 if p.isQuestion {
-                    QuestionCard(pending: p, model: model, ui: ui)
+                    QuestionCard(pending: p, model: model, ui: ui).id(p.fingerprint)
                 } else {
-                    ApprovalCard(pending: p, model: model, ui: ui, extra: model.pending.count - 1)
+                    ApprovalCard(pending: p, model: model, ui: ui, extra: model.pending.count - 1).id(p.fingerprint)
                 }
             }
             ScrollView(.vertical, showsIndicators: false) {
@@ -255,7 +260,7 @@ private func stateColor(_ s: MacState) -> Color {
     switch s {
     case .working, .thinking: return Color(red: 0.2, green: 0.83, blue: 0.6)
     case .approval, .question: return Color(red: 0.98, green: 0.75, blue: 0.14)
-    case .finished: return Color(red: 0.24, green: 0.78, blue: 0.78)
+    case .finished: return JcAccent.color
     case .error: return .red
     case .ratelimit: return .orange
     case .idle: return .gray
@@ -384,13 +389,14 @@ private struct ApprovalCard: View {
 
     @State private var denying = false
     @State private var note = ""
+    @State private var armed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "lock.fill").foregroundStyle(.yellow)
+                Image(systemName: "lock.fill").foregroundStyle(islandAmber)
                 Text("\(pending.project) — \(pending.agent == "claude" ? "Claude" : pending.agent.capitalized) needs approval")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.yellow)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(islandAmber)
                 Spacer()
                 if extra > 0 { Text("+\(extra)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)) }
             }
@@ -413,7 +419,7 @@ private struct ApprovalCard: View {
                         .buttonStyle(IslandButtonStyle(tint: .green)).keyboardShortcut("y", modifiers: [])
                     if pending.canAlways {
                         Button("Always") { model.decide(pending, "always"); Sounds.play(.decided) }
-                            .buttonStyle(IslandButtonStyle(tint: Color(red: 0.24, green: 0.78, blue: 0.78)))
+                            .buttonStyle(IslandButtonStyle(tint: JcAccent.color))
                     }
                     Button("Deny") { denying = true; ui.pinned = true }
                         .buttonStyle(IslandButtonStyle(tint: .red)).keyboardShortcut("n", modifiers: [])
@@ -425,7 +431,12 @@ private struct ApprovalCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(islandAmber.opacity(0.08)))
+        .disabled(!armed)
+        .task {
+            try? await Task.sleep(for: .seconds(ArmGate.delay))
+            armed = true
+        }
         .onDisappear { ui.pinned = false }
     }
 }
@@ -438,13 +449,22 @@ private struct QuestionCard: View {
 
     @State private var picks: [String: Set<String>] = [:]
     @State private var other: [String: String] = [:]
+    @State private var armed = false
+
+    /// Every question has a pick or a typed answer.
+    private var complete: Bool {
+        pending.questions.allSatisfy { q in
+            !(picks[q.question] ?? []).isEmpty
+                || !(other[q.question] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "questionmark.bubble.fill").foregroundStyle(.yellow)
+                Image(systemName: "questionmark.bubble.fill").foregroundStyle(islandAmber)
                 Text("\(pending.project) has a question").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(islandAmber)
                 Spacer()
             }
             ForEach(pending.questions) { q in
@@ -462,12 +482,18 @@ private struct QuestionCard: View {
                     .buttonStyle(IslandButtonStyle(tint: .white.opacity(0.7)))
                 Spacer()
                 Button("Send answer") { send() }
-                    .buttonStyle(IslandButtonStyle(tint: Color(red: 0.24, green: 0.78, blue: 0.78)))
+                    .buttonStyle(IslandButtonStyle(tint: JcAccent.color))
                     .keyboardShortcut(.return, modifiers: [])
+                    .disabled(!complete)
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(islandAmber.opacity(0.08)))
+        .disabled(!armed)
+        .task {
+            try? await Task.sleep(for: .seconds(ArmGate.delay))
+            armed = true
+        }
         .onDisappear { ui.pinned = false }
     }
 
@@ -502,7 +528,7 @@ private struct FlowOptions: View {
                 } label: {
                     Text(label).font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(on ? Color(red: 0.24, green: 0.78, blue: 0.78).opacity(0.35)
+                        .background(Capsule().fill(on ? JcAccent.color.opacity(0.35)
                                                       : Color.white.opacity(0.08)))
                 }
                 .buttonStyle(.plain).foregroundStyle(.white)

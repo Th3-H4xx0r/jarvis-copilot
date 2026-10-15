@@ -122,3 +122,20 @@ struct IslandStateMachine: Equatable {
         }
     }
 }
+
+/// Why the island opened. Only an open for typing (the chat shortcuts) takes the
+/// keyboard: an agent asking for you never steals keys from the app you're in,
+/// where a stray "y" could approve a command.
+enum IslandOpenReason { case attention, activity, toggle, typing }
+
+enum IslandFocus {
+    static func takesKeyboard(_ reason: IslandOpenReason) -> Bool { reason == .typing }
+}
+
+/// A card that just slid into place under the pointer ignores clicks briefly,
+/// so a double click on the one before can't answer it unread.
+struct ArmGate {
+    static let delay: TimeInterval = 0.5
+    let shownAt: Date
+    func isArmed(at now: Date) -> Bool { now.timeIntervalSince(shownAt) >= Self.delay }
+}

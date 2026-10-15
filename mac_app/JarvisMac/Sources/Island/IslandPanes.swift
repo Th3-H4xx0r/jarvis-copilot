@@ -246,6 +246,12 @@ struct MusicPane: View {
     @State private var scrub: Double?
 
     var body: some View {
+        content
+            .onAppear { music.setVisible(true) }
+            .onDisappear { music.setVisible(false) }
+    }
+
+    @ViewBuilder private var content: some View {
         if let now = music.now {
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 HStack(alignment: .top, spacing: 14) {

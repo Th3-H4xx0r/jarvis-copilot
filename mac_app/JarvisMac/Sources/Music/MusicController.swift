@@ -1,9 +1,10 @@
 import AppKit
 import Observation
 
-/// Listens to Apple Music and Spotify on this Mac, keeps `now` current and
-/// sends the controls. Only reads what the players announce; the controls run
-/// AppleScript on a click (macOS asks once per player).
+/// Listens to Apple Music and Spotify on this Mac and keeps `now` current from
+/// what the players announce. AppleScript runs only on a button press or while
+/// the Music tab is open (position, artwork), always off the main thread, so a
+/// track change never triggers an Automation prompt or freezes the island.
 @MainActor
 @Observable
 final class MusicController {
@@ -13,9 +14,20 @@ final class MusicController {
     private(set) var shuffle = false
     private(set) var repeating = false
     var volume: Double = 60 {
-        didSet { if Int(volume) != Int(oldValue) { _ = now.map { run(.volume(Int(volume)), $0.player) } } }
+        didSet {
+            guard Int(volume) != Int(oldValue), let player = now?.player else { return }
+            volumeTask?.cancel()
+            let level = Int(volume)
+            volumeTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))   // one script per drag pause, not per step
+                guard !Task.isCancelled else { return }
+                await self?.run(.volume(level), player)
+            }
+        }
     }
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var visible = false
+    @ObservationIgnored private var volumeTask: Task<Void, Never>?
 
     func start() {
         guard !started else { return }
@@ -30,28 +42,41 @@ final class MusicController {
         }
     }
 
+    /// The Music tab is on screen: fill in position and artwork now.
+    func setVisible(_ on: Bool) {
+        visible = on
+        if on { enrich() }
+    }
+
     private func take(_ player: NowPlaying.Player, _ info: [String: Any]) {
         guard var next = NowPlaying(player: player, info: info, at: Date()) else {
             if now?.player == player { now = nil }
             return
         }
-        if player == .music {
-            // Music's notification carries no position: ask once.
-            if let pos = run(.position, player).flatMap(Double.init) { next.anchor(position: pos, at: Date()) }
-        }
-        if player == .spotify, next.id != now?.id || now?.artworkURL == nil {
-            next.artworkURL = run(.artwork, player).flatMap(URL.init(string:))
-        } else if player == .spotify {
-            next.artworkURL = now?.artworkURL
-        }
+        if player == .spotify, next.id == now?.id { next.artworkURL = now?.artworkURL }
         // A paused player never replaces one that's playing.
         if let current = now, current.player != player, current.isPlaying, !next.isPlaying { return }
         now = next
+        if visible { enrich() }
+    }
+
+    /// Music's notification carries no position, Spotify's no artwork: ask.
+    private func enrich() {
+        guard let current = now else { return }
+        let id = current.id, player = current.player
+        let needsArt = player == .spotify && current.artworkURL == nil
+        Task { [weak self] in
+            let pos = player == .music ? await self?.run(.position, player).flatMap(Double.init) : nil
+            let art = needsArt ? await self?.run(.artwork, player).flatMap(URL.init(string:)) : nil
+            guard let self, self.now?.id == id else { return }
+            if let pos { self.now?.anchor(position: pos, at: Date()) }
+            if let art { self.now?.artworkURL = art }
+        }
     }
 
     func send(_ c: MusicScript.Command) {
         guard let player = now?.player else { return }
-        _ = run(c, player)
+        Task { [weak self] in await self?.run(c, player) }
         if case .seek(let s) = c { now?.anchor(position: s, at: Date()) }
         if c == .playPause { now?.isPlaying.toggle() }
         if case .shuffle(let on) = c { shuffle = on }
@@ -59,12 +84,10 @@ final class MusicController {
     }
 
     @discardableResult
-    private func run(_ c: MusicScript.Command, _ player: NowPlaying.Player) -> String? {
+    private func run(_ c: MusicScript.Command, _ player: NowPlaying.Player) async -> String? {
         let src = MusicScript.command(c, player: player)
         guard !src.isEmpty,
               !NSRunningApplication.runningApplications(withBundleIdentifier: player.bundleID).isEmpty else { return nil }
-        var err: NSDictionary?
-        let out = NSAppleScript(source: src)?.executeAndReturnError(&err)
-        return err == nil ? out?.stringValue : nil
+        return await Scripts.run(src).output
     }
 }

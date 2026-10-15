@@ -43,25 +43,35 @@ final class JcLink: @unchecked Sendable {
         if let reply {
             replies[id] = { answer in DispatchQueue.main.async { MainActor.assumeIsolated { reply(answer) } } }
         }
-        let fd = self.fd
         lock.unlock()
-        guard fd >= 0, let data = try? JSONSerialization.data(withJSONObject: msg) else {
+        guard let data = try? JSONSerialization.data(withJSONObject: msg) else {
             fail(id)
             return
         }
         var line = data
         line.append(0x0A)
-        let ok = line.withUnsafeBytes { raw -> Bool in
-            var sent = 0
-            while sent < raw.count {
-                let n = write(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent)
-                if n <= 0 { return false }
-                sent += n
+        // Off the main thread, and with the lock held so the read loop can't
+        // close (and the system reuse) the descriptor mid-write.
+        writeQueue.async { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            let fd = self.fd
+            let ok = fd >= 0 && line.withUnsafeBytes { raw -> Bool in
+                guard let base = raw.baseAddress else { return false }
+                var sent = 0
+                while sent < raw.count {
+                    let n = write(fd, base.advanced(by: sent), raw.count - sent)
+                    if n <= 0 { return false }
+                    sent += n
+                }
+                return true
             }
-            return true
+            self.lock.unlock()
+            if !ok { self.fail(id) }
         }
-        if !ok { fail(id) }
     }
+
+    private let writeQueue = DispatchQueue(label: "jc-link.write")
 
     private func fail(_ id: Int) {
         lock.lock()
@@ -99,6 +109,11 @@ final class JcLink: @unchecked Sendable {
     private func connectSocket() -> Int32 {
         let s = socket(AF_UNIX, SOCK_STREAM, 0)
         guard s >= 0 else { return -1 }
+        // A write after jc-client closes the socket must fail, not kill the app.
+        var on: Int32 = 1
+        setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let path = Self.socketPath

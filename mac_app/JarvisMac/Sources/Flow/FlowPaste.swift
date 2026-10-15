@@ -29,6 +29,13 @@ enum FlowPaste {
         return mods == [.command, .control] && characters?.lowercased() == "v"
     }
 
+    /// The words go only to the app you dictated for: switch apps while the
+    /// clean-up runs and they wait on the clipboard instead.
+    static func sameTarget(started: pid_t?, frontNow: pid_t?) -> Bool {
+        guard let started else { return true }
+        return started == frontNow
+    }
+
     /// The clipboard goes back only if nobody wrote to it since our paste.
     static func shouldRestore(changeCountAfterPaste: Int, changeCountNow: Int) -> Bool {
         changeCountAfterPaste == changeCountNow

@@ -27,10 +27,11 @@ enum WindowContext {
         }
     }
 
-    static func capture(_ app: NSRunningApplication?) -> ChatContext.Window? {
+    static func capture(_ app: NSRunningApplication?) async -> ChatContext.Window? {
         guard let app, let name = app.localizedName else { return nil }
         var title = ""
         let ax = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 1.0)   // a hung app can't hold the island up
         var win: CFTypeRef?
         if AXUIElementCopyAttributeValue(ax, kAXFocusedWindowAttribute as CFString, &win) == .success, let win,
            CFGetTypeID(win) == AXUIElementGetTypeID() {
@@ -42,9 +43,7 @@ enum WindowContext {
         }
         var url: String?
         if let id = app.bundleIdentifier, let src = browserScripts[id] {
-            var err: NSDictionary?
-            let result = NSAppleScript(source: src)?.executeAndReturnError(&err)
-            if err == nil { url = result?.stringValue }
+            url = await Scripts.run(src).output
         }
         return ChatContext.Window(app: name, title: title, url: url)
     }

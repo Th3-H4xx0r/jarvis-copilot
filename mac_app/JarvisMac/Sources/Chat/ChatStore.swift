@@ -75,7 +75,10 @@ final class MacChatStore {
 
     /// ⌃⌥W: the app and window you were in (and the page, in a browser).
     func captureWindow(from app: NSRunningApplication?) {
-        window = WindowContext.capture(app)
+        Task { [weak self] in
+            let w = await WindowContext.capture(app)
+            self?.window = w
+        }
     }
 
     func clearWindow() { window = nil }
@@ -183,7 +186,13 @@ final class MacChatStore {
     }
 
     private func upload(_ a: ChatContext.Attachment, session: String) async throws -> [String: Any]? {
-        guard let data = try? Data(contentsOf: a.url), data.count <= 50 * 1024 * 1024 else { return nil }
+        guard ChatContext.canUpload(size: a.size) else {
+            lines.insert(Line(role: .tool, text: "\(a.name) is over 50 MB, so it wasn't sent"),
+                         at: max(0, lines.count - 1))
+            return nil
+        }
+        let url = a.url
+        guard let data = try? await Task.detached(operation: { try Data(contentsOf: url) }).value else { return nil }
         let boundary = "jc-\(UUID().uuidString)"
         var body = Data()
         func line(_ s: String) { body.append(Data(s.utf8)) }

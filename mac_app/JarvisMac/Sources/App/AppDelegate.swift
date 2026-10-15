@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onMoment = { moment, session in
             switch moment {
             case .needsYou:
-                island.attention()
+                island.open(.agents)
                 Sounds.play(.needsYou)
             case .finished:
                 island.attention()
@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func perform(_ action: ShortcutAction, island: IslandController) {
         switch action {
         case .toggleIsland: island.toggle()
-        case .openChat: island.open(.chat)
+        case .openChat: island.open(.chat, reason: .typing)
         case .goToAlert: island.open(.agents)
         case .attachWindow:
             // The island never takes focus from the app you're in, so that app is
@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let front = NSWorkspace.shared.frontmostApplication
             let app = front?.bundleIdentifier == Bundle.main.bundleIdentifier ? WindowContext.lastApp : front
             MacChatStore.shared.captureWindow(from: app)
-            island.open(.chat)
+            island.open(.chat, reason: .typing)
         case .jumpToTerminal: TerminalTarget.activate(session: model.selected)
         case .nextSession, .previousSession:
             let keys = model.sessions.map(\.key)
