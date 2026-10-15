@@ -252,17 +252,18 @@ struct VoicePane: View {
     @State private var tried = false
 
     var body: some View {
-        Group {
+        // Always the panel's size, even before the panel exists: an empty view
+        // never appears, and then the panel would never be made.
+        ZStack {
             if let panel {
-                VoicePanelHost(controller: panel)
-                    .frame(width: 320, height: IslandLayout.voicePanelHeight)
-                    .frame(maxWidth: .infinity)
+                VoicePanelHost(controller: panel).frame(width: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else if tried {
                 Text("The voice panel isn't available — is jc-client running?")
                     .font(.system(size: 12)).foregroundStyle(dim)
-                    .frame(maxWidth: .infinity, minHeight: 120)
             }
         }
+        .frame(maxWidth: .infinity, minHeight: IslandLayout.voicePanelHeight, maxHeight: IslandLayout.voicePanelHeight)
         .onAppear {
             if panel == nil { panel = make?() }
             tried = true

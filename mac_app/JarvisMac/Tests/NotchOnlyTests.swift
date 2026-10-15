@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import Jarvis
 
 /// Jarvis on the Mac lives in the notch: voice opens in the island, the old
@@ -46,4 +48,48 @@ final class NotchOnlyTests: XCTestCase {
         XCTAssertEqual(IslandTick.interval(expanded: true, nearIsland: false, inBand: false), 1.0 / 20)
         XCTAssertEqual(IslandTick.interval(expanded: true, nearIsland: true, inBand: true), 1.0 / 60)
     }
+
+    /// The Voice view with the real voice panel (jc-client's dylib), rendered
+    /// offscreen. Runs only with JC_VOICE_DYLIB=<path> (and JC_ISLAND_SNAPSHOT
+    /// to write the PNG); the voice panel needs jc-client's loopback origin.
+    @MainActor
+    func testTheVoiceViewHostsTheVoicePanel() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let dylib = env["JC_VOICE_DYLIB"], let api = env["JC_API_ORIGIN"] else {
+            throw XCTSkip("set JC_VOICE_DYLIB and JC_API_ORIGIN to render the voice panel")
+        }
+        let model = AppModel()
+        model.handle(["type": "hello", "api": api, "voice_dylib": dylib])
+        let controller = IslandController(model: model)
+        let menu = JarvisMenu(model: model, island: controller)
+        XCTAssertNotNil(menu.makeVoicePanel(), "the dylib gives a voice panel")
+        controller.voicePanel = { menu.makeVoicePanel() }
+        let ui = IslandUI()
+        ui.state = .expanded
+        ui.tab = .voice
+        let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: controller)
+            .transaction { $0.disablesAnimations = true })
+        host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
+        // A real window, so the views appear as they do in the app — on screen but
+        // below the desktop picture, so nobody sees it.
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: IslandController.panelSize),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+        window.contentView = host
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(ui.pinned, "the island stays open while you talk")
+        // The window server's own picture of the window (materials and all, which
+        // a view snapshot can't draw): say which window, hold it for a capture.
+        if let out = env["JC_ISLAND_SNAPSHOT"] {
+            try "\(window.windowNumber)".write(toFile: out + "-voice.winid", atomically: true, encoding: .utf8)
+            RunLoop.main.run(until: Date().addingTimeInterval(6))
+        }
+    }
 }
+
