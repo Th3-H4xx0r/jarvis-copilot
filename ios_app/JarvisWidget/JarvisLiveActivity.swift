@@ -215,6 +215,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         JarvisWidget()
         // Dynamic Island / Lock Screen Live Activity.
         JarvisLiveActivity()
+        // One per coding agent with live sessions, wearing that agent's logo.
+        AgentLiveActivity()
         JarvisStopwatchActivity()
         RingWorkoutActivity()
         // Live Jarvis recording the room.

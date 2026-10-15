@@ -302,6 +302,13 @@ function _codingRenderUsage(usage) {
   el.style.display = '';
 }
 
+// The agents that get their own Live Activity (agent/agent_la_push.py AGENTS).
+const _CM_LIVE_AGENTS = [
+  ['claude', 'Claude'], ['codex', 'Codex'], ['gemini', 'Gemini'], ['copilot', 'Copilot'],
+  ['cursor', 'Cursor'], ['opencode', 'OpenCode'], ['amp', 'Amp'],
+  ['antigravity', 'Antigravity'], ['muse', 'Muse'], ['jarvis', 'Jarvis'],
+];
+
 // Code Master settings panel: per-event × per-channel notification matrix +
 // the usage-display toggle. Rendered in the detail pane.
 async function codingCodeMasterSettings() {
@@ -346,6 +353,18 @@ async function codingCodeMasterSettings() {
       ${channels.map(([ch]) => cell(ekey, ch)).join('')}
     </tr>`).join('');
   const head = channels.map(([, lbl]) => `<th style="padding:6px 10px;font-weight:500;opacity:.7">${lbl}</th>`).join('');
+  // Per-agent Live Activities on the iPhone (the same agent_live document the
+  // phone's Code Master settings and Dynamic Island tab edit).
+  const live = settings.agent_live || {};
+  const liveAgents = live.agents || {};
+  const agentRows = _CM_LIVE_AGENTS.map(([key, label]) => `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;min-width:150px">
+      <input type="checkbox" data-live-agent="${key}" ${liveAgents[key] === false ? '' : 'checked'}>
+      ${label}
+    </label>`).join('');
+  const idleNow = [10, 30, 60].includes(live.idle_minutes) ? live.idle_minutes : 30;
+  const idleOptions = [10, 30, 60].map(m =>
+    `<option value="${m}" ${m === idleNow ? 'selected' : ''}>${m} min</option>`).join('');
   detail.innerHTML = `
     <div class="cm-detail-body">
       <div class="cm-detail-name">Code Master settings</div>
@@ -380,6 +399,23 @@ async function codingCodeMasterSettings() {
         </label>
         <p style="opacity:.6;font-size:12px;margin:.3em 0 0">A session in tmux gets it typed in. Any other session on your Mac continues in the background with claude --resume, in its own folder.</p>
       </div>
+      <div class="cm-section">
+        <div class="cm-section-head"><span class="cm-section-title">Live Activities on the iPhone</span></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cmLiveEnabled" ${live.enabled === false ? '' : 'checked'}>
+          A Live Activity for each coding agent, with its logo
+        </label>
+        <p style="opacity:.6;font-size:12px;margin:.3em 0 .6em">The session that needs you first, how many others are running, and it starts on its own even while the app is closed.</p>
+        <div id="cmLiveAgents" style="display:flex;flex-wrap:wrap;gap:6px 18px;margin:.2em 0 .7em">${agentRows}</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          End after idle for
+          <select id="cmLiveIdle">${idleOptions}</select>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:.5em">
+          <input type="checkbox" id="cmLiveActions" ${live.actions === false ? '' : 'checked'}>
+          Show Allow / Deny on the Lock Screen
+        </label>
+      </div>
       <div class="cdg-form-actions">
         <button type="button" class="cdg-btn-primary" id="cmSaveBtn" onclick="codingSaveCodeMaster()">Save settings</button>
       </div>
@@ -401,6 +437,20 @@ async function codingSaveCodeMaster() {
   const payload = { events, usage_display: usageEl ? usageEl.checked : true,
                     remote_approvals: remoteEl ? remoteEl.checked : false };
   if (instrEl) payload.remote_instructions = instrEl.checked;
+  const liveEl = document.getElementById('cmLiveEnabled');
+  if (liveEl) {
+    const agents = {};
+    document.querySelectorAll('#cmLiveAgents input[data-live-agent]').forEach(cb => {
+      agents[cb.getAttribute('data-live-agent')] = cb.checked;
+    });
+    const idleEl = document.getElementById('cmLiveIdle');
+    const actionsEl = document.getElementById('cmLiveActions');
+    payload.agent_live = {
+      enabled: liveEl.checked, agents,
+      idle_minutes: idleEl ? parseInt(idleEl.value, 10) || 30 : 30,
+      actions: actionsEl ? actionsEl.checked : true,
+    };
+  }
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
     const res = await api('/api/coding/settings', { method: 'POST', body: JSON.stringify(payload) });

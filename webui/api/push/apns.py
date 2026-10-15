@@ -310,11 +310,17 @@ def _apns_la_headers(cfg: dict, jwt: str, *, priority: int) -> dict:
 def build_la_aps(content_state: dict, *, event: str = "update",
                  stale_after: Optional[int] = None,
                  dismissal_after: Optional[int] = None,
-                 now: Optional[int] = None) -> dict:
-    """The ``aps`` dict for a Live Activity update/end push."""
+                 now: Optional[int] = None,
+                 extra: Optional[dict] = None) -> dict:
+    """The ``aps`` dict for a Live Activity start/update/end push.
+
+    ``extra`` adds event-specific keys — a push-to-start's ``attributes-type``,
+    ``attributes`` and ``alert``, or ``input-push-token`` — but never overrides
+    the timestamp, event or content-state set here."""
     ts = int(time.time()) if now is None else int(now)
-    aps: dict = {"timestamp": ts, "event": event,
-                 "content-state": content_state or {}}
+    aps: dict = dict(extra or {})
+    aps.update({"timestamp": ts, "event": event,
+                "content-state": content_state or {}})
     if stale_after is not None:
         aps["stale-date"] = ts + int(stale_after)
     if event == "end" and dismissal_after is not None:
@@ -325,8 +331,11 @@ def build_la_aps(content_state: dict, *, event: str = "update",
 def send_live_activity(push_token: str, content_state: dict, *,
                        event: str = "update", timeout: float = 10.0,
                        priority: int = 10,
-                       stale_after: Optional[int] = 3600) -> dict:
-    """Push a Live Activity content-state update (or ``event="end"``) via APNs."""
+                       stale_after: Optional[int] = 3600,
+                       dismissal_after: Optional[int] = None,
+                       extra: Optional[dict] = None) -> dict:
+    """Push a Live Activity content-state update (or ``event="end"`` /
+    ``event="start"`` — a push-to-start token plus ``extra``) via APNs."""
     if not _KEY_FILE.exists():
         return {"ok": False, "error": "APNs auth key not configured"}
     cfg = _load_config()
@@ -341,7 +350,8 @@ def send_live_activity(push_token: str, content_state: dict, *,
         return {"ok": False, "error": f"APNs JWT: {exc}"}
 
     body = {"aps": build_la_aps(content_state, event=event,
-                                stale_after=stale_after)}
+                                stale_after=stale_after,
+                                dismissal_after=dismissal_after, extra=extra)}
     use_sandbox = bool(cfg.get("use_sandbox"))
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"

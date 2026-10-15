@@ -38,6 +38,9 @@ final class LiveActivityCoordinator {
     private let now: @MainActor () -> Date
     private let sleeper: @Sendable (TimeInterval) async throws -> Void
     private var controller: any ActivityControlling
+    /// One Live Activity per coding agent (`LiveActivityAgents.swift`). While
+    /// they're on, the Jarvis activity here no longer carries the coding fleet.
+    let agents: AgentActivityManager
 
     // MARK: State
 
@@ -69,7 +72,8 @@ final class LiveActivityCoordinator {
          preferences: KeyValueStore = UserDefaults.standard,
          isPaired: (@MainActor () -> Bool)? = nil,
          now: (@MainActor () -> Date)? = nil,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil,
+         agents: AgentActivityManager? = nil) {
         self.coding = coding
         self.islandAPI = islandAPI
         self.islandSync = IslandSync(cache: islandCache ?? AppGroupIslandDesignCache())
@@ -77,7 +81,10 @@ final class LiveActivityCoordinator {
         self.plan = plan ?? IslandPlanNotifier()
         self.lifecycle = lifecycle
         self.preferences = preferences
-        self.isPaired = isPaired ?? { BridgeClient.shared.isPaired }
+        let paired = isPaired ?? { BridgeClient.shared.isPaired }
+        self.isPaired = paired
+        self.agents = agents ?? AgentActivityManager(api: AgentLiveAPI(api: coding.api),
+                                                     isPaired: paired)
         self.now = now ?? { Date() }
         self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
         // `credentials.dart` read this as `!= '0'` — on unless explicitly off.
@@ -85,6 +92,8 @@ final class LiveActivityCoordinator {
         self.controller.onPushToken = { [weak self] token in
             Task { @MainActor in self?.registerPushToken(token) }
         }
+        // Off on this phone: no agent activities either (and any left over end).
+        if !enabled { self.agents.setEnabled(false) }
     }
 
     deinit { pollHandle.cancel() }
@@ -95,7 +104,11 @@ final class LiveActivityCoordinator {
     /// Activities switched off.
     func start() {
         enabled = preferences.bool(SettingsStore.Keys.liveActivities) ?? true
+        agents.setEnabled(enabled)
         guard enabled else { return }
+        // Watch the agents' activities first: on a background launch for a
+        // push-started one, handing its token to the server is the whole job.
+        agents.start()
         startPoll()
         Task { await refreshCoding() }
     }
@@ -105,6 +118,7 @@ final class LiveActivityCoordinator {
     /// feature off is the one outcome that is never acceptable.
     func setEnabled(_ on: Bool) {
         enabled = on
+        agents.setEnabled(on)
         if on {
             startPoll()
             Task { await refreshCoding() }
@@ -123,6 +137,19 @@ final class LiveActivityCoordinator {
     }
 
     func setCodingVisible(_ visible: Bool) { codingVisible = visible }
+
+    /// The agents' Live Activity settings were saved (Code Master settings or
+    /// the Dynamic Island tab): apply them now instead of on the next poll.
+    func refreshAgentsNow() async {
+        guard enabled else { return }
+        await agents.refresh()
+        push()
+    }
+
+    /// What the settings screens call after a save.
+    static let agentSettingsChanged: @MainActor () -> Void = {
+        Task { @MainActor in await LiveActivityCoordinator.shared.refreshAgentsNow() }
+    }
 
     /// `VoiceStore` reports here (through `VoiceLiveActivityThrottle.onPush`)
     /// rather than pushing ActivityKit itself.
@@ -154,7 +181,7 @@ final class LiveActivityCoordinator {
         await refreshIslandIfDue()
         let want = LivePollPolicy.pollInterval(voiceActive: voice.state != "idle" && voice.state != "error",
                                                codingVisible: codingVisible,
-                                               sessionTotal: fleet.sessionTotal)
+                                               sessionTotal: max(fleet.sessionTotal, agents.liveCount))
         guard now().timeIntervalSince(lastFetch) >= want else { return }
         await refreshCoding()
     }
@@ -165,6 +192,12 @@ final class LiveActivityCoordinator {
         // Stamped BEFORE the awaits so the manual refreshes in start()/onResume()
         // also advance the cadence gate — otherwise the next tick double-fetches.
         lastFetch = now()
+        // The agents' own activities, on the same cadence. Whether they're on
+        // decides if the Jarvis activity still carries coding, so a flip re-pushes
+        // it even if the fleet fetch below fails.
+        let owned = agents.ownsCoding
+        await agents.refresh()
+        if agents.ownsCoding != owned { push() }
         do {
             let view = try await coding.listProjectsExpanded()
             if LivePollPolicy.shouldFetchUsage(now: now(), lastUsageFetch: lastUsageFetch) {
@@ -236,7 +269,10 @@ final class LiveActivityCoordinator {
     /// coordinator's snapshots, so the mode-selection rules can be asserted.
     func compose() -> LiveActivityState {
         let voiceActive = voice.state != "idle"
-        let codingLive = fleet.sessionTotal > 0
+        // With per-agent activities on, each agent shows its own sessions; the
+        // fleet on this activity would be the same thing twice.
+        let agentsOwnCoding = agents.ownsCoding
+        let codingLive = fleet.sessionTotal > 0 && !agentsOwnCoding
 
         var state = LiveActivityState()
         state.state = voice.state
@@ -276,7 +312,7 @@ final class LiveActivityCoordinator {
                     design.timeline, Int(now().timeIntervalSince1970))
                 let merged = keyframe.isEmpty ? base : base.merging(keyframe) { _, new in new }
                 state.data = MoreJSON.canonicalJSON(merged)
-            } else if active.kind == "coding" {
+            } else if active.kind == "coding" && !agentsOwnCoding {
                 state.mode = "coding"
                 showCoding = true
             } else {

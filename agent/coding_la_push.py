@@ -256,6 +256,14 @@ def _resting_content_state():
     }
 
 
+def _agent_activities_on(store) -> bool:
+    try:
+        from agent.agent_la_push import agent_activities_on
+        return agent_activities_on(store)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 _RESTING_SIG = hashlib.sha1(
     json.dumps(_resting_content_state(), sort_keys=True).encode()).hexdigest()
 
@@ -279,6 +287,11 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
         except Exception:
             pass
     cs = build_coding_content_state(store, usage)
+    if cs is not None and _agent_activities_on(store):
+        # Each agent has its own activity now (agent/agent_la_push.py): the
+        # shared Jarvis activity stays the voice / custom island. Treated like an
+        # empty fleet, so a fleet it already shows is cleared once (the edge below).
+        cs = None
     if cs is None:
         # No live coding sessions. Only emit a resting/clear push if we PREVIOUSLY
         # pushed live coding content — that live->empty edge is when a suspended

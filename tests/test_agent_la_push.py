@@ -1,0 +1,447 @@
+"""Per-agent Live Activities (agent/agent_la_push.py): grouping, the lead, the
+idle-end rule, the content-state budget, the settings merge, and the push flow
+(push-to-start, push-to-update, push-to-end) against a fake APNs sender."""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from agent import agent_la_push as m
+
+
+# ── fixtures ───────────────────────────────────────────────────────────────
+
+def tracked(key, agent="claude", state="working", last=1000.0, project="app", step="Bash: ls",
+            pending=None, started=900.0, csid=None):
+    return {"key": key, "agent": agent, "state": state, "last_event_at": last,
+            "project": project, "step": step, "pending": pending, "started_at": started,
+            "turn_summary": {"started_at": started}, "coding_session_id": csid}
+
+
+def row(rid, status="running", activity="working", cwd="/x/repo", last=1000.0, project_id=None,
+        source="chat"):
+    return {"id": rid, "status": status, "activity_state": activity, "cwd": cwd,
+            "last_activity_at": last, "project_id": project_id, "source": source}
+
+
+class Clock:
+    def __init__(self, t=10_000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+class FakeStore:
+    def __init__(self, rows=(), projects=()):
+        self.rows = list(rows)
+        self.projects = list(projects)
+        self.settings = {}
+
+    def list_sessions(self):
+        return [dict(r) for r in self.rows]
+
+    def list_projects(self):
+        return [dict(p) for p in self.projects]
+
+    def get_setting(self, key, default=None):
+        return json.loads(json.dumps(self.settings[key])) if key in self.settings else default
+
+    def set_setting(self, key, value):
+        self.settings[key] = json.loads(json.dumps(value))
+
+
+class Sender:
+    def __init__(self, status=200):
+        self.calls = []
+        self.status = status
+
+    def __call__(self, token, cs, *, event="update", priority=10, extra=None,
+                 dismissal_after=None, stale_after=3600):
+        self.calls.append({"token": token, "cs": cs, "event": event, "priority": priority,
+                           "extra": extra, "dismissal_after": dismissal_after})
+        if self.status == 200:
+            return {"ok": True}
+        return {"ok": False, "status": self.status, "error": "nope"}
+
+    def events(self):
+        return [(c["event"], c["token"]) for c in self.calls]
+
+
+def pusher(sessions=(), rows=(), settings=None, pending=(), clock=None, sender=None, store=None):
+    clock = clock or Clock()
+    st = store or FakeStore(rows=rows)
+    box = {"sessions": list(sessions), "settings": settings, "pending": set(pending)}
+    p = m.AgentLaPusher(st, tracked=lambda: box["sessions"], settings=lambda: box["settings"],
+                        pending=lambda: box["pending"], sender=sender or Sender(),
+                        clock=clock, mono=clock)
+    return p, box, clock, st
+
+
+# ── agent groups + logo-free naming ─────────────────────────────────────────
+
+def test_claude_code_and_claude_desktop_share_one_group():
+    assert m.group_of("claude") == "claude"
+    assert m.group_of("claude-desktop") == "claude"
+    assert m.group_of("codex") == "codex"
+    assert m.group_of("something-new") is None
+
+
+def test_every_group_has_a_display_name():
+    for g in m.AGENTS:
+        assert m.group_title(g)
+    assert m.display_name("claude-desktop") == "Claude Desktop"
+    assert m.display_name("claude") == "Claude Code"
+
+
+# ── collecting + grouping ──────────────────────────────────────────────────
+
+def test_hook_sessions_group_by_agent_type():
+    groups = m.group_sessions(m.collect_sessions(
+        [tracked("a", "claude"), tracked("b", "claude-desktop"), tracked("c", "codex")], [], {}))
+    assert sorted(groups) == ["claude", "codex"]
+    assert {s["key"] for s in groups["claude"]} == {"a", "b"}
+
+
+def test_a_live_coding_row_without_hooks_counts_as_a_claude_session():
+    sessions = m.collect_sessions([], [row("r1", activity="waiting", cwd="/x/jarvis")], {})
+    assert len(sessions) == 1
+    s = sessions[0]
+    assert s["agent"] == "claude" and s["state"] == "approval" and s["project"] == "jarvis"
+    assert s["fingerprint"] == ""     # nothing holds a scraped prompt: no buttons
+
+
+def test_a_row_already_owned_by_a_hook_session_is_not_counted_twice():
+    sessions = m.collect_sessions([tracked("a", csid="r1")], [row("r1"), row("r2")], {})
+    assert sorted(s["key"] for s in sessions) == ["a", "row:r2"]
+
+
+def test_dead_and_transcript_rows_are_left_out():
+    sessions = m.collect_sessions([], [row("r1", status="stopped"),
+                                       row("r2", status="idle", source="discovered-transcript")], {})
+    assert sessions == []
+
+
+def test_a_row_in_a_project_is_labelled_by_the_project():
+    sessions = m.collect_sessions([], [row("r1", project_id="p1")], {"p1": {"name": "IntelliStock"}})
+    assert sessions[0]["project"] == "IntelliStock"
+
+
+# ── the lead ───────────────────────────────────────────────────────────────
+
+def test_the_session_that_needs_you_first_leads():
+    sessions = m.collect_sessions([
+        tracked("busy", state="working", last=5000),
+        tracked("asked-later", state="approval", last=4000,
+                pending={"kind": "approval", "fingerprint": "f2"}),
+        tracked("asked-first", state="question", last=3000,
+                pending={"kind": "question", "fingerprint": "f1"}),
+    ], [], {})
+    assert m.lead_of(sessions)["key"] == "asked-first"
+
+
+def test_without_a_waiting_session_the_most_recently_active_leads():
+    sessions = m.collect_sessions([tracked("old", state="working", last=100),
+                                   tracked("new", state="idle", last=900)], [], {})
+    assert m.lead_of(sessions)["key"] == "new"
+
+
+def test_no_sessions_no_lead():
+    assert m.lead_of([]) is None
+
+
+# ── idle-end rule ──────────────────────────────────────────────────────────
+
+def test_an_active_session_is_always_wanted():
+    s = m.collect_sessions([tracked("a", state="working", last=0)], [], {})
+    assert m.wanted(s, now=10**9, idle_minutes=10)
+
+
+def test_idle_sessions_are_wanted_until_the_idle_window_passes():
+    s = m.collect_sessions([tracked("a", state="idle", last=1000)], [], {})
+    assert m.wanted(s, now=1000 + 29 * 60, idle_minutes=30)
+    assert not m.wanted(s, now=1000 + 30 * 60, idle_minutes=30)
+    assert not m.wanted(s, now=1000 + 11 * 60, idle_minutes=10)
+
+
+def test_an_errored_or_rate_limited_session_does_not_hold_the_activity_forever():
+    for state in ("error", "ratelimit", "finished"):
+        s = m.collect_sessions([tracked("a", state=state, last=0)], [], {})
+        assert not m.wanted(s, now=31 * 60, idle_minutes=30), state
+
+
+def test_no_sessions_is_never_wanted():
+    assert not m.wanted([], now=0, idle_minutes=30)
+
+
+# ── the content state ───────────────────────────────────────────────────────
+
+def test_content_state_summarises_the_group():
+    sessions = m.collect_sessions([
+        tracked("a", state="approval", last=300, project="api",
+                pending={"kind": "approval", "fingerprint": "fp"}, step="Needs approval: Bash: rm x"),
+        tracked("b", state="working", last=500),
+        tracked("c", agent="claude-desktop", state="idle", last=100),
+    ], [], {})
+    cs = m.content_state(sessions, actions=True, decidable={"fp"})
+    assert cs["count"] == 3 and cs["waiting"] == 1 and cs["working"] == 1
+    assert cs["name"] == "Claude Code" and cs["project"] == "api"
+    assert cs["state"] == "approval" and cs["kind"] == "approval"
+    assert cs["fingerprint"] == "fp" and cs["actions"] is True
+    assert cs["bar"] == "p,w,i"
+    assert cs["last"] == 500
+
+
+def test_a_request_nothing_holds_gets_no_buttons():
+    sessions = m.collect_sessions([tracked("a", state="approval",
+                                           pending={"kind": "approval", "fingerprint": "fp"})], [], {})
+    cs = m.content_state(sessions, actions=True, decidable=set())
+    assert cs["fingerprint"] == "" and cs["kind"] == "approval"
+
+
+def test_every_content_state_key_is_always_present():
+    cs = m.content_state(m.collect_sessions([tracked("a")], [], {}), actions=False, decidable=set())
+    assert set(cs) == set(m.CONTENT_KEYS)
+
+
+def test_content_state_stays_far_under_the_4kb_budget():
+    huge = "x" * 5000
+    sessions = m.collect_sessions(
+        [tracked("k" * 400, state="approval", project=huge, step=huge,
+                 pending={"kind": "approval", "fingerprint": "f" * 400})
+         for _ in range(50)], [], {})
+    cs = m.content_state(sessions, actions=True, decidable={"f" * 400})
+    size = len(json.dumps({"aps": {"content-state": cs, "timestamp": 1, "event": "update"}}))
+    assert size < 1024, size
+    assert len(cs["bar"].split(",")) <= m.MAX_BAR
+
+
+# ── settings ───────────────────────────────────────────────────────────────
+
+def test_settings_default_to_on_for_every_agent():
+    s = m.merge_settings(None)
+    assert s["enabled"] is True and s["actions"] is True and s["idle_minutes"] == 30
+    assert set(s["agents"]) == set(m.AGENTS) and all(s["agents"].values())
+
+
+def test_settings_keep_only_real_bools_and_allowed_idle_choices():
+    s = m.merge_settings({"enabled": "no", "idle_minutes": 45, "actions": 0,
+                          "agents": {"codex": False, "bogus": False, "gemini": "off"}})
+    assert s["enabled"] is True and s["idle_minutes"] == 30 and s["actions"] is True
+    assert s["agents"]["codex"] is False and s["agents"]["gemini"] is True
+    assert "bogus" not in s["agents"]
+
+
+def test_a_partial_save_keeps_the_rest():
+    base = m.merge_settings({"idle_minutes": 60, "agents": {"codex": False}})
+    s = m.merge_settings({"enabled": False}, base=base)
+    assert s["enabled"] is False and s["idle_minutes"] == 60 and s["agents"]["codex"] is False
+    s = m.merge_settings({"agents": {"gemini": False}}, base=s)
+    assert s["agents"]["codex"] is False and s["agents"]["gemini"] is False
+
+
+def test_desired_states_follow_the_settings():
+    sessions = [tracked("a", "claude"), tracked("b", "codex")]
+    want = m.desired_states(sessions, [], {}, m.merge_settings({"agents": {"codex": False}}),
+                            now=1000, decidable=set())
+    assert list(want) == ["claude"]
+    assert m.desired_states(sessions, [], {}, m.merge_settings({"enabled": False}),
+                            now=1000, decidable=set()) == {}
+
+
+def test_actions_off_hides_the_buttons_everywhere():
+    sessions = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
+    want = m.desired_states(sessions, [], {}, m.merge_settings({"actions": False}),
+                            now=1000, decidable={"fp"})
+    assert want["claude"]["actions"] is False
+
+
+# ── the push flow ──────────────────────────────────────────────────────────
+
+def test_a_new_agent_session_push_starts_an_activity_on_the_phone():
+    sender = Sender()
+    p, _, _, _ = pusher([tracked("a", "codex")], sender=sender)
+    p.register_start_token("phone", "START")
+    sender.calls.clear()
+    assert p.tick() == 1
+    call = sender.calls[-1]
+    assert call["event"] == "start" and call["token"] == "START"
+    assert call["extra"]["attributes-type"] == "AgentActivityAttributes"
+    assert call["extra"]["attributes"] == {"agent": "codex"}
+    assert call["extra"]["alert"]["title"]
+    assert set(call["cs"]) == set(m.CONTENT_KEYS)
+
+
+def test_push_to_start_is_sent_once_per_episode():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.tick()
+    clock.t += 60
+    p.tick()
+    assert [e for e, _ in sender.events()].count("start") == 1
+
+
+def test_once_the_activity_reports_its_token_updates_go_to_it():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.tick()
+    p.register_activity_token("phone", "claude", "ACT1")
+    assert sender.events()[-1] == ("update", "ACT1")      # current state, right away
+    box["sessions"] = [tracked("a", state="idle", last=clock.t)]
+    clock.t += 20
+    p.tick()
+    assert sender.events()[-1] == ("update", "ACT1")
+    assert sender.calls[-1]["cs"]["state"] == "idle"
+
+
+def test_an_unchanged_state_is_not_pushed_again():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", step="Bash: ls")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    n = len(sender.calls)
+    box["sessions"] = [tracked("a", step="Read: x.py")]   # only the step moved
+    clock.t += 30
+    p.tick()
+    assert len(sender.calls) == n
+
+
+def test_flapping_is_rate_limited_but_a_new_approval_goes_out_at_once():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender,
+                              pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    n = len(sender.calls)
+    box["sessions"] = [tracked("a", state="idle", last=clock.t)]
+    clock.t += 2
+    p.tick()
+    assert len(sender.calls) == n                       # inside the window
+    box["sessions"] = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
+    clock.t += 1
+    p.tick()
+    assert len(sender.calls) == n + 1
+    assert sender.calls[-1]["cs"]["fingerprint"] == "fp"
+    assert sender.calls[-1]["priority"] == 10
+
+
+def test_an_idle_group_ends_its_activity_after_the_window():
+    sender = Sender()
+    p, box, clock, store = pusher([tracked("a", state="idle", last=10_000)], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    clock.t = 10_000 + 31 * 60
+    p.tick()
+    assert sender.events()[-1] == ("end", "ACT1")
+    assert sender.calls[-1]["dismissal_after"] == 0
+    clock.t += 60
+    p.tick()
+    assert [e for e, _ in sender.events()].count("end") == 1   # the token was dropped
+
+
+def test_all_sessions_ending_ends_the_activity():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = []
+    p.tick()
+    assert sender.events()[-1] == ("end", "ACT1")
+
+
+def test_a_dismissed_activity_is_not_restarted_in_the_same_episode():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.register_activity_token("phone", "claude", "ACT1")
+    p.activity_ended("phone", "claude", "ACT1", dismissed=True)
+    sender.calls.clear()
+    clock.t += 30
+    p.tick()
+    assert sender.calls == []
+    # The episode ends, a new one starts: the activity comes back.
+    box["sessions"] = []
+    p.tick()
+    box["sessions"] = [tracked("b", last=clock.t)]
+    p.tick()
+    assert sender.events()[-1] == ("start", "START")
+
+
+def test_turning_the_feature_off_ends_every_activity():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a"), tracked("b", "codex")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    p.register_activity_token("phone", "codex", "ACT2")
+    box["settings"] = {"enabled": False}
+    p.tick()
+    ends = {t for e, t in sender.events() if e == "end"}
+    assert ends == {"ACT1", "ACT2"}
+
+
+def test_a_dead_activity_token_is_dropped_and_not_retried():
+    sender = Sender(status=410)
+    p, box, clock, store = pusher([tracked("a")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = [tracked("a", state="idle", last=clock.t)]
+    clock.t += 60
+    p.tick()
+    n = len(sender.calls)
+    clock.t += 60
+    p.tick()
+    assert len(sender.calls) == n
+    assert "claude" not in (store.get_setting(m.REGISTRY_KEY)["phone"].get("activities") or {})
+
+
+def test_tokens_survive_a_restart():
+    store = FakeStore()
+    p, _, _, _ = pusher([tracked("a", "codex")], store=store)
+    p.register_start_token("phone", "START")
+    p.register_activity_token("phone", "codex", "ACT2")
+    again, _, _, _ = pusher([tracked("a", "codex", state="approval")], store=store)
+    sender = again._sender
+    again.tick()
+    assert ("update", "ACT2") in sender.events()
+
+
+def test_forgetting_a_device_drops_its_tokens():
+    store = FakeStore()
+    p, _, _, _ = pusher(store=store)
+    p.register_start_token("phone", "START")
+    p.forget_device("phone")
+    assert "phone" not in store.get_setting(m.REGISTRY_KEY, {})
+
+
+def test_snapshot_lists_the_wanted_activities_with_their_episode():
+    p, _, _, _ = pusher([tracked("a", "claude"), tracked("b", "gemini")])
+    snap = p.snapshot()
+    assert snap["settings"]["enabled"] is True
+    agents = {a["agent"]: a for a in snap["activities"]}
+    assert set(agents) == {"claude", "gemini"}
+    assert agents["claude"]["episode"] and set(agents["claude"]["state"]) == set(m.CONTENT_KEYS)
+    # The episode id is stable while the group stays wanted.
+    assert p.snapshot()["activities"][0]["episode"] == snap["activities"][0]["episode"]
+
+
+def test_tick_never_raises_when_a_source_fails():
+    def boom():
+        raise RuntimeError("x")
+    p = m.AgentLaPusher(FakeStore(), tracked=boom, settings=lambda: None, sender=Sender())
+    assert p.tick() == 0
+
+
+def test_agent_activities_are_on_unless_turned_off():
+    """While they're on, the Jarvis activity stops carrying the coding fleet."""
+    store = FakeStore()
+    assert m.agent_activities_on(store) is True
+    store.set_setting("notifications", {"agent_live": {"enabled": False}})
+    assert m.agent_activities_on(store) is False
+    assert m.agent_activities_on(object()) is False   # an old store: legacy behaviour
+
+
+def test_pushes_carry_a_relevance_so_waiting_on_you_wins_the_island():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    working = sender.calls[-1]["extra"]["relevance-score"]
+    box["sessions"] = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
+    p.tick()
+    assert sender.calls[-1]["extra"]["relevance-score"] > working

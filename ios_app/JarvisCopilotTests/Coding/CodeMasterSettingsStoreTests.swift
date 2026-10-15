@@ -184,4 +184,47 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         store.set(event: "finished", channel: "telegram", false)
         XCTAssertFalse(store.value(event: "finished", channel: "telegram"))
     }
+
+    // MARK: - Live Activities for agents
+
+    func testAgentLiveActivitiesLoadOverTheirDefaults() async {
+        let (store, t) = makeStore()
+        XCTAssertEqual(store.agentLive, AgentLiveSettings(), "on for every agent until loaded")
+        t.enqueue(json: ["settings": ["agent_live": ["idle_minutes": 60, "agents": ["codex": false]]]])
+        await store.load()
+        XCTAssertEqual(store.agentLive.idleMinutes, 60)
+        XCTAssertFalse(store.agentLive.isOn("codex"))
+        XCTAssertTrue(store.agentLive.isOn("claude"))
+        XCTAssertTrue(store.agentLive.enabled)
+    }
+
+    func testThePayloadCarriesTheAgentLiveActivities() {
+        let (store, _) = makeStore()
+        store.agentLive.actions = false
+        let live = store.payload()["agent_live"] as? [String: Any]
+        XCTAssertEqual(live?["actions"] as? Bool, false)
+        XCTAssertEqual((live?["agents"] as? [String: Any])?.count, AgentBrand.all.count)
+    }
+
+    /// The Dynamic Island tab saves the agent switches on their own, without
+    /// re-sending a notification matrix it never loaded.
+    func testSavingJustTheAgentLiveActivitiesSendsOnlyThem() async {
+        let (store, t) = makeStore()
+        store.agentLive.enabled = false
+        t.enqueue(json: ["ok": true, "settings": ["agent_live": ["enabled": false, "idle_minutes": 10]]])
+        let saved = await store.saveAgentLive()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(Set(t.lastBody().keys), ["agent_live"])
+        XCTAssertEqual((t.lastBody()["agent_live"] as? [String: Any])?["enabled"] as? Bool, false)
+        XCTAssertEqual(store.agentLive.idleMinutes, 10, "the server's copy wins")
+    }
+
+    func testASavedChangeIsAnnounced() async {
+        let (store, t) = makeStore()
+        var announced = 0
+        store.onSaved = { announced += 1 }
+        t.enqueue(json: ["ok": true, "settings": [String: Any]()])
+        _ = await store.save()
+        XCTAssertEqual(announced, 1, "the agents' activities pick the change up at once")
+    }
 }

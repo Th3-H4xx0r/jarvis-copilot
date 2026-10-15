@@ -60,6 +60,12 @@ final class CodeMasterSettingsStore {
     var remoteApprovals = false
     /// Default off. Lets the Agents tab send a session its next instruction.
     var remoteInstructions = false
+    /// One Live Activity per coding agent on the iPhone (`agent_live`): on/off,
+    /// which agents, end-after-idle, Allow / Deny on the Lock Screen. The Dynamic
+    /// Island tab edits the same document (`saveAgentLive`).
+    var agentLive = AgentLiveSettings()
+    /// After a successful save, so the agents' activities apply it at once.
+    var onSaved: (@MainActor () -> Void)?
 
     var loading = true
     var saving = false
@@ -115,7 +121,7 @@ final class CodeMasterSettingsStore {
             matrix[e.key] = row
         }
         return ["events": matrix, "usage_display": usageDisplay, "remote_approvals": remoteApprovals,
-                "remote_instructions": remoteInstructions]
+                "remote_instructions": remoteInstructions, "agent_live": agentLive.payload]
     }
 
     @discardableResult
@@ -129,6 +135,26 @@ final class CodeMasterSettingsStore {
             // for the keys it actually returned.
             apply(saved, fillDefaults: false)
             savedAt = Date()
+            onSaved?()
+            return true
+        } catch {
+            self.error = apiErrorMessage(error)
+            return false
+        }
+    }
+
+    /// Save only the agents' Live Activity settings. The server keeps every key a
+    /// save leaves out, so the Dynamic Island tab can change these without
+    /// re-sending a notification matrix it never showed.
+    @discardableResult
+    func saveAgentLive() async -> Bool {
+        saving = true
+        error = nil
+        defer { saving = false }
+        do {
+            let saved = try await api.saveCodeMasterSettings(["agent_live": agentLive.payload])
+            if let live = CodingJSON.dict(saved["agent_live"]) { agentLive = AgentLiveSettings(json: live) }
+            onSaved?()
             return true
         } catch {
             self.error = apiErrorMessage(error)
@@ -161,6 +187,9 @@ final class CodeMasterSettingsStore {
         }
         if fillDefaults || settings.keys.contains("remote_instructions") {
             remoteInstructions = Self.isTrue(settings["remote_instructions"])
+        }
+        if fillDefaults || settings.keys.contains("agent_live") {
+            agentLive = AgentLiveSettings(json: CodingJSON.dict(settings["agent_live"]))
         }
     }
 

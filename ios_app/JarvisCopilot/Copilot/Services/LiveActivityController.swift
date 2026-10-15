@@ -36,7 +36,8 @@ final class DefaultActivityController: ActivityControlling {
     func update(_ state: LiveActivityState) {
         guard areActivitiesEnabled else { return }
         images?.prefetch(IslandImageCache.urls(inData: state.data))
-        let content = ActivityContent(state: Self.contentState(state), staleDate: nil)
+        let content = ActivityContent(state: Self.contentState(state), staleDate: nil,
+                                      relevanceScore: Self.relevance(state))
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
             // Through the queue, not a bare `Task`: unstructured tasks run in an
             // arbitrary order, so a stale frame could land after a newer one and
@@ -79,6 +80,19 @@ final class DefaultActivityController: ActivityControlling {
             for activity in Activity<JarvisActivityAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
+        }
+    }
+
+    /// How strongly iOS should prefer this activity for the Dynamic Island when
+    /// the agents' activities run too: a live voice turn always wins; the idle
+    /// "Tap to talk" launcher yields to any agent (see
+    /// `AgentActivityAttributes.ContentState.relevance`, 5–80).
+    static func relevance(_ s: LiveActivityState) -> Double {
+        if s.state != "idle" { return 100 }
+        switch s.mode {
+        case "custom": return 50
+        case "coding": return 40
+        default: return 0
         }
     }
 

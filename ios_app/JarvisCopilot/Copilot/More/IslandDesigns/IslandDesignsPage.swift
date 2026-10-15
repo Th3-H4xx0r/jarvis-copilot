@@ -10,13 +10,16 @@ import SwiftUI
 struct IslandDesignsPage: View {
     @State private var store: IslandDesignsStore
     @State private var deleting: IslandCatalogEntry?
+    /// The agents' Live Activity settings (shared with Code Master settings).
+    private let agentSettings: CodeMasterSettingsStore?
 
     /// See `SettingsPage.init` — a view's `init` isn't main-actor-isolated, so
     /// the store can't be a default argument.
-    init(store: IslandDesignsStore? = nil) {
+    init(store: IslandDesignsStore? = nil, agentSettings: CodeMasterSettingsStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated {
             IslandDesignsStore.production()
         })
+        self.agentSettings = agentSettings
     }
 
     var body: some View {
@@ -100,6 +103,9 @@ struct IslandDesignsPage: View {
                     if store.customEntries.isEmpty {
                         IslandEmptyHint().padding(.top, 18)
                     }
+
+                    // Each coding agent's own activity, beside the island above.
+                    AgentActivitiesIslandSection(store: agentSettings).padding(.top, 26)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)

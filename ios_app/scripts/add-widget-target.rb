@@ -109,6 +109,20 @@ begin
     group.new_reference(path) unless group.files.any? { |f| f.path == path }
   end
 
+  # The agents' logos (Simple Icons vectors) for the per-agent Live Activities.
+  # A resource of the widget, which renders them, AND of the app, which renders
+  # the same views (Copilot/Shared/AgentActivityViews.swift) in settings and in
+  # its render tests.
+  logos_path = 'JarvisWidget/AgentLogos.xcassets'
+  if File.directory?(File.join(ROOT, logos_path))
+    logos = group.files.find { |f| f.path == logos_path } || group.new_reference(logos_path)
+    logos.last_known_file_type = 'folder.assetcatalog'
+    [widget, app].each do |target|
+      next if target.resources_build_phase.files.any? { |bf| bf.file_ref == logos }
+      target.resources_build_phase.add_file_reference(logos)
+    end
+  end
+
   # System frameworks. Swift auto-links these, but naming them keeps the target
   # honest if a future file drops the import.
   %w[WidgetKit SwiftUI ActivityKit].each do |name|

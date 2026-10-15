@@ -210,6 +210,56 @@ def _notify_webui() -> None:
         pass
 
 
+def _agent_la_pusher(store):
+    """The process pusher (agent_hooks.start sets it), else a stateless one over
+    this store — enough to answer /agent-la/state before the tracker runs."""
+    from agent import agent_la_push
+    p = agent_la_push.pusher()
+    if p is not None:
+        return p
+    return agent_la_push.AgentLaPusher(
+        store, settings=lambda: _coding_settings(store).get("agent_live"))
+
+
+def _tick_agent_las_soon() -> None:
+    """Re-apply the per-agent activities off the request thread (APNs is network)."""
+    from agent import agent_la_push
+    p = agent_la_push.pusher()
+    if p is None:
+        return
+    import threading
+    threading.Thread(target=p.tick, daemon=True, name="agent-la-tick").start()
+
+
+def _agent_la_token(store, body: dict):
+    from agent import agent_la_push
+    kind = str(body.get("kind") or "").strip()
+    token = str(body.get("token") or "").strip()
+    device = str(body.get("device_id") or "").strip() or "unknown"
+    ended = bool(body.get("ended"))
+    p = _agent_la_pusher(store)
+    if kind == "start":
+        p.register_start_token(device, token)
+        _tick_agent_las_soon()   # an agent already live gets its activity now
+        return _ok({"ok": True})
+    if kind == "device":
+        if ended:
+            p.forget_device(device)
+        return _ok({"ok": True})
+    if kind == "activity":
+        agent = str(body.get("agent") or "").strip()
+        if agent_la_push.group_of(agent) is None:
+            return _err(400, "unknown agent")
+        if ended:
+            p.activity_ended(device, agent, token, dismissed=bool(body.get("dismissed")))
+            return _ok({"ok": True})
+        if not token:
+            return _err(400, "token required")
+        p.register_activity_token(device, agent, token)
+        return _ok({"ok": True})
+    return _err(400, "kind must be start, activity or device")
+
+
 def _folder_label(cwd) -> str:
     return str(cwd or "").rstrip("/").split("/")[-1] or "session"
 
@@ -428,6 +478,9 @@ _DEFAULT_NOTIFY_SETTINGS = {
     # Let the phone continue a Mac session that isn't in tmux (the Mac runs
     # `claude -p <text> --resume <id>` in its folder). Off unless turned on.
     "remote_instructions": False,
+    # Per-agent Live Activities on the iPhone (agent/agent_la_push.py): on/off,
+    # which agents, end-after-idle minutes, Allow / Deny on the Lock Screen.
+    # Defaults and validation live in agent_la_push.merge_settings.
 }
 
 
@@ -435,6 +488,7 @@ def _merge_notify_settings(stored) -> dict:
     """Overlay stored settings on the defaults so new events/channels added in a
     later release still have a value. Dynamic device channels get their own
     default_on from the registration. Unknown keys in ``stored`` are ignored."""
+    from agent.agent_la_push import merge_settings as _merge_agent_live
     all_channels = _available_notify_channels()
     all_keys = {c["key"] for c in all_channels}
     default_row = {c["key"]: c.get("default_on", False) for c in all_channels}
@@ -444,6 +498,7 @@ def _merge_notify_settings(stored) -> dict:
         "usage_display": _DEFAULT_NOTIFY_SETTINGS["usage_display"],
         "remote_approvals": _DEFAULT_NOTIFY_SETTINGS["remote_approvals"],
         "remote_instructions": _DEFAULT_NOTIFY_SETTINGS["remote_instructions"],
+        "agent_live": _merge_agent_live(None),
     }
     if not isinstance(stored, dict):
         return out
@@ -460,6 +515,7 @@ def _merge_notify_settings(stored) -> dict:
         out["remote_approvals"] = bool(stored["remote_approvals"])
     if "remote_instructions" in stored:
         out["remote_instructions"] = bool(stored["remote_instructions"])
+    out["agent_live"] = _merge_agent_live(stored.get("agent_live"))
     return out
 
 
@@ -1067,8 +1123,14 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 # A switch the saving app doesn't send (an older build, the web
                 # page) keeps its stored value instead of falling back to off.
                 current = _coding_settings(manager.store)
-                for key in ("usage_display", "remote_approvals", "remote_instructions"):
+                for key in ("events", "usage_display", "remote_approvals",
+                            "remote_instructions"):
                     incoming.setdefault(key, current.get(key))
+                # A partial agent_live (the phone's Dynamic Island tab sends only
+                # what it changed) overlays the stored one, key by key.
+                from agent.agent_la_push import merge_settings as _merge_agent_live
+                incoming["agent_live"] = _merge_agent_live(incoming.get("agent_live"),
+                                                           base=current.get("agent_live"))
                 merged = _merge_notify_settings(incoming)
                 manager.store.set_setting("notifications", merged)
                 try:  # the Macs' hook arbiters follow the remote-approvals switch
@@ -1076,6 +1138,9 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     agent_hooks.broadcast_config(merged)
                 except Exception:  # noqa: BLE001
                     pass
+                # Turning agents (or the whole feature) on/off applies now, not on
+                # the next state change.
+                _tick_agent_las_soon()
                 return _ok({"ok": True, "settings": merged})
             return _run(_save_settings)
         return _err(404, "not found")
@@ -1117,6 +1182,23 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     pass
                 return _ok({"ok": True})
             return _run(_store)
+        return _err(404, "not found")
+
+    # ── /agent-la/* ── per-agent Live Activities (agent/agent_la_push.py).
+    # GET  /agent-la/state → {settings, activities: [{agent, episode, state}]}:
+    #      what the foregrounded app starts / updates / ends on its own.
+    # POST /agent-la/token {kind, token, device_id, agent?, ended?, dismissed?}:
+    #      kind "start"    — the phone's push-to-start token (iOS 17.2+);
+    #      kind "activity" — one running activity's push token (or ended=True);
+    #      kind "device"   — ended=True: this phone turned Live Activities off.
+    if p == "/agent-la/state":
+        if method == "GET":
+            return _run(lambda: _ok(_agent_la_pusher(manager.store).snapshot()))
+        return _err(404, "not found")
+
+    if p == "/agent-la/token":
+        if method == "POST":
+            return _run(lambda: _agent_la_token(manager.store, body or {}))
         return _err(404, "not found")
 
     # ── /la-debug ── diagnose why the Live Activity isn't push-updating.

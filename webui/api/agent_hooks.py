@@ -23,6 +23,10 @@ from agent.agent_tracking import AgentTracker, set_tracker, tracker
 log = logging.getLogger(__name__)
 
 _SWEEP_EVERY = 1.0
+#: How often the per-agent Live Activities are re-checked between tracker changes
+#: (the idle-end rule, coding rows no hook talks for). Pushes still go out only
+#: on a change — this is a cheap local comparison.
+_AGENT_LA_EVERY = 5.0
 _TURN_EVENTS = ("UserPromptSubmit", "Stop", "StopFailure", "PostToolUse", "SessionStart")
 _state: dict = {"server": None, "stop": None, "arbiter": None}
 
@@ -39,7 +43,39 @@ def socket_path() -> str:
 def _live_push(store) -> None:
     from api.coding_routes import _notify_webui, _push_coding_now
     _push_coding_now(store)
+    _agent_la_tick()
     _notify_webui()
+
+
+def _agent_la_tick() -> None:
+    """Bring every phone's per-agent Live Activities up to date. Never raises."""
+    try:
+        from agent import agent_la_push
+        p = agent_la_push.pusher()
+        if p is not None:
+            p.tick()
+    except Exception:  # noqa: BLE001
+        log.debug("agent LA tick failed", exc_info=True)
+
+
+def _pending_fingerprints() -> set:
+    """Requests an arbiter holds — the only ones Allow / Deny can reach."""
+    from api import coding_permission as cp
+    return {r.get("fingerprint") for r in cp.list_pending() if r.get("fingerprint")}
+
+
+def build_la_pusher(store):
+    """The per-agent Live Activity pusher: the tracker's sessions + the coding
+    rows, the Code Master ``agent_live`` settings, the held requests."""
+    from agent.agent_la_push import AgentLaPusher
+
+    def sessions():
+        tr = tracker()
+        return tr.sessions() if tr is not None else []
+
+    return AgentLaPusher(store, tracked=sessions,
+                         settings=lambda: (_settings() or {}).get("agent_live"),
+                         pending=_pending_fingerprints)
 
 
 def build_tracker(store) -> AgentTracker:
@@ -199,6 +235,8 @@ def on_agent_pending(device_id, data) -> None:
                             "fingerprint": data["fingerprint"], "session_id": data.get("session_id") or "",
                             "tool": data.get("tool") or "", "summary": (data.get("summary") or "")[:200],
                             "project": project, "can_always": bool(data.get("can_always"))})
+    # The request is answerable now: the agent's Live Activity gets its buttons.
+    _agent_la_tick()
 
 
 _COUNTED_DECISIONS = {"allow", "always", "deny", "answer"}
@@ -320,6 +358,11 @@ def start(store) -> None:
         return
     tr = build_tracker(store)
     set_tracker(tr)
+    try:
+        from agent import agent_la_push
+        agent_la_push.set_pusher(build_la_pusher(store))
+    except Exception as exc:  # noqa: BLE001 — the rest of tracking works without it
+        print(f"[!!] WARNING: per-agent Live Activities unavailable: {exc}", flush=True)
     from api import device_bridge
     device_bridge.on_device_event("agent_hook", on_agent_hook)
     device_bridge.on_device_event("agent_pending", on_agent_pending)
@@ -333,11 +376,15 @@ def start(store) -> None:
     _state["stop"] = stop
 
     def sweep_loop():
+        last_la = 0.0
         while not stop.wait(_SWEEP_EVERY):
             try:
                 tr.sweep()
             except Exception:  # noqa: BLE001
                 log.debug("agent tracker sweep failed", exc_info=True)
+            if time.monotonic() - last_la >= _AGENT_LA_EVERY:
+                last_la = time.monotonic()
+                _agent_la_tick()
             try:
                 maybe_send_recap(store, time.time())
             except Exception:  # noqa: BLE001
@@ -350,6 +397,11 @@ def stop() -> None:
     if _state["stop"] is not None:
         _state["stop"].set()
         _state["stop"] = None
+    try:
+        from agent import agent_la_push
+        agent_la_push.set_pusher(None)
+    except Exception:  # noqa: BLE001
+        pass
     if _state["server"] is not None:
         try:
             _state["server"].close()

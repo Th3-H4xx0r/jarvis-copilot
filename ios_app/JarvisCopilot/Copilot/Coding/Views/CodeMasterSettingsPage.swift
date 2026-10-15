@@ -27,7 +27,10 @@ struct CodeMasterSettingsPage: View {
             }
         }
         .jcScreen("Code Master settings")
-        .task { if store.loading { await store.load() } }
+        .task {
+            if store.onSaved == nil { store.onSaved = LiveActivityCoordinator.agentSettingsChanged }
+            if store.loading { await store.load() }
+        }
     }
 
     private var form: some View {
@@ -88,6 +91,10 @@ struct CodeMasterSettingsPage: View {
                             .foregroundStyle(JcTheme.muted)
                     }
                 }
+
+                // One Live Activity per coding agent — the same setting the
+                // Dynamic Island tab edits.
+                AgentActivitySettingsSection(store: store).padding(.top, 22)
 
                 if let error = store.error {
                     CodingInlineError(message: error).padding(.top, 18)

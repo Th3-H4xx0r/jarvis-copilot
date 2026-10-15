@@ -113,3 +113,48 @@ def test_an_approval_rings_the_phone_once(store, monkeypatch):
     tr.ingest("d1", "event", "gemini", {"hook_event_name": "Notification", "session_id": "g1", "cwd": "/Users/p/app",
                                         "notification_type": "permission_prompt", "message": "needs permission"})
     assert sent[-1] == "notification"
+
+
+# ── per-agent Live Activities ────────────────────────────────────────────────
+
+class _CountingPusher:
+    def __init__(self):
+        self.ticks = 0
+
+    def tick(self, force=False):
+        self.ticks += 1
+        return 0
+
+
+@pytest.fixture
+def counting_pusher():
+    from agent import agent_la_push
+    p = _CountingPusher()
+    agent_la_push.set_pusher(p)
+    yield p
+    agent_la_push.set_pusher(None)
+
+
+def test_a_tracker_change_reaches_the_agent_activities(store, monkeypatch, counting_pusher):
+    import api.coding_routes as cr
+    monkeypatch.setattr(cr, "_push_coding_now", lambda store: None)
+    monkeypatch.setattr(cr, "_notify_webui", lambda: None)
+    agent_hooks._live_push(store)
+    assert counting_pusher.ticks == 1
+
+
+def test_a_held_request_reaches_the_agent_activities_at_once(monkeypatch, counting_pusher):
+    """The Allow / Deny buttons need the request the arbiter holds — it is announced
+    after the hook state, so the activity is refreshed when it arrives."""
+    from api import coding_permission as cp
+    monkeypatch.setattr(agent_hooks, "_push_agent_alert", lambda **kw: 0)
+    agent_hooks.on_agent_pending("d1", {"fingerprint": "fp1", "tool": "Bash", "cwd": "/x/app",
+                                        "session_id": "s", "agent": "claude"})
+    assert counting_pusher.ticks == 1
+    cp.drop_by_fingerprint("fp1", "d1")
+
+
+def test_the_la_pusher_reads_the_code_master_settings(store, monkeypatch):
+    monkeypatch.setattr(agent_hooks, "_settings", lambda: {"agent_live": {"idle_minutes": 10}})
+    p = agent_hooks.build_la_pusher(store)
+    assert p.snapshot()["settings"]["idle_minutes"] == 10

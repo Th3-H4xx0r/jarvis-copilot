@@ -292,3 +292,48 @@ def test_a_new_step_alone_does_not_push_again(monkeypatch):
     lead["state"] = "approval"
     m._last_push_ts["v"] = 0.0
     assert push_coding_update(store, sender=sender) == 1
+
+
+class SettingsStore(FakeStore):
+    """A store with the Code Master settings document (the real one has it)."""
+
+    def __init__(self, *a, settings=None, **kw):
+        super().__init__(*a, **kw)
+        self._settings = {"notifications": settings} if settings is not None else {}
+
+    def get_setting(self, key, default=None):
+        return self._settings.get(key, default)
+
+
+def _live_rows():
+    return [{"id": "s", "status": "running", "activity_state": "working",
+             "project_id": None, "cwd": "/x/a", "last_activity_at": 1}]
+
+
+def test_the_jarvis_activity_leaves_coding_to_the_agent_activities():
+    """With per-agent activities on (the default), the shared Jarvis activity no
+    longer carries the coding fleet — it stays the voice / custom island."""
+    sent = []
+    store = SettingsStore(_live_rows(), [], [{"token": "tokA"}])
+    assert push_coding_update(store, sender=lambda t, cs, event="update": sent.append(cs) or {"ok": True}) == 0
+    assert sent == []
+
+
+def test_turning_agent_activities_off_puts_coding_back_on_the_jarvis_activity():
+    sent = []
+    store = SettingsStore(_live_rows(), [], [{"token": "tokA"}],
+                          settings={"agent_live": {"enabled": False}})
+    assert push_coding_update(store, sender=lambda t, cs, event="update": sent.append(cs) or {"ok": True}) == 1
+    assert sent[-1]["mode"] == "coding"
+
+
+def test_turning_agent_activities_on_clears_a_coding_fleet_already_shown():
+    sent = []
+    fake = lambda t, cs, event="update": sent.append(cs) or {"ok": True}  # noqa: E731
+    store = SettingsStore(_live_rows(), [], [{"token": "tokA"}],
+                          settings={"agent_live": {"enabled": False}})
+    assert push_coding_update(store, sender=fake) == 1
+    store._settings["notifications"] = {"agent_live": {"enabled": True}}
+    m._last_push_ts["v"] = 0.0
+    assert push_coding_update(store, sender=fake) == 1      # the resting state, once
+    assert sent[-1]["mode"] == "voice" and sent[-1]["sessionTotal"] == 0
