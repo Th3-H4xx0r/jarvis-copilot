@@ -47,6 +47,7 @@ final class DashcamRulesTests: XCTestCase {
         XCTAssertFalse(r.mayUpload(.normal, metered: true, parked: true))
         XCTAssertTrue(r.mayUpload(.event, metered: true, parked: true))
         XCTAssertTrue(r.mayUpload(.normal, metered: false, parked: true), "Wi‑Fi is never limited")
+        XCTAssertTrue(r.mayUpload(.normal, metered: true, parked: true, charging: true), "on power, normal footage goes too")
         r.uploadData = .never
         XCTAssertFalse(r.mayUpload(.photo, metered: true, parked: true))
         r.uploadData = .all

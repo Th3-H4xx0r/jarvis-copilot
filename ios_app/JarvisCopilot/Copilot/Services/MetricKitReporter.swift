@@ -19,6 +19,7 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     func register() {
         MXMetricManager.shared.add(self)
         log.info("MetricKit subscriber registered")
+        if Thread.isMainThread { Self.mainThread = pthread_self() }
         startHourlyProbe()
     }
 
@@ -27,10 +28,16 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     private func startHourlyProbe() {
         Task.detached(priority: .utility) {
             var last = (cpu: Self.cpuSeconds(), at: Date())
+            var lastThreads = Self.threadSeconds()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3600))
                 let now = (cpu: Self.cpuSeconds(), at: Date())
-                let body: [String: Any] = [
+                let threads = Self.threadSeconds()
+                // Where the hour's CPU went, by thread name: the audio keepalive, Bluetooth, the main thread…
+                let top = threads.map { ($0.key, max(0, $0.value - (lastThreads[$0.key] ?? 0))) }
+                    .filter { $0.1 >= 1 }.sorted { $0.1 > $1.1 }.prefix(8)
+                lastThreads = threads
+                var body: [String: Any] = [
                     "kind": "probe",
                     "received": ISO8601DateFormatter().string(from: now.at),
                     "cpuSeconds": max(0, now.cpu - last.cpu),
@@ -38,11 +45,53 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
                     "background": BridgeClient.appInBackground ? 1 : 0,
                     "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
                 ]
+                body["threads"] = Dictionary(top.map { ($0.0, ($0.1 * 10).rounded() / 10) }, uniquingKeysWith: +)
                 last = now
                 _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: body)
             }
         }
     }
+
+    /// CPU time so far of each live thread, summed by name (unnamed pool threads share one entry; a
+    /// thread that ended takes its time with it, so these undercount `cpuSeconds`).
+    static func threadSeconds() -> [String: Double] {
+        var list: thread_act_array_t?
+        var count: mach_msg_type_number_t = 0
+        guard task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list else { return [:] }
+        defer {
+            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)),
+                          vm_size_t(Int(count) * MemoryLayout<thread_t>.stride))
+        }
+        var out: [String: Double] = [:]
+        for i in 0..<Int(count) {
+            let thread = list[i]
+            defer { mach_port_deallocate(mach_task_self_, thread) }
+            var info = thread_basic_info()
+            var size = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
+            let kr = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(size)) {
+                    thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &size)
+                }
+            }
+            guard kr == KERN_SUCCESS else { continue }
+            let cpu = Double(info.user_time.seconds) + Double(info.user_time.microseconds) / 1_000_000
+                + Double(info.system_time.seconds) + Double(info.system_time.microseconds) / 1_000_000
+            var name = "unnamed"
+            if let p = pthread_from_mach_thread_np(thread) {
+                var buffer = [CChar](repeating: 0, count: 64)
+                if pthread_getname_np(p, &buffer, buffer.count) == 0, buffer[0] != 0 {
+                    name = String(cString: buffer)
+                } else if p == mainThread {
+                    name = "main"
+                }
+            }
+            out[String(name.prefix(40)), default: 0] += cpu
+        }
+        return out
+    }
+
+    /// The main thread's pthread, taken at launch (register runs on it).
+    nonisolated(unsafe) private static var mainThread: pthread_t?
 
     /// User + system CPU time of the whole process so far.
     static func cpuSeconds() -> Double {

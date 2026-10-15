@@ -84,3 +84,11 @@ def test_hourly_probe_rows_keep_their_fields(tmp_path):
     row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 42.5, "wallSeconds": 3600,
                                                    "background": 1}, state_dir=tmp_path)
     assert (row["kind"], row["cpuSeconds"], row["wallSeconds"], row["background"]) == ("probe", 42.5, 3600.0, 1.0)
+
+
+def test_probe_thread_breakdown_is_kept_small(tmp_path):
+    from api import routes
+    threads = {f"t{i}": float(i) for i in range(12)} | {"bad": "x", "flag": True}
+    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "threads": threads},
+                                       state_dir=tmp_path)
+    assert len(row["threads"]) <= 8 and all(isinstance(v, float) for v in row["threads"].values())

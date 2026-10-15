@@ -310,6 +310,9 @@ actor DashcamUploader {
     /// again only after something says it changed (`invalidateDestinations`). Asking on every run was
     /// 231 requests an hour all night.
     private var cachedDestinations: [DashcamDestination]?
+    /// Whether this run makes the 720p streaming copies: a re-encode of every clip, so only on power.
+    /// Without one the player streams the original.
+    private var makePreviews = true
     private var destinationsGeneration = 0
 
     static func isQuota(_ error: Error) -> Bool {
@@ -439,10 +442,12 @@ actor DashcamUploader {
     /// for Wi‑Fi on mobile data. Returns the clip ids that reached the server.
     @discardableResult
     func run(server: DashcamUploadServer, cellular: Bool, allow: (@Sendable (DashcamClipKind) -> Bool)? = nil,
+             previews: Bool = true,
              finished: (@Sendable (String, String) -> Void)? = nil,
              now: @Sendable () -> Date = { Date() },
              progress: @escaping @Sendable (String, Int64, Int64) -> Void = { _, _, _ in }) async -> [String] {
         let allowed = allow ?? { kind in !(cellular && kind == .normal) }
+        makePreviews = previews
         if let until = driveQuotaUntil, until > now() { return [] }
         guard !running else { return [] }
         // Nothing may go now (every job backing off, or held by the rules): no request at all.
@@ -659,7 +664,7 @@ actor DashcamUploader {
         // A light 720p copy for streaming (the original is ~30 Mbit/s, more than LTE carries steadily).
         // Best effort: without it the player streams the original.
         var preview: (path: String, fileID: String)?
-        if mime == "video/mp4" {
+        if mime == "video/mp4" && makePreviews {
             let small = tempDir.appendingPathComponent(clipID + ".preview.mp4")
             var ready = FileManager.default.fileExists(atPath: small.path)
             if !ready { ready = await DashcamPreview.make(from: upload, to: small) }

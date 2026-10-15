@@ -24,7 +24,7 @@ struct DashcamRules: Equatable, Sendable {
         var label: String {
             switch self {
             case .all: return "Everything"
-            case .events: return "Events and photos"
+            case .events: return "Events now, the rest on Wi‑Fi or charging"
             case .never: return "Nothing — Wi‑Fi only"
             }
         }
@@ -53,13 +53,15 @@ struct DashcamRules: Equatable, Sendable {
         uploadWhen = When(rawValue: json["upload_when"] as? String ?? "") ?? .any
     }
 
-    /// Whether a clip of `kind` may go up now.
-    func mayUpload(_ kind: DashcamClipKind, metered: Bool, parked: Bool) -> Bool {
+    /// Whether a clip of `kind` may go up now. `charging`: the phone is on power, so the radio's cost
+    /// isn't his battery — normal footage held off mobile data goes then too (an evening's drive was
+    /// 11 GB over LTE, most of a day's charge).
+    func mayUpload(_ kind: DashcamClipKind, metered: Bool, parked: Bool, charging: Bool = false) -> Bool {
         guard upload, uploadWhen == .any || parked else { return false }
         guard metered else { return true }
         switch uploadData {
         case .all: return true
-        case .events: return kind != .normal
+        case .events: return kind != .normal || charging
         case .never: return false
         }
     }

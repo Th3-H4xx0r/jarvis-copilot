@@ -990,6 +990,10 @@ def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
             row[key] = float(value)
         elif isinstance(value, str):
             row[key] = value[:40]
+    threads = body.get("threads")
+    if isinstance(threads, dict):
+        row["threads"] = {str(k)[:40]: float(v) for k, v in list(threads.items())[:8]
+                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
     path = _Path(state_dir or STATE_DIR) / _ENERGY_FILE
     lines = path.read_text().splitlines()[-(_ENERGY_KEEP - 1):] if path.exists() else []
     lines.append(_json.dumps(row, sort_keys=True))
@@ -6682,8 +6686,10 @@ def handle_post(handler, parsed) -> bool:
         if row.get("kind") == "probe":
             hours = (row.get("wallSeconds") or 0) / 3600
             where = "background" if row.get("background") else "foreground"
+            top = ", ".join(f"{k} {v:.0f}" for k, v in sorted((row.get("threads") or {}).items(),
+                                                              key=lambda kv: -kv[1])[:5])
             print(f"[energy] {device.get('name') or device['id']}: {cpu:.0f} s CPU in {hours:.2f} h "
-                  f"({cpu / hours if hours else 0:.0f} s/h, {where} now)", flush=True)
+                  f"({cpu / hours if hours else 0:.0f} s/h, {where} now){' — ' + top if top else ''}", flush=True)
         else:
             bg_h = (row.get("backgroundSeconds") or 0) / 3600
             print(f"[energy] {device.get('name') or device['id']}: MetricKit day — {cpu:.0f} s CPU, "

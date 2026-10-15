@@ -2,6 +2,7 @@ import CoreMotion
 import CryptoKit
 import Foundation
 import Network
+import UIKit
 
 /// The server calls a sync pass makes (`DashcamAPI`, or a fake in tests).
 protocol DashcamSyncServer: Sendable {
@@ -160,6 +161,11 @@ final class DashcamSync: ObservableObject {
     /// The MP4 copies made for Drive and the player, which count against the phone-space cap with the footage.
     var cacheBytes: () -> Int64 = { DashcamPaths.cacheBytes() }
     var parked: () async -> Bool = { await DashcamMotion.shared.isParked() }
+    /// On power (charging or full): normal footage held off mobile data may go, and previews are made.
+    var charging: () -> Bool = {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        return [.charging, .full].contains(UIDevice.current.batteryState)
+    }
     var onCameraProvider: () -> Bool = { DashcamWiFi.shared.onCamera }
     var now: () -> Date = { Date() }
     /// The camera clock's zone (set from the phone every pass); DST-aware, so clips recorded
@@ -195,6 +201,12 @@ final class DashcamSync: ObservableObject {
             Task { @MainActor in self?.internetPath = path; self?.kickUploads() }
         }
         pathMonitor.start(queue: DispatchQueue(label: "jc.dashcam.path"))
+        // Plugged in: what waited for power (normal footage, previews) can go now.
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        NotificationCenter.default.addObserver(forName: UIDevice.batteryStateDidChangeNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.kickUploads() }
+        }
         wireTopics()
         cleanUpDue = true                       // what reached its destinations while the app was closed
         Task { await refreshRules(); await refreshCounts(); await uploader.retryParked(); kickUploads() }
@@ -838,12 +850,14 @@ final class DashcamSync: ObservableObject {
         let rules = self.rules
         guard rules.upload else { return false }
         let isParked = rules.uploadWhen == .parked ? await parked() : true
+        let onPower = charging()
         let throttle = DashcamThrottle()
         let keep = rules.keepOnPhone
         let server = self.server
         uploadRunning = true
         let done = await uploader.run(server: uploadServer, cellular: cellular,
-                                      allow: { rules.mayUpload($0, metered: cellular, parked: isParked) },
+                                      allow: { rules.mayUpload($0, metered: cellular, parked: isParked, charging: onPower) },
+                                      previews: onPower,
                                       finished: { id, path in
             // In the cloud: the phone's copy goes at once, not at the next clean-up (which a long run never reached).
             guard !keep else { return }
