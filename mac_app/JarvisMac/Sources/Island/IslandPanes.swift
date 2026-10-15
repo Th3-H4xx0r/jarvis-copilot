@@ -240,65 +240,200 @@ private struct PortfolioCard: View {
     }
 }
 
-/// What Apple Music or Spotify is playing, with the controls.
+/// What Apple Music or Spotify is playing, laid out like Apple's Now Playing:
+/// the cover with title and artist (a live waveform and the player's icon on
+/// the right), a thin progress bar between elapsed and remaining time, then
+/// the transport in the middle with shuffle and repeat on the left and volume
+/// on the right. Every row is pinned to IslandLayout.Music, so the island is
+/// exactly as tall as this.
 struct MusicPane: View {
     @Bindable var music = MusicController.shared
     @State private var scrub: Double?
+    private typealias L = IslandLayout.Music
 
     var body: some View {
-        content
-            .onAppear { music.setVisible(true) }
-            .onDisappear { music.setVisible(false) }
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            VStack(spacing: L.gap) {
+                header
+                progress(at: ctx.date)
+                controls
+            }
+        }
+        .onAppear { music.setVisible(true) }
+        .onDisappear { music.setVisible(false) }
     }
 
-    @ViewBuilder private var content: some View {
-        if let now = music.now {
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                HStack(alignment: .top, spacing: 14) {
-                    AsyncImage(url: now.artworkURL) { img in img.resizable().scaledToFill() } placeholder: {
-                        RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.08))
-                            .overlay(Image(systemName: "music.note").foregroundStyle(dim))
-                    }
-                    .frame(width: 88, height: 88).clipShape(RoundedRectangle(cornerRadius: 10))
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(now.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                        Text([now.artist, now.album].filter { !$0.isEmpty }.joined(separator: " — "))
-                            .font(.system(size: 12)).foregroundStyle(dim).lineLimit(1)
-                        Slider(value: Binding(get: { scrub ?? now.position(at: ctx.date) },
-                                              set: { scrub = $0 }),
-                               in: 0...max(1, now.duration)) { editing in
-                            if !editing, let s = scrub { music.send(.seek(s)); scrub = nil }
-                        }
-                        .controlSize(.mini).tint(JcAccent.color)
-                        HStack {
-                            Text(NowPlaying.clock(scrub ?? now.position(at: ctx.date)))
-                            Spacer()
-                            Text(NowPlaying.clock(now.duration))
-                        }
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(dim)
-                        HStack(spacing: 22) {
-                            Button { music.send(.previous) } label: { Image(systemName: "backward.fill") }
-                            Button { music.send(.playPause) } label: {
-                                Image(systemName: now.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 18))
-                            }
-                            Button { music.send(.next) } label: { Image(systemName: "forward.fill") }
-                            Button { music.send(.shuffle(!music.shuffle)) } label: { Image(systemName: "shuffle") }
-                                .foregroundStyle(music.shuffle ? JcAccent.color : .white.opacity(0.6)).help("Shuffle")
-                            Button { music.send(.repeating(!music.repeating)) } label: { Image(systemName: "repeat") }
-                                .foregroundStyle(music.repeating ? JcAccent.color : .white.opacity(0.6)).help("Repeat")
-                            Image(systemName: "speaker.wave.2").foregroundStyle(dim)
-                            Slider(value: $music.volume, in: 0...100).controlSize(.mini).frame(width: 70)
-                            Spacer()
-                            Text(now.player == .music ? "Music" : "Spotify").font(.system(size: 10)).foregroundStyle(dim)
-                        }
-                        .buttonStyle(.plain).foregroundStyle(.white)
-                    }
+    private var now: NowPlaying? { music.now }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: now?.artworkURL) { img in img.resizable().scaledToFill() } placeholder: {
+                ZStack {
+                    Rectangle().fill(.white.opacity(0.08))
+                    Image(systemName: "music.note").font(.system(size: 20, weight: .medium)).foregroundStyle(dim)
                 }
             }
-        } else {
-            Text("Nothing playing in Music or Spotify.").font(.system(size: 12)).foregroundStyle(dim)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: L.artwork, height: L.artwork)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(now?.title ?? "Not Playing")
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(now.map { $0.artist.isEmpty ? $0.album : $0.artist } ?? "Music or Spotify")
+                    .font(.system(size: 12)).foregroundStyle(dim).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if let now {
+                MusicBars(playing: now.isPlaying).frame(width: 18, height: 16)
+                PlayerIcon(player: now.player)
+            }
         }
+        .frame(height: L.artwork)
+    }
+
+    private func progress(at date: Date) -> some View {
+        let duration = now?.duration ?? 0
+        let position = scrub ?? now?.position(at: date) ?? 0
+        return HStack(spacing: 10) {
+            Text(now == nil ? "--:--" : NowPlaying.clock(position)).frame(width: 44, alignment: .leading)
+            ThinBar(value: duration > 0 ? position / duration : 0, enabled: now != nil && duration > 0) { f, done in
+                if done { music.send(.seek(f * duration)); scrub = nil } else { scrub = f * duration }
+            }
+            Text(now == nil ? "--:--" : NowPlaying.remaining(duration, position)).frame(width: 44, alignment: .trailing)
+        }
+        .font(.system(size: 11, weight: .medium).monospacedDigit())
+        .foregroundStyle(dim)
+        .frame(height: L.progress)
+    }
+
+    private var controls: some View {
+        ZStack {
+            HStack(spacing: 6) {
+                toggle("shuffle", on: music.shuffle, help: "Shuffle") { music.send(.shuffle(!music.shuffle)) }
+                toggle("repeat", on: music.repeating, help: "Repeat") { music.send(.repeating(!music.repeating)) }
+                Spacer()
+                Image(systemName: "speaker.fill").font(.system(size: 9)).foregroundStyle(dim)
+                ThinBar(value: music.volume / 100) { f, _ in music.volume = (f * 100).rounded() }
+                    .frame(width: 84)
+                    .help("Volume")
+                Image(systemName: "speaker.wave.3.fill").font(.system(size: 9)).foregroundStyle(dim)
+            }
+            HStack(spacing: 26) {
+                transport("backward.fill", size: 17, help: "Previous") { music.send(.previous) }
+                transport(now?.isPlaying == true ? "pause.fill" : "play.fill", size: 24,
+                          help: now?.isPlaying == true ? "Pause" : "Play") { music.send(.playPause) }
+                transport("forward.fill", size: 17, help: "Next") { music.send(.next) }
+            }
+        }
+        .frame(height: L.controls)
+        .disabled(now == nil)
+        .opacity(now == nil ? 0.4 : 1)
+    }
+
+    private func transport(_ symbol: String, size: CGFloat, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: L.controls)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .help(help).accessibilityLabel(help)
+    }
+
+    private func toggle(_ symbol: String, on: Bool, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(on ? JcAccent.color : .white.opacity(0.55))
+                .frame(width: 28, height: 24)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(on ? JcAccent.color.opacity(0.18) : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .help(help).accessibilityLabel(help).accessibilityValue(on ? "On" : "Off")
+    }
+}
+
+/// Apple's thin bar: a faint track with a white fill that thickens while you
+/// hover or drag it. Dragging reports the fraction, and `done` on release.
+private struct ThinBar: View {
+    let value: Double
+    var enabled = true
+    let onChange: (Double, Bool) -> Void
+    @State private var hover = false
+    @State private var dragging = false
+
+    var body: some View {
+        GeometryReader { g in
+            let thick: CGFloat = enabled && (hover || dragging) ? 7 : 4
+            let fraction = min(max(value, 0), 1)
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.18))
+                Capsule().fill(.white.opacity(enabled ? 0.92 : 0.35)).frame(width: g.size.width * fraction)
+            }
+            .frame(height: thick)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    guard enabled else { return }
+                    dragging = true
+                    onChange(min(max(v.location.x / max(g.size.width, 1), 0), 1), false)
+                }
+                .onEnded { v in
+                    guard enabled else { return }
+                    dragging = false
+                    onChange(min(max(v.location.x / max(g.size.width, 1), 0), 1), true)
+                })
+            .animation(.easeOut(duration: 0.15), value: thick)
+        }
+        .onHover { hover = $0 }
+    }
+}
+
+/// The live waveform Apple shows next to what's playing: four bars that move
+/// while it plays and settle when it pauses.
+private struct MusicBars: View {
+    let playing: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 10, paused: !playing)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2.5) {
+                ForEach(0..<4, id: \.self) { i in
+                    Capsule().fill(JcAccent.color)
+                        .frame(width: 3, height: playing ? 4 + 12 * abs(sin(t * (2.2 + Double(i) * 0.65) + Double(i))) : 3)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .animation(.easeInOut(duration: 0.1), value: t)
+        }
+    }
+}
+
+/// The playing app's own icon; a click brings that app forward.
+private struct PlayerIcon: View {
+    let player: NowPlaying.Player
+
+    var body: some View {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: player.bundleID) {
+            Button { NSWorkspace.shared.openApplication(at: url, configuration: .init()) } label: {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 22, height: 22)
+            }
+            .buttonStyle(PressStyle())
+            .help("Open \(player.app)").accessibilityLabel("Open \(player.app)")
+        }
+    }
+}
+
+/// A small press-down for icon buttons.
+private struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

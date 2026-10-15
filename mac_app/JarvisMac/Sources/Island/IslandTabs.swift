@@ -25,13 +25,14 @@ enum IslandTab: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The expanded height of every tab but Agents (which sizes to its sessions).
+    /// The expanded height of every tab but Agents (which sizes to its sessions)
+    /// and Music (to its rows; expandedHeight passes the real inset).
     var height: CGFloat {
         switch self {
         case .agents: return 500
         case .chat: return 480
         case .services: return 440
-        case .music: return 250
+        case .music: return IslandLayout.musicHeight(topInset: 40)   // sized to its rows
         case .mail: return 430
         }
     }

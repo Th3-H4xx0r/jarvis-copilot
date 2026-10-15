@@ -48,6 +48,14 @@ struct NowPlaying: Equatable {
 
     func progress(at now: Date) -> Double { duration > 0 ? position(at: now) / duration : 0 }
 
+    /// Apple's right-hand time: what's left, with a minus ("-1:29"). Rounded
+    /// up, so elapsed + remaining always add up to the track's length.
+    func remainingLabel(at now: Date) -> String { Self.remaining(duration, position(at: now)) }
+
+    static func remaining(_ duration: Double, _ position: Double) -> String {
+        duration > 0 ? "-" + clock((duration - position).rounded(.up)) : ""
+    }
+
     static func clock(_ seconds: Double) -> String {
         let s = max(0, Int(seconds.rounded(.down)))
         let h = s / 3600, m = (s % 3600) / 60, sec = s % 60

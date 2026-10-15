@@ -163,6 +163,22 @@ enum IslandVisibility {
 enum IslandLayout {
     enum Pending { case approval, question }
     static let rowHeight: CGFloat = 58
+    /// The tab bar's height (IslandViews pins it, so the sums below are exact).
+    static let tabsHeight: CGFloat = 26
+
+    /// The Music tab's rows, each pinned by MusicPane: the cover with title and
+    /// artist, the progress bar between its times, the controls.
+    enum Music {
+        static let artwork: CGFloat = 56
+        static let progress: CGFloat = 16
+        static let controls: CGFloat = 30
+        static let gap: CGFloat = 12
+    }
+
+    /// The open Music tab is as tall as its rows, nothing more.
+    static func musicHeight(topInset: CGFloat) -> CGFloat {
+        topInset + tabsHeight + 10 + Music.artwork + Music.gap + Music.progress + Music.gap + Music.controls + 14
+    }
 
     static func agentsHeight(topInset: CGFloat, sessions: Int, pending: Pending?, flash: Bool) -> CGFloat {
         var h = topInset + 34 + 10 + 40 + 10 + 14          // inset, tabs, gap, header, gap, bottom

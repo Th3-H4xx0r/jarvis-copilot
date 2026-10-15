@@ -17,6 +17,7 @@ struct IslandRootView: View {
 
     @MainActor
     static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40) -> CGFloat {
+        if tab == .music { return IslandLayout.musicHeight(topInset: topInset) }
         if tab != .agents { return tab.height }
         let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
         return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count,
@@ -167,6 +168,7 @@ private struct ExpandedIsland: View {
             }
             .buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
         }
+        .frame(height: IslandLayout.tabsHeight)
     }
 
     @ViewBuilder private var agents: some View {

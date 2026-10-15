@@ -61,4 +61,26 @@ final class MusicTests: XCTestCase {
         XCTAssertEqual(NowPlaying.clock(3_725), "1:02:05")
         XCTAssertEqual(NowPlaying.clock(-3), "0:00")
     }
+
+    /// Apple's layout: elapsed on the left, time remaining (with a minus) on the right.
+    func testRemainingTimeReadsLikeApples() {
+        let n = NowPlaying(player: .spotify, info: ["Name": "A", "Player State": "Paused",
+                                                    "Duration": 200_000, "Playback Position": 111.0],
+                           at: Date(timeIntervalSince1970: 0))!
+        XCTAssertEqual(n.remainingLabel(at: Date(timeIntervalSince1970: 0)), "-1:29")
+    }
+
+    /// The Music tab is as tall as its content, not a fixed 250 pt.
+    func testTheMusicTabFitsItsContent() {
+        let h = IslandLayout.musicHeight(topInset: 40)
+        XCTAssertLessThanOrEqual(h, 40 + 34 + 12 + 56 + 14 + 16 + 12 + 36 + 14)
+        XCTAssertGreaterThanOrEqual(h, 40 + 34 + 56 + 36)
+    }
+
+    /// The open island uses that height for the Music tab.
+    @MainActor
+    func testTheIslandUsesTheMusicHeight() {
+        XCTAssertEqual(IslandRootView.expandedHeight(model: AppModel(), tab: .music, topInset: 40),
+                       IslandLayout.musicHeight(topInset: 40))
+    }
 }
