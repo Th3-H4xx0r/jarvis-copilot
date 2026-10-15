@@ -16,13 +16,11 @@ struct IslandRootView: View {
     static let expandedWidth: CGFloat = 560
 
     @MainActor
-    static func expandedHeight(model: AppModel, tab: IslandTab = .agents) -> CGFloat {
+    static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40) -> CGFloat {
         if tab != .agents { return tab.height }
-        var h: CGFloat = 92
-        if model.pending.first != nil { h += model.pending.first!.isQuestion ? 230 : 150 }
-        h += CGFloat(min(model.sessions.count, 4)) * 54
-        if model.flash != nil { h += 44 }
-        return min(max(h, 160), 500)
+        let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
+        return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count,
+                                         pending: pending, flash: model.flash != nil)
     }
 
     var body: some View {
@@ -50,7 +48,8 @@ struct IslandRootView: View {
         case .expanded:
             ExpandedIsland(model: model, ui: ui, controller: controller)
                 .frame(width: Self.expandedWidth)
-                .frame(maxHeight: Self.expandedHeight(model: model, tab: ui.tab), alignment: .top)
+                .frame(maxHeight: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8),
+                       alignment: .top)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
         }
     }

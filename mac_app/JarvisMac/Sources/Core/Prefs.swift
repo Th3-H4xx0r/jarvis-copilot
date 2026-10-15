@@ -18,7 +18,7 @@ enum Prefs {
 
     /// Hide the island completely when nothing runs (else the compact pill stays).
     static var hideWhenIdle: Bool {
-        get { d.object(forKey: "island.hideWhenIdle") as? Bool ?? true }
+        get { d.object(forKey: "island.hideWhenIdle") as? Bool ?? false }
         set { d.set(newValue, forKey: "island.hideWhenIdle") }
     }
 

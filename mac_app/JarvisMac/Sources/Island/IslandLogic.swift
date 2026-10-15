@@ -156,3 +156,23 @@ enum IslandVisibility {
         needsYou || (showWhileWorking && working) || alwaysShow
     }
 }
+
+/// How tall the open Agents island is: room for the tabs, the header, each
+/// session row (with its step line) and what's waiting, never more than the
+/// panel. Measured against IslandViews' paddings.
+enum IslandLayout {
+    enum Pending { case approval, question }
+    static let rowHeight: CGFloat = 58
+
+    static func agentsHeight(topInset: CGFloat, sessions: Int, pending: Pending?, flash: Bool) -> CGFloat {
+        var h = topInset + 34 + 10 + 40 + 10 + 14          // inset, tabs, gap, header, gap, bottom
+        h += CGFloat(min(max(sessions, 1), 4)) * rowHeight
+        switch pending {
+        case .question: h += 240
+        case .approval: h += 160
+        case nil: break
+        }
+        if flash { h += 50 }
+        return min(h, IslandController.panelSize.height)
+    }
+}

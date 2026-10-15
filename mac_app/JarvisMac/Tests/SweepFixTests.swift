@@ -53,4 +53,25 @@ final class SweepFixTests: XCTestCase {
         XCTAssertLessThanOrEqual(IslandStateMachine.compactHold, 6)
         XCTAssertLessThanOrEqual(IslandController.earWidth, 40)
     }
+
+    /// The open Agents island fits its tabs, the header and every row: one
+    /// session with a step line must not be cut off at the bottom.
+    func testTheOpenIslandFitsItsRows() {
+        let one = IslandLayout.agentsHeight(topInset: 40, sessions: 1, pending: nil, flash: false)
+        XCTAssertGreaterThanOrEqual(one, 40 + 34 + 10 + 40 + 10 + 58 + 14)
+        let four = IslandLayout.agentsHeight(topInset: 40, sessions: 4, pending: nil, flash: false)
+        XCTAssertEqual(four - one, 3 * IslandLayout.rowHeight)
+        let asking = IslandLayout.agentsHeight(topInset: 40, sessions: 1, pending: .question, flash: true)
+        XCTAssertGreaterThan(asking, one + 200)
+        XCTAssertLessThanOrEqual(IslandLayout.agentsHeight(topInset: 40, sessions: 9, pending: .question, flash: true),
+                                 IslandController.panelSize.height)
+    }
+
+    /// The island stays over the notch by default (Pranav: "it should always be there").
+    func testTheIslandIsAlwaysThereByDefault() {
+        UserDefaults.standard.removeObject(forKey: "island.hideWhenIdle")
+        XCTAssertFalse(Prefs.hideWhenIdle)
+        XCTAssertTrue(IslandVisibility.keepsPill(needsYou: false, working: false, showWhileWorking: false,
+                                                 alwaysShow: !Prefs.hideWhenIdle))
+    }
 }

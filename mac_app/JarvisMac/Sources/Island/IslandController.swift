@@ -208,7 +208,8 @@ final class IslandController {
         switch machine.state {
         case .hidden: (w, h) = (ui.geometry.width, ui.geometry.height)
         case .compact: (w, h) = (ui.compactWidth, ui.geometry.height)
-        case .expanded: (w, h) = (IslandRootView.expandedWidth, IslandRootView.expandedHeight(model: model, tab: ui.tab))
+        case .expanded: (w, h) = (IslandRootView.expandedWidth, IslandRootView.expandedHeight(model: model, tab: ui.tab,
+                                                                                 topInset: ui.geometry.height + 8))
         }
         return CGRect(x: (size.width - w) / 2, y: size.height - h, width: w, height: h)
     }
