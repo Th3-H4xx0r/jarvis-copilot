@@ -11,14 +11,23 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Built and tested: the Mac holds the waiting hook; the island or the phone answers the exact request (fingerprint); answered-in-terminal cards disappear; old plugin hooks retired (plugin 0.7.0).
 3. [ ] iPhone Agents tab, last turn + diffs, notifications, Live Activity, widgets, Control Center, Siri, Focus, Spotlight, history
    - ✅ Agents tab (between Voice and Health), approval/question cards with Face ID, session screen with steps + last turn + diffs + instruction box, notification Always + unlock-to-approve, Live Activity lead session with Allow/Deny on the Lock Screen.
-   - 🔨 Widgets, Control Center, Siri, Focus filter, Spotlight, History: built, testing now.
+   - ✅ Widgets, Control Center, Siri, Focus filter, Spotlight, History: built and tested.
 4. [ ] Jarvis.app for Mac: notch island, menu bar, orb, hotkeys, sounds, settings, desktop orb, skins, greeting, demo
+   - ✅ Built and tested (Mac 14/14 then): island, menu bar, orb + seasonal skins, desktop orb, shortcuts, sounds, Settings, demo tour; the old tray steps aside.
 5. [ ] Real plan usage from the Mac's status line + Codex; weekly recap
+   - ✅ Codex limits read from `codex app-server` every 5 min, shown next to Claude's on the island and the phone.
+   - ✅ Weekly recap (time with overlaps merged, files, lines, approvals, top agent/project, busiest day, longest session) on the phone (Agents → chart button, shareable 1080×1920 image) and the Mac (menu bar → Weekly recap); Monday 8 am notification.
+   - ✅ Fixed on the way: approving on the Mac left the phone's copy saying "waiting".
 6. [ ] Other agents: Codex, Gemini CLI, Antigravity, Copilot CLI, Muse, OpenCode, Amp, Claude Desktop, Cursor, Jarvis itself
+   - ✅ `jc-client hooks install --agent codex` (and Mac Settings → Other agents) for each; Jarvis's own runs show via the jarvis-island plugin (cron left out). Codex asks you once to trust new hooks.
 7. [ ] Services: Stripe, GitHub, Vercel, n8n, Notion, Cal.com, Resend (+ safe actions with Face ID)
+   - ✅ Server pollers + iPhone More → Services (detail, Face ID actions, keys) + Mac island Services tab.
 8. [ ] Crypto watchlist + portfolio (5 exchanges, 16 networks)
+   - ✅ Server + iPhone More → Portfolio + Mac island card.
 9. [ ] Mac chat in the notch, file drop, window context, mail, Apple Music + Spotify
+   - ✅ Island tabs: Chat (Jarvis or Ollama/LM Studio, drop files, ⌃⌥W window), Services, Music (Music + Spotify), Mail (Apple Mail inbox, send via Mail or Resend).
 10. [ ] "Hey Jarvis" on the Mac, Flow dictation, call note-taker
+   - 🔨 Being built now.
 11. [ ] Parallel bug sweep, deploy server + Mac + iPhone, live end-to-end check
 
 ## Shipped
