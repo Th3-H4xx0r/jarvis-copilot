@@ -71,6 +71,20 @@ final class JarvisMacLogicTests: XCTestCase {
         XCTAssertEqual(m.state, .expanded)
     }
 
+    /// A click anywhere outside the island folds it, even while something is
+    /// pending (the pill keeps the amber count) or the chat holds a draft.
+    func testAClickOutsideFoldsIt() {
+        var m = IslandStateMachine()
+        m.attention(at: 0)
+        m.clickedOutside(at: 1)
+        XCTAssertEqual(m.state, .compact)
+        m.tick(now: 2, hovering: false, pinned: true, hasSessions: true)
+        XCTAssertEqual(m.state, .compact)          // pinned doesn't pop it back open
+        var hidden = IslandStateMachine()
+        hidden.clickedOutside(at: 0)
+        XCTAssertEqual(hidden.state, .hidden)      // nothing to fold
+    }
+
     func testClickOpensAndToggleCloses() {
         var m = IslandStateMachine()
         m.toggle(at: 0)

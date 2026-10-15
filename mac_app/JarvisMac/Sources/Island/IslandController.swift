@@ -33,6 +33,7 @@ final class IslandController {
     private let model: AppModel
     private var panel: NSPanel!
     private var machine = IslandStateMachine()
+    private var clickMonitor: Any?
     private var timer: Timer?
     private var interval: TimeInterval = 0
     private var screenOff = false
@@ -47,7 +48,23 @@ final class IslandController {
         buildPanel()
         relocate()
         observeSystem()
+        watchClicksElsewhere()
         start(interval: Self.idle)
+    }
+
+    /// Clicks in other apps (and on the see-through parts of the panel, which
+    /// pass through) reach only a global monitor; one while the island is open
+    /// folds it. Clicks on the island itself are local and never seen here.
+    private func watchClicksElsewhere() {
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.machine.state == .expanded else { return }
+                self.machine.clickedOutside(at: self.now)
+                self.ui.pinned = false
+                self.sync()
+            }
+        }
     }
 
     // MARK: public

@@ -98,6 +98,13 @@ struct IslandStateMachine: Equatable {
         since = now
     }
 
+    /// You clicked somewhere else: fold to the pill, whatever kept it open.
+    mutating func clickedOutside(at now: TimeInterval) {
+        guard state == .expanded else { return }
+        state = .compact
+        since = now
+    }
+
     mutating func tick(now: TimeInterval, hovering: Bool, pinned: Bool, hasSessions: Bool) {
         switch state {
         case .expanded:
