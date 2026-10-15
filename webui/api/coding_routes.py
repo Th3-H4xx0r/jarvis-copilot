@@ -309,7 +309,7 @@ _last_alert: dict = {}
 _ALERT_DEBOUNCE = 5.0  # seconds — catches few-second flapping, lets distinct prompts through
 
 
-def _push_device_alert(title: str, body: str) -> int:
+def _push_device_alert(title: str, body: str, data: dict | None = None) -> int:
     """Send a VISIBLE banner to every registered mobile device, so a coding
     event reaches the phone even when the app is force-quit (unlike the silent
     wake / WS bridge, which iOS won't deliver to a terminated app). Tapping the
@@ -334,7 +334,7 @@ def _push_device_alert(title: str, body: str) -> int:
                 continue
             if not (d.get("kind") or "").strip().lower().startswith("mobile"):
                 continue
-            res = push_mod.send(kind, token, {"type": "coding"},
+            res = push_mod.send(kind, token, data or {"type": "coding"},
                                 alert={"title": title, "body": body})
             if res.get("ok"):
                 sent += 1

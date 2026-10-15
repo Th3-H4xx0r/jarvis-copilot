@@ -24,6 +24,14 @@ struct AgentsAPI {
                         codexUsage: AgentPlanUsage(json: CodingJSON.dict(body["usage_codex"])))
     }
 
+    /// `GET /api/coding/agents/recap?days=&tz=` — the week's numbers, with days
+    /// split in this phone's timezone (minutes east of UTC).
+    func recap(days: Int = 7, timeZone: TimeZone = .current) async throws -> AgentRecap {
+        let tz = timeZone.secondsFromGMT() / 60
+        return AgentRecap(json: try await api.get("/api/coding/agents/recap",
+                                                  query: ["days": "\(days)", "tz": "\(tz)"]).object())
+    }
+
     /// `GET /api/coding/agents/session?key=` → `{session}` with its last turn.
     func session(key: String) async throws -> AgentSessionDetail {
         let body = try await api.get("/api/coding/agents/session", query: ["key": key]).object()

@@ -142,6 +142,18 @@ class AgentTracker:
         if effects:
             self._publish()
 
+    def record_decision(self, key: str, kind: str, decision: str) -> None:
+        """An approval or answer someone gave (for the weekly recap)."""
+        with self._lock:
+            session = self.engine.session(key) or {}
+        parts = key.split("|")
+        try:
+            self.store.insert_agent_decision(
+                key=key, agent=session.get("agent") or (parts[1] if len(parts) > 1 else None),
+                project=session.get("project"), kind=kind, decision=decision, at=self._clock())
+        except Exception:  # noqa: BLE001
+            log.debug("agent decision record failed", exc_info=True)
+
     def sweep(self) -> list:
         with self._lock:
             effects = self.engine.sweep()

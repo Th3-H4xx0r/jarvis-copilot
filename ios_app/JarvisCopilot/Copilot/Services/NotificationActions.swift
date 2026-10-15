@@ -25,6 +25,8 @@ struct NotificationAction: Equatable, Sendable {
     var sessionID: String = ""
     /// The hook-tracked agent session (engine key) an agent push is about.
     var agentKey: String = ""
+    /// The push's `type` (e.g. `agents_recap` for Monday's weekly recap).
+    var kind: String = ""
     /// The typed text on a `reply`; empty otherwise.
     var text: String = ""
     /// The deferred-skill payload written by `notificationActionPayload`, when
@@ -67,6 +69,7 @@ struct NotificationAction: Equatable, Sendable {
             requestID: (envelope["request_id"] as? String) ?? "",
             sessionID: (envelope["session_id"] as? String) ?? "",
             agentKey: (envelope["agent_key"] as? String) ?? "",
+            kind: (envelope["type"] as? String) ?? "",
             text: verdict == .reply ? userText : "",
             deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String)
     }
@@ -151,7 +154,9 @@ final class NotificationActionHandler {
         case .open:
             // Tapping the banner body of a permission prompt should land on the
             // session that asked. The in-app card takes it from there.
-            if !action.agentKey.isEmpty {
+            if action.kind == "agents_recap" {
+                router.open(.agentsRecap)
+            } else if !action.agentKey.isEmpty {
                 router.open(.agents(key: action.agentKey))
             } else if !action.sessionID.isEmpty {
                 router.open(.coding(session: action.sessionID))

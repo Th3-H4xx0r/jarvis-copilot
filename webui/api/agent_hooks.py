@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import threading
 
 from agent.agent_tracking import AgentTracker, set_tracker, tracker
@@ -199,6 +200,20 @@ def on_agent_pending(device_id, data) -> None:
                             "project": project, "can_always": bool(data.get("can_always"))})
 
 
+_COUNTED_DECISIONS = {"allow", "always", "deny", "answer"}
+
+
+def _settled_key(device_id, data) -> str:
+    """The tracker's key for a settled request. The arbiter names the session by
+    its own engine's key (``local|<agent>|<session>``); the server keys the same
+    session by the device it came from."""
+    parts = str(data.get("key") or "").split("|", 2)
+    if len(parts) == 3 and parts[2]:
+        from agent.agent_engine_shim import session_key
+        return session_key(device_id or "server", parts[1], parts[2], "")
+    return _server_key(device_id, data)
+
+
 def on_agent_settled(device_id, data) -> None:
     from api import coding_permission as cp
     if not isinstance(data, dict) or not data.get("fingerprint"):
@@ -206,7 +221,31 @@ def on_agent_settled(device_id, data) -> None:
     cp.drop_by_fingerprint(str(data["fingerprint"]), device_id or None)
     tr = tracker()
     if tr is not None:
-        tr.settle(_server_key(device_id, data), str(data["fingerprint"]))
+        key = _settled_key(device_id, data)
+        tr.settle(key, str(data["fingerprint"]))
+        decision = str(data.get("decision") or "")
+        if decision in _COUNTED_DECISIONS and data.get("reason") == "decided":
+            tr.record_decision(key, str(data.get("kind") or "permission"), decision)
+
+
+def maybe_send_recap(store, now: float, push=None) -> bool:
+    """Monday's recap notification: once a week, and only for a week with work in it."""
+    from agent import agent_recap
+    last = store.get_setting("agents_recap_sent")
+    if not agent_recap.recap_due(now, last if isinstance(last, (int, float)) else None):
+        return False
+    since = now - agent_recap.WEEK
+    recap = agent_recap.build_recap(store.list_agent_turns(since=since),
+                                    store.list_agent_decisions(since=since), now=now)
+    store.set_setting("agents_recap_sent", now)
+    line = agent_recap.summary_line(recap)
+    if not line:
+        return False
+    if push is None:
+        from api.coding_routes import _push_device_alert
+        push = _push_device_alert
+    push("Your week with the agents", line, {"type": "agents_recap"})
+    return True
 
 
 def on_agent_hello(device_id, _data=None) -> None:
@@ -298,6 +337,10 @@ def start(store) -> None:
                 tr.sweep()
             except Exception:  # noqa: BLE001
                 log.debug("agent tracker sweep failed", exc_info=True)
+            try:
+                maybe_send_recap(store, time.time())
+            except Exception:  # noqa: BLE001
+                log.debug("agent recap push failed", exc_info=True)
 
     threading.Thread(target=sweep_loop, daemon=True, name="agent-sweep").start()
 

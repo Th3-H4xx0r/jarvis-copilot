@@ -15,6 +15,8 @@ enum AppDeepLink: Equatable, Sendable {
     /// `jarviscopilot://agents[?key=<engine key>]` — the Agents tab, opened on
     /// one session (an approval / question / finished push lands here).
     case agents(key: String?)
+    /// `jarviscopilot://agents/recap` — the week's recap (Monday's notification).
+    case agentsRecap
     /// `jarviscopilot://island` — a custom-design Live Activity tap. Bring the
     /// app forward and show the designs screen.
     case island
@@ -38,6 +40,7 @@ enum AppDeepLink: Equatable, Sendable {
         case "coding":
             return .coding(session: query(url, "session"))
         case "agents":
+            if url.path.lowercased() == "/recap" { return .agentsRecap }
             return .agents(key: query(url, "key"))
         case "island", "designs":
             return .island
@@ -130,6 +133,10 @@ struct AppDeepLinkRouter {
         case .agents(let key):
             router.selectedTab = .agents
             if let key { AgentsStore.shared.requestOpen(key) }
+            return true
+        case .agentsRecap:
+            router.selectedTab = .agents
+            AgentsStore.shared.requestRecap()
             return true
         case .island:
             // The designs screen lives behind More; the tab is as far as this

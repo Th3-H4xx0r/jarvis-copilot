@@ -324,3 +324,50 @@ struct AgentPlanUsage: Equatable {
         if fiveHour == nil && sevenDay == nil { return nil }
     }
 }
+
+/// The week's recap (`GET /api/coding/agents/recap`, built by agent/agent_recap.py):
+/// time with overlapping turns counted once, and what the agents got done.
+struct AgentRecap: Equatable {
+    let minutes: Int
+    let sessions: Int
+    let files: Int
+    let added: Int
+    let removed: Int
+    let commands: Int
+    let approved: Int
+    let denied: Int
+    let answered: Int
+    let topAgent: String?
+    let topProject: String?
+    let busiestDay: String?
+    let busiestMinutes: Int
+    let longest: String?
+    let summary: String?
+
+    var isEmpty: Bool { minutes == 0 }
+    var time: String { Self.duration(minutes) }
+
+    init(json: [String: Any]) {
+        func int(_ k: String) -> Int { Int(CodingJSON.double(json[k]) ?? 0) }
+        minutes = int("minutes"); sessions = int("sessions"); files = int("files")
+        added = int("added"); removed = int("removed"); commands = int("commands")
+        approved = int("approved"); denied = int("denied"); answered = int("answered")
+        topAgent = (CodingJSON.dict(json["top_agent"])?["agent"] as? String).map(AgentNames.display)
+        topProject = CodingJSON.dict(json["top_project"])?["project"] as? String
+        let day = CodingJSON.dict(json["busiest_day"])
+        busiestDay = day?["weekday"] as? String
+        busiestMinutes = Int(CodingJSON.double(day?["minutes"]) ?? 0)
+        if let l = CodingJSON.dict(json["longest_session"]), let project = l["project"] as? String {
+            longest = "\(project) · \(Self.duration(Int(CodingJSON.double(l["minutes"]) ?? 0)))"
+        } else {
+            longest = nil
+        }
+        summary = json["summary"] as? String
+    }
+
+    static func duration(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        return h > 0 ? "\(h)h" : "\(m)m"
+    }
+}

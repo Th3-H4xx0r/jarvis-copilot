@@ -169,3 +169,70 @@ def test_history_lists_recent_turns_newest_first(env):
     status, body = call("GET", "/agents/history", mgr=mgr)
     assert status == 200
     assert [t["project"] for t in body["turns"]] == ["b", "a"]
+
+
+def _pending_session(tr):
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", prompt="clean"))
+    tr.ingest("d1", "permission", "claude", ev("PermissionRequest", tool_name="Bash", tool_use_id="t1",
+                                               tool_input={"command": "rm -rf build"}))
+    return tr.sessions()[0]["pending"]["fingerprint"]
+
+
+def test_settled_on_the_mac_clears_the_server_copy_and_logs_the_decision(env):
+    from api import agent_hooks
+    store, tr, _, _ = env
+    fp = _pending_session(tr)
+    agent_hooks.on_agent_settled("d1", {"fingerprint": fp, "key": "local|claude|s1",
+                                        "kind": "permission", "reason": "decided", "decision": "allow"})
+    assert tr.sessions()[0]["pending"] is None
+    logged = store.list_agent_decisions(since=0)
+    assert [(d["kind"], d["decision"], d["agent"], d["project"]) for d in logged] == [
+        ("permission", "allow", "claude", "app")]
+
+
+def test_a_timeout_is_not_counted_as_a_decision(env):
+    from api import agent_hooks
+    store, tr, _, _ = env
+    fp = _pending_session(tr)
+    agent_hooks.on_agent_settled("d1", {"fingerprint": fp, "key": "local|claude|s1",
+                                        "kind": "permission", "reason": "timeout", "decision": "ask"})
+    assert store.list_agent_decisions(since=0) == []
+
+
+def test_recap_route_counts_the_week(env):
+    import time as _t
+    store, tr, mgr, _ = env
+    now = _t.time()
+    store.insert_agent_turn(key="d1|claude|s1", agent="claude", project="app",
+                            started_at=now - 7200, ended_at=now - 3600, files=2, added=5)
+    store.insert_agent_decision(key="d1|claude|s1", agent="claude", project="app",
+                                kind="permission", decision="deny", at=now - 3000)
+    status, body = call("GET", "/agents/recap?days=7&tz=-300", mgr=mgr)
+    assert status == 200
+    assert body["minutes"] == 60 and body["files"] == 2 and body["denied"] == 1
+    assert body["summary"].startswith("1h of agent time")
+
+
+def test_monday_recap_push_goes_out_once(env, monkeypatch):
+    from api import agent_hooks
+    from agent import agent_recap
+    store, _, _, _ = env
+    pushes = []
+    monday_2pm = 1_791_158_400.0 + 14 * 3600
+    store.insert_agent_turn(key="k", agent="claude", project="app",
+                            started_at=monday_2pm - 86400, ended_at=monday_2pm - 86400 + 1800)
+    assert agent_hooks.maybe_send_recap(store, monday_2pm,
+                                        push=lambda t, b, d: pushes.append((t, b, d)) or 1) is True
+    assert pushes[0][2] == {"type": "agents_recap"}
+    assert "30m of agent time" in pushes[0][1]
+    assert agent_hooks.maybe_send_recap(store, monday_2pm + 60, push=lambda *a: pushes.append(a)) is False
+    assert len(pushes) == 1
+
+
+def test_a_quiet_week_sends_nothing(env):
+    from api import agent_hooks
+    store, _, _, _ = env
+    sent = []
+    assert agent_hooks.maybe_send_recap(store, 1_791_158_400.0 + 14 * 3600,
+                                        push=lambda *a: sent.append(a)) is False
+    assert sent == []

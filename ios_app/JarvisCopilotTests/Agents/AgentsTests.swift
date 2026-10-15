@@ -200,6 +200,51 @@ final class AgentsTests: XCTestCase {
         XCTAssertEqual(AppDeepLink.parse(URL(string: "jarviscopilot://agents")!), .agents(key: nil))
     }
 
+    func testDeepLinkParsesTheRecap() {
+        XCTAssertEqual(AppDeepLink.parse(URL(string: "jarviscopilot://agents/recap")!), .agentsRecap)
+    }
+
+    func testTheMondayRecapNotificationOpensTheRecap() {
+        let a = NotificationAction.decode(actionIdentifier: "com.apple.UNNotificationDefaultActionIdentifier",
+                                          userInfo: ["jarviscopilot": ["type": "agents_recap"]])
+        XCTAssertEqual(a.verdict, .open)
+        XCTAssertEqual(a.kind, "agents_recap")
+    }
+
+    func testRecapDecodesAndFormats() {
+        let r = AgentRecap(json: [
+            "minutes": 135, "sessions": 4, "files": 12, "added": 340, "removed": 51, "commands": 30,
+            "approved": 6, "denied": 1, "answered": 2,
+            "top_agent": ["agent": "codex", "minutes": 90], "top_project": ["project": "storefront", "minutes": 80],
+            "busiest_day": ["date": "2026-10-06", "weekday": "Tuesday", "minutes": 70],
+            "longest_session": ["key": "k", "project": "api", "agent": "claude", "minutes": 50],
+            "summary": "2h 15m of agent time · 4 sessions",
+        ])
+        XCTAssertEqual(r.time, "2h 15m")
+        XCTAssertEqual(r.topAgent, "Codex")
+        XCTAssertEqual(r.topProject, "storefront")
+        XCTAssertEqual(r.busiestDay, "Tuesday")
+        XCTAssertEqual(r.longest, "api · 50m")
+        XCTAssertFalse(r.isEmpty)
+        XCTAssertTrue(AgentRecap(json: [:]).isEmpty)
+        XCTAssertEqual(AgentRecap.duration(45), "45m")
+        XCTAssertEqual(AgentRecap.duration(120), "2h")
+    }
+
+    func testRecapFetchSendsTheTimezoneAndTheRequestIsLatched() async throws {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/recap", json: ["minutes": 60, "sessions": 1])
+        let api = AgentsAPI(api: client)
+        let r = try await api.recap(days: 7, timeZone: TimeZone(secondsFromGMT: -5 * 3600)!)
+        XCTAssertEqual(r.minutes, 60)
+        let url = transport.requests.last?.url?.absoluteString ?? ""
+        XCTAssertTrue(url.contains("days=7") && url.contains("tz=-300"), url)
+        let store = AgentsStore(api: api, topics: BridgeTopics())
+        store.requestRecap()
+        XCTAssertTrue(store.consumeRecap())
+        XCTAssertFalse(store.consumeRecap())
+    }
+
     func testNotificationDecodesAlwaysAndTheAgentKey() {
         let a = NotificationAction.decode(actionIdentifier: NotificationAction.Identifier.always,
                                           userInfo: ["jarviscopilot": ["request_id": "r1", "agent_key": "k1"]])

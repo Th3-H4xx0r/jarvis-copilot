@@ -140,6 +140,23 @@ final class JarvisMacLogicTests: XCTestCase {
         XCTAssertNil(MacPending(json: ["kind": "permission"]))
     }
 
+    // MARK: recap
+
+    func testRecapDecodesAndFormats() {
+        let r = MacRecap(json: ["minutes": 135, "sessions": 4, "files": 12, "added": 340, "removed": 51,
+                                "commands": 30, "approved": 6, "denied": 1, "answered": 2,
+                                "top_agent": ["agent": "codex", "minutes": 90],
+                                "top_project": ["project": "storefront", "minutes": 80],
+                                "busiest_day": ["weekday": "Tuesday", "minutes": 70],
+                                "longest_session": ["project": "api", "minutes": 50]])
+        XCTAssertEqual(r.time, "2h 15m")
+        XCTAssertEqual(r.highlights.map(\.value), ["Codex", "storefront", "Tuesday · 1h 10m", "api · 50m"])
+        XCTAssertFalse(r.isEmpty)
+        XCTAssertTrue(MacRecap(json: [:]).isEmpty)
+        XCTAssertEqual(MacRecap.recapURL(origin: "http://127.0.0.1:5", tzMinutes: -300)?.absoluteString,
+                       "http://127.0.0.1:5/api/coding/agents/recap?days=7&tz=-300")
+    }
+
     // MARK: terminal
 
     func testTerminalPickPrefersTheSessionsOwnApp() {

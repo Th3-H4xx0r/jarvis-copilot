@@ -26,6 +26,8 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      # The one accent colour, shared with the iPhone app and the voice dylib.
+      - path: ../../ios_app/JarvisCopilot/Copilot/Shared/JcAccent.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac

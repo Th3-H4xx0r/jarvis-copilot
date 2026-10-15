@@ -7,6 +7,7 @@ Agents tab and the Mac island. Mounted inside the coding dispatcher
     POST /agents/instruction {key, text}
                                       -> {ok, via: "terminal"|"resume"}
     GET  /agents/usage                -> {claude, codex}
+    GET  /agents/recap?days=7&tz=-300 -> the week's numbers (agent/agent_recap.py)
 """
 from __future__ import annotations
 
@@ -75,12 +76,36 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
         import time as _time
         manager.store.set_setting("agents_focus", {"only_waiting": only, "at": _time.time()})
         return _ok({"ok": True, "only_waiting": only})
+    if p == "/agents/recap" and method == "GET":
+        return _recap(manager.store, query)
     if p == "/agents/history" and method == "GET":
         import time as _time
         turns = manager.store.list_agent_turns(since=_time.time() - 7 * 86400)
         turns.sort(key=lambda t: t.get("ended_at") or 0, reverse=True)
         return _ok({"turns": turns[:200]})
     return _err(404, "not found")
+
+
+def _recap(store, query):
+    import time as _time
+    from agent import agent_recap
+
+    def num(name, default, lo, hi):
+        try:
+            v = int((query or {}).get(name, default))
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, v))
+
+    days = num("days", 7, 1, 31)
+    tz = num("tz", 0, -14 * 60, 14 * 60)
+    now = _time.time()
+    since = now - days * 86400
+    recap = agent_recap.build_recap(store.list_agent_turns(since=since),
+                                    store.list_agent_decisions(since=since),
+                                    now=now, days=days, tz_offset_min=tz)
+    recap["summary"] = agent_recap.summary_line(recap)
+    return _ok(recap)
 
 
 def _decide(body):

@@ -7,6 +7,7 @@ struct AgentsPage: View {
     var store: AgentsStore = .shared
     @Environment(AppRouter.self) private var router
     @State private var path: [String] = []
+    @State private var showRecap = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -52,6 +53,12 @@ struct AgentsPage: View {
                     }
                     .accessibilityLabel("History")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showRecap = true } label: {
+                        JcIcon("chart.bar.xaxis", size: 17)
+                    }
+                    .accessibilityLabel("This week's recap")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         router.openMore(.coding)
@@ -65,6 +72,12 @@ struct AgentsPage: View {
         .onTabVisibilityChange(.agents) { store.setVisible($0) }
         .onChange(of: store.openRequest, initial: true) { _, _ in
             if let key = store.consumeOpen() { path = [key] }
+        }
+        .onChange(of: store.recapRequested, initial: true) { _, _ in
+            if store.consumeRecap() { showRecap = true }
+        }
+        .sheet(isPresented: $showRecap) {
+            AgentsRecapView(api: store.api)
         }
     }
 

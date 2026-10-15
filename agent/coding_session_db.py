@@ -87,6 +87,12 @@ CREATE TABLE IF NOT EXISTS agent_turns (
   outcome TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_agent_turns_ended ON agent_turns(ended_at);
+-- Approvals and answers given to agents (island, phone, Live Activity), for the recap.
+CREATE TABLE IF NOT EXISTS agent_decisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, agent TEXT, project TEXT,
+  kind TEXT NOT NULL, decision TEXT NOT NULL, at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_at ON agent_decisions(at);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -393,6 +399,18 @@ class CodingSessionStore:
             args.append(until)
         with self._conn() as c:
             return [dict(r) for r in c.execute(q + " ORDER BY started_at ASC", args).fetchall()]
+
+    def insert_agent_decision(self, *, key: str, agent, project, kind: str, decision: str,
+                              at: float | None = None) -> None:
+        with self._conn() as c:
+            c.execute("INSERT INTO agent_decisions(key, agent, project, kind, decision, at) "
+                      "VALUES(?,?,?,?,?,?)",
+                      (key, agent, project, kind, decision, time.time() if at is None else at))
+
+    def list_agent_decisions(self, *, since: float) -> list[dict]:
+        with self._conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM agent_decisions WHERE at>=? ORDER BY at ASC", (since,)).fetchall()]
 
     # --- transcript chat cache ----------------------------------------------
 

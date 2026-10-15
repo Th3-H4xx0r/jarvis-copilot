@@ -95,7 +95,9 @@ struct MacSession: Identifiable, Equatable {
     let files: [MacFile]
     var id: String { key }
 
-    var agentName: String {
+    var agentName: String { Self.displayName(agent) }
+
+    static func displayName(_ agent: String) -> String {
         switch agent {
         case "claude": return "Claude Code"
         case "claude-desktop": return "Claude Desktop"
@@ -211,5 +213,52 @@ struct MacPlanUsage: Equatable {
         fiveHour = pct(limits["five_hour"])
         sevenDay = pct(limits["seven_day"])
         if fiveHour == nil && sevenDay == nil { return nil }
+    }
+}
+
+/// The week's recap from the server (`/api/coding/agents/recap`, agent/agent_recap.py).
+struct MacRecap: Equatable {
+    struct Highlight: Equatable { let icon: String; let label: String; let value: String }
+
+    let minutes: Int
+    let sessions: Int
+    let files: Int
+    let added: Int
+    let removed: Int
+    let commands: Int
+    let approved: Int
+    let denied: Int
+    let answered: Int
+    let highlights: [Highlight]
+
+    var isEmpty: Bool { minutes == 0 }
+    var time: String { Self.duration(minutes) }
+
+    init(json: [String: Any]) {
+        minutes = J.i(json["minutes"]); sessions = J.i(json["sessions"]); files = J.i(json["files"])
+        added = J.i(json["added"]); removed = J.i(json["removed"]); commands = J.i(json["commands"])
+        approved = J.i(json["approved"]); denied = J.i(json["denied"]); answered = J.i(json["answered"])
+        var h: [Highlight] = []
+        let agent = J.obj(json["top_agent"]), project = J.obj(json["top_project"])
+        let day = J.obj(json["busiest_day"]), longest = J.obj(json["longest_session"])
+        if let a = agent["agent"] as? String { h.append(.init(icon: "sparkles", label: "Top agent", value: MacSession.displayName(a))) }
+        if let p = project["project"] as? String { h.append(.init(icon: "folder", label: "Top project", value: p)) }
+        if let d = day["weekday"] as? String {
+            h.append(.init(icon: "calendar", label: "Busiest day", value: "\(d) · \(Self.duration(J.i(day["minutes"])))"))
+        }
+        if let p = longest["project"] as? String {
+            h.append(.init(icon: "timer", label: "Longest session", value: "\(p) · \(Self.duration(J.i(longest["minutes"])))"))
+        }
+        highlights = h
+    }
+
+    static func duration(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        return h > 0 ? "\(h)h" : "\(m)m"
+    }
+
+    static func recapURL(origin: String, tzMinutes: Int = TimeZone.current.secondsFromGMT() / 60) -> URL? {
+        URL(string: "\(origin)/api/coding/agents/recap?days=7&tz=\(tzMinutes)")
     }
 }

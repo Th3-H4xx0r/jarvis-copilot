@@ -24,7 +24,7 @@ final class AgentsStore {
     /// A session a push tap or deep link asked to show, latched until the tab takes it.
     private(set) var openRequest: String?
 
-    @ObservationIgnored private let api: AgentsAPI
+    @ObservationIgnored let api: AgentsAPI
     @ObservationIgnored private let topics: BridgeTopics
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var listening = false
@@ -45,6 +45,16 @@ final class AgentsStore {
     func session(key: String) -> AgentSessionItem? { sessions.first { $0.key == key } }
 
     func requestOpen(_ key: String) { openRequest = key }
+
+    /// The weekly recap was asked for (Monday's notification, a deep link).
+    private(set) var recapRequested = false
+
+    func requestRecap() { recapRequested = true }
+
+    func consumeRecap() -> Bool {
+        defer { recapRequested = false }
+        return recapRequested
+    }
 
     func consumeOpen() -> String? {
         defer { openRequest = nil }

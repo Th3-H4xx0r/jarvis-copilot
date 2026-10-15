@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBar = MenuBarController(model: model, island: island)
         menuBar.onSettings = { [weak self] in self.map { SettingsWindow.show(model: $0.model) } }
         menuBar.onDemo = { [weak self] in self.map { DemoEngine.run(model: $0.model, island: island) } }
-        menuBar.onRecap = { island.attention() }
+        menuBar.onRecap = { [weak self] in self.map { RecapWindow.show(model: $0.model) } }
         self.menuBar = menuBar
         desktopOrb = DesktopOrbController(model: model, island: island)
 
