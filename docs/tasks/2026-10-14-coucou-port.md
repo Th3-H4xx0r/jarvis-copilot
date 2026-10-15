@@ -31,6 +31,14 @@ end and push to all devices after this". A box is ticked only once it is live.
 11. [x] Parallel bug sweep, deploy server + Mac + iPhone, live end-to-end check
    - ✅ Two sweeps (server/client + Swift): 1 Critical + 20 Important fixed with tests. Live on 2026-10-15: server, jc-client, Jarvis.app, iPhone. Checked live: a real Claude run tracked to the server, an approval from the island path, one from the phone path, Jarvis's own chat on the island.
 
+## Follow-ups (2026-10-15, from Pranav on the phone and Mac)
+12. [ ] Phone messages reach the live Mac session: handed over when it finishes its current step (any terminal), typed in when it's idle in tmux/iTerm; never a background `claude --resume` copy (one forked this conversation and acted on its own)
+13. [ ] Messages to a Jarvis agent go into that Jarvis chat (not "no terminal or Mac")
+14. [ ] Stop the notification spam: the Mac still runs plugin 0.6.5 (old coding_event/pretool hooks on top of the new hooks); "finished" pushes only when worth it
+15. [ ] The notch island is always there (it vanished when idle), slim, with the orb inside its ear
+16. [ ] The open island cuts off the session row at the bottom
+17. [x] Instructions-from-phone switch (iPhone + web), Agents tab redesign, real orb, old tray menu items, click-outside folds — shipped 2026-10-15
+
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
 
