@@ -20,6 +20,8 @@ final class AppModel {
     private(set) var sessions: [MacSession] = []
     private(set) var pending: [MacPending] = []
     private(set) var usage: MacPlanUsage?
+    /// Codex's limits (jc-client reads them from `codex app-server` every 5 min).
+    private(set) var codexUsage: MacPlanUsage?
     private(set) var services: [[String: Any]] = []
     private(set) var portfolio: [String: Any] = [:]
     /// The session that just finished or failed, shown for a few seconds.
@@ -73,7 +75,9 @@ final class AppModel {
             pending = next
             if fresh { onMoment?(.needsYou, sessions.first { s in next.contains { $0.key == s.key } }) }
         case "usage":
-            if let u = MacPlanUsage(json: msg) { usage = u }
+            if let u = MacPlanUsage(json: msg) {
+                if J.s(msg["agent"]) == "codex" { codexUsage = u } else { usage = u }
+            }
         case "config":
             approvalsOn = J.b(msg["approvals"])
             instructionsOn = J.b(msg["instructions"])

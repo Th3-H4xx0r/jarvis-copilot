@@ -136,6 +136,10 @@ private struct ExpandedIsland: View {
                 UsagePill(label: "5h", pct: u.fiveHour)
                 UsagePill(label: "wk", pct: u.sevenDay)
             }
+            if let c = model.codexUsage {
+                UsagePill(label: "Codex", pct: c.fiveHour ?? c.sevenDay)
+                    .help("Codex plan: \(c.fiveHour.map { "5h \($0)%, " } ?? "")week \(c.sevenDay.map { "\($0)%" } ?? "–")")
+            }
             Button { TerminalTarget.activate(session: model.selected) } label: {
                 Image(systemName: "terminal").font(.system(size: 13, weight: .semibold))
             }

@@ -134,6 +134,16 @@ class Service:
 
     # ── the Jarvis Mac app (ui.sock) ──────────────────────────────────
 
+    def _codex_usage(self, usage: dict) -> None:
+        """Codex's limits (plan_usage.CodexPoller): up to the server and to the Mac app."""
+        payload = {"rate_limits": {k: usage.get(k) for k in ("five_hour", "seven_day") if usage.get(k)}}
+        if usage.get("plan"):
+            payload["plan"] = usage["plan"]
+        self._forward_up({"type": "event", "name": "agent_hook",
+                          "data": {"kind": "statusline", "agent": "codex", "payload": payload,
+                                   "ts": time.time()}})
+        self._ui_broadcast({"type": "usage", "agent": "codex", **payload})
+
     def _ui_broadcast(self, message: dict) -> None:
         ui = self._ui
         if ui is not None:
@@ -289,6 +299,9 @@ class Service:
                                 on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}))
             server.start()
             self._hook_server = server
+            from jc_client.plan_usage import CodexPoller
+            self._codex_poller = CodexPoller(self._codex_usage)
+            self._codex_poller.start()
             from jc_client.ui_server import UiServer
             ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
             ui.start()
@@ -298,6 +311,9 @@ class Service:
             self._hook_server = None
 
     def stop_agent_hooks(self) -> None:
+        poller, self._codex_poller = getattr(self, "_codex_poller", None), None
+        if poller is not None:
+            poller.stop()
         server, self._hook_server = self._hook_server, None
         if server is not None:
             server.close()

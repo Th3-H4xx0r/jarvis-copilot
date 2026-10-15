@@ -77,6 +77,11 @@ struct AgentsPage: View {
                 Text("\(store.sessions.count) session\(store.sessions.count == 1 ? "" : "s")")
                     .font(.system(size: 13))
                     .foregroundStyle(JcTheme.muted)
+                if let codex = store.codexUsage, let line = AgentPlanRings.codexLine(codex) {
+                    Text(line)
+                        .font(.system(size: 12))
+                        .foregroundStyle(JcTheme.muted)
+                }
             }
             Spacer()
             if let usage = store.usage {
@@ -162,6 +167,14 @@ struct AgentRow: View {
 /// The Claude plan's two limits: 5 hours (inner) and the week (outer).
 struct AgentPlanRings: View {
     let usage: AgentPlanUsage
+
+    /// "Codex · 5h 12% · week 40%", with only the windows Codex reports.
+    static func codexLine(_ u: AgentPlanUsage) -> String? {
+        var parts: [String] = []
+        if let w = u.fiveHour { parts.append("5h \(w.percent)%") }
+        if let w = u.sevenDay { parts.append("week \(w.percent)%") }
+        return parts.isEmpty ? nil : (["Codex"] + parts).joined(separator: " · ")
+    }
 
     var body: some View {
         HStack(spacing: 10) {

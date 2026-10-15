@@ -67,7 +67,7 @@ class AgentTracker:
         self._devices: dict[str, Optional[str]] = {}  # engine key -> device_id
         self._last_hook: dict[str, float] = {}
         self._persisted: dict[str, float] = {}
-        self._usage: Optional[dict] = None
+        self._usage: dict = {}  # agent -> plan usage (claude from the status line, codex from app-server)
         self._restore()
 
     # ── reading ──────────────────────────────────────────────────────────
@@ -100,16 +100,17 @@ class AgentTracker:
                     return True
         return False
 
-    def usage(self) -> Optional[dict]:
+    def usage(self, agent: str = "claude") -> Optional[dict]:
         with self._lock:
-            return dict(self._usage) if self._usage else None
+            u = self._usage.get(agent)
+            return dict(u) if u else None
 
     # ── writing ──────────────────────────────────────────────────────────
     def ingest(self, device_id: Optional[str], kind: str, agent: str, payload: dict) -> list:
         if not isinstance(payload, dict):
             return []
         if kind == "statusline":
-            self._take_usage(device_id, payload)
+            self._take_usage(device_id, payload, agent)
             return []
         host = device_id or "server"
         now = self._clock()
@@ -360,14 +361,16 @@ class AgentTracker:
         except Exception:  # noqa: BLE001
             log.debug("agent turn record failed", exc_info=True)
 
-    def _take_usage(self, device_id, payload) -> None:
+    def _take_usage(self, device_id, payload, agent: str = "claude") -> None:
         limits = payload.get("rate_limits")
         if not isinstance(limits, dict) or not limits:
             return
+        u = {"five_hour": limits.get("five_hour"), "seven_day": limits.get("seven_day"),
+             "source": device_id or "server", "updated_at": self._clock()}
+        if isinstance(payload.get("plan"), str):
+            u["plan"] = payload["plan"]
         with self._lock:
-            self._usage = {"five_hour": limits.get("five_hour"),
-                           "seven_day": limits.get("seven_day"),
-                           "source": device_id or "server", "updated_at": self._clock()}
+            self._usage[agent or "claude"] = u
 
     def _compact(self, s: dict) -> dict:
         turn = s.get("turn") or {}

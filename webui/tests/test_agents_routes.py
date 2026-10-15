@@ -64,6 +64,13 @@ def test_sessions_lists_tracked_sessions_with_pending_and_usage(env):
     assert body["sessions"][0]["state"] == "thinking"
     assert body["usage"]["five_hour"]["used_percentage"] == 30
     assert body["pending"] == []
+    assert body["usage_codex"] is None
+    tr.ingest("d1", "statusline", "codex", {"rate_limits": {
+        "seven_day": {"used_percentage": 3, "resets_at": 9e9}}})
+    _, body = call("GET", "/agents/sessions", mgr=mgr)
+    assert body["usage_codex"]["seven_day"]["used_percentage"] == 3
+    _, usage = call("GET", "/agents/usage", mgr=mgr)
+    assert usage["codex"]["seven_day"]["used_percentage"] == 3
 
 
 def test_session_detail_has_the_whole_turn(env):

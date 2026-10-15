@@ -6,7 +6,7 @@ Agents tab and the Mac island. Mounted inside the coding dispatcher
     GET  /agents/session?key=<key>    -> {session} (steps, last turn, diffs)
     POST /agents/instruction {key, text}
                                       -> {ok, via: "terminal"|"resume"}
-    GET  /agents/usage                -> {claude, source}
+    GET  /agents/usage                -> {claude, codex}
 """
 from __future__ import annotations
 
@@ -56,6 +56,7 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
     if p == "/agents/sessions" and method == "GET":
         return _ok({"sessions": tr.sessions() if tr else [],
                     "usage": tr.usage() if tr else None,
+                    "usage_codex": tr.usage("codex") if tr else None,
                     "pending": _pending()})
     if p == "/agents/session" and method == "GET":
         key = (query.get("key") or "").strip()
@@ -64,7 +65,7 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
             return _err(404, "no such agent session")
         return _ok({"session": session})
     if p == "/agents/usage" and method == "GET":
-        return _ok({"claude": tr.usage() if tr else None})
+        return _ok({"claude": tr.usage() if tr else None, "codex": tr.usage("codex") if tr else None})
     if p == "/agents/instruction" and method == "POST":
         return _instruction(tr, body, manager, manager_for_host)
     if p == "/agents/decide" and method == "POST":

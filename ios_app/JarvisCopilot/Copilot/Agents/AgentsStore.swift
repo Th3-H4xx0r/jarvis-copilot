@@ -17,6 +17,8 @@ final class AgentsStore {
     private(set) var sessions: [AgentSessionItem] = []
     private(set) var requests: [AgentRequest] = []
     private(set) var usage: AgentPlanUsage?
+    /// Codex's plan limits, read from `codex app-server` on the Mac.
+    private(set) var codexUsage: AgentPlanUsage?
     private(set) var loadError: String?
     private(set) var loaded = false
     /// A session a push tap or deep link asked to show, latched until the tab takes it.
@@ -82,6 +84,7 @@ final class AgentsStore {
             requests = overview.requests
             AgentsSpotlight.index(sessions)
             usage = overview.usage ?? usage
+            codexUsage = overview.codexUsage ?? codexUsage
             loadError = nil
         } catch {
             loadError = apiErrorMessage(error)

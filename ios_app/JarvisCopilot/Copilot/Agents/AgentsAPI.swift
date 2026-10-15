@@ -12,14 +12,16 @@ struct AgentsAPI {
         let sessions: [AgentSessionItem]
         let requests: [AgentRequest]
         let usage: AgentPlanUsage?
+        var codexUsage: AgentPlanUsage? = nil
     }
 
-    /// `GET /api/coding/agents/sessions` → `{sessions, pending, usage}`.
+    /// `GET /api/coding/agents/sessions` → `{sessions, pending, usage, usage_codex}`.
     func overview() async throws -> Overview {
         let body = try await api.get("/api/coding/agents/sessions").object()
         return Overview(sessions: CodingJSON.maps(body["sessions"]).map(AgentSessionItem.init(json:)),
                         requests: ((body["pending"] as? [Any]) ?? []).compactMap(AgentRequest.from),
-                        usage: AgentPlanUsage(json: CodingJSON.dict(body["usage"])))
+                        usage: AgentPlanUsage(json: CodingJSON.dict(body["usage"])),
+                        codexUsage: AgentPlanUsage(json: CodingJSON.dict(body["usage_codex"])))
     }
 
     /// `GET /api/coding/agents/session?key=` → `{session}` with its last turn.

@@ -89,6 +89,11 @@ final class AgentsTests: XCTestCase {
         XCTAssertNil(AgentPlanUsage(json: [:]))
     }
 
+    func testCodexLineShowsOnlyTheWindowsCodexReports() {
+        let week = AgentPlanUsage(json: ["seven_day": ["used_percentage": 40, "resets_at": 4102444800.0]])!
+        XCTAssertEqual(AgentPlanRings.codexLine(week), "Codex · week 40%")
+    }
+
     // MARK: store
 
     func testRefreshLoadsSessionsRequestsAndUsage() async {
@@ -96,9 +101,12 @@ final class AgentsTests: XCTestCase {
         transport.route("/api/coding/agents/sessions", json: [
             "sessions": [item], "pending": [approval()],
             "usage": ["five_hour": ["used_percentage": 10, "resets_at": 4102444800.0]],
+            "usage_codex": ["seven_day": ["used_percentage": 64, "resets_at": 4102444800.0]],
         ])
         let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
         await store.refresh()
+        XCTAssertEqual(store.codexUsage?.sevenDay?.percent, 64)
+        XCTAssertNil(store.codexUsage?.fiveHour)
         XCTAssertEqual(store.sessions.map(\.key), ["d1|claude|s1"])
         XCTAssertEqual(store.requests.map(\.requestId), ["r1"])
         XCTAssertEqual(store.request(for: store.sessions[0])?.requestId, "r1")

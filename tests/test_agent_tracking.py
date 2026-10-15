@@ -189,6 +189,18 @@ def test_statusline_updates_usage(env):
     assert u["source"] == "d1"
 
 
+def test_codex_usage_is_kept_apart_from_claude(env):
+    _, tr, _, _ = env
+    tr.ingest("d1", "statusline", "claude", {"rate_limits": {
+        "five_hour": {"used_percentage": 40, "resets_at": 2_000_900}}})
+    tr.ingest("d1", "statusline", "codex", {"rate_limits": {
+        "seven_day": {"used_percentage": 12, "resets_at": 2_300_000}}, "plan": "plus"})
+    assert tr.usage()["five_hour"]["used_percentage"] == 40
+    codex = tr.usage("codex")
+    assert codex["seven_day"]["used_percentage"] == 12 and codex["plan"] == "plus"
+    assert codex["five_hour"] is None
+
+
 def test_jarvis_own_runs_show_but_never_notify_or_make_rows(env):
     """Jarvis already tells you about its own replies; its runs only appear live."""
     store, tr, calls, _ = env

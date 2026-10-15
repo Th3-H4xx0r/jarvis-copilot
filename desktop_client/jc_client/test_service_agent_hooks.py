@@ -28,8 +28,13 @@ def test_start_agent_hooks_is_idempotent(monkeypatch):
     d = tempfile.mkdtemp(dir="/tmp", prefix="jsv")
     try:
         monkeypatch.setattr(service, "_hook_socket_path", lambda: os.path.join(d, "hook.sock"))
+        monkeypatch.setattr(service, "_ui_socket_path", lambda: os.path.join(d, "ui.sock"))
+        from jc_client import plan_usage
+        polls = []
+        monkeypatch.setattr(plan_usage.CodexPoller, "start", lambda self: polls.append(self))
         svc = service.Service()
         svc.start_agent_hooks()
+        assert len(polls) == 1
         first = svc._hook_server
         svc.start_agent_hooks()
         assert svc._hook_server is first
