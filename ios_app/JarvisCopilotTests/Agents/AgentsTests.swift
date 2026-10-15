@@ -192,6 +192,65 @@ final class AgentsTests: XCTestCase {
         XCTAssertEqual(transport.lastBody()["key"] as? String, "k1")
     }
 
+    // MARK: sending from the phone (no Face ID: only approvals ask)
+
+    func testASentInstructionStaysOnScreenAsSent() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/instruction", json: ["ok": true, "via": "resume"])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.send("run the tests", to: "k1", prompts: ["fix it"])
+        XCTAssertEqual(store.outgoing(for: "k1").map(\.text), ["run the tests"])
+        XCTAssertEqual(store.outgoing(for: "k1").first?.phase, .sent(via: "resume"))
+        XCTAssertEqual(transport.lastBody()["text"] as? String, "run the tests")
+        XCTAssertEqual(transport.lastBody()["key"] as? String, "k1")
+        XCTAssertTrue(store.outgoing(for: "other").isEmpty)
+    }
+
+    func testAFailedSendSaysWhy() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/instruction",
+                        json: ["error": "turn on \"Instructions from the phone\""], status: 403)
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.send("go on", to: "k1", prompts: [])
+        XCTAssertEqual(store.outgoing(for: "k1").first?.phase, .failed(.phoneInstructionsOff))
+    }
+
+    func testRetryResendsTheSameBubble() async throws {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/instruction", json: ["error": "offline"], status: 503)
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.send("go on", to: "k1", prompts: [])
+        let id = try XCTUnwrap(store.outgoing(for: "k1").first?.id)
+        XCTAssertEqual(store.outgoing(for: "k1").first?.phase, .failed(.macOffline))
+        await store.retry(id, key: "k1")
+        XCTAssertEqual(store.outgoing(for: "k1").map(\.id), [id])
+        XCTAssertEqual(transport.requests.filter { $0.url?.path.contains("instruction") == true }.count, 2)
+    }
+
+    func testDeliveredInstructionsLeaveWhenTheConversationShowsThem() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/instruction", json: ["ok": true, "via": "terminal"])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.send("continue", to: "k1", prompts: ["continue"])
+        store.reconcileOutgoing(key: "k1", prompts: ["continue"])
+        XCTAssertEqual(store.outgoing(for: "k1").count, 1)
+        store.reconcileOutgoing(key: "k1", prompts: ["continue", "continue"])
+        XCTAssertTrue(store.outgoing(for: "k1").isEmpty)
+    }
+
+    func testTheWaitingCountMatchesTheList() async {
+        let (client, transport) = JarvisAPI.mocked()
+        var other = item
+        other["key"] = "d1|claude|s9"
+        transport.route("/api/coding/agents/sessions", json: [
+            "sessions": [item, other], "pending": [approval(), approval("r2", key: "gone")]])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.refresh()
+        // One row waits (its card) and one card has no row.
+        XCTAssertEqual(store.waitingCount, 2)
+        XCTAssertEqual(store.workingCount, 1)
+    }
+
     // MARK: notifications + deep links
 
     func testDeepLinkParsesAgents() {

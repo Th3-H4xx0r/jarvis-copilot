@@ -1,302 +1,324 @@
 import SwiftUI
 
-/// One agent session: what it's doing now, its last turn (the prompt, every
-/// action with its output, the files it changed with their diffs, its answer),
-/// and a box to send the next instruction. Refreshes when the session's hooks
-/// report something new (the store hears the `agents` push).
+/// One agent session as a conversation, laid out like the Claude app's Code
+/// sessions: your prompts on the right, the agent's words in plain Markdown,
+/// each tool call a quiet line, each changed file a card, a live row while it
+/// works, and whatever it waits on inline at the bottom. A slim top bar holds
+/// the title, a status pill and a ••• menu; the composer is fixed underneath.
+///
+/// The full Claude Code transcript when the session has one, else the agent's
+/// own last turn (`AgentTranscriptChoice`). Reloads when the session's hooks
+/// report something new — the store hears the `agents` push — so nothing polls.
 struct AgentSessionScreen: View {
     let key: String
     let store: AgentsStore
+    var navigate: (AgentsRoute) -> Void = { _ in }
+    var showRecap: () -> Void = {}
 
     @Environment(AppRouter.self) private var router
-    @State private var detail: AgentSessionDetail?
-    @State private var error: String?
-    @State private var draft = ""
-    @State private var sending = false
-    @State private var sent: String?
-    @State private var openFile: AgentFileDiff?
+    @State private var model: AgentSessionModel
+    @State private var fullDiff: AgentFileEdit?
+    @State private var copied = false
 
-    private var live: AgentSessionItem? { store.session(key: key) ?? detail?.item }
+    init(key: String, store: AgentsStore,
+         navigate: @escaping (AgentsRoute) -> Void = { _ in },
+         showRecap: @escaping () -> Void = {}) {
+        self.key = key
+        self.store = store
+        self.navigate = navigate
+        self.showRecap = showRecap
+        _model = State(initialValue: AgentSessionModel(key: key, agents: store.api))
+    }
+
+    private var live: AgentSessionItem? { store.session(key: key) ?? model.detail?.item }
+    private var request: AgentRequest? { store.requests.first { $0.key == key } }
+    private var state: AgentState { live?.state ?? .idle }
+    private var status: AgentRowStatus { AgentRowStatus.of(state, waiting: request != nil) }
+    private var working: Bool { status == .working }
+    private var codingId: String? { live?.codingSessionId }
+    private var agentName: String { live?.agentName ?? "the agent" }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let s = live { header(s) }
-                if let s = live, let request = store.request(for: s) {
-                    AgentRequestCard(request: request, store: store)
+        let choice = model.choice(codingSessionId: codingId)
+        let items = model.items(codingSessionId: codingId, working: working)
+        let outgoing = store.outgoing(for: key)
+        let prompts = AgentConversation.prompts(items)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let s = live { AgentConversationHeader(session: s, lastTurnOnly: choice == .lastTurn) }
+                    switch choice {
+                    case .loading:
+                        AgentConversationSkeleton()
+                    case .empty:
+                        if outgoing.isEmpty && request == nil && !working {
+                            AgentConversationEmpty(agentName: agentName, error: model.error)
+                        }
+                    case .transcript, .lastTurn:
+                        ForEach(items) { item in
+                            AgentConversationRow(item: item, cwd: live?.cwd ?? "") { fullDiff = $0 }
+                        }
+                    }
+                    ForEach(outgoing) { o in
+                        AgentOutgoingBubble(
+                            outgoing: o,
+                            retry: { Task { await store.retry(o.id, key: key) } },
+                            dismiss: { withAnimation { store.dismissOutgoing(o.id, key: key) } },
+                            openSettings: { navigate(.settings) })
+                    }
+                    if working && request == nil && !AgentConversation.endsInRunningTool(items) {
+                        AgentWorkingRow(text: AgentsPresentation.working(
+                            statusLine: choice == .transcript ? model.transcript.statusLine : nil,
+                            step: live?.step ?? "", state: state))
+                    }
+                    if let request {
+                        AgentRequestCard(request: request, store: store, showsProject: false)
+                            .padding(.top, 14)
+                    }
+                    Color.clear.frame(height: 1).id(Self.bottom)
                 }
-                if let s = live, !s.steps.isEmpty { stepsCard(s) }
-                if let turn = detail?.turn {
-                    AgentLastTurnView(turn: turn) { openFile = $0 }
-                }
-                if let error {
-                    Text(error).font(.system(size: 13)).foregroundStyle(JcTheme.danger)
-                }
-                composer
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .padding(.bottom, 100)
+            .modifier(AgentOpensAtTheEnd())
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable { await reload() }
+            .onChange(of: items.count + outgoing.count + (request == nil ? 0 : 1)) { old, _ in
+                // The first page jumps; what arrives after it slides in.
+                if old == 0 {
+                    proxy.scrollTo(Self.bottom, anchor: .bottom)
+                } else {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            AgentComposer(placeholder: "Reply to \(agentName)…", working: working) { text in
+                Task { await store.send(text, to: key, prompts: prompts) }
+            }
         }
         .background(JcTheme.bg.ignoresSafeArea())
-        .navigationTitle(live?.project ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if live?.codingSessionId != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { router.openMore(.coding) } label: { JcIcon("terminal", size: 17) }
-                        .accessibilityLabel("Terminal and transcript")
-                }
+            ToolbarItem(placement: .principal) { topBar }
+            ToolbarItem(placement: .topBarTrailing) { menu }
+        }
+        .overlay(alignment: .top) {
+            if copied {
+                Text("Session id copied")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcTheme.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .jcLiquidGlass(in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .task { await load() }
+        .task { await reload() }
         .onChange(of: store.session(key: key)?.lastEventAt) { _, _ in
-            Task { await load() }
+            Task { await reload() }
         }
-        .sheet(item: $openFile) { file in
+        .onChange(of: prompts) { _, now in store.reconcileOutgoing(key: key, prompts: now) }
+        .sheet(item: $fullDiff) { edit in
             NavigationStack {
-                AgentDiffView(file: file)
-                    .navigationTitle(file.name)
+                AgentDiffView(edit: edit)
+                    .navigationTitle(edit.name)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) { Button("Done") { openFile = nil } }
+                        ToolbarItem(placement: .topBarTrailing) { Button("Done") { fullDiff = nil } }
                     }
             }
         }
     }
 
-    private func load() async {
-        do {
-            detail = try await store.detail(key: key)
-            error = nil
-        } catch {
-            if detail == nil { self.error = apiErrorMessage(error) }
-        }
+    private static let bottom = "agent-bottom"
+
+
+    private func reload() async {
+        await model.load(codingSessionId: codingId)
     }
 
-    private func header(_ s: AgentSessionItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle().fill(AgentStyle.color(s.state)).frame(width: 9, height: 9)
-                Text(s.state.label)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AgentStyle.color(s.state))
-                Spacer()
-                Text("since \(s.startedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
-            }
-            Text([s.agentName, s.hostApp, s.model].filter { !$0.isEmpty }.joined(separator: " · "))
-                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
-            Text(s.cwd).font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(JcTheme.muted).lineLimit(1).truncationMode(.head)
+    // MARK: top bar
+
+    private var topBar: some View {
+        VStack(spacing: 3) {
+            Text(live.map(AgentsPresentation.title) ?? "Session")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(JcTheme.text)
+                .lineLimit(1)
+            AgentStatusPill(status: status, label: AgentRowStatus.label(state, request: request))
         }
-        .padding(14)
-        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: 250)
+        .accessibilityElement(children: .combine)
     }
 
-    private func stepsCard(_ s: AgentSessionItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("NOW").font(.system(size: 11, weight: .semibold)).foregroundStyle(JcTheme.muted)
-            ForEach(Array(s.steps.suffix(6).enumerated()), id: \.offset) { i, step in
-                let last = i == min(5, s.steps.count - 1)
-                Text(step.text)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(last ? JcTheme.text : JcTheme.muted)
-                    .lineLimit(2)
-            }
+    private var menu: some View {
+        Menu {
+            Button { openTerminal() } label: { Label("Open terminal", jcIcon: "terminal") }
+                .disabled(codingId == nil)
+            Button { copySessionId() } label: { Label("Copy session id", jcIcon: "doc.on.doc") }
+                .disabled((live?.sessionId ?? "").isEmpty)
+            Divider()
+            Button { navigate(.history) } label: { Label("History", jcIcon: "clock.arrow.circlepath") }
+            Button { showRecap() } label: { Label("This week’s recap", jcIcon: "chart.line.uptrend.xyaxis") }
+        } label: {
+            JcIcon("ellipsis", size: 17)
+                .foregroundStyle(JcTheme.text)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityLabel("More")
     }
 
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("NEXT INSTRUCTION").font(.system(size: 11, weight: .semibold)).foregroundStyle(JcTheme.muted)
-            TextField("Tell it what to do next…", text: $draft, axis: .vertical)
-                .font(.system(size: 15))
-                .lineLimit(1...6)
-                .padding(12)
-                .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            HStack {
-                if let sent {
-                    Text(sent).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
-                }
-                Spacer()
-                Button(sending ? "Sending…" : "Send") { send() }
-                    .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
-                    .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
+    /// The session's own terminal — the Mac's tmux pane, live — in Coding.
+    private func openTerminal() {
+        guard let codingId else { return }
+        AppDeepLinkRouter(router: router).open(.coding(session: codingId))
     }
 
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        sending = true
+    private func copySessionId() {
+        guard let id = live?.sessionId, !id.isEmpty else { return }
+        UIPasteboard.general.string = id
+        withAnimation(.snappy) { copied = true }
         Task {
-            defer { sending = false }
-            guard await OwnerCheck.confirm(reason: "Send this instruction to your computer") else { return }
-            do {
-                let via = try await store.sendInstruction(text, to: key)
-                draft = ""
-                sent = via == "resume" ? "Sent — your Mac is continuing the conversation."
-                                       : "Typed into the session."
-                error = nil
-            } catch {
-                self.error = apiErrorMessage(error)
-            }
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            withAnimation(.easeOut(duration: 0.3)) { copied = false }
         }
     }
 }
 
-/// The last turn, the way you'd want to read it on a phone.
-struct AgentLastTurnView: View {
-    let turn: AgentTurn
-    let openFile: (AgentFileDiff) -> Void
+/// Opens at the newest message while a short conversation still starts at
+/// the top (a bottom anchor alone would leave a gap above it).
+private struct AgentOpensAtTheEnd: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.defaultScrollAnchor(.bottom, for: .initialOffset)
+        } else {
+            content
+        }
+    }
+}
 
-    @State private var expanded: Set<Int> = []
+extension AgentFileEdit: Identifiable {
+    var id: String { path }
+}
+
+/// The status in the top bar: a soft capsule, the colour in its dot and words.
+struct AgentStatusPill: View {
+    let status: AgentRowStatus
+    let label: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 5) {
+            switch status {
+            case .working: AgentSpinner(size: 8, color: status.color)
+            default: Circle().fill(status.color).frame(width: 6, height: 6)
+            }
+            Text(label)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(status.color)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2.5)
+        .background(status.color.opacity(0.14), in: Capsule())
+    }
+}
+
+/// The quiet lines above the conversation: where it runs, and since when.
+struct AgentConversationHeader: View {
+    let session: AgentSessionItem
+    var lastTurnOnly = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(AgentsPresentation.meta(session))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
+                .lineLimit(1)
+            Text(secondLine)
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.muted.opacity(0.75))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if lastTurnOnly {
+                Text("Showing the last turn")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(JcTheme.glassFill, in: Capsule())
+                    .padding(.top, 4)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+    }
+
+    private var secondLine: String {
+        let started = "Started \(session.startedAt.formatted(date: .omitted, time: .shortened))"
+        let path = AgentsPresentation.shortPath(session.cwd)
+        return path.isEmpty ? started : "\(path) · \(started)"
+    }
+}
+
+/// While the first page of the conversation loads.
+struct AgentConversationSkeleton: View {
+    @State private var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("LAST TURN").font(.system(size: 11, weight: .semibold)).foregroundStyle(JcTheme.muted)
                 Spacer()
-                if let d = turn.duration {
-                    Text(Duration.seconds(d).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
-                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(JcTheme.glassFill)
+                    .frame(width: 210, height: 44)
+            }
+            ForEach([260, 220, 240], id: \.self) { w in
+                HStack(spacing: 10) {
+                    Circle().fill(JcTheme.glassFill).frame(width: 14, height: 14)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(JcTheme.glassFill)
+                        .frame(width: CGFloat(w) * 0.6, height: 12)
                 }
             }
-            if !turn.prompt.isEmpty {
-                Text(turn.prompt)
-                    .font(.system(size: 14))
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(JcTheme.accent.opacity(0.14),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            ForEach(turn.actions) { action in actionRow(action) }
-            if !turn.files.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("FILES").font(.system(size: 11, weight: .semibold)).foregroundStyle(JcTheme.muted)
-                    ForEach(turn.files) { file in
-                        Button { openFile(file) } label: {
-                            HStack {
-                                JcIcon("doc.text", size: 13).foregroundStyle(JcTheme.muted)
-                                Text(file.name).font(.system(size: 14)).foregroundStyle(JcTheme.text)
-                                Spacer()
-                                Text("+\(file.added)").font(.system(size: 12, design: .monospaced))
-                                    .foregroundStyle(CodingUI.diffAdd)
-                                Text("−\(file.removed)").font(.system(size: 12, design: .monospaced))
-                                    .foregroundStyle(CodingUI.diffDel)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach([300, 280, 180], id: \.self) { w in
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(JcTheme.glassFill)
+                        .frame(width: CGFloat(w), height: 12)
                 }
-            }
-            if !turn.final.isEmpty {
-                Text(LocalizedStringKey(turn.final))
-                    .font(.system(size: 14))
-                    .foregroundStyle(JcTheme.text)
-                    .textSelection(.enabled)
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func actionRow(_ action: AgentAction) -> some View {
-        let open = expanded.contains(action.index)
-        return VStack(alignment: .leading, spacing: 4) {
-            Button {
-                if open { expanded.remove(action.index) } else { expanded.insert(action.index) }
-            } label: {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: action.failed ? "exclamationmark.triangle.fill" : AgentTurnStyle.icon(action.tool))
-                        .font(.system(size: 12))
-                        .foregroundStyle(action.failed ? JcTheme.danger : JcTheme.muted)
-                        .frame(width: 16)
-                    Text(action.summary.isEmpty ? action.tool : action.summary)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(JcTheme.text.opacity(0.9))
-                        .lineLimit(open ? nil : 2)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 0)
-                }
-            }
-            .buttonStyle(.plain)
-            if open, !action.output.isEmpty {
-                Text(action.output)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(CodingUI.paneMuted)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(CodingUI.pane, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .textSelection(.enabled)
-            }
-        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .opacity(dim ? 0.45 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: dim)
+        .onAppear { dim = true }
+        .accessibilityLabel("Loading the conversation")
     }
 }
 
-enum AgentTurnStyle {
-    static func icon(_ tool: String) -> String {
-        switch tool {
-        case "Bash": return "terminal"
-        case "Read": return "doc.text.magnifyingglass"
-        case "Edit", "MultiEdit", "Write", "NotebookEdit": return "pencil"
-        case "Grep", "Glob": return "magnifyingglass"
-        case "WebFetch", "WebSearch": return "globe"
-        case "Task", "Agent": return "person.2"
-        case "TodoWrite": return "checklist"
-        default: return tool.hasPrefix("mcp__") ? "puzzlepiece.extension" : "gearshape"
-        }
-    }
-}
-
-/// A file's diff, line by line, with the gaps between hunks.
-struct AgentDiffView: View {
-    let file: AgentFileDiff
+/// Nothing said yet in this session.
+struct AgentConversationEmpty: View {
+    let agentName: String
+    var error: String?
 
     var body: some View {
-        ScrollView([.vertical, .horizontal]) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(file.lines.enumerated()), id: \.offset) { _, line in
-                    row(line)
-                }
-                if file.truncated {
-                    Text("… the rest was left out to keep this small")
-                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted).padding(10)
-                }
+        VStack(spacing: 12) {
+            ZStack {
+                Circle().fill(JcTheme.glassFill)
+                JcIcon(error == nil ? "bubble.left" : "exclamationmark.circle", size: 24)
+                    .foregroundStyle(error == nil ? JcTheme.accent : JcTheme.muted)
             }
-            .padding(.vertical, 8)
+            .frame(width: 64, height: 64)
+            Text(error == nil ? "No conversation yet" : "Couldn’t load this session")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(JcTheme.text)
+            Text(error ?? "When \(agentName) starts a turn, it shows up here. You can also start one below.")
+                .font(.system(size: 14))
+                .foregroundStyle(JcTheme.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 290)
         }
-        .background(CodingUI.pane.ignoresSafeArea())
-    }
-
-    @ViewBuilder private func row(_ line: AgentDiffLine) -> some View {
-        switch line.kind {
-        case .gap:
-            Text("⋯").font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(JcTheme.muted).padding(.horizontal, 10).padding(.vertical, 4)
-        default:
-            let (mark, color, bg): (String, Color, Color) = {
-                switch line.kind {
-                case .added: return ("+", CodingUI.diffAdd, CodingUI.diffAdd.opacity(0.12))
-                case .removed: return ("−", CodingUI.diffDel, CodingUI.diffDel.opacity(0.12))
-                default: return (" ", CodingUI.paneMuted, .clear)
-                }
-            }()
-            HStack(spacing: 8) {
-                Text(mark).foregroundStyle(color)
-                Text(line.text).foregroundStyle(line.kind == .context ? CodingUI.paneMuted : CodingUI.paneText)
-            }
-            .font(.system(size: 12, design: .monospaced))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(bg)
-        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 70)
     }
 }

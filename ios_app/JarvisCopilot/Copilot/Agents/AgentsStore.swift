@@ -35,8 +35,12 @@ final class AgentsStore {
         self.topics = topics
     }
 
-    var waitingCount: Int { max(requests.count, sessions.filter { $0.state.waitsOnYou }.count) }
-    var workingCount: Int { sessions.filter { $0.state == .working || $0.state == .thinking }.count }
+    /// The "Needs you" rows plus any card without a row — the number the list shows.
+    var waitingCount: Int { AgentsGrouping.waitingCount(sessions, requests: requests) }
+    var workingCount: Int { AgentsGrouping.workingCount(sessions, requests: requests) }
+
+    var sections: [AgentListSection] { AgentsGrouping.sections(sessions, requests: requests) }
+    var orphanRequests: [AgentRequest] { AgentsGrouping.orphans(requests, sessions: sessions) }
 
     func request(for session: AgentSessionItem) -> AgentRequest? {
         requests.first { $0.key == session.key }
@@ -89,16 +93,21 @@ final class AgentsStore {
 
     func refresh() async {
         do {
-            let overview = try await api.overview()
-            sessions = Self.sorted(overview.sessions)
-            requests = overview.requests
-            AgentsSpotlight.index(sessions)
-            usage = overview.usage ?? usage
-            codexUsage = overview.codexUsage ?? codexUsage
-            loadError = nil
+            show(try await api.overview())
         } catch {
-            loadError = apiErrorMessage(error)
+            if !wasCancelled(error) { loadError = apiErrorMessage(error) }
+            loaded = true
         }
+    }
+
+    /// One overview, from a fetch (or a preview).
+    func show(_ overview: AgentsAPI.Overview) {
+        sessions = Self.sorted(overview.sessions)
+        requests = overview.requests
+        AgentsSpotlight.index(sessions)
+        usage = overview.usage ?? usage
+        codexUsage = overview.codexUsage ?? codexUsage
+        loadError = nil
         loaded = true
     }
 
@@ -183,8 +192,64 @@ final class AgentsStore {
         return false
     }
 
-    func sendInstruction(_ text: String, to key: String) async throws -> String {
-        try await api.sendInstruction(key: key, text: text)
+    // MARK: instructions from the phone
+
+    /// What this phone sent each session, from the tap until the conversation
+    /// shows it — kept here rather than on the screen, so leaving and coming
+    /// back doesn't lose a message that's still on its way.
+    private(set) var outgoingByKey: [String: [AgentOutgoing]] = [:]
+
+    func outgoing(for key: String) -> [AgentOutgoing] { outgoingByKey[key] ?? [] }
+
+    /// Sends the next instruction. No Face ID: typing to your own agent isn't
+    /// a decision about what runs on the computer — approving a command is,
+    /// and that still asks. The bubble shows at once as "Sending…", then as
+    /// sent or with why it didn't go.
+    func send(_ text: String, to key: String, prompts: [String]) async {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        let item = AgentOutgoing(text: body, baseline: AgentOutgoing.count(body, in: prompts))
+        var list = outgoing(for: key)
+        list.append(item)
+        outgoingByKey[key] = Array(list.suffix(Self.outgoingLimit))
+        await deliver(item.id, key: key)
+    }
+
+    /// Sends a failed bubble again, in place.
+    func retry(_ id: UUID, key: String) async {
+        guard let item = outgoing(for: key).first(where: { $0.id == id }),
+              case .failed = item.phase else { return }
+        update(id, key: key) { $0.phase = .sending }
+        await deliver(id, key: key)
+    }
+
+    func dismissOutgoing(_ id: UUID, key: String) {
+        outgoingByKey[key]?.removeAll { $0.id == id }
+    }
+
+    /// Lets a delivered bubble go once the conversation shows it.
+    func reconcileOutgoing(key: String, prompts: [String]) {
+        guard let list = outgoingByKey[key] else { return }
+        let next = AgentOutgoing.reconcile(list, prompts: prompts)
+        if next != list { outgoingByKey[key] = next }
+    }
+
+    private static let outgoingLimit = 6
+
+    private func deliver(_ id: UUID, key: String) async {
+        guard let item = outgoing(for: key).first(where: { $0.id == id }) else { return }
+        do {
+            let via = try await api.sendInstruction(key: key, text: item.text)
+            update(id, key: key) { $0.phase = .sent(via: via) }
+        } catch {
+            update(id, key: key) { $0.phase = .failed(AgentSendFailure.from(error)) }
+        }
+    }
+
+    private func update(_ id: UUID, key: String, _ change: (inout AgentOutgoing) -> Void) {
+        guard var list = outgoingByKey[key], let i = list.firstIndex(where: { $0.id == id }) else { return }
+        change(&list[i])
+        outgoingByKey[key] = list
     }
 
     func detail(key: String) async throws -> AgentSessionDetail {
