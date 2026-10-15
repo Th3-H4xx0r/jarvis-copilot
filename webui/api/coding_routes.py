@@ -1562,6 +1562,16 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 after = max(0, int(query.get("after") or 0))
             except (TypeError, ValueError):
                 after = 0
+            # Paging (?limit=40 opens on the last page, ?before=N&limit=40
+            # loads the page above it); without them, as before.
+            try:
+                before = int(query["before"]) if query.get("before") not in (None, "") else None
+            except (TypeError, ValueError):
+                before = None
+            try:
+                limit = max(0, int(query.get("limit") or 0)) or None
+            except (TypeError, ValueError):
+                limit = None
 
             def _messages():
                 import time as _time
@@ -1638,7 +1648,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     msgs, _mt = read_local_messages(cwd, csid)
                 if msgs is None:
                     return _err(409, "transcript not available")
-                payload = slice_messages(msgs, after)
+                payload = slice_messages(msgs, after, before=before, limit=limit)
                 payload.update(ok=True, source=source,
                                activity_state=row.get("activity_state"),
                                status=row.get("status"),

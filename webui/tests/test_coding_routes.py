@@ -1172,6 +1172,22 @@ def test_messages_recovers_csid_then_serves(monkeypatch):
     assert body["messages"] == [{"role": "assistant", "content": "hi"}]
 
 
+def test_messages_open_on_the_last_page_and_page_back(monkeypatch):
+    """?limit opens a long chat on its last page; ?before pages back."""
+    import agent.coding_transcript_read as ctr
+    msgs = [{"role": "user", "text": f"m{i}", "i": i} for i in range(100)]
+    monkeypatch.setattr(ctr, "read_local_messages", lambda cwd, csid, **kw: (msgs, None))
+    m = FakeManager()
+    m._sessions.append(_srv_row(id="srv-page", claude_session_id="cid-1"))
+    status, body = handle_coding_request("GET", "/session/srv-page/messages?after=0&limit=40", None, manager=m)
+    assert status == 200 and body["total"] == 100 and body["start"] == 60
+    assert [x["i"] for x in body["messages"]] == list(range(60, 100))
+    status, body = handle_coding_request("GET", "/session/srv-page/messages?before=60&limit=40", None, manager=m)
+    assert body["start"] == 20 and [x["i"] for x in body["messages"]] == list(range(20, 60))
+    status, body = handle_coding_request("GET", "/session/srv-page/messages?after=98", None, manager=m)
+    assert [x["i"] for x in body["messages"]] == [98, 99]
+
+
 def test_messages_still_409_when_no_transcript_found(monkeypatch):
     import agent.coding_session_capture as csc
     monkeypatch.setattr(csc, "find_session_id", lambda cwd, since, **kw: None)

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Optional
 
 from agent.coding_session_capture import claude_projects_dir, encode_project_dir
 
@@ -310,16 +311,29 @@ def read_local_messages(cwd: str, csid: str,
         return None, None
 
 
-def slice_messages(messages: list[dict], after: int) -> dict:
-    """API payload: total + the tail from absolute index ``after`` (bounded),
-    plus the whole-transcript ``context`` gauge. Internal usage/model keys are
-    stripped from the emitted messages (they only feed the context)."""
+def slice_messages(messages: list[dict], after: int, before: Optional[int] = None,
+                   limit: Optional[int] = None) -> dict:
+    """API payload: total + a window of the messages, plus the whole-transcript
+    ``context`` gauge.
+
+    ``after=N`` is the live tail from absolute index N. ``limit`` caps a page
+    (never above MAX_MESSAGES), so ``after=0&limit=40`` opens a long chat on
+    its last 40 messages; ``before=B`` pages back to the ``limit`` messages
+    just before index B. ``start`` is the absolute index of the first message
+    returned. Internal usage/model keys are stripped from the emitted messages
+    (they only feed the context)."""
     total = len(messages)
-    start = max(int(after or 0), total - MAX_MESSAGES)
+    cap = min(int(limit), MAX_MESSAGES) if limit and int(limit) > 0 else MAX_MESSAGES
+    if before is not None:
+        end = min(max(int(before), 0), total)
+        start = max(0, end - cap)
+    else:
+        end = total
+        start = max(int(after or 0), total - cap)
     ctx = transcript_context(messages)
     out = []
-    for m in messages[start:total]:
+    for m in messages[start:end]:
         if "usage" in m or "model" in m:
             m = {k: v for k, v in m.items() if k not in ("usage", "model")}
         out.append(m)
-    return {"messages": out, "total": total, "context": ctx}
+    return {"messages": out, "total": total, "start": start, "context": ctx}

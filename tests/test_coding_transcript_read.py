@@ -65,6 +65,25 @@ def test_slice_after_semantics():
     assert [m["i"] for m in s["messages"]] == [3, 4]
 
 
+def test_a_long_chat_opens_on_its_last_page_and_pages_back():
+    """The phone opens a long chat on its last page and loads older pages as
+    you scroll up, instead of the whole transcript at once."""
+    msgs = parse_transcript_text("\n".join(_line("user", f"m{i}") for i in range(100)))
+    first = slice_messages(msgs, after=0, limit=40)
+    assert first["total"] == 100 and first["start"] == 60
+    assert [m["i"] for m in first["messages"]] == list(range(60, 100))
+    older = slice_messages(msgs, after=0, before=60, limit=40)
+    assert older["start"] == 20 and [m["i"] for m in older["messages"]] == list(range(20, 60))
+    oldest = slice_messages(msgs, after=0, before=20, limit=40)
+    assert oldest["start"] == 0 and [m["i"] for m in oldest["messages"]] == list(range(20))
+    assert slice_messages(msgs, after=0, before=0, limit=40)["messages"] == []
+    # The live tail is as before, now with where it starts.
+    assert slice_messages(msgs, after=98)["start"] == 98
+    assert [m["i"] for m in slice_messages(msgs, after=98, limit=40)["messages"]] == [98, 99]
+    # A page is never bigger than the server's cap.
+    assert len(slice_messages(msgs, after=0, limit=10_000)["messages"]) == 100
+
+
 def test_edit_tool_carries_diff():
     text = _line("assistant", [{
         "type": "tool_use", "id": "t1", "name": "Edit",
