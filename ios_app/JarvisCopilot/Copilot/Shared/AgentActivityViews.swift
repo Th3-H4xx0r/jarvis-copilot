@@ -4,8 +4,30 @@ import UIKit
 // The per-agent Live Activity's views: the Lock Screen banner and the Dynamic
 // Island's regions. Plain SwiftUI so they compile into the widget (which renders
 // them through `AgentLiveActivity`) and the app (its settings rows and render
-// tests). Only `Text(timer)`, `ProgressView` and update transitions animate in a
-// Live Activity, so nothing here relies on any other motion.
+// tests).
+//
+// The Dynamic Island's compact / minimal slots must hold only plain shapes,
+// images and text at a FIXED size. An indeterminate `ProgressView` there left the
+// whole island a full-width EMPTY black bar on iOS 27 (iPhone 17 Pro Max) while
+// the Lock Screen view, which has none, rendered fine — so "busy" is the static
+// `AgentBusyRing` below, never a spinner.
+
+/// "Working", drawn as a still arc — the island's compact slots can't host an
+/// indeterminate `ProgressView` (see above). Fixed size, so it can never claim
+/// the slot's full width.
+struct AgentBusyRing: View {
+    let color: Color
+    var size: CGFloat = 16
+    var body: some View {
+        ZStack {
+            Circle().stroke(color.opacity(0.25), lineWidth: max(2, size * 0.14))
+            Circle().trim(from: 0, to: 0.7)
+                .stroke(color, style: StrokeStyle(lineWidth: max(2, size * 0.14), lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
+    }
+}
 
 /// The agent's logo on a glass disc, ringed in its state colour.
 struct AgentLogoMark: View {
@@ -193,6 +215,16 @@ struct AgentLockScreenView: View {
     let st: AgentActivityAttributes.ContentState
 
     var body: some View {
+        if st.waitsOnYou {
+            AgentWaitingView(agent: agent, st: st, logoSize: 44)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+        } else {
+            working
+        }
+    }
+
+    private var working: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 AgentLogoMark(agent: agent, state: st.state, size: 44)
@@ -218,11 +250,16 @@ struct AgentIslandLeading: View {
     let agent: String
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        HStack(spacing: 9) {
-            AgentLogoMark(agent: agent, state: st.state, size: 38)
-            AgentHeaderText(agent: agent, st: st, titleSize: 14)
+        if st.waitsOnYou {
+            // Waiting: the logo alone; the headline sits in the center region.
+            AgentLogoMark(agent: agent, state: st.state, size: 40).padding(.leading, 4)
+        } else {
+            HStack(spacing: 9) {
+                AgentLogoMark(agent: agent, state: st.state, size: 38)
+                AgentHeaderText(agent: agent, st: st, titleSize: 14)
+            }
+            .padding(.leading, 4)
         }
-        .padding(.leading, 4)
     }
 }
 
@@ -230,11 +267,13 @@ struct AgentIslandLeading: View {
 struct AgentIslandTrailing: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            AgentStatePill(state: st.state)
-            if st.count > 1 { AgentFleetBar(states: st.barStates) }
+        if !st.waitsOnYou {
+            VStack(alignment: .trailing, spacing: 6) {
+                AgentStatePill(state: st.state)
+                if st.count > 1 { AgentFleetBar(states: st.barStates) }
+            }
+            .padding(.trailing, 4)
         }
-        .padding(.trailing, 4)
     }
 }
 
@@ -242,9 +281,15 @@ struct AgentIslandTrailing: View {
 struct AgentIslandBottom: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            AgentDetailRow(st: st)
-            AgentActionsRow(st: st)
+        Group {
+            if st.waitsOnYou {
+                AgentWaitingButtons(st: st)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    AgentDetailRow(st: st)
+                    AgentActionsRow(st: st)
+                }
+            }
         }
         .padding(.horizontal, 6)
     }
@@ -257,6 +302,7 @@ struct AgentCompactLeading: View {
     var body: some View {
         AgentLogoMark(agent: agent, state: st.state, size: 22, ring: false,
                       tint: st.waitsOnYou ? JcState.amber : nil)
+            .frame(width: 24, height: 24)
     }
 }
 
@@ -265,11 +311,12 @@ struct AgentCompactTrailing: View {
     let st: AgentActivityAttributes.ContentState
     var body: some View {
         HStack(spacing: 5) {
-            glyph
+            glyph.frame(width: 18, height: 18)
             if st.count > 1 {
-                Text("\(st.count)")
+                Text("\(min(st.count, 99))")
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.8))
+                    .lineLimit(1)
             }
         }
     }
@@ -280,7 +327,7 @@ struct AgentCompactTrailing: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(JcState.amber)
         } else if st.isWorking {
-            ProgressView().progressViewStyle(.circular).controlSize(.mini).tint(JcAccent.color)
+            AgentBusyRing(color: JcAccent.color, size: 15)
         } else if st.state == "error" {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12, weight: .semibold))
@@ -300,5 +347,124 @@ struct AgentMinimal: View {
     var body: some View {
         AgentLogoMark(agent: agent, state: st.state, size: 24,
                       tint: st.waitsOnYou ? JcState.amber : nil)
+            .frame(width: 24, height: 24)
+    }
+}
+
+
+// MARK: - Waiting on you
+
+/// "Needs you": the agent's logo, "<Agent> waiting for your OK · 0:13" in amber
+/// (counting up from when it started waiting), what it wants, and big Deny /
+/// Allow buttons — or, for a question, its options (else one Answer button).
+/// The update that brings this on carries an alert, so the island pops open on
+/// it with a sound. The buttons ask for no Face ID (`AgentLiveIntents`).
+struct AgentWaitingView: View {
+    let agent: String
+    let st: AgentActivityAttributes.ContentState
+    var logoSize: CGFloat = 44
+    /// The expanded island draws the logo in its own region.
+    var showsLogo = true
+
+    static let denyFill = Color(red: 0.50, green: 0.11, blue: 0.13)
+    static let allowFill = Color(red: 0.19, green: 0.66, blue: 0.35)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .center, spacing: 12) {
+                if showsLogo { AgentLogoMark(agent: agent, state: st.state, size: logoSize) }
+                AgentWaitingHeadline(agent: agent, st: st)
+            }
+            AgentWaitingButtons(st: st)
+        }
+    }
+}
+
+/// The amber headline and, under it, what the agent is asking.
+struct AgentWaitingHeadline: View {
+    let agent: String
+    let st: AgentActivityAttributes.ContentState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            (Text("\(name) \(st.kind == "question" || st.state == "question" ? "has a question" : "waiting for your OK") · ")
+                + Text(Date(timeIntervalSince1970: st.waitingStart), style: .timer))
+                .font(.system(size: 15, weight: .bold).monospacedDigit())
+                .foregroundStyle(JcState.amber)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(detail)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.78))
+                .lineLimit(2)
+        }
+    }
+
+    private var name: String { st.name.isEmpty ? AgentBrand.title(for: agent) : st.name }
+
+    /// The project, then the command (without the engine's "Needs approval:"
+    /// prefix) or the question.
+    private var detail: String {
+        var what = st.question.isEmpty ? st.step : st.question
+        if what.lowercased().hasPrefix("needs approval:") {
+            what = String(what.dropFirst("needs approval:".count)).trimmingCharacters(in: .whitespaces)
+        }
+        let project = st.project.isEmpty ? "" : st.project
+        if what.isEmpty { return project }
+        return project.isEmpty ? what : "\(project) · \(what)"
+    }
+}
+
+/// Deny / Allow, a question's options, or one Answer button that opens Jarvis.
+struct AgentWaitingButtons: View {
+    let st: AgentActivityAttributes.ContentState
+
+    var body: some View {
+        if st.showsButtons {
+            HStack(spacing: 10) {
+                Button(intent: AgentDenyIntent(fingerprint: st.fingerprint)) {
+                    label("Deny", fill: AgentWaitingView.denyFill)
+                }
+                .buttonStyle(.plain)
+                Button(intent: AgentAllowIntent(fingerprint: st.fingerprint)) {
+                    label("Allow", fill: AgentWaitingView.allowFill)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if st.showsOptions {
+            HStack(spacing: 8) {
+                ForEach(Array(st.options.prefix(3).enumerated()), id: \.offset) { _, option in
+                    Button(intent: AgentAnswerIntent(fingerprint: st.fingerprint,
+                                                     question: st.question, option: option)) {
+                        label(option, fill: Color.white.opacity(0.16))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if st.kind == "question" || st.state == "question" {
+            Link(destination: jcAgentWidgetURL(st)) {
+                label("Answer", fill: JcAccent.deep)
+            }
+        }
+    }
+
+    private func label(_ text: String, fill: Color) -> some View {
+        Text(text)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill))
+    }
+}
+
+/// Expanded island, center (under the camera) while it waits: the headline.
+struct AgentIslandWaitingCenter: View {
+    let agent: String
+    let st: AgentActivityAttributes.ContentState
+    var body: some View {
+        AgentWaitingHeadline(agent: agent, st: st)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -328,8 +328,9 @@ def test_flapping_is_rate_limited_but_a_new_approval_goes_out_at_once():
 
 def test_an_idle_group_ends_its_activity_after_the_window():
     sender = Sender()
-    p, box, clock, store = pusher([tracked("a", state="idle", last=10_000)], sender=sender)
+    p, box, clock, store = pusher([tracked("a", state="working", last=10_000)], sender=sender)
     p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = [tracked("a", state="idle", last=10_000)]
     clock.t = 10_000 + 31 * 60
     p.tick()
     assert sender.events()[-1] == ("end", "ACT1")
@@ -445,3 +446,98 @@ def test_pushes_carry_a_relevance_so_waiting_on_you_wins_the_island():
     box["sessions"] = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
     p.tick()
     assert sender.calls[-1]["extra"]["relevance-score"] > working
+
+
+# ── "needs you" alerts ───────────────────────────────────────────────────────
+
+def _question(q="Which region should I deploy to?", options=("us-east", "eu-west"), multi=False):
+    return {"kind": "question", "fingerprint": "fq",
+            "questions": [{"question": q, "multiSelect": multi,
+                           "options": [{"label": o} for o in options]}]}
+
+
+def test_a_waiting_lead_carries_when_it_started_waiting():
+    sessions = m.collect_sessions([tracked("a", state="approval", last=4321,
+                                           pending={"kind": "approval", "fingerprint": "fp"})], [], {})
+    cs = m.content_state(sessions, actions=True, decidable={"fp"})
+    assert cs["waitingSince"] == 4321
+    cs = m.content_state(m.collect_sessions([tracked("b")], [], {}), actions=True, decidable=set())
+    assert cs["waitingSince"] == 0 and cs["question"] == "" and cs["options"] == []
+
+
+def test_a_question_carries_its_text_and_short_options():
+    sessions = m.collect_sessions([tracked("a", state="question", pending=_question())], [], {})
+    cs = m.content_state(sessions, actions=True, decidable={"fq"})
+    assert cs["question"] == "Which region should I deploy to?"
+    assert cs["options"] == ["us-east", "eu-west"]
+    assert cs["kind"] == "question" and cs["fingerprint"] == "fq"
+
+
+def test_options_that_wont_fit_become_one_answer_button():
+    for pending in (_question(options=("a", "b", "c", "d")),
+                    _question(options=("a very long option label indeed", "b")),
+                    _question(multi=True)):
+        sessions = m.collect_sessions([tracked("a", state="question", pending=pending)], [], {})
+        assert m.content_state(sessions, actions=True, decidable={"fq"})["options"] == []
+
+
+def test_entering_approval_pushes_an_alert_with_sound():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    assert "alert" not in (sender.calls[-1]["extra"] or {})
+    box["sessions"] = [tracked("a", state="approval", project="api",
+                               pending={"kind": "approval", "fingerprint": "fp"})]
+    p.tick()
+    alert = sender.calls[-1]["extra"]["alert"]
+    assert alert["sound"] == "default"
+    assert "Claude Code" in alert["title"] and "api" in alert["body"]
+
+
+def test_a_question_alert_says_the_question():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender, pending={"fq"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = [tracked("a", state="question", pending=_question())]
+    p.tick()
+    assert "Which region" in sender.calls[-1]["extra"]["alert"]["body"]
+
+
+def test_still_waiting_does_not_alert_again():
+    sender = Sender()
+    waiting = tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})
+    p, box, clock, _ = pusher([waiting], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = [waiting, tracked("b", state="working")]   # something else changed
+    clock.t += 30
+    p.tick()
+    assert "alert" not in (sender.calls[-1]["extra"] or {})
+
+
+# ── only work starts an activity ─────────────────────────────────────────────
+
+def test_an_idle_group_never_starts_an_activity():
+    """Eleven idle Jarvis sessions crowded the island with an "IDLE" activity:
+    only a session that works or waits on you starts one."""
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", agent="jarvis", state="idle", last=10_000)], sender=sender)
+    p.register_start_token("phone", "START")
+    p.tick()
+    assert sender.calls == []
+    assert p.snapshot()["activities"] == []
+
+
+def test_a_running_activity_stays_through_the_idle_window():
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working", last=10_000)], sender=sender)
+    p.register_start_token("phone", "START")
+    p.tick()
+    box["sessions"] = [tracked("a", state="idle", last=clock.t)]
+    clock.t += 10 * 60
+    assert [a["agent"] for a in p.snapshot()["activities"]] == ["claude"]
+
+
+def test_wanted_needs_work_to_begin():
+    s = m.collect_sessions([tracked("a", state="idle", last=1000)], [], {})
+    assert not m.wanted(s, now=1001, idle_minutes=30, ongoing=False)
+    assert m.wanted(s, now=1001, idle_minutes=30, ongoing=True)

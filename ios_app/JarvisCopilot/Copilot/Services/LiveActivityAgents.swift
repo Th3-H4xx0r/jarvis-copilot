@@ -100,8 +100,33 @@ struct AgentLiveSnapshot: Equatable, Sendable {
 enum AgentActivityPlan {
     enum Action: Equatable {
         case start(agent: String, state: AgentContentState)
-        case update(agent: String, state: AgentContentState)
+        /// `alert`: this update starts a wait on you — it pops the island open
+        /// with a sound (`needsAlert`).
+        case update(agent: String, state: AgentContentState, alert: Bool)
         case end(agent: String)
+    }
+
+    /// An update alerts when the lead starts waiting on you: it wasn't waiting,
+    /// or it's a different request now. Still waiting on the same one doesn't.
+    static func needsAlert(from old: AgentContentState, to new: AgentContentState) -> Bool {
+        guard new.waitsOnYou else { return false }
+        return !old.waitsOnYou || old.fingerprint != new.fingerprint || old.state != new.state
+            || old.key != new.key
+    }
+
+    /// The banner's words (the server sends the same for its pushes).
+    static func alertText(agent: String, state st: AgentContentState) -> (title: String, body: String) {
+        let who = st.name.isEmpty ? AgentBrand.title(for: agent) : st.name
+        let project = st.project.isEmpty ? "session" : st.project
+        if st.state == "question" || st.kind == "question" {
+            let ask = st.question.isEmpty ? (st.step.isEmpty ? "tap to answer" : st.step) : st.question
+            return ("\(who) has a question", "\(project): \(ask)")
+        }
+        var step = st.step
+        if step.lowercased().hasPrefix("needs approval:") {
+            step = String(step.dropFirst("needs approval:".count)).trimmingCharacters(in: .whitespaces)
+        }
+        return ("\(who) is waiting for your OK", step.isEmpty ? project : "\(project): \(step)")
     }
 
     /// `running` is what's on screen per agent; `dismissed` maps an agent to the
@@ -112,7 +137,10 @@ enum AgentActivityPlan {
         var out: [Action] = running.keys.sorted().filter { !wanted.contains($0) }.map { .end(agent: $0) }
         for target in desired {
             if let current = running[target.agent] {
-                if current != target.state { out.append(.update(agent: target.agent, state: target.state)) }
+                if current != target.state {
+                    out.append(.update(agent: target.agent, state: target.state,
+                                       alert: needsAlert(from: current, to: target.state)))
+                }
             } else if dismissed[target.agent] != target.episode {
                 out.append(.start(agent: target.agent, state: target.state))
             }
@@ -170,7 +198,8 @@ protocol AgentActivityControlling: AnyObject {
     /// What each running activity shows, by agent (one per agent).
     var running: [String: AgentContentState] { get }
     func start(_ agent: String, _ state: AgentContentState)
-    func update(_ agent: String, _ state: AgentContentState)
+    /// `alert`: show it as an alert (screen lights, island pops open, sound).
+    func update(_ agent: String, _ state: AgentContentState, alert: Bool)
     func end(_ agent: String)
     func endAll()
     /// Begin watching activities (including ones the server push-started) and
@@ -241,6 +270,19 @@ final class AgentActivityManager {
         guard enabled, !observing else { return }
         observing = true
         controller.observe()
+        // A question's option tapped on the Lock Screen: find the waiting request
+        // by its fingerprint and answer it the way the Agents tab does.
+        if AgentDecisionBridge.answer == nil {
+            AgentDecisionBridge.answer = { fingerprint, question, option in
+                let agents = AgentsAPI()
+                guard let overview = try? await agents.overview(),
+                      let request = overview.requests.first(where: { $0.fingerprint == fingerprint })
+                else { return }
+                let asked = question.isEmpty ? (request.questions.first?.question ?? "") : question
+                _ = try? await agents.verdict(requestId: request.requestId, decision: "answer",
+                                              answers: [asked: option])
+            }
+        }
     }
 
     /// Fetch what the server wants shown and apply it. Errors keep the last state.
@@ -264,7 +306,7 @@ final class AgentActivityManager {
                                                   dismissed: dismissed) {
             switch action {
             case .start(let agent, let state): controller.start(agent, state)
-            case .update(let agent, let state): controller.update(agent, state)
+            case .update(let agent, let state, let alert): controller.update(agent, state, alert: alert)
             case .end(let agent): controller.end(agent)
             }
         }

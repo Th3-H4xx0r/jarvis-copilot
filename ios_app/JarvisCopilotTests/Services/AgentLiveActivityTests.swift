@@ -1,3 +1,4 @@
+import AppIntents
 import Foundation
 import UIKit
 import XCTest
@@ -140,7 +141,7 @@ final class AgentLiveActivityTests: XCTestCase {
         XCTAssertEqual(AgentActivityPlan.reconcile(running: running,
                                                    desired: [target("claude", state: "approval")],
                                                    dismissed: [:]),
-                       [.update(agent: "claude", state: CS(count: 1, state: "approval"))])
+                       [.update(agent: "claude", state: CS(count: 1, state: "approval"), alert: true)])
     }
 
     func testAnAgentNoLongerWantedEnds() {
@@ -324,6 +325,63 @@ final class AgentLiveActivityTests: XCTestCase {
         let (_, coordinator) = await makeCoordinator(agentsEnabled: false)
         XCTAssertEqual(coordinator.compose().mode, "coding")
     }
+
+    // MARK: - Needs you
+
+    func testStartingToWaitOnYouAlertsOnce() {
+        let working = CS(count: 1, state: "working")
+        let asks = CS(count: 1, state: "approval", fingerprint: "f1", kind: "approval")
+        XCTAssertTrue(AgentActivityPlan.needsAlert(from: working, to: asks))
+        var stillAsks = asks
+        stillAsks.count = 2
+        XCTAssertFalse(AgentActivityPlan.needsAlert(from: asks, to: stillAsks), "same request: no second buzz")
+        let asksAgain = CS(count: 1, state: "approval", fingerprint: "f2", kind: "approval")
+        XCTAssertTrue(AgentActivityPlan.needsAlert(from: asks, to: asksAgain), "a new request alerts")
+        XCTAssertFalse(AgentActivityPlan.needsAlert(from: asks, to: working))
+    }
+
+    func testTheAlertSaysWhoWantsWhat() {
+        let approval = AgentActivityPlan.alertText(agent: "claude", state: CS(
+            name: "Claude Code", project: "api", state: "approval", step: "Needs approval: Bash: rm -rf build"))
+        XCTAssertEqual(approval.title, "Claude Code is waiting for your OK")
+        XCTAssertEqual(approval.body, "api: Bash: rm -rf build")
+        let question = AgentActivityPlan.alertText(agent: "codex", state: CS(
+            project: "infra", state: "question", kind: "question", question: "Which region?"))
+        XCTAssertEqual(question.title, "Codex has a question")
+        XCTAssertEqual(question.body, "infra: Which region?")
+    }
+
+    func testTheManagerAlertsWhenASessionStartsWaiting() {
+        let (manager, controller, _) = makeManager()
+        manager.apply(AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c1", "state": ["count": 1, "state": "working"]]])))
+        manager.apply(AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c1",
+             "state": ["count": 1, "state": "approval", "kind": "approval", "fingerprint": "fp"]]])))
+        XCTAssertEqual(controller.alerts, ["claude"])
+    }
+
+    func testAQuestionsOptionsBecomeButtonsOnlyWhenSomethingHoldsIt() {
+        var st = CS(state: "question", fingerprint: "fq", kind: "question", question: "Region?",
+                    options: ["us-east", "eu-west"])
+        XCTAssertTrue(st.showsOptions)
+        st.fingerprint = ""
+        XCTAssertFalse(st.showsOptions)
+        XCTAssertFalse(CS(state: "question", fingerprint: "fq", kind: "question").showsOptions,
+                       "no options that fit: one Answer button instead")
+    }
+
+    func testTheLockScreenButtonsAskForNoFaceID() {
+        XCTAssertEqual("\(AgentAllowIntent.authenticationPolicy)", "\(IntentAuthenticationPolicy.alwaysAllowed)")
+        XCTAssertEqual("\(AgentDenyIntent.authenticationPolicy)", "\(IntentAuthenticationPolicy.alwaysAllowed)")
+        XCTAssertEqual("\(AgentAnswerIntent.authenticationPolicy)", "\(IntentAuthenticationPolicy.alwaysAllowed)")
+    }
+
+    func testAnOlderServerWithoutWaitingSinceTimesFromTheLastActivity() throws {
+        let st = try JSONDecoder().decode(CS.self, from: Data(#"{"state": "approval", "last": 99}"#.utf8))
+        XCTAssertEqual(st.waitingStart, 99)
+        XCTAssertEqual(st.options, [])
+    }
 }
 
 /// Records what the manager asked ActivityKit to do, and plays iOS's side.
@@ -343,8 +401,10 @@ final class FakeAgentActivityController: AgentActivityControlling {
     func start(_ agent: String, _ state: AgentActivityAttributes.ContentState) {
         started.append((agent, state)); running[agent] = state
     }
-    func update(_ agent: String, _ state: AgentActivityAttributes.ContentState) {
+    private(set) var alerts: [String] = []
+    func update(_ agent: String, _ state: AgentActivityAttributes.ContentState, alert: Bool) {
         updated.append((agent, state)); running[agent] = state
+        if alert { alerts.append(agent) }
     }
     func end(_ agent: String) { ended.append(agent); running[agent] = nil }
     func endAll() { endAlls += 1; running.removeAll() }

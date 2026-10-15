@@ -43,6 +43,14 @@ struct AgentActivityAttributes: ActivityAttributes {
         var actions: Bool = true
         /// The group's most recent activity (Unix seconds), for "idle 12 min".
         var last: Double = 0
+        /// When the lead started waiting on you (Unix seconds; 0 = not waiting):
+        /// the amber "waiting for your OK · 0:13" timer counts up from here.
+        var waitingSince: Double = 0
+        /// The question it asked (≤ 90 chars), for kind "question".
+        var question: String = ""
+        /// Its options as Lock Screen buttons — only when they fit (one
+        /// single-select question, ≤ 3 short labels); else one Answer button.
+        var options: [String] = []
     }
 
     /// The agent TYPE: claude | codex | gemini | copilot | cursor | opencode |
@@ -71,6 +79,9 @@ extension AgentActivityAttributes.ContentState {
         bar = try c.decodeIfPresent(String.self, forKey: .bar) ?? d.bar
         actions = try c.decodeIfPresent(Bool.self, forKey: .actions) ?? d.actions
         last = try c.decodeIfPresent(Double.self, forKey: .last) ?? d.last
+        waitingSince = try c.decodeIfPresent(Double.self, forKey: .waitingSince) ?? d.waitingSince
+        question = try c.decodeIfPresent(String.self, forKey: .question) ?? d.question
+        options = try c.decodeIfPresent([String].self, forKey: .options) ?? d.options
     }
 
     /// The lead waits on you.
@@ -81,6 +92,10 @@ extension AgentActivityAttributes.ContentState {
     var others: Int { max(0, count - 1) }
     /// Allow / Deny: only for an approval something holds, with the setting on.
     var showsButtons: Bool { actions && kind == "approval" && !fingerprint.isEmpty }
+    /// The question's options as buttons: something holds it, they fit, setting on.
+    var showsOptions: Bool { actions && kind == "question" && !fingerprint.isEmpty && !options.isEmpty }
+    /// When the wait began (falls back to the last activity for an older server).
+    var waitingStart: Double { waitingSince > 0 ? waitingSince : last }
     /// The fleet bar, one entry per session (p / w / e / i).
     var barStates: [String] {
         bar.split(separator: ",").map(String.init).filter { !$0.isEmpty }

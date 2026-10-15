@@ -16,13 +16,19 @@ final class AgentActivityRenderTests: XCTestCase {
             ("claude", CS(count: 3, waiting: 1, working: 1, name: "Claude Code", project: "jarvis-copilot",
                           state: "approval", step: "Needs approval: Bash: rm -rf build",
                           fingerprint: "fp", kind: "approval", since: now - 95, key: "d|claude|s",
-                          bar: "p,w,i", actions: true, last: now)),
+                          bar: "p,w,i", actions: true, last: now, waitingSince: now - 13)),
             ("codex", CS(count: 1, working: 1, name: "Codex", project: "api-server", state: "working",
                          step: "Bash: npm test", since: now - 312, bar: "w", last: now)),
             ("gemini", CS(count: 2, name: "Gemini CLI", project: "website", state: "idle",
                           step: "Edit: index.html", bar: "i,i", last: now - 600)),
             ("copilot", CS(count: 1, waiting: 1, name: "Copilot CLI", project: "infra", state: "question",
-                           step: "Which region should I deploy to?", kind: "question", bar: "p", last: now)),
+                           step: "Which region should I deploy to?", fingerprint: "fq", kind: "question",
+                           bar: "p", last: now, waitingSince: now - 40,
+                           question: "Which region should I deploy to?",
+                           options: ["us-east-1", "eu-west-1", "Other"])),
+            ("codex", CS(count: 2, waiting: 1, name: "Codex", project: "api-server", state: "question",
+                         fingerprint: "fx", kind: "question", bar: "p,w", last: now, waitingSince: now - 5,
+                         question: "Should I also update the migration files for the new column?")),
             ("jarvis", CS(count: 1, working: 1, name: "Jarvis", project: "notes", state: "thinking",
                           since: now - 20, bar: "w", last: now)),
         ]
@@ -38,7 +44,7 @@ final class AgentActivityRenderTests: XCTestCase {
         .padding(12)
         .background(LinearGradient(colors: [Color(red: 0.2, green: 0.25, blue: 0.4), .black],
                                    startPoint: .top, endPoint: .bottom))
-        try RenderHarness.write(view, size: CGSize(width: 390, height: 840), name: "agent-la-lockscreen")
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 1000), name: "agent-la-lockscreen")
     }
 
     func testRenderTheDynamicIsland() throws {
@@ -63,9 +69,10 @@ final class AgentActivityRenderTests: XCTestCase {
             // Expanded, for the first two.
             ForEach(Array(samples.prefix(2).enumerated()), id: \.offset) { _, s in
                 VStack(spacing: 8) {
-                    HStack(alignment: .top) {
+                    HStack(alignment: .center, spacing: 10) {
                         AgentIslandLeading(agent: s.0, st: s.1)
-                        Spacer()
+                        if s.1.waitsOnYou { AgentIslandWaitingCenter(agent: s.0, st: s.1) }
+                        Spacer(minLength: 0)
                         AgentIslandTrailing(st: s.1)
                     }
                     AgentIslandBottom(st: s.1)
@@ -78,7 +85,7 @@ final class AgentActivityRenderTests: XCTestCase {
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.85))
-        try RenderHarness.write(view, size: CGSize(width: 390, height: 680), name: "agent-la-island")
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 760), name: "agent-la-island")
     }
 
     func testRenderTheSettingsSection() throws {

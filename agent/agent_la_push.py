@@ -66,11 +66,16 @@ ACTIVE_STATES = frozenset({"working", "thinking", "approval", "question"})
 WAITING_STATES = frozenset({"approval", "question"})
 
 CONTENT_KEYS = ("count", "waiting", "working", "name", "project", "state", "step",
-                "fingerprint", "kind", "since", "key", "bar", "actions", "last")
+                "fingerprint", "kind", "since", "key", "bar", "actions", "last",
+                "waitingSince", "question", "options")
 MAX_BAR = 8
 _STEP_LIMIT = 60
 _KEY_LIMIT = 120
 _FP_LIMIT = 64
+_QUESTION_LIMIT = 90
+#: A question's options become Lock Screen buttons only when they fit.
+MAX_OPTIONS = 3
+OPTION_LIMIT = 20
 
 #: Between two non-urgent pushes to one activity (a Live Activity is
 #: last-write-wins, so a burst collapses into the next push). Same as coding_la_push.
@@ -160,13 +165,30 @@ def _from_tracked(s: dict) -> Optional[dict]:
     pend = s.get("pending") or {}
     kind = pend.get("kind")
     turn = s.get("turn_summary") or {}
-    return {"key": str(s.get("key") or ""), "agent": str(s.get("agent") or "claude").lower(),
+    question, options = _first_question(pend.get("questions"))
+    return {"question": question, "options": options,
+            "key": str(s.get("key") or ""), "agent": str(s.get("agent") or "claude").lower(),
             "project": str(s.get("project") or "session"),
             "state": str(s.get("state") or "idle"), "step": str(s.get("step") or ""),
             "fingerprint": str(pend.get("fingerprint") or ""),
             "kind": kind if kind in ("approval", "question") else "",
             "since": _num(turn.get("started_at") or s.get("started_at")),
             "last": _num(s.get("last_event_at"))}
+
+
+def _first_question(questions):
+    """(question text, option labels) of an AskUserQuestion. The labels come
+    back only when they can be Lock Screen buttons — one single-select question
+    with a few short options — else [] and the activity shows one Answer button."""
+    if not isinstance(questions, list) or not questions or not isinstance(questions[0], dict):
+        return "", []
+    q = questions[0]
+    text = _clamp(q.get("question"), _QUESTION_LIMIT)
+    labels = [str((o or {}).get("label") or "").strip() for o in (q.get("options") or [])
+              if isinstance(o, dict)]
+    fits = (len(questions) == 1 and not q.get("multiSelect") and 0 < len(labels) <= MAX_OPTIONS
+            and all(0 < len(lbl) <= OPTION_LIMIT for lbl in labels))
+    return text, labels if fits else []
 
 
 _ROW_STATE = {"waiting": "approval", "working": "working"}
@@ -182,7 +204,8 @@ def _from_row(r: dict, projects: dict) -> dict:
             "project": (proj or {}).get("name") or _folder(r.get("cwd")),
             "state": state, "step": "", "fingerprint": "",
             "kind": "approval" if state == "approval" else "",
-            "since": _num(r.get("created_at")), "last": _recency(r)}
+            "since": _num(r.get("created_at")), "last": _recency(r),
+            "question": "", "options": []}
 
 
 def collect_sessions(tracked: Iterable[dict], rows: Iterable[dict], projects: dict) -> list:
@@ -230,14 +253,16 @@ def idle_since(sessions) -> float:
     return max((s.get("last") or 0 for s in sessions), default=0.0)
 
 
-def wanted(sessions, now: float, idle_minutes: int) -> bool:
-    """An activity shows while any session works or waits on you, and for
-    ``idle_minutes`` after the group's last activity once none does."""
+def wanted(sessions, now: float, idle_minutes: int, ongoing: bool = True) -> bool:
+    """An activity shows while any session works or waits on you, and — once it
+    is up (``ongoing``) — for ``idle_minutes`` after the group's last activity.
+    Idle sessions alone never START one (eleven idle Jarvis sessions put an
+    "IDLE" activity in the island for nothing)."""
     if not sessions:
         return False
     if any(is_active(s) for s in sessions):
         return True
-    return now - idle_since(sessions) < idle_minutes * 60
+    return ongoing and now - idle_since(sessions) < idle_minutes * 60
 
 
 _URGENCY = {"approval": 0, "question": 0, "error": 1, "ratelimit": 2, "working": 3,
@@ -267,11 +292,18 @@ def content_state(sessions, *, actions: bool, decidable) -> dict:
         "bar": ",".join(_SHORT.get(s.get("state"), "i") for s in ordered[:MAX_BAR]),
         "actions": bool(actions),
         "last": float(idle_since(sessions)),
+        # When the lead started waiting on you (its last event is the request).
+        "waitingSince": float(lead.get("last") or 0) if lead.get("state") in WAITING_STATES else 0.0,
+        "question": str(lead.get("question") or "") if lead.get("state") == "question" else "",
+        "options": list(lead.get("options") or []) if lead.get("state") == "question" else [],
     }
 
 
-def desired_states(tracked, rows, projects, settings, *, now: float, decidable) -> dict:
-    """{group: content_state} for every agent whose activity should be up now."""
+def desired_states(tracked, rows, projects, settings, *, now: float, decidable,
+                   ongoing=None) -> dict:
+    """{group: content_state} for every agent whose activity should be up now.
+    ``ongoing`` names the groups whose activity is already up (None = all, for
+    callers that don't track it)."""
     cfg = merge_settings(settings)
     if not cfg["enabled"]:
         return {}
@@ -279,7 +311,8 @@ def desired_states(tracked, rows, projects, settings, *, now: float, decidable) 
     groups = group_sessions(collect_sessions(tracked, rows, projects))
     for g in AGENTS:
         sessions = groups.get(g) or []
-        if cfg["agents"].get(g) and wanted(sessions, now, cfg["idle_minutes"]):
+        running = True if ongoing is None else g in ongoing
+        if cfg["agents"].get(g) and wanted(sessions, now, cfg["idle_minutes"], ongoing=running):
             out[g] = content_state(sessions, actions=cfg["actions"], decidable=decidable)
     return out
 
@@ -307,8 +340,25 @@ def _alert(group: str, cs: dict) -> dict:
     who = cs.get("name") or group_title(group)
     body = cs.get("project") or ""
     if cs.get("state") in WAITING_STATES:
-        body = f"{body} · waiting on you".strip(" ·")
+        return needs_you_alert(group, cs)
     return {"title": who, "body": body or "Working"}
+
+
+def needs_you_alert(group: str, cs: dict) -> dict:
+    """The banner (with sound) an update carries when the lead starts waiting on
+    you: it lights the screen and pops the island open on the Allow / Deny view."""
+    who = cs.get("name") or group_title(group)
+    project = cs.get("project") or "session"
+    if cs.get("state") == "question":
+        title = f"{who} has a question"
+        body = f"{project}: {cs.get('question') or cs.get('step') or 'tap to answer'}"
+    else:
+        title = f"{who} is waiting for your OK"
+        step = str(cs.get("step") or "")
+        if step.lower().startswith("needs approval:"):
+            step = step.split(":", 1)[1].strip()
+        body = f"{project}: {step}" if step else project
+    return {"title": title, "body": body[:180], "sound": "default"}
 
 
 # ── the pusher ────────────────────────────────────────────────────────────────
@@ -435,7 +485,8 @@ class AgentLaPusher:
             pass
         decidable = set(self._source(self._pending, ()))
         desired = desired_states(tracked, rows, projects, self._source(self._settings, None),
-                                 now=self._clock(), decidable=decidable)
+                                 now=self._clock(), decidable=decidable,
+                                 ongoing=set(self._episodes))
         # Episodes: one per stretch of time an agent's activity is wanted.
         for g in desired:
             if g not in self._episodes:
@@ -482,8 +533,14 @@ class AgentLaPusher:
         now = self._mono()
         if not force and not urgent and now - prev.get("ts", -1e18) < MIN_PUSH_INTERVAL:
             return 0   # rate-limited: the next tick re-sends once the window passes
+        extra = {"relevance-score": relevance(cs)}
+        newly_waiting = cs["state"] in WAITING_STATES and (
+            last_cs.get("state") not in WAITING_STATES
+            or cs["fingerprint"] != last_cs.get("fingerprint", ""))
+        if newly_waiting:
+            extra["alert"] = needs_you_alert(group, cs)
         res = self._send(token, cs, event="update", priority=10 if (urgent or force) else 5,
-                         extra={"relevance-score": relevance(cs)})
+                         extra=extra)
         if res.get("ok"):
             self._pushed[key] = {"sig": sig, "ts": now, "cs": cs}
             return 1

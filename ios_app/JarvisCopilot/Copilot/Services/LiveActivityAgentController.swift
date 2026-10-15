@@ -54,10 +54,19 @@ final class DefaultAgentActivityController: AgentActivityControlling {
         }
     }
 
-    func update(_ agent: String, _ state: AgentContentState) {
+    func update(_ agent: String, _ state: AgentContentState, alert: Bool) {
         guard let activity = byAgent[agent] else { return }
         let content = Self.content(state)
-        queue.enqueue { await activity.update(content) }
+        guard alert else {
+            queue.enqueue { await activity.update(content) }
+            return
+        }
+        // Waiting on you: light the screen and pop the island open, with a sound.
+        let text = AgentActivityPlan.alertText(agent: agent, state: state)
+        let config = AlertConfiguration(title: LocalizedStringResource(stringLiteral: text.title),
+                                        body: LocalizedStringResource(stringLiteral: text.body),
+                                        sound: .default)
+        queue.enqueue { await activity.update(content, alertConfiguration: config) }
     }
 
     func end(_ agent: String) {
