@@ -32,12 +32,14 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Two sweeps (server/client + Swift): 1 Critical + 20 Important fixed with tests. Live on 2026-10-15: server, jc-client, Jarvis.app, iPhone. Checked live: a real Claude run tracked to the server, an approval from the island path, one from the phone path, Jarvis's own chat on the island.
 
 ## Follow-ups (2026-10-15, from Pranav on the phone and Mac)
-12. [ ] Phone messages reach the live Mac session: handed over when it finishes its current step (any terminal), typed in when it's idle in tmux/iTerm; never a background `claude --resume` copy (one forked this conversation and acted on its own)
-13. [ ] Messages to a Jarvis agent go into that Jarvis chat (not "no terminal or Mac")
+12. [x] Phone messages reach the live Mac session: handed over when it finishes its current step (any terminal), typed in when it's idle in tmux/iTerm; never a background `claude --resume` copy (one forked this conversation and acted on its own)
+   - ✅ Live-tested: queued while working → handed over at Stop → Claude carried on in the same run. Phone wording ships with the next iPhone build.
+13. [x] Messages to a Jarvis agent go into that Jarvis chat (not "no terminal or Mac")
+   - ✅ Live-tested: reply from Agents → Jarvis answered it as the next turn.
 14. [x] Stop the notification spam: the Mac still runs plugin 0.6.5 (old coding_event/pretool hooks on top of the new hooks); "finished" pushes only when worth it
    - ✅ Plugin updated to 0.7.0 in all three projects (takes effect as each Claude session restarts); "Claude finished" now only for turns of a minute or more. Live on the server.
-15. [ ] The notch island is always there (it vanished when idle), slim, with the orb inside its ear
-16. [ ] The open island cuts off the session row at the bottom
+15. [x] The notch island is always there (it vanished when idle), slim, with the orb inside its ear
+16. [x] The open island cuts off the session row at the bottom
 18. [ ] Agent Live Activities: one per agent type (Claude, Codex, Gemini…) with that agent's logo, started even when the app is closed (push-to-start), and settings in Code Master + Island Designs (on/off, which agents, end after idle, Lock Screen Allow/Deny). Today's single Jarvis activity hides coding whenever voice is up.
 17. [x] Instructions-from-phone switch (iPhone + web), Agents tab redesign, real orb, old tray menu items, click-outside folds — shipped 2026-10-15
 
