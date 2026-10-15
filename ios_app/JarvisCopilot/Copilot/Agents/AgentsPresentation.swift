@@ -242,7 +242,7 @@ enum AgentsPresentation {
 enum AgentSendFailure: Equatable {
     /// 403: the Code Master switch "Instructions from the phone" is off.
     case phoneInstructionsOff
-    /// 409: no tmux pane and no Mac to resume it.
+    /// 409 without a reason: nothing to deliver it to.
     case noTerminal
     /// 503: the Mac that runs it is offline.
     case macOffline
@@ -252,7 +252,8 @@ enum AgentSendFailure: Equatable {
         if case APIError.http(let status, let message) = error {
             switch status {
             case 403: return .phoneInstructionsOff
-            case 409: return .noTerminal
+            // A 409 says why (idle where Jarvis can't type, Jarvis still answering…).
+            case 409: return message.isEmpty ? .noTerminal : .other(message)
             case 503: return .macOffline
             default: return .other(message.isEmpty ? "Couldn’t send it (\(status))" : message)
             }
@@ -266,7 +267,7 @@ enum AgentSendFailure: Equatable {
         case .phoneInstructionsOff:
             return "“Instructions from the phone” is off. Turn it on in Code Master settings to send this."
         case .noTerminal:
-            return "This session can’t take instructions — it has no terminal or Mac to type into."
+            return "This session can’t take a message right now."
         case .macOffline:
             return "The Mac running this session is offline. Try again once it’s back."
         case .other(let text):
@@ -303,11 +304,12 @@ struct AgentOutgoing: Identifiable, Equatable {
 
     var caption: String {
         switch phase {
-        case .sending: return "Sending to your Mac…"
+        case .sending: return "Sending…"
         case .sent(let via):
             switch via {
-            case "resume": return "Sent · your Mac is continuing the conversation"
-            case "terminal": return "Sent · typed into the terminal"
+            case "queued": return "Queued · it gets this when it finishes its current step"
+            case "typed", "terminal": return "Sent · typed into the terminal"
+            case "chat": return "Sent to Jarvis"
             default: return "Sent"
             }
         case .failed(let failure): return failure.message

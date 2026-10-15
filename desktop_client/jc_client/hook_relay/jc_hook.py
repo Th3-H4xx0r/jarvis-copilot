@@ -29,6 +29,9 @@ MAX_FRAME = 48 * 1024
 FIRE_TIMEOUT = 0.3
 PERMISSION_WAIT = 118.0
 ASK_WAIT = 125.0
+# Asking jc-client whether a phone message waits for this session's next step.
+STOP_WAIT = 0.8
+_STOP_DELIVERY_AGENTS = ("claude", "claude-desktop")
 
 _EVENT_NAMES = {
     "BeforeTool": "PreToolUse", "BeforeToolSelection": "PreToolUse",
@@ -368,6 +371,16 @@ def _main(argv, raw, env):
                                   "payload": payload}, wait=PERMISSION_WAIT)
         out = _permission_output(agent, reply, payload)
         return (json.dumps(out) if out is not None else "", 0)
+
+    if event == "Stop" and agent in _STOP_DELIVERY_AGENTS:
+        # A message from the phone may be waiting for this session's next step:
+        # answering the Stop hook with decision "block" makes Claude carry on
+        # with it, in the same window.
+        reply = _send(sock_path, {"jc": VERSION, "kind": "stop", "agent": agent, "payload": payload},
+                      wait=STOP_WAIT)
+        if isinstance(reply, dict) and reply.get("decision") == "block" and reply.get("reason"):
+            return (json.dumps({"decision": "block", "reason": str(reply["reason"])}), 0)
+        return ("", 0)
 
     _send(sock_path, {"jc": VERSION, "kind": "event", "agent": agent, "payload": payload}, wait=0)
     if agent == "antigravity" and event == "PreToolUse":

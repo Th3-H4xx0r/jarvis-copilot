@@ -176,10 +176,11 @@ final class AgentsPresentationTests: XCTestCase {
         XCTAssertTrue(off.message.contains("Instructions from the phone"), off.message)
         XCTAssertTrue(off.message.contains("Code Master"), off.message)
 
-        let none = AgentSendFailure.from(APIError.http(status: 409, message: "no terminal"))
-        XCTAssertEqual(none, .noTerminal)
-        XCTAssertFalse(none.opensSettings)
-        XCTAssertTrue(none.message.contains("no terminal or Mac"), none.message)
+        // A 409 carries the server's own reason (idle in VS Code, Jarvis still answering…).
+        let idle = AgentSendFailure.from(APIError.http(status: 409, message: "This session is waiting at its prompt in VS Code."))
+        XCTAssertEqual(idle, .other("This session is waiting at its prompt in VS Code."))
+        XCTAssertFalse(idle.opensSettings)
+        XCTAssertEqual(AgentSendFailure.from(APIError.http(status: 409, message: "")), .noTerminal)
 
         let offline = AgentSendFailure.from(APIError.http(status: 503, message: "offline"))
         XCTAssertEqual(offline, .macOffline)
@@ -194,11 +195,15 @@ final class AgentsPresentationTests: XCTestCase {
 
     func testOutgoingCaptionsFollowTheirPhase() {
         var o = AgentOutgoing(text: "run the tests", baseline: 0)
-        XCTAssertEqual(o.caption, "Sending to your Mac…")
-        o.phase = .sent(via: "resume")
-        XCTAssertEqual(o.caption, "Sent · your Mac is continuing the conversation")
+        XCTAssertEqual(o.caption, "Sending…")
+        o.phase = .sent(via: "queued")
+        XCTAssertEqual(o.caption, "Queued · it gets this when it finishes its current step")
+        o.phase = .sent(via: "typed")
+        XCTAssertEqual(o.caption, "Sent · typed into the terminal")
         o.phase = .sent(via: "terminal")
         XCTAssertEqual(o.caption, "Sent · typed into the terminal")
+        o.phase = .sent(via: "chat")
+        XCTAssertEqual(o.caption, "Sent to Jarvis")
         o.phase = .failed(.macOffline)
         XCTAssertEqual(o.caption, AgentSendFailure.macOffline.message)
     }

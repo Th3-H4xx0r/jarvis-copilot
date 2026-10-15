@@ -37,7 +37,8 @@ class HookServer:
                  on_effects: Optional[Callable[[list], None]] = None,
                  on_usage: Optional[Callable[[dict], None]] = None,
                  host: str = "local", sweep_every: float = 1.0,
-                 ingest: Optional[Callable[[str, str, dict], list]] = None) -> None:
+                 ingest: Optional[Callable[[str, str, dict], list]] = None,
+                 on_stop: Optional[Callable[[str, dict], Optional[dict]]] = None) -> None:
         """``ingest(kind, agent, payload) -> effects`` replaces the local engine
         (the server feeds its own tracker); with it, ``engine`` may be None."""
         self.path = path
@@ -47,6 +48,9 @@ class HookServer:
         self._forward = forward
         self._arbiter = arbiter
         self._on_effects = on_effects
+        # A Stop (kind "stop") is answered with what waits for the session — a
+        # message from the phone — so the hook can make Claude carry on with it.
+        self._on_stop = on_stop
         self._on_usage = on_usage
         self._sweep_every = sweep_every
         self._lock = threading.RLock()
@@ -175,6 +179,14 @@ class HookServer:
                         self._arbiter.observe(payload, key)
                     except Exception:
                         log.debug("arbiter observe failed", exc_info=True)
+                if kind == "stop":
+                    answer = None
+                    if self._on_stop is not None:
+                        try:
+                            answer = self._on_stop(agent, payload)
+                        except Exception:
+                            log.debug("on_stop failed", exc_info=True)
+                    self._reply(conn, answer or {})
                 return
             if self._arbiter is None:
                 self._reply(conn, {"decision": "ask"})

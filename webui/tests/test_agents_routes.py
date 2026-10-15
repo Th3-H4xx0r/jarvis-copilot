@@ -100,16 +100,61 @@ def test_instruction_to_a_tmux_session_types_into_it(env):
     assert frames == []
 
 
-def test_instruction_to_a_plain_terminal_session_goes_to_the_mac(env, monkeypatch):
+def test_a_working_session_gets_it_when_it_finishes_its_step(env, monkeypatch):
+    """Never a background `claude --resume` of a live session (it forks the
+    conversation): a working session is handed the message at its next Stop."""
     store, tr, mgr, frames = env
     import api.agents_routes as ar
     monkeypatch.setattr(ar, "_remote_instructions", lambda: True)
-    tr.ingest("d1", "event", "claude", ev("Stop"))
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", prompt="build it", term_program="vscode"))
     key = tr.sessions()[0]["key"]
-    status, body = call("POST", "/agents/instruction", {"key": key, "text": "continue"}, mgr=mgr)
-    assert status == 200 and body["via"] == "resume"
-    assert frames == [("d1", {"type": "agent_instruction", "session_id": "s1",
-                              "cwd": "/Users/p/code/app", "agent": "claude", "text": "continue"})]
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "also run lint"}, mgr=mgr)
+    assert status == 200 and body["via"] == "queued"
+    assert frames == [("d1", {"type": "agent_instruction", "mode": "queue", "session_id": "s1",
+                              "cwd": "/Users/p/code/app", "agent": "claude", "text": "also run lint",
+                              "terminal": {"term_program": "vscode"}})]
+
+
+def test_an_idle_iterm_session_gets_it_typed_in(env, monkeypatch):
+    store, tr, mgr, frames = env
+    import api.agents_routes as ar
+    monkeypatch.setattr(ar, "_remote_instructions", lambda: True)
+    tr.ingest("d1", "event", "claude", ev("Stop", iterm_session_id="w0t1p0:ABC"))
+    key = tr.sessions()[0]["key"]
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "next"}, mgr=mgr)
+    assert status == 200 and body["via"] == "typed"
+    assert frames[0][1]["mode"] == "type" and frames[0][1]["terminal"]["iterm"] == "w0t1p0:ABC"
+
+
+def test_an_idle_session_jarvis_cant_type_into_says_so(env, monkeypatch):
+    store, tr, mgr, frames = env
+    import api.agents_routes as ar
+    monkeypatch.setattr(ar, "_remote_instructions", lambda: True)
+    tr.ingest("d1", "event", "claude", ev("Stop", term_program="vscode"))
+    key = tr.sessions()[0]["key"]
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "next"}, mgr=mgr)
+    assert status == 409 and body["reason"] == "idle_untypable"
+    assert "VS Code" in body["error"]
+    assert frames == []
+
+
+def test_a_jarvis_session_gets_it_as_a_chat_message(env, monkeypatch):
+    store, tr, mgr, frames = env
+    import api.agents_routes as ar
+    started = []
+    monkeypatch.setattr(ar, "_start_jarvis_turn", lambda sid, text: started.append((sid, text)) or {"stream_id": "st"})
+    tr.ingest(None, "event", "jarvis", {"hook_event_name": "Stop", "session_id": "chat1", "cwd": "",
+                                        "jc_project": "Jarvis · webui"})
+    key = tr.sessions()[0]["key"]
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "and in blue?"}, mgr=mgr)
+    assert status == 200 and body["via"] == "chat"
+    assert started == [("chat1", "and in blue?")]
+    monkeypatch.setattr(ar, "_start_jarvis_turn", lambda sid, text: {"error": "busy", "_status": 409})
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "again"}, mgr=mgr)
+    assert status == 409 and "still answering" in body["error"]
+    monkeypatch.setattr(ar, "_start_jarvis_turn", lambda sid, text: (_ for _ in ()).throw(KeyError(sid)))
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "again"}, mgr=mgr)
+    assert status == 409 and "Telegram" not in body["error"] and "reply there" in body["error"]
 
 
 def test_instruction_needs_the_switch_for_plain_terminal_sessions(env, monkeypatch):

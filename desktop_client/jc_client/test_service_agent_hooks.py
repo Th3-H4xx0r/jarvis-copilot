@@ -77,24 +77,34 @@ def test_hello_asks_the_server_for_the_agent_config():
     assert ws.sent == [{"type": "event", "name": "agent_hello", "data": {"v": 1}}]
 
 
-def test_instruction_frame_runs_only_when_allowed(tmp_path, monkeypatch):
+def test_a_queued_instruction_is_handed_over_at_the_next_stop(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
     svc = service.Service()
-    runs = []
-
-    class Runner:
-        def run(self, sid, cwd, text):
-            runs.append((sid, text))
-            return True, "started"
-
-    svc._instructions = Runner()
-    frame = {"type": "agent_instruction", "session_id": "s1", "cwd": "/w", "text": "go on"}
+    frame = {"type": "agent_instruction", "mode": "queue", "session_id": "s1", "cwd": "/w",
+             "agent": "claude", "text": "also run lint"}
     svc._handle_frame(FakeWs(), frame)
-    assert runs == []  # the switch is off by default
+    assert svc._stop_answer("claude", {"session_id": "s1"}) is None    # the switch is off by default
     svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": False,
                                  "remote_instructions": True})
     svc._handle_frame(FakeWs(), frame)
-    assert runs == [("s1", "go on")]
+    out = svc._stop_answer("claude", {"session_id": "s1"})
+    assert out["decision"] == "block" and "also run lint" in out["reason"]
+    assert svc._stop_answer("claude", {"session_id": "s1"}) is None     # handed over once
+    svc._handle_frame(FakeWs(), dict(frame, session_id="s2"))
+    assert svc._stop_answer("codex", {"session_id": "s2"}) is None      # only Claude continues this way
+
+
+def test_a_type_instruction_types_into_the_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
+    from jc_client import instruction_delivery
+    typed = []
+    monkeypatch.setattr(instruction_delivery, "type_into",
+                        lambda terminal, text, **kw: typed.append((terminal, text)) or (True, "typed"))
+    svc = service.Service()
+    svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": False, "remote_instructions": True})
+    svc._run_instruction({"type": "agent_instruction", "mode": "type", "session_id": "s1",
+                          "terminal": {"iterm": "w0t1p0:ABC"}, "text": "next"}, wait=True)
+    assert typed == [({"iterm": "w0t1p0:ABC"}, "next")]
 
 
 class FakeUi:

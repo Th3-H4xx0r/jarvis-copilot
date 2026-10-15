@@ -87,8 +87,9 @@ struct AgentsAPI {
         }
     }
 
-    /// `POST /api/coding/agents/instruction` → "terminal" (typed into tmux) or
-    /// "resume" (the Mac continues the conversation in the background).
+    /// `POST /api/coding/agents/instruction` → "queued" (handed over at the
+    /// session's next step), "typed"/"terminal" (typed into tmux or iTerm) or
+    /// "chat" (a Jarvis chat's next turn).
     func sendInstruction(key: String, text: String) async throws -> String {
         let reply = try await api.post("/api/coding/agents/instruction",
                                        json: ["key": key, "text": text]).object()

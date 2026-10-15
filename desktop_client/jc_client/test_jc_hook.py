@@ -320,3 +320,24 @@ def test_every_payload_shape_fits_the_frame(jarvis, shape):
     assert (p["hook_event_name"], p["session_id"], p["tool_name"], p["tool_use_id"]) == (
         "PostToolUse", "s1", "mcp__x__list", "toolu_1")
     assert p["jc_trimmed"] is True
+
+
+def test_stop_asks_for_a_queued_instruction_and_continues_with_it(jarvis):
+    j = jarvis(reply={"decision": "block", "reason": "From the phone: run lint"})
+    out, code = run(["--socket", j.path], {"hook_event_name": "Stop", "session_id": "s1", "cwd": "/w"})
+    assert code == 0
+    assert json.loads(out) == {"decision": "block", "reason": "From the phone: run lint"}
+    assert wait_frames(j)[0]["kind"] == "stop"
+
+
+def test_stop_with_nothing_queued_prints_nothing(jarvis):
+    j = jarvis(reply={})
+    out, _ = run(["--socket", j.path], {"hook_event_name": "Stop", "session_id": "s1", "cwd": "/w"})
+    assert out == ""
+
+
+def test_stop_without_jarvis_is_instant():
+    import time as _t
+    t0 = _t.monotonic()
+    out, code = run(["--socket", "/tmp/jch-none.sock"], {"hook_event_name": "Stop", "session_id": "s"})
+    assert (out, code) == ("", 0) and _t.monotonic() - t0 < 0.5

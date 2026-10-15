@@ -253,3 +253,26 @@ def test_identical_requests_get_their_own_fingerprints(sockdir):
         assert until(lambda: len(replies) == 2)
     finally:
         hs.close()
+
+
+def test_stop_is_an_event_that_also_gets_an_answer(sockdir):
+    """A Stop ingests like any event and is answered with what waits for the
+    session (a phone message), or {}."""
+    eng = agent_engine.Engine()
+    asked = []
+
+    def on_stop(agent, payload):
+        asked.append((agent, payload.get("session_id")))
+        return {"decision": "block", "reason": "From the phone: run lint"} if payload.get("session_id") == "s1" else None
+
+    hs = HookServer(os.path.join(sockdir, "h.sock"), eng, forward=lambda f: None, on_stop=on_stop)
+    hs.start()
+    try:
+        reply = send(hs.path, frame("stop", {"hook_event_name": "Stop", "session_id": "s1", "cwd": "/w"}), wait=True)
+        assert reply == {"decision": "block", "reason": "From the phone: run lint"}
+        assert eng.session(agent_engine.session_key("local", "claude", "s1", "/w")) is not None
+        assert send(hs.path, frame("stop", {"hook_event_name": "Stop", "session_id": "s2", "cwd": "/w"}),
+                    wait=True) == {}
+        assert asked == [("claude", "s1"), ("claude", "s2")]
+    finally:
+        hs.close()

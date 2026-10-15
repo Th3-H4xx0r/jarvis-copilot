@@ -124,7 +124,44 @@ def _decide(body):
     return _ok({"ok": ok})
 
 
+_WORKING = {"working", "thinking", "approval", "question"}
+_TERMINAL_NAMES = {"vscode": "VS Code", "apple_terminal": "Terminal", "ghostty": "Ghostty",
+                   "wezterm": "WezTerm", "warpterminal": "Warp", "cursor": "Cursor", "zed": "Zed"}
+
+
+def _terminal_name(terminal: dict) -> str:
+    tp = str((terminal or {}).get("term_program") or "").lower()
+    return _TERMINAL_NAMES.get(tp, tp or "its terminal")
+
+
+def _start_jarvis_turn(session_id: str, text: str) -> dict:
+    from api.routes import start_chat_turn
+    return start_chat_turn(session_id, text)
+
+
+def _jarvis_instruction(session, text):
+    """A Jarvis chat: the message goes into that chat as your next turn."""
+    sid = session.get("session_id") or ""
+    where = (session.get("project") or "").split("·")[-1].strip() or "another app"
+    try:
+        out = _start_jarvis_turn(sid, text)
+    except KeyError:
+        return _err(409, f"Jarvis can't continue this chat from here (it started in {where}); reply there.")
+    if isinstance(out, dict) and out.get("error"):
+        if int(out.get("_status") or 0) == 409:
+            return _err(409, "Jarvis is still answering in that chat; send it again when it's done.")
+        return _err(502, str(out["error"]))
+    return _ok({"ok": True, "via": "chat"})
+
+
 def _instruction(tr, body, manager, manager_for_host):
+    """The phone's next instruction for a session.
+
+    Never a background `claude --resume` of a live session: that forks the
+    conversation into a second copy that acts on its own. Instead a tmux session
+    gets it typed in, a working session is handed it when it finishes its
+    current step (the Mac's Stop hook), an idle one in iTerm or tmux on the
+    Mac gets it typed in, and a Jarvis chat gets it as a chat turn."""
     key = str((body or {}).get("key") or "").strip()
     text = str((body or {}).get("text") or "").strip()
     if not key or not text:
@@ -134,6 +171,8 @@ def _instruction(tr, body, manager, manager_for_host):
     session = tr.session(key) if tr else None
     if session is None:
         return _err(404, "no such agent session")
+    if (session.get("agent") or "") == "jarvis":
+        return _jarvis_instruction(session, text)
     rid = session.get("coding_session_id")
     row = None
     if rid and manager is not None:
@@ -154,11 +193,20 @@ def _instruction(tr, body, manager, manager_for_host):
         return _err(409, "this session can't take instructions (no terminal to type into)")
     if not _remote_instructions():
         return _err(403, "turn on \"Instructions from the phone\" in Code Master settings first")
+    terminal = dict(session.get("terminal") or {})
+    if (session.get("state") or "") in _WORKING:
+        mode, via = "queue", "queued"
+    elif terminal.get("iterm") or terminal.get("tmux_pane") or terminal.get("tmux"):
+        mode, via = "type", "typed"
+    else:
+        return 409, {"error": f"This session is waiting at its prompt in {_terminal_name(terminal)}, which "
+                              "Jarvis can't type into. Type it there, or send it while the session is working.",
+                     "reason": "idle_untypable"}
     from api import device_bridge
     sent = device_bridge.send_frame(device_id, {
-        "type": "agent_instruction", "session_id": session.get("session_id") or "",
+        "type": "agent_instruction", "mode": mode, "session_id": session.get("session_id") or "",
         "cwd": session.get("cwd") or "", "agent": session.get("agent") or "claude",
-        "text": text})
+        "text": text, "terminal": terminal})
     if not sent:
         return _err(503, "the Mac running this session is offline")
-    return _ok({"ok": True, "via": "resume"})
+    return _ok({"ok": True, "via": via})

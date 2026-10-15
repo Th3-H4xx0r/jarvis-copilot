@@ -9513,6 +9513,20 @@ def _apply_turn_harness(s, body, model, model_provider):
         s._turn_explicit_model = (model, model_provider)
 
 
+def start_chat_turn(session_id: str, message: str) -> dict:
+    """Start a chat turn in an existing session from the server itself (the
+    phone's Agents tab replying to a Jarvis chat). Same model, harness and
+    workspace resolution as POST /api/chat/start. KeyError: no such session.
+    Returns the start response ({stream_id, …} or {error, _status})."""
+    s = get_session(session_id)
+    workspace = _resolve_chat_workspace_with_recovery(s, None)
+    model, model_provider, normalized_model = _resolve_compatible_session_model_state(
+        s.model, getattr(s, "model_provider", None))
+    _apply_turn_harness(s, {}, model, model_provider)
+    return _start_chat_stream_for_session(s, msg=message, workspace=workspace, model=model,
+                                          model_provider=model_provider, normalized_model=normalized_model)
+
+
 def _handle_chat_start(handler, body, diag=None, stream=False):
     """Handle POST /api/chat/start.
 

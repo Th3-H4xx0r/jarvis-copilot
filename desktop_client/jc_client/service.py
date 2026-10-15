@@ -340,28 +340,50 @@ class Service:
             return {"ok": False, "error": str(exc)}
         return {"ok": False, "error": f"unknown hooks action {action!r}"}
 
-    def _session_cwd(self, session_id: str):
-        """The folder a session runs in, as its own hooks reported it."""
-        server = self._hook_server
-        if server is None or not session_id:
-            return None
-        for s in server.engine_sessions():
-            if s.get("session_id") == session_id and s.get("cwd"):
-                return s["cwd"]
-        return None
-
-    def _run_instruction(self, frame: dict) -> None:
+    def _run_instruction(self, frame: dict, wait: bool = False) -> None:
+        """The phone's next instruction for a live session on this Mac: queued
+        for its next Stop, or typed into its tmux pane / iTerm session. Never a
+        background `claude --resume` (it forks the live conversation)."""
         if not self._agent_instructions:
             log.info("instruction from the phone ignored: the switch is off")
             return
+        from jc_client import instruction_delivery
+        sid, text = str(frame.get("session_id") or ""), str(frame.get("text") or "")
+        if not sid or not text:
+            return
+        if frame.get("mode") == "type":
+            terminal = frame.get("terminal") if isinstance(frame.get("terminal"), dict) else {}
+
+            def type_it():
+                ok, why = instruction_delivery.type_into(terminal, text)
+                if not ok:   # couldn't type: it waits for the session's next Stop instead
+                    self._instruction_queue().add(sid, text)
+                log.info("instruction from the phone: %s", why)
+
+            if wait:
+                type_it()
+            else:
+                threading.Thread(target=type_it, daemon=True, name="jc-instruction").start()
+            return
+        self._instruction_queue().add(sid, text)
+        log.info("instruction from the phone: queued for the session's next step")
+
+    def _instruction_queue(self):
         if self._instructions is None:
-            from jc_client.instruction_runner import InstructionRunner
-            from jc_client.logger import state_dir
-            self._instructions = InstructionRunner(session_cwd=self._session_cwd,
-                                                   log_dir=str(state_dir() / "logs"))
-        ok, why = self._instructions.run(str(frame.get("session_id") or ""),
-                                         str(frame.get("cwd") or ""), str(frame.get("text") or ""))
-        log.info("instruction from the phone: %s", why)
+            from jc_client.instruction_delivery import InstructionQueue
+            self._instructions = InstructionQueue()
+        return self._instructions
+
+    def _stop_answer(self, agent: str, payload: dict):
+        """The Stop hook's answer: a phone message waiting for this session."""
+        if agent not in ("claude", "claude-desktop") or not self._agent_instructions:
+            return None
+        text = self._instruction_queue().take(str(payload.get("session_id") or ""))
+        if not text:
+            return None
+        from jc_client.instruction_delivery import stop_reply
+        log.info("instruction from the phone: handed to the session at its Stop")
+        return stop_reply(text)
 
     def _forward_up(self, frame: dict) -> None:
         """Send a frame to the server over the live bridge; drop it when offline."""
@@ -392,7 +414,8 @@ class Service:
             server = HookServer(_hook_socket_path(), self._agent_engine,
                                 forward=self._forward_up, arbiter=self._arbiter,
                                 on_effects=self._ui_push_sessions,
-                                on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}))
+                                on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}),
+                                on_stop=self._stop_answer)
             server.start()
             self._hook_server = server
             from jc_client.plan_usage import CodexPoller
