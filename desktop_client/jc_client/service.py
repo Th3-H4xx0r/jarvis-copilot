@@ -258,8 +258,10 @@ class Service:
         assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
         rows = []
         for r in roster.rows:
+            symbol = "" if r.header else (device_roster.wearable_symbol(r.wearable) if r.wearable
+                                          else device_roster.kind_symbol(r.kind, r.name))
             row = {"name": r.name, "kind": r.kind, "online": bool(r.online), "detail": r.detail,
-                   "header": bool(r.header), "symbol": "" if r.header else device_roster.kind_symbol(r.kind, r.name)}
+                   "header": bool(r.header), "symbol": symbol}
             if r.wearable:
                 image = os.path.join(assets, f"icon-{r.wearable}.png")
                 if os.path.exists(image):
