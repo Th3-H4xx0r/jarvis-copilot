@@ -127,8 +127,9 @@ final class GlassNavBarLayoutTests: XCTestCase {
 
     /// The slot arithmetic above divides by this, so a tab arriving or leaving
     /// has to come past the label-fit test.
-    func testTheBarStillHasFiveTabs() {
-        XCTAssertEqual(AppTab.allCases.count, 5)
+    /// Six since the Agents tab (between Voice and Health) joined the bar.
+    func testTheBarHasSixTabs() {
+        XCTAssertEqual(AppTab.allCases.count, 6)
     }
 
     /// Coding lives in the More grid now, not the bar.
