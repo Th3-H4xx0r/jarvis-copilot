@@ -34,9 +34,11 @@ end and push to all devices after this". A box is ticked only once it is live.
 ## Follow-ups (2026-10-15, from Pranav on the phone and Mac)
 12. [ ] Phone messages reach the live Mac session: handed over when it finishes its current step (any terminal), typed in when it's idle in tmux/iTerm; never a background `claude --resume` copy (one forked this conversation and acted on its own)
 13. [ ] Messages to a Jarvis agent go into that Jarvis chat (not "no terminal or Mac")
-14. [ ] Stop the notification spam: the Mac still runs plugin 0.6.5 (old coding_event/pretool hooks on top of the new hooks); "finished" pushes only when worth it
+14. [x] Stop the notification spam: the Mac still runs plugin 0.6.5 (old coding_event/pretool hooks on top of the new hooks); "finished" pushes only when worth it
+   - ✅ Plugin updated to 0.7.0 in all three projects (takes effect as each Claude session restarts); "Claude finished" now only for turns of a minute or more. Live on the server.
 15. [ ] The notch island is always there (it vanished when idle), slim, with the orb inside its ear
 16. [ ] The open island cuts off the session row at the bottom
+18. [ ] Agent Live Activities: one per agent type (Claude, Codex, Gemini…) with that agent's logo, started even when the app is closed (push-to-start), and settings in Code Master + Island Designs (on/off, which agents, end after idle, Lock Screen Allow/Deny). Today's single Jarvis activity hides coding whenever voice is up.
 17. [x] Instructions-from-phone switch (iPhone + web), Agents tab redesign, real orb, old tray menu items, click-outside folds — shipped 2026-10-15
 
 ## Shipped
