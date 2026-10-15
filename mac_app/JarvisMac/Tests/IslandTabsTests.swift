@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import SwiftUI
 @testable import Jarvis
 
 /// The expanded island's tabs: Agents, Chat, Services, Music, Mail.
@@ -116,4 +118,53 @@ final class IslandTabsTests: XCTestCase {
         XCTAssertEqual(IslandLayout.scrollThumb(content: 200, visible: 100, offset: 100)?.start, 50)
         XCTAssertEqual(IslandLayout.scrollThumb(content: 10_000, visible: 100, offset: 0)?.length, 24)  // never a sliver
     }
+
+    /// Opening a session (its steps and files) makes the island taller instead
+    /// of cutting it off. Hosted offscreen; JC_ISLAND_SNAPSHOT=<path prefix>
+    /// writes before/after PNGs to look at.
+    @MainActor
+    func testOpeningASessionGrowsTheIsland() throws {
+        let model = AppModel()
+        model.handle(["type": "sessions", "sessions": [
+            ["key": "a", "agent": "claude", "project": "jarvis-copilot", "state": "working", "step": "Bash: npm test",
+             "steps": (1...6).map { ["t": "Read Sources/File\($0).swift"] },
+             "turn": ["prompt": "Fix the island so it fits what it shows",
+                      "files": [["path": "/w/Sources/Island.swift", "added": 3, "removed": 1,
+                                 "lines": [["k": "+", "t": "let fits = true"]]]]]],
+            ["key": "b", "agent": "claude", "project": "usage-scratch", "state": "idle"],
+        ]])
+        let controller = IslandController(model: model)
+        let ui = IslandUI()
+        ui.state = .expanded
+        // Offscreen there's no display link to run the spring, so the test turns
+        // animation off and looks at where everything lands.
+        let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: controller)
+            .transaction { $0.disablesAnimations = true })
+        host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
+        func settle() {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+        }
+        func height() -> CGFloat {
+            IslandRootView.expandedHeight(model: model, tab: .agents, topInset: ui.geometry.height + 8,
+                                          measured: ui.agentsMeasure)
+        }
+        func snapshot(_ name: String) throws {
+            guard let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"],
+                  let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + name))
+        }
+        settle()
+        let closed = height()
+        XCTAssertNotNil(ui.agentsMeasure, "the tab measured itself")
+        try snapshot("-closed.png")
+        model.selectedKey = "a"
+        settle()
+        XCTAssertGreaterThan(height(), closed + 60, "the opened session's steps and file add to the island")
+        XCTAssertLessThanOrEqual(height(), IslandController.panelSize.height)
+        try snapshot("-open.png")
+    }
 }
+

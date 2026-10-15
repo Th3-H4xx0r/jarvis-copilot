@@ -47,6 +47,10 @@ end and push to all devices after this". A box is ticked only once it is live.
 21. [ ] Mac island: opening an agent's details cuts off the bottom — the island grows to fit, and scrolls past the panel with a slim bar on the right
 22. [ ] iPhone agent chat loads the WHOLE transcript at once (slow): open on the last page, load older pages on scroll up
 23. [ ] Tray app + notch island together glitch the Mac and burn CPU (idle: tray 8.6%, jc-client 8.2%, Jarvis.app 6.2%; orb draws 30 fps nonstop; two menu-bar items when the app starts after the tray) — brainstorm folding it all into the notch
+24. [ ] iPhone Dynamic Island shows a full-width EMPTY black bar (compact view broken); the Lock Screen Claude activity shows the Jarvis orb instead of the Claude logo (old server → old activity)
+25. [ ] A "waiting for your OK" alert like coucou's (logo, elapsed timer, Deny / Allow) when an agent asks or needs approval — no Face ID
+26. [ ] Voice: Soniox rejects odd-length audio chunks ("Invalid data length: must be a multiple of 2") — seen 2026-10-15 23:27
+27. [ ] Battery: the phone polls /api/island/designs every ~6 s while open
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
