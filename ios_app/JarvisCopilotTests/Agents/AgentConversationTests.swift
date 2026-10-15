@@ -178,4 +178,41 @@ final class AgentConversationTests: XCTestCase {
         let short = [tool("t1", "Read"), tool("t2", "Read"), tool("t3", "Read"), tool("t4", "Bash", running: true)]
         XCTAssertEqual(AgentConversation.collapse(short, threshold: 4).map(\.id), ["t1", "t2", "t3", "t4"])
     }
+
+    // MARK: - Lite pages (output and diffs load when opened)
+
+    func testALiteChatStillShowsEditsAndKnowsWhatToLoad() {
+        let m = CodingChatMessage(i: 7, role: "assistant", text: "", tools: [
+            CodingChatTool(json: ["name": "Bash", "summary": "npm test", "ok": true, "more": true], index: 0),
+            CodingChatTool(json: ["name": "Edit", "summary": "/w/a.py", "ok": true, "more": true,
+                                  "added": 3, "removed": 1], index: 1),
+        ])
+        let items = AgentConversation.items([m], working: false)
+        guard case .tool(_, let tool) = items[0], case .edit(_, let edit) = items[1] else {
+            return XCTFail("expected a tool row then a file card, got \(items)")
+        }
+        XCTAssertEqual(tool.detailIndex, 7)
+        XCTAssertTrue(tool.output.isEmpty)
+        XCTAssertEqual(edit.added, 3)
+        XCTAssertEqual(edit.removed, 1)
+        XCTAssertEqual(edit.detailIndex, 7)
+        XCTAssertTrue(edit.lines.isEmpty)
+    }
+
+    func testLoadedDetailsReplaceTheLiteMessageUnlessStale() {
+        let lite = CodingChatMessage(i: 3, role: "assistant", text: "", tools: [
+            CodingChatTool(json: ["name": "Bash", "summary": "ls", "ok": true, "more": true], index: 0)])
+        let full = CodingChatMessage(i: 3, role: "assistant", text: "", tools: [
+            CodingChatTool(json: ["name": "Bash", "summary": "ls", "ok": true, "output": "a.txt"], index: 0)])
+        let merged = AgentConversation.withDetails([lite], [3: full])
+        XCTAssertEqual(merged[0].tools[0].output, "a.txt")
+        guard case .tool(_, let tool) = AgentConversation.items(merged, working: false)[0] else { return XCTFail() }
+        XCTAssertNil(tool.detailIndex)
+        // The message grew since its details loaded (a live turn): the lite one wins.
+        let grown = CodingChatMessage(i: 3, role: "assistant", text: "", tools: lite.tools + [
+            CodingChatTool(json: ["name": "Read", "summary": "/b", "ok": true], index: 1)])
+        XCTAssertEqual(AgentConversation.withDetails([grown], [3: full])[0].tools.count, 2)
+        XCTAssertTrue(AgentConversation.withDetails([grown], [3: full])[0].tools[0].output.isEmpty)
+    }
 }
+

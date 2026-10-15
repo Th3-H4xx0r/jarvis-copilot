@@ -1572,6 +1572,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 limit = max(0, int(query.get("limit") or 0)) or None
             except (TypeError, ValueError):
                 limit = None
+            # ?lite=1: tools without their output/diff (fetched when opened).
+            lite = (query.get("lite") or "") in ("1", "true")
 
             def _messages():
                 import time as _time
@@ -1648,7 +1650,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     msgs, _mt = read_local_messages(cwd, csid)
                 if msgs is None:
                     return _err(409, "transcript not available")
-                payload = slice_messages(msgs, after, before=before, limit=limit)
+                payload = slice_messages(msgs, after, before=before, limit=limit, lite=lite)
                 payload.update(ok=True, source=source,
                                activity_state=row.get("activity_state"),
                                status=row.get("status"),

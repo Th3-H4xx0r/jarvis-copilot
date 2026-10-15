@@ -84,6 +84,25 @@ def test_a_long_chat_opens_on_its_last_page_and_pages_back():
     assert len(slice_messages(msgs, after=0, limit=10_000)["messages"]) == 100
 
 
+def test_a_lite_page_leaves_tool_output_and_diffs_for_later():
+    """Most of a long chat's bytes are tool output and diffs, which the chat
+    list only shows when you open one: a lite page drops them, says there's
+    more, and keeps an edit's +/− counts."""
+    msgs = [{"i": 0, "role": "assistant", "text": "done", "tools": [
+        {"name": "Bash", "summary": "npm test", "output": "x" * 5000, "ok": True},
+        {"name": "Edit", "summary": "/a.py", "ok": True,
+         "diff": ["@@ -1,2 +1,2 @@", " a", "-b = 2", "+b = 3", "+c = 4"]},
+        {"name": "Write", "summary": "/b.py", "ok": True, "diff": ["+x", "… +40 more lines"]},
+        {"name": "Read", "summary": "/c.py", "ok": True}]}]
+    lite = slice_messages(msgs, after=0, lite=True)["messages"][0]["tools"]
+    assert "output" not in lite[0] and lite[0]["more"] is True and lite[0]["summary"] == "npm test"
+    assert "diff" not in lite[1] and (lite[1]["added"], lite[1]["removed"], lite[1]["more"]) == (2, 1, True)
+    assert (lite[2]["added"], lite[2]["removed"]) == (41, 0)
+    assert "more" not in lite[3]
+    full = slice_messages(msgs, after=0)["messages"][0]["tools"]
+    assert full[0]["output"] == "x" * 5000 and full[1]["diff"][0].startswith("@@")
+
+
 def test_edit_tool_carries_diff():
     text = _line("assistant", [{
         "type": "tool_use", "id": "t1", "name": "Edit",

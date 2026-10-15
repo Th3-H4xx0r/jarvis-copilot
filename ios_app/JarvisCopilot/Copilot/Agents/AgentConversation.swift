@@ -181,6 +181,8 @@ struct AgentToolItem: Equatable {
     let output: String
     let failed: Bool
     let running: Bool
+    /// The message to load for this row's output (a lite page left it out).
+    var detailIndex: Int? = nil
 }
 
 /// One file the agent changed, with its diff.
@@ -191,16 +193,20 @@ struct AgentFileEdit: Equatable {
     let isNew: Bool
     let truncated: Bool
     let lines: [AgentDiffLine]
+    /// The message to load for this file's diff (a lite page left it out).
+    var detailIndex: Int? = nil
 
     var name: String { CodingJSON.basename(path).isEmpty ? path : CodingJSON.basename(path) }
 
-    init(path: String, added: Int, removed: Int, isNew: Bool, truncated: Bool, lines: [AgentDiffLine]) {
+    init(path: String, added: Int, removed: Int, isNew: Bool, truncated: Bool, lines: [AgentDiffLine],
+         detailIndex: Int? = nil) {
         self.path = path
         self.added = added
         self.removed = removed
         self.isNew = isNew
         self.truncated = truncated
         self.lines = lines
+        self.detailIndex = detailIndex
     }
 
     init(_ diff: AgentFileDiff) {
@@ -276,19 +282,37 @@ enum AgentConversation {
                 let id = "m\(m.i)-t\(t.id)"
                 if !t.diff.isEmpty {
                     out.append(.edit(id: id, AgentFileEdit(tool: t)))
+                } else if let counts = t.diffCounts {
+                    // A lite page: the card shows its +/−, the diff loads when opened.
+                    out.append(.edit(id: id, AgentFileEdit(path: t.summary, added: counts.added,
+                                                           removed: counts.removed, isNew: t.name == "Write",
+                                                           truncated: false, lines: [], detailIndex: m.i)))
                 } else {
                     let running = live && t.running
                     out.append(.tool(id: id, AgentToolItem(
                         tool: t.name,
                         line: AgentToolPhrase.line(tool: t.name, summary: t.summary,
                                                    tense: running ? .progressive : .past),
-                        output: t.output, failed: !t.ok, running: running)))
+                        output: t.output, failed: !t.ok, running: running,
+                        detailIndex: t.more && t.output.isEmpty ? m.i : nil)))
                 }
             }
             let text = trim(m.text)
             if !text.isEmpty { out.append(.text(id: "m\(m.i)-x", text: text)) }
         }
         return out
+    }
+
+    /// Messages with the details loaded so far (a tool's output, a file's
+    /// diff) in place of their lite copies — unless the message has grown
+    /// since (a live turn), when the lite one is the truth until reopened.
+    static func withDetails(_ messages: [CodingChatMessage],
+                            _ details: [Int: CodingChatMessage]) -> [CodingChatMessage] {
+        guard !details.isEmpty else { return messages }
+        return messages.map { m in
+            guard let full = details[m.i], full.tools.count >= m.tools.count else { return m }
+            return full
+        }
     }
 
     /// The last turn from the hooks: the prompt, each action (an edit becomes

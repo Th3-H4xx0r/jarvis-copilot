@@ -55,6 +55,17 @@ struct AgentSessionScreen: View {
                             AgentConversationEmpty(agentName: agentName, error: model.error)
                         }
                     case .transcript, .lastTurn:
+                        if choice == .transcript && model.transcript.hasOlder {
+                            // Reaching the top loads the page above, keeping your place.
+                            AgentEarlierRow(loading: model.loadingOlder)
+                                .onAppear {
+                                    let anchor = items.first?.id
+                                    Task {
+                                        await model.loadOlder()
+                                        if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+                                    }
+                                }
+                        }
                         ForEach(items) { item in
                             AgentConversationRow(item: item, cwd: live?.cwd ?? "") { fullDiff = $0 }
                         }
@@ -80,11 +91,13 @@ struct AgentSessionScreen: View {
                 .padding(.bottom, 12)
             }
             .modifier(AgentOpensAtTheEnd())
+            .environment(\.agentLoadDetails, AgentLoadDetails { i in Task { await model.loadDetails(i) } })
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
-            .onChange(of: items.count + outgoing.count + (request == nil ? 0 : 1)) { old, _ in
-                // The first page jumps; what arrives after it slides in.
-                if old == 0 {
+            .onChange(of: "\(items.last?.id ?? "")|\(outgoing.count)|\(request == nil ? 0 : 1)") { old, _ in
+                // Follows what arrives at the END (an older page coming in on
+                // top doesn't move you). The first page jumps; the rest slides in.
+                if old.hasPrefix("|") {
                     proxy.scrollTo(Self.bottom, anchor: .bottom)
                 } else {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
@@ -182,6 +195,21 @@ struct AgentSessionScreen: View {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             withAnimation(.easeOut(duration: 0.3)) { copied = false }
         }
+    }
+}
+
+/// The top of a long chat while its earlier pages load.
+private struct AgentEarlierRow: View {
+    let loading: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Earlier messages").font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .opacity(loading ? 1 : 0.7)
     }
 }
 

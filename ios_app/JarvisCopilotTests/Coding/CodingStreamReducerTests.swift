@@ -279,4 +279,68 @@ final class CodingStreamReducerTests: XCTestCase {
                      "a truly offline Mac must not loop forever")
         XCTAssertNil(CodingTerminalEvent.reattachDelay(attempt: 0))
     }
+
+    // MARK: - Paging (a long chat opens on its last page)
+
+    private func window(_ range: Range<Int>) -> CodingTranscript {
+        var t = CodingTranscript()
+        t.start = range.lowerBound
+        t.messages = range.map { msg($0) }
+        t.loading = false
+        return t
+    }
+
+    func testTheFirstPageIsTheTailAndPollsAskOnlyForWhatIsNew() {
+        var t = CodingTranscript()
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 0)
+        XCTAssertEqual(CodingStreamReducer.limit(t, paged: true), CodingStreamReducer.pageSize)
+        XCTAssertNil(CodingStreamReducer.limit(t, paged: false))       // the Coding chat keeps its whole window
+        let first = CodingChatPage(messages: (60..<100).map { msg($0) }, total: 100, start: 60)
+        _ = CodingStreamReducer.apply(first, full: true, to: &t)
+        XCTAssertEqual(t.start, 60)
+        XCTAssertTrue(t.hasOlder)
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 100)
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: true), 60)  // a reconcile re-reads the window we hold
+        XCTAssertNil(CodingStreamReducer.limit(t, paged: true))        // only the first page is limited
+        let next = CodingChatPage(messages: [msg(70, "assistant", "edited"), msg(100, "user", "new")], total: 101)
+        XCTAssertEqual(CodingStreamReducer.apply(next, full: false, to: &t), .applied(hadNew: true, hadNewAssistant: false))
+        XCTAssertEqual(t.messages.first?.i, 60)
+        XCTAssertEqual(t.messages.last?.i, 100)
+        XCTAssertEqual(t.messages[10].text, "edited")
+    }
+
+    func testScrollingUpPrependsThePageAbove() {
+        var t = window(60..<100)
+        XCTAssertEqual(CodingStreamReducer.before(t), 60)
+        let older = CodingChatPage(messages: (20..<60).map { msg($0) }, total: 100, start: 20)
+        XCTAssertTrue(CodingStreamReducer.applyOlder(older, to: &t))
+        XCTAssertEqual(t.start, 20)
+        XCTAssertEqual(t.messages.map(\.i), Array(20..<100))
+        // A page that doesn't end right above what we hold isn't stitched in.
+        var u = window(60..<100)
+        let off = CodingChatPage(messages: (10..<50).map { msg($0) }, total: 100, start: 10)
+        XCTAssertFalse(CodingStreamReducer.applyOlder(off, to: &u))
+        XCTAssertEqual(u.start, 60)
+        XCTAssertEqual(u.messages.count, 40)
+    }
+
+    func testAWindowHealsGapsAndShrinksAgainstItsEnd() {
+        var t = window(60..<100)
+        XCTAssertEqual(CodingStreamReducer.apply(CodingChatPage(messages: [msg(102)], total: 103), full: false, to: &t),
+                       .needsFullReload)
+        XCTAssertEqual(CodingStreamReducer.apply(CodingChatPage(messages: [], total: 90), full: false, to: &t),
+                       .needsFullReload)
+    }
+
+    /// Past the server's cap (400) a reply starts mid-transcript, and an older
+    /// server says so only through the indices: polls must not reload forever.
+    func testALongTranscriptFromAnOlderServerKeepsItsWindow() {
+        var t = CodingTranscript()
+        let capped = CodingChatPage(messages: (360..<760).map { msg($0) }, total: 760)   // no `start`
+        _ = CodingStreamReducer.apply(capped, full: true, to: &t)
+        XCTAssertEqual(t.start, 360)
+        XCTAssertEqual(CodingStreamReducer.apply(CodingChatPage(messages: [], total: 760), full: false, to: &t),
+                       .applied(hadNew: false, hadNewAssistant: false))
+    }
 }
+

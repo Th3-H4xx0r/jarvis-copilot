@@ -25,10 +25,17 @@ struct CodingChatTool: Identifiable, Equatable {
     /// File-edit tools carry a renderable unified diff (lines prefixed with
     /// `+` / `-` / ` ` / `@@`) — the chat view shows these as red/green blocks.
     let diff: [String]
+    /// A lite page left this tool's output/diff on the server (fetched when
+    /// opened); an edit still says how many lines it added and removed.
+    let more: Bool
+    let diffCounts: (added: Int, removed: Int)?
+
+    /// A file edit: it has a diff here, or counts for one on the server.
+    var isEdit: Bool { !diff.isEmpty || diffCounts != nil }
 
     init(id: Int = 0, name: String, summary: String = "", output: String = "",
          ok: Bool = true, running: Bool = false, subagentType: String = "",
-         diff: [String] = []) {
+         diff: [String] = [], more: Bool = false, diffCounts: (added: Int, removed: Int)? = nil) {
         self.id = id
         self.name = name
         self.summary = summary
@@ -37,6 +44,15 @@ struct CodingChatTool: Identifiable, Equatable {
         self.running = running
         self.subagentType = subagentType
         self.diff = diff
+        self.more = more
+        self.diffCounts = diffCounts
+    }
+
+    static func == (a: CodingChatTool, b: CodingChatTool) -> Bool {
+        a.id == b.id && a.name == b.name && a.summary == b.summary && a.output == b.output && a.ok == b.ok
+            && a.running == b.running && a.subagentType == b.subagentType && a.diff == b.diff
+            && a.more == b.more && a.diffCounts?.added == b.diffCounts?.added
+            && a.diffCounts?.removed == b.diffCounts?.removed
     }
 
     init(json j: [String: Any], index: Int = 0) {
@@ -51,7 +67,10 @@ struct CodingChatTool: Identifiable, Equatable {
             ok: okMissing ? true : CodingJSON.bool(j["ok"]),
             running: okMissing,
             subagentType: CodingJSON.text(j["subagent_type"]),
-            diff: CodingJSON.strings(j["diff"]))
+            diff: CodingJSON.strings(j["diff"]),
+            more: CodingJSON.bool(j["more"]),
+            diffCounts: j["added"] == nil && j["removed"] == nil
+                ? nil : (CodingJSON.int(j["added"]), CodingJSON.int(j["removed"])))
     }
 
     var isSubagent: Bool { !subagentType.isEmpty || name == "Task" || name == "Agent" }
@@ -220,6 +239,9 @@ struct LiveStatus: Equatable {
 struct CodingChatPage: Equatable {
     let messages: [CodingChatMessage]
     let total: Int
+    /// Absolute index of the page's first message (a long chat comes in
+    /// pages). Older servers don't say; the first message's index does.
+    let start: Int
     /// working | waiting | idle | nil
     let activityState: String?
     let status: String
@@ -228,11 +250,12 @@ struct CodingChatPage: Equatable {
     /// Context-window gauge, or nil if the transcript has no usage yet.
     let context: ChatContext?
 
-    init(messages: [CodingChatMessage] = [], total: Int = 0, activityState: String? = nil,
-         status: String = "", statusLine: String? = nil,
+    init(messages: [CodingChatMessage] = [], total: Int = 0, start: Int? = nil,
+         activityState: String? = nil, status: String = "", statusLine: String? = nil,
          context: ChatContext? = nil) {
         self.messages = messages
         self.total = total
+        self.start = start ?? messages.first?.i ?? 0
         self.activityState = activityState
         self.status = status
         self.statusLine = statusLine
@@ -243,6 +266,7 @@ struct CodingChatPage: Equatable {
         self.init(
             messages: CodingJSON.maps(j["messages"]).map(CodingChatMessage.init(json:)),
             total: CodingJSON.int(j["total"]),
+            start: j["start"] == nil ? nil : CodingJSON.int(j["start"]),
             activityState: CodingJSON.str(j["activity_state"]),
             status: CodingJSON.text(j["status"]),
             statusLine: CodingJSON.str(j["status_line"]),

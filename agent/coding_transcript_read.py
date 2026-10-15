@@ -17,6 +17,7 @@ later "user" lines) are attached back onto their tool_use entry.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -311,8 +312,32 @@ def read_local_messages(cwd: str, csid: str,
         return None, None
 
 
+def _lite_tool(t: dict) -> dict:
+    """A tool for the chat list: its line, without the output and diff the
+    list only shows when you open one (most of a long chat's bytes). ``more``
+    says there's something to fetch; an edit keeps its +/− counts."""
+    out = {k: v for k, v in t.items() if k not in ("output", "diff")}
+    diff = t.get("diff") or []
+    if diff:
+        added = removed = 0
+        for line in diff:
+            if line.startswith("…"):
+                m = re.search(r"\+(\d+)", line)   # a Write's "… +40 more lines"
+                added += int(m.group(1)) if m else 0
+            elif line.startswith("@@"):
+                continue
+            elif line.startswith("+"):
+                added += 1
+            elif line.startswith("-"):
+                removed += 1
+        out["added"], out["removed"] = added, removed
+    if t.get("output") or diff:
+        out["more"] = True
+    return out
+
+
 def slice_messages(messages: list[dict], after: int, before: Optional[int] = None,
-                   limit: Optional[int] = None) -> dict:
+                   limit: Optional[int] = None, lite: bool = False) -> dict:
     """API payload: total + a window of the messages, plus the whole-transcript
     ``context`` gauge.
 
@@ -320,8 +345,9 @@ def slice_messages(messages: list[dict], after: int, before: Optional[int] = Non
     (never above MAX_MESSAGES), so ``after=0&limit=40`` opens a long chat on
     its last 40 messages; ``before=B`` pages back to the ``limit`` messages
     just before index B. ``start`` is the absolute index of the first message
-    returned. Internal usage/model keys are stripped from the emitted messages
-    (they only feed the context)."""
+    returned. ``lite`` leaves each tool's output and diff for later (see
+    _lite_tool). Internal usage/model keys are stripped from the emitted
+    messages (they only feed the context)."""
     total = len(messages)
     cap = min(int(limit), MAX_MESSAGES) if limit and int(limit) > 0 else MAX_MESSAGES
     if before is not None:
@@ -335,5 +361,7 @@ def slice_messages(messages: list[dict], after: int, before: Optional[int] = Non
     for m in messages[start:end]:
         if "usage" in m or "model" in m:
             m = {k: v for k, v in m.items() if k not in ("usage", "model")}
+        if lite and m.get("tools"):
+            m = dict(m, tools=[_lite_tool(t) for t in m["tools"]])
         out.append(m)
     return {"messages": out, "total": total, "start": start, "context": ctx}

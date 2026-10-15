@@ -1188,6 +1188,19 @@ def test_messages_open_on_the_last_page_and_page_back(monkeypatch):
     assert [x["i"] for x in body["messages"]] == [98, 99]
 
 
+def test_messages_lite_leaves_tool_output_for_later(monkeypatch):
+    import agent.coding_transcript_read as ctr
+    msgs = [{"role": "assistant", "text": "", "i": 0,
+             "tools": [{"name": "Bash", "summary": "ls", "output": "a\nb", "ok": True}]}]
+    monkeypatch.setattr(ctr, "read_local_messages", lambda cwd, csid, **kw: (msgs, None))
+    m = FakeManager()
+    m._sessions.append(_srv_row(id="srv-lite", claude_session_id="cid-1"))
+    _, body = handle_coding_request("GET", "/session/srv-lite/messages?after=0&lite=1", None, manager=m)
+    assert body["messages"][0]["tools"][0] == {"name": "Bash", "summary": "ls", "ok": True, "more": True}
+    _, body = handle_coding_request("GET", "/session/srv-lite/messages?before=1&limit=1", None, manager=m)
+    assert body["messages"][0]["tools"][0]["output"] == "a\nb"
+
+
 def test_messages_still_409_when_no_transcript_found(monkeypatch):
     import agent.coding_session_capture as csc
     monkeypatch.setattr(csc, "find_session_id", lambda cwd, since, **kw: None)

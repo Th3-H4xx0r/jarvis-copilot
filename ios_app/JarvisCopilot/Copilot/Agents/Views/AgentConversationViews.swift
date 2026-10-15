@@ -6,6 +6,28 @@ import SwiftUI
 // card that opens to its diff.
 
 /// One conversation item.
+/// Loads one message in full when you open a tool's output or a file's diff
+/// (the chat list comes without them, to load fast).
+struct AgentLoadDetails {
+    let run: (Int) -> Void
+    func callAsFunction(_ i: Int) { run(i) }
+}
+
+extension EnvironmentValues {
+    @Entry var agentLoadDetails = AgentLoadDetails(run: { _ in })
+}
+
+/// While a row's details are on their way.
+private struct AgentDetailsLoading: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.mini)
+            Text("Loading…").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
 struct AgentConversationRow: View {
     let item: AgentConversationItem
     var cwd = ""
@@ -138,18 +160,22 @@ struct AgentToolRow: View {
     var indent: CGFloat = 0
 
     @State private var open: Bool
+    @Environment(\.agentLoadDetails) private var loadDetails
 
     init(item: AgentToolItem, indent: CGFloat = 0, startOpen: Bool = false) {
         self.item = item
         self.indent = indent
         _open = State(initialValue: startOpen)
     }
-    private var hasOutput: Bool { !jcTrim(item.output).isEmpty }
+    private var loaded: Bool { !jcTrim(item.output).isEmpty }
+    /// Output here, or on the server for a lite chat.
+    private var hasOutput: Bool { loaded || item.detailIndex != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 guard hasOutput else { return }
+                if !open, !loaded, let i = item.detailIndex { loadDetails(i) }
                 withAnimation(.snappy(duration: 0.22)) { open.toggle() }
             } label: {
                 HStack(spacing: 10) {
@@ -171,10 +197,16 @@ struct AgentToolRow: View {
             .accessibilityLabel(item.line.text + (item.failed ? ", failed" : ""))
             .accessibilityHint(hasOutput ? (open ? "Hides the output" : "Shows the output") : "")
             if open {
-                AgentOutputBlock(text: item.output, failed: item.failed)
-                    .padding(.leading, 28)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
+                Group {
+                    if loaded {
+                        AgentOutputBlock(text: item.output, failed: item.failed)
+                    } else {
+                        AgentDetailsLoading()
+                    }
+                }
+                .padding(.leading, 28)
+                .padding(.bottom, 6)
+                .transition(.opacity)
             }
         }
         .padding(.leading, 20 + indent)
@@ -293,6 +325,7 @@ struct AgentEditCard: View {
     var openDiff: (AgentFileEdit) -> Void = { _ in }
 
     @State private var open: Bool
+    @Environment(\.agentLoadDetails) private var loadDetails
 
     init(edit: AgentFileEdit, cwd: String = "", startOpen: Bool = false,
          openDiff: @escaping (AgentFileEdit) -> Void = { _ in }) {
@@ -308,6 +341,7 @@ struct AgentEditCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
+                if !open, edit.lines.isEmpty, let i = edit.detailIndex { loadDetails(i) }
                 withAnimation(.snappy(duration: 0.24)) { open.toggle() }
             } label: {
                 HStack(spacing: 11) {
@@ -344,6 +378,9 @@ struct AgentEditCard: View {
             .accessibilityLabel("\(edit.name), \(edit.added) lines added, \(edit.removed) removed")
             if open {
                 Rectangle().fill(JcTheme.glassBorder).frame(height: 0.5)
+                if edit.lines.isEmpty && edit.detailIndex != nil {
+                    AgentDetailsLoading().padding(.horizontal, 14)
+                }
                 AgentDiffLines(lines: Array(edit.lines.prefix(Self.previewLines)))
                 if edit.lines.count > Self.previewLines || edit.truncated {
                     Button {

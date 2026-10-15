@@ -19,6 +19,11 @@ final class AgentSessionModel {
     private(set) var detailLoaded = false
     private(set) var error: String?
     private(set) var transcript = CodingTranscript()
+    /// The page above is on its way.
+    private(set) var loadingOlder = false
+    /// Messages loaded in full (by index) when you opened a tool or a diff.
+    private(set) var details: [Int: CodingChatMessage] = [:]
+    @ObservationIgnored private var loadingDetails = Set<Int>()
 
     @ObservationIgnored private let agents: AgentsAPI
     @ObservationIgnored private let coding: CodingSessionsAPI
@@ -64,11 +69,14 @@ final class AgentSessionModel {
         if transcriptId != id {
             transcriptId = id
             transcript = CodingTranscript()
+            details = [:]
         }
         var full = transcript.messages.isEmpty
         for _ in 0..<2 {
             do {
-                let page = try await coding.chatMessages(id, after: CodingStreamReducer.cursor(transcript, full: full))
+                let page = try await coding.chatMessages(id, after: CodingStreamReducer.cursor(transcript, full: full),
+                                                         limit: CodingStreamReducer.limit(transcript, paged: true),
+                                                         lite: true)
                 if case .needsFullReload = CodingStreamReducer.apply(page, full: full, to: &transcript) {
                     full = true
                     continue
@@ -82,6 +90,37 @@ final class AgentSessionModel {
         }
     }
 
+    /// The page above what's on screen (the user scrolled to the top).
+    func loadOlder() async {
+        guard !loadingOlder, transcript.hasOlder, let id = transcriptId else { return }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        do {
+            let page = try await coding.chatMessages(id, before: CodingStreamReducer.before(transcript),
+                                                     limit: CodingStreamReducer.pageSize, lite: true)
+            // A different chat (the row changed) while it loaded: not ours.
+            guard transcriptId == id else { return }
+            _ = CodingStreamReducer.applyOlder(page, to: &transcript)
+        } catch {
+            // A blip: the row stays, and scrolling back to it tries again.
+        }
+    }
+
+    /// One message in full: what a tool printed, a file's diff (the chat
+    /// list comes without them). Loaded when you open one.
+    func loadDetails(_ i: Int) async {
+        guard let id = transcriptId, !loadingDetails.contains(i) else { return }
+        loadingDetails.insert(i)
+        defer { loadingDetails.remove(i) }
+        do {
+            let page = try await coding.chatMessages(id, before: i + 1, limit: 1)
+            guard transcriptId == id, let m = page.messages.first(where: { $0.i == i }) else { return }
+            details[i] = m
+        } catch {
+            // A blip: the row stays closed-over; opening it again retries.
+        }
+    }
+
     // MARK: what the screen draws
 
     func choice(codingSessionId: String?) -> AgentTranscriptChoice {
@@ -92,7 +131,8 @@ final class AgentSessionModel {
     func items(codingSessionId: String?, working: Bool) -> [AgentConversationItem] {
         switch choice(codingSessionId: codingSessionId) {
         case .transcript:
-            return AgentConversation.collapse(AgentConversation.items(transcript.messages, working: working))
+            let messages = AgentConversation.withDetails(transcript.messages, details)
+            return AgentConversation.collapse(AgentConversation.items(messages, working: working))
         case .lastTurn:
             guard let turn = detail?.turn else { return [] }
             return AgentConversation.collapse(AgentConversation.items(turn, working: working))

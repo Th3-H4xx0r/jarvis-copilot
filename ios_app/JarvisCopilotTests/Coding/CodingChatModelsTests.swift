@@ -189,4 +189,29 @@ final class CodingChatModelsTests: XCTestCase {
         XCTAssertTrue(p.options.isEmpty)
         XCTAssertEqual(p.signature, "||")
     }
+
+    /// Where the page's window starts: the server says so, else the first index.
+    func testThePageKnowsWhereItStarts() {
+        let said = CodingChatPage(json: ["messages": [["i": 61, "role": "user", "text": "a"]], "total": 100, "start": 60])
+        XCTAssertEqual(said.start, 60)
+        let older = CodingChatPage(json: ["messages": [["i": 360, "role": "user", "text": "a"]], "total": 760])
+        XCTAssertEqual(older.start, 360)
+        XCTAssertEqual(CodingChatPage(json: [:]).start, 0)
+    }
+
+    /// A lite page's tool: no output or diff, a flag that there's more, and an
+    /// edit's +/− counts.
+    func testALiteToolKnowsThereIsMore() {
+        let t = CodingChatTool(json: ["name": "Edit", "summary": "/a.py", "ok": true,
+                                      "more": true, "added": 2, "removed": 1])
+        XCTAssertTrue(t.more)
+        XCTAssertEqual(t.diffCounts?.added, 2)
+        XCTAssertEqual(t.diffCounts?.removed, 1)
+        XCTAssertTrue(t.isEdit)
+        let plain = CodingChatTool(json: ["name": "Bash", "summary": "ls", "output": "a"])
+        XCTAssertFalse(plain.more)
+        XCTAssertNil(plain.diffCounts)
+        XCTAssertFalse(plain.isEdit)
+    }
 }
+

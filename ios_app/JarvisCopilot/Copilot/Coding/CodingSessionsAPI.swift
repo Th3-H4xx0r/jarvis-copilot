@@ -308,13 +308,19 @@ struct CodingSessionsAPI {
 
     /// `GET /api/coding/session/{id}/messages?after=N` → the conversation tail.
     ///
-    /// Messages are indexed 0..total-1; pass `after=<count you already have>` to
-    /// get only the new tail (after=0 returns everything, capped server-side).
+    /// Messages are indexed 0..total-1; pass `after=<the end you already have>`
+    /// to get only the new tail (after=0 returns everything, capped server-side).
+    /// `limit` makes it a page (after=0&limit=40 → the last 40), `before` pages
+    /// back; the reply's `start` says where its window begins.
     /// Throws `APIError.http(status: 409, …)` while the session has no transcript
     /// yet — callers render a friendly empty state for that.
-    func chatMessages(_ id: String, after: Int = 0) async throws -> CodingChatPage {
-        let body = try await api.get("/api/coding/session/\(id)/messages",
-                                     query: ["after": "\(after)"]).object()
+    func chatMessages(_ id: String, after: Int = 0, before: Int? = nil,
+                      limit: Int? = nil, lite: Bool = false) async throws -> CodingChatPage {
+        var query = ["after": "\(after)"]
+        if let before { query["before"] = "\(before)" }   // the page above (paging back)
+        if let limit { query["limit"] = "\(limit)" }      // a page, not the whole window
+        if lite { query["lite"] = "1" }                     // tools without output/diffs
+        let body = try await api.get("/api/coding/session/\(id)/messages", query: query).object()
         return CodingChatPage(json: body)
     }
 

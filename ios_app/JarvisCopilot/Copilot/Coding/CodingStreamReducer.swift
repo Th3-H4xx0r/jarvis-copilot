@@ -30,7 +30,12 @@ struct PendingSend: Identifiable, Equatable {
 
 /// Everything the chat renders about one session's conversation.
 struct CodingTranscript: Equatable {
+    /// A window of the chat: `messages[0]` is message `start`. A long chat
+    /// opens on its last page and grows upward as you scroll.
     var messages: [CodingChatMessage] = []
+    var start = 0
+    var end: Int { start + messages.count }
+    var hasOlder: Bool { start > 0 }
     /// working | waiting | idle | nil
     var activityState: String?
     var status = ""
@@ -72,9 +77,34 @@ enum CodingStreamReducer {
         case needsFullReload
     }
 
-    /// `after=` for the next request: 0 for a reconcile, else the tail we hold.
+    /// A page of a long chat (the first one, and each one above it).
+    static let pageSize = 40
+
+    /// `after=` for the next request: a reconcile re-reads the window we hold,
+    /// a poll asks for what's past its end.
     static func cursor(_ t: CodingTranscript, full: Bool) -> Int {
-        full ? 0 : t.messages.count
+        full ? t.start : t.end
+    }
+
+    /// `limit=`: a paged chat (the Agents tab) opens on its last page; after
+    /// that it reads its whole window. The Coding chat isn't paged.
+    static func limit(_ t: CodingTranscript, paged: Bool) -> Int? {
+        paged && t.messages.isEmpty ? pageSize : nil
+    }
+
+    /// `before=` for the page above what we hold.
+    static func before(_ t: CodingTranscript) -> Int { t.start }
+
+    /// The page above what we hold (the user scrolled to the top). Stitched in
+    /// only when it ends right where the window starts; anything else waits for
+    /// the next reconcile.
+    static func applyOlder(_ page: CodingChatPage, to t: inout CodingTranscript) -> Bool {
+        let older = page.messages.filter { $0.i < t.start }
+        guard let last = older.last, last.i == t.start - 1, older.first?.i == page.start,
+              older.count == t.start - page.start else { return false }
+        t.messages = older + t.messages
+        t.start = page.start
+        return true
     }
 
     /// A periodic full reconcile heals divergence the incremental cursor can't
@@ -87,27 +117,28 @@ enum CodingStreamReducer {
     static func apply(_ page: CodingChatPage, full: Bool, to t: inout CodingTranscript) -> Merge {
         if !full {
             // History shrank/reset server-side (restart, re-parse) — reload fully.
-            if page.total < t.messages.count { return .needsFullReload }
+            if page.total < t.end { return .needsFullReload }
             // The server jumped past our tail (we missed an index) — heal fully so
             // a message can never silently vanish into a gap.
-            if page.messages.contains(where: { $0.i > t.messages.count }) { return .needsFullReload }
+            if page.messages.contains(where: { $0.i > t.end }) { return .needsFullReload }
         }
         // Both flags are measured against the PRE-merge tail.
         let hadNew = full
             ? !page.messages.isEmpty
-            : page.messages.contains { $0.i >= t.messages.count }
+            : page.messages.contains { $0.i >= t.end }
         let hadNewAssistant = !full
-            && page.messages.contains { $0.i >= t.messages.count && !$0.isUser }
+            && page.messages.contains { $0.i >= t.end && !$0.isUser }
 
         t.noTranscript = false
         t.loading = false
         if full {
             t.messages = page.messages
+            t.start = page.start
         } else {
             for m in page.messages {
-                if m.i >= 0 && m.i < t.messages.count {
-                    t.messages[m.i] = m // updated in place (e.g. tool output landed)
-                } else if m.i == t.messages.count {
+                if m.i >= t.start && m.i < t.end {
+                    t.messages[m.i - t.start] = m // updated in place (e.g. tool output landed)
+                } else if m.i == t.end {
                     t.messages.append(m)
                 }
             }
@@ -127,6 +158,7 @@ enum CodingStreamReducer {
         if case APIError.http(let status, _) = error, status == 409 {
             t.noTranscript = true
             t.messages = []
+            t.start = 0
         }
     }
 
