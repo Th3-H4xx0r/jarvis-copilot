@@ -248,6 +248,22 @@ private struct PortfolioCard: View {
 /// exactly as tall as this.
 struct MusicPane: View {
     @Bindable var music = MusicController.shared
+
+    var body: some View {
+        NowPlayingCard(now: music.now, shuffle: music.shuffle, repeating: music.repeating,
+                       volume: $music.volume, send: { music.send($0) })
+            .onAppear { music.setVisible(true) }
+            .onDisappear { music.setVisible(false) }
+    }
+}
+
+/// The Now Playing card itself, fed its values so it can be rendered on its own.
+struct NowPlayingCard: View {
+    let now: NowPlaying?
+    let shuffle: Bool
+    let repeating: Bool
+    @Binding var volume: Double
+    let send: @MainActor (MusicScript.Command) -> Void
     @State private var scrub: Double?
     private typealias L = IslandLayout.Music
 
@@ -259,11 +275,7 @@ struct MusicPane: View {
                 controls
             }
         }
-        .onAppear { music.setVisible(true) }
-        .onDisappear { music.setVisible(false) }
     }
-
-    private var now: NowPlaying? { music.now }
 
     private var header: some View {
         HStack(spacing: 12) {
@@ -297,7 +309,7 @@ struct MusicPane: View {
         return HStack(spacing: 10) {
             Text(now == nil ? "--:--" : NowPlaying.clock(position)).frame(width: 44, alignment: .leading)
             ThinBar(value: duration > 0 ? position / duration : 0, enabled: now != nil && duration > 0) { f, done in
-                if done { music.send(.seek(f * duration)); scrub = nil } else { scrub = f * duration }
+                if done { send(.seek(f * duration)); scrub = nil } else { scrub = f * duration }
             }
             Text(now == nil ? "--:--" : NowPlaying.remaining(duration, position)).frame(width: 44, alignment: .trailing)
         }
@@ -309,20 +321,20 @@ struct MusicPane: View {
     private var controls: some View {
         ZStack {
             HStack(spacing: 6) {
-                toggle("shuffle", on: music.shuffle, help: "Shuffle") { music.send(.shuffle(!music.shuffle)) }
-                toggle("repeat", on: music.repeating, help: "Repeat") { music.send(.repeating(!music.repeating)) }
+                toggle("shuffle", on: shuffle, help: "Shuffle") { send(.shuffle(!shuffle)) }
+                toggle("repeat", on: repeating, help: "Repeat") { send(.repeating(!repeating)) }
                 Spacer()
                 Image(systemName: "speaker.fill").font(.system(size: 9)).foregroundStyle(dim)
-                ThinBar(value: music.volume / 100) { f, _ in music.volume = (f * 100).rounded() }
+                ThinBar(value: volume / 100) { f, _ in volume = (f * 100).rounded() }
                     .frame(width: 84)
                     .help("Volume")
                 Image(systemName: "speaker.wave.3.fill").font(.system(size: 9)).foregroundStyle(dim)
             }
             HStack(spacing: 26) {
-                transport("backward.fill", size: 17, help: "Previous") { music.send(.previous) }
+                transport("backward.fill", size: 17, help: "Previous") { send(.previous) }
                 transport(now?.isPlaying == true ? "pause.fill" : "play.fill", size: 24,
-                          help: now?.isPlaying == true ? "Pause" : "Play") { music.send(.playPause) }
-                transport("forward.fill", size: 17, help: "Next") { music.send(.next) }
+                          help: now?.isPlaying == true ? "Pause" : "Play") { send(.playPause) }
+                transport("forward.fill", size: 17, help: "Next") { send(.next) }
             }
         }
         .frame(height: L.controls)

@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Jarvis
 
 /// Now playing from Apple Music and Spotify (their distributed notifications),
@@ -82,5 +83,29 @@ final class MusicTests: XCTestCase {
     func testTheIslandUsesTheMusicHeight() {
         XCTAssertEqual(IslandRootView.expandedHeight(model: AppModel(), tab: .music, topInset: 40),
                        IslandLayout.musicHeight(topInset: 40))
+    }
+
+    /// What the card measures is what the island reserves: no blank space, no clipping.
+    @MainActor
+    func testTheCardIsExactlyAsTallAsItsRows() throws {
+        let now = NowPlaying(player: .spotify, info: ["Name": "Blinding Lights", "Artist": "The Weeknd",
+                                                     "Album": "After Hours", "Player State": "Playing",
+                                                     "Duration": 200_000, "Playback Position": 111.0], at: Date())
+        let L = IslandLayout.Music.self
+        let rows = L.artwork + L.gap + L.progress + L.gap + L.controls
+        let paused = NowPlaying(player: .music, info: ["Name": "Teardrop", "Artist": "Massive Attack",
+                                                      "Player State": "Paused", "Total Time": 330_000], at: Date())
+        for (n, name) in [(now, ""), (paused, "-paused"), (nil, "-empty")] {
+            let card = NowPlayingCard(now: n, shuffle: true, repeating: false, volume: .constant(60), send: { _ in })
+                .frame(width: IslandRootView.expandedWidth - 32)
+            XCTAssertEqual(NSHostingView(rootView: card).fittingSize.height, rows, accuracy: 0.5)
+            if let out = ProcessInfo.processInfo.environment["JC_MUSIC_SNAPSHOT"] {
+                let r = ImageRenderer(content: card.padding(16).background(Color.black).environment(\.colorScheme, .dark))
+                r.scale = 2
+                let png = try XCTUnwrap(r.nsImage?.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))?
+                    .representation(using: .png, properties: [:]))
+                try png.write(to: URL(fileURLWithPath: out + name + ".png"))
+            }
+        }
     }
 }
