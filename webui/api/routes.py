@@ -3530,6 +3530,14 @@ def handle_get(handler, parsed) -> bool:
         status, payload = handle_services_request("GET", sub, None)
         return j(handler, payload, status=status)
 
+    if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):
+        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
+        sub = parsed.path[len(AGENT_NOTES_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_agent_notes_request("GET", sub, None)
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/island"):
         from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
         from api.island_store import store_for_request
@@ -4951,6 +4959,19 @@ def handle_post(handler, parsed) -> bool:
         if parsed.query:
             sub += "?" + parsed.query
         status, payload = handle_services_request("POST", sub, body)
+        return j(handler, payload, status=status)
+
+    if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):
+        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
+        sub = parsed.path[len(AGENT_NOTES_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_agent_notes_request("POST", sub, body)
+        return j(handler, payload, status=status)
+
+    if parsed.path == "/api/flow/cleanup":
+        from api.agent_notes_routes import handle_flow_cleanup
+        status, payload = handle_flow_cleanup(body)
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/island"):
@@ -7070,6 +7091,12 @@ def handle_delete(handler, parsed) -> bool:
             sub += "?" + parsed.query
         status, payload = handle_island_request(
             "DELETE", sub, body, store_for_request())
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/agent-notes/"):
+        from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
+        status, payload = handle_agent_notes_request(
+            "DELETE", parsed.path[len(AGENT_NOTES_PATH_PREFIX):], body)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/harnesses" or parsed.path.startswith("/api/harnesses/"):

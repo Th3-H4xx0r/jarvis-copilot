@@ -16,6 +16,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case insights
     case services
     case portfolio
+    case notes
     case selfImprovement
     case serverLogs
     case islandDesigns
@@ -41,6 +42,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .insights:        return "Insights"
         case .services:        return "Services"
         case .portfolio:       return "Portfolio"
+        case .notes:           return "Notes"
         case .selfImprovement: return "Learning"
         case .serverLogs:      return "Server logs"
         case .islandDesigns:   return "Dynamic Island"
@@ -66,6 +68,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .insights:        return "chart.line.uptrend.xyaxis"
         case .services:        return "gauge.with.needle"
         case .portfolio:       return "bitcoinsign.circle"
+        case .notes:           return "note.text"
         case .selfImprovement: return "sparkles"
         case .serverLogs:      return "doc.text"
         case .islandDesigns:   return "rectangle.on.rectangle"

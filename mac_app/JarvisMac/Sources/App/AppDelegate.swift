@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.onSettings = { [weak self] in self.map { SettingsWindow.show(model: $0.model) } }
         menuBar.onDemo = { [weak self] in self.map { DemoEngine.run(model: $0.model, island: island) } }
         menuBar.onRecap = { [weak self] in self.map { RecapWindow.show(model: $0.model) } }
+        menuBar.onFlow = { FlowWindow.show() }
+        menuBar.onNotes = { FlowWindow.show(.notes) }
         self.menuBar = menuBar
         desktopOrb = DesktopOrbController(model: model, island: island)
 
@@ -49,6 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerShortcuts()
         MusicController.shared.start()
         WindowContext.startWatching()
+        startVoiceFeatures(island: island, menuBar: menuBar)
+        model.onIsland = { [weak self] tab, text in
+            guard let self else { return }
+            if tab == "recap" { RecapWindow.show(model: self.model); return }
+            if let text, !text.isEmpty { MacChatStore.shared.draft = text }
+            island.open(IslandTab(rawValue: tab) ?? .agents)
+        }
 
         let nc = NotificationCenter.default
         nc.addObserver(forName: .jarvisRelocateIsland, object: nil, queue: .main) { _ in
@@ -106,7 +115,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Prefs.skin = all[(i + 1) % all.count]
             island.attention()
         case .talk: menuBar?.toggleVoice()
+        case .recordCall:
+            if !NoteTaker.shared.isRecording { FlowWindow.show(.notes) }
+            NoteTaker.shared.toggle()
         }
+    }
+
+    /// "Hey Jarvis", Flow dictation and the note-taker. The first two only listen
+    /// when turned on in Settings; the note-taker only records on Record.
+    private func startVoiceFeatures(island: IslandController, menuBar: MenuBarController) {
+        let wake = WakeWord.shared
+        wake.onWake = { [weak menuBar] in menuBar?.showVoice() }
+        wake.interaction = { [weak self, weak island] in
+            let pending = !(self?.model.pending.isEmpty ?? true)
+            guard let island, island.isExpanded else { return (pending, false) }
+            return (pending, island.ui.pinned || island.ui.tab == .chat)
+        }
+        wake.start()
+        FlowDictation.shared.start()
+        NoteTaker.shared.load()
     }
 
     private static func anotherCopyRunning() -> Bool {
@@ -123,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NoteTaker.shared.shutdown()
         let marker = (NSHomeDirectory() as NSString).appendingPathComponent(".jarviscopilot-client/mac-app.running")
         try? FileManager.default.removeItem(atPath: marker)
     }

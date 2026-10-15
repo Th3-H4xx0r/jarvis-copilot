@@ -15,6 +15,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     var onSettings: (() -> Void)?
     var onDemo: (() -> Void)?
     var onRecap: (() -> Void)?
+    var onFlow: (() -> Void)?
+    var onNotes: (() -> Void)?
 
     init(model: AppModel, island: IslandController) {
         self.model = model
@@ -54,6 +56,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         p.delegate = self
         p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover = p
+        // The panel holds the microphone while open: "Hey Jarvis" steps aside.
+        NotificationCenter.default.post(name: .jarvisVoicePanelOpened, object: nil)
+    }
+
+    /// Opens the voice panel (never closes it): what "Hey Jarvis" calls.
+    func showVoice() {
+        if let popover, popover.isShown { return }
+        NSApp.activate()
+        toggleVoice()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
     }
 
     private func makeVoicePanel() -> NSViewController? {
@@ -83,6 +98,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         add(menu, "Show the island", #selector(showIsland))
         add(menu, "Talk to Jarvis", #selector(talk))
         add(menu, "Weekly recap", #selector(recap))
+        add(menu, "Flow…", #selector(flow))
+        add(menu, "Notes…", #selector(notes))
+        add(menu, NoteTaker.shared.isRecording ? "Stop recording the call" : "Record a call", #selector(recordCall))
         menu.addItem(.separator())
         add(menu, "Demo", #selector(demo))
         add(menu, "Settings…", #selector(settings), key: ",")
@@ -108,6 +126,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     @objc private func showIsland() { island.attention() }
     @objc private func talk() { toggleVoice() }
     @objc private func recap() { onRecap?() }
+    @objc private func flow() { onFlow?() }
+    @objc private func notes() { onNotes?() }
+    @objc private func recordCall() {
+        let recording = NoteTaker.shared.isRecording
+        NoteTaker.shared.toggle()
+        if !recording { onNotes?() }
+    }
     @objc private func demo() { onDemo?() }
     @objc private func settings() { onSettings?() }
     @objc private func quit() { NSApp.terminate(nil) }

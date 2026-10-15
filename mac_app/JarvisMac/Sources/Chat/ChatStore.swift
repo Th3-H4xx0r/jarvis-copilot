@@ -82,6 +82,21 @@ final class MacChatStore {
 
     // MARK: sending
 
+    // MARK: demo
+
+    @ObservationIgnored private var stashedLines: [Line]?
+
+    /// Made-up exchanges for the demo tour; nothing is sent.
+    func showDemo(_ pairs: [(String, String)]) {
+        if stashedLines == nil { stashedLines = lines }
+        lines = pairs.flatMap { [Line(role: .user, text: $0.0), Line(role: .assistant, text: $0.1)] }
+    }
+
+    func endDemo() {
+        if let real = stashedLines { lines = real }
+        stashedLines = nil
+    }
+
     func newChat() {
         task?.cancel()
         lines = []

@@ -30,6 +30,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             AgentsSettings(model: model).tabItem { Label("Agents", systemImage: "terminal") }
+            VoiceSettings().tabItem { Label("Voice", systemImage: "waveform") }
+            FlowSettings().tabItem { Label("Flow", systemImage: "text.bubble") }
             ShortcutsSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }
         .padding(20)
@@ -118,7 +120,7 @@ private struct AgentsSettings: View {
                 Text("Jarvis follows every Claude Code session through its hooks — in Terminal, iTerm, VS Code or tmux — and adds a status line that reports your plan's limits (the one you had keeps running underneath). Your settings.json is backed up first.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    Button(installed ? "Update hooks" : "Install hooks") { run("install") }
+                    Button(installed ? "Update hooks" : "Install hooks") { install() }
                     Button("Show the change") { run("preview") }
                     if installed { Button("Remove") { run("uninstall") } }
                 }
@@ -137,6 +139,16 @@ private struct AgentsSettings: View {
         }
         .formStyle(.grouped)
         .onAppear { run("status") }
+    }
+
+    /// Preview, show exactly what would be written, and write only that.
+    private func install() {
+        busy = true
+        HookInstallConfirm.run(model: model, agent: "claude", name: "Claude Code") { message in
+            busy = false
+            if let message { status = message }
+            run("status")
+        }
     }
 
     private func run(_ action: String) {
@@ -229,7 +241,14 @@ private struct OtherAgentsSection: View {
                     if installed[agent.id] == true {
                         Button("Remove") { run("uninstall", agent.id) }
                     } else {
-                        Button("Install") { run("install", agent.id) }
+                        Button("Install") {
+                            busy = agent.id
+                            HookInstallConfirm.run(model: model, agent: agent.id, name: agent.name) { message in
+                                busy = nil
+                                errors[agent.id] = message
+                                refresh()
+                            }
+                        }
                     }
                 }
             }
@@ -254,6 +273,40 @@ private struct OtherAgentsSection: View {
             busy = nil
             errors[id] = J.b(reply["ok"]) ? nil : J.s(reply["error"], "Jarvis isn't running on this Mac.")
             refresh()
+        }
+    }
+}
+
+/// The hooks are written only after you've seen the change: preview, show the
+/// diff, then install with the preview's token (jc-client refuses a stale one).
+@MainActor
+enum HookInstallConfirm {
+    /// `done(nil)` when installed or nothing to do; `done(message)` otherwise.
+    static func run(model: AppModel, agent: String, name: String, done: @escaping (String?) -> Void) {
+        model.hooks("preview", agent: agent) { reply in
+            guard J.b(reply["ok"]) else {
+                done(J.s(reply["error"], "Jarvis isn't running on this Mac."))
+                return
+            }
+            let diff = J.s(reply["diff"])
+            guard !diff.isEmpty else { done(nil); return }
+            let alert = NSAlert()
+            alert.messageText = "Add Jarvis's hooks to \(name)?"
+            alert.informativeText = "This is the whole change. The file is backed up first."
+            let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 560, height: 300))
+            text.string = diff
+            text.isEditable = false
+            text.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: 300))
+            scroll.documentView = text
+            scroll.hasVerticalScroller = true
+            alert.accessoryView = scroll
+            alert.addButton(withTitle: "Write these changes")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { done("Not installed."); return }
+            model.hooks("install", agent: agent, token: J.s(reply["token"])) { r in
+                done(J.b(r["ok"]) ? nil : J.s(r["error"], "Couldn't install."))
+            }
         }
     }
 }

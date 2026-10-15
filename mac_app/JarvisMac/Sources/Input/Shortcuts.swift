@@ -79,6 +79,7 @@ struct Shortcut: Equatable {
 enum ShortcutAction: String, CaseIterable, Identifiable {
     case toggleIsland, openChat, goToAlert, jumpToTerminal, attachWindow
     case nextSession, previousSession, mute, desktopOrb, nextSkin, talk
+    case recordCall
 
     var id: String { rawValue }
 
@@ -95,12 +96,13 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .desktopOrb: return "Orb on the desktop"
         case .nextSkin: return "Next orb look"
         case .talk: return "Talk to Jarvis"
+        case .recordCall: return "Record a call (start / stop)"
         }
     }
 
     var defaultShortcut: Shortcut? {
         switch self {
-        case .toggleIsland, .talk: return nil
+        case .toggleIsland, .talk, .recordCall: return nil
         case .openChat: return Shortcut(string: "ctrl+opt+space")
         case .goToAlert: return Shortcut(string: "ctrl+opt+a")
         case .jumpToTerminal: return Shortcut(string: "ctrl+opt+t")

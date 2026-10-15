@@ -31,8 +31,12 @@ final class AppModel {
     var demoActive = false
 
     @ObservationIgnored var onMoment: ((Moment, MacSession?) -> Void)?
+    /// Jarvis asked for a tab (the `jarvis_island` skill): tab, chat draft.
+    @ObservationIgnored var onIsland: ((String, String?) -> Void)?
     @ObservationIgnored private var lastStates: [String: MacState] = [:]
     @ObservationIgnored private var flashTask: Task<Void, Never>?
+    /// The real services while a demo shows made-up ones.
+    @ObservationIgnored private var stashedServices: [[String: Any]]?
 
     var lead: MacSession? { sessions.first { $0.state != .idle } }
     var waitingCount: Int { max(pending.count, sessions.filter { $0.state.urgency == 0 }.count) }
@@ -78,6 +82,8 @@ final class AppModel {
             if let u = MacPlanUsage(json: msg) {
                 if J.s(msg["agent"]) == "codex" { codexUsage = u } else { usage = u }
             }
+        case "island":
+            onIsland?(J.s(msg["tab"], "agents"), msg["text"] as? String)
         case "config":
             approvalsOn = J.b(msg["approvals"])
             instructionsOn = J.b(msg["instructions"])
@@ -135,8 +141,11 @@ final class AppModel {
         JcLink.shared.request(body) { reply in done?(J.b(reply["ok"])) }
     }
 
-    func hooks(_ action: String, agent: String = "claude", done: @escaping ([String: Any]) -> Void) {
-        JcLink.shared.request(["type": "hooks", "action": action, "agent": agent], reply: done)
+    func hooks(_ action: String, agent: String = "claude", token: String? = nil,
+               done: @escaping ([String: Any]) -> Void) {
+        var req: [String: Any] = ["type": "hooks", "action": action, "agent": agent]
+        if let token { req["token"] = token }
+        JcLink.shared.request(req, reply: done)
     }
 
     // MARK: demo support
@@ -146,8 +155,15 @@ final class AppModel {
         pending = p.compactMap(MacPending.init(json:))
     }
 
+    func setDemo(services raw: [[String: Any]]) {
+        if stashedServices == nil { stashedServices = services }
+        services = raw
+    }
+
     func endDemo() {
         demoActive = false
+        if let real = stashedServices { services = real }
+        stashedServices = nil
         sessions = []
         pending = []
         lastStates = [:]

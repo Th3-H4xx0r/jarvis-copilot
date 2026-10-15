@@ -45,4 +45,32 @@ final class IslandTabsTests: XCTestCase {
         XCTAssertEqual(p.quotes.first?.change, "−2.4%")
         XCTAssertTrue(MacPortfolio(json: [:]).isEmpty)
     }
+
+    @MainActor
+    func testTheDemoShowsMadeUpServicesAndChatThenPutsTheRealOnesBack() {
+        let model = AppModel()
+        model.handle(["type": "topic", "topic": "services", "data": ["services": [["id": "stripe", "tone": "ok"]]]])
+        let chat = MacChatStore.shared
+        chat.newChat()
+        model.demoActive = true
+        model.setDemo(services: [["id": "github", "tone": "warning"], ["id": "vercel", "tone": "ok"]])
+        chat.showDemo([("What failed in CI?", "The `api` tests: a missing env var.")])
+        XCTAssertEqual(model.services.map { J.s($0["id"]) }, ["github", "vercel"])
+        XCTAssertEqual(chat.lines.count, 2)
+        model.endDemo()
+        chat.endDemo()
+        XCTAssertEqual(model.services.map { J.s($0["id"]) }, ["stripe"])
+        XCTAssertTrue(chat.lines.isEmpty)
+    }
+
+    @MainActor
+    func testJarvisCanOpenATab() {
+        let model = AppModel()
+        var got: [(String, String?)] = []
+        model.onIsland = { tab, text in got.append((tab, text)) }
+        model.handle(["type": "island", "tab": "music"])
+        model.handle(["type": "island", "tab": "chat", "text": "hi"])
+        XCTAssertEqual(got.map(\.0), ["music", "chat"])
+        XCTAssertEqual(got.last?.1, "hi")
+    }
 }
