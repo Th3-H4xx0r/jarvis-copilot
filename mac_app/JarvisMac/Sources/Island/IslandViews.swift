@@ -13,7 +13,8 @@ struct IslandRootView: View {
     static let expandedWidth: CGFloat = 560
 
     @MainActor
-    static func expandedHeight(model: AppModel) -> CGFloat {
+    static func expandedHeight(model: AppModel, tab: IslandTab = .agents) -> CGFloat {
+        if tab != .agents { return tab.height }
         var h: CGFloat = 92
         if model.pending.first != nil { h += model.pending.first!.isQuestion ? 230 : 150 }
         h += CGFloat(min(model.sessions.count, 4)) * 54
@@ -46,16 +47,28 @@ struct IslandRootView: View {
         case .expanded:
             ExpandedIsland(model: model, ui: ui, controller: controller)
                 .frame(width: Self.expandedWidth)
-                .frame(maxHeight: Self.expandedHeight(model: model), alignment: .top)
+                .frame(maxHeight: Self.expandedHeight(model: model, tab: ui.tab), alignment: .top)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
         }
     }
 
     private var compact: some View {
         HStack(spacing: 0) {
-            OrbView(mood: model.connected ? model.mood : .idle, skin: OrbSkin.current,
-                    size: max(12, ui.geometry.height - 14))
-                .frame(width: IslandController.earWidth)
+            Group {
+                if MusicController.shared.now?.isPlaying == true, model.mood == .idle {
+                    // The orb moves with the music: a soft beat while something plays.
+                    TimelineView(.periodic(from: .now, by: 0.25)) { ctx in
+                        let t = ctx.date.timeIntervalSinceReferenceDate
+                        OrbView(mood: .idle, skin: OrbSkin.current, size: max(12, ui.geometry.height - 14),
+                                beat: 0.5 + 0.5 * sin(t * 2 * .pi * 0.9))
+                            .animation(.easeInOut(duration: 0.25), value: t)
+                    }
+                } else {
+                    OrbView(mood: model.connected ? model.mood : .idle, skin: OrbSkin.current,
+                            size: max(12, ui.geometry.height - 14))
+                }
+            }
+            .frame(width: IslandController.earWidth)
             Spacer().frame(width: ui.geometry.width)
             Group {
                 if model.waitingCount > 0 {
@@ -75,6 +88,27 @@ struct IslandRootView: View {
         .frame(width: ui.compactWidth, height: ui.geometry.height)
         .contentShape(Rectangle())
         .onTapGesture { controller.toggle() }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            IslandDrop.take(providers) { controller.open(.chat) }
+        }
+    }
+}
+
+/// Files dropped on the island go to the chat.
+enum IslandDrop {
+    static func take(_ providers: [NSItemProvider], then open: @escaping @MainActor () -> Void) -> Bool {
+        var took = false
+        for p in providers where p.hasItemConformingToTypeIdentifier("public.file-url") {
+            took = true
+            _ = p.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    MacChatStore.shared.attach([url])
+                    open()
+                }
+            }
+        }
+        return took
     }
 }
 
@@ -84,6 +118,56 @@ private struct ExpandedIsland: View {
     let controller: IslandController
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            tabs
+            switch ui.tab {
+            case .agents: agents
+            case .chat: ChatPane(ui: ui)
+            case .services: ServicesPane(model: model)
+            case .music: MusicPane()
+            case .mail: MailPane(ui: ui)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, ui.geometry.height + 8)
+        .padding(.bottom, 14)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            IslandDrop.take(providers) { ui.tab = .chat }
+        }
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 4) {
+            ForEach(IslandTab.allCases) { t in
+                Button { withAnimation(.easeOut(duration: 0.18)) { ui.tab = t } } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: t.icon).font(.system(size: 11, weight: .semibold))
+                        if ui.tab == t { Text(t.title).font(.system(size: 11, weight: .semibold)) }
+                    }
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(Capsule().fill(ui.tab == t ? JcAccent.color.opacity(0.22) : .white.opacity(0.06)))
+                    .foregroundStyle(ui.tab == t ? JcAccent.color : .white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help(t.title)
+            }
+            Spacer()
+            if ui.tab != .agents, model.waitingCount > 0 {
+                Button { ui.tab = .agents } label: {
+                    Text("\(model.waitingCount) waiting").font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Color(red: 0.98, green: 0.75, blue: 0.14)))
+                }
+                .buttonStyle(.plain)
+            }
+            Button { controller.close() } label: {
+                Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold))
+            }
+            .buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
+        }
+    }
+
+    @ViewBuilder private var agents: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if !model.connected {
@@ -119,9 +203,6 @@ private struct ExpandedIsland: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, ui.geometry.height + 8)
-        .padding(.bottom, 14)
     }
 
     private var header: some View {
@@ -145,10 +226,6 @@ private struct ExpandedIsland: View {
             }
             .buttonStyle(.plain).foregroundStyle(.white.opacity(0.8))
             .help("Jump to the session's terminal (⌃⌥T)")
-            Button { controller.close() } label: {
-                Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold))
-            }
-            .buttonStyle(.plain).foregroundStyle(.white.opacity(0.6))
         }
     }
 

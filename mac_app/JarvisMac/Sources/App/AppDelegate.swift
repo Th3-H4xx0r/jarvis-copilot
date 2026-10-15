@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.attach()
         registerShortcuts()
+        MusicController.shared.start()
+        WindowContext.startWatching()
 
         let nc = NotificationCenter.default
         nc.addObserver(forName: .jarvisRelocateIsland, object: nil, queue: .main) { _ in
@@ -79,7 +81,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func perform(_ action: ShortcutAction, island: IslandController) {
         switch action {
         case .toggleIsland: island.toggle()
-        case .openChat, .goToAlert, .attachWindow: island.attention()
+        case .openChat: island.open(.chat)
+        case .goToAlert: island.open(.agents)
+        case .attachWindow:
+            // The island never takes focus from the app you're in, so that app is
+            // still frontmost here.
+            let front = NSWorkspace.shared.frontmostApplication
+            let app = front?.bundleIdentifier == Bundle.main.bundleIdentifier ? WindowContext.lastApp : front
+            MacChatStore.shared.captureWindow(from: app)
+            island.open(.chat)
         case .jumpToTerminal: TerminalTarget.activate(session: model.selected)
         case .nextSession, .previousSession:
             let keys = model.sessions.map(\.key)

@@ -115,6 +115,16 @@ def handle_services_request(method: str, path: str, body, *, hub=None) -> tuple[
             if method != "GET":
                 return _err(405, "method not allowed")
             return 200, {**hub.portfolio(), "ts": time.time()}
+        if p == "/mail/send":
+            if method != "POST":
+                return _err(405, "method not allowed")
+            from jarvis_services import mail_send
+            try:
+                out = mail_send.send(hub.http, hub.config.load(), to=body.get("to"),
+                                     subject=body.get("subject"), text=body.get("text"))
+            except ValueError as e:
+                return _err(400, str(e))
+            return (200 if out["ok"] else 502), out
         if p == "/portfolio/wallets":
             if method != "POST":
                 return _err(405, "method not allowed")

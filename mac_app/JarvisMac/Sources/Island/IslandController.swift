@@ -13,6 +13,8 @@ final class IslandUI {
     /// Something the user is typing into (an approval note, a question's Other):
     /// the island stays open while it's set.
     var pinned = false
+    /// The expanded island's tab (Agents, Chat, Services, Music, Mail).
+    var tab: IslandTab = .agents
     var compactWidth: CGFloat { geometry.width + 2 * IslandController.earWidth }
 }
 
@@ -62,6 +64,13 @@ final class IslandController {
 
     func toggle() {
         machine.toggle(at: now)
+        sync()
+    }
+
+    /// Open on one tab (a shortcut, a dropped file).
+    func open(_ tab: IslandTab) {
+        ui.tab = tab
+        machine.attention(at: now)
         sync()
     }
 
@@ -177,7 +186,7 @@ final class IslandController {
         switch machine.state {
         case .hidden: (w, h) = (ui.geometry.width, ui.geometry.height)
         case .compact: (w, h) = (ui.compactWidth, ui.geometry.height)
-        case .expanded: (w, h) = (IslandRootView.expandedWidth, IslandRootView.expandedHeight(model: model))
+        case .expanded: (w, h) = (IslandRootView.expandedWidth, IslandRootView.expandedHeight(model: model, tab: ui.tab))
         }
         return CGRect(x: (size.width - w) / 2, y: size.height - h, width: w, height: h)
     }
