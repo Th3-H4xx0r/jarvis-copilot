@@ -11,6 +11,12 @@ enum IslandTab: String, CaseIterable, Identifiable {
     /// The tab row's buttons.
     static var tabBar: [IslandTab] { allCases.filter { $0 != .voice } }
 
+    /// What opening the island by a click on the notch shows: only the orb
+    /// opens Voice, so from Voice it's the last other tab.
+    static func forIslandClick(current: IslandTab, last: IslandTab) -> IslandTab {
+        current == .voice ? (last == .voice ? .agents : last) : current
+    }
+
     var icon: String {
         switch self {
         case .agents: return "terminal"

@@ -91,5 +91,19 @@ final class NotchOnlyTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(6))
         }
     }
+
+    /// Only the orb opens Voice: a click on the rest of the notch (or the
+    /// island shortcut) opens the last other tab — Agents at first.
+    @MainActor
+    func testOnlyTheOrbOpensVoice() {
+        let ui = IslandUI()
+        XCTAssertEqual(ui.lastTab, .agents)
+        ui.tab = .music
+        ui.tab = .voice
+        XCTAssertEqual(ui.lastTab, .music)
+        XCTAssertEqual(IslandTab.forIslandClick(current: .voice, last: ui.lastTab), .music)
+        XCTAssertEqual(IslandTab.forIslandClick(current: .voice, last: .agents), .agents)
+        XCTAssertEqual(IslandTab.forIslandClick(current: .chat, last: .agents), .chat)
+    }
 }
 

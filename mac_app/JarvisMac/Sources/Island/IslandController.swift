@@ -13,8 +13,12 @@ final class IslandUI {
     /// Something the user is typing into (an approval note, a question's Other):
     /// the island stays open while it's set.
     var pinned = false
-    /// The expanded island's tab (Agents, Chat, Services, Music, Mail).
-    var tab: IslandTab = .agents
+    /// The expanded island's tab (Agents, Chat, Services, Music, Mail, Voice).
+    var tab: IslandTab = .agents {
+        didSet { if tab != .voice { lastTab = tab } }
+    }
+    /// The last tab that isn't Voice: what a click on the notch opens.
+    private(set) var lastTab: IslandTab = .agents
     /// The Agents tab's measured parts (nil until its first layout).
     var agentsTop: CGFloat?
     var agentsList: CGFloat?
@@ -115,7 +119,10 @@ final class IslandController {
         sync()
     }
 
+    /// A click on the notch (not its orb) or the island shortcut: never Voice —
+    /// that's the orb's — but the last other tab.
     func toggle() {
+        if !isExpanded { ui.tab = IslandTab.forIslandClick(current: ui.tab, last: ui.lastTab) }
         machine.toggle(at: now)
         sync()
     }
