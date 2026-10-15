@@ -11,7 +11,10 @@ Ordinary events are fire-and-forget (0.3 s, then give up). A PermissionRequest
 and the dedicated AskUserQuestion hook (``--ask``) wait for one reply line
 ``{"decision": "allow"|"deny"|"always"|"ask"|"answer", ...}`` and print the
 hook output Claude Code expects. ``--statusline`` forwards ``rate_limits`` and
-then runs the status line command that was there before ours.
+then runs the status line command that was there before ours — once: if that
+command leads back to ``jc-hook --statusline`` (another status line tool saved
+ours as its own previous one), the inner run does nothing, and on the deadline
+everything the command started is killed with it.
 
 Never blocks the agent: every failure path prints nothing (or the agent's
 "ask" form) and exits 0. Standard library only, so ``python3 -I`` starts it
@@ -20,6 +23,7 @@ fast. Event-name and field normalisation follows coucou's nb-hook.py
 """
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -32,6 +36,11 @@ ASK_WAIT = 125.0
 # Asking jc-client whether a phone message waits for this session's next step.
 STOP_WAIT = 0.8
 _STOP_DELIVERY_AGENTS = ("claude", "claude-desktop")
+# The previous status line's deadline.
+STATUSLINE_TIMEOUT = 10.0
+# Set for the previous status line's process tree. Seeing it means our own
+# --statusline runs inside that command, and chaining again would never end.
+_IN_STATUSLINE_CHAIN = "JC_HOOK_IN_STATUSLINE"
 
 _EVENT_NAMES = {
     "BeforeTool": "PreToolUse", "BeforeToolSelection": "PreToolUse",
@@ -290,7 +299,7 @@ def _permission_output(agent, reply, payload):
     return None
 
 
-def _run_previous_statusline(raw):
+def _run_previous_statusline(raw, env):
     try:
         with open(_previous_statusline_file()) as f:
             cmd = (json.load(f) or {}).get("command", "")
@@ -298,10 +307,26 @@ def _run_previous_statusline(raw):
         return ""
     if not cmd:
         return ""
+    child_env = dict(os.environ)
+    child_env.update(env)
+    child_env[_IN_STATUSLINE_CHAIN] = "1"
     try:
-        res = subprocess.run(["/bin/sh", "-c", cmd], input=raw, capture_output=True, timeout=10)
-        return res.stdout.decode("utf-8", "replace")
+        # Its own process group: killing only the shell would leave whatever it
+        # started running on its own after we gave up.
+        proc = subprocess.Popen(["/bin/sh", "-c", cmd], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env=child_env, start_new_session=True)
     except Exception:
+        return ""
+    try:
+        out, _ = proc.communicate(raw, timeout=STATUSLINE_TIMEOUT)
+        return out.decode("utf-8", "replace")
+    except Exception:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=1)
+        except Exception:
+            pass
         return ""
 
 
@@ -329,6 +354,9 @@ def _main(argv, raw, env):
         return ("", 0)
 
     if opts["statusline"]:
+        if env.get(_IN_STATUSLINE_CHAIN):
+            # The outer run already forwarded this frame and prints the output.
+            return ("", 0)
         frame = {"jc": VERSION, "kind": "statusline", "agent": agent, "payload": {
             "session_id": payload.get("session_id", ""),
             "rate_limits": payload.get("rate_limits") or {},
@@ -336,7 +364,7 @@ def _main(argv, raw, env):
             "cwd": payload.get("cwd") or (payload.get("workspace") or {}).get("current_dir", ""),
         }}
         _send(sock_path, frame, wait=0)
-        return (_run_previous_statusline(raw), 0)
+        return (_run_previous_statusline(raw, env), 0)
 
     # An empty body still counts when the event comes from argv (Copilot's
     # fail-closed permissionRequest must answer "ask" even then).

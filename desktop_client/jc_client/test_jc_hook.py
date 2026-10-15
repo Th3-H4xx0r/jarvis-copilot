@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -220,6 +221,55 @@ def test_statusline_without_previous_prints_nothing(jarvis, tmp_path, monkeypatc
                         lambda: str(tmp_path / "missing.json"))
     out, code = run(["--socket", j.path, "--statusline"], {"rate_limits": {}})
     assert (out, code) == ("", 0)
+
+
+def test_statusline_that_chains_back_to_us_runs_once(jarvis, tmp_path, monkeypatch):
+    # Another status line tool saved ours as *its* previous one, so the command
+    # we chain to runs jc-hook --statusline again. Each pass is counted; the cap
+    # of 20 only stops a regression from forking forever.
+    j = jarvis()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    relay = bin_dir / "jc-hook"
+    shutil.copy(jc_hook.__file__, relay)
+    prev = bin_dir / "statusline-previous.json"
+    runs = tmp_path / "runs"
+    runs.touch()
+    prev.write_text(json.dumps({"command": (
+        f'[ $(wc -l < "{runs}") -ge 20 ] && exit 0; echo run >> "{runs}"; '
+        f'printf "other tool\\n"; "{sys.executable}" -I "{relay}" --socket "{j.path}" --statusline')}))
+    monkeypatch.setattr(jc_hook, "_previous_statusline_file", lambda: str(prev))
+    out, code = run(["--socket", j.path, "--statusline"], {"session_id": "s1", "rate_limits": {}})
+    assert (out, code) == ("other tool\n", 0)
+    assert runs.read_text().count("run") == 1
+    time.sleep(0.1)
+    assert [f["kind"] for f in j.frames] == ["statusline"]
+
+
+def _gone(pid, timeout=2.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_statusline_timeout_kills_everything_the_previous_command_started(jarvis, tmp_path,
+                                                                          monkeypatch):
+    j = jarvis()
+    prev = tmp_path / "statusline-previous.json"
+    pid_file = tmp_path / "pid"
+    prev.write_text(json.dumps({"command": f'sleep 30 & echo $! > "{pid_file}"; wait'}))
+    monkeypatch.setattr(jc_hook, "_previous_statusline_file", lambda: str(prev))
+    monkeypatch.setattr(jc_hook, "STATUSLINE_TIMEOUT", 0.5)
+    start = time.time()
+    out, code = run(["--socket", j.path, "--statusline"], {"rate_limits": {}})
+    assert (out, code) == ("", 0)
+    assert time.time() - start < 3
+    assert _gone(int(pid_file.read_text()))
 
 
 def test_trims_large_payload(jarvis):
