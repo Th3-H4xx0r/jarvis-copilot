@@ -404,12 +404,21 @@ class AgentTracker:
         limits = payload.get("rate_limits")
         if not isinstance(limits, dict) or not limits:
             return
-        u = {"five_hour": limits.get("five_hour"), "seven_day": limits.get("seven_day"),
-             "source": device_id or "server", "updated_at": self._clock()}
-        if isinstance(payload.get("plan"), str):
-            u["plan"] = payload["plan"]
+        agent = agent or "claude"
         with self._lock:
-            self._usage[agent or "claude"] = u
+            prev = self._usage.get(agent) or {}
+            # Several Macs and sessions report out of order: never step back.
+            current = {k: prev[k] for k in ("five_hour", "seven_day") if prev.get(k)}
+            merged = engine_mod.merge_rate_limits(current, limits)
+            if merged is None and prev:
+                return
+            merged = merged or current
+            u = {"five_hour": merged.get("five_hour"), "seven_day": merged.get("seven_day"),
+                 "source": device_id or "server", "updated_at": self._clock()}
+            plan = payload.get("plan") if isinstance(payload.get("plan"), str) else prev.get("plan")
+            if plan:
+                u["plan"] = plan
+            self._usage[agent] = u
 
     def _compact(self, s: dict) -> dict:
         turn = s.get("turn") or {}

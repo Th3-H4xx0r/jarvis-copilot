@@ -177,6 +177,28 @@ def test_statusline_goes_to_usage_not_engine(sockdir):
         hs.close()
 
 
+def test_statusline_usage_only_moves_forward(sockdir):
+    """Many sessions send status lines several times a second, each with its
+    own (often stale) snapshot. Only a real change reaches the Mac app and the
+    server, and never a step back (the island's pills flickered 17→20→19)."""
+    usage, forwarded = [], []
+    hs = HookServer(os.path.join(sockdir, "h.sock"), agent_engine.Engine(), forward=forwarded.append,
+                    on_usage=usage.append)
+    hs.start()
+    try:
+        for sid, pct in (("a", 17), ("b", 20), ("a", 19), ("b", 20), ("a", 17), ("c", 21), ("a", 20)):
+            send(hs.path, frame("statusline", {"session_id": sid, "rate_limits": {
+                "five_hour": {"used_percentage": pct, "resets_at": 1000}}}))
+        assert until(lambda: len(usage) == 3)
+        send(hs.path, frame("event", {"hook_event_name": "SessionStart", "session_id": "z", "cwd": "/w"}))
+        assert until(lambda: any(f["data"]["kind"] == "event" for f in forwarded))
+        assert [u["rate_limits"]["five_hour"]["used_percentage"] for u in usage] == [17, 20, 21]
+        assert len([f for f in forwarded if f["data"]["kind"] == "statusline"]) == 3
+        assert hs.usage()["five_hour"]["used_percentage"] == 21
+    finally:
+        hs.close()
+
+
 def test_external_ingest_replaces_the_engine(sockdir):
     seen = []
 

@@ -40,6 +40,44 @@ _URGENCY = {"approval": 0, "question": 0, "error": 1, "ratelimit": 2,
 _TOOL_EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure")
 
 
+_SAME_WINDOW = 600.0   # resets_at within this of each other is the same window
+
+
+def merge_rate_limits(current, incoming):
+    """Plan usage from many status lines, without flicker.
+
+    Every Claude session (and its subagents) reports its own last-seen
+    snapshot several times a second, so reports arrive stale and out of order
+    (17, 20, 19, 21…). Within one window usage only grows: keep the highest
+    report per window, and move on only when a report's window resets later.
+    Returns the merged limits, or None when nothing changed.
+    """
+    if not isinstance(incoming, dict):
+        return None
+    cur = current if isinstance(current, dict) else {}
+    out = dict(cur)
+    for name, w in incoming.items():
+        if not isinstance(w, dict):
+            continue
+        try:
+            used, reset = float(w["used_percentage"]), float(w["resets_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        old = out.get(name)
+        if isinstance(old, dict):
+            try:
+                o_used, o_reset = float(old["used_percentage"]), float(old["resets_at"])
+            except (KeyError, TypeError, ValueError):
+                o_used = o_reset = None
+            if o_reset is not None:
+                if reset < o_reset - _SAME_WINDOW:
+                    continue                                    # an older window
+                if abs(reset - o_reset) <= _SAME_WINDOW and used <= o_used:
+                    continue                                    # same window, not higher
+        out[name] = dict(w)
+    return out if out != cur else None
+
+
 def session_key(host: str, agent: str, session_id: str, cwd: str) -> str:
     sid = session_id or ("cwd:" + (cwd or ""))
     return f"{host}|{agent}|{sid}"

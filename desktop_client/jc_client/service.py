@@ -201,7 +201,8 @@ class Service:
                 "device_name": creds.device_name, "approvals": self._agent_approvals,
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
-                "pending": self._arbiter.pending() if self._arbiter else []}
+                "pending": self._arbiter.pending() if self._arbiter else [],
+                "usage": self._hook_server.usage() if self._hook_server else None}
 
     def _ui_push_sessions(self, _effects=None) -> None:
         if self._hook_server is not None:

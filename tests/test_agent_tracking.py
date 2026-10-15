@@ -204,6 +204,19 @@ def test_statusline_updates_usage(env):
     assert u["source"] == "d1"
 
 
+def test_usage_from_many_reports_never_steps_back(env):
+    """Two Macs (or one with stale sessions) report out of order: the phone
+    sees the highest for the window, not whichever came last."""
+    _, tr, _, _ = env
+    for dev, pct in (("d1", 20), ("d2", 17), ("d1", 19)):
+        tr.ingest(dev, "statusline", "claude", {"rate_limits": {
+            "five_hour": {"used_percentage": pct, "resets_at": 2_000_900}}})
+    assert tr.usage()["five_hour"]["used_percentage"] == 20
+    tr.ingest("d2", "statusline", "claude", {"rate_limits": {
+        "five_hour": {"used_percentage": 1, "resets_at": 2_018_900}}})
+    assert tr.usage()["five_hour"]["used_percentage"] == 1
+
+
 def test_codex_usage_is_kept_apart_from_claude(env):
     _, tr, _, _ = env
     tr.ingest("d1", "statusline", "claude", {"rate_limits": {

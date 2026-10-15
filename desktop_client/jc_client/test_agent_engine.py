@@ -331,3 +331,26 @@ def test_a_tool_finishing_clears_an_approval_known_only_from_a_notification(eng)
                                    tool_input={"command": "ls"}))
     s = one(eng)
     assert s["pending"] is None and s["state"] == "working"
+
+
+def _w(used, reset):
+    return {"used_percentage": used, "resets_at": reset}
+
+
+def test_plan_usage_never_flickers_back_to_a_stale_report():
+    """Every Claude session (and its subagents) reports its own last-seen
+    snapshot, out of order; within a window usage only grows, so the merge
+    keeps the highest and only moves on when the window resets."""
+    merge = ae.merge_rate_limits
+    cur = merge(None, {"five_hour": _w(17, 1000), "seven_day": _w(8, 9000)})
+    assert cur["five_hour"]["used_percentage"] == 17
+    up = merge(cur, {"five_hour": _w(20, 1000), "seven_day": _w(9, 9000)})
+    assert up["five_hour"]["used_percentage"] == 20 and up["seven_day"]["used_percentage"] == 9
+    assert merge(up, {"five_hour": _w(17, 1000), "seven_day": _w(8, 9000)}) is None   # stale: no change
+    assert merge(up, {"five_hour": _w(20, 1000)}) is None                             # same: no change
+    assert merge(up, {}) is None and merge(up, None) is None
+    fresh = merge(up, {"five_hour": _w(2, 1000 + 5 * 3600)})                          # the window reset
+    assert fresh["five_hour"]["used_percentage"] == 2 and fresh["seven_day"]["used_percentage"] == 9
+    assert merge(fresh, {"five_hour": _w(21, 1000)}) is None                          # the old window: ignored
+    assert merge(fresh, {"five_hour": _w(3, 1000 + 5 * 3600 + 30)})["five_hour"]["used_percentage"] == 3
+    assert merge(fresh, {"five_hour": {"used_percentage": "x"}}) is None

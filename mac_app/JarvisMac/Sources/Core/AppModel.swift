@@ -74,6 +74,7 @@ final class AppModel {
             instructionsOn = J.b(msg["instructions"])
             apply(sessions: J.arr(msg["sessions"]), announce: false)
             pending = J.arr(msg["pending"]).compactMap(MacPending.init(json:))
+            if let u = MacPlanUsage(json: ["rate_limits": msg["usage"] ?? [:]]) { usage = u }
         case "sessions":
             apply(sessions: J.arr(msg["sessions"]), announce: true)
         case "pending":

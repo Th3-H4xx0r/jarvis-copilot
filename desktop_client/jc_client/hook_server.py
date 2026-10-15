@@ -52,6 +52,7 @@ class HookServer:
         # message from the phone — so the hook can make Claude carry on with it.
         self._on_stop = on_stop
         self._on_usage = on_usage
+        self._limits: Optional[dict] = None   # merged plan usage (agent_engine.merge_rate_limits)
         self._sweep_every = sweep_every
         self._lock = threading.RLock()
         self._sock: Optional[socket.socket] = None
@@ -92,6 +93,11 @@ class HookServer:
             pass
 
     # ── engine access (thread-safe) ────────────────────────────────────
+    def usage(self) -> Optional[dict]:
+        """The merged plan usage so far (for the Mac app's hello)."""
+        with self._lock:
+            return dict(self._limits) if self._limits else None
+
     def engine_sessions(self) -> list:
         with self._lock:
             return self._engine.sessions()
@@ -156,14 +162,24 @@ class HookServer:
                 # A stamp made here travels up with the payload, so the Mac,
                 # the server and the phone all agree on it.
                 payload["tool_use_id"] = "jc-" + uuid.uuid4().hex[:20]
-            self._send_up(kind, agent, payload)
             if kind == "statusline":
+                # Sent several times a second per session, each with its own
+                # stale snapshot: only a real step forward goes anywhere.
+                with self._lock:
+                    merged = agent_engine.merge_rate_limits(self._limits, payload.get("rate_limits"))
+                    if merged is not None:
+                        self._limits = merged
+                if merged is None:
+                    return
+                payload = dict(payload, rate_limits=merged)
+                self._send_up(kind, agent, payload)
                 if self._on_usage is not None:
                     try:
                         self._on_usage(payload)
                     except Exception:
                         log.debug("usage callback failed", exc_info=True)
                 return
+            self._send_up(kind, agent, payload)
             key = agent_engine.session_key(self.host, agent, str(payload.get("session_id") or ""),
                                            str(payload.get("cwd") or ""))
             engine_kind = kind if kind in _BLOCKING_KINDS else "event"

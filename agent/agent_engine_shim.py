@@ -53,3 +53,4 @@ session_key = module.session_key
 fingerprint = module.fingerprint
 diff_from_tool = module.diff_from_tool
 step_label = module.step_label
+merge_rate_limits = module.merge_rate_limits

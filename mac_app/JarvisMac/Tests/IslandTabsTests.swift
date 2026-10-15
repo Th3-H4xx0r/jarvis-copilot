@@ -73,4 +73,17 @@ final class IslandTabsTests: XCTestCase {
         XCTAssertEqual(got.map(\.0), ["music", "chat"])
         XCTAssertEqual(got.last?.1, "hi")
     }
+
+    /// A restarted app shows the plan usage at once (jc-client only sends a
+    /// change, so the hello carries what it has).
+    @MainActor
+    func testHelloCarriesThePlanUsage() {
+        let model = AppModel()
+        let later = Date().timeIntervalSince1970 + 3600
+        model.handle(["type": "hello", "usage": [
+            "five_hour": ["used_percentage": 21, "resets_at": later],
+            "seven_day": ["used_percentage": 9, "resets_at": later]]])
+        XCTAssertEqual(model.usage?.fiveHour, 21)
+        XCTAssertEqual(model.usage?.sevenDay, 9)
+    }
 }
