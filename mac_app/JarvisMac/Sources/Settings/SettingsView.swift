@@ -43,6 +43,7 @@ private struct GeneralSettings: View {
     @State private var display = Prefs.display.rawValue
     @State private var hover = Prefs.openOnHover
     @State private var hideIdle = Prefs.hideWhenIdle
+    @State private var showWorking = Prefs.showWhileWorking
     @State private var sound = Prefs.soundOn
     @State private var volume = Prefs.volume
     @State private var skin = Prefs.skin
@@ -68,8 +69,10 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Open when the pointer reaches it", isOn: $hover)
                     .onChange(of: hover) { _, v in Prefs.openOnHover = v }
-                Toggle("Hide it when no agent is running", isOn: $hideIdle)
+                Toggle("Hide it when nothing needs you", isOn: $hideIdle)
                     .onChange(of: hideIdle) { _, v in Prefs.hideWhenIdle = v }
+                Toggle("Show it while agents work", isOn: $showWorking)
+                    .onChange(of: showWorking) { _, v in Prefs.showWhileWorking = v }
             }
             Section("Orb") {
                 Picker("Look", selection: $skin) {

@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 island.attention()
                 Sounds.play(.failed)
             case .started:
-                island.activity()
+                if Prefs.showWhileWorking { island.activity() }
                 Sounds.play(.started)
             }
             _ = session

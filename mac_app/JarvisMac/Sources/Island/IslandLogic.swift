@@ -67,8 +67,8 @@ enum IslandDisplayChoice: Equatable {
 struct IslandStateMachine: Equatable {
     enum State: Equatable { case hidden, compact, expanded }
 
-    static let expandedHold: TimeInterval = 15
-    static let compactHold: TimeInterval = 60
+    static let expandedHold: TimeInterval = 8
+    static let compactHold: TimeInterval = 6
 
     private(set) var state: State = .hidden
     private var since: TimeInterval = 0
@@ -145,4 +145,14 @@ struct ArmGate {
     static let delay: TimeInterval = 0.5
     let shownAt: Date
     func isArmed(at now: Date) -> Bool { now.timeIntervalSince(shownAt) >= Self.delay }
+}
+
+/// When the pill over the notch stays up: while something needs you, while
+/// agents work only if you asked for that, or always if you turned off hiding.
+/// Otherwise the menu bar stays clear (a session that is merely working all day
+/// would keep a black bar over it).
+enum IslandVisibility {
+    static func keepsPill(needsYou: Bool, working: Bool, showWhileWorking: Bool, alwaysShow: Bool) -> Bool {
+        needsYou || (showWhileWorking && working) || alwaysShow
+    }
 }

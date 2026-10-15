@@ -26,7 +26,7 @@ final class IslandUI {
 /// After coucou's IslandWindowController (github.com/Louis-CFM/coucou, MIT).
 @MainActor
 final class IslandController {
-    static let earWidth: CGFloat = 54
+    static let earWidth: CGFloat = 40
     static let panelSize = CGSize(width: 720, height: 520)
 
     let ui = IslandUI()
@@ -231,9 +231,11 @@ final class IslandController {
             if inIsland && Prefs.openOnHover && machine.state != .expanded { machine.attention(at: now) }
             if inIsland && machine.state == .hidden { machine.activity(at: now) }
         }
-        let busy = !model.sessions.filter { $0.state != .idle }.isEmpty || !model.pending.isEmpty
-        machine.tick(now: now, hovering: inIsland, pinned: ui.pinned || !model.pending.isEmpty,
-                     hasSessions: busy || (!Prefs.hideWhenIdle && model.connected))
+        let keep = IslandVisibility.keepsPill(needsYou: !model.pending.isEmpty || model.waitingCount > 0,
+                                              working: model.workingCount > 0,
+                                              showWhileWorking: Prefs.showWhileWorking,
+                                              alwaysShow: !Prefs.hideWhenIdle && model.connected)
+        machine.tick(now: now, hovering: inIsland, pinned: ui.pinned || !model.pending.isEmpty, hasSessions: keep)
         sync()
         let nearIsland = rect.offsetBy(dx: pf.minX, dy: pf.minY).insetBy(dx: -200, dy: -160).contains(mouse)
         let inBand = pf.insetBy(dx: -120, dy: -120).contains(mouse)

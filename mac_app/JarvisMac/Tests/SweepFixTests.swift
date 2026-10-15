@@ -35,4 +35,22 @@ final class SweepFixTests: XCTestCase {
         XCTAssertFalse(ChatContext.canUpload(size: 3_000_000_000))
         XCTAssertFalse(ChatContext.canUpload(size: nil))
     }
+
+    /// The pill over the notch stays only while something needs you (or you
+    /// asked for it while agents work): a session that is merely working
+    /// leaves the menu bar clear.
+    func testThePillStaysOnlyWhenItHasSomethingToSay() {
+        XCTAssertTrue(IslandVisibility.keepsPill(needsYou: true, working: false, showWhileWorking: false, alwaysShow: false))
+        XCTAssertFalse(IslandVisibility.keepsPill(needsYou: false, working: true, showWhileWorking: false, alwaysShow: false))
+        XCTAssertTrue(IslandVisibility.keepsPill(needsYou: false, working: true, showWhileWorking: true, alwaysShow: false))
+        XCTAssertTrue(IslandVisibility.keepsPill(needsYou: false, working: false, showWhileWorking: false, alwaysShow: true))
+        XCTAssertFalse(IslandVisibility.keepsPill(needsYou: false, working: false, showWhileWorking: true, alwaysShow: false))
+    }
+
+    /// Once nothing waits, an opened island folds and the pill leaves quickly.
+    func testTheIslandSettlesQuicklyWhenNothingWaits() {
+        XCTAssertLessThanOrEqual(IslandStateMachine.expandedHold, 8)
+        XCTAssertLessThanOrEqual(IslandStateMachine.compactHold, 6)
+        XCTAssertLessThanOrEqual(IslandController.earWidth, 40)
+    }
 }

@@ -22,6 +22,12 @@ enum Prefs {
         set { d.set(newValue, forKey: "island.hideWhenIdle") }
     }
 
+    /// Keep the pill over the notch while agents work (else only when something needs you).
+    static var showWhileWorking: Bool {
+        get { d.object(forKey: "island.showWhileWorking") as? Bool ?? false }
+        set { d.set(newValue, forKey: "island.showWhileWorking") }
+    }
+
     static var soundOn: Bool {
         get { d.object(forKey: "sound.on") as? Bool ?? true }
         set { d.set(newValue, forKey: "sound.on") }
