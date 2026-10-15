@@ -42,6 +42,11 @@ end and push to all devices after this". A box is ticked only once it is live.
 16. [x] The open island cuts off the session row at the bottom
 18. [ ] Agent Live Activities: one per agent type (Claude, Codex, Gemini…) with that agent's logo, started even when the app is closed (push-to-start), and settings in Code Master + Island Designs (on/off, which agents, end after idle, Lock Screen Allow/Deny). Today's single Jarvis activity hides coding whenever voice is up.
 17. [x] Instructions-from-phone switch (iPhone + web), Agents tab redesign, real orb, old tray menu items, click-outside folds — shipped 2026-10-15
+19. [ ] Mac island Music tab: as tall as its content (was a fixed 250 pt with blank space), laid out like Apple's Now Playing
+20. [ ] The 5h / wk / Codex pills flicker ~3×/s: every Claude session sends its own stale usage snapshot; keep the highest per window, send only real changes (Mac, server, phone)
+21. [ ] Mac island: opening an agent's details cuts off the bottom — the island grows to fit, and scrolls past the panel with a slim bar on the right
+22. [ ] iPhone agent chat loads the WHOLE transcript at once (slow): open on the last page, load older pages on scroll up
+23. [ ] Tray app + notch island together glitch the Mac and burn CPU (idle: tray 8.6%, jc-client 8.2%, Jarvis.app 6.2%; orb draws 30 fps nonstop; two menu-bar items when the app starts after the tray) — brainstorm folding it all into the notch
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
