@@ -312,11 +312,18 @@ def read_local_messages(cwd: str, csid: str,
         return None, None
 
 
+_LITE_SUMMARY = 200
+
+
 def _lite_tool(t: dict) -> dict:
     """A tool for the chat list: its line, without the output and diff the
     list only shows when you open one (most of a long chat's bytes). ``more``
     says there's something to fetch; an edit keeps its +/− counts."""
     out = {k: v for k, v in t.items() if k not in ("output", "diff")}
+    summary = out.get("summary")
+    cut = isinstance(summary, str) and len(summary) > _LITE_SUMMARY
+    if cut:  # a row shows one line; a heredoc command can be pages long
+        out["summary"] = summary[:_LITE_SUMMARY].rstrip() + "…"
     diff = t.get("diff") or []
     if diff:
         added = removed = 0
@@ -331,7 +338,7 @@ def _lite_tool(t: dict) -> dict:
             elif line.startswith("-"):
                 removed += 1
         out["added"], out["removed"] = added, removed
-    if t.get("output") or diff:
+    if t.get("output") or diff or cut:
         out["more"] = True
     return out
 

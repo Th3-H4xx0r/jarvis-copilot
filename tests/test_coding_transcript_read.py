@@ -101,6 +101,11 @@ def test_a_lite_page_leaves_tool_output_and_diffs_for_later():
     assert "more" not in lite[3]
     full = slice_messages(msgs, after=0)["messages"][0]["tools"]
     assert full[0]["output"] == "x" * 5000 and full[1]["diff"][0].startswith("@@")
+    # A row shows one line: a lite summary (a whole heredoc command) is cut short.
+    long = [{"i": 0, "role": "assistant", "text": "", "tools": [
+        {"name": "Bash", "summary": "python3 - <<'EOF'\n" + "print(1)\n" * 500, "ok": True}]}]
+    cut = slice_messages(long, after=0, lite=True)["messages"][0]["tools"][0]
+    assert len(cut["summary"]) <= 201 and cut["summary"].endswith("…") and cut["more"] is True
 
 
 def test_edit_tool_carries_diff():
