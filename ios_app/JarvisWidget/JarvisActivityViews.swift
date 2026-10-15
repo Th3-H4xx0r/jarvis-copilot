@@ -384,16 +384,15 @@ struct JCLeadRow: View {
     }
 }
 
-/// Indeterminate circular spinner for the collapsed Dynamic Island's leading
-/// slot — a `ProgressView`, which (unlike SF-Symbol effects) actually animates
-/// inside a Live Activity. Tinted to the spotlight session's state color.
+/// The collapsed Dynamic Island's "busy" mark, tinted to the spotlight session's
+/// state color. A still arc at a fixed size: the indeterminate `ProgressView`
+/// this used to be left the whole island a full-width EMPTY black bar on iOS 27
+/// devices (the Lock Screen, which has none, kept rendering). See
+/// `AgentBusyRing` in Copilot/Shared/AgentActivityViews.swift.
 struct JCCompactSpinner: View {
     let color: Color
     var body: some View {
-        ProgressView()
-            .progressViewStyle(.circular)
-            .controlSize(.mini)
-            .tint(color)
+        AgentBusyRing(color: color, size: 16)
     }
 }
 
