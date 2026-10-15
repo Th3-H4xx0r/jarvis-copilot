@@ -460,18 +460,11 @@ struct MacOpenInWindowButton: View {
 }
 
 /// The phone's aurora ground, as both Mac panels draw it.
+/// Plain black, no gradients: the panel sits in Jarvis.app's notch island (and
+/// its window), which is black too.
 struct MacPanelBackdrop: View {
     var body: some View {
-        LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
-                       startPoint: .top, endPoint: .bottom)
-            .overlay(alignment: .top) {
-                Circle()
-                    .fill(RadialGradient(
-                        colors: [JcAccent.deep.opacity(0.10), JcAccent.deep.opacity(0)],
-                        center: .center, startRadius: 0, endRadius: 170))
-                    .frame(width: 340, height: 340)
-                    .offset(y: -60)
-            }
+        Color.black
             .allowsHitTesting(false)
             .ignoresSafeArea()
     }
