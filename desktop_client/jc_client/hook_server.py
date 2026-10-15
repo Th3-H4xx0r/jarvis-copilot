@@ -16,6 +16,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from typing import Callable, Optional
 
 try:
@@ -144,6 +145,13 @@ class HookServer:
             kind = str(frame.get("kind") or "event")
             agent = str(frame.get("agent") or "claude")
             payload = frame["payload"]
+            if kind in _BLOCKING_KINDS and not payload.get("tool_use_id"):
+                # Claude's PermissionRequest carries no tool_use_id, so two
+                # identical asks (parallel subagents, the same command twice)
+                # would share a fingerprint and one answer would settle both.
+                # A stamp made here travels up with the payload, so the Mac,
+                # the server and the phone all agree on it.
+                payload["tool_use_id"] = "jc-" + uuid.uuid4().hex[:20]
             self._send_up(kind, agent, payload)
             if kind == "statusline":
                 if self._on_usage is not None:

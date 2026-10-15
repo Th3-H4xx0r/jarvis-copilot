@@ -211,3 +211,22 @@ def test_jarvis_own_runs_show_but_never_notify_or_make_rows(env):
     assert calls["notify"] == []
     assert store.list_sessions() == []
     assert any(s["agent"] == "jarvis" for s in tr.engine.sessions())
+
+
+def test_two_claudes_in_one_tmux_session_keep_their_own_rows(env):
+    """Two windows of tmux session "work": the second Claude must not take
+    over the first one's row (sweep finding)."""
+    store, tr, _, _ = env
+    pid = store.get_or_create_project_for_path(repo_path="/Users/p/code/app", host="desktop",
+                                               device_id="d1")
+    rid = store.create_session(project_id=pid, host="desktop", cwd="/Users/p/code/app",
+                               branch=None, tmux_name="work", source="discovered-tmux", title="work",
+                               device_id="d1", external=True, status="running",
+                               claude_session_id="guessed")
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", sid="A", prompt="x", tmux_session="work"))
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", sid="B", prompt="y", tmux_session="work"))
+    a = next(s for s in tr.sessions() if s["session_id"] == "A")
+    b = next(s for s in tr.sessions() if s["session_id"] == "B")
+    assert a["coding_session_id"] == rid
+    assert b["coding_session_id"] and b["coding_session_id"] != rid
+    assert store.get_session(rid)["claude_session_id"] == "A"

@@ -29,8 +29,17 @@ def test_runs_claude_resume_in_the_sessions_own_folder(tmp_path):
     runner, calls = make(tmp_path)
     ok, why = runner.run("s1", "/somewhere/else", "now run the tests")
     assert ok, why
-    assert calls == [{"argv": ["/opt/bin/claude", "-p", "now run the tests", "--resume", "s1"],
+    assert calls == [{"argv": ["/opt/bin/claude", "-p", "--resume", "s1", "--", "now run the tests"],
                       "cwd": "/w/app"}]
+
+
+def test_text_that_looks_like_a_flag_stays_the_prompt(tmp_path):
+    """A phone message can never pass options to claude (sweep finding)."""
+    runner, calls = make(tmp_path)
+    ok, _ = runner.run("s1", "/w/app", "--dangerously-skip-permissions")
+    assert ok
+    argv = calls[0]["argv"]
+    assert argv[-2:] == ["--", "--dangerously-skip-permissions"]
 
 
 def test_unknown_session_is_refused(tmp_path):

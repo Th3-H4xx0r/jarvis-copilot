@@ -212,3 +212,27 @@ def _all_commands(obj):
         for v in obj:
             out.extend(_all_commands(v))
     return out
+
+
+def test_a_symlinked_settings_file_stays_a_link(home, tmp_path):
+    """Dotfiles managers (stow, chezmoi) keep settings.json as a link: write
+    through it, don't replace it (sweep finding)."""
+    real = tmp_path / "dotfiles" / "settings.json"
+    real.parent.mkdir()
+    real.write_text('{"model": "opus"}')
+    link = os.path.join(home, ".claude", "settings.json")
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    os.symlink(real, link)
+    pv = hi.preview(link, CMD, os.path.join(home, "bin"))
+    hi.install(link, pv)
+    assert os.path.islink(link)
+    assert "jc-hook" in real.read_text()
+    assert hi.uninstall(link, os.path.join(home, "bin")) is True
+    assert os.path.islink(link) and "jc-hook" not in real.read_text()
+    # The other agents' files too.
+    gem_real = tmp_path / "dotfiles" / "gemini.json"
+    gem_real.write_text("{}")
+    os.makedirs(os.path.join(home, ".gemini"))
+    os.symlink(gem_real, os.path.join(home, ".gemini", "settings.json"))
+    hi.install_agent("gemini", CMD, home=home)
+    assert os.path.islink(os.path.join(home, ".gemini", "settings.json")) and "jc-hook" in gem_real.read_text()

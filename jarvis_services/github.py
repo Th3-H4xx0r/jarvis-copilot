@@ -161,7 +161,9 @@ def parse_pulse(root: object, now: float) -> Optional[Pulse]:
         return None
     my_prs, seen = [], set()
     for node in ((viewer.get("pullRequests") or {}).get("nodes") or []):
-        repo = ((node or {}).get("repository") or {}).get("nameWithOwner")
+        if not isinstance(node, dict):   # null for PRs the token can't see (SAML orgs)
+            continue
+        repo = (node.get("repository") or {}).get("nameWithOwner")
         number, title, url = node.get("number"), node.get("title"), node.get("url")
         if not (isinstance(number, int) and isinstance(title, str) and isinstance(url, str) and repo):
             continue
@@ -185,7 +187,9 @@ def parse_pulse(root: object, now: float) -> Optional[Pulse]:
         main_ci.append(RepoCI(repo, url, ref["name"], ci_state(raw_ci), sha))
     to_review, seen = [], set()
     for node in ((data.get("reviewRequested") or {}).get("nodes") or []):
-        repo = ((node or {}).get("repository") or {}).get("nameWithOwner")
+        if not isinstance(node, dict):
+            continue
+        repo = (node.get("repository") or {}).get("nameWithOwner")
         number, title, url = node.get("number"), node.get("title"), node.get("url")
         if not (isinstance(number, int) and isinstance(title, str) and isinstance(url, str) and repo):
             continue

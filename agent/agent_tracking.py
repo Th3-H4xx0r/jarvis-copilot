@@ -54,12 +54,16 @@ class AgentTracker:
                  notify: Optional[Callable[[str, Optional[dict], str], None]] = None,
                  live_push: Optional[Callable[[], None]] = None,
                  is_dismissed: Optional[Callable[[str, str], bool]] = None,
+                 phone_approvals: Optional[Callable[[], bool]] = None,
                  clock=time.time) -> None:
         self.store = store
         self._publish_cb = publish
         self._notify_cb = notify
         self._live_push_cb = live_push
         self._is_dismissed = is_dismissed or (lambda _d, _k: False)
+        # While on, a relayed request reaches the phone as its own actionable
+        # push, so the matrix "needs you" banner would be a second buzz.
+        self._phone_approvals = phone_approvals or (lambda: False)
         self._clock = clock
         self._lock = threading.RLock()
         self.engine = engine_mod.Engine(clock=clock)
@@ -247,8 +251,11 @@ class AgentTracker:
         rows = self._candidate_rows(device_id)
         row = None
         if tmux:
+            # Discovery keeps one row per tmux session; a second Claude in another
+            # window of it must not take over a row a live hook session already holds.
+            taken = {rid for k, rid in self._rows.items() if k != key}
             row = next((r for r in rows if r.get("tmux_name") == tmux
-                        and (r.get("status") in _LIVE_STATUSES)), None)
+                        and (r.get("status") in _LIVE_STATUSES) and r.get("id") not in taken), None)
         if row is None and csid:
             hits = [r for r in rows if (r.get("claude_session_id") or "") == csid]
             hits.sort(key=lambda r: r.get("source") == "discovered-transcript")
@@ -328,6 +335,10 @@ class AgentTracker:
             elif kind == "notify":
                 if session.get("agent") == "jarvis":
                     continue  # Jarvis notifies about its own replies already
+                pend = session.get("pending") or {}
+                if e.get("event") in ("approval", "question") and pend.get("fingerprint") \
+                        and not pend.get("from_notification") and self._phone_approvals():
+                    continue
                 event = _NOTIFY_EVENT.get(e.get("event") or "")
                 if event and self._notify_cb is not None:
                     try:

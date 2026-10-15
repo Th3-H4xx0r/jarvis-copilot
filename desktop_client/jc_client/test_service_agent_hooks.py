@@ -155,7 +155,8 @@ def test_unknown_ui_request_is_refused():
 def test_ui_hooks_handles_the_other_agents(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     svc = service.Service()
-    r = svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini"})
+    pv = svc._ui_request({"type": "hooks", "action": "preview", "agent": "gemini"})
+    r = svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini", "token": pv["token"]})
     assert r["ok"] is True and r["status"]["installed"] is True
     assert (tmp_path / ".gemini" / "settings.json").exists()
     assert not (tmp_path / ".claude" / "settings.json").exists()
@@ -166,3 +167,30 @@ def test_ui_hooks_handles_the_other_agents(tmp_path, monkeypatch):
     r = svc._ui_request({"type": "hooks", "action": "uninstall", "agent": "gemini"})
     assert r["ok"] is True and r["changed"] is True
     assert svc._ui_request({"type": "hooks", "action": "install", "agent": "nope"})["ok"] is False
+
+
+def test_ui_install_writes_only_what_the_preview_showed(tmp_path, monkeypatch):
+    """The Mac app installs with the token of the diff it showed; if the file
+    changed since, nothing is written (sweep finding)."""
+    import json as _json
+    monkeypatch.setenv("HOME", str(tmp_path))
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(_json.dumps({"model": "opus"}))
+    svc = service.Service()
+    assert svc._ui_request({"type": "hooks", "action": "install"})["ok"] is False   # no token: refused
+    assert "jc-hook" not in settings.read_text()
+    pv = svc._ui_request({"type": "hooks", "action": "preview"})
+    assert pv["ok"] is True and pv["token"]
+    settings.write_text(_json.dumps({"model": "sonnet"}))        # edited after the preview
+    r = svc._ui_request({"type": "hooks", "action": "install", "token": pv["token"]})
+    assert r["ok"] is False and "changed" in r["error"]
+    assert "jc-hook" not in settings.read_text()
+    pv = svc._ui_request({"type": "hooks", "action": "preview"})
+    r = svc._ui_request({"type": "hooks", "action": "install", "token": pv["token"]})
+    assert r["ok"] is True and "jc-hook" in settings.read_text()
+    # The other agents follow the same rule.
+    gpv = svc._ui_request({"type": "hooks", "action": "preview", "agent": "gemini"})
+    assert svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini"})["ok"] is False
+    assert svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini",
+                            "token": gpv["token"]})["ok"] is True

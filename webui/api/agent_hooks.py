@@ -59,7 +59,8 @@ def build_tracker(store) -> AgentTracker:
             return False
 
     return AgentTracker(store, publish=publish, notify=notify,
-                        live_push=lambda: _live_push(store), is_dismissed=dismissed)
+                        live_push=lambda: _live_push(store), is_dismissed=dismissed,
+                        phone_approvals=lambda: _remote_approvals())
 
 
 def _mark_transcript(payload) -> None:

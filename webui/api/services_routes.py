@@ -52,16 +52,21 @@ def _notify(title: str, body: str, data: dict) -> None:
 
 
 def default_hub():
-    """The process-wide hub, secrets in the active profile's .env."""
+    """The process-wide hub, its keys and settings in the server's own home.
+
+    Pinned once: the poller thread carries no profile cookie, so a per-request
+    home would save settings in one profile while polling another."""
     global _HUB
     with _HUB_LOCK:
         if _HUB is None:
-            from api.providers import _get_hermes_home, _write_env_file
+            from api.providers import _write_env_file
+            from jarviscopilot_constants import get_hermes_home
             from jarvis_services import default_services
             from jarvis_services.config import ServicesConfig
             from jarvis_services.loop import ServicesHub
+            home = get_hermes_home()
             _HUB = ServicesHub(default_services(),
-                               ServicesConfig(home_fn=_get_hermes_home, write_env=_write_env_file),
+                               ServicesConfig(home_fn=lambda: home, write_env=_write_env_file),
                                publish=_publish, notify=_notify)
         return _HUB
 

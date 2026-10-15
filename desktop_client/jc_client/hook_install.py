@@ -163,6 +163,9 @@ def preview(settings_path: str, cmd: str, bin_dir: str, statusline: bool = True)
 
 
 def _write(path: str, data: bytes, original: Optional[bytes]) -> None:
+    # Through a symlink (dotfiles managers), never over it: the link stays and
+    # its target gets the change.
+    path = os.path.realpath(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         with open(path, "rb") as f:

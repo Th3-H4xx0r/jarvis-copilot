@@ -63,7 +63,9 @@ class InstructionRunner:
             out = subprocess.DEVNULL
         try:
             self._running[session_id] = self._popen(
-                [claude, "-p", text, "--resume", session_id], cwd=cwd, env=env,
+                # Options first, then `--`: the text is always the prompt, even
+                # when it starts with "-" (a phone message never sets a flag).
+                [claude, "-p", "--resume", session_id, "--", text], cwd=cwd, env=env,
                 stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         except Exception as exc:  # noqa: BLE001
             return False, f"couldn't start claude: {exc}"

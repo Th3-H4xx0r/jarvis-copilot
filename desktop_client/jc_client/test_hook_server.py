@@ -218,3 +218,38 @@ def test_sweep_runs_on_a_timer(sockdir):
         assert until(lambda: eng.sessions()[0]["state"] == "idle")
     finally:
         hs.close()
+
+
+def test_identical_requests_get_their_own_fingerprints(sockdir):
+    """Claude's PermissionRequest has no tool_use_id: two parallel `npm test`
+    asks must still be two requests, each answered on its own (sweep finding)."""
+    from jc_client.approval_arbiter import Arbiter
+    ups = []
+    arb = Arbiter(send_up=ups.append, gate=lambda: True)
+    forwarded = []
+    hs = HookServer(os.path.join(sockdir, "h.sock"), agent_engine.Engine(),
+                    forward=forwarded.append, arbiter=arb)
+    hs.start()
+    replies = []
+    try:
+        p = {"hook_event_name": "PermissionRequest", "session_id": "s", "cwd": "/w",
+             "tool_name": "Bash", "tool_input": {"command": "npm test"}}
+        for _ in range(2):
+            threading.Thread(target=lambda: replies.append(send(hs.path, frame("permission", dict(p)), wait=True)),
+                             daemon=True).start()
+        assert until(lambda: len(arb.pending()) == 2)
+        fps = {e["fingerprint"] for e in arb.pending()}
+        assert len(fps) == 2
+        # What goes up to the server carries the same stamp, so it agrees.
+        up_fps = {agent_engine.fingerprint(f["data"]["payload"]["session_id"], f["data"]["payload"]["tool_use_id"],
+                                           "Bash", {"command": "npm test"})
+                  for f in forwarded if f["data"]["kind"] == "permission"}
+        assert up_fps == fps
+        first = sorted(fps)[0]
+        assert arb.decide(first, "allow") is True
+        assert until(lambda: len(replies) == 1)
+        assert [e["fingerprint"] for e in arb.pending()] == [sorted(fps)[1]]
+        assert arb.decide(sorted(fps)[1], "deny") is True
+        assert until(lambda: len(replies) == 2)
+    finally:
+        hs.close()

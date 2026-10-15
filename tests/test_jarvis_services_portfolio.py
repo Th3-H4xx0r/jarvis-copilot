@@ -92,3 +92,17 @@ def test_wallet_default_label_and_no_secrets_in_output():
     assert board.accounts[1].label == "0xabab…abab"
     assert board.accounts[1].holdings[0].value == 2000.0
     assert "TOPSECRET" not in repr(board.to_dict())
+
+
+def test_exchanges_are_signed_with_the_time_of_the_request(monkeypatch):
+    """A slow poll earlier in the tick must not push Binance past its 5 s
+    recvWindow: the signature uses the clock when the request goes out."""
+    import time as _time
+    from urllib.parse import parse_qs
+    http = price_http(FakeHttp())
+    http.add("GET", "https://api.binance.com/api/v3/account", {"balances": []})
+    monkeypatch.setattr(_time, "time", lambda: NOW + 30)       # 30 s after the tick began
+    PortfolioService().fetch(http, cfg(BINANCE, []), None, NOW)
+    call = http.called("GET", "https://api.binance.com/api/v3/account")[0]
+    ts = int(parse_qs(call.full_url.split("?", 1)[1])["timestamp"][0])
+    assert ts == int((NOW + 30) * 1000)

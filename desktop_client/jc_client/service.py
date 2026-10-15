@@ -73,6 +73,21 @@ def _imessage_api_origin() -> str | None:
     return _imessage_origin
 
 
+
+_STALE_PREVIEW = ("The settings changed since the preview (or none was shown). "
+                  "Look at the change again, then install.")
+
+
+def _preview_token(pv) -> str:
+    """Names one exact change: what the file held and what would be written."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(pv.original or b"\0missing")
+    h.update(b"\0")
+    h.update(pv.new_bytes)
+    return h.hexdigest()[:32]
+
+
 class Service:
     """Encapsulates the connect-and-dispatch loop. Stoppable via
     ``stop()`` from any thread (tray, signal handler, etc.)."""
@@ -199,10 +214,10 @@ class Service:
             return {"ok": True}
         if kind == "hooks":
             return self._ui_hooks(str(req.get("action") or "status"), bool(req.get("statusline", True)),
-                                  str(req.get("agent") or "claude"))
+                                  str(req.get("agent") or "claude"), str(req.get("token") or ""))
         return {"ok": False, "error": f"unknown request {kind!r}"}
 
-    def _ui_hooks(self, action: str, statusline: bool, agent: str = "claude") -> dict:
+    def _ui_hooks(self, action: str, statusline: bool, agent: str = "claude", token: str = "") -> dict:
         from jc_client import hook_install as hi
         from jc_client.logger import state_dir
         settings, bin_dir = hi.default_settings_path(), str(state_dir() / "bin")
@@ -222,8 +237,10 @@ class Service:
                 cmd = hi.command_base(sys.executable, script)
                 pv = hi.agent_preview(agent, cmd, python=sys.executable, script=script)
                 if action == "preview":
-                    return {"ok": True, "diff": pv.diff}
+                    return {"ok": True, "diff": pv.diff, "token": _preview_token(pv)}
                 if action == "install":
+                    if not token or token != _preview_token(pv):
+                        return {"ok": False, "error": _STALE_PREVIEW}
                     hi.install_script(bin_dir)
                     hi.install_agent(agent, cmd, pv=pv)
                     return {"ok": True, "status": hi.agent_status(agent)}
@@ -235,13 +252,20 @@ class Service:
         if action == "uninstall":
             return {"ok": True, "changed": hi.uninstall(settings, bin_dir)}
         cmd = hi.command_base(sys.executable, os.path.join(bin_dir, "jc-hook"))
-        pv = hi.preview(settings, cmd, bin_dir, statusline=statusline)
-        if action == "preview":
-            return {"ok": True, "diff": pv.diff}
-        if action == "install":
-            hi.install_script(bin_dir)
-            hi.install(settings, pv)
-            return {"ok": True, "status": hi.status(settings)}
+        try:
+            pv = hi.preview(settings, cmd, bin_dir, statusline=statusline)
+            if action == "preview":
+                return {"ok": True, "diff": pv.diff, "token": _preview_token(pv)}
+            if action == "install":
+                # Write only the change the app showed: a token from an older
+                # preview (the file changed since) is refused.
+                if not token or token != _preview_token(pv):
+                    return {"ok": False, "error": _STALE_PREVIEW}
+                hi.install_script(bin_dir)
+                hi.install(settings, pv)
+                return {"ok": True, "status": hi.status(settings)}
+        except (hi.SettingsShape, hi.SettingsChanged) as exc:
+            return {"ok": False, "error": str(exc)}
         return {"ok": False, "error": f"unknown hooks action {action!r}"}
 
     def _session_cwd(self, session_id: str):
@@ -306,6 +330,11 @@ class Service:
             ui = UiServer(_ui_socket_path(), hello=self._ui_hello, on_request=self._ui_request)
             ui.start()
             self._ui = ui
+            try:
+                from jc_client.skills import island as _island_skill
+                _island_skill.set_broadcast(self._ui_broadcast)
+            except Exception:  # noqa: BLE001 — not on macOS
+                pass
         except Exception as exc:  # noqa: BLE001 — hooks are optional, never fatal
             log.warning("agent hook server unavailable: %s", exc)
             self._hook_server = None

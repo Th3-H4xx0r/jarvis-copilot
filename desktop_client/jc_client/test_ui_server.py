@@ -137,3 +137,53 @@ def test_garbage_lines_are_ignored(sockdir):
         assert c.recv()["id"] == 2
     finally:
         srv.close()
+
+
+def test_a_client_that_stops_reading_never_blocks_a_broadcast(sockdir):
+    """A hung app must not stall the hooks or the bridge (sweep finding)."""
+    srv = make(sockdir)
+    try:
+        stuck = Client(srv.path)
+        assert stuck.recv()["type"] == "hello"   # registered; now it never reads again
+        big = {"type": "sessions", "sessions": ["x" * 300_000]}
+        import threading
+        done = threading.Event()
+
+        def blast():
+            for _ in range(60):         # ~18 MB: far past any socket buffer
+                srv.broadcast(big)
+            done.set()
+
+        threading.Thread(target=blast, daemon=True).start()
+        assert done.wait(3.0), "broadcast blocked on a client that stopped reading"
+        end = time.monotonic() + 5
+        while srv.client_count() and time.monotonic() < end:
+            time.sleep(0.05)
+        assert srv.client_count() == 0  # dropped once its queue overflowed
+        stuck.close()
+    finally:
+        srv.close()
+
+
+def test_concurrent_broadcasts_arrive_as_whole_lines(sockdir):
+    import threading
+    srv = make(sockdir)
+    try:
+        c = Client(srv.path)
+        assert c.recv()["type"] == "hello"
+        payload = "y" * 50_000
+
+        def blast(n):
+            for i in range(10):
+                srv.broadcast({"type": "sessions", "n": n, "i": i, "pad": payload})
+
+        threads = [threading.Thread(target=blast, args=(n,)) for n in range(4)]
+        for t in threads:
+            t.start()
+        got = [c.recv() for _ in range(40)]   # recv() json-parses every line
+        for t in threads:
+            t.join()
+        assert sorted((m["n"], m["i"]) for m in got) == [(n, i) for n in range(4) for i in range(10)]
+        c.close()
+    finally:
+        srv.close()

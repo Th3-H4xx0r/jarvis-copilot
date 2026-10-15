@@ -16,6 +16,7 @@ import itertools
 import logging
 import threading
 import time
+import uuid
 from typing import Callable, Optional
 
 try:
@@ -87,6 +88,9 @@ class Arbiter:
             return None
         tool = str(payload.get("tool_name") or "Tool")
         inp = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+        if not payload.get("tool_use_id"):
+            # Same stamp as the hook server's: identical asks stay distinct.
+            payload["tool_use_id"] = "jc-" + uuid.uuid4().hex[:20]
         entry = {
             "kind": kind, "agent": agent, "key": key,
             "session_id": str(payload.get("session_id") or ""),

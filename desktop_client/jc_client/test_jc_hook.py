@@ -293,3 +293,30 @@ def test_cwd_falls_back_to_process_cwd(jarvis):
     j = jarvis()
     run(["--socket", j.path], {"hook_event_name": "SessionStart", "session_id": "s"})
     assert wait_frames(j)[0]["payload"]["cwd"] == os.getcwd()
+
+
+@pytest.mark.parametrize("shape", ["many_medium_strings", "many_keys", "long_list", "nested_big"])
+def test_every_payload_shape_fits_the_frame(jarvis, shape):
+    """MCP list results, a big MultiEdit, other agents' payloads: whatever the
+    shape, what reaches the socket fits, keeps the event's identity, and goes
+    out fast (sweep finding)."""
+    if shape == "many_medium_strings":
+        resp = {"items": [{"name": f"item-{i}", "body": "z" * 60} for i in range(5000)]}
+    elif shape == "many_keys":
+        resp = {f"key-{i}-" + "k" * 40: i for i in range(8000)}
+    elif shape == "long_list":
+        resp = list(range(200_000))
+    else:
+        resp = {"a": {"b": [{"c": "q" * 50} for _ in range(3000)]}, "d": "w" * 100_000}
+    j = jarvis()
+    t0 = time.monotonic()
+    frame = {"jc": 1, "kind": "event", "agent": "claude", "payload": {
+        "hook_event_name": "PostToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "mcp__x__list",
+        "tool_use_id": "toolu_1", "tool_input": {"query": "all"}, "tool_response": resp}}
+    text = jc_hook._trim(frame)
+    assert time.monotonic() - t0 < 0.5
+    assert len(text) < jc_hook.MAX_FRAME
+    p = json.loads(text)["payload"]
+    assert (p["hook_event_name"], p["session_id"], p["tool_name"], p["tool_use_id"]) == (
+        "PostToolUse", "s1", "mcp__x__list", "toolu_1")
+    assert p["jc_trimmed"] is True

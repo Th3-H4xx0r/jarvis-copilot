@@ -155,7 +155,10 @@ class PortfolioService(Service):
             spec = exchanges.EXCHANGES[ex]
             account = Account(ex, "exchange", ex, spec.name, spec.name)
             try:
-                account.holdings = [Holding(s, a) for s, a in exchanges.fetch(http, ex, exchange_creds(cfg, ex), now)]
+                # Signed with the clock as the request leaves, not the tick's start:
+                # a slow poll before it would push Binance/Bybit past recvWindow.
+                account.holdings = [Holding(s, a) for s, a in
+                                    exchanges.fetch(http, ex, exchange_creds(cfg, ex), time.time())]
             except (HttpError, ServiceError) as e:
                 account.error = describe(e, spec.name)
             accounts.append(account)

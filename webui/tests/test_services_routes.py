@@ -172,3 +172,19 @@ def test_wired_into_routes_get_and_post(hub, monkeypatch):
     handler = _FakeHandler(raw)
     handle_post(handler, urlparse("http://x/api/services/config"))
     assert handler.status == 200 and json.loads(bytes(handler.body))["crypto"]["enabled"] is True
+
+
+def test_the_hub_keeps_one_home_whatever_profile_a_request_carries(tmp_path, monkeypatch):
+    """The poller thread has no profile cookie; saves and polls must use the
+    same folder, the server's own (sweep finding)."""
+    server_home = tmp_path / "server"
+    server_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(server_home))
+    import api.providers as providers
+    monkeypatch.setattr(providers, "_get_hermes_home", lambda: tmp_path / "profiles" / "coder")
+    monkeypatch.setattr(services_routes, "_HUB", None)
+    try:
+        hub = services_routes.default_hub()
+        assert hub.config.home == server_home
+    finally:
+        services_routes._HUB = None

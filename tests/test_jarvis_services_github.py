@@ -265,3 +265,17 @@ def test_perform(kind, target, method, url, body):
 def test_perform_rejects_malformed_targets():
     with pytest.raises(ServiceError):
         GitHubService().perform(FakeHttp(), CFG, "github.merge", "../../evil#1")
+
+
+def test_null_nodes_are_skipped_not_fatal():
+    """GraphQL returns null for PRs in SAML-protected orgs the token isn't
+    authorised for; the rest of the pulse must still show (sweep finding)."""
+    from jarvis_services.github import parse_pulse
+    good = {"number": 7, "title": "Fix", "url": "https://github.com/o/r/pull/7",
+            "repository": {"nameWithOwner": "o/r"}, "commits": {"nodes": []}}
+    root = {"data": {"viewer": {"pullRequests": {"nodes": [None, good]},
+                                "repositories": {"nodes": [None]}},
+                     "reviewRequested": {"nodes": [None, dict(good, number=8, url="https://github.com/o/r/pull/8")]}}}
+    pulse = parse_pulse(root, 1_791_936_000.0)
+    assert pulse is not None
+    assert [p.number for p in pulse.my_prs] == [7]

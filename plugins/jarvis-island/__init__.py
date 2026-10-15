@@ -81,6 +81,21 @@ def _drain() -> None:
             pass
 
 
+def _shrink(node, n: int = 1500, k: int = 40, depth: int = 0):
+    """Tool arguments as the island shows them: strings cut to ``n`` chars,
+    lists and dicts to ``k`` items, nothing nested past four levels."""
+    if isinstance(node, str):
+        return node if len(node) <= n else node[:n] + "…"
+    if depth >= 4:
+        return "…"
+    if isinstance(node, list):
+        out = [_shrink(v, n, k, depth + 1) for v in node[:k]]
+        return out + ([f"…{len(node) - k} more"] if len(node) > k else [])
+    if isinstance(node, dict):
+        return {str(key)[:80]: _shrink(v, n, k, depth + 1) for key, v in list(node.items())[:k]}
+    return node
+
+
 def _skipped(session_id: str, platform: str = "") -> bool:
     platform = platform or _platforms.get(session_id, "")
     return platform in _SKIP_PLATFORMS
@@ -107,7 +122,7 @@ def _pre_tool_call(tool_name: str = "", args=None, session_id: str = "",
         if _skipped(session_id):
             return
         _fire("PreToolUse", session_id, tool_name=tool_name,
-              tool_input=args if isinstance(args, dict) else {}, tool_use_id=tool_call_id or None)
+              tool_input=_shrink(args) if isinstance(args, dict) else {}, tool_use_id=tool_call_id or None)
     except Exception:  # noqa: BLE001
         pass
 
@@ -119,7 +134,7 @@ def _post_tool_call(tool_name: str = "", args=None, result=None, session_id: str
             return
         out = result if isinstance(result, str) else ""
         _fire("PostToolUse", session_id, tool_name=tool_name,
-              tool_input=args if isinstance(args, dict) else {}, tool_use_id=tool_call_id or None,
+              tool_input=_shrink(args) if isinstance(args, dict) else {}, tool_use_id=tool_call_id or None,
               tool_response=out[:2000])
     except Exception:  # noqa: BLE001
         pass

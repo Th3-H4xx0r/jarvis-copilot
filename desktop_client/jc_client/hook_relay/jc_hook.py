@@ -148,37 +148,81 @@ def _add_context(payload, env, event):
             payload["cwd"] = os.getcwd()
 
 
-def _largest_string(node, path=()):
-    """(length, path) of the longest string leaf in a JSON tree."""
-    best = (-1, None)
+# What a trimmed event keeps whole: who sent it, what happened, to which tool.
+_KEEP = ("hook_event_name", "session_id", "cwd", "tool_name", "tool_use_id", "transcript_path",
+         "permission_mode", "jc_agent", "notification_type", "model")
+
+
+def _cap(node, n, k):
+    """``node`` with every string cut to ``n`` chars and every list to ``k`` items."""
     if isinstance(node, str):
-        return (len(node), path)
-    items = node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ()
-    for key, value in items:
-        cand = _largest_string(value, path + (key,))
-        if cand[0] > best[0]:
-            best = cand
+        return node if len(node) <= n else node[:n] + "…"
+    if isinstance(node, list):
+        out = [_cap(v, n, k) for v in node[:k]]
+        if len(node) > k:
+            out.append(f"…{len(node) - k} more")
+        return out
+    if isinstance(node, dict):
+        out = {}
+        for i, (key, v) in enumerate(node.items()):
+            if i >= k:
+                out["…"] = f"{len(node) - k} more"
+                break
+            out[key if not isinstance(key, str) or len(key) <= 80 else key[:80] + "…"] = _cap(v, n, k)
+        return out
+    return node
+
+
+def _longest(node) -> int:
+    if isinstance(node, str):
+        return len(node)
+    items = node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
+    return max((_longest(v) for v in items), default=0)
+
+
+def _widest(node) -> int:
+    if isinstance(node, (list, dict)):
+        items = node.values() if isinstance(node, dict) else node
+        return max([len(node)] + [_widest(v) for v in items])
+    return 0
+
+
+def _fits(frame, payload):
+    text = json.dumps(dict(frame, payload=payload))
+    return text if len(text) < MAX_FRAME else None
+
+
+def _search(lo, hi, make):
+    """The largest value in [lo, hi] whose frame fits, with its text (or None)."""
+    best = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        text = make(mid)
+        if text is not None:
+            best, lo = text, mid + 1
+        else:
+            hi = mid - 1
     return best
 
 
 def _trim(frame):
-    """Cut the longest strings until the frame fits MAX_FRAME (never the small ones)."""
+    """The frame as JSON under MAX_FRAME. Long strings are cut first (a binary
+    search on one cap for all of them, so a few big ones go and small ones
+    stay), then long lists and dicts, then whole non-essential fields."""
     text = json.dumps(frame)
-    rounds = 0
-    while len(text) >= MAX_FRAME and rounds < 64:
-        length, path = _largest_string(frame["payload"])
-        if path is None or length < 64:
-            break
-        over = len(text) - MAX_FRAME + 1024
-        keep = max(32, min(length // 2, length - over))
-        node = frame["payload"]
-        for key in path[:-1]:
-            node = node[key]
-        node[path[-1]] = node[path[-1]][:keep] + "…"
-        frame["payload"]["jc_trimmed"] = True
-        text = json.dumps(frame)
-        rounds += 1
-    return text
+    if len(text) < MAX_FRAME:
+        return text
+    payload = dict(frame["payload"], jc_trimmed=True)
+    wide = 10 ** 9
+    best = _search(32, max(32, _longest(payload)), lambda n: _fits(frame, _cap(payload, n, wide)))
+    if best is not None:
+        return best
+    best = _search(1, max(1, _widest(payload)), lambda k: _fits(frame, _cap(payload, 32, k)))
+    if best is not None:
+        return best
+    slim = {key: payload[key] for key in _KEEP if key in payload}
+    slim["jc_trimmed"] = True
+    return _fits(frame, _cap(slim, 200, 20)) or json.dumps(dict(frame, payload={"jc_trimmed": True}))
 
 
 def _send(sock_path, frame, wait):

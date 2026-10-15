@@ -86,3 +86,32 @@ def test_server_hook_socket_end_to_end(store, allow_outbound_network):
     finally:
         server.close()
         shutil.rmtree(d, ignore_errors=True)
+
+
+def test_an_approval_rings_the_phone_once(store, monkeypatch):
+    """With phone approvals on, the actionable push is the one banner; the
+    matrix "needs you" banner would be a second buzz (sweep finding). With
+    them off, the matrix banner is the only signal and still goes."""
+    from api import device_bridge
+    import api.coding_routes as cr
+    monkeypatch.setattr(device_bridge, "publish", lambda *a, **k: None)
+    monkeypatch.setattr(agent_hooks, "_live_push", lambda store: None)
+    sent = []
+    monkeypatch.setattr(cr, "_dispatch_coding_notifications",
+                        lambda store, event, row, cwd: sent.append(event) or {})
+    tr = agent_hooks.build_tracker(store)
+    perm = {"hook_event_name": "PermissionRequest", "session_id": "s", "cwd": "/Users/p/app",
+            "tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": "ls"}}
+    monkeypatch.setattr(agent_hooks, "_remote_approvals", lambda: True)
+    tr.ingest("d1", "permission", "claude", dict(perm))
+    assert sent == []
+    monkeypatch.setattr(agent_hooks, "_remote_approvals", lambda: False)
+    tr.ingest("d1", "permission", "claude", dict(perm, session_id="s2", tool_use_id="t2"))
+    assert sent == ["notification"]
+    tr.ingest("d1", "event", "claude", {"hook_event_name": "Stop", "session_id": "s2", "cwd": "/Users/p/app"})
+    assert sent[-1] == "stop"
+    # An agent that only says so in a notification gets no actionable push: its banner stays.
+    monkeypatch.setattr(agent_hooks, "_remote_approvals", lambda: True)
+    tr.ingest("d1", "event", "gemini", {"hook_event_name": "Notification", "session_id": "g1", "cwd": "/Users/p/app",
+                                        "notification_type": "permission_prompt", "message": "needs permission"})
+    assert sent[-1] == "notification"

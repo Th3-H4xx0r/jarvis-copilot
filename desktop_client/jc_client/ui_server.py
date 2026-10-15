@@ -10,14 +10,18 @@ The app (``mac_app/JarvisMac``) connects to ``~/.jarviscopilot-client/ui.sock``
   limits from the status line), ``topic`` (server pushes it subscribed to).
 
 The app's requests (``decide``, ``session``, ``hooks``, ``subscribe``…) carry an
-``id`` and get one ``reply`` with the same id. One thread per client; a client
-that goes away is dropped on the next send.
+``id`` and get one ``reply`` with the same id. Each client has a reader thread
+and one writer with its own queue, so a message always goes out whole and in
+order, and ``broadcast`` never waits on the app: a client that stops reading
+(hung, beachballing, paused in a debugger) fills its queue and is dropped,
+instead of stalling the hooks and the bridge that call ``broadcast``.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import queue
 import socket
 import threading
 from typing import Callable, Optional
@@ -25,6 +29,17 @@ from typing import Callable, Optional
 log = logging.getLogger(__name__)
 
 _MAX_LINE = 1024 * 1024
+_QUEUE = 64           # messages a client may fall behind before it is dropped
+_SEND_TIMEOUT = 5.0   # one send that makes no progress this long drops the client
+
+
+class _Client:
+    """One app connection: its socket and the queue its writer drains."""
+
+    def __init__(self, conn: socket.socket) -> None:
+        self.conn = conn
+        self.queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=_QUEUE)
+        self.closed = False
 
 
 class UiServer:
@@ -34,7 +49,7 @@ class UiServer:
         self._hello = hello
         self._on_request = on_request
         self._sock: Optional[socket.socket] = None
-        self._clients: list[socket.socket] = []
+        self._clients: list[_Client] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
 
@@ -66,10 +81,7 @@ class UiServer:
         with self._lock:
             clients, self._clients = self._clients, []
         for c in clients:
-            try:
-                c.close()
-            except OSError:
-                pass
+            self._drop(c)
         try:
             os.unlink(self.path)
         except OSError:
@@ -84,8 +96,7 @@ class UiServer:
         with self._lock:
             clients = list(self._clients)
         for c in clients:
-            if not self._send(c, line):
-                self._drop(c)
+            self._enqueue(c, line)
 
     # ── internals ──────────────────────────────────────────────────────
     def _accept_loop(self) -> None:
@@ -100,21 +111,26 @@ class UiServer:
             threading.Thread(target=self._serve, args=(conn,), daemon=True, name="ui-client").start()
 
     def _serve(self, conn: socket.socket) -> None:
+        client = _Client(conn)
+        conn.settimeout(_SEND_TIMEOUT)
         try:
             hello = dict(self._hello() or {})
         except Exception:
             hello = {}
         hello["type"] = "hello"
-        if not self._send(conn, (json.dumps(hello, default=str) + "\n").encode()):
-            conn.close()
-            return
+        # Hello goes first in the queue; the client joins the broadcast list
+        # right after, so nothing pushed from here on is missed.
+        self._enqueue(client, (json.dumps(hello, default=str) + "\n").encode())
         with self._lock:
-            self._clients.append(conn)
+            self._clients.append(client)
+        threading.Thread(target=self._write_loop, args=(client,), daemon=True, name="ui-writer").start()
         buf = b""
         try:
-            conn.settimeout(None)
             while not self._stop.is_set():
-                chunk = conn.recv(65536)
+                try:
+                    chunk = conn.recv(65536)
+                except socket.timeout:
+                    continue
                 if not chunk:
                     break
                 buf += chunk
@@ -122,13 +138,33 @@ class UiServer:
                     break
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
-                    self._handle_line(conn, line)
+                    self._handle_line(client, line)
         except OSError:
             pass
         finally:
-            self._drop(conn)
+            self._drop(client)
 
-    def _handle_line(self, conn, line: bytes) -> None:
+    def _write_loop(self, client: _Client) -> None:
+        while True:
+            data = client.queue.get()
+            if data is None or client.closed:
+                return
+            try:
+                client.conn.sendall(data)
+            except OSError:            # gone, or no progress for _SEND_TIMEOUT
+                self._drop(client)
+                return
+
+    def _enqueue(self, client: _Client, data: bytes) -> None:
+        if client.closed:
+            return
+        try:
+            client.queue.put_nowait(data)
+        except queue.Full:
+            log.info("ui client fell %d messages behind; dropping it", _QUEUE)
+            self._drop(client)
+
+    def _handle_line(self, client: _Client, line: bytes) -> None:
         try:
             req = json.loads(line)
         except Exception:
@@ -143,20 +179,24 @@ class UiServer:
         except Exception as exc:  # noqa: BLE001 — answer, never kill the link
             log.debug("ui request %r failed", req.get("type"), exc_info=True)
             reply = {"type": "reply", "id": rid, "ok": False, "error": str(exc)}
-        self._send(conn, (json.dumps(reply, default=str) + "\n").encode())
+        self._enqueue(client, (json.dumps(reply, default=str) + "\n").encode())
 
-    def _send(self, conn, data: bytes) -> bool:
-        try:
-            conn.sendall(data)
-            return True
-        except OSError:
-            return False
-
-    def _drop(self, conn) -> None:
+    def _drop(self, client: _Client) -> None:
         with self._lock:
-            if conn in self._clients:
-                self._clients.remove(conn)
+            if client in self._clients:
+                self._clients.remove(client)
+            if client.closed:
+                return
+            client.closed = True
         try:
-            conn.close()
+            client.queue.put_nowait(None)   # wake the writer so it exits
+        except queue.Full:
+            pass
+        try:
+            client.conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            client.conn.close()
         except OSError:
             pass

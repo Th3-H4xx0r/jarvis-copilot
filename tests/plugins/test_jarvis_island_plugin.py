@@ -119,3 +119,16 @@ def test_register_wires_the_hooks():
     mod.register(Ctx())
     assert {"pre_llm_call", "pre_tool_call", "post_tool_call", "post_llm_call",
             "pre_approval_request"} <= set(names)
+
+
+def test_big_tool_arguments_are_cut_before_they_are_sent(tracker):
+    """write_file with a 2 MB file: the island needs the gist, not the bytes."""
+    mod, frames = tracker
+    mod._pre_llm_call(session_id="j3", user_message="write it", platform="webui")
+    mod._pre_tool_call(tool_name="write_file", session_id="j3", tool_call_id="c9",
+                       args={"path": "/tmp/a.txt", "content": "x" * 2_000_000,
+                             "extra": [{"k": "v" * 50} for _ in range(5000)]})
+    got = wait(frames, 2)
+    p = got[1]["payload"]
+    assert len(json.dumps(p)) < 48 * 1024
+    assert p["tool_input"]["path"] == "/tmp/a.txt"
