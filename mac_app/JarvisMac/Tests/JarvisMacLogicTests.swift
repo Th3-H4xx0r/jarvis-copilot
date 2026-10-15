@@ -124,6 +124,16 @@ final class JarvisMacLogicTests: XCTestCase {
         XCTAssertEqual(OrbSkin.auto(for: day(3, 10)), .standard)
     }
 
+    /// The real Jarvis orb is the look unless a season is picked in Settings.
+    func testTheRealOrbIsTheDefault() {
+        let oct = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 15))!
+        XCTAssertEqual(OrbSkin.resolve(nil, date: oct), .standard)
+        XCTAssertEqual(OrbSkin.resolve("standard", date: oct), .standard)
+        XCTAssertEqual(OrbSkin.resolve("auto", date: oct), .autumn)     // seasons only when asked for
+        XCTAssertEqual(OrbSkin.resolve("winter", date: oct), .winter)
+        XCTAssertEqual(OrbSkin.standard.hue, 0)
+    }
+
     // MARK: sessions
 
     func testSessionDecodesFromTheEngine() {
@@ -169,6 +179,26 @@ final class JarvisMacLogicTests: XCTestCase {
         XCTAssertTrue(MacRecap(json: [:]).isEmpty)
         XCTAssertEqual(MacRecap.recapURL(origin: "http://127.0.0.1:5", tzMinutes: -300)?.absoluteString,
                        "http://127.0.0.1:5/api/coding/agents/recap?days=7&tz=-300")
+    }
+
+    // MARK: menu roster (the old tray menu's devices and wearables)
+
+    func testRosterDecodesDevicesAndWearables() {
+        let r = MacRoster(json: ["ok": true, "server": "https://jarvis.example.dev", "connected": true, "rows": [
+            ["name": "Devices", "header": true],
+            ["name": "Pranavs-MacBook-Pro.local", "symbol": "laptopcomputer", "online": true],
+            ["name": "Jarvis-ESP32 board", "symbol": "cpu", "online": false, "detail": "last seen 10d ago"],
+            ["name": "Wearables", "header": true],
+            ["name": "Colmi R12", "online": false, "detail": "Not connected", "image": "/x/icon-ring.png"],
+        ]])
+        XCTAssertEqual(r.statusLine, "Connected to https://jarvis.example.dev")
+        XCTAssertEqual(r.rows.map(\.name), ["Devices", "Pranavs-MacBook-Pro.local", "Jarvis-ESP32 board",
+                                             "Wearables", "Colmi R12"])
+        XCTAssertTrue(r.rows[0].header)
+        XCTAssertEqual(r.rows[2].detail, "last seen 10d ago")
+        XCTAssertEqual(r.rows[4].image, "/x/icon-ring.png")
+        XCTAssertEqual(MacRoster(json: ["ok": true, "server": "https://a.b", "connected": false]).statusLine,
+                       "Reconnecting to https://a.b…")
     }
 
     // MARK: terminal

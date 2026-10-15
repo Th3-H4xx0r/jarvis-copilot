@@ -194,3 +194,53 @@ def test_ui_install_writes_only_what_the_preview_showed(tmp_path, monkeypatch):
     assert svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini"})["ok"] is False
     assert svc._ui_request({"type": "hooks", "action": "install", "agent": "gemini",
                             "token": gpv["token"]})["ok"] is True
+
+
+def test_ui_roster_gives_the_app_what_the_old_tray_menu_showed(monkeypatch):
+    """Connected-to line, devices and wearables with their icons, for the Mac
+    app's menu (the tray steps aside when the app runs)."""
+    from jc_client import device_roster as dr
+    svc = service.Service()
+    rows = [dr.DeviceRow("Devices", "", True, header=True),
+            dr.DeviceRow("Pranavs-MacBook-Pro.local", "desktop", True),
+            dr.DeviceRow("Jarvis-ESP32 board", "browser", False, "last seen 10d ago"),
+            dr.DeviceRow("Wearables", "", True, header=True),
+            dr.DeviceRow("Colmi R12", "wearable", False, "Not connected", wearable="ring")]
+
+    class Roster:
+        def __init__(self):
+            self.rows, self.error, self.asked = rows, "", 0
+
+        def maybe_refresh(self, force=False):
+            self.asked += 1
+
+    svc._roster = Roster()
+    monkeypatch.setattr(service, "_server_url", lambda: "https://jarvis.example.dev")
+    r = svc._ui_request({"type": "roster"})
+    assert r["ok"] is True and r["server"] == "https://jarvis.example.dev"
+    assert svc._roster.asked == 1
+    names = [(x["name"], x["header"]) for x in r["rows"]]
+    assert names[0] == ("Devices", True) and names[3] == ("Wearables", True)
+    mac = r["rows"][1]
+    assert mac["symbol"] == "laptopcomputer" and mac["online"] is True
+    esp = r["rows"][2]
+    assert esp["symbol"] == "cpu" and esp["detail"] == "last seen 10d ago"
+    ring = r["rows"][4]
+    assert ring["image"].endswith("icon-ring.png")
+
+
+def test_ui_tray_actions_run_what_the_old_tray_ran(monkeypatch):
+    svc = service.Service()
+    ran = []
+    monkeypatch.setattr(service, "_spawn_client", lambda *args: ran.append(args))
+    opened = []
+    monkeypatch.setattr(service, "_open", lambda target: opened.append(target))
+    monkeypatch.setattr(service, "_server_url", lambda: "https://jarvis.example.dev")
+    assert svc._ui_request({"type": "tray", "action": "repair"})["ok"] is True
+    assert svc._ui_request({"type": "tray", "action": "voice_window"})["ok"] is True
+    assert svc._ui_request({"type": "tray", "action": "restart"})["ok"] is True
+    assert ran == [("pair",), ("voice-popup",), ("restart",)]
+    assert svc._ui_request({"type": "tray", "action": "dashboard"})["ok"] is True
+    assert svc._ui_request({"type": "tray", "action": "logs"})["ok"] is True
+    assert opened[0] == "https://jarvis.example.dev" and opened[1].endswith(".log")
+    assert svc._ui_request({"type": "tray", "action": "rm -rf"})["ok"] is False

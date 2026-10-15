@@ -28,6 +28,8 @@ targets:
       - path: Sources
       # The one accent colour, shared with the iPhone app and the voice dylib.
       - path: ../../ios_app/JarvisCopilot/Copilot/Shared/JcAccent.swift
+      # The real Jarvis orb (the phone's and the voice panel's shader).
+      - path: ../../ios_app/JarvisCopilot/Copilot/Voice/Views/OrbShader.metal
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac

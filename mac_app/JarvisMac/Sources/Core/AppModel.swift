@@ -23,6 +23,8 @@ final class AppModel {
     /// Codex's limits (jc-client reads them from `codex app-server` every 5 min).
     private(set) var codexUsage: MacPlanUsage?
     private(set) var services: [[String: Any]] = []
+    /// Devices and wearables for the menu (refreshed when it opens and every 45 s).
+    private(set) var roster: MacRoster?
     private(set) var portfolio: [String: Any] = [:]
     /// The session that just finished or failed, shown for a few seconds.
     private(set) var flash: MacSession?
@@ -56,6 +58,7 @@ final class AppModel {
             self?.connected = up
             if up {
                 link.request(["type": "subscribe", "topics": ["services": 0, "portfolio": 5]])
+                self?.refreshRoster()
             }
         }
         link.start()
@@ -139,6 +142,17 @@ final class AppModel {
         if let answers { body["answers"] = answers }
         pending.removeAll { $0.fingerprint == p.fingerprint }
         JcLink.shared.request(body) { reply in done?(J.b(reply["ok"])) }
+    }
+
+    func refreshRoster() {
+        JcLink.shared.request(["type": "roster"]) { [weak self] reply in
+            if J.b(reply["ok"]) { self?.roster = MacRoster(json: reply) }
+        }
+    }
+
+    /// What the old tray menu's items did: dashboard, voice_window, repair, logs, restart.
+    func trayAction(_ action: String) {
+        JcLink.shared.request(["type": "tray", "action": action])
     }
 
     func hooks(_ action: String, agent: String = "claude", token: String? = nil,

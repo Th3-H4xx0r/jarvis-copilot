@@ -90,10 +90,19 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func showMenu() {
         let menu = NSMenu()
-        let status = NSMenuItem(title: model.connected ? statusLine : "Jarvis isn't running (jc-client)",
-                                action: nil, keyEquivalent: "")
+        menu.autoenablesItems = false
+        model.refreshRoster()   // fresh for next time; this menu shows what's cached
+        let connection = model.connected ? (model.roster?.statusLine ?? "Connected") : "Jarvis isn't running (jc-client)"
+        let status = NSMenuItem(title: "● " + connection, action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
+        let agents = NSMenuItem(title: statusLine, action: nil, keyEquivalent: "")
+        agents.isEnabled = false
+        menu.addItem(agents)
+        if let rows = model.roster?.rows, !rows.isEmpty {
+            menu.addItem(.separator())
+            for row in rows { menu.addItem(rosterItem(row)) }
+        }
         menu.addItem(.separator())
         add(menu, "Show the island", #selector(showIsland))
         add(menu, "Talk to Jarvis", #selector(talk))
@@ -102,8 +111,17 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         add(menu, "Notes…", #selector(notes))
         add(menu, NoteTaker.shared.isRecording ? "Stop recording the call" : "Record a call", #selector(recordCall))
         menu.addItem(.separator())
-        add(menu, "Demo", #selector(demo))
         add(menu, "Settings…", #selector(settings), key: ",")
+        if NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel") != nil
+            || model.voiceDylib != nil {
+            add(menu, "Jarvis settings…", #selector(jarvisSettings))
+        }
+        add(menu, "Open dashboard", #selector(dashboard))
+        add(menu, "Voice Orb in a window", #selector(voiceWindow))
+        add(menu, "Re-pair…", #selector(repair))
+        add(menu, "View logs", #selector(logs))
+        add(menu, "Restart", #selector(restart))
+        add(menu, "Demo", #selector(demo))
         menu.addItem(.separator())
         add(menu, "Quit Jarvis", #selector(quit), key: "q")
         item.menu = menu
@@ -134,6 +152,53 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         if !recording { onNotes?() }
     }
     @objc private func demo() { onDemo?() }
+    @objc private func dashboard() { model.trayAction("dashboard") }
+    @objc private func voiceWindow() { model.trayAction("voice_window") }
+    @objc private func repair() { model.trayAction("repair") }
+    @objc private func logs() { model.trayAction("logs") }
+    @objc private func restart() { model.trayAction("restart") }
+
+    /// Jarvis's own settings window, from the voice panel's library.
+    @objc private func jarvisSettings() {
+        _ = makeVoicePanel()   // loads the library if it isn't yet
+        if let cls = (NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel"))
+            as? NSObject.Type, cls.responds(to: NSSelectorFromString("showSettings")) {
+            _ = cls.perform(NSSelectorFromString("showSettings"))
+        } else {
+            model.trayAction("dashboard")
+        }
+    }
+
+    /// One device or wearable: its picture, its name, what it's doing and a status dot.
+    private func rosterItem(_ row: MacRoster.Row) -> NSMenuItem {
+        if row.header {
+            let header = NSMenuItem(title: row.name.uppercased(), action: nil, keyEquivalent: "")
+            header.attributedTitle = NSAttributedString(string: row.name.uppercased(), attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
+            header.isEnabled = false
+            return header
+        }
+        let item = NSMenuItem(title: row.name, action: #selector(noop), keyEquivalent: "")
+        item.target = self
+        let text = NSMutableAttributedString(string: row.name, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        if !row.detail.isEmpty {
+            text.append(NSAttributedString(string: "   " + row.detail, attributes: [
+                .font: NSFont.menuFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        text.append(NSAttributedString(string: "  ●", attributes: [
+            .font: NSFont.menuFont(ofSize: 10),
+            .foregroundColor: row.online ? NSColor.systemGreen : NSColor.tertiaryLabelColor]))
+        item.attributedTitle = text
+        if let path = row.image, let image = NSImage(contentsOfFile: path) {
+            image.size = NSSize(width: 18, height: 18)
+            item.image = image
+        } else if !row.symbol.isEmpty {
+            item.image = NSImage(systemSymbolName: row.symbol, accessibilityDescription: nil)
+        }
+        return item
+    }
+
+    @objc private func noop() {}
     @objc private func settings() { onSettings?() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

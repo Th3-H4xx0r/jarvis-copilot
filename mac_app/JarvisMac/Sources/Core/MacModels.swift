@@ -262,3 +262,33 @@ struct MacRecap: Equatable {
         URL(string: "\(origin)/api/coding/agents/recap?days=7&tz=\(tzMinutes)")
     }
 }
+
+/// The old tray menu's top half (jc-client's `roster` request): where Jarvis is
+/// connected, the paired devices and the phone's wearables.
+struct MacRoster: Equatable {
+    struct Row: Equatable {
+        let name: String
+        let detail: String
+        let online: Bool
+        let header: Bool
+        let symbol: String
+        let image: String?
+    }
+
+    let server: String
+    let connected: Bool
+    let rows: [Row]
+
+    var statusLine: String {
+        server.isEmpty ? "Not paired" : (connected ? "Connected to \(server)" : "Reconnecting to \(server)…")
+    }
+
+    init(json: [String: Any]) {
+        server = J.s(json["server"])
+        connected = J.b(json["connected"])
+        rows = J.arr(json["rows"]).map { r in
+            Row(name: J.s(r["name"]), detail: J.s(r["detail"]), online: J.b(r["online"]), header: J.b(r["header"]),
+                symbol: J.s(r["symbol"]), image: r["image"] as? String)
+        }
+    }
+}

@@ -47,11 +47,30 @@ enum OrbSkin: String, CaseIterable, Identifiable {
         return .standard
     }
 
-    /// The skin in use: the picked one, or the season's when set to automatic.
-    static var current: OrbSkin {
-        let raw = UserDefaults.standard.string(forKey: "orb.skin") ?? "auto"
-        return OrbSkin(rawValue: raw) ?? .auto()
+    /// How far the real orb's colours turn for this skin (degrees).
+    var hue: Double {
+        switch self {
+        case .standard: return 0
+        case .winter: return -18
+        case .newYear: return 60
+        case .spring: return 110
+        case .summer: return 165
+        case .autumn: return 185
+        case .midnight: return 35
+        case .ember: return 205
+        }
     }
+
+    /// The skin for a stored choice: the real Jarvis orb unless a skin, or
+    /// "auto" (the season's), was picked in Settings.
+    static func resolve(_ raw: String?, date: Date = Date()) -> OrbSkin {
+        guard let raw, raw != "standard" else { return .standard }
+        if raw == "auto" { return .auto(for: date) }
+        return OrbSkin(rawValue: raw) ?? .standard
+    }
+
+    /// The skin in use.
+    static var current: OrbSkin { resolve(UserDefaults.standard.string(forKey: "orb.skin")) }
 }
 
 /// What the orb is showing: colour and motion follow the most urgent session.
@@ -72,9 +91,10 @@ enum OrbMood: Equatable {
     var pulses: Bool { self == .working || self == .waiting || self == .listening }
 }
 
-/// The Jarvis orb, drawn in SwiftUI: a soft glowing sphere whose colour and
-/// pulse follow the mood. It animates only while visible (the island hides it
-/// when closed), so a resting island draws nothing.
+/// The Jarvis orb: the same liquid-glass shader as the voice panel and the
+/// phone (ios_app/…/Voice/Views/OrbShader.metal, compiled into this app). The
+/// mood shows as a soft ring and pulse around it, never by recolouring the orb;
+/// a seasonal skin only turns its hue.
 struct OrbView: View {
     var mood: OrbMood = .idle
     var skin: OrbSkin = .current
@@ -82,26 +102,29 @@ struct OrbView: View {
     /// 0…1 extra glow, e.g. the music level (the orb "dances").
     var beat: Double = 0
 
+    @State private var origin = Date()
     @State private var phase = false
 
     var body: some View {
-        let (core, rim) = skin.colors
-        let tint = mood.tint
-        ZStack {
-            Circle()
-                .fill(RadialGradient(colors: [(tint ?? core).opacity(0.95), (tint ?? rim).opacity(0.85),
-                                              (tint ?? rim).opacity(0.25)],
-                                     center: .init(x: 0.38, y: 0.32), startRadius: 0,
-                                     endRadius: size * 0.62))
-            Circle()
-                .fill(RadialGradient(colors: [.white.opacity(0.55), .clear],
-                                     center: .init(x: 0.34, y: 0.28), startRadius: 0,
-                                     endRadius: size * 0.3))
+        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+            let t = timeline.date.timeIntervalSince(origin).truncatingRemainder(dividingBy: 38.4)
+            let surface = size / 0.53          // the sphere fills 53% of the shader surface
+            Rectangle()
+                .fill(.white)
+                .colorEffect(ShaderLibrary.default.setupOrb(.float2(surface, surface), .float(t)))
+                .frame(width: surface, height: surface)
+                .hueRotation(.degrees(skin.hue))
         }
         .frame(width: size, height: size)
-        .shadow(color: (tint ?? core).opacity(mood == .idle ? 0.25 : 0.65),
-                radius: size * (0.25 + 0.3 * beat + (phase && mood.pulses ? 0.2 : 0)))
-        .scaleEffect(mood.pulses ? (phase ? 1.06 : 0.94) : 1 + 0.08 * beat)
+        .overlay {
+            if let tint = mood.tint {
+                Circle()
+                    .stroke(tint.opacity(phase ? 0.95 : 0.55), lineWidth: max(1.2, size * 0.07))
+                    .frame(width: size * 1.08, height: size * 1.08)
+                    .shadow(color: tint.opacity(0.7), radius: size * 0.18)
+            }
+        }
+        .scaleEffect((mood.pulses ? (phase ? 1.05 : 0.96) : 1) + 0.08 * beat)
         .animation(mood.pulses ? .easeInOut(duration: mood == .waiting ? 0.7 : 1.1).repeatForever(autoreverses: true)
                                : .easeOut(duration: 0.2), value: phase)
         .onAppear { phase = mood.pulses }

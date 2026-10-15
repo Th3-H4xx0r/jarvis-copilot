@@ -34,7 +34,7 @@ enum Prefs {
 
     /// "auto" or an OrbSkin raw value.
     static var skin: String {
-        get { d.string(forKey: "orb.skin") ?? "auto" }
+        get { d.string(forKey: "orb.skin") ?? "standard" }
         set { d.set(newValue, forKey: "orb.skin") }
     }
 

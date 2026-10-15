@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -87,6 +88,31 @@ def _preview_token(pv) -> str:
     h.update(pv.new_bytes)
     return h.hexdigest()[:32]
 
+
+
+def _server_url() -> str:
+    from jc_client import credentials
+    try:
+        return credentials.load().server_url or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _spawn_client(*args: str) -> None:
+    """`jc-client <args>` as its own process (the pairing dialog needs the main
+    thread; restart outlives this service)."""
+    subprocess.Popen([sys.executable, "-m", "jc_client", *args], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True,
+                     close_fds=True)
+
+
+def _open(target: str) -> None:
+    """A URL in the browser, or a file in its app (macOS `open`)."""
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        import webbrowser
+        webbrowser.open(target, new=2)
 
 class Service:
     """Encapsulates the connect-and-dispatch loop. Stoppable via
@@ -212,10 +238,54 @@ class Service:
             self._ui_topics = {str(k): float(v or 0) for k, v in topics.items()}
             self._send_subscription()
             return {"ok": True}
+        if kind == "roster":
+            return self._ui_roster()
+        if kind == "tray":
+            return self._ui_tray(str(req.get("action") or ""))
         if kind == "hooks":
             return self._ui_hooks(str(req.get("action") or "status"), bool(req.get("statusline", True)),
                                   str(req.get("agent") or "claude"), str(req.get("token") or ""))
         return {"ok": False, "error": f"unknown request {kind!r}"}
+
+    def _ui_roster(self) -> dict:
+        """The old tray menu's top half for the Mac app: where it's connected,
+        the devices and the wearables (cached, refreshed in the background)."""
+        from jc_client import device_roster
+        roster = getattr(self, "_roster", None)
+        if roster is None:
+            roster = self._roster = device_roster.DeviceRoster()
+        roster.maybe_refresh()
+        assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        rows = []
+        for r in roster.rows:
+            row = {"name": r.name, "kind": r.kind, "online": bool(r.online), "detail": r.detail,
+                   "header": bool(r.header), "symbol": "" if r.header else device_roster.kind_symbol(r.kind, r.name)}
+            if r.wearable:
+                image = os.path.join(assets, f"icon-{r.wearable}.png")
+                if os.path.exists(image):
+                    row["image"] = image
+            rows.append(row)
+        return {"ok": True, "server": _server_url(), "connected": self._ws is not None,
+                "rows": rows, "error": roster.error}
+
+    _TRAY_SPAWN = {"repair": ("pair",), "voice_window": ("voice-popup",), "restart": ("restart",)}
+
+    def _ui_tray(self, action: str) -> dict:
+        """What the old tray menu's items did, for the Mac app's menu."""
+        if action in self._TRAY_SPAWN:
+            _spawn_client(*self._TRAY_SPAWN[action])
+            return {"ok": True}
+        if action == "dashboard":
+            url = _server_url()
+            if not url:
+                return {"ok": False, "error": "not paired"}
+            _open(url)
+            return {"ok": True}
+        if action == "logs":
+            from jc_client.logger import log_path
+            _open(str(log_path()))
+            return {"ok": True}
+        return {"ok": False, "error": f"unknown tray action {action!r}"}
 
     def _ui_hooks(self, action: str, statusline: bool, agent: str = "claude", token: str = "") -> dict:
         from jc_client import hook_install as hi
