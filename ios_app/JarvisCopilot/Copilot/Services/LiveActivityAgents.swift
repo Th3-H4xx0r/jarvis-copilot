@@ -277,10 +277,10 @@ final class AgentActivityManager {
                 let agents = AgentsAPI()
                 guard let overview = try? await agents.overview(),
                       let request = overview.requests.first(where: { $0.fingerprint == fingerprint })
-                else { return }
+                else { return false }
                 let asked = question.isEmpty ? (request.questions.first?.question ?? "") : question
-                _ = try? await agents.verdict(requestId: request.requestId, decision: "answer",
-                                              answers: [asked: option])
+                return (try? await agents.verdict(requestId: request.requestId, decision: "answer",
+                                                  answers: [asked: option])) ?? false
             }
         }
     }
@@ -301,7 +301,12 @@ final class AgentActivityManager {
         guard enabled else { return }
         // A swipe-away holds only for its episode.
         dismissed = dismissed.filter { snap.target($0.key)?.episode == $0.value }
-        let desired = snap.settings.enabled ? snap.targets : []
+        // A request answered on the Lock Screen a moment ago stays answered even
+        // if this poll still says "waiting" (`AgentLiveDecision`).
+        let desired = snap.settings.enabled
+            ? snap.targets.map { AgentLiveTarget(agent: $0.agent, episode: $0.episode,
+                                                 state: AgentLiveDecision.overlay($0.state)) }
+            : []
         for action in AgentActivityPlan.reconcile(running: controller.running, desired: desired,
                                                   dismissed: dismissed) {
             switch action {

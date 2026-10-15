@@ -327,7 +327,7 @@ struct JarvisCodingBody: View {
 }
 
 /// The most urgent agent session: what it is doing, and — when it waits for an
-/// approval — Deny / Allow right here (Allow asks to unlock the phone).
+/// approval — Deny / Allow right here (no unlock needed).
 struct JCLeadRow: View {
     let st: JarvisActivityAttributes.ContentState
 
@@ -365,16 +365,16 @@ struct JCLeadRow: View {
             }
             if st.leadKind == "approval" && !st.leadFingerprint.isEmpty {
                 HStack(spacing: 8) {
+                    // The app's liquid-glass buttons, one accent (AgentGlassButtonLabel).
                     Button(intent: AgentDenyIntent(fingerprint: st.leadFingerprint)) {
-                        Text("Deny").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity)
+                        AgentGlassButtonLabel(text: "Deny", height: 34)
                     }
-                    .tint(.red)
+                    .buttonStyle(.plain)
                     Button(intent: AgentAllowIntent(fingerprint: st.leadFingerprint)) {
-                        Text("Allow").font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity)
+                        AgentGlassButtonLabel(text: "Allow", tint: JcAccent.color, height: 34)
                     }
-                    .tint(.green)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.borderedProminent)
             } else if st.leadKind == "question" {
                 Text("Tap to answer in Jarvis")
                     .font(.system(size: 11, weight: .medium))

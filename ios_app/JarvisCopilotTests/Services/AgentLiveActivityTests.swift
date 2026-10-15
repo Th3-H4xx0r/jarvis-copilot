@@ -382,6 +382,86 @@ final class AgentLiveActivityTests: XCTestCase {
         XCTAssertEqual(st.waitingStart, 99)
         XCTAssertEqual(st.options, [])
     }
+
+    // MARK: - Answering from the Lock Screen is instant
+
+    private var asking: CS {
+        CS(count: 2, waiting: 1, working: 0, name: "Claude Code", project: "api", state: "approval",
+           step: "Needs approval: Bash: rm -rf build", fingerprint: "fp", kind: "approval",
+           bar: "p,i", actions: true, last: 100, waitingSince: 90)
+    }
+
+    func testAllowingClearsTheRequestAtOnce() {
+        let st = AgentLiveDecision.decided(asking, decision: "allow")
+        XCTAssertEqual(st.step, "Allowed ✓ · Bash: rm -rf build")
+        XCTAssertEqual(st.state, "working")
+        XCTAssertFalse(st.waitsOnYou, "no longer amber")
+        XCTAssertFalse(st.showsButtons, "the buttons go")
+        XCTAssertEqual(st.fingerprint, "")
+        XCTAssertEqual(st.waiting, 0)
+        XCTAssertEqual(st.waitingSince, 0)
+        XCTAssertEqual(st.bar, "w,i")
+    }
+
+    func testDenyingSaysSo() {
+        XCTAssertEqual(AgentLiveDecision.decided(asking, decision: "deny").step, "Denied · Bash: rm -rf build")
+    }
+
+    func testAnsweringNamesThePick() {
+        var question = asking
+        question.state = "question"
+        question.kind = "question"
+        question.question = "Region?"
+        question.options = ["us-east-1", "eu-west-1"]
+        let st = AgentLiveDecision.decided(question, decision: "answer", option: "eu-west-1")
+        XCTAssertEqual(st.step, "Answered: eu-west-1")
+        XCTAssertEqual(st.question, "")
+        XCTAssertEqual(st.options, [])
+        XCTAssertFalse(st.showsOptions)
+    }
+
+    func testTheJarvisActivitysOwnButtonsClearToo() {
+        var jarvis = JarvisActivityAttributes.ContentState()
+        jarvis.mode = "coding"
+        jarvis.waitingCount = 2
+        jarvis.leadState = "approval"
+        jarvis.leadKind = "approval"
+        jarvis.leadFingerprint = "fp"
+        jarvis.leadStep = "Needs approval: Bash: ls"
+        let st = AgentLiveDecision.decided(jarvis, decision: "allow")
+        XCTAssertEqual(st.leadStep, "Allowed ✓ · Bash: ls")
+        XCTAssertEqual(st.leadState, "working")
+        XCTAssertEqual(st.leadKind, "")
+        XCTAssertEqual(st.leadFingerprint, "")
+        XCTAssertEqual(st.waitingCount, 1)
+    }
+
+    /// The app's next poll (or a push already on its way) still says "waiting"
+    /// for a moment: a decision made here wins until the server catches up.
+    func testARecentDecisionHoldsOverAStaleWaitingState() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        AgentLiveDecision.record("fp", decision: "allow", at: start)
+        defer { AgentLiveDecision.forget("fp") }
+        XCTAssertEqual(AgentLiveDecision.overlay(asking, now: start.addingTimeInterval(5)).step,
+                       "Allowed ✓ · Bash: rm -rf build")
+        XCTAssertEqual(AgentLiveDecision.overlay(asking, now: start.addingTimeInterval(120)), asking,
+                       "after a minute the server's word is final")
+        var other = asking
+        other.fingerprint = "other"
+        XCTAssertEqual(AgentLiveDecision.overlay(other, now: start.addingTimeInterval(5)), other)
+    }
+
+    func testTheManagerShowsTheDecisionNotTheStalePoll() {
+        let (manager, controller, _) = makeManager()
+        AgentLiveDecision.record("fp", decision: "deny")
+        defer { AgentLiveDecision.forget("fp") }
+        manager.apply(AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c1",
+             "state": ["count": 1, "state": "approval", "kind": "approval", "fingerprint": "fp",
+                       "step": "Bash: ls"]]])))
+        XCTAssertEqual(controller.running["claude"]?.step, "Denied · Bash: ls")
+        XCTAssertEqual(controller.alerts, [], "no alert for a request you just answered")
+    }
 }
 
 /// Records what the manager asked ActivityKit to do, and plays iOS's side.

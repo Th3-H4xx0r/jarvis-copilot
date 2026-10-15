@@ -541,3 +541,28 @@ def test_wanted_needs_work_to_begin():
     s = m.collect_sessions([tracked("a", state="idle", last=1000)], [], {})
     assert not m.wanted(s, now=1001, idle_minutes=30, ongoing=False)
     assert m.wanted(s, now=1001, idle_minutes=30, ongoing=True)
+
+
+# ── an answered request never comes back amber ───────────────────────────────
+
+def test_a_request_answered_on_the_phone_reads_as_working_until_the_hook_catches_up():
+    """The phone decides → the server drops the request at once, but the hook's
+    "settled" lands a moment later. In between, the session must not flash back
+    to amber "waiting" (now without buttons) over the phone's instant update."""
+    sender = Sender()
+    asks = tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})
+    p, box, clock, _ = pusher([asks], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    assert sender.calls[-1]["cs"]["state"] == "approval"
+    box["pending"] = set()                 # answered: no longer held
+    clock.t += 20                          # past the rate-limit window
+    p.tick()
+    cs = sender.calls[-1]["cs"]
+    assert cs["state"] == "working" and cs["fingerprint"] == "" and cs["waiting"] == 0
+    assert "alert" not in (sender.calls[-1]["extra"] or {})
+
+
+def test_a_request_nothing_ever_held_still_reads_as_waiting():
+    sessions = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
+    p, box, clock, _ = pusher(sessions, pending=set())
+    assert p.snapshot()["activities"][0]["state"]["state"] == "approval"

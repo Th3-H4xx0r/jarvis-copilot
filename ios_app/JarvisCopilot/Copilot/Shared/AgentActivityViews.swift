@@ -189,18 +189,14 @@ struct AgentActionsRow: View {
         if st.showsButtons {
             HStack(spacing: 8) {
                 Button(intent: AgentDenyIntent(fingerprint: st.fingerprint)) {
-                    Text("Deny").font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
+                    AgentGlassButtonLabel(text: "Deny", height: 34)
                 }
-                .tint(JcState.danger.opacity(0.85))
+                .buttonStyle(.plain)
                 Button(intent: AgentAllowIntent(fingerprint: st.fingerprint)) {
-                    Text("Allow").font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
+                    AgentGlassButtonLabel(text: "Allow", tint: JcAccent.color, height: 34)
                 }
-                .tint(JcAccent.deep)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
         } else if st.kind == "question" && st.actions {
             Text("Tap to answer in Jarvis")
                 .font(.system(size: 11, weight: .semibold))
@@ -366,9 +362,6 @@ struct AgentWaitingView: View {
     /// The expanded island draws the logo in its own region.
     var showsLogo = true
 
-    static let denyFill = Color(red: 0.50, green: 0.11, blue: 0.13)
-    static let allowFill = Color(red: 0.19, green: 0.66, blue: 0.35)
-
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .center, spacing: 12) {
@@ -423,11 +416,11 @@ struct AgentWaitingButtons: View {
         if st.showsButtons {
             HStack(spacing: 10) {
                 Button(intent: AgentDenyIntent(fingerprint: st.fingerprint)) {
-                    label("Deny", fill: AgentWaitingView.denyFill)
+                    AgentGlassButtonLabel(text: "Deny")
                 }
                 .buttonStyle(.plain)
                 Button(intent: AgentAllowIntent(fingerprint: st.fingerprint)) {
-                    label("Allow", fill: AgentWaitingView.allowFill)
+                    AgentGlassButtonLabel(text: "Allow", tint: JcAccent.color)
                 }
                 .buttonStyle(.plain)
             }
@@ -436,26 +429,47 @@ struct AgentWaitingButtons: View {
                 ForEach(Array(st.options.prefix(3).enumerated()), id: \.offset) { _, option in
                     Button(intent: AgentAnswerIntent(fingerprint: st.fingerprint,
                                                      question: st.question, option: option)) {
-                        label(option, fill: Color.white.opacity(0.16))
+                        AgentGlassButtonLabel(text: option)
                     }
                     .buttonStyle(.plain)
                 }
             }
         } else if st.kind == "question" || st.state == "question" {
             Link(destination: jcAgentWidgetURL(st)) {
-                label("Answer", fill: JcAccent.deep)
+                AgentGlassButtonLabel(text: "Answer", tint: JcAccent.color)
             }
         }
     }
+}
 
-    private func label(_ text: String, fill: Color) -> some View {
+/// The app's liquid-glass button (`JcGlassButtonStyle`) redrawn for a Live
+/// Activity, where `glassEffect` isn't available: the label in its colour on a
+/// clear glass capsule — a soft top-lit fill and a hairline rim. `tint` (the one
+/// accent) colours the label and washes the glass; nil is the neutral button.
+struct AgentGlassButtonLabel: View {
+    let text: String
+    var tint: Color? = nil
+    var height: CGFloat = 42
+
+    var body: some View {
         Text(text)
             .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(tint ?? .white.opacity(0.92))
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill))
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: height)
+            .background(
+                Capsule().fill(LinearGradient(colors: [.white.opacity(0.17), .white.opacity(0.06)],
+                                              startPoint: .top, endPoint: .bottom))
+            )
+            .background(Capsule().fill((tint ?? .clear).opacity(0.14)))
+            .overlay(
+                Capsule().strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.34), (tint ?? .white).opacity(0.10)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.75)
+            )
     }
 }
 

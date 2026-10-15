@@ -305,7 +305,7 @@ final class AppServices {
         ControlButtonBridge.run = { id in await ControlButtonStore.shared.press(id) }
         // Allow / Deny from the coding Live Activity (Lock Screen, Dynamic Island).
         AgentDecisionBridge.decide = { fingerprint, decision in
-            _ = try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)
+            (try? await AgentsAPI().decide(fingerprint: fingerprint, decision: decision)) ?? false
         }
         ControlButtonBridge.set = { id, on in await ControlButtonStore.shared.set(id, on) }
 

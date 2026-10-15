@@ -34,6 +34,24 @@ final class AgentActivityRenderTests: XCTestCase {
         ]
     }
 
+    /// The same request before and after Allow is tapped on the Lock Screen.
+    func testRenderAnsweringInPlace() throws {
+        let asks = samples[0].1
+        let view = VStack(spacing: 10) {
+            AgentLockScreenView(agent: "claude", st: asks)
+                .background(RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.82)))
+            AgentLockScreenView(agent: "claude", st: AgentLiveDecision.decided(asks, decision: "allow"))
+                .background(RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.82)))
+            AgentLockScreenView(agent: "copilot",
+                                st: AgentLiveDecision.decided(samples[3].1, decision: "answer", option: "eu-west-1"))
+                .background(RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.82)))
+        }
+        .padding(12)
+        .background(LinearGradient(colors: [Color(red: 0.2, green: 0.25, blue: 0.4), .black],
+                                   startPoint: .top, endPoint: .bottom))
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 560), name: "agent-la-answered")
+    }
+
     func testRenderTheLockScreenActivities() throws {
         let view = VStack(spacing: 10) {
             ForEach(Array(samples.enumerated()), id: \.offset) { _, s in

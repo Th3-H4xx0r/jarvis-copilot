@@ -80,6 +80,9 @@ OPTION_LIMIT = 20
 #: Between two non-urgent pushes to one activity (a Live Activity is
 #: last-write-wins, so a burst collapses into the next push). Same as coding_la_push.
 MIN_PUSH_INTERVAL = 15.0
+#: How long a just-answered request keeps reading as answered while the hook's
+#: "settled" is on its way (normally well under a second).
+ANSWERED_GRACE = 60.0
 
 
 # ── naming ────────────────────────────────────────────────────────────────────
@@ -299,16 +302,25 @@ def content_state(sessions, *, actions: bool, decidable) -> dict:
     }
 
 
+def _answered(s: dict) -> dict:
+    """A session whose request was just answered: it carries on working."""
+    return {**s, "state": "working", "fingerprint": "", "kind": "", "question": "", "options": []}
+
+
 def desired_states(tracked, rows, projects, settings, *, now: float, decidable,
-                   ongoing=None) -> dict:
+                   ongoing=None, answered=()) -> dict:
     """{group: content_state} for every agent whose activity should be up now.
     ``ongoing`` names the groups whose activity is already up (None = all, for
-    callers that don't track it)."""
+    callers that don't track it). ``answered`` holds request fingerprints just
+    answered whose hook hasn't reported back yet: those sessions read as working."""
     cfg = merge_settings(settings)
     if not cfg["enabled"]:
         return {}
     out = {}
-    groups = group_sessions(collect_sessions(tracked, rows, projects))
+    sessions = [(_answered(s) if s.get("fingerprint") and s["fingerprint"] in answered
+                 and s.get("state") in WAITING_STATES else s)
+                for s in collect_sessions(tracked, rows, projects)]
+    groups = group_sessions(sessions)
     for g in AGENTS:
         sessions = groups.get(g) or []
         running = True if ongoing is None else g in ongoing
@@ -386,6 +398,10 @@ class AgentLaPusher:
         self._episodes: dict = {}
         # (device, group) -> {"sig", "ts", "cs"}
         self._pushed: dict = {}
+        # fingerprint -> when it was last held (answerable). One that stops being
+        # held was answered (or dropped); its session reads as working until the
+        # hook's "settled" catches up, instead of flashing back to amber.
+        self._held: dict = {}
 
     # ── tokens ───────────────────────────────────────────────────────────
     def _registry(self) -> dict:
@@ -484,9 +500,14 @@ class AgentLaPusher:
         except Exception:  # noqa: BLE001
             pass
         decidable = set(self._source(self._pending, ()))
+        now = self._clock()
+        answered = {fp for fp, at in self._held.items()
+                    if fp not in decidable and now - at < ANSWERED_GRACE}
+        self._held = {fp: at for fp, at in self._held.items() if now - at < ANSWERED_GRACE}
+        self._held.update({fp: now for fp in decidable})
         desired = desired_states(tracked, rows, projects, self._source(self._settings, None),
-                                 now=self._clock(), decidable=decidable,
-                                 ongoing=set(self._episodes))
+                                 now=now, decidable=decidable,
+                                 ongoing=set(self._episodes), answered=answered)
         # Episodes: one per stretch of time an agent's activity is wanted.
         for g in desired:
             if g not in self._episodes:
