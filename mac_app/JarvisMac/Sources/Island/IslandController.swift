@@ -15,6 +15,13 @@ final class IslandUI {
     var pinned = false
     /// The expanded island's tab (Agents, Chat, Services, Music, Mail).
     var tab: IslandTab = .agents
+    /// The Agents tab's measured parts (nil until its first layout).
+    var agentsTop: CGFloat?
+    var agentsList: CGFloat?
+    var agentsMeasure: IslandMeasure? {
+        guard let agentsTop, let agentsList else { return nil }
+        return IslandMeasure(top: agentsTop, list: agentsList)
+    }
     var compactWidth: CGFloat { geometry.width + 2 * IslandController.earWidth }
 }
 
@@ -209,7 +216,8 @@ final class IslandController {
         case .hidden: (w, h) = (ui.geometry.width, ui.geometry.height)
         case .compact: (w, h) = (ui.compactWidth, ui.geometry.height)
         case .expanded: (w, h) = (IslandRootView.expandedWidth, IslandRootView.expandedHeight(model: model, tab: ui.tab,
-                                                                                 topInset: ui.geometry.height + 8))
+                                                                                 topInset: ui.geometry.height + 8,
+                                                                                 measured: ui.agentsMeasure))
         }
         return CGRect(x: (size.width - w) / 2, y: size.height - h, width: w, height: h)
     }

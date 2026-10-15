@@ -86,4 +86,34 @@ final class IslandTabsTests: XCTestCase {
         XCTAssertEqual(model.usage?.fiveHour, 21)
         XCTAssertEqual(model.usage?.sevenDay, 9)
     }
+
+    /// An opened session (its steps, files, a diff) grows the island instead of
+    /// being cut off at the bottom; past the panel's height the list scrolls.
+    func testTheAgentsTabIsAsTallAsWhatItHolds() {
+        let h = IslandLayout.agentsHeight(topInset: 40, top: 60, list: 120)
+        XCTAssertEqual(h, 40 + IslandLayout.tabsHeight + 10 + 60 + 10 + 120 + 14)
+        XCTAssertEqual(IslandLayout.agentsHeight(topInset: 40, top: 60, list: 2_000), IslandController.panelSize.height)
+    }
+
+    @MainActor
+    func testTheIslandUsesWhatItMeasured() {
+        let model = AppModel()
+        let measured = IslandRootView.expandedHeight(model: model, tab: .agents, topInset: 40,
+                                                     measured: IslandMeasure(top: 60, list: 300))
+        XCTAssertEqual(measured, IslandLayout.agentsHeight(topInset: 40, top: 60, list: 300))
+        // Nothing measured yet (the first frame): the row estimate.
+        XCTAssertEqual(IslandRootView.expandedHeight(model: model, tab: .agents, topInset: 40, measured: nil),
+                       IslandLayout.agentsHeight(topInset: 40, sessions: 0, pending: nil, flash: false))
+    }
+
+    /// The slim scroll bar: only when the list is taller than the island; its
+    /// thumb is the visible share and moves with the scroll.
+    func testTheScrollBarThumbFollowsTheList() {
+        XCTAssertNil(IslandLayout.scrollThumb(content: 100, visible: 100, offset: 0))
+        let top = IslandLayout.scrollThumb(content: 200, visible: 100, offset: 0)
+        XCTAssertEqual(top?.start, 0)
+        XCTAssertEqual(top?.length, 50)
+        XCTAssertEqual(IslandLayout.scrollThumb(content: 200, visible: 100, offset: 100)?.start, 50)
+        XCTAssertEqual(IslandLayout.scrollThumb(content: 10_000, visible: 100, offset: 0)?.length, 24)  // never a sliver
+    }
 }

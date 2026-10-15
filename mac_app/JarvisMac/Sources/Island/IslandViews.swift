@@ -16,9 +16,11 @@ struct IslandRootView: View {
     static let expandedWidth: CGFloat = 560
 
     @MainActor
-    static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40) -> CGFloat {
+    static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40,
+                               measured: IslandMeasure? = nil) -> CGFloat {
         if tab == .music { return IslandLayout.musicHeight(topInset: topInset) }
         if tab != .agents { return tab.height }
+        if let m = measured { return IslandLayout.agentsHeight(topInset: topInset, top: m.top, list: m.list) }
         let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
         return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count,
                                          pending: pending, flash: model.flash != nil)
@@ -47,10 +49,12 @@ struct IslandRootView: View {
         case .compact:
             compact
         case .expanded:
+            let height = Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
+                                             measured: ui.agentsMeasure)
             ExpandedIsland(model: model, ui: ui, controller: controller)
                 .frame(width: Self.expandedWidth)
-                .frame(maxHeight: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8),
-                       alignment: .top)
+                .frame(maxHeight: height, alignment: .top)
+                .animation(.spring(response: 0.3, dampingFraction: 0.9), value: height)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
         }
     }
@@ -119,6 +123,7 @@ private struct ExpandedIsland: View {
     let model: AppModel
     let ui: IslandUI
     let controller: IslandController
+    @State private var scroll: ScrollGeometry?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -173,6 +178,15 @@ private struct ExpandedIsland: View {
 
     @ViewBuilder private var agents: some View {
         VStack(alignment: .leading, spacing: 10) {
+            agentsTop
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { ui.agentsTop = $0 }
+            agentList
+        }
+    }
+
+    /// Everything above the list: the header, and what's waiting on you.
+    @ViewBuilder private var agentsTop: some View {
+        VStack(alignment: .leading, spacing: 10) {
             header
             if !model.connected {
                 Text("Jarvis isn't running on this Mac — start it with `jc-client start`.")
@@ -190,7 +204,14 @@ private struct ExpandedIsland: View {
                     ApprovalCard(pending: p, model: model, ui: ui, extra: model.pending.count - 1).id(p.fingerprint)
                 }
             }
-            ScrollView(.vertical, showsIndicators: false) {
+        }
+    }
+
+    /// The sessions. An opened one grows the island; past the panel's height
+    /// the list scrolls, with a slim bar on the right.
+    private var agentList: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
                 VStack(spacing: 6) {
                     if model.sessions.isEmpty && model.connected {
                         Text("No agent sessions. Start Claude Code (or Codex, Gemini…) and it shows up here.")
@@ -199,6 +220,7 @@ private struct ExpandedIsland: View {
                     }
                     ForEach(model.sessions) { s in
                         SessionRow(session: s, selected: model.selectedKey == s.key)
+                            .id(s.key)
                             .onTapGesture {
                                 model.selectedKey = model.selectedKey == s.key ? nil : s.key
                             }
@@ -207,6 +229,14 @@ private struct ExpandedIsland: View {
                         }
                     }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { ui.agentsList = $0 }
+            }
+            .scrollIndicators(.hidden)
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { _, g in scroll = g }
+            .overlay(alignment: .topTrailing) { SlimScrollBar(geometry: scroll).offset(x: 10) }
+            .onChange(of: model.selectedKey) { _, key in
+                guard let key else { return }
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(key, anchor: .top) }
             }
         }
     }
@@ -265,6 +295,23 @@ private func stateColor(_ s: MacState) -> Color {
     case .error: return .red
     case .ratelimit: return .orange
     case .idle: return .gray
+    }
+}
+
+/// A thin scroll bar on the right, there only while the list is taller than
+/// the island.
+private struct SlimScrollBar: View {
+    let geometry: ScrollGeometry?
+
+    var body: some View {
+        if let g = geometry, let thumb = IslandLayout.scrollThumb(content: g.contentSize.height,
+                                                                 visible: g.containerSize.height,
+                                                                 offset: g.contentOffset.y) {
+            Capsule().fill(.white.opacity(0.35))
+                .frame(width: 4, height: thumb.length)
+                .offset(y: thumb.start)
+                .allowsHitTesting(false)
+        }
     }
 }
 

@@ -157,6 +157,13 @@ enum IslandVisibility {
     }
 }
 
+/// What the open Agents tab measured: the part above the list (header, cards)
+/// and the list's whole content.
+struct IslandMeasure: Equatable {
+    var top: CGFloat
+    var list: CGFloat
+}
+
 /// How tall the open Agents island is: room for the tabs, the header, each
 /// session row (with its step line) and what's waiting, never more than the
 /// panel. Measured against IslandViews' paddings.
@@ -173,6 +180,22 @@ enum IslandLayout {
         static let progress: CGFloat = 16
         static let controls: CGFloat = 30
         static let gap: CGFloat = 12
+    }
+
+    /// Measured: as tall as what the Agents tab holds (its header and cards,
+    /// then the list with an opened session's steps and diffs), up to the
+    /// panel; past that the list scrolls.
+    static func agentsHeight(topInset: CGFloat, top: CGFloat, list: CGFloat) -> CGFloat {
+        min(topInset + tabsHeight + 10 + top + 10 + list + 14, IslandController.panelSize.height)
+    }
+
+    /// The slim scroll bar's thumb: the visible share of the list, moving with
+    /// the scroll. Nil when everything fits.
+    static func scrollThumb(content: CGFloat, visible: CGFloat, offset: CGFloat) -> (start: CGFloat, length: CGFloat)? {
+        guard visible > 0, content > visible + 1 else { return nil }
+        let length = max(24, visible * visible / content)
+        let progress = min(max(offset / (content - visible), 0), 1)
+        return ((visible - length) * progress, length)
     }
 
     /// The open Music tab is as tall as its rows, nothing more.
