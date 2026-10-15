@@ -68,6 +68,59 @@ def _write_tray_pid(pid: int) -> None:
     TRAY_PID_FILE.write_text(str(pid))
 
 
+# On a Mac, Jarvis lives in the notch: Jarvis.app (mac_app/JarvisMac) is the
+# only UI. The Python tray is retired there; start/stop/restart drive the app.
+MAC_APP_BUNDLE_ID = "com.jarviscopilot.mac"
+
+
+def _is_mac() -> bool:
+    return sys.platform == "darwin"
+
+
+def _open_mac_app() -> bool:
+    """Open Jarvis.app (the notch island), in the background. False when it
+    isn't installed."""
+    try:
+        return subprocess.run(["open", "-g", "-b", MAC_APP_BUNDLE_ID], capture_output=True,
+                              timeout=20).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _quit_mac_app() -> None:
+    try:
+        subprocess.run(["pkill", "-x", "Jarvis"], capture_output=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _stop_old_tray() -> None:
+    """The Python tray a `jc-client start` used to launch: stop one that's
+    still running (pid file, or one started by hand)."""
+    pid = _read_tray_pid()
+    if pid and _is_running(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    try:
+        TRAY_PID_FILE.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        subprocess.run(["pkill", "-f", "jc_client tray"], capture_output=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _say_mac_app(opened: bool) -> None:
+    if opened:
+        print("Jarvis is in your notch (Jarvis.app); the background client is running.")
+    else:
+        print("The background client is running, but Jarvis.app isn't installed — "
+              "build it with mac_app/build-app.sh in the jarvis-copilot repo.")
+
+
 def _is_running(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -250,6 +303,20 @@ def cmd_start(args) -> int:
                 break
             time.sleep(0.1)
 
+    if _is_mac():
+        # No tray on a Mac: the client runs headless (under launchd when it's
+        # installed) and Jarvis.app is the UI.
+        _stop_old_tray()
+        if not sup:
+            pid = _read_pid()
+            if not (pid and _is_running(pid)):
+                subprocess.Popen(
+                    [sys.executable, "-m", "jc_client", "start", "--no-tray"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+        _say_mac_app(_open_mac_app())
+        return 0
+
     # The tray is a GUI process. Run it DETACHED (its own session, stdio to
     # /dev/null) so closing this terminal doesn't SIGHUP the menubar icon —
     # `jc-client start` should background it, not tie it to the shell.
@@ -298,6 +365,8 @@ def cmd_start(args) -> int:
 
 
 def cmd_stop(args) -> int:
+    if _is_mac():
+        _quit_mac_app()   # `start` opened it; stopping Jarvis stops it too
     # Also stop the detached tray UI we launched from `start`, so the menubar
     # icon doesn't linger after the service is stopped.
     tray_pid = _read_tray_pid()
@@ -361,6 +430,8 @@ def cmd_restart(args) -> int:
             _wait_supervisor(loaded=True)
         if _supervisor_is_loaded():
             print(f"restarted ({sup})")
+            if _is_mac():
+                _open_mac_app()   # the island, if it isn't up
             return 0
         print(f"restart failed: {sup} did not come back up", file=sys.stderr)
         return 1
@@ -522,7 +593,12 @@ def cmd_unpair(args) -> int:
 
 
 def cmd_tray(args) -> int:
-    """Launch the system-tray app. Service auto-spawns inside the tray."""
+    """Launch the system-tray app. Service auto-spawns inside the tray.
+    On a Mac the tray is retired: this opens Jarvis.app instead."""
+    if _is_mac():
+        _stop_old_tray()
+        _say_mac_app(_open_mac_app())
+        return 0
     from jc_client import tray
 
     tray.run()
@@ -904,7 +980,8 @@ def cmd_update(args) -> int:
     _report_voice_panel()
 
     if getattr(args, "no_restart", False):
-        print("Updated. Apply with `jc-client restart` (and relaunch the tray).")
+        print("Updated. Apply with `jc-client restart`"
+              + ("." if _is_mac() else " (and relaunch the tray)."))
         return 0
     # Auto-restart so the new code is actually LIVE. The long-running service
     # keeps the OLD modules loaded until it restarts — the coding-sync agent,
