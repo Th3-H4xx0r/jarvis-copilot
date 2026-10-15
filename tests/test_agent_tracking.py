@@ -88,10 +88,25 @@ def test_server_host_session_joins_by_tmux_name(env):
 
 
 def test_idle_prompt_never_notifies_and_stop_notifies_once(env):
-    _, tr, calls, _ = env
+    _, tr, calls, clock = env
     tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", prompt="x"))
     tr.ingest("d1", "event", "claude", ev("Notification", notification_type="idle_prompt"))
     assert calls["notify"] == []
+    clock.t += 120
+    tr.ingest("d1", "event", "claude", ev("Stop", last_assistant_message="done"))
+    assert [c[0] for c in calls["notify"]] == ["stop"]
+
+
+def test_a_quick_reply_does_not_ring_the_phone(env):
+    """Back-and-forth in a session you're sitting at shouldn't buzz the phone on
+    every answer: "finished" is for turns that ran a while."""
+    _, tr, calls, clock = env
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", prompt="hi"))
+    clock.t += 8
+    tr.ingest("d1", "event", "claude", ev("Stop", last_assistant_message="hello"))
+    assert calls["notify"] == []
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", prompt="do the long thing"))
+    clock.t += 300
     tr.ingest("d1", "event", "claude", ev("Stop", last_assistant_message="done"))
     assert [c[0] for c in calls["notify"]] == ["stop"]
 

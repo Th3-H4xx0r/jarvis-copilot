@@ -108,8 +108,6 @@ def test_an_approval_rings_the_phone_once(store, monkeypatch):
     monkeypatch.setattr(agent_hooks, "_remote_approvals", lambda: False)
     tr.ingest("d1", "permission", "claude", dict(perm, session_id="s2", tool_use_id="t2"))
     assert sent == ["notification"]
-    tr.ingest("d1", "event", "claude", {"hook_event_name": "Stop", "session_id": "s2", "cwd": "/Users/p/app"})
-    assert sent[-1] == "stop"
     # An agent that only says so in a notification gets no actionable push: its banner stays.
     monkeypatch.setattr(agent_hooks, "_remote_approvals", lambda: True)
     tr.ingest("d1", "event", "gemini", {"hook_event_name": "Notification", "session_id": "g1", "cwd": "/Users/p/app",

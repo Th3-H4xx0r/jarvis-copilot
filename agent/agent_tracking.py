@@ -34,6 +34,20 @@ _PERSIST_EVERY = 2.0            # write a busy session at most this often
 _LIVE_STATUSES = ("running", "starting", "idle")
 _ACTIVITY = {"working": "working", "thinking": "working",
              "approval": "waiting", "question": "waiting"}
+#: "Claude finished" rings the phone only for a turn that ran at least this long.
+FINISHED_MIN_SECONDS = 60
+
+
+def _turn_seconds(session: dict) -> float:
+    turn = session.get("turn") or {}
+    start = turn.get("started_at")
+    end = turn.get("ended_at") or session.get("last_event_at")
+    try:
+        return float(end) - float(start)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 _NOTIFY_EVENT = {"stop": "stop", "approval": "notification", "notification": "notification",
                  "question": "notification", "error": "error"}
 _COMMAND_TOOLS = ("Bash", "mcp__ide__executeCode")
@@ -335,6 +349,8 @@ class AgentTracker:
             elif kind == "notify":
                 if session.get("agent") == "jarvis":
                     continue  # Jarvis notifies about its own replies already
+                if e.get("event") == "stop" and _turn_seconds(session) < FINISHED_MIN_SECONDS:
+                    continue  # a quick reply; you're probably right there
                 pend = session.get("pending") or {}
                 if e.get("event") in ("approval", "question") and pend.get("fingerprint") \
                         and not pend.get("from_notification") and self._phone_approvals():
