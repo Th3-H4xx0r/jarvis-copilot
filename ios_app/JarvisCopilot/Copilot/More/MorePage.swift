@@ -77,6 +77,10 @@ struct MorePage: View {
             ProfilesPage()
         case .insights:
             InsightsPage()
+        case .services:
+            ServicesPage()
+        case .portfolio:
+            PortfolioPage()
         case .selfImprovement:
             SelfImprovementPage()
         case .serverLogs:
