@@ -76,6 +76,21 @@ def test_settings_post_merges_persists_and_ignores_junk():
     assert m.store.get_setting("notifications")["usage_display"] is False
 
 
+def test_a_save_that_leaves_a_switch_out_keeps_it():
+    """An app that doesn't know a switch (an older phone build, the web page)
+    must not turn it off by saving its own settings (the phone-instructions
+    switch stayed off this way)."""
+    m = FakeManager()
+    handle_coding_request("POST", "/settings", {"remote_instructions": True, "remote_approvals": True},
+                          manager=m)
+    _, body = handle_coding_request("POST", "/settings", {"usage_display": False}, manager=m)
+    s = body["settings"]
+    assert s["remote_instructions"] is True and s["remote_approvals"] is True
+    assert s["usage_display"] is False
+    _, body = handle_coding_request("POST", "/settings", {"remote_instructions": False}, manager=m)
+    assert body["settings"]["remote_instructions"] is False
+
+
 # ── notification dispatch (settings-gated) ───────────────────────────────────
 
 def _spy_channels(monkeypatch):

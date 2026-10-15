@@ -1063,7 +1063,13 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                                      "available_channels": _available_notify_channels()}))
         if method == "POST":
             def _save_settings():
-                merged = _merge_notify_settings(body if isinstance(body, dict) else {})
+                incoming = dict(body) if isinstance(body, dict) else {}
+                # A switch the saving app doesn't send (an older build, the web
+                # page) keeps its stored value instead of falling back to off.
+                current = _coding_settings(manager.store)
+                for key in ("usage_display", "remote_approvals", "remote_instructions"):
+                    incoming.setdefault(key, current.get(key))
+                merged = _merge_notify_settings(incoming)
                 manager.store.set_setting("notifications", merged)
                 try:  # the Macs' hook arbiters follow the remote-approvals switch
                     from api import agent_hooks

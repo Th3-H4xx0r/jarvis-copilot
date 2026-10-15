@@ -372,6 +372,14 @@ async function codingCodeMasterSettings() {
         </label>
         <p style="opacity:.6;font-size:12px;margin:.3em 0 0">Turn on when you're away from the terminal. While off, sessions prompt locally as usual.</p>
       </div>
+      <div class="cm-section">
+        <div class="cm-section-head"><span class="cm-section-title">Instructions from the phone</span></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cmRemoteInstructions" ${settings.remote_instructions ? 'checked' : ''}>
+          Send a session its next instruction from the phone's Agents tab
+        </label>
+        <p style="opacity:.6;font-size:12px;margin:.3em 0 0">A session in tmux gets it typed in. Any other session on your Mac continues in the background with claude --resume, in its own folder.</p>
+      </div>
       <div class="cdg-form-actions">
         <button type="button" class="cdg-btn-primary" id="cmSaveBtn" onclick="codingSaveCodeMaster()">Save settings</button>
       </div>
@@ -389,8 +397,10 @@ async function codingSaveCodeMaster() {
   });
   const usageEl = document.getElementById('cmUsageDisplay');
   const remoteEl = document.getElementById('cmRemoteApprovals');
+  const instrEl = document.getElementById('cmRemoteInstructions');
   const payload = { events, usage_display: usageEl ? usageEl.checked : true,
                     remote_approvals: remoteEl ? remoteEl.checked : false };
+  if (instrEl) payload.remote_instructions = instrEl.checked;
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
     const res = await api('/api/coding/settings', { method: 'POST', body: JSON.stringify(payload) });

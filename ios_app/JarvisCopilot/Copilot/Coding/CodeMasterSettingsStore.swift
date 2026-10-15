@@ -58,6 +58,8 @@ final class CodeMasterSettingsStore {
     var usageDisplay = true
     /// Default off.
     var remoteApprovals = false
+    /// Default off. Lets the Agents tab send a session its next instruction.
+    var remoteInstructions = false
 
     var loading = true
     var saving = false
@@ -112,7 +114,8 @@ final class CodeMasterSettingsStore {
             for c in channels { row[c.key] = events[e.key]?[c.key] ?? false }
             matrix[e.key] = row
         }
-        return ["events": matrix, "usage_display": usageDisplay, "remote_approvals": remoteApprovals]
+        return ["events": matrix, "usage_display": usageDisplay, "remote_approvals": remoteApprovals,
+                "remote_instructions": remoteInstructions]
     }
 
     @discardableResult
@@ -155,6 +158,9 @@ final class CodeMasterSettingsStore {
         }
         if fillDefaults || settings.keys.contains("remote_approvals") {
             remoteApprovals = Self.isTrue(settings["remote_approvals"])
+        }
+        if fillDefaults || settings.keys.contains("remote_instructions") {
+            remoteInstructions = Self.isTrue(settings["remote_instructions"])
         }
     }
 

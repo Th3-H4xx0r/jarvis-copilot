@@ -83,6 +83,21 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         XCTAssertFalse(other.remoteApprovals)
     }
 
+    /// "Instructions from the phone": loaded, edited and always sent, so a save
+    /// from the phone can't switch it off by leaving it out.
+    func testInstructionsFromThePhoneRoundTrips() async {
+        let (store, t) = makeStore()
+        t.enqueue(json: ["settings": ["remote_instructions": true]])
+        await store.load()
+        XCTAssertTrue(store.remoteInstructions)
+        store.remoteInstructions = false
+        XCTAssertEqual(store.payload()["remote_instructions"] as? Bool, false)
+        let (fresh, t2) = makeStore()
+        t2.enqueue(json: ["settings": [:]])
+        await fresh.load()
+        XCTAssertFalse(fresh.remoteInstructions)   // off by default
+    }
+
     func testAMalformedBodyLeavesTheDefaults() async {
         let (store, t) = makeStore()
         t.enqueue(json: ["ok": true])

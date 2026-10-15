@@ -72,6 +72,23 @@ struct CodeMasterSettingsPage: View {
                     }
                 }
 
+                GlassQuietLabel("Instructions from the phone").padding(.top, 22)
+                GlassCard(padding: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: Binding(get: { store.remoteInstructions },
+                                             set: { store.remoteInstructions = $0 })) {
+                            Text("Send a session its next instruction from the Agents tab")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(JcTheme.text)
+                        }
+                        .tint(JcTheme.accent)
+                        Text("A session in tmux gets it typed in. Any other session on your Mac "
+                             + "continues in the background with claude --resume, in its own folder.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(JcTheme.muted)
+                    }
+                }
+
                 if let error = store.error {
                     CodingInlineError(message: error).padding(.top, 18)
                 }
