@@ -28,3 +28,41 @@ private struct TabVisibilityModifier: ViewModifier {
             .onDisappear { action(false) }
     }
 }
+
+extension View {
+    /// Reports whether this pushed More screen is really on screen: shown in the
+    /// stack (not covered by a pushed screen), the More tab selected, the app in
+    /// the foreground. `onTabVisibilityChange` alone misses a return from a
+    /// pushed screen: the page stays alive underneath it, so its initial-only
+    /// `onChange` never fires again.
+    func moreScreenVisibility(_ action: @escaping (Bool) -> Void) -> some View {
+        modifier(MoreScreenVisibilityModifier(action: action))
+    }
+}
+
+private struct MoreScreenVisibilityModifier: ViewModifier {
+    let action: (Bool) -> Void
+    /// Optional so a page hosted without the shell (previews, tests) still works.
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var onScreen = false
+
+    private var foreground: Bool {
+        scenePhase == .active && (router.map { $0.selectedTab == .more } ?? true)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                onScreen = true
+                action(foreground)
+            }
+            .onDisappear {
+                onScreen = false
+                action(false)
+            }
+            .onChange(of: foreground) { _, now in
+                if onScreen { action(now) }
+            }
+    }
+}

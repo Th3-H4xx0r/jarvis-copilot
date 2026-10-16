@@ -43,7 +43,7 @@ struct NotesPage: View {
             case .detail(let id): NoteDetailScreen(noteID: id, store: store)
             }
         }
-        .servicesVisibility { store.setVisible($0, owner: "notes-page") }
+        .moreScreenVisibility { store.setVisible($0, owner: "notes-page") }
         .moreToast(Binding(get: { store.toast }, set: { store.toast = $0 }), seconds: 3)
     }
 

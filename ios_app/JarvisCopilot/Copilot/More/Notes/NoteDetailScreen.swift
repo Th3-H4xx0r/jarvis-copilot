@@ -61,7 +61,7 @@ struct NoteDetailScreen: View {
         .onChange(of: store.details[noteID]) { _, _ in
             Task { markdown = await store.markdown(noteID) }
         }
-        .servicesVisibility { store.setVisible($0, owner: "note-\(noteID)") }
+        .moreScreenVisibility { store.setVisible($0, owner: "note-\(noteID)") }
         .moreToast(Binding(get: { store.toast }, set: { store.toast = $0 }), seconds: 3)
     }
 
