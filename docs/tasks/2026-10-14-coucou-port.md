@@ -80,10 +80,17 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Installed (b422c251d7): "When you say" / "Jarvis types" bordered fields, ⌘↩ Add, edit with the pencil; rendered.
 40. [x] Flow window → Notes overflows the window: the sidebar is cut off on the left, the note on the right
    - ✅ Installed (b422c251d7): asked 991 pt in a 900 pt window (nested HSplitView); two plain columns now; a test checks every Flow page fits; captured from a real window.
-41. [ ] Push to talk on one key (hold Right ⌥): listens while held, answers in a small island under the notch that folds after; Talk to Jarvis moved to Settings → Voice
+41. [x] Push to talk on one key (hold Right ⌥): listens while held, answers in a small island under the notch that folds after; Talk to Jarvis moved to Settings → Voice
    - Installed (d1765d637a, jc-client dylib updated); small island rendered with the real voice panel; key logic + Flow-key clash tested. Not yet tried with a real hold.
 42. [x] Jarvis.app has the Jarvis logo as its icon
    - ✅ Installed; Finder shows it.
+43. [x] Push to talk lagged opening and listened late: the echo-cancelling unit took ~1 s to build on the main thread — now a plain mic (~0.1 s), muted after you let go, island opens once audio flows; small island: state under the orb, your words big → grey subtitle when Jarvis answers, "Release to send" while held
+   - ✅ Installed (bf12a9d25c, jc-client dylib updated): measured on the real notch, worst frame 14–20 ms (was 1,040 ms), mic up ~0.1 s after the key.
+44. [x] Snippets fired inside sentences ("what my email is" → the address): only the whole dictation now
+   - ✅ Installed (56212c0165).
+45. [ ] Push to talk sends what's on screen (front app, window, a look at it) when you don't give context
+46. [ ] Siri-style screen-edge glow while holding push to talk (two arcs from the top meet at the bottom; back to the top when it ends), toggle in Settings
+47. [ ] Mac island Chat: match the phone's chat exactly, harness / single model choice in Settings, the + file picker opens behind the island, full tools like the regular chat agent
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
