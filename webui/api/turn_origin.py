@@ -23,6 +23,27 @@ _SESSION_KIND: dict[str, str] = {}
 _KIND_LABEL = {"mobile-ios": "the iPhone app", "desktop": "the Mac app", "browser": "the web app"}
 
 
+def device_label(origin: dict, skills: list[str]) -> str:
+    """What the device IS, for the agent: "their Mac", "their iPhone", "the Jarvis
+    Pod", "the web app on their Mac". Not the paired kind alone — the Mac's
+    jc-client and the Pod are both paired as "browser", which read as "the web app"."""
+    kind = origin.get("kind") or ""
+    name = str(origin.get("name") or "").lower()
+    if kind == "desktop" or "ui_look" in skills:
+        return "their Mac"
+    if kind == "mobile-ios" or "iphone" in name:
+        return "their iPhone"
+    if "watch" in name:
+        return "their Apple Watch"
+    if "pod" in name or any(s.startswith("pod_") for s in skills):
+        return "the Jarvis Pod"
+    if kind == "browser" and ("mac" in name or name.endswith(".local")):
+        return "the web app on their Mac"
+    if kind == "browser" and "esp32" not in name:
+        return "the web app"
+    return f'their device "{origin.get("name") or "device"}"'
+
+
 def origin_for_handler(handler) -> Optional[dict]:
     """The paired device behind this request, or None (no cookie, expired, unpaired)."""
     try:
@@ -59,10 +80,11 @@ def directive(origin: Optional[dict], channel: str) -> str:
         return ""
     did, name = origin["device_id"], origin["name"]
     how = "by voice" if channel == "voice" else "in chat"
-    label = _KIND_LABEL.get(origin.get("kind") or "")
-    via = f", {label}" if label else ""
-    parts = [f'[Turn context: the user sent this {how} from their device "{name}" (id {did}{via}).']
     skills = _skill_names(did)
+    # Said plainly first: which device he is on right now (his iPhone, his Mac,
+    # the Pod), so the agent knows without asking.
+    parts = [f'[Turn context: the user is talking to you {how} from {device_label(origin, skills)} '
+             f'(device "{name}", id {did}).']
     if skills:
         parts.append(
             "Anything to open, show or play — an app, a link, directions, a map, media, a picture, "
