@@ -243,4 +243,22 @@ final class IslandTabsTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         XCTAssertGreaterThan(panel.level.rawValue, Int(CGWindowLevelForKey(.mainMenuWindow)) + 3)
     }
+
+    /// Clicks inside the file picker reach the island as clicks elsewhere (the
+    /// picker's insides run in another process): while it's open they don't
+    /// fold the island.
+    @MainActor
+    func testClicksInTheFilePickerDontFoldTheIsland() {
+        XCTAssertTrue(IslandClicks.foldsOnClickElsewhere(expanded: true, filePanelOpen: false))
+        XCTAssertFalse(IslandClicks.foldsOnClickElsewhere(expanded: true, filePanelOpen: true))
+        XCTAssertFalse(IslandClicks.foldsOnClickElsewhere(expanded: false, filePanelOpen: false))
+        XCTAssertFalse(IslandClicks.filePanelOpen())
+        let panel = ChatAttachPanel.make()
+        panel.begin { _ in }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertTrue(IslandClicks.filePanelOpen())
+        panel.cancel(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertFalse(IslandClicks.filePanelOpen())
+    }
 }

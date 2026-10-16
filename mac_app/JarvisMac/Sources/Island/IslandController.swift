@@ -237,7 +237,9 @@ final class IslandController {
         clickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.machine.state == .expanded else { return }
+                guard let self, IslandClicks.foldsOnClickElsewhere(expanded: self.machine.state == .expanded,
+                                                                   filePanelOpen: IslandClicks.filePanelOpen())
+                else { return }
                 self.machine.clickedOutside(at: self.now)
                 self.ui.pinned = false
                 self.sync()
@@ -490,4 +492,18 @@ final class IslandPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
+/// Which clicks elsewhere fold the open island. Not those while a file picker
+/// of ours is up: its insides run in another process, so a click on a file
+/// arrives as a click outside Jarvis.
+enum IslandClicks {
+    static func foldsOnClickElsewhere(expanded: Bool, filePanelOpen: Bool) -> Bool {
+        expanded && !filePanelOpen
+    }
+
+    @MainActor
+    static func filePanelOpen() -> Bool {
+        NSApp.windows.contains { $0 is NSSavePanel && $0.isVisible }
+    }
 }
