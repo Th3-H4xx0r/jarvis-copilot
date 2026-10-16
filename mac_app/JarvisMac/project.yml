@@ -34,6 +34,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jarviscopilot.mac
         PRODUCT_NAME: Jarvis
+        # The Jarvis logo (the iPhone app's), on the macOS rounded square.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_MODULE_NAME: Jarvis
         INFOPLIST_FILE: Info.plist
         CODE_SIGN_ENTITLEMENTS: Jarvis.entitlements
