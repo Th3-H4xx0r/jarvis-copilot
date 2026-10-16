@@ -56,18 +56,27 @@ final class JarvisMenu: NSObject {
         NotificationCenter.default.post(name: .jarvisVoicePanelOpened, object: nil)
     }
 
-    func makeVoicePanel() -> NSViewController? {
+    /// The voice panel from jc-client's dylib. `island`: the wide layout for the
+    /// notch (one stage, controls at its edges); an older dylib without it gets
+    /// the popover layout.
+    func makeVoicePanel(island: Bool = false) -> NSViewController? {
         guard let origin = model.apiOrigin else { return nil }
         if !voiceLoaded, let path = model.voiceDylib, FileManager.default.fileExists(atPath: path) {
             voiceLoaded = dlopen(path, RTLD_NOW) != nil
         }
-        guard voiceLoaded, let cls = NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel")
+        guard voiceLoaded, let cls = NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel"),
+              let meta = cls as AnyObject as? NSObjectProtocol
         else { return nil }
+        let islandSel = NSSelectorFromString("makeIslandViewControllerWithBaseURL:")
+        if island, meta.responds(to: islandSel) {
+            typealias MakeIsland = @convention(c) (AnyObject, Selector, NSString) -> NSViewController?
+            let make = unsafeBitCast((cls as AnyObject).method(for: islandSel), to: MakeIsland.self)
+            return make(cls as AnyObject, islandSel, origin as NSString)
+        }
         let sel = NSSelectorFromString("makeViewControllerWithBaseURL:showsOpenInWindow:")
-        guard let meta = cls as AnyObject as? NSObjectProtocol, meta.responds(to: sel) else { return nil }
+        guard meta.responds(to: sel) else { return nil }
         typealias Make = @convention(c) (AnyObject, Selector, NSString, Bool) -> NSViewController?
-        let imp = (cls as AnyObject).method(for: sel)
-        let make = unsafeBitCast(imp, to: Make.self)
+        let make = unsafeBitCast((cls as AnyObject).method(for: sel), to: Make.self)
         return make(cls as AnyObject, sel, origin as NSString, false)
     }
 

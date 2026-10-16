@@ -50,6 +50,17 @@ public final class JarvisVoicePanel: NSObject {
             rootView: MacVoicePanel(showsOpenInWindow: showsOpenInWindow))
     }
 
+    /// The panel for Jarvis.app's notch island: one wide stage — mode and chat
+    /// on its left edge, settings on its right, the orb in the middle — sized
+    /// by the island.
+    @objc(makeIslandViewControllerWithBaseURL:)
+    @MainActor
+    public static func makeIslandViewController(baseURL: String) -> NSViewController? {
+        guard let url = URL(string: baseURL), url.scheme != nil else { return nil }
+        ProxyCredentials.configure(baseURL: url)
+        return NSHostingController(rootView: MacVoicePanel(showsOpenInWindow: false, island: true))
+    }
+
     /// Whether the orb's shader library was found beside the dylib.
     ///
     /// Worth surfacing because the failure is otherwise invisible: SwiftUI has

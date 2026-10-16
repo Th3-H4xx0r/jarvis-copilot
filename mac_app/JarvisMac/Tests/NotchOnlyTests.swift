@@ -11,7 +11,7 @@ final class NotchOnlyTests: XCTestCase {
         XCTAssertFalse(IslandTab.tabBar.contains(.voice))
         XCTAssertEqual(IslandTab.tabBar, IslandTab.allCases.filter { $0 != .voice })
         XCTAssertLessThanOrEqual(IslandTab.voice.height, IslandController.panelSize.height)
-        XCTAssertGreaterThanOrEqual(IslandTab.voice.height, 400)   // the voice panel's own size fits
+        XCTAssertEqual(IslandTab.voice.height, IslandLayout.voiceHeight(topInset: 40))   // the stage under the tabs
     }
 
     @MainActor
@@ -62,8 +62,8 @@ final class NotchOnlyTests: XCTestCase {
         model.handle(["type": "hello", "api": api, "voice_dylib": dylib])
         let controller = IslandController(model: model)
         let menu = JarvisMenu(model: model, island: controller)
-        XCTAssertNotNil(menu.makeVoicePanel(), "the dylib gives a voice panel")
-        controller.voicePanel = { menu.makeVoicePanel() }
+        XCTAssertNotNil(menu.makeVoicePanel(island: true), "the dylib gives the island's voice panel")
+        controller.voicePanel = { menu.makeVoicePanel(island: true) }
         let ui = IslandUI()
         ui.state = .expanded
         ui.tab = .voice

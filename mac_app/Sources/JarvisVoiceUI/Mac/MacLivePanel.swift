@@ -461,11 +461,47 @@ struct MacOpenInWindowButton: View {
 
 /// The phone's aurora ground, as both Mac panels draw it.
 /// Plain black, no gradients: the panel sits in Jarvis.app's notch island (and
-/// its window), which is black too.
+/// its window), which is black too. In the island the stage shows through.
 struct MacPanelBackdrop: View {
+    @Environment(\.macPanelInIsland) private var inIsland
+
     var body: some View {
-        Color.black
+        (inIsland ? Color.clear : Color.black)
             .allowsHitTesting(false)
             .ignoresSafeArea()
+    }
+}
+
+extension EnvironmentValues {
+    /// The panel is hosted in Jarvis.app's notch island.
+    @Entry var macPanelInIsland = false
+}
+
+/// The island's stage: a dark rounded card the width of the island with a few
+/// faint, still stars — no gradients. Drawn once (a Canvas only redraws when
+/// its size changes).
+struct MacIslandStage: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(Color(white: 0.055))
+            .overlay {
+                Canvas { ctx, size in
+                    var seed: UInt64 = 0x9E3779B97F4A7C15
+                    func next() -> Double {
+                        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                        return Double(seed >> 11) / Double(1 << 53)
+                    }
+                    for _ in 0..<70 {
+                        let x = next() * size.width, y = next() * size.height
+                        let r = 0.5 + next() * 0.8
+                        ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: r * 2, height: r * 2)),
+                                 with: .color(.white.opacity(0.12 + next() * 0.22)))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(.white.opacity(0.06), lineWidth: 0.5))
+            .allowsHitTesting(false)
     }
 }

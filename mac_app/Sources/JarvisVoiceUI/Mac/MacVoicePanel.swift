@@ -39,11 +39,16 @@ struct MacVoicePanel: View {
     /// in the window itself, which is already the thing the button asks for.
     private let showsOpenInWindow: Bool
 
+    /// Hosted in Jarvis.app's notch island: one wide stage (controls at its
+    /// edges, the orb in the middle) instead of the 320 × 438 popover box.
+    private let island: Bool
+
     /// A view's `init` is not main-actor-isolated, so the store cannot be a
     /// default argument — the same reason `VoicePage` takes it this way.
-    init(store: VoiceStore? = nil, showsOpenInWindow: Bool = false) {
+    init(store: VoiceStore? = nil, showsOpenInWindow: Bool = false, island: Bool = false) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { VoiceStore.shared })
         self.showsOpenInWindow = showsOpenInWindow
+        self.island = island
     }
 
     private static let orbSize: CGFloat = 124
@@ -74,12 +79,130 @@ struct MacVoicePanel: View {
     var body: some View {
         if panelMode.wrappedValue == .live {
             MacLivePanel(mode: panelMode, showsOpenInWindow: showsOpenInWindow)
+                .environment(\.macPanelInIsland, island)
+                .background { if island { MacIslandStage() } }
         } else {
             voiceBody
         }
     }
 
+    /// The layout (popover box or island stage), then everything both share:
+    /// the pickers, connecting as the panel opens, the conversation staying up.
     private var voiceBody: some View {
+        Group {
+            if island { islandLayout } else { classicLayout }
+        }
+        .background { if island { MacIslandStage() } else { MacPanelBackdrop() } }
+        .overlay {
+            if let kind = openPicker {
+                MacPickerSheet(title: kind.title,
+                               rows: sessionPicker.rows { store.sessionTargetChanged() }) {
+                    openPicker = nil
+                }
+            }
+        }
+        .task {
+            // Loaded up front so the chip opens onto its list rather than onto
+            // "Loading…". The model the voice uses is still read here — the
+            // choice itself is made in Jarvis Settings.
+            await sessionPicker.load()
+            await VoiceModelStore.shared.load()
+        }
+        .onAppear {
+            onScreen = true
+            // Opening the panel is the moment to connect: the session and the
+            // socket are ready by the time the mic is tapped.
+            Task { await store.prewarmVoice() }
+        }
+        .onDisappear {
+            onScreen = false
+            store.voiceSurfaceHidden()
+        }
+        .onChange(of: hasContent) { _, now in
+            if now { stickyConversation = true }
+        }
+        .onChange(of: store.isActive) { _, active in
+            // A new session opens on the invitation, with the big orb; one that
+            // just ended keeps its last reply on screen if there still is one.
+            stickyConversation = active ? false : hasContent
+        }
+        // A popover is dismissed by clicking away, which does not tear the
+        // session down — the conversation keeps running in the tray process,
+        // and re-opening the panel shows it mid-turn. Stopping is the End
+        // button's job, explicitly.
+        .preferredColorScheme(.dark)
+    }
+
+    /// The island: one wide stage. Mode and chat on the left, settings on the
+    /// right, both on the stage's edges; the orb in the middle with its words
+    /// under it — or, once there's a conversation, the small orb on the left
+    /// and the words beside it, using the width; the controls at the bottom.
+    private var islandLayout: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                MacPanelModeSwitch(mode: panelMode)
+                MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
+                              enabled: !store.isActive,
+                              accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
+                    openPicker = .session
+                }
+                Spacer(minLength: 8)
+                MacSettingsButton()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            Group {
+                if conversationLayout {
+                    HStack(alignment: .center, spacing: 18) {
+                        VStack(spacing: 6) {
+                            islandOrb(64)
+                            statusLine
+                        }
+                        .frame(width: 96)
+                        conversation
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .padding(.horizontal, 22)
+                } else {
+                    VStack(spacing: 8) {
+                        statusLine
+                        islandOrb(92)
+                        headline
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(.spring(response: 0.5, dampingFraction: 0.86), value: conversationLayout)
+
+            VoiceControls(state: store.state,
+                          isActive: store.isActive,
+                          muted: store.muted,
+                          onPrimary: { Task { await primary() } },
+                          onMute: store.toggleMute,
+                          onFinish: store.finishSpeaking,
+                          onInterrupt: {
+                              if store.mode == .quality { Task { await store.stopAll() } }
+                              else { store.interrupt() }
+                          })
+                .scaleEffect(0.82)
+                .frame(height: VoiceControls.height * 0.82)
+                .padding(.bottom, 10)
+        }
+    }
+
+    /// The orb for the island, rendered full size and scaled (see `orb`).
+    private func islandOrb(_ side: CGFloat) -> some View {
+        VoiceOrb(state: store.state,
+                 amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
+                 size: Self.orbSize,
+                 animating: onScreen)
+            .scaleEffect(side / Self.orbSize)
+            .frame(width: side, height: side)
+            .allowsHitTesting(false)
+    }
+
+    private var classicLayout: some View {
         // ONE stack in a fixed order for both layouts. Which layout is showing
         // is expressed only as sizes — how tall the conversation may grow, how
         // much the two spacers may take, how big the orb is — never by swapping
@@ -130,45 +253,6 @@ struct MacVoicePanel: View {
         .padding(.horizontal, 16)
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
                minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
-        .background(MacPanelBackdrop())
-        .overlay {
-            if let kind = openPicker {
-                MacPickerSheet(title: kind.title,
-                               rows: sessionPicker.rows { store.sessionTargetChanged() }) {
-                    openPicker = nil
-                }
-            }
-        }
-        .task {
-            // Loaded up front so the chip opens onto its list rather than onto
-            // "Loading…". The model the voice uses is still read here — the
-            // choice itself is made in Jarvis Settings.
-            await sessionPicker.load()
-            await VoiceModelStore.shared.load()
-        }
-        .onAppear {
-            onScreen = true
-            // Opening the panel is the moment to connect: the session and the
-            // socket are ready by the time the mic is tapped.
-            Task { await store.prewarmVoice() }
-        }
-        .onDisappear {
-            onScreen = false
-            store.voiceSurfaceHidden()
-        }
-        .onChange(of: hasContent) { _, now in
-            if now { stickyConversation = true }
-        }
-        .onChange(of: store.isActive) { _, active in
-            // A new session opens on the invitation, with the big orb; one that
-            // just ended keeps its last reply on screen if there still is one.
-            stickyConversation = active ? false : hasContent
-        }
-        // A popover is dismissed by clicking away, which does not tear the
-        // session down — the conversation keeps running in the tray process,
-        // and re-opening the panel shows it mid-turn. Stopping is the End
-        // button's job, explicitly.
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Chrome

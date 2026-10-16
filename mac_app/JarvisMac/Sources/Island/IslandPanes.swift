@@ -240,8 +240,8 @@ private struct PortfolioCard: View {
     }
 }
 
-/// Talking to Jarvis in the notch: the same voice panel the menu-bar popover
-/// used to show (orb, transcript, mute / send), hosted in the island. It holds
+/// Talking to Jarvis in the notch: jc-client's voice panel (orb, transcript,
+/// mute / start / send) in its island layout — one stage the island's width. It holds
 /// the microphone while it's up, so "Hey Jarvis" steps aside, and keeps the
 /// island open while you talk.
 struct VoicePane: View {
@@ -256,8 +256,8 @@ struct VoicePane: View {
         // never appears, and then the panel would never be made.
         ZStack {
             if let panel {
-                VoicePanelHost(controller: panel).frame(width: 320)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                VoicePanelHost(controller: panel)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             } else if tried {
                 Text("The voice panel isn't available — is jc-client running?")
                     .font(.system(size: 12)).foregroundStyle(dim)
