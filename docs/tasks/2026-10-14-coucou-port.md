@@ -71,7 +71,7 @@ end and push to all devices after this". A box is ticked only once it is live.
 35. [ ] Answering a Claude question (AskUserQuestion) from the iPhone takes over 15 s to reach the Mac terminal
    - Found (2026-10-15, Pranav testing from the phone): the questions show on the phone, and button answers and typed answers ("Nahhhh") both arrive with the right text. Only the delay is wrong. Next: time each hop from the phone tap to the Mac's waiting hook (phone → server → jc-client → `jc-hook`) to find where the 15 s goes.
 36. [x] Mac: the notch's small orb flies into the open island and becomes its big orb (Voice stage, Agents header or tab row), and back into the notch when it folds
-   - ✅ Installed on the Mac with jc-client's new voice panel (b965e48fa4); flight path rendered frame by frame, and the real voice panel's orb position checked offscreen. Not yet watched opening on the real notch.
+   - ✅ Installed on the Mac with jc-client's new voice panel (b965e48fa4); flight path rendered frame by frame, and the real voice panel's orb position checked offscreen. Fixed 45ad3285f4: it flew only the first time and jumped back on fold; now flies both ways every time — checked with a screen recording on the real notch, and Pranav confirmed it works.
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
