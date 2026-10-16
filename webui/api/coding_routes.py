@@ -222,13 +222,13 @@ def _agent_la_pusher(store):
 
 
 def _tick_agent_las_soon() -> None:
-    """Re-apply the per-agent activities off the request thread (APNs is network)."""
-    from agent import agent_la_push
-    p = agent_la_push.pusher()
-    if p is None:
-        return
-    import threading
-    threading.Thread(target=p.tick, daemon=True, name="agent-la-tick").start()
+    """Re-apply the per-agent activities off the request thread (APNs is network),
+    on the same single ticker the hooks use, so ticks never run side by side."""
+    try:
+        from api import agent_hooks
+        agent_hooks._agent_la_tick()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _agent_la_token(store, body: dict):

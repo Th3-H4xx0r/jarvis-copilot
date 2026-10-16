@@ -106,12 +106,13 @@ enum AgentActivityPlan {
         case end(agent: String)
     }
 
-    /// An update alerts when the lead starts waiting on you: it wasn't waiting,
-    /// or it's a different request now. Still waiting on the same one doesn't.
+    /// An update alerts when the lead starts a new wait on you: it wasn't
+    /// waiting, or it's another session / another request (a new wait start).
+    /// Still waiting on the same one doesn't — not even when the request's
+    /// fingerprint shows up a moment after its hook (the server's rule too).
     static func needsAlert(from old: AgentContentState, to new: AgentContentState) -> Bool {
         guard new.waitsOnYou else { return false }
-        return !old.waitsOnYou || old.fingerprint != new.fingerprint || old.state != new.state
-            || old.key != new.key
+        return !old.waitsOnYou || old.key != new.key || old.waitingStart != new.waitingStart
     }
 
     /// The banner's words (the server sends the same for its pushes).

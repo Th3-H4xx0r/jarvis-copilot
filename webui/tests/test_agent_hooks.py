@@ -135,12 +135,19 @@ def counting_pusher():
     agent_la_push.set_pusher(None)
 
 
+def _eventually(cond, timeout=2.0):
+    deadline = time.time() + timeout
+    while not cond() and time.time() < deadline:
+        time.sleep(0.01)
+    return cond()
+
+
 def test_a_tracker_change_reaches_the_agent_activities(store, monkeypatch, counting_pusher):
     import api.coding_routes as cr
     monkeypatch.setattr(cr, "_push_coding_now", lambda store: None)
     monkeypatch.setattr(cr, "_notify_webui", lambda: None)
     agent_hooks._live_push(store)
-    assert counting_pusher.ticks == 1
+    assert _eventually(lambda: counting_pusher.ticks == 1)
 
 
 def test_a_held_request_reaches_the_agent_activities_at_once(monkeypatch, counting_pusher):
@@ -150,11 +157,68 @@ def test_a_held_request_reaches_the_agent_activities_at_once(monkeypatch, counti
     monkeypatch.setattr(agent_hooks, "_push_agent_alert", lambda **kw: 0)
     agent_hooks.on_agent_pending("d1", {"fingerprint": "fp1", "tool": "Bash", "cwd": "/x/app",
                                         "session_id": "s", "agent": "claude"})
-    assert counting_pusher.ticks == 1
+    assert _eventually(lambda: counting_pusher.ticks == 1)
     cp.drop_by_fingerprint("fp1", "d1")
 
 
-def test_the_la_pusher_reads_the_code_master_settings(store, monkeypatch):
-    monkeypatch.setattr(agent_hooks, "_settings", lambda: {"agent_live": {"idle_minutes": 10}})
+def test_the_la_pusher_reads_the_code_master_settings(store):
+    store.set_setting("notifications", {"agent_live": {"idle_minutes": 10}})
     p = agent_hooks.build_la_pusher(store)
     assert p.snapshot()["settings"]["idle_minutes"] == 10
+
+
+def test_agent_la_ticks_never_block_the_device_event_thread():
+    """A tick holds the pusher while it talks to APNs (10 s timeouts): the
+    device-event thread — door alarm, hooks — must hand it off, not wait. Ticks
+    asked for while one runs coalesce into one more."""
+    import threading
+    from agent import agent_la_push
+
+    release, started = threading.Event(), threading.Event()
+
+    class SlowPusher:
+        ticks = 0
+
+        def tick(self, force=False):
+            SlowPusher.ticks += 1
+            started.set()
+            release.wait(5)
+            return 0
+
+    agent_la_push.set_pusher(SlowPusher())
+    try:
+        t0 = time.time()
+        agent_hooks._agent_la_tick()
+        assert started.wait(2)
+        for _ in range(5):
+            agent_hooks._agent_la_tick()
+        assert time.time() - t0 < 1.0
+        release.set()
+        assert _eventually(lambda: SlowPusher.ticks == 2)
+        time.sleep(0.2)
+        assert SlowPusher.ticks == 2
+    finally:
+        release.set()
+        agent_la_push.set_pusher(None)
+
+
+def test_the_la_pusher_skips_a_tick_when_the_settings_cant_be_read(store, monkeypatch):
+    """A locked database must not read as "no settings" (= every agent on): with
+    agent activities turned off, a locked read must not start pushing again."""
+    from agent import agent_la_push
+    store.set_setting("notifications", {"agent_live": {"enabled": False}})
+    store.set_setting(agent_la_push.REGISTRY_KEY, {"ph": {"activities": {"claude": "ACT"}}})
+    p = agent_hooks.build_la_pusher(store)
+    sent = []
+    p._sender = lambda token, cs, **kw: sent.append(kw.get("event")) or {"ok": True}
+    p._tracked = lambda: [{"key": "k", "agent": "claude", "state": "working", "project": "app",
+                           "last_event_at": time.time(), "started_at": time.time()}]
+    real_get = store.get_setting
+
+    def locked(key, default=None):
+        if key == "notifications":
+            raise RuntimeError("database is locked")
+        return real_get(key, default)
+    monkeypatch.setattr(store, "get_setting", locked)
+    p.tick()
+    assert sent == []

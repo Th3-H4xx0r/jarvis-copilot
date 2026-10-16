@@ -296,13 +296,16 @@ def la_topic(cfg: dict) -> str:
     return f"{cfg['topic']}.push-type.liveactivity"
 
 
-def _apns_la_headers(cfg: dict, jwt: str, *, priority: int) -> dict:
+def _apns_la_headers(cfg: dict, jwt: str, *, priority: int,
+                     expiration: Optional[int] = None) -> dict:
+    """``expiration`` (Unix seconds) keeps the push at APNs until then for a phone
+    that's offline; the default 0 drops it if it can't be delivered right away."""
     return {
         "authorization": f"bearer {jwt}",
         "apns-topic": la_topic(cfg),
         "apns-push-type": "liveactivity",
         "apns-priority": str(priority),
-        "apns-expiration": "0",
+        "apns-expiration": str(int(expiration or 0)),
         "content-type": "application/json",
     }
 
@@ -333,7 +336,8 @@ def send_live_activity(push_token: str, content_state: dict, *,
                        priority: int = 10,
                        stale_after: Optional[int] = 3600,
                        dismissal_after: Optional[int] = None,
-                       extra: Optional[dict] = None) -> dict:
+                       extra: Optional[dict] = None,
+                       expiration: Optional[int] = None) -> dict:
     """Push a Live Activity content-state update (or ``event="end"`` /
     ``event="start"`` — a push-to-start token plus ``extra``) via APNs."""
     if not _KEY_FILE.exists():
@@ -355,7 +359,7 @@ def send_live_activity(push_token: str, content_state: dict, *,
     use_sandbox = bool(cfg.get("use_sandbox"))
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"
-    headers = _apns_la_headers(cfg, jwt, priority=priority)
+    headers = _apns_la_headers(cfg, jwt, priority=priority, expiration=expiration)
     try:
         r = _apns_post(url, headers, json.dumps(body), timeout)
         if r.status_code == 200:

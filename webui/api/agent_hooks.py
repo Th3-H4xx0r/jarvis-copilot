@@ -47,15 +47,59 @@ def _live_push(store) -> None:
     _notify_webui()
 
 
+class _LaTicker:
+    """Runs the per-agent Live Activity ticks on ONE background thread.
+
+    A tick holds the pusher while it talks to APNs (10 s timeouts), and the
+    callers — hook frames, agent_pending, the sweep — sit on the device-event
+    thread that the door alarm and every other device event share. So callers
+    only ask; requests made while a tick runs coalesce into one more tick (each
+    tick recomputes the whole state, so nothing is lost). The thread exits
+    after a quiet spell and comes back on the next request."""
+
+    IDLE_EXIT = 30.0
+
+    def __init__(self) -> None:
+        self._wake = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def request(self) -> None:
+        self._wake.set()
+        with self._lock:
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._run, daemon=True,
+                                                name="agent-la-ticker")
+                self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            if not self._wake.wait(self.IDLE_EXIT):
+                with self._lock:
+                    if not self._wake.is_set():
+                        self._thread = None
+                        return
+                continue
+            self._wake.clear()
+            try:
+                from agent import agent_la_push
+                p = agent_la_push.pusher()
+                if p is not None:
+                    p.tick()
+            except Exception:  # noqa: BLE001
+                log.debug("agent LA tick failed", exc_info=True)
+
+
+_la_ticker = _LaTicker()
+
+
 def _agent_la_tick() -> None:
-    """Bring every phone's per-agent Live Activities up to date. Never raises."""
+    """Ask for the phones' per-agent Live Activities to be brought up to date.
+    Returns at once (see ``_LaTicker``). Never raises."""
     try:
-        from agent import agent_la_push
-        p = agent_la_push.pusher()
-        if p is not None:
-            p.tick()
+        _la_ticker.request()
     except Exception:  # noqa: BLE001
-        log.debug("agent LA tick failed", exc_info=True)
+        log.debug("agent LA tick request failed", exc_info=True)
 
 
 def _pending_fingerprints() -> set:
@@ -73,8 +117,13 @@ def build_la_pusher(store):
         tr = tracker()
         return tr.sessions() if tr is not None else []
 
-    return AgentLaPusher(store, tracked=sessions,
-                         settings=lambda: (_settings() or {}).get("agent_live"),
+    def agent_live():
+        # Read straight from the store, so a locked database RAISES (the pusher
+        # skips that tick) instead of reading as "no settings" = every agent on.
+        doc = store.get_setting("notifications", None)
+        return doc.get("agent_live") if isinstance(doc, dict) else None
+
+    return AgentLaPusher(store, tracked=sessions, settings=agent_live,
                          pending=_pending_fingerprints)
 
 

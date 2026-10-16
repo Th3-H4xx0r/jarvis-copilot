@@ -329,15 +329,27 @@ final class AgentLiveActivityTests: XCTestCase {
     // MARK: - Needs you
 
     func testStartingToWaitOnYouAlertsOnce() {
-        let working = CS(count: 1, state: "working")
-        let asks = CS(count: 1, state: "approval", fingerprint: "f1", kind: "approval")
+        let working = CS(count: 1, state: "working", key: "k")
+        let asks = CS(count: 1, state: "approval", fingerprint: "f1", kind: "approval", key: "k",
+                      waitingSince: 100)
         XCTAssertTrue(AgentActivityPlan.needsAlert(from: working, to: asks))
         var stillAsks = asks
         stillAsks.count = 2
         XCTAssertFalse(AgentActivityPlan.needsAlert(from: asks, to: stillAsks), "same request: no second buzz")
-        let asksAgain = CS(count: 1, state: "approval", fingerprint: "f2", kind: "approval")
+        let asksAgain = CS(count: 1, state: "approval", fingerprint: "f2", kind: "approval", key: "k",
+                           waitingSince: 200)
         XCTAssertTrue(AgentActivityPlan.needsAlert(from: asks, to: asksAgain), "a new request alerts")
         XCTAssertFalse(AgentActivityPlan.needsAlert(from: asks, to: working))
+    }
+
+    /// The hook's wait lands first (nothing holds it yet: no fingerprint), the
+    /// held request a moment later — one wait, one alert.
+    func testTheRequestsFingerprintArrivingLateIsNotASecondAlert() {
+        let unheld = CS(count: 1, state: "approval", fingerprint: "", kind: "approval", key: "k",
+                        waitingSince: 100)
+        var held = unheld
+        held.fingerprint = "fp"
+        XCTAssertFalse(AgentActivityPlan.needsAlert(from: unheld, to: held))
     }
 
     func testTheAlertSaysWhoWantsWhat() {

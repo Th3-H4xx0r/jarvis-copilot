@@ -38,8 +38,11 @@ class FakeStore:
         self.rows = list(rows)
         self.projects = list(projects)
         self.settings = {}
+        self.locked = False     # SQLite "database is locked"
 
     def list_sessions(self):
+        if self.locked:
+            raise RuntimeError("database is locked")
         return [dict(r) for r in self.rows]
 
     def list_projects(self):
@@ -53,17 +56,24 @@ class FakeStore:
 
 
 class Sender:
-    def __init__(self, status=200):
+    def __init__(self, status=200, failing=()):
         self.calls = []
         self.status = status
+        self.failing = set(failing)     # events that fail with a 500 (APNs hiccup)
 
     def __call__(self, token, cs, *, event="update", priority=10, extra=None,
-                 dismissal_after=None, stale_after=3600):
+                 dismissal_after=None, stale_after=3600, expiration=None):
         self.calls.append({"token": token, "cs": cs, "event": event, "priority": priority,
-                           "extra": extra, "dismissal_after": dismissal_after})
+                           "extra": extra, "dismissal_after": dismissal_after,
+                           "expiration": expiration})
+        if event in self.failing:
+            return {"ok": False, "status": 500, "error": "InternalServerError"}
         if self.status == 200:
             return {"ok": True}
         return {"ok": False, "status": self.status, "error": "nope"}
+
+    def alerts(self):
+        return [c for c in self.calls if (c["extra"] or {}).get("alert")]
 
     def events(self):
         return [(c["event"], c["token"]) for c in self.calls]
@@ -566,3 +576,146 @@ def test_a_request_nothing_ever_held_still_reads_as_waiting():
     sessions = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
     p, box, clock, _ = pusher(sessions, pending=set())
     assert p.snapshot()["activities"][0]["state"]["state"] == "approval"
+
+
+# ── bug sweep: one alert per wait, a steady lead, retries, locked stores ─────
+
+def _asks(key="a", fp="fp", last=10_000, at=None, state="approval"):
+    pend = {"kind": "approval" if state == "approval" else "question", "fingerprint": fp}
+    if at is not None:
+        pend["at"] = at
+    return tracked(key, state=state, last=last, pending=pend)
+
+
+def test_a_request_announced_after_its_hook_alerts_once():
+    """With remote approvals on, the hook's permission frame lands first (no
+    answerable fingerprint yet), the arbiter's agent_pending a moment later: one
+    wait, one alert — not one per fingerprint."""
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    clock.t += 20
+    box["sessions"] = [_asks(last=clock.t)]
+    p.tick()                                   # waiting, nothing holds it yet
+    clock.t += 1
+    box["pending"] = {"fp"}
+    box["sessions"] = [_asks(last=clock.t)]    # every hook event bumps last
+    p.tick()                                   # now answerable: buttons, no 2nd alert
+    assert sender.calls[-1]["cs"]["fingerprint"] == "fp"
+    assert len(sender.alerts()) == 1
+
+
+def test_re_registering_a_token_never_re_alerts():
+    """The app re-reports its activity tokens on every launch / rotation."""
+    sender = Sender()
+    p, box, clock, _ = pusher([tracked("a", state="working")], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    clock.t += 20
+    box["sessions"] = [_asks()]
+    p.tick()
+    assert len(sender.alerts()) == 1
+    p.register_activity_token("phone", "claude", "ACT1")
+    p.register_activity_token("phone", "claude", "ACT2")
+    clock.t += 20
+    p.tick()
+    assert len(sender.alerts()) == 1
+
+
+def test_two_waiting_sessions_keep_one_lead():
+    """The lead is the request that started waiting first — not whichever
+    session's last hook event is older, which flipped A/B/A/B (an alert each)."""
+    sender = Sender()
+    a = lambda last: _asks("a", fp="fa", last=last, at=100)    # noqa: E731
+    b = lambda last: _asks("b", fp="fb", last=last, at=200)    # noqa: E731
+    p, box, clock, _ = pusher([tracked("w", state="working")], sender=sender,
+                              pending={"fa", "fb"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    leads, starts = set(), set()
+    for i, (la, lb) in enumerate([(900, 500), (500, 900), (950, 600), (600, 950)]):
+        clock.t += 20
+        box["sessions"] = [a(la), b(lb)]
+        p.tick()
+        leads.add(sender.calls[-1]["cs"]["key"])
+        starts.add(sender.calls[-1]["cs"]["waitingSince"])
+    assert leads == {"a"} and starts == {100}
+    assert len(sender.alerts()) == 1
+
+
+def test_lead_of_orders_waiting_sessions_by_when_they_started_waiting():
+    sessions = m.collect_sessions([_asks("a", fp="fa", last=900, at=100),
+                                   _asks("b", fp="fb", last=500, at=200)], [], {})
+    assert m.lead_of(sessions)["key"] == "a"
+
+
+def test_a_failed_end_is_retried_and_expires_an_hour_later():
+    sender = Sender(failing={"end"})
+    p, box, clock, store = pusher([tracked("a")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = []
+    p.tick()
+    end = [c for c in sender.calls if c["event"] == "end"]
+    assert len(end) == 1 and end[0]["expiration"] == clock.t + 3600
+    assert store.get_setting(m.REGISTRY_KEY)["phone"]["activities"].get("claude") == "ACT1"
+    p.tick()                                   # backing off: not yet
+    assert len([c for c in sender.calls if c["event"] == "end"]) == 1
+    sender.failing.clear()
+    clock.t += 120
+    p.tick()
+    assert len([c for c in sender.calls if c["event"] == "end"]) == 2
+    assert "claude" not in store.get_setting(m.REGISTRY_KEY)["phone"]["activities"]
+
+
+def test_a_failing_end_gives_up_after_a_few_tries():
+    sender = Sender(failing={"end"})
+    p, box, clock, store = pusher([tracked("a")], sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = []
+    for _ in range(12):
+        p.tick()
+        clock.t += 600
+    ends = [c for c in sender.calls if c["event"] == "end"]
+    assert 2 <= len(ends) <= m.MAX_RETRIES
+    assert "claude" not in store.get_setting(m.REGISTRY_KEY)["phone"]["activities"]
+
+
+def test_a_failed_push_to_start_is_retried():
+    sender = Sender(failing={"start"})
+    p, box, clock, _ = pusher([tracked("a")], sender=sender)
+    p.register_start_token("phone", "START")
+    p.tick()
+    p.tick()                                   # backing off
+    assert [c["event"] for c in sender.calls] == ["start"]
+    sender.failing.clear()
+    clock.t += 120
+    p.tick()
+    clock.t += 120
+    p.tick()                                   # started now: no more starts
+    assert [c["event"] for c in sender.calls] == ["start", "start"]
+
+
+def test_a_locked_store_skips_the_tick_instead_of_ending_everything():
+    sender = Sender()
+    p, box, clock, store = pusher([], rows=[row("r1", activity="working", last=10_000)],
+                                  sender=sender)
+    p.register_activity_token("phone", "claude", "ACT1")
+    n = len(sender.calls)
+    store.locked = True
+    clock.t += 30
+    assert p.tick() == 0
+    assert len(sender.calls) == n                   # no end, no update
+    assert store.get_setting(m.REGISTRY_KEY)["phone"]["activities"]["claude"] == "ACT1"
+    assert [a["agent"] for a in p.snapshot()["activities"]] == ["claude"]   # last good state
+
+
+def test_a_failing_pending_list_does_not_strip_the_buttons():
+    sender = Sender()
+    p, box, clock, _ = pusher([_asks()], sender=sender, pending={"fp"})
+    p.register_activity_token("phone", "claude", "ACT1")
+    assert sender.calls[-1]["cs"]["fingerprint"] == "fp"
+
+    def boom():
+        raise RuntimeError("locked")
+    p._pending = boom
+    clock.t += 30
+    p.tick()
+    assert sender.calls[-1]["cs"]["fingerprint"] == "fp"

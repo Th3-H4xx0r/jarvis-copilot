@@ -83,6 +83,14 @@ MIN_PUSH_INTERVAL = 15.0
 #: How long a just-answered request keeps reading as answered while the hook's
 #: "settled" is on its way (normally well under a second).
 ANSWERED_GRACE = 60.0
+#: A failed start / end push is retried this many times, backing off from
+#: RETRY_BASE seconds (doubling, capped at RETRY_CAP), then given up.
+MAX_RETRIES = 5
+RETRY_BASE = 15.0
+RETRY_CAP = 600.0
+#: An end push keeps for this long at APNs, so a phone that's offline right now
+#: still gets it (expiration 0 = drop if undeliverable).
+END_EXPIRY = 3600
 
 
 # ── naming ────────────────────────────────────────────────────────────────────
@@ -176,7 +184,10 @@ def _from_tracked(s: dict) -> Optional[dict]:
             "fingerprint": str(pend.get("fingerprint") or ""),
             "kind": kind if kind in ("approval", "question") else "",
             "since": _num(turn.get("started_at") or s.get("started_at")),
-            "last": _num(s.get("last_event_at"))}
+            "last": _num(s.get("last_event_at")),
+            # When this request started waiting (0 = unknown; the pusher fills it
+            # from when it first saw the wait). Never `last`: every hook bumps that.
+            "wait_start": _num(pend.get("at"))}
 
 
 def _first_question(questions):
@@ -208,7 +219,7 @@ def _from_row(r: dict, projects: dict) -> dict:
             "state": state, "step": "", "fingerprint": "",
             "kind": "approval" if state == "approval" else "",
             "since": _num(r.get("created_at")), "last": _recency(r),
-            "question": "", "options": []}
+            "question": "", "options": [], "wait_start": 0.0}
 
 
 def collect_sessions(tracked: Iterable[dict], rows: Iterable[dict], projects: dict) -> list:
@@ -241,14 +252,19 @@ def is_active(s) -> bool:
     return s.get("state") in ACTIVE_STATES
 
 
+def _wait_start(s) -> float:
+    return float(s.get("wait_start") or s.get("last") or 0)
+
+
 def lead_of(sessions) -> Optional[dict]:
-    """The one that needs you first (the earliest still waiting), else the most
+    """The one that needs you first — the request that started waiting earliest,
+    which stays put while its session's hooks keep firing — else the most
     recently active."""
     if not sessions:
         return None
     waiting = [s for s in sessions if s.get("state") in WAITING_STATES]
     if waiting:
-        return min(waiting, key=lambda s: (s.get("last") or 0, s.get("key") or ""))
+        return min(waiting, key=lambda s: (_wait_start(s), s.get("key") or ""))
     return max(sessions, key=lambda s: (s.get("last") or 0, s.get("key") or ""))
 
 
@@ -295,8 +311,8 @@ def content_state(sessions, *, actions: bool, decidable) -> dict:
         "bar": ",".join(_SHORT.get(s.get("state"), "i") for s in ordered[:MAX_BAR]),
         "actions": bool(actions),
         "last": float(idle_since(sessions)),
-        # When the lead started waiting on you (its last event is the request).
-        "waitingSince": float(lead.get("last") or 0) if lead.get("state") in WAITING_STATES else 0.0,
+        # When the lead's request started waiting on you.
+        "waitingSince": _wait_start(lead) if lead.get("state") in WAITING_STATES else 0.0,
         "question": str(lead.get("question") or "") if lead.get("state") == "question" else "",
         "options": list(lead.get("options") or []) if lead.get("state") == "question" else [],
     }
@@ -313,13 +329,20 @@ def desired_states(tracked, rows, projects, settings, *, now: float, decidable,
     ``ongoing`` names the groups whose activity is already up (None = all, for
     callers that don't track it). ``answered`` holds request fingerprints just
     answered whose hook hasn't reported back yet: those sessions read as working."""
+    return desired_from_sessions(collect_sessions(tracked, rows, projects), settings, now=now,
+                                 decidable=decidable, ongoing=ongoing, answered=answered)
+
+
+def desired_from_sessions(sessions, settings, *, now: float, decidable, ongoing=None,
+                          answered=()) -> dict:
+    """``desired_states`` over sessions already collected."""
     cfg = merge_settings(settings)
     if not cfg["enabled"]:
         return {}
     out = {}
     sessions = [(_answered(s) if s.get("fingerprint") and s["fingerprint"] in answered
                  and s.get("state") in WAITING_STATES else s)
-                for s in collect_sessions(tracked, rows, projects)]
+                for s in sessions]
     groups = group_sessions(sessions)
     for g in AGENTS:
         sessions = groups.get(g) or []
@@ -375,6 +398,20 @@ def needs_you_alert(group: str, cs: dict) -> dict:
 
 # ── the pusher ────────────────────────────────────────────────────────────────
 
+class _Unavailable(Exception):
+    """A source (the store, the held requests, the settings) couldn't be read
+    this tick. The tick is skipped: guessing "nothing" would end activities or
+    strip their buttons, and the next good tick would start / alert them again."""
+
+
+def _wait_id(cs: dict) -> str:
+    """One wait on you: the lead session and when its request started waiting.
+    Its fingerprint isn't part of it — that arrives a moment after the hook."""
+    if cs.get("state") not in WAITING_STATES:
+        return ""
+    return f"{cs.get('key')}@{cs.get('waitingSince')}"
+
+
 class AgentLaPusher:
     """Keeps every phone's per-agent activities in step with the sessions.
 
@@ -402,13 +439,24 @@ class AgentLaPusher:
         # held was answered (or dropped); its session reads as working until the
         # hook's "settled" catches up, instead of flashing back to amber.
         self._held: dict = {}
+        # session key -> when the pusher first saw it waiting (when the tracker
+        # doesn't say), so a wait's start — the lead order, the timer, the
+        # alert — doesn't move with every hook event.
+        self._wait_seen: dict = {}
+        # (device, group) -> the wait (_wait_id) already announced with an alert.
+        # Survives token re-registration: one wait, one alert.
+        self._alerted: dict = {}
+        # (device, group, "start"|"end") -> {"n": tries, "at": next try (mono)}
+        self._retry: dict = {}
+        self._last_desired: dict = {}
+        self._last_settings: dict = merge_settings(None)
 
     # ── tokens ───────────────────────────────────────────────────────────
     def _registry(self) -> dict:
         try:
             reg = self.store.get_setting(REGISTRY_KEY, None)
-        except Exception:  # noqa: BLE001
-            return {}
+        except Exception as exc:  # noqa: BLE001 — never save over tokens we couldn't read
+            raise _Unavailable("token registry") from exc
         return reg if isinstance(reg, dict) else {}
 
     def _save(self, reg: dict) -> None:
@@ -428,7 +476,11 @@ class AgentLaPusher:
         """The phone's push-to-start token (one per app install, rotates)."""
         token = (token or "").strip()
         with self._lock:
-            reg = self._registry()
+            try:
+                reg = self._registry()
+            except _Unavailable:
+                log.warning("agent LA: couldn't read the token registry; start token not saved")
+                return
             dev = self._device(reg, device_id)
             if token:
                 dev["start"] = token
@@ -439,7 +491,10 @@ class AgentLaPusher:
     def forget_device(self, device_id: str) -> None:
         """The phone turned Live Activities off: stop pushing to it at all."""
         with self._lock:
-            reg = self._registry()
+            try:
+                reg = self._registry()
+            except _Unavailable:
+                return
             reg.pop(device_id or "unknown", None)
             self._save(reg)
             for key in [k for k in self._pushed if k[0] == (device_id or "unknown")]:
@@ -453,11 +508,18 @@ class AgentLaPusher:
             return 0
         device = device_id or "unknown"
         with self._lock:
-            reg = self._registry()
+            try:
+                reg = self._registry()
+            except _Unavailable:
+                log.warning("agent LA: couldn't read the token registry; token not saved")
+                return 0
             self._device(reg, device)["activities"][group] = token
             self._save(reg)
             self._pushed.pop((device, group), None)
-            desired = self._desired()
+            try:
+                desired = self._desired()
+            except _Unavailable:
+                return 0    # saved; the next good tick brings it up to date
             ep = self._episodes.get(group)
             if ep is not None:
                 ep["started"].add(device)
@@ -473,7 +535,10 @@ class AgentLaPusher:
         if group is None:
             return
         with self._lock:
-            reg = self._registry()
+            try:
+                reg = self._registry()
+            except _Unavailable:
+                return
             acts = self._device(reg, device)["activities"]
             if not token or acts.get(group) == token:
                 acts.pop(group, None)
@@ -483,31 +548,43 @@ class AgentLaPusher:
                 self._episodes[group]["suppressed"].add(device)
 
     # ── state ────────────────────────────────────────────────────────────
-    def _source(self, fn, default):
+    @staticmethod
+    def _read(fn, what):
         try:
-            v = fn()
-            return default if v is None else v
-        except Exception:  # noqa: BLE001
-            log.debug("agent LA source failed", exc_info=True)
-            return default
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("agent LA: %s unavailable, skipping this tick: %s", what, exc)
+            raise _Unavailable(what) from exc
+
+    def _note_waits(self, sessions, now) -> None:
+        """Give every waiting session a steady wait start (see ``_wait_seen``)."""
+        seen = {}
+        for s in sessions:
+            if s.get("state") not in WAITING_STATES:
+                continue
+            start = s.get("wait_start") or self._wait_seen.get(s["key"]) or now
+            seen[s["key"]] = start
+            s["wait_start"] = start
+        self._wait_seen = seen
 
     def _desired(self) -> dict:
-        tracked = self._source(self._tracked, [])
-        rows, projects = [], {}
-        try:
-            rows = self.store.list_sessions()
-            projects = {p["id"]: p for p in self.store.list_projects()}
-        except Exception:  # noqa: BLE001
-            pass
-        decidable = set(self._source(self._pending, ()))
+        """What every agent's activity should show now. Raises ``_Unavailable``
+        when a source can't be read (the caller skips, keeping the last state)."""
+        tracked = self._read(self._tracked, "tracked sessions") or []
+        rows = self._read(self.store.list_sessions, "coding sessions")
+        projects = {p["id"]: p for p in self._read(self.store.list_projects, "projects")}
+        decidable = set(self._read(self._pending, "held requests") or ())
+        settings = self._read(self._settings, "settings")
         now = self._clock()
         answered = {fp for fp, at in self._held.items()
                     if fp not in decidable and now - at < ANSWERED_GRACE}
         self._held = {fp: at for fp, at in self._held.items() if now - at < ANSWERED_GRACE}
         self._held.update({fp: now for fp in decidable})
-        desired = desired_states(tracked, rows, projects, self._source(self._settings, None),
-                                 now=now, decidable=decidable,
-                                 ongoing=set(self._episodes), answered=answered)
+        sessions = collect_sessions(tracked, rows, projects)
+        self._note_waits(sessions, now)
+        desired = desired_from_sessions(sessions, settings, now=now, decidable=decidable,
+                                        ongoing=set(self._episodes), answered=answered)
+        self._last_settings = merge_settings(settings)
         # Episodes: one per stretch of time an agent's activity is wanted.
         for g in desired:
             if g not in self._episodes:
@@ -515,15 +592,32 @@ class AgentLaPusher:
                                      "started": set(), "suppressed": set()}
         for g in [g for g in self._episodes if g not in desired]:
             self._episodes.pop(g, None)
+        self._last_desired = desired
         return desired
 
     def snapshot(self) -> dict:
-        """What the app shows while it's in the foreground (``/agent-la/state``)."""
+        """What the app shows while it's in the foreground (``/agent-la/state``).
+        A source that can't be read this time answers with the last good state."""
         with self._lock:
-            desired = self._desired()
-            return {"settings": merge_settings(self._source(self._settings, None)),
+            try:
+                desired = self._desired()
+            except _Unavailable:
+                desired = {g: cs for g, cs in self._last_desired.items() if g in self._episodes}
+            return {"settings": dict(self._last_settings),
                     "activities": [{"agent": g, "episode": self._episodes[g]["id"], "state": cs}
                                    for g, cs in desired.items()]}
+
+    # ── retries ──────────────────────────────────────────────────────────
+    def _due(self, key) -> bool:
+        r = self._retry.get(key)
+        return r is None or self._mono() >= r["at"]
+
+    def _failed(self, key) -> bool:
+        """Count a failed try and back off. True once it's out of tries."""
+        r = self._retry.setdefault(key, {"n": 0, "at": 0.0})
+        r["n"] += 1
+        r["at"] = self._mono() + min(RETRY_BASE * 2 ** (r["n"] - 1), RETRY_CAP)
+        return r["n"] >= MAX_RETRIES
 
     # ── pushing ──────────────────────────────────────────────────────────
     def _send(self, token, cs, **kw) -> dict:
@@ -549,21 +643,25 @@ class AgentLaPusher:
         if not force and sig == prev.get("sig"):
             return 0
         last_cs = prev.get("cs") or {}
-        urgent = bool(cs["fingerprint"] and cs["fingerprint"] != last_cs.get("fingerprint")) \
+        wait = _wait_id(cs)
+        new_wait = bool(wait) and self._alerted.get(key) != wait
+        urgent = new_wait or bool(cs["fingerprint"] and cs["fingerprint"] != last_cs.get("fingerprint")) \
             or cs["waiting"] > int(last_cs.get("waiting") or 0)
         now = self._mono()
         if not force and not urgent and now - prev.get("ts", -1e18) < MIN_PUSH_INTERVAL:
             return 0   # rate-limited: the next tick re-sends once the window passes
         extra = {"relevance-score": relevance(cs)}
-        newly_waiting = cs["state"] in WAITING_STATES and (
-            last_cs.get("state") not in WAITING_STATES
-            or cs["fingerprint"] != last_cs.get("fingerprint", ""))
-        if newly_waiting:
+        # One alert per wait — never for a forced re-push (a token the app
+        # re-reported on launch / rotation), and not again when the request's
+        # fingerprint shows up a moment after its hook.
+        if new_wait and not force:
             extra["alert"] = needs_you_alert(group, cs)
         res = self._send(token, cs, event="update", priority=10 if (urgent or force) else 5,
                          extra=extra)
         if res.get("ok"):
             self._pushed[key] = {"sig": sig, "ts": now, "cs": cs}
+            if wait:
+                self._alerted[key] = wait
             return 1
         log.warning("agent LA update failed (%s, token …%s): %s", group, str(token)[-6:],
                     res.get("error"))
@@ -577,36 +675,70 @@ class AgentLaPusher:
                 self._episodes[group]["suppressed"].add(device)
         return 0
 
-    def _push_end(self, reg, device, group, token) -> int:
-        last = (self._pushed.get((device, group)) or {}).get("cs")
-        cs = dict(last) if last else content_state([], actions=False, decidable=())
-        cs.update({"fingerprint": "", "actions": False})
-        res = self._send(token, cs, event="end", priority=10, dismissal_after=0)
+    def _forget_activity(self, reg, device, group) -> None:
         self._device(reg, device)["activities"].pop(group, None)
         self._save(reg)
         self._pushed.pop((device, group), None)
-        return 1 if res.get("ok") else 0
+        self._retry.pop((device, group, "end"), None)
+
+    def _push_end(self, reg, device, group, token) -> int:
+        """End one activity. Kept (and retried, backing off) until APNs takes it,
+        the token is dead, or it's out of tries; it expires at APNs an hour later
+        so a phone that's offline right now still gets it."""
+        rkey = (device, group, "end")
+        if not self._due(rkey):
+            return 0
+        last = (self._pushed.get((device, group)) or {}).get("cs")
+        cs = dict(last) if last else content_state([], actions=False, decidable=())
+        cs.update({"fingerprint": "", "actions": False})
+        res = self._send(token, cs, event="end", priority=10, dismissal_after=0,
+                         expiration=int(self._clock()) + END_EXPIRY)
+        if res.get("ok") or self._dead(res):
+            self._forget_activity(reg, device, group)
+            return 1 if res.get("ok") else 0
+        log.warning("agent LA end failed (%s, token …%s): %s", group, str(token)[-6:],
+                    res.get("error"))
+        if self._failed(rkey):
+            self._forget_activity(reg, device, group)
+        return 0
 
     def _push_start(self, reg, device, group, token, cs) -> int:
+        """Push-to-start one activity. The device counts as started only once APNs
+        took it; a failure is retried (backing off), a dead token dropped."""
+        rkey = (device, group, "start")
+        if not self._due(rkey):
+            return 0
         extra = {"attributes-type": ATTRIBUTES_TYPE, "attributes": {"agent": group},
                  "alert": _alert(group, cs), "input-push-token": 1,
                  "relevance-score": relevance(cs)}
         res = self._send(token, cs, event="start", priority=10, extra=extra)
-        self._episodes[group]["started"].add(device)
+        ep = self._episodes[group]
         if res.get("ok"):
+            ep["started"].add(device)
+            self._retry.pop(rkey, None)
+            wait = _wait_id(cs)
+            if wait:
+                self._alerted[(device, group)] = wait   # the start was the alert
             return 1
         log.warning("agent LA push-to-start failed (%s, token …%s): %s", group,
                     str(token)[-6:], res.get("error"))
         if self._dead(res):
             self._device(reg, device).pop("start", None)
             self._save(reg)
+            self._retry.pop(rkey, None)
+        elif self._failed(rkey):
+            ep["started"].add(device)     # out of tries: leave it to the app
+            self._retry.pop(rkey, None)
         return 0
 
     def tick(self, force: bool = False) -> int:
-        """Start, update and end every phone's activities. Returns pushes sent."""
+        """Start, update and end every phone's activities. Returns pushes sent.
+        A source that can't be read skips the tick (the last state stands)."""
         try:
             with self._lock:
                 return self._tick(force)
+        except _Unavailable:
+            return 0
         except Exception:  # noqa: BLE001
             log.debug("agent LA tick failed", exc_info=True)
             return 0

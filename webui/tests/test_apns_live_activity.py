@@ -76,3 +76,11 @@ def test_send_live_activity_posts_extra_and_dismissal(monkeypatch, tmp_path):
     assert aps["event"] == "end" and aps["dismissal-date"] == aps["timestamp"]
     assert aps["input-push-token"] == 1
     assert sent["headers"]["apns-priority"] == "5"
+
+
+def test_an_end_push_can_outlive_an_offline_phone():
+    """apns-expiration 0 drops a push for a phone that's offline right now; an
+    end must still arrive when it's back, so it gets an expiry."""
+    h = apns._apns_la_headers({"topic": "com.x.app"}, "JWT", priority=10, expiration=12345)
+    assert h["apns-expiration"] == "12345"
+    assert apns._apns_la_headers({"topic": "com.x.app"}, "JWT", priority=10)["apns-expiration"] == "0"
