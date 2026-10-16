@@ -221,6 +221,8 @@ struct JarvisWidgetBundle: WidgetBundle {
         JarvisWidget()
         // Dynamic Island / Lock Screen Live Activity, and its CarPlay card.
         JarvisLiveActivity()
+        // The car's Talk to Jarvis button (CarPlay's Widgets page).
+        JarvisCarTalkWidget()
         // One per coding agent with live sessions, wearing that agent's logo.
         AgentLiveActivity()
         JarvisStopwatchActivity()
