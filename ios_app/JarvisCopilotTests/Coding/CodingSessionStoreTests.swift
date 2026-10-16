@@ -57,13 +57,16 @@ final class CodingSessionStoreTests: XCTestCase {
         XCTAssertEqual(store.appendTick, 1)
     }
 
-    func testIncrementalFetchAsksOnlyForTheTail() async {
+    /// A poll asks for the last message we hold (the server grows a turn in
+    /// place) and what's past it — never the whole transcript.
+    func testIncrementalFetchAsksForTheLastMessageAndTheTail() async {
         let (store, t) = makeStore()
         t.enqueue(json: page([["i": 0, "role": "user", "text": "hi"]], total: 1))
         await store.fetch(full: true)
-        t.enqueue(json: page([["i": 1, "role": "assistant", "text": "reply"]], total: 2))
+        t.enqueue(json: page([["i": 0, "role": "user", "text": "hi"],
+                              ["i": 1, "role": "assistant", "text": "reply"]], total: 2))
         await store.fetch()
-        XCTAssertEqual(query(t.lastRequest), ["after": "1"])
+        XCTAssertEqual(query(t.lastRequest), ["after": "0"])
         XCTAssertEqual(store.transcript.messages.map(\.text), ["hi", "reply"])
         XCTAssertEqual(store.appendTick, 2)
     }

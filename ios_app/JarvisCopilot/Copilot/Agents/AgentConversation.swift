@@ -304,13 +304,16 @@ enum AgentConversation {
     }
 
     /// Messages with the details loaded so far (a tool's output, a file's
-    /// diff) in place of their lite copies — unless the message has grown
-    /// since (a live turn), when the lite one is the truth until reopened.
+    /// diff) in place of their lite copies — unless the message moved on since
+    /// (a live turn: a new tool, a tool that finished, new words), when the
+    /// lite one is the truth until reopened.
     static func withDetails(_ messages: [CodingChatMessage],
                             _ details: [Int: CodingChatMessage]) -> [CodingChatMessage] {
         guard !details.isEmpty else { return messages }
         return messages.map { m in
-            guard let full = details[m.i], full.tools.count >= m.tools.count else { return m }
+            guard let full = details[m.i], full.tools.count == m.tools.count, full.text == m.text,
+                  zip(full.tools, m.tools).allSatisfy({ $0.ok == $1.ok && $0.running == $1.running })
+            else { return m }
             return full
         }
     }

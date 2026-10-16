@@ -174,12 +174,14 @@ final class AgentLiveActivityTests: XCTestCase {
 
     // MARK: - Manager
 
-    private func makeManager(paired: Bool = true)
+    private func makeManager(paired: Bool = true, store: MemoryKeyValueStore = MemoryKeyValueStore(),
+                             isPaired: (@MainActor () -> Bool)? = nil)
     -> (AgentActivityManager, FakeAgentActivityController, MockTransport) {
         let (api, transport) = JarvisAPI.mocked()
         let controller = FakeAgentActivityController()
         let manager = AgentActivityManager(api: AgentLiveAPI(api: api), controller: controller,
-                                           isPaired: { paired }, deviceID: { "phone-1" })
+                                           isPaired: isPaired ?? { paired }, deviceID: { "phone-1" },
+                                           agents: AgentsAPI(api: api), dismissals: store)
         return (manager, controller, transport)
     }
 
@@ -302,7 +304,8 @@ final class AgentLiveActivityTests: XCTestCase {
         let controller = FakeActivityController()
         let agents = AgentActivityManager(api: AgentLiveAPI(api: api),
                                           controller: FakeAgentActivityController(),
-                                          isPaired: { true }, deviceID: { "phone-1" })
+                                          isPaired: { true }, deviceID: { "phone-1" },
+                                          dismissals: MemoryKeyValueStore())
         let coordinator = LiveActivityCoordinator(
             coding: CodingSessionsAPI(api: api), islandAPI: IslandDesignsAPI(api: api),
             islandCache: RecordingIslandCache(), controller: controller,
@@ -474,6 +477,96 @@ final class AgentLiveActivityTests: XCTestCase {
         XCTAssertEqual(controller.running["claude"]?.step, "Denied · Bash: ls")
         XCTAssertEqual(controller.alerts, [], "no alert for a request you just answered")
     }
+
+    // MARK: - iOS bug sweep
+
+    private func tokenPosts(_ t: MockTransport) -> [[String: Any]] {
+        t.requests.filter { $0.url?.path == "/api/coding/agent-la/token" }.compactMap { r in
+            r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
+    }
+
+    /// The server cuts the question to 90 chars ("…", whitespace collapsed); the
+    /// arbiter matches answers by the EXACT question, so the answer must be keyed
+    /// by the held request's own full text.
+    func testALockScreenAnswerIsKeyedByTheRequestsFullQuestion() async {
+        let (manager, _, transport) = makeManager()
+        let full = "Which region should I deploy the new  billing service to, given that\n"
+            + "the EU customers need data residency and latency matters?"
+        transport.route("/api/coding/agents/sessions", json: [
+            "sessions": [], "pending": [["request_id": "r1", "fingerprint": "fq", "kind": "ask",
+                                         "questions": [["question": full,
+                                                        "options": [["label": "eu-west-1"]]]]]]])
+        transport.route("/api/coding/permission/verdict", json: ["ok": true])
+        let cut = String(full.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(89)) + "…"
+        let ok = await manager.answer(fingerprint: "fq", question: cut, option: "eu-west-1")
+        XCTAssertTrue(ok)
+        let answers = transport.lastBody()["answers"] as? [String: Any]
+        XCTAssertEqual(answers?[full] as? String, "eu-west-1")
+        XCTAssertEqual(answers?.count, 1)
+    }
+
+    func testATokenThatArrivesBeforePairingIsSentOncePaired() async {
+        var paired = false
+        let (manager, controller, transport) = makeManager(isPaired: { paired })
+        transport.route("/api/coding/agent-la/token", json: ["ok": true])
+        transport.route("/api/coding/agent-la/state", json: state([]))
+        manager.start()
+        controller.emitActivityToken("claude", "t1")
+        controller.emitStartToken("s1")
+        XCTAssertTrue(transport.requests.isEmpty)
+        paired = true
+        await manager.refresh()
+        await servicesWaitUntil { self.tokenPosts(transport).count >= 2 }
+        let kinds = Set(tokenPosts(transport).compactMap { $0["kind"] as? String })
+        XCTAssertEqual(kinds, ["activity", "start"])
+    }
+
+    func testAFailedTokenPostIsRetriedOnTheNextRefresh() async {
+        let (manager, controller, transport) = makeManager()
+        transport.route("/api/coding/agent-la/token", json: ["error": "busy"], status: 503)
+        transport.route("/api/coding/agent-la/state", json: state([]))
+        manager.start()
+        controller.emitActivityToken("claude", "t1")
+        await servicesWaitUntil { self.tokenPosts(transport).count >= 1 }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await manager.refresh()
+        await servicesWaitUntil { self.tokenPosts(transport).count >= 2 }
+        XCTAssertEqual(tokenPosts(transport).count, 2, "not marked sent until the server took it")
+    }
+
+    func testASwipeAwaySurvivesARelaunch() {
+        let store = MemoryKeyValueStore()
+        let episode1 = AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c1", "state": ["count": 1, "state": "working"]]]))
+        let (first, firstController, _) = makeManager(paired: false, store: store)
+        first.apply(episode1)
+        firstController.simulateDismissal("claude", token: "tok")
+
+        let (relaunched, controller, _) = makeManager(paired: false, store: store)
+        relaunched.apply(episode1)
+        XCTAssertTrue(controller.started.isEmpty, "swiped away this episode: stays away after a relaunch")
+        relaunched.apply(AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c2", "state": ["count": 1, "state": "working"]]])))
+        XCTAssertEqual(controller.started.count, 1, "the next episode brings it back")
+        XCTAssertFalse((store.string(AgentActivityManager.dismissalsKey) ?? "").contains("c1"),
+                       "old episodes are pruned")
+    }
+
+    /// An end push or iOS's 8-hour limit isn't you swiping it away: a long run's
+    /// activity comes back on the next poll instead of staying gone all episode.
+    func testAnActivityEndedByTheSystemIsNotTreatedAsASwipe() async {
+        let (manager, controller, transport) = makeManager()
+        transport.route("/api/coding/agent-la/token", json: ["ok": true])
+        let snap = AgentLiveSnapshot(json: state([
+            ["agent": "claude", "episode": "c1", "state": ["count": 1, "state": "working"]]]))
+        manager.apply(snap)
+        controller.simulateSystemEnd("claude", token: "tok")
+        manager.apply(snap)
+        XCTAssertEqual(controller.started.count, 2)
+        await servicesWaitUntil { !self.tokenPosts(transport).isEmpty }
+        XCTAssertEqual(tokenPosts(transport).last?["dismissed"] as? Bool, false)
+    }
 }
 
 /// Records what the manager asked ActivityKit to do, and plays iOS's side.
@@ -481,7 +574,7 @@ final class AgentLiveActivityTests: XCTestCase {
 final class FakeAgentActivityController: AgentActivityControlling {
     var onActivityToken: ((String, String) -> Void)?
     var onStartToken: ((String) -> Void)?
-    var onEnded: ((String, String) -> Void)?
+    var onEnded: ((String, String, Bool) -> Void)?
 
     private(set) var running: [String: AgentActivityAttributes.ContentState] = [:]
     private(set) var started: [(String, AgentActivityAttributes.ContentState)] = []
@@ -507,6 +600,11 @@ final class FakeAgentActivityController: AgentActivityControlling {
     /// You swiped the activity away on the Lock Screen.
     func simulateDismissal(_ agent: String, token: String) {
         running[agent] = nil
-        onEnded?(agent, token)
+        onEnded?(agent, token, true)
+    }
+    /// An end push, or iOS's 8-hour limit: not you.
+    func simulateSystemEnd(_ agent: String, token: String) {
+        running[agent] = nil
+        onEnded?(agent, token, false)
     }
 }

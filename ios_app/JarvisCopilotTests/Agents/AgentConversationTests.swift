@@ -214,5 +214,17 @@ final class AgentConversationTests: XCTestCase {
         XCTAssertEqual(AgentConversation.withDetails([grown], [3: full])[0].tools.count, 2)
         XCTAssertTrue(AgentConversation.withDetails([grown], [3: full])[0].tools[0].output.isEmpty)
     }
+
+    /// Details loaded while a tool ran give way once the turn moves on (the
+    /// tool finished, words arrived) even without a new tool (sweep).
+    func testLoadedDetailsGiveWayWhenTheMessageMovedOn() {
+        let full = CodingChatMessage(i: 3, role: "assistant", text: "", tools: [
+            CodingChatTool(json: ["name": "Bash", "summary": "npm test", "ok": NSNull(), "output": "running…"], index: 0)])
+        let lite = CodingChatMessage(i: 3, role: "assistant", text: "All 12 tests pass.", tools: [
+            CodingChatTool(json: ["name": "Bash", "summary": "npm test", "ok": true, "more": true], index: 0)])
+        let merged = AgentConversation.withDetails([lite], [3: full])
+        XCTAssertEqual(merged[0].text, "All 12 tests pass.")
+        XCTAssertFalse(merged[0].tools[0].running)
+    }
 }
 

@@ -15,7 +15,7 @@ final class DefaultAgentActivityController: AgentActivityControlling {
 
     var onActivityToken: ((String, String) -> Void)?
     var onStartToken: ((String) -> Void)?
-    var onEnded: ((String, String) -> Void)?
+    var onEnded: ((String, String, Bool) -> Void)?
 
     /// agent → its activity.
     private var byAgent: [String: Activity<AgentActivityAttributes>] = [:]
@@ -141,8 +141,14 @@ final class DefaultAgentActivityController: AgentActivityControlling {
         }
         let stateTask = Task { [weak self] in
             for await state in activity.activityStateUpdates {
-                if state == .ended || state == .dismissed {
-                    self?.gone(activity)
+                if state == .ended {
+                    // Ended for us — an end push, or iOS's 8-hour limit. Not a swipe.
+                    self?.gone(activity, byYou: false)
+                    return
+                }
+                if state == .dismissed {
+                    // Gone without ending first: you swiped it off the Lock Screen.
+                    self?.gone(activity, byYou: true)
                     return
                 }
             }
@@ -150,13 +156,13 @@ final class DefaultAgentActivityController: AgentActivityControlling {
         watchers[id] = [tokenTask, stateTask]
     }
 
-    private func gone(_ activity: Activity<AgentActivityAttributes>) {
+    private func gone(_ activity: Activity<AgentActivityAttributes>, byYou: Bool) {
         let id = activity.id, agent = activity.attributes.agent
         watchers.removeValue(forKey: id)?.forEach { $0.cancel() }
         let token = tokens.removeValue(forKey: id) ?? ""
         if byAgent[agent]?.id == id { byAgent[agent] = nil }
         if ending.remove(id) == nil {
-            onEnded?(agent, token)
+            onEnded?(agent, token, byYou)
         }
     }
 }

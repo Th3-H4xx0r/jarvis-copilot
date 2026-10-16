@@ -16,10 +16,24 @@ final class CodingStreamReducerTests: XCTestCase {
 
     // MARK: - Cursor / reconcile cadence
 
-    func testCursorIsTheTailWeHoldUnlessReconciling() {
+    /// A poll re-reads the last message we hold (the server grows a turn in
+    /// place) and anything past it; a reconcile re-reads the window.
+    func testCursorIsTheLastMessageWeHoldUnlessReconciling() {
         let t = transcript(7)
-        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 7)
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 6)
         XCTAssertEqual(CodingStreamReducer.cursor(t, full: true), 0)
+        XCTAssertEqual(CodingStreamReducer.cursor(CodingTranscript(), full: false), 0)
+    }
+
+    /// The server folds a whole agent turn into one message: polls must keep
+    /// re-reading it, or tool results and the final answer never appear (sweep).
+    func testPollsReReadTheGrowingLastMessage() {
+        var t = window(60..<100)
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 99)
+        let grown = CodingChatPage(messages: [msg(99, "assistant", "All 12 tests pass.")], total: 100)
+        _ = CodingStreamReducer.apply(grown, full: false, to: &t)
+        XCTAssertEqual(t.messages.last?.text, "All 12 tests pass.")
+        XCTAssertEqual(t.messages.count, 40)
     }
 
     func testEveryTwelfthIncrementalPollReconciles() {
@@ -299,7 +313,7 @@ final class CodingStreamReducerTests: XCTestCase {
         _ = CodingStreamReducer.apply(first, full: true, to: &t)
         XCTAssertEqual(t.start, 60)
         XCTAssertTrue(t.hasOlder)
-        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 100)
+        XCTAssertEqual(CodingStreamReducer.cursor(t, full: false), 99)   // the last message, and what's new
         XCTAssertEqual(CodingStreamReducer.cursor(t, full: true), 60)  // a reconcile re-reads the window we hold
         XCTAssertNil(CodingStreamReducer.limit(t, paged: true))        // only the first page is limited
         let next = CodingChatPage(messages: [msg(70, "assistant", "edited"), msg(100, "user", "new")], total: 101)

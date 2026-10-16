@@ -210,9 +210,10 @@ protocol AgentActivityControlling: AnyObject {
     var onActivityToken: ((String, String) -> Void)? { get set }
     /// The app's push-to-start token (hex). Rotates.
     var onStartToken: ((String) -> Void)? { get set }
-    /// An activity ended that this app didn't end — swiped away on the Lock
-    /// Screen, or ended by a push (agent, its last token or "").
-    var onEnded: ((String, String) -> Void)? { get set }
+    /// An activity ended that this app didn't end (agent, its last token or "",
+    /// byYou). `byYou` is true only for a swipe-away on the Lock Screen — not for
+    /// an end push or iOS's 8-hour limit.
+    var onEnded: ((String, String, Bool) -> Void)? { get set }
 }
 
 // MARK: - The manager
@@ -227,6 +228,12 @@ final class AgentActivityManager {
     private var controller: any AgentActivityControlling
     private let isPaired: @MainActor () -> Bool
     private let deviceID: @MainActor () -> String?
+    /// The Agents REST (a question answered from the Lock Screen goes through it).
+    private let agentsAPI: AgentsAPI
+    /// Where swipe-aways are kept across launches (the App Group's defaults).
+    private let dismissals: KeyValueStore
+    /// The defaults key: a JSON object, agent → episode.
+    static let dismissalsKey = "jc.agentLiveActivities.dismissed"
 
     /// The phone's own Live Activities switch.
     private(set) var enabled = true
@@ -235,12 +242,18 @@ final class AgentActivityManager {
     private(set) var serverEnabled: Bool?
     private(set) var snapshot: AgentLiveSnapshot?
 
-    /// agent → the episode you swiped its activity away in.
+    /// agent → the episode you swiped its activity away in. Kept in the App
+    /// Group's defaults, so a relaunch doesn't bring it back the same episode.
     private var dismissed: [String: String] = [:]
-    /// agent → the last activity token sent, so a repeat isn't re-sent.
+    /// agent → the newest activity token iOS handed over, and → the one the
+    /// server confirmed. A token counts as sent only once the POST succeeded;
+    /// anything else (unpaired, offline, a 5xx) is sent again on the next refresh.
+    private var latestTokens: [String: String] = [:]
     private var sentTokens: [String: String] = [:]
+    private var tokensInFlight: Set<String> = []
     private var startToken = ""
     private var sentStartToken = ""
+    private var startInFlight = false
     private var observing = false
 
     /// While on, each agent has its own activity, so the Jarvis activity stops
@@ -253,8 +266,13 @@ final class AgentActivityManager {
     init(api: AgentLiveAPI = AgentLiveAPI(),
          controller: (any AgentActivityControlling)? = nil,
          isPaired: (@MainActor () -> Bool)? = nil,
-         deviceID: (@MainActor () -> String?)? = nil) {
+         deviceID: (@MainActor () -> String?)? = nil,
+         agents: AgentsAPI = AgentsAPI(),
+         dismissals: KeyValueStore? = nil) {
         self.api = api
+        self.agentsAPI = agents
+        self.dismissals = dismissals ?? (UserDefaults(suiteName: JarvisShared.appGroupID) ?? .standard)
+        self.dismissed = Self.loadDismissals(self.dismissals)
         self.controller = controller ?? DefaultAgentActivityController()
         self.isPaired = isPaired ?? { BridgeClient.shared.isPaired }
         self.deviceID = deviceID ?? { PushHandler.shared.deviceID }
@@ -262,7 +280,9 @@ final class AgentActivityManager {
             self?.activityToken(agent, token)
         }
         self.controller.onStartToken = { [weak self] token in self?.startTokenChanged(token) }
-        self.controller.onEnded = { [weak self] agent, token in self?.ended(agent, token) }
+        self.controller.onEnded = { [weak self] agent, token, byYou in
+            self?.ended(agent, token, byYou: byYou)
+        }
     }
 
     /// Begin watching activities and tokens (at launch, background launches
@@ -274,21 +294,42 @@ final class AgentActivityManager {
         // A question's option tapped on the Lock Screen: find the waiting request
         // by its fingerprint and answer it the way the Agents tab does.
         if AgentDecisionBridge.answer == nil {
-            AgentDecisionBridge.answer = { fingerprint, question, option in
-                let agents = AgentsAPI()
-                guard let overview = try? await agents.overview(),
-                      let request = overview.requests.first(where: { $0.fingerprint == fingerprint })
-                else { return false }
-                let asked = question.isEmpty ? (request.questions.first?.question ?? "") : question
-                return (try? await agents.verdict(requestId: request.requestId, decision: "answer",
-                                                  answers: [asked: option])) ?? false
+            AgentDecisionBridge.answer = { [weak self] fingerprint, question, option in
+                await self?.answer(fingerprint: fingerprint, question: question, option: option) ?? false
             }
         }
+    }
+
+    /// Answer a held question from the Lock Screen: find the request by its
+    /// fingerprint and answer it the way the Agents tab does.
+    func answer(fingerprint: String, question: String, option: String) async -> Bool {
+        guard let overview = try? await agentsAPI.overview(),
+              let request = overview.requests.first(where: { $0.fingerprint == fingerprint })
+        else { return false }
+        // The arbiter matches answers by the EXACT question; the activity only
+        // carries the server's cut (≤ 90 chars, "…", whitespace collapsed).
+        let asked = Self.fullQuestion(matching: question, in: request.questions.map(\.question))
+        return (try? await agentsAPI.verdict(requestId: request.requestId, decision: "answer",
+                                             answers: [asked: option])) ?? false
+    }
+
+    /// The held request's own question that the activity's cut text came from.
+    static func fullQuestion(matching cut: String, in questions: [String]) -> String {
+        func collapsed(_ text: String) -> String {
+            text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        var stem = collapsed(cut)
+        if stem.hasSuffix("…") { stem = String(stem.dropLast()) }
+        if !stem.isEmpty, let full = questions.first(where: { collapsed($0).hasPrefix(stem) }) {
+            return full
+        }
+        return questions.first ?? cut
     }
 
     /// Fetch what the server wants shown and apply it. Errors keep the last state.
     func refresh() async {
         guard enabled, isPaired() else { return }
+        flushTokens()   // anything iOS handed over while unpaired or offline
         do {
             apply(try await api.state())
         } catch {
@@ -301,7 +342,11 @@ final class AgentActivityManager {
         serverEnabled = snap.settings.enabled
         guard enabled else { return }
         // A swipe-away holds only for its episode.
-        dismissed = dismissed.filter { snap.target($0.key)?.episode == $0.value }
+        let current = dismissed.filter { snap.target($0.key)?.episode == $0.value }
+        if current != dismissed {
+            dismissed = current
+            saveDismissals()
+        }
         // A request answered on the Lock Screen a moment ago stays answered even
         // if this poll still says "waiting" (`AgentLiveDecision`).
         let desired = snap.settings.enabled
@@ -325,10 +370,11 @@ final class AgentActivityManager {
         enabled = on
         if on {
             start()
-            sendStartTokenIfNeeded()
+            flushTokens()
             Task { await refresh() }
         } else {
             controller.endAll()
+            latestTokens.removeAll()
             sentTokens.removeAll()
             sentStartToken = ""
             guard isPaired() else { return }
@@ -340,10 +386,8 @@ final class AgentActivityManager {
     // MARK: Callbacks from ActivityKit
 
     private func activityToken(_ agent: String, _ token: String) {
-        guard enabled, isPaired(), sentTokens[agent] != token else { return }
-        sentTokens[agent] = token
-        let api = self.api, device = deviceID()
-        Task { try? await api.registerActivityToken(agent: agent, token: token, deviceId: device) }
+        latestTokens[agent] = token
+        flushTokens()
     }
 
     private func startTokenChanged(_ token: String) {
@@ -351,24 +395,70 @@ final class AgentActivityManager {
         sendStartTokenIfNeeded()
     }
 
-    private func sendStartTokenIfNeeded() {
-        guard enabled, isPaired(), !startToken.isEmpty, startToken != sentStartToken else { return }
-        sentStartToken = startToken
-        let api = self.api, token = startToken, device = deviceID()
-        Task { try? await api.registerStartToken(token, deviceId: device) }
+    /// POST every token the server hasn't confirmed yet. Called as tokens arrive,
+    /// on each refresh and when Live Activities come back on.
+    private func flushTokens() {
+        guard enabled, isPaired() else { return }
+        for (agent, token) in latestTokens where sentTokens[agent] != token && !tokensInFlight.contains(agent) {
+            tokensInFlight.insert(agent)
+            let api = self.api, device = deviceID()
+            Task { [weak self] in
+                let ok = (try? await api.registerActivityToken(agent: agent, token: token,
+                                                               deviceId: device)) != nil
+                self?.tokensInFlight.remove(agent)
+                if ok, self?.latestTokens[agent] == token { self?.sentTokens[agent] = token }
+            }
+        }
+        sendStartTokenIfNeeded()
     }
 
-    private func ended(_ agent: String, _ token: String) {
+    private func sendStartTokenIfNeeded() {
+        guard enabled, isPaired(), !startToken.isEmpty, startToken != sentStartToken,
+              !startInFlight else { return }
+        startInFlight = true
+        let api = self.api, token = startToken, device = deviceID()
+        Task { [weak self] in
+            let ok = (try? await api.registerStartToken(token, deviceId: device)) != nil
+            self?.startInFlight = false
+            if ok { self?.sentStartToken = token }
+        }
+    }
+
+    private func ended(_ agent: String, _ token: String, byYou: Bool) {
+        latestTokens[agent] = nil
         sentTokens[agent] = nil
-        // Still wanted when it went away → you swiped it off; keep it away until
-        // the agent's next episode (the server does the same for push-to-start).
-        let episode = snapshot?.target(agent)?.episode
-        if let episode { dismissed[agent] = episode }
+        // Swiped away while still wanted → keep it away until the agent's next
+        // episode (the server does the same for push-to-start). An end push or
+        // iOS's 8-hour limit isn't you: the next poll may bring it back.
+        let episode = byYou ? snapshot?.target(agent)?.episode : nil
+        if let episode {
+            dismissed[agent] = episode
+            saveDismissals()
+        }
         guard isPaired() else { return }
         let api = self.api, device = deviceID()
         Task {
             try? await api.activityEnded(agent: agent, token: token, deviceId: device,
                                          dismissed: episode != nil)
         }
+    }
+
+    // MARK: Swipe-aways across launches
+
+    private static func loadDismissals(_ store: KeyValueStore) -> [String: String] {
+        guard let raw = store.string(dismissalsKey), let data = raw.data(using: .utf8),
+              let map = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else { return [:] }
+        return map
+    }
+
+    private func saveDismissals() {
+        guard !dismissed.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: dismissed),
+              let raw = String(data: data, encoding: .utf8) else {
+            dismissals.set(nil, forKey: Self.dismissalsKey)
+            return
+        }
+        dismissals.set(raw, forKey: Self.dismissalsKey)
     }
 }

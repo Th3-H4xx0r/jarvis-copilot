@@ -180,7 +180,7 @@ struct AgentDetailRow: View {
     }
 }
 
-/// Deny / Allow for a request the phone can answer (Allow asks to unlock), or
+/// Deny / Allow for a request the phone can answer (no unlock needed), or
 /// the nudge to answer a question in the app.
 struct AgentActionsRow: View {
     let st: AgentActivityAttributes.ContentState

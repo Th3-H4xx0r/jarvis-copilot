@@ -80,10 +80,11 @@ enum CodingStreamReducer {
     /// A page of a long chat (the first one, and each one above it).
     static let pageSize = 40
 
-    /// `after=` for the next request: a reconcile re-reads the window we hold,
-    /// a poll asks for what's past its end.
+    /// `after=` for the next request: a reconcile re-reads the window we hold;
+    /// a poll re-reads the last message we hold — the server folds a whole
+    /// turn into one message that grows in place — and anything past it.
     static func cursor(_ t: CodingTranscript, full: Bool) -> Int {
-        full ? t.start : t.end
+        full ? t.start : max(t.start, t.end - 1)
     }
 
     /// `limit=`: a paged chat (the Agents tab) opens on its last page; after

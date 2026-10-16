@@ -65,7 +65,7 @@ struct AgentActivitySettingsSection: View {
                         }
                         .tint(JcTheme.accent)
                         Text("For a request Jarvis is holding (Remote approvals on). "
-                             + "Allow asks you to unlock first.")
+                             + "One tap answers it, right from the Lock Screen.")
                             .font(.system(size: 12))
                             .foregroundStyle(JcTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
