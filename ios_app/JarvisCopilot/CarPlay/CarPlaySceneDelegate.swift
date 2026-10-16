@@ -20,6 +20,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                                   didConnect interfaceController: CPInterfaceController) {
         AppServices.shared.setCarPlayActive(true)
         CarPresence.shared.setCarPlay(true)
+        CarScreen.scene = templateApplicationScene   // car_directions opens Maps here
         let coordinator = CarPlayCoordinator(interfaceController: interfaceController)
         self.coordinator = coordinator
         coordinator.start()
@@ -42,6 +43,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                                   didDisconnectInterfaceController interfaceController: CPInterfaceController) {
         coordinator?.stop()
         coordinator = nil
+        CarScreen.scene = nil
         AppServices.shared.setCarPlayActive(false)
         CarPresence.shared.setCarPlay(false)
     }

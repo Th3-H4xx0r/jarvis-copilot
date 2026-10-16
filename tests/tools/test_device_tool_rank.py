@@ -47,6 +47,14 @@ def test_no_history_fills_in_name_order_within_budget(monkeypatch, cfg):
     assert r.always_loaded_device_tools({"device_b": 100, "device_a": 100}) == ["device_a"]
 
 
+def test_car_directions_is_loaded_by_default(monkeypatch):
+    """Asked for by voice while driving, before it has any call history: it
+    can't wait behind a tool search (the default config pins it)."""
+    monkeypatch.setattr(r, "usage_counts", lambda days=30: {"device_open_app": 30})
+    loaded = r.always_loaded_device_tools({"device_car_directions": 120, "device_open_app": 90})
+    assert "device_car_directions" in loaded
+
+
 def _db(path, rows):
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,"

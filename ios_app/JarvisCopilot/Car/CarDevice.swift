@@ -2,8 +2,8 @@ import Combine
 import Foundation
 
 /// The car as a Jarvis device and as a host for linked wearables (the dashcam now, lights later).
-/// Its skills: `car_get_status` always; `car_set_control` only while the car has controls — the
-/// car re-sends its registration whenever that set changes.
+/// Its skills: `car_get_status` and `car_directions` always; `car_set_control` only while the car
+/// has controls — the car re-sends its registration whenever that set changes.
 @MainActor
 final class CarDevice: WearableDevice, WearableHost {
     static let shared = CarDevice()
@@ -83,6 +83,16 @@ final class CarDevice: WearableDevice, WearableHost {
             and when it last was, the devices linked to it (like the dashcam) with their status, and \
             its controls with their current values.
             """, inputSchema: DeviceCapability.schema()))
+        // Always offered, not only in the car: a tool list that changed with every drive
+        // would throw away the server's prompt cache. It says why when CarPlay isn't there.
+        out.append(DeviceCapability(name: "car_directions", description: """
+            While driving with CarPlay: start turn-by-turn driving directions on the car's screen \
+            (his maps app) to a place by name or address — the closest match near him. Use it for \
+            "take me to / navigate to / directions to". Then tell him in one short sentence which place \
+            (name and street) and how far; the map opens when you finish speaking.
+            """, inputSchema: DeviceCapability.schema([
+                "destination": ["type": "string", "description": "A place name or address, e.g. \"Costco\"."],
+            ], required: ["destination"])))
         let controls = self.controls
         if !controls.isEmpty {
             let list = controls.map { "\($0.id) (\($0.kindName): \($0.title))" }.joined(separator: ", ")
@@ -121,6 +131,10 @@ final class CarDevice: WearableDevice, WearableHost {
             return ["ok": true]
         case "car_get_status":
             return snapshot()
+        case "car_directions":
+            let destination = (args["destination"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !destination.isEmpty else { throw DeviceError.badArgument("destination is required") }
+            return try await CarDirections.start(to: destination, presence: presence)
         case "car_set_control":
             guard let id = args["control"] as? String else { throw DeviceError.badArgument("control is required") }
             guard let control = controls.first(where: { $0.id == id }) else {

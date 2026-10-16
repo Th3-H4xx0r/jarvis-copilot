@@ -207,6 +207,7 @@
 		2E7E24501CF070BD04CF5A14 /* SkillRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4C39883A267185DB68992 /* SkillRegistry.swift */; };
 		2EA9F9CDA0F76FB0442D74F0 /* CarLightsMusic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68528C62EDA28F7D67F6281E /* CarLightsMusic.swift */; };
 		2EB5AA667B4024DE7FD78172 /* CarLightsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296993EE95A7073BE01AFB11 /* CarLightsPage.swift */; };
+		2F138CCBC13E953B7FB4DDAB /* CarDirections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940218F4D68FC33DF4E93180 /* CarDirections.swift */; };
 		2F1BE504706FB0F882ECEA15 /* VoiceOrbGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48E81D7C2F356AA48FBAE1A1 /* VoiceOrbGeometryTests.swift */; };
 		2F2F60B1F41C87A323B08D98 /* HealthHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DB082EB68D2196ADC144F0C /* HealthHistoryTests.swift */; };
 		2FC1B564DE1541DB7E758D8D /* PodSetupClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 735A552C24DC3D89CA0A2FDF /* PodSetupClient.swift */; };
@@ -997,6 +998,7 @@
 		E3B78E85FE5FFD8C4FE67C0A /* JarvisDesignRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 467C4CA86BD7FC595DAB93F1 /* JarvisDesignRenderer.swift */; };
 		E3BDBF66D4187D6B2839CAF4 /* HabitsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A687417AAF3B91F5B7FB0B /* HabitsView.swift */; };
 		E3BE58BB6B9C6810259C0C0B /* DataSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = A525B24E6E393BB06F66E26E /* DataSkills.swift */; };
+		E3F920E91A7F95E543CC7843 /* CarDirectionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DDDE57FE987D235C185E16 /* CarDirectionsTests.swift */; };
 		E407745FE90A3A244C8B279F /* CodingViewHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E2AB7620D490D3BFC3363C /* CodingViewHostingTests.swift */; };
 		E41084047CAE909ED88FACBC /* RestingHeartRate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D21157334F2ECA9D489EF8 /* RestingHeartRate.swift */; };
 		E41E345C1690B27939EAFCE1 /* X5GestureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272E675A6D3B764552D4CB0A /* X5GestureTests.swift */; };
@@ -1769,6 +1771,7 @@
 		92D3CD2A60E7E33865C04CFF /* RingHand.bin */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.macbinary; path = RingHand.bin; sourceTree = "<group>"; };
 		938BDAC7E4CAA8176A9E2E4D /* DashcamRemuxTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRemuxTests.swift; sourceTree = "<group>"; };
 		93CB621EE710CFD7DC67D0CC /* Camry.bin */ = {isa = PBXFileReference; includeInIndex = 1; path = Camry.bin; sourceTree = "<group>"; };
+		940218F4D68FC33DF4E93180 /* CarDirections.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarDirections.swift; sourceTree = "<group>"; };
 		94C0CA66F85DC4DBCE36C2C4 /* InsightsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsPage.swift; sourceTree = "<group>"; };
 		94DED9BEC0FECCC41973C909 /* RingModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingModelRenderTests.swift; sourceTree = "<group>"; };
 		94E9AD94F1C0459F59355A1C /* JcTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JcTheme.swift; sourceTree = "<group>"; };
@@ -1859,6 +1862,7 @@
 		A565295FDF2D803868160BC7 /* IntegrationsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsAPI.swift; sourceTree = "<group>"; };
 		A572577E1C66D03DBFA23A83 /* CarDeviceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarDeviceTests.swift; sourceTree = "<group>"; };
 		A5828A335B2735C89D0150FF /* RouteMath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteMath.swift; sourceTree = "<group>"; };
+		A5DDDE57FE987D235C185E16 /* CarDirectionsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarDirectionsTests.swift; sourceTree = "<group>"; };
 		A5FE4EA7B8C34DDDB922C004 /* ChatMarkdownCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatMarkdownCache.swift; sourceTree = "<group>"; };
 		A648CAF7E0841BBA95CEC575 /* AmbientSegmenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AmbientSegmenter.swift; sourceTree = "<group>"; };
 		A6802508C27713EE7435CB13 /* CarTalkFeed.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarTalkFeed.swift; sourceTree = "<group>"; };
@@ -3291,6 +3295,7 @@
 				F8FF4E306DA24C8DC8DA2112 /* WearableControlTests.swift */,
 				9B2E6C72B7515CE01B1871AA /* WearableLinksTests.swift */,
 				31D82C3E4E44CC962AB97F39 /* ToyotaTests.swift */,
+				A5DDDE57FE987D235C185E16 /* CarDirectionsTests.swift */,
 			);
 			name = Car;
 			path = Car;
@@ -3863,6 +3868,7 @@
 				6588D51E1EBC7DFC6F10CB63 /* Camry-LICENSE.md */,
 				B54888CA6669E6AD937D809D /* Toyota */,
 				DC76515E8C3A210BF50570F9 /* CarStage.swift */,
+				940218F4D68FC33DF4E93180 /* CarDirections.swift */,
 			);
 			name = Car;
 			path = Car;
@@ -4881,6 +4887,7 @@
 				0FE9065C6AF13C6C13FB7351 /* BatteryUsageRenderTests.swift in Sources */,
 				1E2769C44E659D038473904F /* CarCardTextTests.swift in Sources */,
 				B26A74B855608F52BF6B610F /* CarTalkTests.swift in Sources */,
+				E3F920E91A7F95E543CC7843 /* CarDirectionsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5630,6 +5637,7 @@
 				88D58356CBBEED4EB5CEE1C3 /* CarCardText.swift in Sources */,
 				237E6B98AFF3B94993E36A9D /* CarTalkFeed.swift in Sources */,
 				3820809B744FFC2EBFBD7421 /* CarTalkIntent.swift in Sources */,
+				2F138CCBC13E953B7FB4DDAB /* CarDirections.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -322,6 +322,9 @@ final class AppServices {
         CarTalkBridge.toggle = { [weak self] in
             await CarTalkFeed.shared.toggle(voice: VoiceStore.shared) { self?.liveActivity.reportVoice($0) }
         }
+        // Voice directions open the map once the reply has played; Stop cancels them.
+        VoiceStore.shared.onTurnFinished = { CarHandoff.shared.turnFinished() }
+        VoiceStore.shared.onStopRequested = { CarHandoff.shared.stopped() }
 
         // 10c. Widgets: the live values every Jarvis widget reads, and the designs.
         WidgetDataHub.shared.start()

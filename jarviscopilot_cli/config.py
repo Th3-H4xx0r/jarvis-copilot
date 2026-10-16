@@ -773,6 +773,14 @@ DEFAULT_CONFIG = {
         # Optional override for the always-loaded core tool list. Empty = use
         # the built-in lean core (toolsets._LAZY_CORE_TOOLS).
         "lazy_tools_core": [],
+        # Which device tools stay loaded (tools/device_tool_rank.py): the most used,
+        # up to a token budget, plus pins. The car's directions are asked for by voice
+        # while driving — before they have any call history — so they can't wait
+        # behind a tool search.
+        "device_tools": {
+            "always_loaded_tokens": 8000,
+            "pinned": ["device_car_directions"],
+        },
     },
 
     "terminal": {

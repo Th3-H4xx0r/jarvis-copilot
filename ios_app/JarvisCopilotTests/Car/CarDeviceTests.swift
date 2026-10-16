@@ -98,4 +98,34 @@ final class CarDeviceTests: XCTestCase {
                        LinkedWearableStatus(text: "Away · 2 to upload", connected: false))
         XCTAssertEqual(DashcamDevice.shared.linkKind, "dashcam")
     }
+
+    // MARK: - Directions
+
+    /// Always offered (a stable tool list keeps the server's prompt cache warm);
+    /// it says why when the car screen isn't there.
+    func testDirectionsAreAlwaysOffered() throws {
+        let car = car(WearableLinks(storage: isolatedDefaults()))
+        let directions = try XCTUnwrap(car.capabilities.first { $0.name == "car_directions" })
+        XCTAssertEqual(directions.inputSchema["required"] as? [String], ["destination"])
+    }
+
+    func testDirectionsWithoutCarPlaySayWhy() async {
+        let car = car(WearableLinks(storage: isolatedDefaults()))
+        do {
+            _ = try await car.invoke("car_directions", args: ["destination": "Costco"])
+            XCTFail("no car screen, no directions")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("CarPlay"), error.localizedDescription)
+        }
+    }
+
+    func testDirectionsNeedADestination() async {
+        let car = car(WearableLinks(storage: isolatedDefaults()))
+        do {
+            _ = try await car.invoke("car_directions", args: ["destination": "  "])
+            XCTFail("empty destination")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("destination"), error.localizedDescription)
+        }
+    }
 }

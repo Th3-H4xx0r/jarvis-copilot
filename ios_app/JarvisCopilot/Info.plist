@@ -32,6 +32,7 @@
 		<string>snssdk1233</string>
 		<string>maps</string>
 		<string>comgooglemaps</string>
+		<string>waze</string>
 		<string>googlegmail</string>
 		<string>googlechrome</string>
 		<string>x-web-search</string>
