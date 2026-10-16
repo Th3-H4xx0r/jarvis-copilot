@@ -20,7 +20,62 @@ struct MacLivePanel: View {
         _store = State(initialValue: MainActor.assumeIsolated { LiveStore.shared })
     }
 
+    @Environment(\.macPanelInIsland) private var inIsland
+
     var body: some View {
+        if inIsland { islandBody } else { panelBody }
+    }
+
+    /// In the notch island's short stage: the same quiet row as Voice's, then
+    /// the Record disc beside what it does — or, once words arrive, beside the
+    /// transcript.
+    private var islandBody: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                MacIslandModeIcons(mode: $mode)
+                Spacer(minLength: 8)
+                if store.capturing {
+                    MacLevelBars(level: store.level)
+                    if let started = store.captureStartedAt {
+                        TimelineView(.periodic(from: started, by: 1)) { context in
+                            Text(Self.elapsed(from: started, to: context.date))
+                                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                                .foregroundStyle(JcTheme.text.opacity(0.85))
+                        }
+                    }
+                }
+                MacSettingsButton()
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            HStack(alignment: .center, spacing: 16) {
+                recordButton
+                if store.timeline.isEmpty && inProgress.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(store.capturing ? "Listening" : "Capture the room")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(JcTheme.text)
+                        Text(store.capturing ? "Words appear here as they are heard."
+                                             : "Record a conversation: Jarvis transcribes it, tells the voices apart and translates.")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(JcTheme.muted)
+                            .lineLimit(2)
+                        warnings
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    transcript.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
+        }
+        .task { await store.load() }
+        .preferredColorScheme(.dark)
+    }
+
+    private var panelBody: some View {
         VStack(spacing: 10) {
             HStack(spacing: 6) {
                 MacPanelModeSwitch(mode: $mode)
@@ -475,6 +530,30 @@ struct MacPanelBackdrop: View {
 extension EnvironmentValues {
     /// The panel is hosted in Jarvis.app's notch island.
     @Entry var macPanelInIsland = false
+}
+
+/// Voice | Live in the island: bare glyphs, only the selected one in a capsule.
+struct MacIslandModeIcons: View {
+    @Binding var mode: MacPanelMode
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach([MacPanelMode.voice, .live], id: \.self) { m in
+                let on = mode == m
+                Button { mode = m } label: {
+                    Image(systemName: m == .voice ? "waveform" : "dot.radiowaves.left.and.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
+                        .frame(width: 32, height: 26)
+                        .background(Capsule().fill(Color.white.opacity(on ? 0.10 : 0)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(m == .voice ? "Voice" : "Live — capture the room")
+                .accessibilityLabel(m == .voice ? "Voice" : "Live")
+            }
+        }
+    }
 }
 
 /// The island's stage: a dark rounded card the width of the island with a

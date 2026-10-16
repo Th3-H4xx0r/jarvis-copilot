@@ -58,6 +58,8 @@ final class NotchOnlyTests: XCTestCase {
         guard let dylib = env["JC_VOICE_DYLIB"], let api = env["JC_API_ORIGIN"] else {
             throw XCTSkip("set JC_VOICE_DYLIB and JC_API_ORIGIN to render the voice panel")
         }
+        // The panel's mode (Voice / Live) is remembered in defaults; JC_VOICE_MODE picks it.
+        UserDefaults.standard.set(env["JC_VOICE_MODE"] ?? "voice", forKey: "jc.mac.panelMode")
         let model = AppModel()
         model.handle(["type": "hello", "api": api, "voice_dylib": dylib])
         let controller = IslandController(model: model)

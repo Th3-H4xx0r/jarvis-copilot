@@ -183,20 +183,7 @@ struct MacVoicePanel: View {
     /// The row of glyphs: bare icons, only the selected mode in a capsule.
     private var islandTopRow: some View {
         HStack(spacing: 4) {
-            ForEach([MacPanelMode.voice, .live], id: \.self) { m in
-                let on = panelMode.wrappedValue == m
-                Button { panelMode.wrappedValue = m } label: {
-                    Image(systemName: m == .voice ? "waveform" : "dot.radiowaves.left.and.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
-                        .frame(width: 32, height: 26)
-                        .background(Capsule().fill(Color.white.opacity(on ? 0.10 : 0)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(m == .voice ? "Voice" : "Live")
-                .accessibilityLabel(m == .voice ? "Voice" : "Live")
-            }
+            MacIslandModeIcons(mode: panelMode)
             MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
                           enabled: !store.isActive,
                           accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
@@ -398,7 +385,7 @@ struct MacVoicePanel: View {
         case .connecting: return store.captureReady ? "Listening" : "Connecting"
         case .listening: return "Listening"
         case .thinking: return store.toolStatus ?? "Thinking"
-        case .speaking: return "Jarvis is speaking"
+        case .speaking: return "Speaking"
         case .error: return "Let's try again"
         }
     }
