@@ -74,6 +74,7 @@ private struct GeneralSettings: View {
                 Toggle("Show it while agents work", isOn: $showWorking)
                     .onChange(of: showWorking) { _, v in Prefs.showWhileWorking = v }
             }
+            ChatRunSection()
             Section("Orb") {
                 Picker("Look", selection: $skin) {
                     Text("Automatic (seasons)").tag("auto")
@@ -102,6 +103,112 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Settings → General → Island chat: who answers the island's Jarvis chat —
+/// the Chat default, a harness, or a single model (the phone's harness chip).
+/// It runs with the regular chat's full toolset either way.
+private struct ChatRunSection: View {
+    @Bindable private var chat = MacChatStore.shared
+    @State private var options = ChatRunOptions.shared
+
+    var body: some View {
+        Section {
+            Picker("Jarvis answers with", selection: kind) {
+                Text("Chat default").tag("default")
+                if !options.harnesses.isEmpty || currentHarness != nil {
+                    Divider()
+                    ForEach(harnesses) { h in Text(h.name).tag("h:" + h.id) }
+                }
+                Divider()
+                Text("Single model").tag("single")
+            }
+            if case .model = chat.runChoice {
+                Picker("Model", selection: model) {
+                    ForEach(providers, id: \.self) { p in
+                        Section(p.isEmpty ? "Models" : p) {
+                            ForEach(models(for: p)) { m in Text(m.label).tag(Self.key(m.choice)) }
+                        }
+                    }
+                }
+            }
+            if options.loading {
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Loading harnesses and models…") }
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if let error = options.error {
+                HStack {
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Retry") { Task { await options.refresh() } }
+                }
+            }
+        } header: {
+            Text("Island chat")
+        } footer: {
+            Text("Chat default follows the harness set in Jarvis → Settings → Default. The island chat has the same tools as the regular chat; commands that need your approval ask in the island.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .task { await options.refresh() }
+    }
+
+    /// The saved harness, even before the list has loaded.
+    private var currentHarness: ChatHarnessOption? {
+        if case .harness(let id, let name) = chat.runChoice { return ChatHarnessOption(id: id, name: name) }
+        return nil
+    }
+
+    private var harnesses: [ChatHarnessOption] {
+        var list = options.harnesses
+        if let h = currentHarness, !list.contains(where: { $0.id == h.id }) { list.append(h) }
+        return list
+    }
+
+    /// The saved model, even before (or if no longer) listed.
+    private var allModels: [ChatModelOption] {
+        var list = options.models
+        if case .model(let id, let label, let provider) = chat.runChoice,
+           !list.contains(where: { $0.id == id && $0.providerID == provider }) {
+            list.insert(ChatModelOption(id: id, label: label.isEmpty ? id : label, provider: "Current", providerID: provider), at: 0)
+        }
+        return list
+    }
+
+    private var providers: [String] {
+        var seen = Set<String>()
+        return allModels.compactMap { seen.insert($0.provider).inserted ? $0.provider : nil }
+    }
+
+    private func models(for provider: String) -> [ChatModelOption] { allModels.filter { $0.provider == provider } }
+
+    private static func key(_ c: ChatRunChoice) -> String {
+        if case .model(let id, _, let provider) = c { return provider + "|" + id }
+        return ""
+    }
+
+    private var kind: Binding<String> {
+        Binding(get: {
+            switch chat.runChoice {
+            case .chatDefault: return "default"
+            case .harness(let id, _): return "h:" + id
+            case .model: return "single"
+            }
+        }, set: { tag in
+            if tag == "default" {
+                chat.runChoice = .chatDefault
+            } else if tag.hasPrefix("h:"), let h = harnesses.first(where: { "h:" + $0.id == tag }) {
+                chat.runChoice = h.choice
+            } else if tag == "single", let first = options.models.first {
+                if case .model = chat.runChoice { return }
+                chat.runChoice = first.choice
+            }
+        })
+    }
+
+    private var model: Binding<String> {
+        Binding(get: { Self.key(chat.runChoice) }, set: { tag in
+            if let m = allModels.first(where: { Self.key($0.choice) == tag }) { chat.runChoice = m.choice }
+        })
     }
 }
 

@@ -3,12 +3,17 @@ import SwiftUI
 
 private let dim = Color.white.opacity(0.55)
 
-/// Chat with Jarvis (or a model on this Mac) from the notch. Drop files on it;
-/// ⌃⌥W adds the window you were in.
+/// Chat with Jarvis (or a model on this Mac) from the notch, laid out like the
+/// phone's chat: your turns in a soft bubble, Jarvis's turns open with their
+/// tools in one box, approvals and questions answered in place. Drop files on
+/// it; ⌃⌥W adds the window you were in.
 struct ChatPane: View {
     let ui: IslandUI
     @Bindable var chat = MacChatStore.shared
+    @State private var options = ChatRunOptions.shared
     @FocusState private var focused: Bool
+
+    private static let bottom = "chat-bottom"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -20,25 +25,54 @@ struct ChatPane: View {
                         ForEach(Array(chat.lines.enumerated()), id: \.element.id) { i, line in
                             // Same speaker: 6 pt; a change of speaker gets air.
                             let gap: CGFloat = i == 0 ? 0 : (chat.lines[i - 1].role == line.role ? 6 : 18)
-                            ChatBubble(line: line).padding(.top, gap).id(line.id)
+                            row(line).padding(.top, gap).id(line.id)
                         }
+                        if let a = chat.pendingApproval {
+                            ChatApprovalCard(approval: a, error: chat.answerError) { chat.answerApproval($0) }
+                                .padding(.top, 12)
+                        }
+                        if let c = chat.pendingClarify {
+                            ChatClarifyCard(clarify: c, error: chat.answerError) { chat.answerClarify($0) }
+                                .padding(.top, 12)
+                        }
+                        Color.clear.frame(height: 1).id(Self.bottom)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
                 }
-                .onChange(of: chat.lines.last?.text) { _, _ in
-                    if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
-                }
+                // Opens on the latest turn and stays there as the reply grows.
+                .defaultScrollAnchor(.bottom)
+                .onAppear { DispatchQueue.main.async { proxy.scrollTo(Self.bottom, anchor: .bottom) } }
+                .onChange(of: scrollKey) { _, _ in proxy.scrollTo(Self.bottom, anchor: .bottom) }
             }
             composer
         }
-        .onAppear { focused = true; if chat.provider != .jarvis { chat.loadLocalModels() } }
+        .onAppear {
+            focused = true
+            if chat.provider != .jarvis { chat.loadLocalModels() }
+        }
         .onChange(of: chat.draft) { _, d in ui.pinned = !d.isEmpty || chat.busy }
         .onChange(of: chat.busy) { _, b in ui.pinned = b || !chat.draft.isEmpty }
         .onDisappear { ui.pinned = false }
     }
 
-    /// "Chat", then the model and a new chat — the phone's header.
+    /// Anything that grows the conversation keeps its end in view.
+    private var scrollKey: [Int] {
+        let last = chat.lines.last
+        return [chat.lines.count, last?.turn.text.count ?? 0, last?.turn.tools.count ?? 0,
+                last?.turn.tools.filter(\.done).count ?? 0, chat.pendingApproval == nil ? 0 : 1,
+                chat.pendingClarify == nil ? 0 : 1]
+    }
+
+    @ViewBuilder private func row(_ line: MacChatStore.Line) -> some View {
+        switch line.role {
+        case .user: ChatUserBubble(line: line)
+        case .assistant: ChatTurnView(turn: line.turn)
+        case .note: ChatNoteRow(text: line.text)
+        }
+    }
+
+    /// "Chat", then who answers and a new chat — the phone's header.
     private var header: some View {
         HStack(spacing: 8) {
             Text("Chat").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
@@ -47,27 +81,20 @@ struct ChatPane: View {
                 Text(chat.localError ?? "Looking for models…")
                     .font(.system(size: 11)).foregroundStyle(dim).lineLimit(1)
             }
-            Menu {
-                Picker("Chat with", selection: $chat.provider) {
-                    ForEach(MacChatStore.Provider.allCases) { Text($0.label).tag($0) }
-                }
-                if chat.provider != .jarvis, !chat.localModels.isEmpty {
-                    Divider()
-                    Picker("Model", selection: $chat.localModel) {
-                        ForEach(chat.localModels, id: \.self) { Text($0).tag($0) }
-                    }
-                }
-            } label: {
+            Menu { menu } label: {
                 HStack(spacing: 5) {
-                    Text(modelLabel).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    if chat.provider == .jarvis, let symbol = chat.runChoice.symbol {
+                        Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(JcAccent.color)
+                    }
+                    Text(modelLabel).font(.system(size: 12, weight: .semibold)).lineLimit(1).frame(maxWidth: 190)
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
                 }
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(Color.white.opacity(0.08)))
+                .chatGlass(in: Capsule())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .help("Who you're chatting with")
+            .help("Who answers")
             Button { chat.newChat() } label: {
                 Image(systemName: "square.and.pencil").font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(JcAccent.color).frame(width: 26, height: 24).contentShape(Rectangle())
@@ -76,8 +103,39 @@ struct ChatPane: View {
         }
     }
 
+    @ViewBuilder private var menu: some View {
+        Picker("Chat with", selection: $chat.provider) {
+            ForEach(MacChatStore.Provider.allCases) { Text($0.label).tag($0) }
+        }
+        if chat.provider == .jarvis {
+            Divider()
+            choiceToggle("Chat default", .chatDefault)
+            ForEach(options.harnesses) { h in choiceToggle(h.name, h.choice) }
+            if !options.models.isEmpty {
+                Menu("Single model") {
+                    ForEach(options.providers, id: \.self) { p in
+                        Menu(p.isEmpty ? "Models" : p) {
+                            ForEach(options.models(for: p)) { m in choiceToggle(m.label, m.choice) }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Chat settings…") { SettingsWindow.show(model: AppModel.shared) }
+        } else if !chat.localModels.isEmpty {
+            Divider()
+            Picker("Model", selection: $chat.localModel) {
+                ForEach(chat.localModels, id: \.self) { Text($0).tag($0) }
+            }
+        }
+    }
+
+    private func choiceToggle(_ title: String, _ choice: ChatRunChoice) -> some View {
+        Toggle(title, isOn: Binding(get: { chat.runChoice == choice }, set: { if $0 { chat.runChoice = choice } }))
+    }
+
     private var modelLabel: String {
-        if chat.provider == .jarvis { return "Jarvis" }
+        if chat.provider == .jarvis { return chat.runChoice.label }
         return chat.localModel.isEmpty ? chat.provider.label : "\(chat.provider.label) · \(chat.localModel)"
     }
 
@@ -98,11 +156,17 @@ struct ChatPane: View {
         .padding(.top, 36)
     }
 
-    /// One rounded glass field: attach, the message, send — what's attached sits
-    /// inside it, and its edge lights while Jarvis answers.
+    /// Where Send goes: an open question takes your words as its answer.
+    private var canSend: Bool { !chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!chat.busy || answering) }
+    private var answering: Bool { chat.pendingClarify != nil }
+    private var canStop: Bool { chat.busy && !answering }
+
+    /// The phone's composer: one glass field — what's attached above the text,
+    /// attach, the message, send (stop while Jarvis works) — its edge lit while
+    /// Jarvis answers.
     private var composer: some View {
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
-        return VStack(alignment: .leading, spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: 23, style: .continuous)
+        return VStack(alignment: .leading, spacing: 4) {
             if chat.window != nil || !chat.attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -112,40 +176,45 @@ struct ChatPane: View {
                             }
                         }
                         ForEach(chat.attachments) { a in
-                            ContextChip(icon: a.isImage ? "photo" : "doc", text: a.name) { chat.remove(a) }
+                            ContextChip(icon: a.isImage ? "photo" : "doc", text: a.name,
+                                        detail: ChatContext.sizeText(a.size), thumbnail: a.isImage ? a.url : nil) {
+                                chat.remove(a)
+                            }
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 8).padding(.top, 4)
                 }
             }
             HStack(alignment: .bottom, spacing: 6) {
                 Button { attach() } label: {
                     Image(systemName: "plus").font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.white.opacity(0.08)))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 34, height: 34)
+                        .chatGlass(in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain).help("Attach files")
-                TextField("Message Jarvis", text: $chat.draft, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: 13.5)).lineLimit(1...5).focused($focused)
-                    .padding(.vertical, 7)
+                TextField(answering ? "Type your answer" : "Message Jarvis", text: $chat.draft, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: ChatStyle.body)).foregroundStyle(ChatStyle.text)
+                    .lineLimit(1...6).focused($focused)
+                    .padding(.vertical, 8)
                     .onSubmit { chat.send() }
-                let canSend = !chat.draft.trimmingCharacters(in: .whitespaces).isEmpty
-                Button { chat.busy ? chat.stop() : chat.send() } label: {
-                    Image(systemName: chat.busy ? "stop.fill" : "arrow.up").font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(chat.busy ? .white : (canSend ? JcAccent.color : .white.opacity(0.35)))
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.white.opacity(0.10)))
-                        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                Button { canStop ? chat.stop() : chat.send() } label: {
+                    Image(systemName: canStop ? "stop.fill" : "arrow.up").font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(canStop ? .white : (canSend ? JcAccent.color : .white.opacity(0.35)))
+                        .frame(width: 34, height: 34)
+                        .chatGlass(in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!chat.busy && !canSend)
-                .help(chat.busy ? "Stop" : "Send")
+                .disabled(!canStop && !canSend)
+                .help(canStop ? "Stop" : "Send")
             }
         }
         .padding(6)
-        .background(shape.fill(Color.white.opacity(0.06)))
-        .overlay(shape.strokeBorder(chat.busy ? JcAccent.color.opacity(0.6) : Color.white.opacity(0.10), lineWidth: chat.busy ? 1 : 0.5))
+        .chatGlass(in: shape)
+        // The edge lights only while Jarvis is working on a reply.
+        .overlay(shape.strokeBorder(JcAccent.color.opacity(chat.busy ? 0.6 : 0), lineWidth: 1))
         .animation(.easeOut(duration: 0.2), value: chat.busy)
     }
 
@@ -162,63 +231,38 @@ struct ChatPane: View {
     }
 }
 
-private struct ChatBubble: View {
-    let line: MacChatStore.Line
-
-    var body: some View {
-        switch line.role {
-        case .user:
-            // The phone's: a restrained blue surface hugged to the right.
-            HStack {
-                Spacer(minLength: 70)
-                Text(line.text).font(.system(size: 13.5)).lineSpacing(2).foregroundStyle(.white)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(JcAccent.soft.opacity(0.16)))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(JcAccent.soft.opacity(0.14), lineWidth: 0.5))
-            }
-        case .assistant:
-            Group {
-                if line.text.isEmpty {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Thinking…").font(.system(size: 12)).foregroundStyle(dim)
-                    }
-                } else {
-                    Text(Self.markdown(line.text)).font(.system(size: 13.5)).lineSpacing(3)
-                        .foregroundStyle(.white.opacity(0.92)).textSelection(.enabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        case .tool:
-            Label(line.text, systemImage: "wrench.and.screwdriver").font(.system(size: 11)).foregroundStyle(dim)
-        case .error:
-            Label(line.text, systemImage: "exclamationmark.triangle").font(.system(size: 12))
-                .foregroundStyle(Color(red: 1, green: 0.45, blue: 0.4))
-        }
-    }
-
-    static func markdown(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(s)
-    }
-}
-
+/// Something going with the next message: the phone's attachment chip
+/// (a picture's thumbnail, the name, its size, ×).
 private struct ContextChip: View {
     let icon: String
     let text: String
+    var detail: String? = nil
+    var thumbnail: URL? = nil
     let remove: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-            Text(text).lineLimit(1).frame(maxWidth: 200)
-            Button(action: remove) { Image(systemName: "xmark") }.buttonStyle(.plain)
+        HStack(spacing: 6) {
+            if let thumbnail, let image = NSImage(contentsOf: thumbnail) {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                    .frame(width: 24, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            } else {
+                Image(systemName: icon).font(.system(size: 11)).foregroundStyle(dim)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(text).font(.system(size: 11)).lineLimit(1).frame(maxWidth: 180, alignment: .leading)
+                if let detail { Text(detail).font(.system(size: 8.5)).foregroundStyle(dim) }
+            }
+            Button(action: remove) {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(dim)
+                    .frame(width: 18, height: 18).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Remove")
         }
-        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Capsule().fill(.white.opacity(0.1)))
+        .foregroundStyle(.white.opacity(0.88))
+        .padding(.leading, thumbnail == nil ? 9 : 4).padding(.trailing, 3).padding(.vertical, 3)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
     }
 }
 

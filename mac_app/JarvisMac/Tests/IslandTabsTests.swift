@@ -234,6 +234,80 @@ final class IslandTabsTests: XCTestCase {
         chat.endDemo()
     }
 
+    /// A reply with its tools in one box, a picture from a MEDIA: line, and a
+    /// command waiting on your approval; then Jarvis's question. Rendered
+    /// when JC_ISLAND_SNAPSHOT is set (-chat-tools.png, -chat-clarify.png).
+    @MainActor
+    func testTheChatTabShowsToolsAndAnApproval() throws {
+        guard let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"] else {
+            throw XCTSkip("set JC_ISLAND_SNAPSHOT to render the chat tab")
+        }
+        let model = AppModel()
+        let chat = MacChatStore.shared
+        chat.newChat()
+        let ui = IslandUI()
+        ui.state = .expanded
+        ui.tab = .chat
+        let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: IslandController(model: model))
+            .transaction { $0.disablesAnimations = true })
+        host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
+        func shot(_ name: String) throws {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + name))
+        }
+        // A stand-in picture, inline so nothing is fetched.
+        let picture = NSImage(size: NSSize(width: 480, height: 270), flipped: false) { r in
+            NSColor(calibratedRed: 0.55, green: 0.42, blue: 0.25, alpha: 1).setFill(); r.fill()
+            NSColor(calibratedRed: 0.85, green: 0.7, blue: 0.4, alpha: 1).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 170, y: 65, width: 140, height: 140)).fill()
+            return true
+        }
+        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(picture.tiffRepresentation))?
+            .representation(using: .png, properties: [:]))
+        var search = ChatTool(name: "web_search", argsLine: "query: male lion photo")
+        search.done = true; search.duration = 1.4; search.result = "5 results · commons.wikimedia.org"
+        var open = ChatTool(name: "device_open_app", argsLine: "app: Preview")
+        open.done = true; open.duration = 0.6
+        let terminal = ChatTool(name: "terminal", argsLine: "command: rm -rf ~/Downloads/lions")
+        chat.showDemo(lines: [
+            MacChatStore.Line(role: .user, text: "show me img of lion", files: ["notes.md"]),
+            .reply("Here's a **male lion**.\n![lion](data:image/png;base64,\(png.base64EncodedString()))\nWant more like it?",
+                   tools: [search, open]),
+            MacChatStore.Line(role: .user, text: "Clear the old ones from Downloads"),
+            MacChatStore.Line(role: .assistant, text: "", turn: ChatTurn(tools: [terminal], streaming: true)),
+        ], approval: ChatApproval(command: "rm -rf ~/Downloads/lions", description: "recursive delete"))
+        try shot("-chat-tools.png")
+        // The whole conversation at once (offscreen, the island's scroll offset isn't drawn).
+        let tall = NSHostingView(rootView: ChatPane(ui: ui).padding(16).frame(width: IslandRootView.expandedWidth, height: 1180)
+            .background(Color.black).transaction { $0.disablesAnimations = true })
+        tall.frame = CGRect(x: 0, y: 0, width: IslandRootView.expandedWidth, height: 1180)
+        tall.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        tall.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(tall.bitmapImageRepForCachingDisplay(in: tall.bounds))
+        tall.cacheDisplay(in: tall.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-chat-tools-full.png"))
+        chat.showDemo(lines: [
+            MacChatStore.Line(role: .user, text: "Book a table for Friday"),
+            MacChatStore.Line(role: .assistant, text: "", turn: ChatTurn(streaming: true)),
+        ], clarify: ChatClarify(question: "Which restaurant should I book?", choices: ["Nopa", "Flour + Water", "State Bird"]))
+        try shot("-chat-clarify.png")
+        chat.showDemo(lines: [
+            MacChatStore.Line(role: .user, text: "Deploy the api"),
+            MacChatStore.Line(role: .assistant, text: "", turn: ChatTurn(tools: [open], stopped: true)),
+            MacChatStore.Line(role: .user, text: "What's the weather?"),
+            MacChatStore.Line(role: .assistant, text: "", turn: ChatTurn(error: "Jarvis isn't connected on this Mac (jc-client).")),
+            MacChatStore.Line(role: .user, text: "hello?"),
+            MacChatStore.Line(role: .assistant, text: "", turn: ChatTurn(note: "No reply")),
+        ])
+        try shot("-chat-ends.png")
+        chat.endDemo()
+    }
+
     /// The chat's file picker opens over the island, not under it.
     @MainActor
     func testTheFilePickerOpensOverTheIsland() {
