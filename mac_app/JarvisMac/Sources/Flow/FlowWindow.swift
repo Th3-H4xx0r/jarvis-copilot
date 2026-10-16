@@ -421,7 +421,7 @@ private struct SnippetsPage: View {
             } header: {
                 Text(editing == nil ? "New snippet" : "Change “\(editing ?? "")”")
             } footer: {
-                Text("Say the trigger in a dictation and the whole text goes in its place, exactly as written. ⌘↩ adds it.")
+                Text("Dictate just the trigger — on its own, nothing else — and the whole text is pasted, exactly as written. Said inside a sentence (“what my email is”) it stays words. ⌘↩ adds it.")
                     .font(.caption)
             }
             Section("Snippets") {

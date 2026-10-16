@@ -115,13 +115,26 @@ final class FlowTests: XCTestCase {
 
     func testSnippetsAreSetAsideThenPutBack() {
         let s = [FlowSnippet(trigger: "my signature", text: "Best,\nPranav")]
-        let prepared = FlowText.prepare("thanks my signature", words: [], replacements: [FlowReplacement(from: "best", to: "WORST")],
+        let prepared = FlowText.prepare("My signature.", words: [], replacements: [FlowReplacement(from: "best", to: "WORST")],
                                         snippets: s)
-        XCTAssertEqual(prepared.text, "thanks ⟦1⟧")
-        XCTAssertEqual(FlowText.finish(prepared.text, snippets: prepared.snippets), "thanks Best,\nPranav",
-                       "replacements never touch a snippet's own text")
-        XCTAssertTrue(FlowText.keepsMarks("Thanks, ⟦1⟧", prepared.snippets))
+        XCTAssertEqual(prepared.text, "⟦1⟧")
+        XCTAssertEqual(FlowText.finish(prepared.text, snippets: prepared.snippets), "Best,\nPranav",
+                       "replacements never touch a snippet's own text, and the trigger's full stop is gone")
+        XCTAssertTrue(FlowText.keepsMarks("⟦1⟧", prepared.snippets))
         XCTAssertFalse(FlowText.keepsMarks("Thanks.", prepared.snippets))
+    }
+
+    /// A snippet is the whole dictation or nothing: "what my email is" is a
+    /// sentence you mean, not your address.
+    func testASnippetFiresOnlyWhenItIsAllYouSaid() {
+        let s = [FlowSnippet(trigger: "my email", text: "me@example.com")]
+        func paste(_ heard: String) -> String { FlowText.apply(heard, words: [], replacements: [], snippets: s) }
+        XCTAssertEqual(paste("my email"), "me@example.com")
+        XCTAssertEqual(paste("My email."), "me@example.com")
+        XCTAssertEqual(paste("  my, email!  "), "me@example.com")
+        XCTAssertEqual(paste("Do you know what my email is?"), "Do you know what my email is?")
+        XCTAssertEqual(paste("send it to my email"), "send it to my email")
+        XCTAssertEqual(paste("my emails"), "my emails")
     }
 
     func testWordCount() {

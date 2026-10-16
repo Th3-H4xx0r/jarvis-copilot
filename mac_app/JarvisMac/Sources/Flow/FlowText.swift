@@ -30,13 +30,14 @@ enum FlowText {
                         snippets: [FlowSnippet]) -> Prepared {
         var out = text
         var marks: [String: String] = [:]
-        for (index, snippet) in snippets.enumerated() where !snippet.text.isEmpty {
+        // A snippet is the whole dictation or nothing: said on its own ("My
+        // email.") it becomes the text; inside a sentence ("what my email is")
+        // the words are meant as words.
+        for (index, snippet) in snippets.enumerated() where !snippet.text.isEmpty && isWhole(snippet.trigger, in: out) {
             let mark = "⟦\(index + 1)⟧"
-            let replaced = replacing(snippet.trigger, with: mark, in: out)
-            if replaced != out {
-                marks[mark] = snippet.text
-                out = replaced
-            }
+            marks[mark] = snippet.text
+            out = mark
+            break
         }
         for replacement in replacements where !replacement.to.isEmpty {
             out = replacing(replacement.from, with: replacement.to, in: out)
@@ -69,6 +70,13 @@ enum FlowText {
         let range = NSRange(text.startIndex..., in: text)
         return regex.stringByReplacingMatches(in: text, range: range,
                                               withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+    }
+
+    /// Whether `text` is `phrase` and nothing else — case, punctuation and the
+    /// space around it aside.
+    static func isWhole(_ phrase: String, in text: String) -> Bool {
+        let said = tokens(text), trigger = tokens(phrase)
+        return !trigger.isEmpty && said.map { $0.lowercased() } == trigger.map { $0.lowercased() }
     }
 
     static func contains(_ phrase: String, in text: String) -> Bool {
