@@ -455,4 +455,66 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertEqual(m.apply(.playbackDrained), [.cancelResume, .armThinkingWatchdog])
         XCTAssertEqual(m.state, .thinking)
     }
+
+    // MARK: - One-shot (the CarPlay Talk widget)
+
+    /// Walks a one-shot realtime turn to the point where the reply has played.
+    private func oneShotThroughReply(_ m: inout VoiceTurnMachine) {
+        m.oneShot = true
+        _ = m.apply(.startRequested); _ = m.apply(.connected)
+        _ = m.apply(.endOfSpeech); _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
+    }
+
+    func testOneShotStopsAfterReplyInsteadOfListening() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        oneShotThroughReply(&m)
+        let drained = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .idle, "one answer per tap: no follow-up listening")
+        XCTAssertTrue(drained.contains(.teardown), "the mic and audio session are released")
+        XCTAssertTrue(drained.contains(.oneShotFinished))
+        XCTAssertFalse(drained.contains(.restartRecognizer))
+        XCTAssertFalse(m.oneShot)
+    }
+
+    func testOneShotResumeGraceEndsTurn() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        m.oneShot = true
+        _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
+        // The server ended the turn with nothing played: the store's quiet check fires the grace.
+        XCTAssertTrue(m.apply(.turnEnded(reason: "done", producedReply: true)).contains(.resumeWhenQuiet))
+        let resumed = m.apply(.resumeGraceElapsed)
+        XCTAssertEqual(m.state, .idle)
+        XCTAssertTrue(resumed.contains(.oneShotFinished))
+        XCTAssertTrue(resumed.contains(.teardown))
+    }
+
+    func testOneShotFailedTurnEndsIdle() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        m.oneShot = true
+        _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
+        _ = m.apply(.turnEnded(reason: "error", producedReply: false))
+        _ = m.apply(.resumeGraceElapsed)
+        XCTAssertEqual(m.state, .idle, "a failed one-shot turn still lets go of the mic")
+    }
+
+    func testNormalRealtimeStillListensAgain() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        oneShotThroughReply(&m)
+        m.oneShot = false
+        _ = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .listening)
+    }
+
+    func testStopClearsOneShot() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        m.oneShot = true
+        _ = m.apply(.startRequested)
+        _ = m.apply(.stopRequested)
+        XCTAssertFalse(m.oneShot)
+        m.oneShot = true
+        _ = m.apply(.startRequested)
+        _ = m.apply(.failed("boom"))
+        XCTAssertFalse(m.oneShot)
+    }
 }

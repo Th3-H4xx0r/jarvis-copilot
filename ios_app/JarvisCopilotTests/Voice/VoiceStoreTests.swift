@@ -1713,4 +1713,98 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.spokenWords, 0,
                        "a clip with no segment of its own must not advance the highlight")
     }
+
+    // MARK: - One-shot turns (the CarPlay Talk widget)
+
+    /// A one-shot turn through its reply, the audio played out.
+    private func oneShotAnswered(_ rig: Rig) async throws {
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertTrue(started)
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "It's 72 degrees.")
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+    }
+
+    func testOneShotTurnClosesAfterTheReply() async throws {
+        let rig = makeRig(mode: .quality)
+        var finished = 0
+        rig.store.onTurnFinished = { finished += 1 }
+        try await oneShotAnswered(rig)
+        XCTAssertEqual(rig.store.state, .idle, "one answer per tap")
+        XCTAssertFalse(rig.input.isRunning, "the mic is off")
+        XCTAssertEqual(finished, 1)
+        XCTAssertEqual(rig.store.mode, .quality, "the phone's own voice mode comes back")
+        XCTAssertNotNil(rig.store.replyHoldUntil, "the reply stays on the card for a while")
+    }
+
+    func testOneShotReplyHoldEndsAfterTwoMinutes() async throws {
+        let rig = makeRig()
+        try await oneShotAnswered(rig)
+        rig.clock.advance(ms: Int(VoiceStore.replyHoldSeconds * 1000) + 10)
+        await settleVoiceTasks()
+        XCTAssertNil(rig.store.replyHoldUntil)
+    }
+
+    func testANewTurnClearsTheReplyHold() async throws {
+        let rig = makeRig()
+        try await oneShotAnswered(rig)
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        XCTAssertNil(rig.store.replyHoldUntil)
+    }
+
+    func testOneShotWithNoSpeechLetsGoOfTheMic() async {
+        let rig = makeRig()
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        rig.input.emitFrames(amplitude: 0.0, ms: 500)
+        rig.clock.advance(ms: VoiceStore.oneShotSilenceMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle, "a tap and then silence must not leave the mic on")
+    }
+
+    func testOneShotRefusesWhileASessionRuns() async {
+        let rig = makeRig()
+        await startListening(rig)
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertFalse(started)
+        XCTAssertTrue(rig.store.isActive)
+    }
+
+    func testStopTellsTheCarHandoff() async {
+        let rig = makeRig()
+        var stopped = 0
+        rig.store.onStopRequested = { stopped += 1 }
+        await startListening(rig)
+        await rig.store.stopAll()
+        XCTAssertEqual(stopped, 1)
+    }
+
+    func testARealtimeReplyThatListensAgainCountsAsFinished() async throws {
+        let rig = makeRig()
+        var finished = 0
+        rig.store.onTurnFinished = { finished += 1 }
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig)
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertEqual(finished, 1)
+    }
 }

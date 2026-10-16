@@ -182,6 +182,11 @@ final class VoiceStore {
     /// is the worst-case battery drain (mic + audio session + WS all live). End it
     /// after this long — but only when genuinely idle.
     static let bgIdleTimeoutMs = 120_000
+    /// A one-shot turn (the CarPlay Talk widget) that hears nothing this long
+    /// lets go of the mic: a tap and then silence must not leave it on.
+    static let oneShotSilenceMs = 10_000
+    /// How long a one-shot turn's reply stays on the card after it ends.
+    static let replyHoldSeconds: TimeInterval = 120
     /// Below this a push-to-talk clip isn't worth sending.
     static let minQualityBytes = 1000
     static let devicesRefreshSeconds = 15.0
@@ -294,6 +299,16 @@ final class VoiceStore {
     private var resumeTimer: VoiceTimerToken?
     private var thinkingWatchdog: VoiceTimerToken?
     private var bgIdleTimer: VoiceTimerToken?
+    private var oneShotSilenceTimer: VoiceTimerToken?
+    private var replyHoldTimer: VoiceTimerToken?
+    /// While set, the last one-shot reply keeps the card (Live Activity) after the turn ended.
+    private(set) var replyHoldUntil: Date?
+    /// The phone's voice mode, put back when a one-shot turn (always realtime) is over.
+    private var modeAfterOneShot: VoiceMode?
+    /// A reply finished playing: a one-shot turn closed, or realtime went back to listening.
+    var onTurnFinished: (() -> Void)?
+    /// Stop was asked for (Stop, End, the Talk widget's second tap).
+    var onStopRequested: (() -> Void)?
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -705,6 +720,56 @@ final class VoiceStore {
         raise(.startRequested)
     }
 
+    /// One question, one answer, then the session closes: the CarPlay Talk widget.
+    /// Realtime whatever the phone's voice mode is (the widget has no Send button).
+    /// False when the mic is refused or a session is already running.
+    @discardableResult
+    func startOneShotTurn() async -> Bool {
+        guard !machine.state.isActive else { return false }
+        startup = VoiceStartupTimer(tap: clock.now)
+        guard await ensureMic(), await ensureTranscription() else { return false }
+        guard !machine.state.isActive else { return false }
+        modeAfterOneShot = machine.mode
+        machine.mode = .realtime
+        machine.oneShot = true
+        muted = false
+        livePartial = ""
+        preConnectAudio.removeAll()
+        startup.checks = clock.now
+        raise(.startRequested)
+        return true
+    }
+
+    /// Nothing said for `oneShotSilenceMs` after the mic went live: close the turn.
+    private func armOneShotSilence() {
+        oneShotSilenceTimer?.cancel()
+        oneShotSilenceTimer = clock.schedule(after: Self.oneShotSilenceMs) { [weak self] in
+            guard let self else { return }
+            self.oneShotSilenceTimer = nil
+            guard self.machine.oneShot, self.machine.state == .listening else { return }
+            if self.endpointer.speaking { self.armOneShotSilence(); return }
+            self.note("one-shot heard nothing; closing")
+            Task { await self.stopAll() }
+        }
+    }
+
+    private func holdReply() {
+        replyHoldTimer?.cancel()
+        replyHoldUntil = clock.now.addingTimeInterval(Self.replyHoldSeconds)
+        replyHoldTimer = clock.schedule(after: Int(Self.replyHoldSeconds * 1000)) { [weak self] in
+            guard let self else { return }
+            self.replyHoldTimer = nil
+            self.replyHoldUntil = nil
+            self.pushLiveActivity()
+        }
+    }
+
+    private func endReplyHold() {
+        replyHoldTimer?.cancel()
+        replyHoldTimer = nil
+        replyHoldUntil = nil
+    }
+
     func toggleMute() { muted.toggle() }
 
     func setMode(_ newMode: VoiceMode) async {
@@ -787,6 +852,7 @@ final class VoiceStore {
             interruptionGeneration += 1
         default: break
         }
+        if event == .stopRequested { onStopRequested?() }
         let before = machine.state
         let effects = machine.apply(event)
         // Log the transition BEFORE the effects run: `.failed` performs
@@ -795,6 +861,15 @@ final class VoiceStore {
             note("\(VoiceDiagnostics.name(of: event)): \(before.rawValue)→\(machine.state.rawValue)")
         }
         for effect in effects { perform(effect) }
+        if event == .playbackDrained || event == .resumeGraceElapsed,
+           before != .listening, machine.state == .listening {
+            onTurnFinished?()
+        }
+        if machine.oneShot, before == .connecting, machine.state == .listening { armOneShotSilence() }
+        if !machine.state.isActive, let mode = modeAfterOneShot {
+            modeAfterOneShot = nil
+            machine.mode = mode
+        }
         pushLiveActivity()
     }
 
@@ -866,6 +941,7 @@ final class VoiceStore {
         case .clearReply:
             reply.reset()
             userTranscript = ""
+            endReplyHold()
             toolStatus = nil
             error = nil
             pcmTag = nil
@@ -884,6 +960,9 @@ final class VoiceStore {
             turnEpoch += 1
         case .markSpeechEnd:
             markSpeechEnd()
+        case .oneShotFinished:
+            holdReply()
+            onTurnFinished?()
         case .teardown:
             cancelBargeCheck()
             lastLocalTranscript = nil
@@ -1411,6 +1490,8 @@ final class VoiceStore {
         cancelThinkingWatchdog()
         bgIdleTimer?.cancel()
         bgIdleTimer = nil
+        oneShotSilenceTimer?.cancel()
+        oneShotSilenceTimer = nil
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()
