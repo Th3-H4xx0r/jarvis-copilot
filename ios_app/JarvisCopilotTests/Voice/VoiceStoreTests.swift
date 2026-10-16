@@ -1773,6 +1773,68 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .idle, "a tap and then silence must not leave the mic on")
     }
 
+    func testOneShotInterruptedThenSilentLetsGoOfTheMic() async throws {
+        let rig = makeRig()
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "It's 72 degrees and sunny all afternoon.", audioMs: 2000)
+        XCTAssertEqual(rig.store.state, .speaking)
+        rig.store.interrupt()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+        rig.input.emitFrames(amplitude: 0.0, ms: 500)
+        rig.clock.advance(ms: VoiceStore.oneShotSilenceMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle, "cut in, then said nothing: the mic still goes off")
+    }
+
+    func testOneShotThatCannotConnectGivesUp() async {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        _ = await rig.store.startOneShotTurn()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .connecting)
+        rig.clock.advance(ms: VoiceStore.oneShotSilenceMs + 10)
+        await settleVoiceTasks()
+        XCTAssertFalse(rig.store.isActive, "a dead zone must not leave the mic on")
+        XCTAssertNotNil(rig.store.error)
+        rig.connector.releaseConnect()
+        await settleVoiceTasks()
+    }
+
+    func testOneShotWaitsForAHandOffThenGivesUpAtTheCap() async throws {
+        let rig = makeRig()
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, text: "On it — let me dig into that.")
+        let socket = try XCTUnwrap(rig.socket)
+        socket.receive(json: ["type": "audio_end"])
+        socket.receive(json: ["type": "end_turn", "followup": true])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+        rig.clock.advance(ms: 200 + AudioQueue.nativeIdleGraceMs + AudioQueue.nativeTickMs)
+        await settleVoiceTasks()
+        XCTAssertTrue(rig.store.isActive, "the real answer is still coming")
+        rig.clock.advance(ms: VoiceStore.followupWaitMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .idle, "but not forever")
+    }
+
+    func testARefusedCarTalkTapLeavesNoFalseListening() async {
+        let rig = makeRig()
+        rig.input.permission = false
+        var reports: [VoiceLiveActivitySnapshot] = []
+        let feed = CarTalkFeed()
+        await feed.toggle(voice: rig.store) { reports.append($0) }
+        await feed.toggle(voice: rig.store) { reports.append($0) }
+        XCTAssertEqual(reports.last?.state, "idle", "the card must not say Listening with the mic off")
+        XCTAssertFalse(reports.last?.activity.isEmpty ?? true, "and it says why")
+    }
+
     func testOneShotRefusesWhileASessionRuns() async {
         let rig = makeRig()
         await startListening(rig)

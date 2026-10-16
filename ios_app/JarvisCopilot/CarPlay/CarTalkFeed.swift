@@ -31,8 +31,15 @@ final class CarTalkFeed {
             report(VoiceLiveActivitySnapshot(state: "listening", transcript: "", activity: "",
                                              connected: true, devices: []))
             if await voice.startOneShotTurn() == false {
-                // Refused (mic permission): put the real state, and why, back on the card.
-                voice.pushLiveActivity()
+                // Refused (mic permission): straight to the card and the widget, past the
+                // voice throttle, which would drop a repeat of the same error as a duplicate
+                // and leave the "listening" above showing with the mic off.
+                let refused = VoiceLiveActivitySnapshot(
+                    state: "idle", transcript: "",
+                    activity: voice.error ?? "Allow the microphone on your iPhone",
+                    connected: true, devices: [])
+                report(refused)
+                self.report(refused)
             }
         }
     }

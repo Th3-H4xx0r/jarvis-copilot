@@ -55,6 +55,14 @@ def test_car_directions_is_loaded_by_default(monkeypatch):
     assert "device_car_directions" in loaded
 
 
+def test_his_own_pins_keep_the_car_pin(monkeypatch):
+    """A pinned list in config.yaml replaces the default one on merge; the car's
+    directions must stay pinned anyway."""
+    import jarviscopilot_cli.config as c
+    monkeypatch.setattr(c, "load_config", lambda: {"agent": {"device_tools": {"pinned": ["device_x"]}}})
+    assert {"device_x", "device_car_directions"} <= set(r._config()["pinned"])
+
+
 def _db(path, rows):
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,"

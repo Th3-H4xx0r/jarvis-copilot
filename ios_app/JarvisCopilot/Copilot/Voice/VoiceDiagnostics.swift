@@ -67,7 +67,7 @@ enum VoiceDiagnostics {
             return "ws← audio_meta \(format)@\(sampleRate)"
         case .audioEnd:
             return "ws← audio_end"
-        case .endTurn(let reason):
+        case .endTurn(let reason, _):
             return "ws← end_turn reason=\(reason.isEmpty ? "-" : reason)"
         case .endOfSpeech:
             return "ws← end_of_speech"

@@ -185,6 +185,8 @@ final class VoiceStore {
     /// A one-shot turn (the CarPlay Talk widget) that hears nothing this long
     /// lets go of the mic: a tap and then silence must not leave it on.
     static let oneShotSilenceMs = 10_000
+    /// How long a one-shot turn waits for a handed-off answer before closing.
+    static let followupWaitMs = 90_000
     /// How long a one-shot turn's reply stays on the card after it ends.
     static let replyHoldSeconds: TimeInterval = 120
     /// Below this a push-to-talk clip isn't worth sending.
@@ -300,6 +302,7 @@ final class VoiceStore {
     private var thinkingWatchdog: VoiceTimerToken?
     private var bgIdleTimer: VoiceTimerToken?
     private var oneShotSilenceTimer: VoiceTimerToken?
+    private var followupTimer: VoiceTimerToken?
     private var replyHoldTimer: VoiceTimerToken?
     /// While set, the last one-shot reply keeps the card (Live Activity) after the turn ended.
     private(set) var replyHoldUntil: Date?
@@ -737,20 +740,53 @@ final class VoiceStore {
         preConnectAudio.removeAll()
         startup.checks = clock.now
         raise(.startRequested)
+        armOneShotSilence()   // bounds the connect too: a dead zone can't hold the mic
         return true
     }
 
-    /// Nothing said for `oneShotSilenceMs` after the mic went live: close the turn.
+    /// A one-shot turn still connecting, or listening and hearing nothing, after
+    /// `oneShotSilenceMs`: give up and let go of the mic.
     private func armOneShotSilence() {
         oneShotSilenceTimer?.cancel()
         oneShotSilenceTimer = clock.schedule(after: Self.oneShotSilenceMs) { [weak self] in
             guard let self else { return }
             self.oneShotSilenceTimer = nil
-            guard self.machine.oneShot, self.machine.state == .listening else { return }
-            if self.endpointer.speaking { self.armOneShotSilence(); return }
-            self.note("one-shot heard nothing; closing")
-            Task { await self.stopAll() }
+            guard self.machine.oneShot else { return }
+            switch self.machine.state {
+            case .connecting:
+                self.note("one-shot couldn't connect; giving up")
+                self.raise(.failed("Can't reach Jarvis — try again."))
+            case .listening:
+                if self.endpointer.speaking { self.armOneShotSilence(); return }
+                self.note("one-shot heard nothing; closing")
+                Task { await self.stopAll() }
+            default:
+                return
+            }
         }
+    }
+
+    /// The server handed this one-shot turn's work off: wait for its answer, but
+    /// not past `followupWaitMs`.
+    func awaitFollowup() {
+        guard machine.oneShot else { return }
+        machine.awaitingFollowup = true
+        followupTimer?.cancel()
+        followupTimer = clock.schedule(after: Self.followupWaitMs) { [weak self] in
+            guard let self else { return }
+            self.followupTimer = nil
+            guard self.machine.awaitingFollowup else { return }
+            self.note("handed-off answer never came; closing")
+            self.machine.awaitingFollowup = false
+            if self.machine.state == .thinking, !self.audio.isBusy { self.raise(.resumeGraceElapsed) }
+        }
+    }
+
+    /// The handed-off answer arrived: the turn closes once it has played.
+    func followupArrived() {
+        machine.awaitingFollowup = false
+        followupTimer?.cancel()
+        followupTimer = nil
     }
 
     private func holdReply() {
@@ -865,7 +901,8 @@ final class VoiceStore {
            before != .listening, machine.state == .listening {
             onTurnFinished?()
         }
-        if machine.oneShot, before == .connecting, machine.state == .listening { armOneShotSilence() }
+        // Any way back to listening (connected, a barge-in, Interrupt, a missed turn).
+        if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
         if !machine.state.isActive, let mode = modeAfterOneShot {
             modeAfterOneShot = nil
             machine.mode = mode
@@ -1492,6 +1529,8 @@ final class VoiceStore {
         bgIdleTimer = nil
         oneShotSilenceTimer?.cancel()
         oneShotSilenceTimer = nil
+        followupTimer?.cancel()
+        followupTimer = nil
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()

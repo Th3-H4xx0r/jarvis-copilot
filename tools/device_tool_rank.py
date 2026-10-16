@@ -33,19 +33,34 @@ _MAX_AGE_S = 24 * 3600
 _refreshing = threading.Lock()
 
 
+def _default_pins() -> list:
+    """The pins DEFAULT_CONFIG ships (the car's directions)."""
+    try:
+        from jarviscopilot_cli.config import DEFAULT_CONFIG
+        pins = ((DEFAULT_CONFIG.get("agent") or {}).get("device_tools") or {}).get("pinned") or []
+        return [str(p) for p in pins]
+    except Exception:
+        logger.warning("device tools: default pins unreadable", exc_info=True)
+        return []
+
+
 def _config() -> dict:
     try:
         from jarviscopilot_cli.config import load_config
         cfg = ((load_config() or {}).get("agent", {}) or {}).get("device_tools") or {}
     except Exception:
+        logger.warning("device tools: config unreadable; using defaults", exc_info=True)
         cfg = {}
     try:
         budget = int(cfg.get("always_loaded_tokens", _DEFAULT_BUDGET))
     except (TypeError, ValueError):
         budget = _DEFAULT_BUDGET
     pinned = cfg.get("pinned") or []
+    pinned = [str(p) for p in pinned] if isinstance(pinned, list) else []
+    # A pinned list in config.yaml replaces the default one when merged; the
+    # built-in pins stay in either way.
     return {"always_loaded_tokens": max(0, budget),
-            "pinned": [str(p) for p in pinned] if isinstance(pinned, list) else []}
+            "pinned": list(dict.fromkeys(pinned + _default_pins()))}
 
 
 def _home() -> Path:

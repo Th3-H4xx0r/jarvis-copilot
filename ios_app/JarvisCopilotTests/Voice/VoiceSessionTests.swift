@@ -34,6 +34,8 @@ final class VoiceSessionTests: XCTestCase {
         XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"tool"}"#),
                        .tool(name: "tool", status: "started"))
         XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"end_turn"}"#), .endTurn(reason: ""))
+        XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"end_turn","followup":true}"#),
+                       .endTurn(reason: "", followup: true), "a hand-off's answer is still coming")
         XCTAssertEqual(VoiceServerFrame.decode(text: #"{"type":"transcript"}"#), .transcript(""))
     }
 

@@ -3503,7 +3503,23 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         if reply:
             _stream_segment(conn, sock, state, {"kind": "text", "text": reply})
 
-    _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
+    _ws_send_text(conn, sock, _end_turn_frame(state))
+
+
+def _end_turn_frame(state: dict) -> str:
+    """The plain end of a turn. ``followup``: a hand-off for this session is still
+    running, so its answer will arrive on this socket as ``escalation_result`` —
+    a client that closes after one answer (the CarPlay Talk widget) waits for it."""
+    frame = {"type": "end_turn"}
+    sid = (state.get("session_id") or "").strip()
+    if sid:
+        try:
+            from agent import escalation as _esc
+            if any(j.get("status") == "running" for j in _esc.get_jobs(sid)):
+                frame["followup"] = True
+        except Exception:
+            print("[webui] followup check failed: " + traceback.format_exc(), flush=True)
+    return json.dumps(frame)
 
 
 def _bridge_answer_clarify(state: dict, conn, sock) -> None:
@@ -3553,7 +3569,7 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         _maybe_stop_pod_listening(state)
     if handled:
         return  # nested clarify / no_reply — end_turn already sent
-    _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
+    _ws_send_text(conn, sock, _end_turn_frame(state))
 
 
 _WS_SEND_LOCKS: dict = {}

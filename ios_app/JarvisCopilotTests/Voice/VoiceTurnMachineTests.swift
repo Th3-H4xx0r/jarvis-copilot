@@ -481,6 +481,7 @@ final class VoiceTurnMachineTests: XCTestCase {
         var m = VoiceTurnMachine(mode: .realtime)
         m.oneShot = true
         _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
+        _ = m.apply(.serverOutput)
         // The server ended the turn with nothing played: the store's quiet check fires the grace.
         XCTAssertTrue(m.apply(.turnEnded(reason: "done", producedReply: true)).contains(.resumeWhenQuiet))
         let resumed = m.apply(.resumeGraceElapsed)
@@ -489,13 +490,32 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertTrue(resumed.contains(.teardown))
     }
 
-    func testOneShotFailedTurnEndsIdle() {
+    /// A bump or an indicator click read as speech: no answer yet, so keep listening
+    /// for the real question (the 10 s silence close still bounds it).
+    func testOneShotWithoutAnAnswerListensAgain() {
         var m = VoiceTurnMachine(mode: .realtime)
         m.oneShot = true
         _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
-        _ = m.apply(.turnEnded(reason: "error", producedReply: false))
+        _ = m.apply(.turnEnded(reason: "no_speech", producedReply: false))
         _ = m.apply(.resumeGraceElapsed)
-        XCTAssertEqual(m.state, .idle, "a failed one-shot turn still lets go of the mic")
+        XCTAssertEqual(m.state, .listening)
+        XCTAssertTrue(m.oneShot)
+    }
+
+    /// The fast lane said "On it" and handed off: wait (mic still bounded) for the
+    /// real answer instead of closing on the ack.
+    func testOneShotWaitsForAHandedOffAnswer() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        oneShotThroughReply(&m)
+        m.awaitingFollowup = true
+        let drained = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .thinking)
+        XCTAssertFalse(drained.contains(.teardown))
+        XCTAssertEqual(m.apply(.resumeGraceElapsed), [], "still waiting")
+        m.awaitingFollowup = false
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        XCTAssertTrue(m.apply(.playbackDrained).contains(.oneShotFinished))
+        XCTAssertEqual(m.state, .idle)
     }
 
     func testNormalRealtimeStillListensAgain() {

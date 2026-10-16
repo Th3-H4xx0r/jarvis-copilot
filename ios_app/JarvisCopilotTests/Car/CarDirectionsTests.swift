@@ -1,3 +1,4 @@
+import MapKit
 import XCTest
 @testable import JarvisCopilot
 
@@ -26,8 +27,29 @@ final class CarDirectionsTests: XCTestCase {
     func testClosestPicksNearest() {
         let far = CarPlace(name: "Costco", street: "Gessner Rd", address: "far", latitude: 1, longitude: 1, meters: 9000)
         let near = CarPlace(name: "Costco", street: "Richmond Ave", address: "near", latitude: 2, longitude: 2, meters: 3100)
-        XCTAssertEqual(CarPlace.closest([far, near])?.address, "near")
-        XCTAssertNil(CarPlace.closest([]))
+        XCTAssertEqual(CarPlace.pick([far, near])?.address, "near")
+        XCTAssertNil(CarPlace.pick([]))
+    }
+
+    func testAChainPicksItsNearestBranch() {
+        let first = CarPlace(name: "Starbucks", street: "Main St", address: "a", latitude: 0, longitude: 0, meters: 5000)
+        let nearer = CarPlace(name: "Starbucks", street: "Elm St", address: "b", latitude: 0, longitude: 0, meters: 900)
+        let other = CarPlace(name: "Starbucks Reserve", street: "", address: "c", latitude: 0, longitude: 0, meters: 100)
+        XCTAssertEqual(CarPlace.pick([first, nearer, other])?.address, "b")
+    }
+
+    func testANamedPlaceKeepsMapKitsMatch() {
+        let match = CarPlace(name: "George Bush Intercontinental Airport", street: "", address: "IAH",
+                             latitude: 0, longitude: 0, meters: 30000)
+        let nearer = CarPlace(name: "Bush Park", street: "", address: "park", latitude: 0, longitude: 0, meters: 2000)
+        XCTAssertEqual(CarPlace.pick([match, nearer])?.address, "IAH", "the place he named, not a nearer partial match")
+        XCTAssertNil(CarPlace.pick([]))
+    }
+
+    func testOnlyNoResultsMeansNothingFound() {
+        XCTAssertTrue(CarDirections.isNothingFound(MKError(.placemarkNotFound)))
+        XCTAssertFalse(CarDirections.isNothingFound(URLError(.notConnectedToInternet)),
+                       "a failed search must not be reported as no such place")
     }
 
     func testDistanceInMiles() {
@@ -39,9 +61,24 @@ final class CarDirectionsTests: XCTestCase {
 
     private let url = URL(string: "comgooglemaps://?daddr=1,2&directionsmode=driving")!
 
+    /// Records opens; `failing` URLs report that the car screen couldn't open them.
+    private func opener(_ opened: @escaping (URL) -> Void, failing: Set<String> = [])
+    -> (URL, @escaping (Bool) -> Void) -> Void {
+        { url, done in opened(url); done(!failing.contains(url.scheme ?? "")) }
+    }
+
+    func testAMapThatWontOpenFallsBackToAppleMaps() {
+        var opened: [URL] = []
+        let handoff = CarHandoff(cap: 60, open: opener({ opened.append($0) }, failing: ["comgooglemaps"]),
+                                 sessionActive: { false })
+        let apple = URL(string: "maps://?daddr=1,2&dirflg=d")!
+        handoff.queue(url, fallback: apple)
+        XCTAssertEqual(opened, [url, apple], "announced directions must open somewhere")
+    }
+
     func testHandoffOpensAfterTurnFinished() {
         var opened: [URL] = []
-        let handoff = CarHandoff(cap: 60, open: { opened.append($0) }, sessionActive: { true })
+        let handoff = CarHandoff(cap: 60, open: opener { opened.append($0) }, sessionActive: { true })
         handoff.queue(url)
         XCTAssertEqual(opened, [], "not while Jarvis is still talking")
         handoff.turnFinished()
@@ -52,7 +89,7 @@ final class CarDirectionsTests: XCTestCase {
 
     func testHandoffDroppedOnStop() {
         var opened: [URL] = []
-        let handoff = CarHandoff(cap: 60, open: { opened.append($0) }, sessionActive: { true })
+        let handoff = CarHandoff(cap: 60, open: opener { opened.append($0) }, sessionActive: { true })
         handoff.queue(url)
         handoff.stopped()
         handoff.turnFinished()
@@ -61,14 +98,14 @@ final class CarDirectionsTests: XCTestCase {
 
     func testHandoffOpensImmediatelyWithoutSession() {
         var opened: [URL] = []
-        let handoff = CarHandoff(cap: 60, open: { opened.append($0) }, sessionActive: { false })
+        let handoff = CarHandoff(cap: 60, open: opener { opened.append($0) }, sessionActive: { false })
         handoff.queue(url)
         XCTAssertEqual(opened, [url])
     }
 
     func testHandoffCapOpens() async {
         var opened: [URL] = []
-        let handoff = CarHandoff(cap: 0.05, open: { opened.append($0) }, sessionActive: { true })
+        let handoff = CarHandoff(cap: 0.05, open: opener { opened.append($0) }, sessionActive: { true })
         handoff.queue(url)
         try? await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(opened, [url], "a turn that never finishes can't swallow the directions")

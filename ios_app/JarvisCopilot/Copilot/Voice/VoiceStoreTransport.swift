@@ -294,9 +294,10 @@ extension VoiceStore {
         case .audioEnd:
             flushSegment()
 
-        case .endTurn(let reason):
+        case .endTurn(let reason, let followup):
             // Flush any audio that didn't get an explicit audio_end.
             flushSegment()
+            if followup { awaitFollowup() }
             let producedReply = audio.isBusy || !reply.isEmpty
             toolStatus = nil
             if VoiceTurnMachine.failureReasons.contains(reason), !producedReply {
@@ -323,6 +324,7 @@ extension VoiceStore {
             // out if the user is still on the voice screen (plan 4.4).
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, machine.state.isActive else { return }
+            followupArrived()
             raise(.serverOutput)
             Task { await speakLocally(trimmed) }
 

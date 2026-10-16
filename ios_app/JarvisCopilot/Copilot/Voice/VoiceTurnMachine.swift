@@ -105,6 +105,12 @@ struct VoiceTurnMachine: Equatable {
     /// One answer, then stop: where a realtime session would listen again after
     /// the reply, it closes instead. Set by the CarPlay Talk widget's turn.
     var oneShot = false
+    /// A one-shot turn's server said "On it" and handed the work off: its answer
+    /// comes later on this socket, so don't close on the ack. Set by the store.
+    var awaitingFollowup = false
+    /// This one-shot turn got an answer. Without one (a bump read as speech,
+    /// "didn't catch that") it listens again instead of closing.
+    private(set) var oneShotAnswered = false
 
     init(mode: VoiceMode = .realtime) { self.mode = mode }
 
@@ -112,6 +118,8 @@ struct VoiceTurnMachine: Equatable {
     /// than hand the mic back.
     private mutating func finishOneShot() -> [VoiceTurnEffect] {
         oneShot = false
+        awaitingFollowup = false
+        oneShotAnswered = false
         state = .idle
         return [.cancelResume, .cancelThinkingWatchdog, .finalizeSpoken, .newTurnEpoch,
                 .abortRecognizer, .teardown, .oneShotFinished]
@@ -129,6 +137,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .startRequested:
             guard !state.isActive else { return [] }
+            oneShotAnswered = false
             serverProducedOutput = false
             discardingInterruptedTurn = false
             serverTurnDone = false
@@ -155,6 +164,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .endOfSpeech:
             guard state == .listening else { return [] }
+            oneShotAnswered = false
             serverProducedOutput = false
             serverTurnDone = false
             if mode == .realtime {
@@ -173,6 +183,7 @@ struct VoiceTurnMachine: Equatable {
         case .serverOutput:
             guard !discardingInterruptedTurn else { return [] }
             serverProducedOutput = true
+            oneShotAnswered = true
             let effects: [VoiceTurnEffect] = [.cancelResume, .cancelThinkingWatchdog]
             guard state.isActive else { return effects }
             // Keep the orb off "listening" while the reply is mid-flight;
@@ -182,6 +193,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .playbackStarted:
             guard !discardingInterruptedTurn else { return [] }
+            oneShotAnswered = true
             let effects: [VoiceTurnEffect] = [.cancelResume, .cancelThinkingWatchdog]
             guard state != .idle, state != .error else { return effects }
             if state != .speaking { state = .speaking }
@@ -198,7 +210,9 @@ struct VoiceTurnMachine: Equatable {
                 if serverTurnOpen { return [.cancelResume, .armThinkingWatchdog] }
                 // The turn is over and its reply has played: listen now.
                 if serverTurnDone, state == .thinking {
-                    if oneShot { return finishOneShot() }
+                    if oneShot, oneShotAnswered {
+                        return awaitingFollowup ? [.cancelResume] : finishOneShot()
+                    }
                     state = .listening
                     return [.cancelResume, .finalizeSpoken, .resetEndpointer, .restartRecognizer]
                 }
@@ -218,7 +232,9 @@ struct VoiceTurnMachine: Equatable {
             // already refuses to schedule a resume while the turn is open; this
             // is the same rule for a timer that was already in flight.
             guard !serverTurnOpen else { return [] }
-            if oneShot { return finishOneShot() }
+            if oneShot, oneShotAnswered {
+                return awaitingFollowup ? [] : finishOneShot()
+            }
             state = .listening
             return [.finalizeSpoken, .resetEndpointer, .restartRecognizer]
 
@@ -247,6 +263,7 @@ struct VoiceTurnMachine: Equatable {
             }
             serverTurnOpen = false
             serverTurnDone = true
+            if producedReply { oneShotAnswered = true }
             var effects: [VoiceTurnEffect] = [.cancelThinkingWatchdog]
             guard state.isActive else { return effects }
             if Self.failureReasons.contains(reason) && !producedReply {
@@ -266,6 +283,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .failed(let message):
             oneShot = false
+            awaitingFollowup = false
             serverTurnOpen = false
             discardingInterruptedTurn = false
             state = .error
@@ -274,6 +292,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .stopRequested:
             oneShot = false
+            awaitingFollowup = false
             serverTurnOpen = false
             discardingInterruptedTurn = false
             let wasError = state == .error

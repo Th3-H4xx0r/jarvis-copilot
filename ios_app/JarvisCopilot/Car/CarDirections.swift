@@ -46,8 +46,13 @@ struct CarPlace: Equatable {
 
     var miles: Double { (meters / 1609.344 * 10).rounded() / 10 }
 
-    /// "Take me to Starbucks" with three nearby: the closest.
-    static func closest(_ places: [CarPlace]) -> CarPlace? { places.min { $0.meters < $1.meters } }
+    /// MapKit's best match — or, for a chain ("Starbucks", three nearby), its nearest
+    /// branch. Never a nearer place that only partly matches what he named.
+    static func pick(_ places: [CarPlace]) -> CarPlace? {
+        guard let top = places.first else { return nil }
+        return places.filter { $0.name.caseInsensitiveCompare(top.name) == .orderedSame }
+            .min { $0.meters < $1.meters }
+    }
 }
 
 /// Jarvis's car screen, for opening other apps on it (a phone-side open needs the phone unlocked).
@@ -57,10 +62,10 @@ enum CarScreen {
 
     static var isConnected: Bool { scene != nil }
 
-    static func open(_ url: URL) {
-        scene?.open(url, options: nil) { ok in
-            if !ok { JcLog.dropped(JcLog.services, "open on the car screen", URLError(.unsupportedURL)) }
-        }
+    /// `done(false)`: no car screen, or it couldn't open the URL.
+    static func open(_ url: URL, done: @escaping (Bool) -> Void) {
+        guard let scene else { done(false); return }
+        scene.open(url, options: nil) { ok in Task { @MainActor in done(ok) } }
     }
 }
 
@@ -68,26 +73,30 @@ enum CarScreen {
 /// "Starting directions to …" line would drown it. Stop during the line cancels.
 @MainActor
 final class CarHandoff {
-    static let shared = CarHandoff(open: { CarScreen.open($0) }, sessionActive: { VoiceStore.shared.isActive })
+    static let shared = CarHandoff(open: { CarScreen.open($0, done: $1) },
+                                   sessionActive: { VoiceStore.shared.isActive })
 
     private let cap: TimeInterval
-    private let open: (URL) -> Void
+    private let open: (URL, @escaping (Bool) -> Void) -> Void
     private let sessionActive: () -> Bool
-    private var pending: URL?
+    private var pending: (url: URL, fallback: URL?)?
     private var capTask: Task<Void, Never>?
 
     /// `cap`: open anyway this long after the tool returned — a turn that never
     /// finishes can't swallow the directions.
-    init(cap: TimeInterval = 15, open: @escaping (URL) -> Void, sessionActive: @escaping () -> Bool) {
+    init(cap: TimeInterval = 15, open: @escaping (URL, @escaping (Bool) -> Void) -> Void,
+         sessionActive: @escaping () -> Bool) {
         self.cap = cap
         self.open = open
         self.sessionActive = sessionActive
     }
 
     /// No voice turn running (asked in chat): open now. Otherwise wait for the reply.
-    func queue(_ url: URL) {
-        guard sessionActive() else { open(url); return }
-        pending = url
+    /// `fallback` (Apple Maps) opens if the car screen won't open `url`: the
+    /// directions have been announced, so they must open somewhere.
+    func queue(_ url: URL, fallback: URL? = nil) {
+        pending = (url, fallback)
+        guard sessionActive() else { release(); return }
         capTask?.cancel()
         let cap = cap
         capTask = Task { [weak self] in
@@ -108,9 +117,18 @@ final class CarHandoff {
     }
 
     private func release() {
-        guard let url = pending else { return }
+        guard let (url, fallback) = pending else { return }
         stopped()
-        open(url)
+        open(url) { [open] ok in
+            guard !ok else { return }
+            guard let fallback else {
+                JcLog.dropped(JcLog.services, "open directions on the car screen", URLError(.unsupportedURL))
+                return
+            }
+            open(fallback) { ok in
+                if !ok { JcLog.dropped(JcLog.services, "open Apple Maps on the car screen", URLError(.unsupportedURL)) }
+            }
+        }
     }
 }
 
@@ -128,7 +146,7 @@ enum CarDirections {
                 : "CarPlay isn't connected — directions open on the car's screen while driving")
         }
         let fix = try await locator.oneShot(timeout: 6)
-        guard let place = CarPlace.closest(await search(destination, near: fix)) else {
+        guard let place = CarPlace.pick(try await search(destination, near: fix)) else {
             throw DeviceError.badArgument("Couldn't find \(destination) near you")
         }
         var app = CarMapsApp.current(preferences)
@@ -138,22 +156,34 @@ enum CarDirections {
             note = "\(app.title) isn't installed — using Apple Maps"
             app = .apple
         }
-        handoff.queue(app.url(latitude: place.latitude, longitude: place.longitude))
+        handoff.queue(app.url(latitude: place.latitude, longitude: place.longitude),
+                      fallback: app == .apple ? nil : CarMapsApp.apple.url(latitude: place.latitude,
+                                                                          longitude: place.longitude))
         var out: [String: Any] = ["ok": true, "place": place.name, "street": place.street,
                                   "address": place.address, "distance_miles": place.miles, "app": app.title]
         if let note { out["note"] = note }
         return out
     }
 
-    /// MapKit's natural-language search around him (30 km), nearest first by the caller.
-    private static func search(_ query: String, near fix: LocationFix) async -> [CarPlace] {
+    /// MapKit says "no results" with an error; any other error is a failed search.
+    static func isNothingFound(_ error: Error) -> Bool {
+        (error as? MKError)?.code == .placemarkNotFound
+    }
+
+    /// MapKit's natural-language search around him (30 km), in its own ranking.
+    private static func search(_ query: String, near fix: LocationFix) async throws -> [CarPlace] {
         let here = CLLocation(latitude: fix.latitude, longitude: fix.longitude)
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
         request.region = MKCoordinateRegion(center: here.coordinate, latitudinalMeters: 30_000,
                                             longitudinalMeters: 30_000)
-        // No results is an error from MapKit; either way, nothing found.
-        guard let items = try? await MKLocalSearch(request: request).start().mapItems else { return [] }
+        let items: [MKMapItem]
+        do {
+            items = try await MKLocalSearch(request: request).start().mapItems
+        } catch {
+            if isNothingFound(error) { return [] }
+            throw DeviceError.badArgument("Map search failed (\(error.localizedDescription)) — try again")
+        }
         return items.map { item in
             let at = item.placemark.coordinate
             return CarPlace(name: item.name ?? query, street: item.placemark.thoroughfare ?? "",

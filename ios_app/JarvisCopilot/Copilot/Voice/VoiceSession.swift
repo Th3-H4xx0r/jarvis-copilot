@@ -17,7 +17,8 @@ enum VoiceServerFrame: Equatable, Sendable {
     case audioEnd
     /// The server reports EVERY turn outcome here, including failures, via
     /// `reason` (see `VoiceTurnMachine.failureReasons`).
-    case endTurn(reason: String)
+    /// `followup`: a hand-off's answer will still arrive (`escalationResult`).
+    case endTurn(reason: String, followup: Bool = false)
     /// The server's engine heard the end of the utterance (Soniox endpoint).
     case endOfSpeech
     /// The server's end-of-turn timing summary (plan 0.2), span name → ms.
@@ -59,7 +60,7 @@ enum VoiceServerFrame: Equatable, Sendable {
         case "audio_end":
             return .audioEnd
         case "end_turn":
-            return .endTurn(reason: msg.string("reason") ?? "")
+            return .endTurn(reason: msg.string("reason") ?? "", followup: msg.bool("followup") ?? false)
         case "end_of_speech":
             return .endOfSpeech
         case "latency":
