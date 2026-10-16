@@ -233,6 +233,32 @@ enum VoicePanelOrb {
 enum VoicePanelTalk {
     /// Posted by the panel when a push-to-talk answer is done (or never started).
     static let doneNotification = Notification.Name("JarvisVoicePanelTalkDone")
+    /// Posted once the mic is up (or gave up): the moment to open the island.
+    static let readyNotification = Notification.Name("JarvisVoicePanelTalkReady")
+
+    /// Push to talk, in order: the mic starts first, and the small island opens
+    /// once audio flows (or after `wait` — an older dylib never says). Starting
+    /// the mic takes the main thread for ~100 ms; under the island's opening
+    /// spring that stalled it into a stutter.
+    @MainActor
+    static func begin(on cls: AnyClass?, wait: TimeInterval = 0.5, open: @escaping @MainActor () -> Void) {
+        var opened = false
+        var token: NSObjectProtocol?
+        let go: @MainActor () -> Void = {
+            guard !opened else { return }
+            opened = true
+            if let token { NotificationCenter.default.removeObserver(token) }
+            open()
+        }
+        token = NotificationCenter.default.addObserver(forName: readyNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { go() }
+        }
+        began(on: cls)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(wait))
+            go()
+        }
+    }
 
     @MainActor
     static func began(on cls: AnyClass?) { call("holdToTalkBegan", on: cls) }

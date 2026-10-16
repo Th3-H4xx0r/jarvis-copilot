@@ -110,8 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch action {
         case .talk:
             if down {
-                island.openVoice(mini: true)
-                VoicePanelTalk.began(on: menu?.voicePanelClass())
+                VoicePanelTalk.begin(on: menu?.voicePanelClass()) { [weak island] in island?.openVoice(mini: true) }
             } else {
                 VoicePanelTalk.ended(on: menu?.voicePanelClass())
             }
@@ -172,11 +171,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and Jarvis listens; let go and it answers; the island folds after.
         let talk = TalkKeyWatcher.shared
         talk.onStart = { [weak self, weak island] in
-            island?.openVoice(mini: true)
-            VoicePanelTalk.began(on: self?.menu?.voicePanelClass())
+            VoicePanelTalk.begin(on: self?.menu?.voicePanelClass()) { island?.openVoice(mini: true) }
         }
         talk.onSend = { [weak self] in VoicePanelTalk.ended(on: self?.menu?.voicePanelClass()) }
         talk.sync()
+        // Load the voice panel's dylib and its voice store ahead of the first
+        // press (it stalled the first push to talk ~80 ms), while nothing moves.
+        if Prefs.talkKey != nil || ShortcutAction.talk.holds {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                _ = self?.menu?.makeVoiceMiniPanel()
+            }
+        }
         NotificationCenter.default.addObserver(forName: VoicePanelTalk.doneNotification, object: nil, queue: .main) { [weak island] _ in
             MainActor.assumeIsolated { island?.talkDone() }
         }

@@ -40,6 +40,14 @@ final class VoiceAudioEngine {
     /// silently took echo cancellation away from every conversation after it.
     private(set) var voiceProcessingUnavailable = false
 
+    /// Build the next engine without voice processing. The Mac's push to talk
+    /// sets it: nothing plays while the key is held (holding it over a reply
+    /// stops the reply), and the voice-processing unit takes 0.4–0.9 s to build
+    /// — on the main thread, which froze the island opening around it — where
+    /// a plain mic starts in ~50 ms. Kept per engine: the next one built after
+    /// it's cleared has echo cancellation again.
+    var skipVoiceProcessing = false
+
     /// Engine events for the voice diagnostics (the store points this at `note`).
     var onEvent: ((String) -> Void)?
 
@@ -177,7 +185,7 @@ final class VoiceAudioEngine {
         engine.connect(player, to: engine.mainMixerNode, format: format)
 
         var processed = false
-        if let input, !voiceProcessingUnavailable {
+        if let input, !voiceProcessingUnavailable, !skipVoiceProcessing {
             do {
                 try input.setVoiceProcessingEnabled(true)
                 processed = true

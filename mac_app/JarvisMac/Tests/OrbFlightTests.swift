@@ -1,5 +1,8 @@
 import XCTest
 import AppKit
+import AVFoundation
+import CoreAudio
+import QuartzCore
 import SwiftUI
 @testable import Jarvis
 
@@ -209,6 +212,149 @@ final class OrbFlightTests: XCTestCase {
             wait(1.1)
         }
         try log.joined(separator: "\n").write(toFile: marker + ".log", atomically: true, encoding: .utf8)
+    }
+
+    /// How long the main thread stalls while push to talk opens the small voice
+    /// island (the animation stutters when it does). JC_ISLAND_HITCH=<report
+    /// path> with JC_VOICE_DYLIB / JC_API_ORIGIN; JC_HITCH_MIC also starts the
+    /// microphone the way the key does (and stops it without sending).
+    @MainActor
+    func testPushToTalkOpensWithoutStalling() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let report = env["JC_ISLAND_HITCH"], let dylib = env["JC_VOICE_DYLIB"], let api = env["JC_API_ORIGIN"] else {
+            throw XCTSkip("set JC_ISLAND_HITCH, JC_VOICE_DYLIB and JC_API_ORIGIN to measure push to talk")
+        }
+        // Not attached to jc-client: its hello would swap in the installed dylib.
+        let model = AppModel()
+        model.handle(["type": "hello", "api": api, "voice_dylib": dylib])
+        let c = IslandController(model: model)
+        let menu = JarvisMenu(model: model, island: c)
+        c.voicePanel = { menu.makeVoicePanel(island: true) }
+        c.voiceMiniPanel = { menu.makeVoiceMiniPanel() }
+        c.ui.setVoiceOrbHidden = { VoicePanelOrb.setHidden($0, on: menu.voicePanelClass()) }
+        func wait(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        c.activity()
+        wait(1.5)
+        var lines: [String] = []
+        for round in 0..<3 {
+            var ticks: [Double] = []
+            let timer = Timer(timeInterval: 0.008, repeats: true) { _ in ticks.append(CACurrentMediaTime()) }
+            RunLoop.main.add(timer, forMode: .common)
+            wait(0.2)
+            let t0 = CACurrentMediaTime()
+            var openedAt = t0
+            if env["JC_HITCH_MIC"] != nil {
+                // The app's order: the mic first, the island once audio flows.
+                VoicePanelTalk.begin(on: menu.voicePanelClass()) { openedAt = CACurrentMediaTime(); c.openVoice(mini: true) }
+            } else {
+                c.openVoice(mini: true)
+            }
+            let tOpen = CACurrentMediaTime()
+            let tTalk = tOpen
+            wait(2.0)
+            timer.invalidate()
+            if env["JC_HITCH_MIC"] != nil {
+                lines.append(String(format: "  island opened +%.0f ms after the key", (openedAt - t0) * 1000))
+            }
+            // The island's animation: from when it opened.
+            let during = ticks.filter { $0 >= openedAt - 0.01 && $0 <= openedAt + 0.7 }
+            let gaps = zip(during.dropFirst(), during).map { (at: ($1 - t0) * 1000, ms: ($0 - $1) * 1000) }
+            let worst = gaps.map(\.ms).max() ?? 0
+            let stalls = gaps.filter { $0.ms > 25 }.map { String(format: "%.0f ms at +%.0f", $0.ms, $0.at) }
+            lines.append(String(format: "round %d: openVoice %.0f ms, began %.0f ms, worst gap %.0f ms; stalls: ",
+                                round, (tOpen - t0) * 1000, (tTalk - tOpen) * 1000, worst) + stalls.joined(separator: ", "))
+            if env["JC_HITCH_MIC"] != nil {
+                let diag = NSSelectorFromString("diagnostics")
+                if let cls = menu.voicePanelClass() as AnyObject as? NSObjectProtocol, cls.responds(to: diag),
+                   let out = cls.perform(diag)?.takeUnretainedValue() as? [String] {
+                    lines.append(contentsOf: (round == 0 ? out : Array(out.suffix(14))).map { "    " + $0 })
+                }
+                let sel = NSSelectorFromString("stopEverything")
+                if let cls = menu.voicePanelClass() as AnyObject as? NSObjectProtocol, cls.responds(to: sel) { _ = cls.perform(sel) }
+            }
+            c.close()
+            wait(1.2)
+        }
+        try lines.joined(separator: "\n").write(toFile: report, atomically: true, encoding: .utf8)
+    }
+
+    /// Where the voice engine's ~1 s start goes (JC_AUDIO_TIMING=<report>):
+    /// building the echo-cancelling graph vs starting it, cold and warm.
+    @MainActor
+    func testWhereTheMicStartTimeGoes() throws {
+        guard let report = ProcessInfo.processInfo.environment["JC_AUDIO_TIMING"] else {
+            throw XCTSkip("set JC_AUDIO_TIMING to time the mic start")
+        }
+        var lines: [String] = []
+        func ms(_ t: CFTimeInterval) -> String { String(format: "%.0f ms", (CACurrentMediaTime() - t) * 1000) }
+        let plainOnly = ProcessInfo.processInfo.environment["JC_AUDIO_PLAIN"] != nil
+        for round in 0..<(plainOnly ? 0 : 2) {
+            var t = CACurrentMediaTime()
+            let engine = AVAudioEngine()
+            let input = engine.inputNode
+            lines.append("round \(round): inputNode \(ms(t))")
+            t = CACurrentMediaTime()
+            try input.setVoiceProcessingEnabled(true)
+            lines.append("  setVoiceProcessingEnabled \(ms(t))")
+            t = CACurrentMediaTime()
+            let fmt = input.outputFormat(forBus: 0)
+            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: fmt)
+            input.installTap(onBus: 0, bufferSize: 2048, format: fmt) { _, _ in }
+            engine.prepare()
+            lines.append("  connect+tap+prepare \(ms(t))")
+            t = CACurrentMediaTime()
+            try engine.start()
+            lines.append("  start \(ms(t))")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            engine.stop()
+            t = CACurrentMediaTime()
+            try engine.start()
+            lines.append("  restart (graph kept) \(ms(t))")
+            lines.append("  mic running while started: \(Self.inputRunning())")
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            engine.stop()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            lines.append("  mic running after stop, graph kept: \(Self.inputRunning())")
+            input.removeTap(onBus: 0)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        }
+        lines.append("baseline (all released): \(Self.inputRunning())")
+        // Without echo cancellation: what push to talk could start with.
+        for round in 0..<2 {
+            let t = CACurrentMediaTime()
+            let engine = AVAudioEngine()
+            let input = engine.inputNode
+            let fmt = input.outputFormat(forBus: 0)
+            var peak: Float = 0
+            input.installTap(onBus: 0, bufferSize: 2048, format: fmt) { buf, _ in
+                if let ch = buf.floatChannelData { for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(ch[0][i])) } }
+            }
+            engine.prepare()
+            try engine.start()
+            lines.append("plain round \(round): build+start \(ms(t)), \(fmt.channelCount)ch @\(Int(fmt.sampleRate))")
+            RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+            lines.append("  room peak \(String(format: "%.4f", peak))")
+            input.removeTap(onBus: 0)
+            engine.stop()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            lines.append("  mic running after stop: \(Self.inputRunning())")
+        }
+        try lines.joined(separator: "\n").write(toFile: report, atomically: true, encoding: .utf8)
+    }
+
+    /// Whether the default input device is running in any process (what lights
+    /// the menu bar's mic indicator).
+    private static func inputRunning() -> Bool {
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                                              mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &device)
+        var running = UInt32(0)
+        size = UInt32(MemoryLayout<UInt32>.size)
+        addr.mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere
+        AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &running)
+        return running != 0
     }
 
     /// The flight drawn at points along the way (offscreen; JC_ISLAND_SNAPSHOT

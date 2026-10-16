@@ -7,7 +7,7 @@ import Observation
 /// small voice island under the notch. Held for a beat before it starts, so
 /// the key still works as ⌥ for typing (⌥E never talks).
 struct TalkKeyLogic: Equatable {
-    static let startDelay: Double = 0.18
+    static let startDelay: Double = 0.15
 
     enum Phase: Equatable { case idle, waiting(since: Double), talking }
     enum Action: Equatable { case none, start, send }

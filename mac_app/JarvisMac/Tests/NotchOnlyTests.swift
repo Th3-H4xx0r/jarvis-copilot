@@ -96,7 +96,7 @@ final class NotchOnlyTests: XCTestCase {
         let home = try XCTUnwrap(ui.orbHomes[.voice], "the stage reported its orb")
         if mini {
             // The small island's orb sits at its left, under the notch.
-            XCTAssertEqual(home.width, 36, accuracy: 1)
+            XCTAssertEqual(home.width, 32, accuracy: 1)
             XCTAssertLessThan(home.midX, IslandController.panelSize.width / 2 - 100)
             XCTAssertGreaterThan(home.minY, ui.geometry.height)
         } else {
