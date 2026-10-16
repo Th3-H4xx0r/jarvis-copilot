@@ -72,6 +72,11 @@ end and push to all devices after this". A box is ticked only once it is live.
    - Found (2026-10-15, Pranav testing from the phone): the questions show on the phone, and button answers and typed answers ("Nahhhh") both arrive with the right text. Only the delay is wrong. Next: time each hop from the phone tap to the Mac's waiting hook (phone → server → jc-client → `jc-hook`) to find where the 15 s goes.
 36. [x] Mac: the notch's small orb flies into the open island and becomes its big orb (Voice stage, Agents header or tab row), and back into the notch when it folds
    - ✅ Installed on the Mac with jc-client's new voice panel (b965e48fa4); flight path rendered frame by frame, and the real voice panel's orb position checked offscreen. Fixed 45ad3285f4: it flew only the first time and jumped back on fold; now flies both ways every time — checked with a screen recording on the real notch, and Pranav confirmed it works.
+37. [ ] Flow dictation really cleaned by Jarvis (code apps were "As said", so VS Code never reached it) + a Clean-up model picker in Settings → Flow
+   - Built (b6a05c208c), server deployed, Mac installed; checked through the Mac's proxy on Auto, Haiku 5.5 and Celeris. Waiting on a real dictation.
+38. [ ] Settings → Shortcuts: record each shortcut from the keys pressed (Esc when done), and Press / Hold — hold Talk to Jarvis to talk until you let go
+39. [ ] Flow window → Snippets doesn't work (fields / Add)
+40. [ ] Flow window → Notes overflows the window: the sidebar is cut off on the left, the note on the right
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
