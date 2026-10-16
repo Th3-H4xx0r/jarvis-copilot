@@ -27,9 +27,9 @@ struct IslandRootView: View {
                                          pending: pending, flash: model.flash != nil)
     }
 
-    /// One spring for the island's shape: a soft, fluid open and close (not a
-    /// snap), and the same glide when the open island changes height.
-    static let morph = Animation.spring(response: 0.55, dampingFraction: 0.86)
+    /// One spring for the island's shape: a quick but fluid open and close (not a
+    /// snap, not a drift), and the same glide when the open island changes height.
+    static let morph = Animation.spring(response: 0.36, dampingFraction: 0.84)
 
     var body: some View {
         let size = shapeSize
@@ -49,8 +49,8 @@ struct IslandRootView: View {
                 case .expanded:
                     ExpandedIsland(model: model, ui: ui, controller: controller)
                         .frame(width: Self.expandedWidth)
-                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.24).delay(0.12)),
-                                                removal: .opacity.animation(.easeOut(duration: 0.1))))
+                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.07)),
+                                                removal: .opacity.animation(.easeOut(duration: 0.08))))
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .top)
