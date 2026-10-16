@@ -262,6 +262,14 @@ struct SettingsPage: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    CarPlaySettingsScreen()
+                } label: {
+                    GlassRow(symbol: "car.fill", title: "CarPlay",
+                             subtitle: "Directions app, the Talk to Jarvis button")
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     SpeechEngineScreen()
                 } label: {
                     GlassRow(symbol: "waveform", title: "Speech engine",
