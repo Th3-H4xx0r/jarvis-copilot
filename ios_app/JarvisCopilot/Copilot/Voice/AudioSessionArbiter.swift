@@ -34,6 +34,8 @@ import Foundation
 enum AudioSessionClient: CaseIterable, Sendable {
     case keepalive
     case voice
+    /// A car turn from the CarPlay Talk widget, started with Jarvis in the background.
+    case carVoice
     /// Raw wearable PCM already supplies input; never open the headset microphone.
     case externalVoice
     /// The `record_audio` skill's clip capture.
@@ -204,6 +206,20 @@ final class AudioSessionArbiter {
         active: true,
         sampleRate: liveSampleRate, ioBufferDuration: 0.1)
 
+    /// A car turn started from the Talk widget with Jarvis in the background. iOS
+    /// refuses a backgrounded app any session that takes the audio over ('!int',
+    /// 560557684), and with CarPlay connected `.videoChat` is exactly that — a
+    /// call-style session on the car's exclusive voice channel. So: Apple's
+    /// `.default` mode for CarPlay voice apps, mixing, and ducking his music under
+    /// the turn rather than stopping it. No echo cancellation, which is why these
+    /// turns take no barge-in (`VoiceTurnMachine.bargeInAllowed`).
+    static let carVoicePlan = AudioSessionPlan(
+        category: .playAndRecord,
+        mode: .default,
+        options: [.mixWithOthers, .duckOthers, .defaultToSpeaker, .allowBluetoothA2DP],
+        active: true,
+        sampleRate: liveSampleRate, ioBufferDuration: liveBufferDuration)
+
     /// Playing a recording back. `.playback` like the keepalive, so a clip under
     /// the keepalive changes no category at all — the Pod clip player used to set
     /// its own, and iOS refused it with '!pri' (561017449) while another claim
@@ -256,6 +272,7 @@ final class AudioSessionArbiter {
 
     static func plan(for holders: Set<AudioSessionClient>) -> AudioSessionPlan {
         if holders.contains(.externalVoice) { return playbackPlan }
+        if holders.contains(.carVoice) { return carVoicePlan }
         if holders.contains(.voice) { return voicePlan }
         if holders.contains(.recording) { return recordingPlan }
         if holders.contains(.ambient) { return ambientAvoidsCallMic() ? ambientPlanWithoutCallMic : ambientPlan }

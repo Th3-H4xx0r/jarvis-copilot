@@ -90,6 +90,20 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertTrue(plan.active)
     }
 
+    /// A car turn started from the Talk widget, with Jarvis in the background: the
+    /// session must mix (iOS refuses a background app a session that takes the
+    /// audio over — "!int") and dip his music rather than stop it. `.default`
+    /// mode: `.videoChat` makes CarPlay treat it as a call, which is exclusive.
+    func testCarVoiceMixesAndDucks() {
+        let plan = AudioSessionArbiter.plan(for: [.carVoice, .keepalive])
+        XCTAssertEqual(plan.category, .playAndRecord)
+        XCTAssertEqual(plan.mode, .default)
+        XCTAssertTrue(plan.options.contains(.mixWithOthers))
+        XCTAssertTrue(plan.options.contains(.duckOthers), "his music dips while Jarvis talks")
+        XCTAssertFalse(plan.options.contains(.allowBluetooth), "no hands-free call profile")
+        XCTAssertTrue(plan.active)
+    }
+
     func testVoiceWinsWhenBothHold() {
         XCTAssertEqual(AudioSessionArbiter.plan(for: [.voice, .keepalive]),
                        AudioSessionArbiter.plan(for: [.voice]),
@@ -192,12 +206,16 @@ final class AudioSessionArbiterTests: XCTestCase {
             let rides = !holders.isDisjoint(with: [.voice, .recording, .ambient])
             return (holders.union([.playback]), rides ? plan : AudioSessionArbiter.playbackPlan)
         }
-        let withExternal = (expected + withPlayback).map { holders, _ in
+        // A car turn takes its mixing session over any other claim.
+        let withCar = (expected + withPlayback).map { holders, _ in
+            (holders.union([AudioSessionClient.carVoice]), AudioSessionArbiter.carVoicePlan)
+        }
+        let withExternal = (expected + withPlayback + withCar).map { holders, _ in
             (holders.union([AudioSessionClient.externalVoice]), AudioSessionArbiter.playbackPlan)
         }
-        XCTAssertEqual(expected.count + withPlayback.count + withExternal.count, 1 << AudioSessionClient.allCases.count,
-                       "a client was added without a row here")
-        for (holders, plan) in expected + withPlayback + withExternal {
+        XCTAssertEqual(expected.count + withPlayback.count + withCar.count + withExternal.count,
+                       1 << AudioSessionClient.allCases.count, "a client was added without a row here")
+        for (holders, plan) in expected + withPlayback + withCar + withExternal {
             XCTAssertEqual(AudioSessionArbiter.plan(for: holders), plan, "\(holders)")
         }
     }

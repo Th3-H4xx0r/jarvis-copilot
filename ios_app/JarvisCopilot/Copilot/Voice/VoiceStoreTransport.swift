@@ -97,6 +97,7 @@ extension VoiceStore {
     /// deactivates nothing while the keepalive still needs the session.
     func acquireAudioSession() throws {
         if usesExternalInput { try audioSession.configureForExternalInput() }
+        else if carAudio { try audioSession.configureForCarConversation() }
         else { try audioSession.configureForConversation() }
         try audioSession.setActive(true)
     }

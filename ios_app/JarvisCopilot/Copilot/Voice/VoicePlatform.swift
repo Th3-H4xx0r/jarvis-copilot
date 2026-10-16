@@ -297,6 +297,8 @@ protocol AudioSessionControlling: AnyObject {
     /// `.playAndRecord` + `.videoChat`: speakerphone route AND echo cancellation,
     /// which is how calling apps get full volume with a live mic.
     func configureForConversation() throws
+    /// The car's mixing, ducking session (`AudioSessionArbiter.carVoicePlan`).
+    func configureForCarConversation() throws
     func configureForExternalInput() throws
     func setActive(_ active: Bool) throws
     var onInterruption: ((AudioInterruption) -> Void)? { get set }

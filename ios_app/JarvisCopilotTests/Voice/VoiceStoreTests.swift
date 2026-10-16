@@ -1856,6 +1856,21 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertTrue(shown.line.contains("background"), shown.line)
     }
 
+    /// The whole one-shot turn holds the car's mixing session — never the
+    /// call-style one a backgrounded app is refused.
+    func testOneShotUsesTheMixingCarSession() async {
+        let rig = makeRig()
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        XCTAssertFalse(rig.audioSession.claims.isEmpty)
+        XCTAssertEqual(Set(rig.audioSession.claims), ["car"])
+        await rig.store.stopAll()
+        await startListening(rig)
+        XCTAssertEqual(rig.audioSession.claims.last, "conversation", "the phone's own voice is unchanged")
+        await rig.store.stopAll()
+    }
+
     func testOneShotSoundsListeningThenThinking() async throws {
         let rig = makeRig()
         let sounds = RecordingEarcons()

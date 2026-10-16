@@ -76,6 +76,21 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
 - [ ] **10. No mic button on the widget — just a big centred orb**
   - Built: the widget is the orb alone (a line under it only when the last tap couldn't start).
 
+## Round 3
+
+- [ ] **11. Still "Mic blocked: another app's audio won't let go (!int)" unless the app is in front**
+  - Found: `!int` = a backgrounded app activating a session that takes the audio over. With CarPlay connected,
+    the voice turn's `.videoChat` (echo-cancelling, call-style) session goes to the car's exclusive voice
+    channel — refused in the background even though it asked to mix.
+  - Built: car turns use their own session — `.playAndRecord`, `.default` mode (Apple's CarPlay voice-app
+    mode), mixing and ducking his music. No echo cancellation there, so a car turn takes no talk-over
+    (tap the orb to stop). Awaiting his test: works with Jarvis in the background?
+- [ ] **12. Can the Jarvis card on the CarPlay home screen be the clickable orb?** — answered: Apple turns off
+  buttons on Live Activities in CarPlay; tapping the card can only open Jarvis on the car screen (it already
+  opens it listening). The widget orb is the stay-on-screen button.
+- [ ] **13. Softer, more professional sounds**
+  - Built: soft bell notes (C5→G5 rising for listening, G5→C5 falling for thinking), quiet, slow decay.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).

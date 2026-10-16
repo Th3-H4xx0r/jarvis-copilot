@@ -21,15 +21,17 @@ protocol EarconPlaying: AnyObject {
 
 /// Plays the earcons as generated tones through the voice audio session, so they
 /// reach the car's speakers wherever the reply does (and ignore the silent switch).
+/// Soft, low, bell-like notes — a gentle rising fifth for "go ahead", the same
+/// fifth falling for "got it" — rather than beeps.
 final class ToneEarconPlayer: EarconPlaying {
     private var players: [VoiceEarcon: AVAudioPlayer] = [:]
 
     func play(_ earcon: VoiceEarcon) {
         if players[earcon] == nil {
-            // A rising pair for "go ahead", the same pair falling for "got it".
+            // C5 → G5 rising; G5 → C5 falling.
             let tones: [(hz: Double, ms: Int)] = earcon == .listening
-                ? [(hz: 660, ms: 70), (hz: 990, ms: 110)]
-                : [(hz: 990, ms: 70), (hz: 660, ms: 110)]
+                ? [(hz: 523.25, ms: 130), (hz: 783.99, ms: 260)]
+                : [(hz: 783.99, ms: 130), (hz: 523.25, ms: 260)]
             players[earcon] = try? AVAudioPlayer(data: Self.wav(tones), fileTypeHint: AVFileType.wav.rawValue)
             players[earcon]?.prepareToPlay()
         }
@@ -38,16 +40,21 @@ final class ToneEarconPlayer: EarconPlaying {
         player.play()
     }
 
-    /// 16-bit mono PCM WAV of the tones back to back, each faded in and out so
-    /// it doesn't click.
-    static func wav(_ tones: [(hz: Double, ms: Int)], volume: Double = 0.35, rate: Int = 24000) -> Data {
+    /// 16-bit mono PCM WAV of the notes back to back. Each is a soft bell: a quick
+    /// 12 ms attack, an exponential decay (no hard edge, nothing sharp), a touch of
+    /// the octave for warmth, and a short fade so it never clicks.
+    static func wav(_ tones: [(hz: Double, ms: Int)], volume: Double = 0.2, rate: Int = 24000) -> Data {
         var samples: [Int16] = []
         for tone in tones {
             let count = rate * tone.ms / 1000
-            let fade = max(1, rate * 8 / 1000)
+            let attack = Double(rate) * 0.012
+            let tail = max(1, rate * 10 / 1000)
+            let decay = Double(count) / 3.5
             for i in 0..<count {
-                let ramp = min(1, Double(min(i, count - 1 - i)) / Double(fade))
-                let value = sin(2 * .pi * tone.hz * Double(i) / Double(rate)) * volume * ramp
+                let t = Double(i)
+                let envelope = min(1, t / attack) * exp(-t / decay) * min(1, Double(count - 1 - i) / Double(tail))
+                let phase = 2 * .pi * tone.hz * t / Double(rate)
+                let value = (sin(phase) + 0.18 * sin(2 * phase)) / 1.18 * volume * envelope
                 samples.append(Int16(value * Double(Int16.max)))
             }
         }

@@ -306,10 +306,19 @@ final class MockAudioSessionControlling: AudioSessionControlling {
     var activateError: Error?
     private(set) var configureCount = 0
     private(set) var activeCalls: [Bool] = []
+    /// Which voice claim each configure made: "conversation", "car", "external".
+    private(set) var claims: [String] = []
 
     func configureForConversation() throws {
         if let configureError { throw configureError }
         configureCount += 1
+        claims.append("conversation")
+    }
+
+    func configureForCarConversation() throws {
+        if let configureError { throw configureError }
+        configureCount += 1
+        claims.append("car")
     }
 
     func configureForExternalInput() throws { try configureForConversation() }

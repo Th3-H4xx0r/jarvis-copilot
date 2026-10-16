@@ -319,6 +319,9 @@ final class VoiceStore {
     /// Mic audio ignored after an earcon (ms of audio, not wall time), so the tone
     /// can't be heard as speech or as him cutting in.
     private var earconQuietMs = 0
+    /// This session is a car turn: it holds the mixing car audio session for its
+    /// whole length (set before the first claim, cleared at teardown).
+    private(set) var carAudio = false
     static let earconQuietWindowMs = 250
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
@@ -743,9 +746,11 @@ final class VoiceStore {
         // The audio session NOW, while the Talk widget's intent is still running:
         // iOS lets a backgrounded app start recording only inside that intent, and
         // the transport and mic below claim it a moment later on their own tasks.
+        carAudio = true
         do {
             try acquireAudioSession()
         } catch let failure {
+            carAudio = false
             _ = JcLog.report(JcLog.voice, "one-shot audio session", failure)
             error = Self.audioSessionReason(failure).map { "Mic blocked: \($0)" }
                 ?? "Could not start voice: \(failure.localizedDescription)"
@@ -1591,6 +1596,7 @@ final class VoiceStore {
         oneShotSilenceTimer = nil
         followupTimer?.cancel()
         followupTimer = nil
+        carAudio = false
         // Supersede any mic start still retrying, then release the mic.
         _ = nextMicGeneration()
         micTask.cancel()

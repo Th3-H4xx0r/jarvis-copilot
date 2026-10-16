@@ -129,7 +129,9 @@ struct VoiceTurnMachine: Equatable {
     /// between sentences / a tool call) once the server has started answering —
     /// the user shouldn't have to wait for the next sentence to cut in.
     var bargeInAllowed: Bool {
-        state == .speaking || (state == .thinking && serverProducedOutput)
+        // A one-shot (car) turn runs without echo cancellation: the reply coming
+        // back through the car's mic must not count as him cutting in.
+        !oneShot && (state == .speaking || (state == .thinking && serverProducedOutput))
     }
 
     mutating func apply(_ event: VoiceTurnEvent) -> [VoiceTurnEffect] {

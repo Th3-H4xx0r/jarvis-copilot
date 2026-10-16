@@ -526,6 +526,17 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .listening)
     }
 
+    /// No echo cancellation in the car's mixing session: the reply coming back in
+    /// through the car mic must not count as him cutting in. Tapping stops it.
+    func testOneShotIgnoresBargeIn() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        oneShotThroughReply(&m)
+        XCTAssertEqual(m.state, .speaking)
+        XCTAssertFalse(m.bargeInAllowed)
+        XCTAssertEqual(m.apply(.bargeIn), [])
+        XCTAssertEqual(m.state, .speaking)
+    }
+
     func testStopClearsOneShot() {
         var m = VoiceTurnMachine(mode: .realtime)
         m.oneShot = true
