@@ -47,7 +47,9 @@ extension VoiceStore {
             // accepts a turn.
             deliverPendingWatchTurnIfReady()
         } catch {
-            raise(.failed("Could not start voice: \(JcLog.report(JcLog.voice, "open transport", error))"))
+            let message = JcLog.report(JcLog.voice, "open transport", error)
+            raise(.failed(Self.audioSessionReason(error).map { "Mic blocked: \($0)" }
+                          ?? "Could not start voice: \(message)"))
         }
     }
 

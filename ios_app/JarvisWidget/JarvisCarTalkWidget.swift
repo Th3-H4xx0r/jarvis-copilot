@@ -4,9 +4,10 @@ import WidgetKit
 
 /// "Talk to Jarvis" for the car: a CarPlay Widgets-page button that talks to Jarvis
 /// without leaving the screen. One tap starts a one-shot turn in the background
-/// (`CarTalkIntent`), a second stops it; the face shows the state and his words,
-/// then the reply. The phone's own JARVIS Voice widget (which opens the app) is
-/// separate and unchanged.
+/// (`CarTalkIntent`), a second stops it. The face never claims a live state —
+/// WidgetKit won't redraw a backgrounded app's widget in step with a turn — only
+/// whether the last tap failed; the turn shows on the Live Activity card and in
+/// the earcons. The phone's own JARVIS Voice widget is separate and unchanged.
 struct JarvisCarTalkEntry: TimelineEntry {
     let date: Date
     let snapshot: CarTalkSnapshot
@@ -24,9 +25,8 @@ struct JarvisCarTalkProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<JarvisCarTalkEntry>) -> Void) {
         let now = Date()
         let current = entry(now: now)
-        // Anything still showing goes stale on its own, even if the app was killed
-        // before it could say so: come back then and draw it idle.
-        let showing = current.snapshot.state != "idle" || !current.snapshot.line.isEmpty
+        // A failure clears itself after a while, app or no app.
+        let showing = current.snapshot.state == "error"
         let policy: TimelineReloadPolicy = showing
             ? .after(current.snapshot.updatedAt.addingTimeInterval(CarTalkSnapshot.staleAfter + 1))
             : .never
@@ -42,31 +42,25 @@ struct JarvisCarTalkView: View {
     @Environment(\.showsWidgetContainerBackground) private var showsBackground
     let entry: JarvisCarTalkEntry
 
-    private var state: String { entry.snapshot.state }
+    private var failed: Bool { entry.snapshot.state == "error" && !entry.snapshot.line.isEmpty }
 
+    /// Just the orb, big and centred — the whole widget is the button. A line under
+    /// it only when the last tap couldn't start.
     var body: some View {
         Button(intent: CarTalkIntent()) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    orb
-                    Spacer(minLength: 0)
-                    Image(systemName: state == "idle" || state == "error" ? "mic.fill" : "stop.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(textColor)
-                }
-                Text(CarCardText.title(state: state))
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(state == "idle" ? textColor : jcStateColor(state))
-                    .lineLimit(1)
-                if !entry.snapshot.line.isEmpty {
+            VStack(spacing: 6) {
+                Spacer(minLength: 0)
+                orb(size: failed ? 76 : 104)
+                if failed {
                     Text(entry.snapshot.line)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(textColor.opacity(0.85))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(jcStateColor("error"))
+                        .multilineTextAlignment(.center)
                         .lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
         // Removable, like the JARVIS Voice widget: CarPlay drops it and the face sits
@@ -79,17 +73,17 @@ struct JarvisCarTalkView: View {
 
     private var textColor: Color { showsBackground ? .white : .primary }
 
-    @ViewBuilder private var orb: some View {
+    @ViewBuilder private func orb(size: CGFloat) -> some View {
         if let image = WidgetImages.model("orb") ?? jarvisOrbUIImage {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 44, height: 44)
+                .frame(width: size, height: size)
                 .clipShape(Circle())
-                .shadow(color: JcAccent.color.opacity(0.55), radius: 8)
+                .shadow(color: JcAccent.color.opacity(0.55), radius: size / 6)
         } else {
             Image(systemName: "atom")
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: size * 0.55, weight: .bold))
                 .foregroundStyle(textColor)
         }
     }

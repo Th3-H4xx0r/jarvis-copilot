@@ -276,7 +276,6 @@ final class AppServices {
         // 6. The single Live Activity owner, fed by the voice session.
         voice.attachLiveActivity { [weak self] snapshot in
             self?.liveActivity.reportVoice(snapshot)
-            CarTalkFeed.shared.report(snapshot)   // the CarPlay Talk widget
         }
         liveActivity.start()
 
@@ -322,6 +321,9 @@ final class AppServices {
         CarTalkBridge.toggle = { [weak self] in
             await CarTalkFeed.shared.toggle(voice: VoiceStore.shared) { self?.liveActivity.reportVoice($0) }
         }
+        // Listening / thinking sounds: every car turn (the widget's, and the CarPlay voice tab).
+        VoiceStore.shared.earcons = ToneEarconPlayer()
+        VoiceStore.shared.wantsEarcons = { CarPresence.shared.inCar }
         // Voice directions open the map once the reply has played; Stop cancels them.
         VoiceStore.shared.onTurnFinished = { CarHandoff.shared.turnFinished() }
         VoiceStore.shared.onStopRequested = { CarHandoff.shared.stopped() }

@@ -312,6 +312,14 @@ final class VoiceStore {
     var onTurnFinished: (() -> Void)?
     /// Stop was asked for (Stop, End, the Talk widget's second tap).
     var onStopRequested: (() -> Void)?
+    /// The listening / thinking sounds. Nil (silent) unless the app installs a player.
+    var earcons: EarconPlaying?
+    /// Sounds for every turn, not only one-shot ones: set by the app to "in the car".
+    var wantsEarcons: () -> Bool = { false }
+    /// Mic audio ignored after an earcon (ms of audio, not wall time), so the tone
+    /// can't be heard as speech or as him cutting in.
+    private var earconQuietMs = 0
+    static let earconQuietWindowMs = 250
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -732,6 +740,19 @@ final class VoiceStore {
         startup = VoiceStartupTimer(tap: clock.now)
         guard await ensureMic(), await ensureTranscription() else { return false }
         guard !machine.state.isActive else { return false }
+        // The audio session NOW, while the Talk widget's intent is still running:
+        // iOS lets a backgrounded app start recording only inside that intent, and
+        // the transport and mic below claim it a moment later on their own tasks.
+        do {
+            try acquireAudioSession()
+        } catch let failure {
+            _ = JcLog.report(JcLog.voice, "one-shot audio session", failure)
+            error = Self.audioSessionReason(failure).map { "Mic blocked: \($0)" }
+                ?? "Could not start voice: \(failure.localizedDescription)"
+            note("one-shot refused: \(error ?? "")")
+            pushLiveActivity()
+            return false
+        }
         modeAfterOneShot = machine.mode
         machine.mode = .realtime
         machine.oneShot = true
@@ -742,6 +763,36 @@ final class VoiceStore {
         raise(.startRequested)
         armOneShotSilence()   // bounds the connect too: a dead zone can't hold the mic
         return true
+    }
+
+    /// Wait (up to `timeoutMs`) for a starting turn to be live — listening — or to
+    /// have failed. The Talk widget's intent waits on this before it returns.
+    func waitUntilLive(timeoutMs: Int = 8000) async {
+        let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
+        while machine.state == .connecting, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// Why iOS refused the audio session, in words, with its four-letter code —
+    /// nil for anything that isn't an audio-system error (network, server).
+    nonisolated static func audioSessionReason(_ error: Error) -> String? {
+        let ns = error as NSError
+        guard ns.domain == NSOSStatusErrorDomain else { return nil }
+        let code = UInt32(truncatingIfNeeded: ns.code)
+        let bytes = [24, 16, 8, 0].map { UInt8((code >> UInt32($0)) & 0xFF) }
+        let fourCC = bytes.allSatisfy({ $0 >= 0x20 && $0 < 0x7F })
+            ? String(decoding: bytes, as: UTF8.self) : String(ns.code)
+        let reason: String
+        switch fourCC {
+        case "!rec": reason = "iOS won't start the mic while Jarvis is in the background"
+        case "!pri": reason = "another app has the mic, like a call or Siri"
+        case "!int": reason = "another app's audio won't let go"
+        case "!act": reason = "the audio system is busy"
+        case "siri": reason = "Siri is listening"
+        default: reason = "the audio system refused"
+        }
+        return "\(reason) (\(fourCC))"
     }
 
     /// A one-shot turn still connecting, or listening and hearing nothing, after
@@ -903,6 +954,11 @@ final class VoiceStore {
         }
         // Any way back to listening (connected, a barge-in, Interrupt, a missed turn).
         if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
+        if let earcon = VoiceEarcon.forTransition(from: before, to: machine.state),
+           machine.oneShot || wantsEarcons(), let earcons {
+            earcons.play(earcon)
+            earconQuietMs = Self.earconQuietWindowMs
+        }
         if !machine.state.isActive, let mode = modeAfterOneShot {
             modeAfterOneShot = nil
             machine.mode = mode
@@ -1175,6 +1231,10 @@ final class VoiceStore {
         if startup.tap != nil, startup.mic == nil {
             startup.mic = clock.now
             logStartupIfComplete()
+        }
+        if earconQuietMs > 0 {
+            earconQuietMs -= chunk.count / 2 * 1000 / Self.micRate
+            return
         }
         let amp = voicePeakAmplitude(chunk)
 

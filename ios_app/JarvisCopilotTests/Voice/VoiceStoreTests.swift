@@ -1824,11 +1824,69 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .idle, "but not forever")
     }
 
+    /// The phone locked, Jarvis in the background: iOS refuses the audio session.
+    /// The tap must say why in words, and nothing may half-start.
+    func testOneShotRefusedTheMicInTheBackgroundSaysWhy() async {
+        let rig = makeRig()
+        rig.audioSession.activateError = NSError(domain: NSOSStatusErrorDomain, code: 561145187)
+        let started = await rig.store.startOneShotTurn()
+        XCTAssertFalse(started)
+        XCTAssertFalse(rig.store.isActive)
+        XCTAssertEqual(rig.connector.connectedURLs, [], "no socket for a turn that can't hear")
+        XCTAssertTrue(rig.store.error?.contains("background") ?? false, rig.store.error ?? "nil")
+    }
+
+    /// The tap's intent only returns once the mic is live: iOS lets the app start
+    /// recording in the background only while that intent runs.
+    func testACarTalkTapReturnsWithTheMicLive() async {
+        let rig = makeRig()
+        await CarTalkFeed(defaults: isolatedCarTalkDefaults()).toggle(voice: rig.store) { _ in }
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertTrue(rig.input.isRunning)
+        await rig.store.stopAll()
+    }
+
+    func testAFailedCarTalkTapShowsOnTheWidget() async {
+        let rig = makeRig()
+        rig.audioSession.activateError = NSError(domain: NSOSStatusErrorDomain, code: 561145187)
+        let defaults = isolatedCarTalkDefaults()
+        await CarTalkFeed(defaults: defaults).toggle(voice: rig.store) { _ in }
+        let shown = CarTalkSnapshot.load(defaults)
+        XCTAssertEqual(shown.state, "error")
+        XCTAssertTrue(shown.line.contains("background"), shown.line)
+    }
+
+    func testOneShotSoundsListeningThenThinking() async throws {
+        let rig = makeRig()
+        let sounds = RecordingEarcons()
+        rig.store.earcons = sounds
+        _ = await rig.store.startOneShotTurn()
+        await waitUntilVoice { rig.store.state != .connecting }
+        await settleVoiceTasks()
+        XCTAssertEqual(sounds.played, [.listening])
+        await speakThenPause(rig)
+        XCTAssertEqual(sounds.played, [.listening, .thinking])
+        await rig.store.stopAll()
+    }
+
+    func testSoundsOnlyForCarVoice() async {
+        let rig = makeRig()
+        let sounds = RecordingEarcons()
+        rig.store.earcons = sounds
+        await startListening(rig)
+        XCTAssertEqual(sounds.played, [], "the phone's own voice screen stays quiet")
+        await rig.store.stopAll()
+        rig.store.wantsEarcons = { true }   // in the car
+        await startListening(rig)
+        XCTAssertEqual(sounds.played, [.listening])
+        await rig.store.stopAll()
+    }
+
     func testARefusedCarTalkTapLeavesNoFalseListening() async {
         let rig = makeRig()
         rig.input.permission = false
         var reports: [VoiceLiveActivitySnapshot] = []
-        let feed = CarTalkFeed()
+        let feed = CarTalkFeed(defaults: isolatedCarTalkDefaults())
         await feed.toggle(voice: rig.store) { reports.append($0) }
         await feed.toggle(voice: rig.store) { reports.append($0) }
         XCTAssertEqual(reports.last?.state, "idle", "the card must not say Listening with the mic off")
@@ -1869,4 +1927,15 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .listening)
         XCTAssertEqual(finished, 1)
     }
+}
+
+/// Records the earcons the store asked for.
+final class RecordingEarcons: EarconPlaying {
+    private(set) var played: [VoiceEarcon] = []
+    func play(_ earcon: VoiceEarcon) { played.append(earcon) }
+}
+
+func isolatedCarTalkDefaults(_ function: String = #function) -> UserDefaults {
+    let name = "CarTalk-\(function)-\(UUID().uuidString)"
+    return UserDefaults(suiteName: name)!
 }

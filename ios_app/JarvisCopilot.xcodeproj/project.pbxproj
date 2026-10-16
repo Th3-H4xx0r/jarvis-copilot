@@ -346,6 +346,7 @@
 		4A530EFE0BE2E6977B483B50 /* BandSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839501072D2A279527117F51 /* BandSceneView.swift */; };
 		4A896AABBF3808C8639793C2 /* TodosStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50286C204C30CC4F88E81AE1 /* TodosStore.swift */; };
 		4AB014102C5861EE5FD7DE04 /* SkillBoundariesUIKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076740BDA9183D9160871727 /* SkillBoundariesUIKit.swift */; };
+		4AD5DECEC11201E4C826217F /* VoiceEarcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA94FC9CCFDC9B72A6CA1BA /* VoiceEarcon.swift */; };
 		4AFFE3EDCA6FAFDD4A8BC366 /* ActionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D81F3D77511AA70B32B057 /* ActionBanner.swift */; };
 		4B094A5B148B84AFD5CE91A7 /* PairStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83547EEF6AC9B210B3E7D813 /* PairStore.swift */; };
 		4B0E4C9DCC1242612A8ABDE9 /* CodingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60603B62973C8E1495A067A3 /* CodingStore.swift */; };
@@ -1609,6 +1610,7 @@
 		6A1F0C263D3C9AF5C066C9EF /* WidgetDesignStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetDesignStoreTests.swift; sourceTree = "<group>"; };
 		6A2A3A4CF32F339AEA4CF471 /* OrbFrames.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OrbFrames.swift; sourceTree = "<group>"; };
 		6A57264177A1165B099054ED /* InsightsChartData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsChartData.swift; sourceTree = "<group>"; };
+		6AA94FC9CCFDC9B72A6CA1BA /* VoiceEarcon.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceEarcon.swift; sourceTree = "<group>"; };
 		6ACE5955258632630A1D8F8F /* DoorAlarmSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DoorAlarmSetupView.swift; sourceTree = "<group>"; };
 		6AFA7E2C6E849BFED3782811 /* ToyotaModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToyotaModels.swift; sourceTree = "<group>"; };
 		6BC8E5185E981061ABE2874E /* DevicesPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesPage.swift; sourceTree = "<group>"; };
@@ -3656,6 +3658,7 @@
 				26A2D39DFF76F0AB58321BD0 /* VoiceAudioEngine.swift */,
 				63887C448399483B4F0D6B33 /* SpeechEngineAPI.swift */,
 				0393646E148583432A47D9FD /* SpeechEngineStore.swift */,
+				6AA94FC9CCFDC9B72A6CA1BA /* VoiceEarcon.swift */,
 			);
 			path = Voice;
 			sourceTree = "<group>";
@@ -5642,6 +5645,7 @@
 				3820809B744FFC2EBFBD7421 /* CarTalkIntent.swift in Sources */,
 				2F138CCBC13E953B7FB4DDAB /* CarDirections.swift in Sources */,
 				2274132A99DFA5482BBED5DC /* CarPlaySettingsScreen.swift in Sources */,
+				4AD5DECEC11201E4C826217F /* VoiceEarcon.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
