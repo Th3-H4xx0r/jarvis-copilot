@@ -77,6 +77,26 @@ def test_hello_asks_the_server_for_the_agent_config():
     assert ws.sent == [{"type": "event", "name": "agent_hello", "data": {"v": 1}}]
 
 
+def test_hello_hands_the_server_the_usage_we_have():
+    """The server keeps plan usage in memory and the hook server forwards only
+    changes: after a server restart or a reconnect the phone's pills stayed
+    empty until usage next rose (sweep). The hello re-sends what we have."""
+    svc = service.Service()
+    ws = FakeWs()
+    svc._ws = ws
+
+    class Hooks:
+        def usage(self):
+            return {"five_hour": {"used_percentage": 24, "resets_at": 1000}}
+
+    svc._hook_server = Hooks()
+    svc._agent_hello()
+    assert ws.sent[0] == {"type": "event", "name": "agent_hello", "data": {"v": 1}}
+    up = ws.sent[1]["data"]
+    assert (up["kind"], up["agent"]) == ("statusline", "claude")
+    assert up["payload"]["rate_limits"]["five_hour"]["used_percentage"] == 24
+
+
 def test_a_queued_instruction_is_handed_over_at_the_next_stop(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
     svc = service.Service()

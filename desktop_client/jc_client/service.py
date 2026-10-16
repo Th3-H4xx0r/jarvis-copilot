@@ -162,8 +162,16 @@ class Service:
         return self._agent_approvals
 
     def _agent_hello(self) -> None:
-        """Ask the server for the agent config (it answers with agent_config)."""
+        """Ask the server for the agent config (it answers with agent_config),
+        and hand it the plan usage we have: it keeps usage only in memory and
+        the hook server forwards only changes, so after a server restart or a
+        reconnect the phone would show none until usage next rose."""
         self._forward_up({"type": "event", "name": "agent_hello", "data": {"v": 1}})
+        limits = self._hook_server.usage() if self._hook_server is not None else None
+        if limits:
+            self._forward_up({"type": "event", "name": "agent_hook",
+                              "data": {"kind": "statusline", "agent": "claude",
+                                       "payload": {"rate_limits": limits}, "ts": time.time()}})
 
     def _set_agent_config(self, frame: dict) -> None:
         self._agent_approvals = frame.get("remote_approvals") is True

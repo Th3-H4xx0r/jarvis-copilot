@@ -115,6 +115,25 @@ def test_a_working_session_gets_it_when_it_finishes_its_step(env, monkeypatch):
                               "terminal": {"term_program": "vscode"}})]
 
 
+def test_a_working_agent_without_a_stop_hand_off_is_typed_into_or_told_why(env, monkeypatch):
+    """Only Claude's Stop hook collects a queued message: a working Codex (or
+    Gemini…) session must not be told "queued" and then never get it (sweep)."""
+    store, tr, mgr, frames = env
+    import api.agents_routes as ar
+    monkeypatch.setattr(ar, "_remote_instructions", lambda: True)
+    tr.ingest("d1", "event", "codex", ev("UserPromptSubmit", prompt="fix it", iterm_session_id="w0t2p0:XYZ"))
+    key = tr.sessions()[0]["key"]
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "also tests"}, mgr=mgr)
+    assert status == 200 and body["via"] == "typed"
+    assert frames[0][1]["mode"] == "type" and frames[0][1]["agent"] == "codex"
+    frames.clear()
+    tr.ingest("d1", "event", "codex", ev("UserPromptSubmit", prompt="fix it", session_id="s2", term_program="vscode"))
+    key2 = next(s["key"] for s in tr.sessions() if s["session_id"] == "s2")
+    status, body = call("POST", "/agents/instruction", {"key": key2, "text": "also tests"}, mgr=mgr)
+    assert status == 409 and body["reason"] == "busy_untypable" and "VS Code" in body["error"]
+    assert frames == []
+
+
 def test_an_idle_iterm_session_gets_it_typed_in(env, monkeypatch):
     store, tr, mgr, frames = env
     import api.agents_routes as ar

@@ -125,6 +125,8 @@ def _decide(body):
 
 
 _WORKING = {"working", "thinking", "approval", "question"}
+# The agents whose Stop hook collects a queued message (jc_hook _STOP_DELIVERY_AGENTS).
+_STOP_HAND_OFF_AGENTS = ("claude", "claude-desktop")
 _TERMINAL_NAMES = {"vscode": "VS Code", "apple_terminal": "Terminal", "ghostty": "Ghostty",
                    "wezterm": "WezTerm", "warpterminal": "Warp", "cursor": "Cursor", "zed": "Zed"}
 
@@ -194,10 +196,19 @@ def _instruction(tr, body, manager, manager_for_host):
     if not _remote_instructions():
         return _err(403, "turn on \"Instructions from the phone\" in Code Master settings first")
     terminal = dict(session.get("terminal") or {})
-    if (session.get("state") or "") in _WORKING:
+    agent = session.get("agent") or "claude"
+    working = (session.get("state") or "") in _WORKING
+    typable = bool(terminal.get("iterm") or terminal.get("tmux_pane") or terminal.get("tmux"))
+    if working and agent in _STOP_HAND_OFF_AGENTS:
         mode, via = "queue", "queued"
-    elif terminal.get("iterm") or terminal.get("tmux_pane") or terminal.get("tmux"):
+    elif typable:
+        # Idle, or an agent without a Stop hand-off whose terminal buffers what's typed.
         mode, via = "type", "typed"
+    elif working:
+        return 409, {"error": f"This session is working in {_terminal_name(terminal)}, which Jarvis can't "
+                              "type into, and it can't be handed a message mid-turn. Send it when it's "
+                              "done, or type it there.",
+                     "reason": "busy_untypable"}
     else:
         return 409, {"error": f"This session is waiting at its prompt in {_terminal_name(terminal)}, which "
                               "Jarvis can't type into. Type it there, or send it while the session is working.",
