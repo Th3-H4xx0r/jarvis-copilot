@@ -86,6 +86,12 @@ final class NotchOnlyTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         host.layoutSubtreeIfNeeded()
         XCTAssertTrue(IslandPin.holds(pinned: ui.pinned, tab: ui.tab, pending: false), "the island stays open while you talk")
+        // The stage told the island where its orb sits (across the dylib), so the
+        // notch's orb can fly onto it: centred on the stage, at its full size.
+        let home = try XCTUnwrap(ui.orbHomes[.voice], "the stage reported its orb")
+        XCTAssertEqual(home.midX, IslandController.panelSize.width / 2, accuracy: 2)
+        XCTAssertEqual(home.width, 72, accuracy: 1)
+        XCTAssertGreaterThan(home.minY, ui.geometry.height + 8 + IslandLayout.tabsHeight)
         // The window server's own picture of the window (materials and all, which
         // a view snapshot can't draw): say which window, hold it for a capture.
         if let out = env["JC_ISLAND_SNAPSHOT"] {

@@ -171,6 +171,10 @@ struct MacVoicePanel: View {
                         .position(x: orbCenter.x, y: orbCenter.y + side / 2 + 13)
                         .opacity(conversationLayout ? 1 : 0)
                     orbButton(side)
+                        // Where it sits, for Jarvis.app's orb flight (see MacIslandOrbLink).
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                            MacIslandOrbLink.shared.report($0)
+                        }
                         .position(orbCenter)
                 }
             }
@@ -231,6 +235,9 @@ struct MacVoicePanel: View {
             }
             .frame(width: side, height: side)
             .contentShape(Circle())
+            // Out of sight while the notch's orb flies in to become it; it
+            // shows at once when the flight lands (the two look the same).
+            .opacity(MacIslandOrbLink.shared.hidden ? 0 : 1)
         }
         .buttonStyle(.plain)
         .help(store.isActive ? "Stop" : "Talk to Jarvis")

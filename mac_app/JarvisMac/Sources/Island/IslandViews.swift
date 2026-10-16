@@ -14,6 +14,8 @@ struct IslandRootView: View {
     let controller: IslandController
 
     static let expandedWidth: CGFloat = 560
+    /// The panel's coordinate space: where the orb's flight is measured and drawn.
+    static let space = "jc.island"
 
     @MainActor
     static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40,
@@ -61,6 +63,16 @@ struct IslandRootView: View {
             Spacer(minLength: 0)
         }
         .frame(width: IslandController.panelSize.width, height: IslandController.panelSize.height, alignment: .top)
+        .coordinateSpace(.named(Self.space))
+        // The orb in flight, over everything (the shape clips; it mustn't).
+        .overlay(alignment: .topLeading) {
+            if let flight = ui.orbFlight, let ear = ui.orbEar {
+                FlyingOrb(ear: ear, home: flight.from ?? ui.orbHomes[flight.home] ?? ear,
+                          progress: ui.orbProgress, mood: model.connected ? model.mood : .idle)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -95,6 +107,8 @@ struct IslandRootView: View {
                             size: max(12, ui.geometry.height - 14))
                 }
             }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { ui.orbEar = $0 }
+            .opacity(ui.hidesEar ? 0 : 1)
             .frame(width: IslandController.earWidth)
             .contentShape(Rectangle())
             .onTapGesture { controller.openVoice() }     // the orb: talk to Jarvis
@@ -121,6 +135,50 @@ struct IslandRootView: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             IslandDrop.take(providers) { controller.open(.chat) }
         }
+    }
+}
+
+/// The orb in flight between the notch and the open island: it drops out of
+/// the notch, glides into place growing to home's size (a soft accent light
+/// with it mid-flight, none at either end), swells a touch as it lands, and
+/// the orb in its place takes over. Animatable on `progress`, so one spring
+/// drives the whole path.
+struct FlyingOrb: View, Animatable {
+    var ear: CGRect
+    var home: CGRect
+    var progress: CGFloat
+    var mood: OrbMood
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let p = OrbPath.at(progress, ear: ear, home: home)
+        // Drawn once at its biggest and scaled, so the shader's surface never
+        // changes size mid-flight (that would redraw it squashed).
+        let big = max(ear.width, home.width) * 1.1
+        ZStack {
+            Circle()
+                .fill(JcAccent.color.opacity(0.3 * OrbPath.glow(progress)))
+                .frame(width: p.side * 1.8, height: p.side * 1.8)
+                .blur(radius: p.side * 0.4)
+            OrbView(mood: mood, skin: OrbSkin.current, size: big)
+                .scaleEffect(p.side / big)
+        }
+        .position(p.center)
+    }
+}
+
+extension View {
+    /// The open island's orb for `home`: measured for the flight, and out of
+    /// sight while the flying orb travels to (or from) it.
+    func orbHome(_ home: OrbHome, ui: IslandUI) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .named(IslandRootView.space)) } action: {
+            ui.reportOrbHome(home, $0)
+        }
+        .opacity(ui.hidesOrb(home) ? 0 : 1)
     }
 }
 
@@ -195,6 +253,7 @@ private struct ExpandedIsland: View {
             }
             Button { withAnimation(.easeOut(duration: 0.18)) { ui.tab = ui.tab == .voice ? .agents : .voice } } label: {
                 OrbView(mood: ui.tab == .voice ? .listening : .idle, skin: OrbSkin.current, size: 18)
+                    .orbHome(.row, ui: ui)
                     .padding(4)
                     .background(Circle().fill(ui.tab == .voice ? JcAccent.color.opacity(0.22) : .white.opacity(0.06)))
             }
@@ -281,6 +340,7 @@ private struct ExpandedIsland: View {
     private var header: some View {
         HStack(spacing: 10) {
             OrbView(mood: model.mood, skin: OrbSkin.current, size: 22)
+                .orbHome(.agents, ui: ui)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Agents").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                 Text(summary).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))

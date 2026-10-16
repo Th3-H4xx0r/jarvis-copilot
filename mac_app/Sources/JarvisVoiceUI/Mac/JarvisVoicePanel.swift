@@ -61,6 +61,20 @@ public final class JarvisVoicePanel: NSObject {
         return NSHostingController(rootView: MacVoicePanel(showsOpenInWindow: false, island: true))
     }
 
+    /// Hide (or show) the island stage's orb: Jarvis.app flies the notch's
+    /// orb in and hands off to it (`MacIslandOrbLink`). An `NSNumber` so the
+    /// app can call it with `perform(_:with:)`.
+    @objc(setIslandOrbHidden:)
+    @MainActor
+    public static func setIslandOrbHidden(_ hidden: NSNumber) {
+        MacIslandOrbLink.shared.hidden = hidden.boolValue
+    }
+
+    /// Posted with `userInfo["frame"]` (an `NSValue` rect in SwiftUI's global
+    /// space — the hosting window's) whenever the island stage's orb lays out.
+    @objc(islandOrbFrameNotificationName)
+    public static var islandOrbFrameNotificationName: String { MacIslandOrbLink.frameNotificationName }
+
     /// Whether the orb's shader library was found beside the dylib.
     ///
     /// Worth surfacing because the failure is otherwise invisible: SwiftUI has

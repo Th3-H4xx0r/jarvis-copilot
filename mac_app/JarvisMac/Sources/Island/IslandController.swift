@@ -29,6 +29,119 @@ final class IslandUI {
         return IslandMeasure(top: agentsTop, list: agentsList)
     }
     var compactWidth: CGFloat { geometry.width + 2 * IslandController.earWidth }
+
+    // MARK: the orb's flight
+    // The notch's small orb flies into the open island and becomes its big orb,
+    // and back as the island folds. IslandViews draws it (`FlyingOrb`) over
+    // both; the orbs at either end step aside while it's in the air.
+
+    struct OrbFlight: Equatable {
+        var direction: OrbFlightPlan.Direction
+        var home: OrbHome
+        /// A back flight leaves from where the orb sat (the tab changes as the island folds).
+        var from: CGRect?
+        /// An out flight sets off once its home has laid out.
+        var launched: Bool
+        var serial: Int
+    }
+
+    /// The notch's orb, in island coordinates (measured while folded).
+    var orbEar: CGRect?
+    /// Where the orb sits in the open island, per home (measured as each lays out).
+    var orbHomes: [OrbHome: CGRect] = [:]
+    var orbFlight: OrbFlight?
+    /// 0 at the ear, 1 at home; the out spring swells it a little past 1.
+    var orbProgress: CGFloat = 0
+    /// Hides (true) or shows the voice panel's own orb — the dylib's hand-off.
+    /// Returns false when the panel can't (an older dylib): Voice then opens
+    /// without a flight rather than with two orbs.
+    @ObservationIgnored var setVoiceOrbHidden: ((Bool) -> Bool)?
+    @ObservationIgnored private var flightSerial = 0
+
+    var hidesEar: Bool { orbFlight != nil }
+    func hidesOrb(_ home: OrbHome) -> Bool { orbFlight?.home == home }
+
+    /// Start a flight for the current tab's orb.
+    func flyOrb(_ direction: OrbFlightPlan.Direction) {
+        let home = OrbHome.of(tab)
+        let turning = orbFlight != nil      // already in the air: carry on from where it is
+        guard orbEar != nil else { return endOrbFlight() }
+        if home == .voice, setVoiceOrbHidden?(true) != true { return endOrbFlight() }
+        flightSerial += 1
+        let serial = flightSerial
+        switch direction {
+        case .out:
+            orbFlight = OrbFlight(direction: .out, home: home, from: nil, launched: false, serial: serial)
+            if !turning { setProgress(0) }
+            if orbHomes[home] != nil {
+                launchOrb()
+            } else {
+                after(OrbFlightPlan.homeWait) { $0.abandonOrbFlight(serial: serial) }
+            }
+        case .back:
+            guard let from = orbHomes[home] else {
+                if home == .voice { _ = setVoiceOrbHidden?(false) }
+                return endOrbFlight()
+            }
+            orbFlight = OrbFlight(direction: .back, home: home, from: from, launched: true, serial: serial)
+            if !turning { setProgress(1) }
+            withAnimation(OrbFlightPlan.backSpring) { orbProgress = 0 }
+            after(OrbFlightPlan.backLanding) { $0.landOrb(serial: serial) }
+        }
+    }
+
+    /// A home laid out (or moved): an out flight waiting on it sets off.
+    func reportOrbHome(_ home: OrbHome, _ rect: CGRect) {
+        guard rect.width > 0 else { return }
+        orbHomes[home] = rect
+        if let f = orbFlight, f.direction == .out, f.home == home, !f.launched { launchOrb() }
+    }
+
+    /// The flight is over: the orb in its place shows again.
+    func landOrb(serial: Int) {
+        guard let f = orbFlight, f.serial == serial else { return }
+        withAnimation(.easeOut(duration: 0.12)) { orbFlight = nil }
+        if f.home == .voice { _ = setVoiceOrbHidden?(false) }
+    }
+
+    /// Home never laid out: put the orbs back.
+    func abandonOrbFlight(serial: Int) {
+        guard let f = orbFlight, f.serial == serial, !f.launched else { return }
+        landOrb(serial: serial)
+    }
+
+    private func launchOrb() {
+        guard var f = orbFlight else { return }
+        f.launched = true
+        orbFlight = f
+        let serial = f.serial
+        withAnimation(OrbFlightPlan.outSpring) { orbProgress = 1 }
+        after(OrbFlightPlan.outLanding) { $0.landOrb(serial: serial) }
+    }
+
+    private func endOrbFlight() {
+        orbFlight = nil
+    }
+
+    private func setProgress(_ value: CGFloat) {
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { orbProgress = value }
+    }
+
+    private func after(_ seconds: TimeInterval, _ body: @escaping @MainActor (IslandUI) -> Void) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if let self { body(self) }
+        }
+    }
+}
+
+extension OrbFlightPlan {
+    /// Out: a touch of bounce, so it lands with a small swell. Back: quick and
+    /// settled, so it tucks into the notch without wobbling.
+    static let outSpring = Animation.spring(response: 0.46, dampingFraction: 0.74)
+    static let backSpring = Animation.spring(response: 0.32, dampingFraction: 0.92)
 }
 
 /// The island's window: a borderless, non-activating panel over the notch (or a
@@ -306,7 +419,13 @@ final class IslandController {
     private func sync() {
         if ui.state != machine.state {
             let folding = ui.state == .expanded && machine.state != .expanded
+            let flight = OrbFlightPlan.direction(
+                from: ui.state, to: machine.state,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
             withAnimation(IslandRootView.morph) { ui.state = machine.state }
+            // The orb flies with the shape — before a fold resets the tab, so a
+            // back flight leaves from the tab it was on.
+            if let flight { ui.flyOrb(flight) }
             // Voice is the orb's: whatever opens the island next opens your last tab.
             if folding && ui.tab == .voice { ui.tab = ui.lastTab }
             // Folded: hand the keyboard back to the app you were in.

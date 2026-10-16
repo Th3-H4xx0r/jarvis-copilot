@@ -266,3 +266,59 @@ enum UsagePace {
         return "\(max(1, m)) min"
     }
 }
+
+/// Where the orb sits in the open island, per tab: Voice's big orb on the
+/// stage, the Agents header's, or the tab row's orb button.
+enum OrbHome: Hashable {
+    case voice, agents, row
+
+    static func of(_ tab: IslandTab) -> OrbHome {
+        switch tab {
+        case .voice: return .voice
+        case .agents: return .agents
+        default: return .row
+        }
+    }
+}
+
+/// The notch's orb flying into the open island (out) and back into the notch
+/// as it folds — only between those two, and not with Reduce Motion on.
+enum OrbFlightPlan {
+    enum Direction: Equatable { case out, back }
+
+    static func direction(from: IslandStateMachine.State, to: IslandStateMachine.State,
+                          reduceMotion: Bool) -> Direction? {
+        guard !reduceMotion else { return nil }
+        if from == .compact && to == .expanded { return .out }
+        if from == .expanded && to == .compact { return .back }
+        return nil
+    }
+
+    /// When the orb in its place takes over (each spring — IslandViews'
+    /// `OrbFlightPlan.outSpring` / `backSpring` — has all but settled).
+    static let outLanding: TimeInterval = 0.62
+    static let backLanding: TimeInterval = 0.38
+    /// How long an out flight waits for its home's first layout before it gives up.
+    static let homeWait: TimeInterval = 0.4
+}
+
+/// The orb's path: it drops out of the notch, then glides into place — a
+/// curve bent through the point under the ear at home's height — growing from
+/// the ear's size to home's. `t` runs 0 (the ear) to 1 (home); the spring may
+/// carry it a little past 1, which swells the orb but never moves it past home.
+enum OrbPath {
+    static func at(_ t: CGFloat, ear: CGRect, home: CGRect) -> (center: CGPoint, side: CGFloat) {
+        let a = CGPoint(x: ear.midX, y: ear.midY), b = CGPoint(x: home.midX, y: home.midY)
+        let s = min(max(t, 0), 1), u = 1 - s
+        // Quadratic Bézier with its control point at (a.x, b.y).
+        let x = u * u * a.x + 2 * u * s * a.x + s * s * b.x
+        let y = u * u * a.y + 2 * u * s * b.y + s * s * b.y
+        let side = ear.width + (home.width - ear.width) * t
+        return (CGPoint(x: x, y: y), max(1, side))
+    }
+
+    /// The soft light it carries: none at either end, brightest mid-flight.
+    static func glow(_ t: CGFloat) -> Double {
+        Double(sin(.pi * min(max(t, 0), 1)))
+    }
+}

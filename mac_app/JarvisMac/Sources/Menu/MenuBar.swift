@@ -60,11 +60,7 @@ final class JarvisMenu: NSObject {
     /// notch (one stage, controls at its edges); an older dylib without it gets
     /// the popover layout.
     func makeVoicePanel(island: Bool = false) -> NSViewController? {
-        guard let origin = model.apiOrigin else { return nil }
-        if !voiceLoaded, let path = model.voiceDylib, FileManager.default.fileExists(atPath: path) {
-            voiceLoaded = dlopen(path, RTLD_NOW) != nil
-        }
-        guard voiceLoaded, let cls = NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel"),
+        guard let origin = model.apiOrigin, let cls = voicePanelClass(),
               let meta = cls as AnyObject as? NSObjectProtocol
         else { return nil }
         let islandSel = NSSelectorFromString("makeIslandViewControllerWithBaseURL:")
@@ -78,6 +74,15 @@ final class JarvisMenu: NSObject {
         typealias Make = @convention(c) (AnyObject, Selector, NSString, Bool) -> NSViewController?
         let make = unsafeBitCast((cls as AnyObject).method(for: sel), to: Make.self)
         return make(cls as AnyObject, sel, origin as NSString, false)
+    }
+
+    /// jc-client's dylib's `JarvisVoicePanel` class, loading the dylib the first time.
+    func voicePanelClass() -> AnyClass? {
+        if !voiceLoaded, let path = model.voiceDylib, FileManager.default.fileExists(atPath: path) {
+            voiceLoaded = dlopen(path, RTLD_NOW) != nil
+        }
+        guard voiceLoaded else { return nil }
+        return NSClassFromString("JarvisVoiceUI.JarvisVoicePanel") ?? NSClassFromString("JarvisVoicePanel")
     }
 
     // MARK: menu
@@ -192,4 +197,20 @@ final class JarvisMenu: NSObject {
     @objc private func noop() {}
     @objc private func settings() { onSettings?() }
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+/// The voice panel's orb, across the dylib boundary, for the island's orb
+/// flight: hide it while the notch's orb flies in (`setIslandOrbHidden:`), and
+/// hear where it sits (the panel posts its frame). An older dylib has neither;
+/// Voice then opens without a flight.
+enum VoicePanelOrb {
+    static let frameNotification = Notification.Name("JarvisVoicePanelIslandOrbFrame")
+
+    @MainActor
+    static func setHidden(_ hidden: Bool, on cls: AnyClass?) -> Bool {
+        let sel = NSSelectorFromString("setIslandOrbHidden:")
+        guard let cls, let meta = cls as AnyObject as? NSObjectProtocol, meta.responds(to: sel) else { return false }
+        _ = meta.perform(sel, with: NSNumber(value: hidden))
+        return true
+    }
 }

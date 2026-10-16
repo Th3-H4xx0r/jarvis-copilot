@@ -333,6 +333,12 @@ struct VoicePane: View {
     /// Made once when the view appears (it starts a voice session), not per render.
     @State private var panel: NSViewController?
     @State private var tried = false
+    /// For the orb's flight: the stage's orb as the panel reports it across the
+    /// dylib (`VoicePanelOrb`) — in SwiftUI's global space, which for a hosting
+    /// view nested in this window is the window's — and how far the island's
+    /// space sits from that.
+    @State private var globalToIsland: CGSize?
+    @State private var orbGlobal: CGRect?
 
     var body: some View {
         // Always the panel's size, even before the panel exists: an empty view
@@ -341,6 +347,13 @@ struct VoicePane: View {
             if let panel {
                 VoicePanelHost(controller: panel)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .onGeometryChange(for: CGSize.self) { g in
+                        let island = g.frame(in: .named(IslandRootView.space)), global = g.frame(in: .global)
+                        return CGSize(width: island.minX - global.minX, height: island.minY - global.minY)
+                    } action: {
+                        globalToIsland = $0
+                        reportOrb()
+                    }
             } else if tried {
                 Text("The voice panel isn't available — is jc-client running?")
                     .font(.system(size: 12)).foregroundStyle(dim)
@@ -355,6 +368,17 @@ struct VoicePane: View {
         .onDisappear {
             NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
         }
+        .onReceive(NotificationCenter.default.publisher(for: VoicePanelOrb.frameNotification)) { note in
+            guard let value = note.userInfo?["frame"] as? NSValue else { return }
+            orbGlobal = value.rectValue
+            reportOrb()
+        }
+    }
+
+    /// Where the stage's orb is in the island: the flight's home for Voice.
+    private func reportOrb() {
+        guard let globalToIsland, let orbGlobal else { return }
+        ui.reportOrbHome(.voice, orbGlobal.offsetBy(dx: globalToIsland.width, dy: globalToIsland.height))
     }
 }
 

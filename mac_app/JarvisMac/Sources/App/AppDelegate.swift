@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onNotes = { FlowWindow.show(.notes) }
         self.menu = menu
         island.voicePanel = { [weak menu] in menu?.makeVoicePanel(island: true) }
+        island.ui.setVoiceOrbHidden = { [weak menu] hidden in
+            VoicePanelOrb.setHidden(hidden, on: menu?.voicePanelClass())
+        }
         island.onMenu = { [weak menu] view, point in menu?.popUp(in: view, at: point) }
         Prefs.openAtLoginByDefault()
         desktopOrb = DesktopOrbController(model: model, island: island)
