@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Jarvis
 
 /// Push to talk (Settings → Voice): hold one key — Right ⌥ — and Jarvis
@@ -74,5 +75,52 @@ final class PushToTalkTests: XCTestCase {
         XCTAssertLessThan(IslandLayout.voiceMiniWidth, IslandRootView.expandedWidth)
         XCTAssertEqual(IslandLayout.voiceMiniHeight(topInset: 40), 40 + IslandLayout.voiceMiniBand)
         XCTAssertLessThan(IslandLayout.voiceMiniHeight(topInset: 40), IslandLayout.voiceHeight(topInset: 40) / 2)
+    }
+
+    /// The glow's two halves run from the top centre, one by each side, to
+    /// the bottom centre — where they meet.
+    func testTheGlowRunsDownBothSidesAndMeetsAtTheBottom() {
+        let rect = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let right = EdgeGlowPath.half(in: rect, corner: 12, right: true)
+        let left = EdgeGlowPath.half(in: rect, corner: 12, right: false)
+        XCTAssertEqual(right.boundingRect.maxX, rect.maxX, accuracy: 0.5)
+        XCTAssertEqual(right.boundingRect.minX, rect.midX, accuracy: 0.5)
+        XCTAssertEqual(left.boundingRect.minX, rect.minX, accuracy: 0.5)
+        XCTAssertEqual(left.boundingRect.maxX, rect.midX, accuracy: 0.5)
+        for half in [right, left] {
+            XCTAssertEqual(half.boundingRect.minY, rect.minY, accuracy: 0.5)
+            XCTAssertEqual(half.boundingRect.maxY, rect.maxY, accuracy: 0.5)
+            // Halfway along, it's on the side, not yet at the bottom.
+            let mid = half.trimmedPath(from: 0, to: 0.5).boundingRect
+            XCTAssertLessThan(mid.maxY, rect.maxY - 100)
+        }
+    }
+
+    func testTheGlowIsOnUntilTurnedOff() {
+        let saved = UserDefaults.standard.object(forKey: "voice.edgeGlow")
+        defer { UserDefaults.standard.set(saved, forKey: "voice.edgeGlow") }
+        UserDefaults.standard.removeObject(forKey: "voice.edgeGlow")
+        XCTAssertTrue(Prefs.edgeGlow)
+        Prefs.edgeGlow = false
+        XCTAssertFalse(Prefs.edgeGlow)
+    }
+
+    /// The glow at points along its way, rendered offscreen when JC_ISLAND_SNAPSHOT is set.
+    @MainActor
+    func testRenderTheGlow() throws {
+        guard let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"] else {
+            throw XCTSkip("set JC_ISLAND_SNAPSHOT to render the glow")
+        }
+        for (name, progress) in [("half", CGFloat(0.45)), ("full", CGFloat(1))] {
+            let model = ScreenGlowModel()
+            model.progress = progress
+            let host = NSHostingView(rootView: ScreenGlowView(model: model).background(Color(white: 0.12)))
+            host.frame = CGRect(x: 0, y: 0, width: 756, height: 491)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-glow-\(name).png"))
+        }
     }
 }

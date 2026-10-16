@@ -110,7 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch action {
         case .talk:
             if down {
-                VoicePanelTalk.begin(on: menu?.voicePanelClass()) { [weak island] in island?.openVoice(mini: true) }
+                VoicePanelTalk.begin(on: menu?.voicePanelClass()) { [weak island] in
+                    island?.openVoice(mini: true)
+                    ScreenGlow.shared.show(on: island?.currentScreen)
+                }
             } else {
                 VoicePanelTalk.ended(on: menu?.voicePanelClass())
             }
@@ -171,8 +174,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and Jarvis listens; let go and it answers; the island folds after.
         let talk = TalkKeyWatcher.shared
         talk.onStart = { [weak self, weak island] in
-            VoicePanelTalk.begin(on: self?.menu?.voicePanelClass()) { island?.openVoice(mini: true) }
+            VoicePanelTalk.begin(on: self?.menu?.voicePanelClass()) {
+                island?.openVoice(mini: true)
+                ScreenGlow.shared.show(on: island?.currentScreen)
+            }
         }
+        // The glow goes back up when the island folds (answer done, clicked away).
+        island.onFolded = { ScreenGlow.shared.hide() }
+        ScreenGlow.shared.prepare()
         talk.onSend = { [weak self] in VoicePanelTalk.ended(on: self?.menu?.voicePanelClass()) }
         talk.sync()
         // Load the voice panel's dylib and its voice store ahead of the first

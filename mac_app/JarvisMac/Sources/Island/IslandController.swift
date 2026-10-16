@@ -194,6 +194,10 @@ final class IslandController {
     var voiceMiniPanel: (() -> NSViewController?)?
     /// A right-click on the island: the menu (JarvisMenu), at that point.
     var onMenu: ((NSView, NSPoint) -> Void)?
+    /// The open island folded (clicked away, closed, timed out).
+    var onFolded: (() -> Void)?
+    /// The screen the island is on.
+    var currentScreen: NSScreen? { screen }
 
     init(model: AppModel) {
         self.model = model
@@ -465,6 +469,7 @@ final class IslandController {
     private func sync() {
         if ui.state != machine.state {
             let folding = ui.state == .expanded && machine.state != .expanded
+            if folding { onFolded?() }
             let flight = OrbFlightPlan.direction(
                 from: ui.state, to: machine.state,
                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)

@@ -18,6 +18,7 @@ struct VoiceSettings: View {
 /// combination (Press opens Voice, Hold talks the same way).
 struct TalkSection: View {
     @State private var key: FlowKey? = Prefs.talkKey
+    @State private var glow = Prefs.edgeGlow
     private var watcher: TalkKeyWatcher { TalkKeyWatcher.shared }
     private var flow: FlowDictation { FlowDictation.shared }
 
@@ -55,6 +56,8 @@ struct TalkSection: View {
             }
             Text("Hold it, say what you need, let go: Jarvis answers in a small island under the notch, which folds when it's done. Click it for the full voice view. Held with another key (⌥E) it types as usual.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Glow around the screen while you talk", isOn: $glow)
+                .onChange(of: glow) { _, on in Prefs.edgeGlow = on }
             HStack(alignment: .firstTextBaseline) {
                 Text("Shortcut")
                 Spacer()

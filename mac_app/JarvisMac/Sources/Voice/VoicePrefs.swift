@@ -34,6 +34,12 @@ extension Prefs {
         set { store.set(newValue, forKey: "flow.cleanup") }
     }
 
+    /// The Siri-like glow around the screen while you hold to talk (on by default).
+    static var edgeGlow: Bool {
+        get { store.object(forKey: "voice.edgeGlow") as? Bool ?? true }
+        set { store.set(newValue, forKey: "voice.edgeGlow") }
+    }
+
     /// The key you hold to talk to Jarvis (Settings → Voice); nil = off.
     static var talkKey: FlowKey? {
         get { store.string(forKey: "voice.talkKey").flatMap(FlowKey.init(rawValue:)) }
