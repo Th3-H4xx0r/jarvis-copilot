@@ -12,40 +12,97 @@ struct ChatPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Picker("", selection: $chat.provider) {
-                    ForEach(MacChatStore.Provider.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented).frame(width: 230).labelsHidden()
-                if chat.provider != .jarvis {
-                    if chat.localModels.isEmpty {
-                        Text(chat.localError ?? "Looking for models…").font(.system(size: 11)).foregroundStyle(dim)
-                    } else {
-                        Picker("", selection: $chat.localModel) {
-                            ForEach(chat.localModels, id: \.self) { Text($0).tag($0) }
-                        }
-                        .labelsHidden().frame(maxWidth: 160)
-                    }
-                }
-                Spacer()
-                Button { chat.newChat() } label: { Image(systemName: "square.and.pencil") }
-                    .buttonStyle(.plain).foregroundStyle(.white.opacity(0.75)).help("New chat")
-            }
+            header
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if chat.lines.isEmpty {
-                            Text("Ask Jarvis anything. Drop files here, or press ⌃⌥W to add the window you're in.")
-                                .font(.system(size: 12)).foregroundStyle(dim)
+                    VStack(alignment: .leading, spacing: 0) {
+                        if chat.lines.isEmpty { empty }
+                        ForEach(Array(chat.lines.enumerated()), id: \.element.id) { i, line in
+                            // Same speaker: 6 pt; a change of speaker gets air.
+                            let gap: CGFloat = i == 0 ? 0 : (chat.lines[i - 1].role == line.role ? 6 : 18)
+                            ChatBubble(line: line).padding(.top, gap).id(line.id)
                         }
-                        ForEach(chat.lines) { line in ChatBubble(line: line).id(line.id) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
                 .onChange(of: chat.lines.last?.text) { _, _ in
                     if let id = chat.lines.last?.id { proxy.scrollTo(id, anchor: .bottom) }
                 }
             }
+            composer
+        }
+        .onAppear { focused = true; if chat.provider != .jarvis { chat.loadLocalModels() } }
+        .onChange(of: chat.draft) { _, d in ui.pinned = !d.isEmpty || chat.busy }
+        .onChange(of: chat.busy) { _, b in ui.pinned = b || !chat.draft.isEmpty }
+        .onDisappear { ui.pinned = false }
+    }
+
+    /// "Chat", then the model and a new chat — the phone's header.
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("Chat").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+            Spacer(minLength: 8)
+            if chat.provider != .jarvis, chat.localModels.isEmpty {
+                Text(chat.localError ?? "Looking for models…")
+                    .font(.system(size: 11)).foregroundStyle(dim).lineLimit(1)
+            }
+            Menu {
+                Picker("Chat with", selection: $chat.provider) {
+                    ForEach(MacChatStore.Provider.allCases) { Text($0.label).tag($0) }
+                }
+                if chat.provider != .jarvis, !chat.localModels.isEmpty {
+                    Divider()
+                    Picker("Model", selection: $chat.localModel) {
+                        ForEach(chat.localModels, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(modelLabel).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                }
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .help("Who you're chatting with")
+            Button { chat.newChat() } label: {
+                Image(systemName: "square.and.pencil").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(JcAccent.color).frame(width: 26, height: 24).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("New chat")
+        }
+    }
+
+    private var modelLabel: String {
+        if chat.provider == .jarvis { return "Jarvis" }
+        return chat.localModel.isEmpty ? chat.provider.label : "\(chat.provider.label) · \(chat.localModel)"
+    }
+
+    /// A new chat: the orb and the question, like the phone's.
+    private var empty: some View {
+        VStack(spacing: 10) {
+            OrbView(mood: .idle, skin: OrbSkin.current, size: 52)
+                .padding(.bottom, 12)
+            Text("What\u{2019}s on your mind?")
+                .font(.system(size: 18, weight: .medium)).tracking(-0.4).foregroundStyle(.white)
+            Text("A question, a plan, or the next thing to get done.")
+                .font(.system(size: 12.5)).foregroundStyle(dim)
+            Text("Drop files here, or press \u{2303}\u{2325}W to add the window you\u{2019}re in.")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.35))
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 36)
+    }
+
+    /// One rounded glass field: attach, the message, send — what's attached sits
+    /// inside it, and its edge lights while Jarvis answers.
+    private var composer: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        return VStack(alignment: .leading, spacing: 6) {
             if chat.window != nil || !chat.attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -58,27 +115,46 @@ struct ChatPane: View {
                             ContextChip(icon: a.isImage ? "photo" : "doc", text: a.name) { chat.remove(a) }
                         }
                     }
+                    .padding(.horizontal, 6)
                 }
             }
-            HStack(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 6) {
+                Button { attach() } label: {
+                    Image(systemName: "plus").font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain).help("Attach files")
                 TextField("Message Jarvis", text: $chat.draft, axis: .vertical)
-                    .textFieldStyle(.plain).lineLimit(1...4).focused($focused)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(.white.opacity(0.08)))
+                    .textFieldStyle(.plain).font(.system(size: 13.5)).lineLimit(1...5).focused($focused)
+                    .padding(.vertical, 7)
                     .onSubmit { chat.send() }
+                let canSend = !chat.draft.trimmingCharacters(in: .whitespaces).isEmpty
                 Button { chat.busy ? chat.stop() : chat.send() } label: {
                     Image(systemName: chat.busy ? "stop.fill" : "arrow.up").font(.system(size: 13, weight: .bold))
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(JcAccent.deep))
+                        .foregroundStyle(chat.busy ? .white : (canSend ? JcAccent.color : .white.opacity(0.35)))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.white.opacity(0.10)))
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain).foregroundStyle(.white)
-                .disabled(!chat.busy && chat.draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .buttonStyle(.plain)
+                .disabled(!chat.busy && !canSend)
+                .help(chat.busy ? "Stop" : "Send")
             }
         }
-        .onAppear { focused = true; if chat.provider != .jarvis { chat.loadLocalModels() } }
-        .onChange(of: chat.draft) { _, d in ui.pinned = !d.isEmpty || chat.busy }
-        .onChange(of: chat.busy) { _, b in ui.pinned = b || !chat.draft.isEmpty }
-        .onDisappear { ui.pinned = false }
+        .padding(6)
+        .background(shape.fill(Color.white.opacity(0.06)))
+        .overlay(shape.strokeBorder(chat.busy ? JcAccent.color.opacity(0.6) : Color.white.opacity(0.10), lineWidth: chat.busy ? 1 : 0.5))
+        .animation(.easeOut(duration: 0.2), value: chat.busy)
+    }
+
+    private func attach() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        NSApp.activate()
+        if panel.runModal() == .OK { chat.attach(panel.urls) }
     }
 }
 
@@ -88,19 +164,26 @@ private struct ChatBubble: View {
     var body: some View {
         switch line.role {
         case .user:
+            // The phone's: a restrained blue surface hugged to the right.
             HStack {
-                Spacer(minLength: 60)
-                Text(line.text).font(.system(size: 13)).foregroundStyle(.white).textSelection(.enabled)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(JcAccent.deep.opacity(0.85)))
+                Spacer(minLength: 70)
+                Text(line.text).font(.system(size: 13.5)).lineSpacing(2).foregroundStyle(.white)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(JcAccent.soft.opacity(0.16)))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(JcAccent.soft.opacity(0.14), lineWidth: 0.5))
             }
         case .assistant:
             Group {
                 if line.text.isEmpty {
-                    ProgressView().controlSize(.small)
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Thinking…").font(.system(size: 12)).foregroundStyle(dim)
+                    }
                 } else {
-                    Text(Self.markdown(line.text)).font(.system(size: 13)).foregroundStyle(.white.opacity(0.92))
-                        .textSelection(.enabled)
+                    Text(Self.markdown(line.text)).font(.system(size: 13.5)).lineSpacing(3)
+                        .foregroundStyle(.white.opacity(0.92)).textSelection(.enabled)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -202,5 +202,36 @@ final class IslandTabsTests: XCTestCase {
             try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-limits.png"))
         }
     }
+
+    /// The chat tab, like the phone's: rendered empty and with a short
+    /// conversation when JC_ISLAND_SNAPSHOT is set.
+    @MainActor
+    func testTheChatTabRendersLikeThePhones() throws {
+        guard let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"] else {
+            throw XCTSkip("set JC_ISLAND_SNAPSHOT to render the chat tab")
+        }
+        let model = AppModel()
+        let chat = MacChatStore.shared
+        chat.newChat()
+        let ui = IslandUI()
+        ui.state = .expanded
+        ui.tab = .chat
+        let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: IslandController(model: model))
+            .transaction { $0.disablesAnimations = true })
+        host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
+        func shot(_ name: String) throws {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + name))
+        }
+        try shot("-chat-empty.png")
+        chat.showDemo([("What failed in CI?", "The **api** tests: `DATABASE_URL` isn't set in the CI env, so the migration step exits early."),
+                       ("Fix it and rerun", "")])
+        try shot("-chat.png")
+        chat.endDemo()
+    }
 }
 
