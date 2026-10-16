@@ -2322,6 +2322,9 @@ def _attach_escalation_sink(state: dict, conn, sock) -> None:
         if not _state.get("turn_active") and not _state.get("closed"):
             _flush_escalations(_state, _conn, _sock)
 
+    # This socket reads a hand-off's answer out itself, so the device that
+    # asked doesn't also have to (harness_runner's speak-back).
+    _sink.speaks = True
     try:
         _esc.register_stream_sink(sid, _sink)
     except Exception:

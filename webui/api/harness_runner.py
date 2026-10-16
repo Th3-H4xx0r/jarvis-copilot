@@ -115,8 +115,11 @@ def _session_lock(sid):
         return threading.Lock()
 
 
-def deliver_result(session_id, *, node, kind, text, ms, error=None):
-    """Save a background/review result into the chat and tell the devices."""
+def deliver_result(session_id, *, node, kind, text, ms, error=None, spoken=False):
+    """Save a background/review result into the chat and tell the devices.
+
+    ``spoken``: the device the user asked from reads it out (speak-back), so it
+    is being heard and no push goes to the phone."""
     meta = {"kind": kind, "node": node.get("id"), "model": node.get("model"), "ms": int(ms or 0)}
     if error:
         meta["error"] = str(error)[:300]
@@ -133,7 +136,8 @@ def deliver_result(session_id, *, node, kind, text, ms, error=None):
         SESSION_EVENTS.publish(session_id, "harness_result", {"session_id": session_id, "message": message})
     except Exception:
         logger.debug("harness_result publish failed", exc_info=True)
-    if node.get("deliver") in ("speak_or_notify", "notify") and _listener_count(session_id) == 0:
+    if (node.get("deliver") in ("speak_or_notify", "notify") and not spoken
+            and _listener_count(session_id) == 0):
         try:
             _push_alert(f"{_label_for(node)} {'finished' if not error else 'could not finish'}",
                         text or str(error or ""), session_id)
@@ -228,6 +232,125 @@ def _publish_job(session_id, card):
         SESSION_EVENTS.publish(session_id, "harness_job", {"session_id": session_id, "job": card})
     except Exception:
         logger.debug("harness_job publish failed", exc_info=True)
+    _publish_feed()
+
+
+# ── the jobs feed (the Mac's Agents tab) ─────────────────────────────────────
+# Every Background job of the last few minutes, across chats, pushed on the
+# device bridge's ``harness_jobs`` topic whenever one changes (jc-client relays
+# it to Jarvis.app, which lists them with the coding sessions). Richer than the
+# chat card: what was asked, where from, the recent steps and the answer.
+#
+# Speak-back: a job started from a VOICE turn whose conversation has since
+# closed (push to talk on the Mac ends the moment Jarvis has answered) is read
+# out by the device that asked: the finished job goes to that device alone with
+# ``speak``. An open voice socket speaks it itself, so then nothing is sent.
+
+JOBS_TOPIC = "harness_jobs"
+FEED_MAX = 8
+TRAIL_MAX = 12
+RESULT_MAX = 6000
+
+
+def job_origin(session_id, surface):
+    """Where the turn starting a job came from: voice or chat, and the device
+    (api/turn_origin.py knows it for the turn in flight)."""
+    out = {"surface": surface or "chat"}
+    try:
+        from api import turn_origin
+        device = turn_origin.origin_for_session(session_id)
+    except Exception:
+        device = None
+    if device:
+        out.update(device)
+    return out
+
+
+def _task_text(job):
+    parent = job.get("parent") or {}
+    return str(parent.get("question") or job.get("summary") or "").strip()[:1000]
+
+
+def job_feed_entry(job):
+    """A job as the Agents tab shows it: the card, plus what was asked, where
+    from, its recent steps and its answer."""
+    entry = job_card(job)
+    origin = job.get("origin") or {}
+    entry.update({
+        "session_id": job.get("session_id") or "",
+        "task": _task_text(job),
+        "note": str(job.get("summary") or "").strip()[:1000],
+        "surface": origin.get("surface") or "",
+        "device": origin.get("name") or "",
+        "device_kind": origin.get("kind") or "",
+        "mac": bool(origin.get("mac")),
+        "trail": list(job.get("trail") or [])[-TRAIL_MAX:],
+        "result": str(job.get("result") or "")[:RESULT_MAX],
+        "error": str(job.get("error") or "")[:300],
+    })
+    return entry
+
+
+def jobs_feed(now=None):
+    """The newest Background jobs, running or ended in the last few minutes."""
+    from agent import escalation
+    now = _time.time() if now is None else now
+    keep = [j for j in escalation.all_jobs()
+            if (j.get("parent") or {}).get("kind") == "background"
+            and (not j.get("completed_at")
+                 or now - float(j["completed_at"]) < escalation.JOB_RETENTION_SECONDS)]
+    keep.sort(key=lambda j: j.get("started_at") or 0, reverse=True)
+    return [job_feed_entry(j) for j in keep[:FEED_MAX]]
+
+
+def _publish_feed():
+    try:
+        from api import device_bridge
+        if device_bridge.subscribers(JOBS_TOPIC):
+            device_bridge.publish(JOBS_TOPIC, {"jobs": jobs_feed()})
+    except Exception:
+        logger.debug("harness jobs feed publish failed", exc_info=True)
+
+
+def _speak_back_device(job_id):
+    """The device that should read this job's answer out now, or "": the one a
+    voice turn handed off from, when no voice conversation is open to speak it
+    and that device listens to the jobs feed (Jarvis.app on the Mac)."""
+    from agent import escalation
+    job = escalation.get_job(job_id) if job_id else None
+    origin = (job or {}).get("origin") or {}
+    device = origin.get("device_id")
+    if not device or origin.get("surface") != "voice":
+        return ""
+    if escalation.has_speaking_sink(job.get("session_id")):
+        return ""
+    try:
+        from api import device_bridge
+        return device if device in device_bridge.subscribers(JOBS_TOPIC) else ""
+    except Exception:
+        return ""
+
+
+def _send_speak(device, job_id):
+    from agent import escalation
+    job = escalation.get_job(job_id)
+    if not job:
+        return
+    try:
+        from api import device_bridge
+        device_bridge.publish_to(device, JOBS_TOPIC, {"jobs": jobs_feed(), "speak": job_feed_entry(job)})
+    except Exception:
+        logger.warning("harness job %s: speak-back not sent", job_id, exc_info=True)
+
+
+def _on_subscribe(device_id, topics):
+    """A device that just asked for the feed gets where the jobs stand now."""
+    if JOBS_TOPIC not in (topics or {}):
+        return
+    feed = jobs_feed()
+    if feed:
+        from api import device_bridge
+        device_bridge.publish_to(device_id, JOBS_TOPIC, {"jobs": feed})
 
 
 def attach_job_cards(session, message, cards):
@@ -296,13 +419,18 @@ def _stop_requested(job_id):
     return bool(job and job.get("stop_requested"))
 
 
-def _finish_job(session_id, job_id, status):
-    card = _record_job(session_id, job_id, status=status, completed_at=_time.time())
+def _finish_job(session_id, job_id, status, *, result="", error="", speak_device=""):
+    """End a job: its card, the feed (with the answer) and, for a voice job
+    whose conversation has closed, the device that reads it out."""
+    card = _record_job(session_id, job_id, status=status, completed_at=_time.time(),
+                       result=result or "", error=str(error or ""))
     if card is not None:
         try:
             _persist_card(_job_session(job_id, session_id), card)
         except Exception:
             logger.warning("harness job card not saved", exc_info=True)
+        if speak_device:
+            _send_speak(speak_device, job_id)
 
 
 _FINAL_EVENTS = ("stream_end", "done", "cancel", "apperror")
@@ -312,7 +440,7 @@ def _watch_progress(q, session_id, job_id, stop=None):
     """Follow a Background job's hidden stream: count tool calls and tell the
     devices what it is doing, only when that changes."""
     import queue as _queue
-    steps, activity = 0, ""
+    steps, activity, trail = 0, "", []
     while not (stop is not None and stop.is_set()):
         try:
             event, data = q.get(timeout=0.5)
@@ -324,13 +452,17 @@ def _watch_progress(q, session_id, job_id, stop=None):
         new_steps, new_activity = steps, activity
         if event == "tool" and data.get("event_type") in (None, "tool.started"):
             new_steps, new_activity = steps + 1, tool_activity(data.get("name"))
+            # The Agents tab lists the recent steps, each with what it was on.
+            trail = (trail + [{"t": new_activity, "tool": str(data.get("name") or ""),
+                               "detail": " ".join(str(data.get("preview") or "").split())[:140],
+                               "at": _time.time()}])[-TRAIL_MAX:]
         elif event == "reasoning" and not activity:
             new_activity = "Thinking"
         elif event == "token" and (steps or activity == "Thinking"):
             new_activity = "Writing the reply"
         if (new_steps, new_activity) != (steps, activity):
             steps, activity = new_steps, new_activity
-            _record_job(session_id, job_id, steps=steps, activity=activity)
+            _record_job(session_id, job_id, steps=steps, activity=activity, trail=list(trail))
 
 
 def stop_job(session_id, job_id):
@@ -537,21 +669,22 @@ def background_runner(node, session_id):
                 # Stopped from the card: nothing is posted or spoken.
                 _finish_job(sid, job_id, "stopped")
                 return ""
-            deliver_result(sid, node=node, kind="background", text=text,
-                           ms=(_time.time() - started) * 1000)
-            _finish_job(sid, job_id, "done")
+            status, error = "done", None
         except Exception as exc:
             sid = _job_session(job_id, session_id)
             if _stop_requested(job_id):
                 _finish_job(sid, job_id, "stopped")
                 return ""
             logger.warning("harness background node %s failed", node.get("id"), exc_info=True)
-            text = f"Couldn't finish: {exc}"
-            deliver_result(sid, node=node, kind="background", text=text,
-                           ms=(_time.time() - started) * 1000, error=exc)
-            _finish_job(sid, job_id, "failed")
-        # Returned text is what an open voice socket speaks.
-        return text if node.get("deliver") == "speak_or_notify" else ""
+            text, status, error = f"Couldn't finish: {exc}", "failed", exc
+        speaks = node.get("deliver") == "speak_or_notify"
+        device = _speak_back_device(job_id) if speaks else ""
+        deliver_result(sid, node=node, kind="background", text=text,
+                       ms=(_time.time() - started) * 1000, error=error, spoken=bool(device))
+        _finish_job(sid, job_id, status, result=text, error=error or "", speak_device=device)
+        # Returned text is what an open voice socket speaks — or, with none open,
+        # the next one to connect. A device reading it out itself has it already.
+        return text if speaks and not device else ""
     return _run
 
 
@@ -582,11 +715,11 @@ def job_node(node):
             "kind": node.get("type") or ""}
 
 
-def _start_job(session_id, node, runner):
+def _start_job(session_id, node, runner, origin=None):
     from agent import escalation
     return escalation.start_escalation(session_id=session_id, reason=f"harness:{node.get('id')}",
                                        summary="", model=node.get("model"), runner=runner,
-                                       parent=job_node(node))
+                                       parent=job_node(node), origin=origin)
 
 
 def start_turn_jobs(plan, session, message, *, session_id, question, answer, elapsed_s, tool_count,
@@ -612,7 +745,8 @@ def start_after_jobs(plan, *, session_id, question, answer, elapsed_s, tool_coun
             continue
         runner = (review_runner(node, session_id, question, answer) if node["type"] == "review"
                   else background_runner(node, session_id))
-        ids.append(_start_job(session_id, node, runner))
+        ids.append(_start_job(session_id, node, runner,
+                              origin=job_origin(session_id, getattr(plan, "surface", None))))
     return ids
 
 
@@ -641,3 +775,11 @@ try:
     _extract_model.register_splitter(_split_ref)
 except Exception:
     logger.debug("extraction-model resolver not registered", exc_info=True)
+
+# Registered on import: any job there is was started from here, so a device
+# that subscribes while one runs finds this module loaded.
+try:
+    from api import device_bridge as _device_bridge
+    _device_bridge.on_subscribe(_on_subscribe)
+except Exception:
+    logger.debug("harness jobs feed: subscribe hook not registered", exc_info=True)

@@ -4237,12 +4237,15 @@ def _run_agent_streaming(
                 # the job goes.
                 try:
                     import agent.escalation as _esc
-                    from api.harness_runner import background_runner as _bg_runner, job_node as _job_node
+                    from api.harness_runner import (background_runner as _bg_runner, job_node as _job_node,
+                                                    job_origin as _job_origin)
                     _esc.bind_turn_context(
                         session_id, session_id=session_id,
                         runner=_bg_runner(_harness_plan.handoff_node, session_id),
                         escalation_model=_harness_plan.handoff_node.get("model"),
                         question=msg_text, auto_handoff_after=_esc.AUTO_HANDOFF_AFTER,
+                        # Voice or chat, and the device: a voice job is read out when it ends.
+                        origin=_job_origin(session_id, _harness_plan.surface),
                         **_job_node(_harness_plan.handoff_node))
                     # Rides this turn's context (set below with the node's notes).
                     _handoff_rule = HANDOFF_RULE

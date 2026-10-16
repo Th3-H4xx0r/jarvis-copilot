@@ -364,12 +364,16 @@ def start_escalation(*, session_id: str, reason: str, summary: str,
                      model: Optional[str] = None,
                      provider: Optional[str] = None,
                      runner: Optional[Callable[[dict], str]] = None,
-                     parent: Optional[dict] = None) -> str:
+                     parent: Optional[dict] = None,
+                     origin: Optional[dict] = None) -> str:
     """Register and start a background escalation job. Returns its job id.
 
     ``runner(job) -> str`` does the actual model call; it is injectable so the
     webui can supply the real ``_run_agent_streaming`` hand-off and tests can
     supply a fake. When omitted, :func:`default_runner` is used.
+
+    ``origin`` is where the turn that started it came from (voice or chat, and
+    the device); a hand-off finds it in the turn context it was started from.
     """
     job_id = uuid.uuid4().hex[:12]
     job = {
@@ -384,6 +388,7 @@ def start_escalation(*, session_id: str, reason: str, summary: str,
         "completed_at": None,
         "text": None,
         "parent": dict(parent or {}),
+        "origin": dict(origin or (parent or {}).get("origin") or {}),
     }
     with _lock:
         _prune_jobs_locked()
@@ -502,6 +507,12 @@ def get_jobs(session_id: str) -> List[dict]:
         return [dict(j) for j in _jobs.values() if j["session_id"] == session_id]
 
 
+def all_jobs() -> List[dict]:
+    """Every job the registry still holds, across chats (the Mac's Agents tab)."""
+    with _lock:
+        return [dict(j) for j in _jobs.values()]
+
+
 def update_job(job_id: Optional[str], **fields: Any) -> Optional[dict]:
     """Merge ``fields`` into a job's registry entry; a copy of it, or None."""
     with _lock:
@@ -528,6 +539,13 @@ def has_live_sink(session_id) -> bool:
     """True when a chat stream or voice socket is listening for this session."""
     with _lock:
         return bool(_sinks.get(session_id))
+
+
+def has_speaking_sink(session_id) -> bool:
+    """True when a sink that reads results out loud (an open voice socket marks
+    its sink ``speaks``) is listening for this session. A chat stream is not one."""
+    with _lock:
+        return any(getattr(s, "speaks", False) for s in _sinks.get(session_id) or [])
 
 
 def register_stream_sink(session_id: str, sink: Callable[[str, dict], None]) -> None:

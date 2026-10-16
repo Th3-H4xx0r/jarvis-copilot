@@ -76,7 +76,7 @@ def test_background_failure_posts_a_short_note(monkeypatch):
 
 def test_after_jobs_respect_conditions(monkeypatch):
     started = []
-    monkeypatch.setattr(hr, "_start_job", lambda sid, node, runner: started.append(node["id"]) or node["id"])
+    monkeypatch.setattr(hr, "_start_job", lambda sid, node, runner, **kw: started.append(node["id"]) or node["id"])
     plan = SimpleNamespace(after=[({"id": "a", "type": "review", "model": "m"}, "always"),
                                   ({"id": "b", "type": "background", "model": "m"}, "slow:30"),
                                   ({"id": "c", "type": "background", "model": "m"}, "tools:3")])

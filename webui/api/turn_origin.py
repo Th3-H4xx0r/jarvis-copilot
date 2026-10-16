@@ -19,6 +19,7 @@ from typing import Optional
 _LOCK = threading.Lock()
 _SESSION_DEVICE: dict[str, str] = {}
 _SESSION_KIND: dict[str, str] = {}
+_SESSION_NAME: dict[str, str] = {}
 
 _KIND_LABEL = {"mobile-ios": "the iPhone app", "desktop": "the Mac app", "browser": "the web app"}
 
@@ -96,9 +97,23 @@ def note_turn(session_id: str, origin: Optional[dict]) -> None:
         if origin:
             _SESSION_DEVICE[session_id] = origin["device_id"]
             _SESSION_KIND[session_id] = origin.get("kind") or ""
+            _SESSION_NAME[session_id] = origin.get("name") or ""
         else:
             _SESSION_DEVICE.pop(session_id, None)
             _SESSION_KIND.pop(session_id, None)
+            _SESSION_NAME.pop(session_id, None)
+
+
+def origin_for_session(session_id: Optional[str]) -> Optional[dict]:
+    """The device ``session_id``'s current turn came from — id, name, kind and
+    whether it is the user's Mac — or None when it isn't known."""
+    device = device_for_session(session_id)
+    if not device:
+        return None
+    with _LOCK:
+        name = _SESSION_NAME.get(session_id or "", "")
+    return {"device_id": device, "name": name, "kind": kind_for_session(session_id),
+            "mac": is_mac_session(session_id)}
 
 
 def device_for_session(session_id: Optional[str]) -> Optional[str]:

@@ -350,6 +350,22 @@ def publish(topic: str, data: Optional[dict] = None, exclude: Optional[str] = No
     return count
 
 
+def publish_to(device_id: str, topic: str, data: Optional[dict] = None) -> bool:
+    """Push ``data`` on ``topic`` to one device, now, if it subscribed to it — for
+    what only that device should act on (a hand-off's answer for it to read out).
+    Not coalesced: whatever the device's interval, this one goes at once."""
+    with _REG_LOCK:
+        conn = _REG.get(device_id or "")
+    if conn is None or conn.closed:
+        return False
+    with conn.topic_lock:
+        if topic not in conn.topics:
+            return False
+        conn.topic_sent[topic] = time.monotonic()
+    _send_topic(conn, topic, dict(data or {}))
+    return True
+
+
 def subscribers(topic: str) -> list[str]:
     """Connected devices that want ``topic`` pushed."""
     with _REG_LOCK:

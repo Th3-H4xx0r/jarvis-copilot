@@ -255,7 +255,7 @@ def test_after_jobs_tell_the_registry_which_node_they_run():
 
 def test_start_turn_jobs_puts_this_turns_cards_on_the_reply(monkeypatch):
     sent = _events(monkeypatch)
-    monkeypatch.setattr(hr, "_start_job", lambda sid, node, runner: _job("bg1", started_at=200.0)["job_id"])
+    monkeypatch.setattr(hr, "_start_job", lambda sid, node, runner, **kw: _job("bg1", started_at=200.0)["job_id"])
     reply = {"role": "assistant", "content": "On it.", "_meta": {"kind": "answer"}}
     sess = FakeSession(session_id="s1", messages=[reply])
     plan = SimpleNamespace(after=[({"id": "bg", "type": "background", "model": "m"}, "always")])
