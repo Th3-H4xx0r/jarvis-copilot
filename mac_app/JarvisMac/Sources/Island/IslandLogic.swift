@@ -244,3 +244,25 @@ enum IslandPin {
         pinned || pending || tab == .voice
     }
 }
+
+/// A limit window's pace and countdown: use minus the share of the window
+/// already gone (above zero it runs ahead of the clock — a deficit; below, in
+/// reserve), and when it resets.
+enum UsagePace {
+    static let fiveHours: TimeInterval = 5 * 3600
+    static let week: TimeInterval = 7 * 86_400
+
+    static func pace(used: Int, resetsAt: Date, length: TimeInterval, now: Date) -> Double {
+        let left = min(max(resetsAt.timeIntervalSince(now), 0), length)
+        return Double(used) - (length - left) / length * 100
+    }
+
+    static func resetsIn(_ resetsAt: Date, now: Date) -> String {
+        let s = Int(resetsAt.timeIntervalSince(now))
+        guard s > 0 else { return "now" }
+        let d = s / 86_400, h = (s % 86_400) / 3600, m = (s % 3600) / 60
+        if d > 0 { return "\(d) day\(d == 1 ? "" : "s")" + (h > 0 ? " \(h)h" : "") }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(max(1, m)) min"
+    }
+}

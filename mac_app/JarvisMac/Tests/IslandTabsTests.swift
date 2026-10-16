@@ -166,5 +166,41 @@ final class IslandTabsTests: XCTestCase {
         XCTAssertLessThanOrEqual(height(), IslandController.panelSize.height)
         try snapshot("-open.png")
     }
+
+    /// The usage pills open each agent's limits above the sessions, and the
+    /// island grows to fit them (JC_ISLAND_SNAPSHOT renders it).
+    @MainActor
+    func testTheLimitsCardOpensInTheAgentsTab() throws {
+        let model = AppModel()
+        let base = Date().timeIntervalSince1970
+        model.handle(["type": "usage", "rate_limits": [
+            "five_hour": ["used_percentage": 91, "resets_at": base + 2 * 3600 + 240],
+            "seven_day": ["used_percentage": 18, "resets_at": base + 6 * 86_400 + 4 * 3600]]])
+        model.handle(["type": "usage", "agent": "codex", "rate_limits": [
+            "five_hour": ["used_percentage": 4, "resets_at": base + 3 * 3600],
+            "seven_day": ["used_percentage": 30, "resets_at": base + 2 * 86_400]]])
+        model.handle(["type": "sessions", "sessions": [
+            ["key": "a", "agent": "claude", "project": "jarvis-copilot", "state": "working", "step": "Bash: npm test"]]])
+        let ui = IslandUI()
+        ui.state = .expanded
+        let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: IslandController(model: model))
+            .transaction { $0.disablesAnimations = true })
+        host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
+        func settle() {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+        }
+        settle()
+        let closed = ui.agentsTop ?? 0
+        ui.showLimits = true
+        settle()
+        XCTAssertGreaterThan(ui.agentsTop ?? 0, closed + 80, "the limits card adds to the island")
+        if let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"],
+           let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-limits.png"))
+        }
+    }
 }
 

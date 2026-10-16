@@ -216,10 +216,15 @@ private struct ExpandedIsland: View {
         }
     }
 
-    /// Everything above the list: the header, and what's waiting on you.
+    /// Everything above the list: the header, the limits when open, and what's
+    /// waiting on you.
     @ViewBuilder private var agentsTop: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
+            if ui.showLimits && (model.usage != nil || model.codexUsage != nil) {
+                LimitsCard(claude: model.usage, codex: model.codexUsage)
+                    .transition(.opacity)
+            }
             if !model.connected {
                 Text("Jarvis isn't running on this Mac — start it with `jc-client start`.")
                     .font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
@@ -281,13 +286,21 @@ private struct ExpandedIsland: View {
                 Text(summary).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
             }
             Spacer()
-            if let u = model.usage {
-                UsagePill(label: "5h", pct: u.fiveHour)
-                UsagePill(label: "wk", pct: u.sevenDay)
-            }
-            if let c = model.codexUsage {
-                UsagePill(label: "Codex", pct: c.fiveHour ?? c.sevenDay)
-                    .help("Codex plan: \(c.fiveHour.map { "5h \($0)%, " } ?? "")week \(c.sevenDay.map { "\($0)%" } ?? "–")")
+            if model.usage != nil || model.codexUsage != nil {
+                // The pills open the limits card: each window's bar, reset and pace.
+                Button { withAnimation(IslandRootView.morph) { ui.showLimits.toggle() } } label: {
+                    HStack(spacing: 6) {
+                        if let u = model.usage {
+                            UsagePill(label: "5h", pct: u.fiveHour)
+                            UsagePill(label: "wk", pct: u.sevenDay)
+                        }
+                        if let c = model.codexUsage {
+                            UsagePill(label: "Codex", pct: c.fiveHour ?? c.sevenDay)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(ui.showLimits ? "Hide the limits" : "Show the limits")
             }
             Button { TerminalTarget.activate(session: model.selected) } label: {
                 Image(systemName: "terminal").font(.system(size: 13, weight: .semibold))
@@ -328,6 +341,79 @@ private func stateColor(_ s: MacState) -> Color {
     case .ratelimit: return .orange
     case .idle: return .gray
     }
+}
+
+/// Each agent's limits, side by side: its current session and its week, as a
+/// bar with when it resets, how much is used and left, and the pace — ahead of
+/// the clock (a deficit) or under it (reserved).
+private struct LimitsCard: View {
+    let claude: MacPlanUsage?
+    let codex: MacPlanUsage?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            HStack(alignment: .top, spacing: 10) {
+                if let claude { AgentLimits(name: "Claude", usage: claude, now: ctx.date) }
+                if let codex { AgentLimits(name: "Codex", usage: codex, now: ctx.date) }
+            }
+        }
+    }
+}
+
+private struct AgentLimits: View {
+    let name: String
+    let usage: MacPlanUsage
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("\(name) usage").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+            if let w = usage.five { LimitRow(title: "Current session", window: w, length: UsagePace.fiveHours, now: now) }
+            if let w = usage.week { LimitRow(title: "Weekly · all models", window: w, length: UsagePace.week, now: now) }
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
+    }
+}
+
+private struct LimitRow: View {
+    let title: String
+    let window: MacPlanUsage.Window
+    let length: TimeInterval
+    let now: Date
+
+    var body: some View {
+        let reset = window.resetsAt <= now
+        let used = reset ? 0 : window.used
+        let pace = reset ? 0 : UsagePace.pace(used: used, resetsAt: window.resetsAt, length: length, now: now)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title).font(.system(size: 11.5, weight: .medium)).foregroundStyle(.white.opacity(0.9))
+                Spacer(minLength: 6)
+                Text(reset ? "Reset" : "Resets in \(UsagePace.resetsIn(window.resetsAt, now: now))")
+                    .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45))
+            }
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.10))
+                    Capsule().fill(Self.color(used)).frame(width: g.size.width * CGFloat(used) / 100)
+                }
+            }
+            .frame(height: 5)
+            (Text("\(used)% used · \(100 - used)% left").foregroundColor(.white.opacity(0.75))
+             + Text(abs(pace) < 0.5 ? "" : pace > 0 ? " · \(Self.one(pace))% deficit" : " · \(Self.one(-pace))% reserved")
+                .foregroundColor(pace > 0 ? islandAmber : .white.opacity(0.45)))
+                .font(.system(size: 10.5))
+                .lineLimit(1)
+        }
+    }
+
+    static func color(_ used: Int) -> Color {
+        used >= 90 ? Color(red: 0.97, green: 0.30, blue: 0.30) : used >= 75 ? islandAmber : JcAccent.color
+    }
+
+    static func one(_ v: Double) -> String { String(format: "%.1f", v) }
 }
 
 /// A thin scroll bar on the right, there only while the list is taller than

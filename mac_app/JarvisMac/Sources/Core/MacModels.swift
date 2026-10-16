@@ -200,19 +200,29 @@ struct MacPending: Identifiable, Equatable {
 
 /// The Claude plan's limits, from the status line (`rate_limits`).
 struct MacPlanUsage: Equatable {
-    var fiveHour: Int?
-    var sevenDay: Int?
+    /// One limit window: how much of it is used, and when it resets.
+    struct Window: Equatable {
+        let used: Int
+        let resetsAt: Date
+        /// What's used now — nothing once the window has reset.
+        var usedNow: Int { resetsAt <= Date() ? 0 : used }
+    }
+
+    var five: Window?
+    var week: Window?
+    var fiveHour: Int? { five?.usedNow }
+    var sevenDay: Int? { week?.usedNow }
 
     init?(json: [String: Any]) {
         let limits = J.obj(json["rate_limits"])
-        func pct(_ w: Any?) -> Int? {
+        func window(_ w: Any?) -> Window? {
             let o = J.obj(w)
             guard let used = J.d(o["used_percentage"]), let reset = J.d(o["resets_at"]) else { return nil }
-            return reset <= Date().timeIntervalSince1970 ? 0 : Int(min(100, max(0, used)).rounded())
+            return Window(used: Int(min(100, max(0, used)).rounded()), resetsAt: Date(timeIntervalSince1970: reset))
         }
-        fiveHour = pct(limits["five_hour"])
-        sevenDay = pct(limits["seven_day"])
-        if fiveHour == nil && sevenDay == nil { return nil }
+        five = window(limits["five_hour"])
+        week = window(limits["seven_day"])
+        if five == nil && week == nil { return nil }
     }
 }
 

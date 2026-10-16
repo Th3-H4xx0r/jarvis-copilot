@@ -19,6 +19,8 @@ final class IslandUI {
     }
     /// The last tab that isn't Voice: what a click on the notch opens.
     private(set) var lastTab: IslandTab = .agents
+    /// The Agents tab's limits card (the usage pills open it).
+    var showLimits = false
     /// The Agents tab's measured parts (nil until its first layout).
     var agentsTop: CGFloat?
     var agentsList: CGFloat?
