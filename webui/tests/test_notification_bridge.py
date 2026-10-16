@@ -224,3 +224,11 @@ def test_foreground_skill_push_failure_reports_error_not_success(monkeypatch):
     assert "reach" in res["error"].lower()
     # and the stranded queue entry is dropped
     assert dbridge.pending_mobile_count("devG") == 0
+
+
+def test_apns_visible_body_can_also_wake_the_app():
+    """A glasses card: the banner shows AND the app runs to put it on the lens —
+    a plain alert push runs no app code while the phone is locked."""
+    body = _build_apns_body({"type": "device_notify"}, {"title": "Claude finished", "body": "app", "wake": True})
+    assert body["aps"]["alert"] == {"title": "Claude finished", "body": "app"}
+    assert body["aps"]["content-available"] == 1

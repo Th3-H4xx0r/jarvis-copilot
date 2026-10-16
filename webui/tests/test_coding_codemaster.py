@@ -339,3 +339,35 @@ def test_focus_only_waiting_mutes_finished_pushes(monkeypatch):
     assert pushed == []
     cr._dispatch_coding_notifications(store, event="notification", row={"id": "r", "cwd": "/w/a"})
     assert len(pushed) == 1
+
+
+# ── device cards (glasses, ring…) wake the app ──────────────────────────────
+
+def _phones(monkeypatch):
+    from api import pairing, push as push_mod
+    monkeypatch.setattr(pairing, "list_devices", lambda: [
+        {"kind": "mobile-ios", "push_kind": "apns", "push_token": "tok"},
+        {"kind": "browser", "push_kind": "apns", "push_token": "mac"}])
+    sent = []
+    monkeypatch.setattr(push_mod, "send",
+                        lambda kind, token, payload, alert=None, **kw: sent.append((token, payload, alert)) or {"ok": True})
+    return sent
+
+
+def test_a_device_card_shows_and_wakes_the_app(monkeypatch):
+    """Code Master → glasses: with the phone locked an alert-only push never ran the
+    app, so nothing put the card on the lens unless the ESP32 relay was running."""
+    sent = _phones(monkeypatch)
+    assert cr._send_coding_device_notify("glasses", "✅ Claude finished", "jarvis-copilot") is True
+    assert len(sent) == 1, "phones only"
+    token, payload, alert = sent[0]
+    assert payload["type"] == "device_notify" and payload["channel"] == "glasses"
+    assert alert == {"title": "✅ Claude finished", "body": "jarvis-copilot", "wake": True}
+
+
+def test_a_device_card_can_wake_without_a_second_banner(monkeypatch):
+    sent = _phones(monkeypatch)
+    cr._send_coding_device_notify("glasses", "Claude has a question", "app: Which DB?", banner=False)
+    _, payload, alert = sent[0]
+    assert alert is None, "the phone already shows its own banner"
+    assert (payload["notify_title"], payload["notify_body"]) == ("Claude has a question", "app: Which DB?")

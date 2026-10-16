@@ -180,3 +180,46 @@ def test_legacy_poll_flow_still_works(env):
     rid = cp.create_request(tool="Bash", summary="Bash: ls", session_id="", cwd="/w")
     assert cp.resolve(rid, decision="allow") is True
     assert cp.poll(rid)["decision"] == "allow"
+
+
+# ── the glasses hear about questions and approvals too ──────────────────────
+
+def _glasses(monkeypatch, store, on=True):
+    from api import device_bridge
+    from api import coding_routes as cr
+    monkeypatch.setattr(device_bridge, "all_device_notification_channels",
+                        lambda: [{"key": "glasses", "label": "Glasses", "default_on": False}])
+    store.settings["notifications"]["events"] = {"needs_input": {"glasses": on, "mobile": True}}
+    cards = []
+    monkeypatch.setattr(cr, "_send_coding_device_notify",
+                        lambda ch, t, b, app="", banner=True: cards.append((ch, t, b, banner)) or True)
+    return cards
+
+
+def test_a_question_reaches_the_glasses_when_the_phone_answers_it(env, monkeypatch):
+    """Phone approvals on: the tracker leaves "needs you" to the phone's actionable
+    banner, which never reached the glasses. They get the same words, wake-only."""
+    _, pushes, store = env
+    cards = _glasses(monkeypatch, store)
+    agent_hooks.on_agent_pending("d1", dict(PENDING, kind="ask", fingerprint="fq",
+                                            questions=[{"question": "Which database?"}]))
+    assert cards == [("glasses", "Claude has a question", "app: Which database?", False)]
+    assert pushes[0]["title"] == "Claude has a question"
+
+
+def test_an_approval_reaches_the_glasses(env, monkeypatch):
+    _, _, store = env
+    cards = _glasses(monkeypatch, store)
+    agent_hooks.on_agent_pending("d1", dict(PENDING))
+    assert cards == [("glasses", "Claude needs approval", "app: Bash: rm -rf build", False)]
+
+
+def test_no_glasses_card_when_glasses_are_off_or_the_tracker_sends_it(env, monkeypatch):
+    _, _, store = env
+    cards = _glasses(monkeypatch, store, on=False)
+    agent_hooks.on_agent_pending("d1", dict(PENDING))
+    assert cards == []
+    cards = _glasses(monkeypatch, store, on=True)
+    store.settings["notifications"]["remote_approvals"] = False   # the tracker fans "needs you" out itself
+    agent_hooks.on_agent_pending("d1", dict(PENDING, fingerprint="fp9"))
+    assert cards == []

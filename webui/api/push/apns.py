@@ -209,6 +209,10 @@ def _build_apns_body(payload: dict, alert: Optional[dict]) -> dict:
         level = alert.get("interruption_level")
         if level in ("passive", "active", "time-sensitive"):
             aps["interruption-level"] = level
+        # The banner AND the app woken to act on it (a card for the glasses):
+        # an alert alone runs no app code while the phone is locked.
+        if alert.get("wake"):
+            aps["content-available"] = 1
     else:
         # content-available:1 + no alert = silent / background push.
         aps["content-available"] = 1

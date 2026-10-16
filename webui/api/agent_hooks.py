@@ -284,8 +284,27 @@ def on_agent_pending(device_id, data) -> None:
                             "fingerprint": data["fingerprint"], "session_id": data.get("session_id") or "",
                             "tool": data.get("tool") or "", "summary": (data.get("summary") or "")[:200],
                             "project": project, "can_always": bool(data.get("can_always"))})
+    _cards_for_devices(title, body[:240])
     # The request is answerable now: the agent's Live Activity gets its buttons.
     _agent_la_tick()
+
+
+def _cards_for_devices(title: str, body: str) -> None:
+    """With phone approvals on, the tracker leaves "needs you" to the actionable
+    banner above — which never reached the glasses. The Code Master matrix's
+    device channels (glasses, ring…) get the same words here, wake-only: the
+    phone already shows the banner. Off, the tracker sends every channel itself."""
+    settings = _settings()
+    if not settings.get("remote_approvals"):
+        return
+    try:
+        from api.coding_routes import _STATIC_NOTIFY_CHANNELS, _send_coding_device_notify
+        static = {c["key"] for c in _STATIC_NOTIFY_CHANNELS}
+        for ch, on in ((settings.get("events") or {}).get("needs_input") or {}).items():
+            if on and ch not in static:
+                _send_coding_device_notify(ch, title, body, banner=False)
+    except Exception:  # noqa: BLE001
+        log.debug("agent device cards failed", exc_info=True)
 
 
 _COUNTED_DECISIONS = {"allow", "always", "deny", "answer"}

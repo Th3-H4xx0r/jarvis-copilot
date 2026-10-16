@@ -599,11 +599,16 @@ def _send_coding_photon(text: str) -> bool:
         return False
 
 
-def _send_coding_device_notify(channel_key: str, title: str, body: str, app: str = "") -> bool:
+def _send_coding_device_notify(channel_key: str, title: str, body: str, app: str = "",
+                               banner: bool = True) -> bool:
     """Send a notification card to a device channel (glasses, ring, etc.) via the
     mobile device bridge. The phone receives a push with ``type: device_notify``
-    and routes by ``channel`` to the right wearable. No-ops to False when no
-    mobile device is registered or unreachable. Never raises."""
+    and routes by ``channel`` to the right wearable. The push also wakes the app:
+    an alert alone runs no app code while the phone is locked, so the card only
+    reached the glasses when the ESP32 relay happened to be running.
+    ``banner=False``: the phone already shows its own banner for this — wake
+    only, no second one. No-ops to False when no mobile device is registered or
+    unreachable. Never raises."""
     sent = 0
     try:
         from api.pairing import list_devices
@@ -626,7 +631,7 @@ def _send_coding_device_notify(channel_key: str, title: str, body: str, app: str
                                 {"type": "device_notify", "channel": channel_key,
                                  "notify_title": title, "notify_body": body,
                                  **({"notify_app": app} if app else {})},
-                                alert={"title": title, "body": body})
+                                alert={"title": title, "body": body, "wake": True} if banner else None)
             if res.get("ok"):
                 sent += 1
         except Exception:
