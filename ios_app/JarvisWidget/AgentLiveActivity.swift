@@ -23,9 +23,6 @@ struct AgentLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     AgentIslandTrailing(st: st)
                 }
-                DynamicIslandExpandedRegion(.center) {
-                    if st.waitsOnYou { AgentIslandWaitingCenter(agent: agent, st: st) }
-                }
                 DynamicIslandExpandedRegion(.bottom) {
                     AgentIslandBottom(st: st)
                 }

@@ -31,6 +31,10 @@ final class AgentActivityRenderTests: XCTestCase {
                          question: "Should I also update the migration files for the new column?")),
             ("jarvis", CS(count: 1, working: 1, name: "Jarvis", project: "notes", state: "thinking",
                           since: now - 20, bar: "w", last: now)),
+            ("claude", CS(count: 1, waiting: 1, name: "Claude Code", project: "jarvis-copilot", state: "question",
+                          fingerprint: "fy", kind: "question", bar: "p", last: now, waitingSince: now - 15,
+                          question: "Did the answer show up in the terminal as soon as you tapped it on the phone?",
+                          options: ["Yes", "No"])),
         ]
     }
 
@@ -62,7 +66,7 @@ final class AgentActivityRenderTests: XCTestCase {
         .padding(12)
         .background(LinearGradient(colors: [Color(red: 0.2, green: 0.25, blue: 0.4), .black],
                                    startPoint: .top, endPoint: .bottom))
-        try RenderHarness.write(view, size: CGSize(width: 390, height: 1000), name: "agent-la-lockscreen")
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 1240), name: "agent-la-lockscreen")
     }
 
     func testRenderTheDynamicIsland() throws {
@@ -84,12 +88,13 @@ final class AgentActivityRenderTests: XCTestCase {
                         .background(Circle().fill(.black))
                 }
             }
-            // Expanded, for the first two.
-            ForEach(Array(samples.prefix(2).enumerated()), id: \.offset) { _, s in
+            // Expanded: leading and trailing either side of the camera, the bottom below.
+            ForEach([0, 6, 4, 1].map { samples[$0] }, id: \.1) { s in
                 VStack(spacing: 8) {
                     HStack(alignment: .center, spacing: 10) {
                         AgentIslandLeading(agent: s.0, st: s.1)
-                        if s.1.waitsOnYou { AgentIslandWaitingCenter(agent: s.0, st: s.1) }
+                        Spacer(minLength: 0)
+                        Capsule().fill(Color(white: 0.12)).frame(width: 90, height: 30)   // the camera
                         Spacer(minLength: 0)
                         AgentIslandTrailing(st: s.1)
                     }
@@ -97,13 +102,13 @@ final class AgentActivityRenderTests: XCTestCase {
                 }
                 .padding(14)
                 .frame(width: 370)
-                .background(RoundedRectangle(cornerRadius: 40).fill(.black))
+                .background(RoundedRectangle(cornerRadius: 44).fill(.black))
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.85))
-        try RenderHarness.write(view, size: CGSize(width: 390, height: 760), name: "agent-la-island")
+        try RenderHarness.write(view, size: CGSize(width: 390, height: 1240), name: "agent-la-island")
     }
 
     func testRenderTheSettingsSection() throws {
