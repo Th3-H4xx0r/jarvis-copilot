@@ -64,6 +64,10 @@ end and push to all devices after this". A box is ticked only once it is live.
 31. [ ] Deferred minors from the 2026-10-15 sweep: queued message can be lost at Stop on a very slow link; two voice surfaces share one open flag; right-click roster can be stale; transcript that shrinks >40 msgs can't re-join pages; quick Island-Designs toggles race; failed Lock Screen undo can restore stale state; duplicate "Sent" bubble after paging; after a server restart a still-waiting session alerts once more
 32. [x] Mac island Chat tab looks like the phone's chat (orb + "What's on your mind?", soft blue bubbles, model chip, one glass composer with + / send)
    - ✅ Installed on the Mac (dd11d5453e); offscreen renders of a new and a running chat checked.
+33. [x] Mac island opens/closes faster (spring 0.55 s → 0.36 s, content fades in sooner)
+   - ✅ Installed on the Mac (09a523887d).
+34. [x] iPhone "needs you" alert looked off (big ringed logo, cut-off question, heavy grey buttons): who asks beside the camera, amber badge with the timer, the question in full, flat glass buttons
+   - ✅ Installed on the iPhone (3a9b80cd5d); renders of the island and Lock Screen checked (approval, Yes/No question, 3 options, Answer in Jarvis).
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
