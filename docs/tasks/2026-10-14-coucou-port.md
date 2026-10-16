@@ -68,6 +68,10 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Installed on the Mac (09a523887d).
 34. [x] iPhone "needs you" alert looked off (big ringed logo, cut-off question, heavy grey buttons): who asks beside the camera, amber badge with the timer, the question in full, flat glass buttons
    - ✅ Installed on the iPhone (3a9b80cd5d); renders of the island and Lock Screen checked (approval, Yes/No question, 3 options, Answer in Jarvis).
+35. [ ] Answering a Claude question (AskUserQuestion) from the iPhone takes over 15 s to reach the Mac terminal
+   - Found (2026-10-15, Pranav testing from the phone): the questions show on the phone, and button answers and typed answers ("Nahhhh") both arrive with the right text. Only the delay is wrong. Next: time each hop from the phone tap to the Mac's waiting hook (phone → server → jc-client → `jc-hook`) to find where the 15 s goes.
+36. [x] Mac: the notch's small orb flies into the open island and becomes its big orb (Voice stage, Agents header or tab row), and back into the notch when it folds
+   - ✅ Installed on the Mac with jc-client's new voice panel (b965e48fa4); flight path rendered frame by frame, and the real voice panel's orb position checked offscreen. Not yet watched opening on the real notch.
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
