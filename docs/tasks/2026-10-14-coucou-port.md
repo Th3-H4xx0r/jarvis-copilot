@@ -74,9 +74,16 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Installed on the Mac with jc-client's new voice panel (b965e48fa4); flight path rendered frame by frame, and the real voice panel's orb position checked offscreen. Fixed 45ad3285f4: it flew only the first time and jumped back on fold; now flies both ways every time — checked with a screen recording on the real notch, and Pranav confirmed it works.
 37. [ ] Flow dictation really cleaned by Jarvis (code apps were "As said", so VS Code never reached it) + a Clean-up model picker in Settings → Flow
    - Built (b6a05c208c), server deployed, Mac installed; checked through the Mac's proxy on Auto, Haiku 5.5 and Celeris. Waiting on a real dictation.
-38. [ ] Settings → Shortcuts: record each shortcut from the keys pressed (Esc when done), and Press / Hold — hold Talk to Jarvis to talk until you let go
-39. [ ] Flow window → Snippets doesn't work (fields / Add)
-40. [ ] Flow window → Notes overflows the window: the sidebar is cut off on the left, the note on the right
+38. [x] Settings → Shortcuts: record each shortcut from the keys pressed (Esc when done), Press / Hold for Show the island
+   - ✅ Installed (1d8b12b455); tab rendered; recording logic tested (digits, arrows, F-keys, moves a taken combo).
+39. [x] Flow window → Snippets doesn't work (the trigger field was invisible, so Add stayed greyed out)
+   - ✅ Installed (b422c251d7): "When you say" / "Jarvis types" bordered fields, ⌘↩ Add, edit with the pencil; rendered.
+40. [x] Flow window → Notes overflows the window: the sidebar is cut off on the left, the note on the right
+   - ✅ Installed (b422c251d7): asked 991 pt in a 900 pt window (nested HSplitView); two plain columns now; a test checks every Flow page fits; captured from a real window.
+41. [ ] Push to talk on one key (hold Right ⌥): listens while held, answers in a small island under the notch that folds after; Talk to Jarvis moved to Settings → Voice
+   - Installed (d1765d637a, jc-client dylib updated); small island rendered with the real voice panel; key logic + Flow-key clash tested. Not yet tried with a real hold.
+42. [x] Jarvis.app has the Jarvis logo as its icon
+   - ✅ Installed; Finder shows it.
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
