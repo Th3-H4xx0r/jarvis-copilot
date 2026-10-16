@@ -67,6 +67,7 @@ enum CarPlayRenderer {
     // MARK: Images
 
     static func image(for row: CarPlayRow) -> UIImage? {
+        if row.orb { return OrbFrames.still(size: CPListItem.maximumImageSize.height).map(fit) }
         guard let symbol = row.symbol, let base = UIImage(systemName: symbol) else { return nil }
         return base.withTintColor(color(row.tint ?? .accent), renderingMode: .alwaysOriginal)
     }

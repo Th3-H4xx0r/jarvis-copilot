@@ -19,13 +19,22 @@ enum CarPlayScreens {
     /// Under the header (orb, state, Talk): the conversation in CarPlay's big row text —
     /// Jarvis's reply as it's spoken (its newest words) with what you said under it in
     /// grey. CarPlay left-aligns list text; this is as close to the phone as it allows.
-    static func voiceTab(_ text: CarPlayVoiceText?, speaking: Bool) -> [CarPlaySection] {
-        guard let text else { return [] }
-        let reply = speaking ? text.spoken : (text.spoken + text.unspoken).trimmingCharacters(in: .whitespacesAndNewlines)
-        let row = reply.isEmpty
-            ? text.heard.map { CarPlayRow(id: "conversation", title: $0) }
-            : CarPlayRow(id: "conversation", title: newestWords(reply), detail: text.heard)
-        return row.map { [CarPlaySection(title: nil, rows: [$0])] } ?? []
+    static func voiceTab(_ text: CarPlayVoiceText?, speaking: Bool, cardOpen: Bool, state: String) -> [CarPlaySection] {
+        // Rows only, no list header: CarPlay never redraws a header that's taken away,
+        // so one that "stepped aside" for the voice card stayed and pushed the text under it.
+        var rows: [CarPlayRow] = []
+        // The card has the orb, the state, Mute and Stop; Talk is for when it's closed.
+        if !cardOpen {
+            rows.append(CarPlayRow(id: "talk", title: "Talk to Jarvis", detail: state, orb: true, action: .startVoice))
+        }
+        if let heard = text?.heard {
+            rows.append(CarPlayRow(id: "heard", title: "You: " + heard))
+        }
+        if let text {
+            let reply = speaking ? text.spoken : (text.spoken + text.unspoken).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !reply.isEmpty { rows.append(CarPlayRow(id: "reply", title: "Jarvis: " + newestWords(reply))) }
+        }
+        return rows.isEmpty ? [] : [CarPlaySection(title: nil, rows: rows)]
     }
 
     /// How much of a reply the row shows: about a car-screen line and a half.
@@ -37,15 +46,6 @@ enum CarPlayScreens {
         let tail = text.suffix(replyLength)
         let start = tail.firstIndex(where: \.isWhitespace).map { tail.index(after: $0) } ?? tail.startIndex
         return "…" + tail[start...]
-    }
-
-    /// The voice card covers the bottom of the tab and shows the orb and the state
-    /// itself: while it's open the header steps aside so the text sits above the card.
-    static func showsVoiceHeader(cardOpen: Bool) -> Bool { !cardOpen }
-
-    /// Talk when idle; during a conversation the voice card has Mute and End, so none here.
-    static func voiceButtons(active: Bool, muted: Bool, pushToTalk: Bool) -> [CarPlayVoiceButton] {
-        active ? [] : [.talk]
     }
 
     /// The line under "Jarvis": what it's doing, or what's in the way.

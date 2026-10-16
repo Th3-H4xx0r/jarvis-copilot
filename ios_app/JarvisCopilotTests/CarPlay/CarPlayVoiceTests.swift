@@ -58,15 +58,6 @@ final class CarPlayVoiceTests: XCTestCase {
 
     // MARK: The Voice tab is the voice screen (no pop-up)
 
-    func testIdleOffersTalk() {
-        XCTAssertEqual(CarPlayScreens.voiceButtons(active: false, muted: false, pushToTalk: false), [.talk])
-    }
-
-    /// During a conversation the voice card carries Mute and End; the header doesn't repeat them.
-    func testAConversationLeavesTheButtonsToTheCard() {
-        XCTAssertEqual(CarPlayScreens.voiceButtons(active: true, muted: false, pushToTalk: false), [])
-    }
-
     func testTheStateLineSaysWhereToFixTheMic() {
         XCTAssertEqual(CarPlayScreens.voiceStateText(state: .idle, error: nil, micAllowed: false),
                        "Allow the microphone on your iPhone")

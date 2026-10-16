@@ -114,7 +114,6 @@ final class CarPlayVoiceScreen {
             return CPVoiceControlState(identifier: id, titleVariants: CarPlayVoiceState.titles(for: state, micAllowed: micAllowed),
                                        image: OrbFrames.animated(for: state), repeats: true)
         })
-        template.leadingNavigationBarButtons = [CPBarButton(title: "Done") { [weak self] _ in self?.close() }]
         self.template = template
         isShowing = true
         pinned = !micAllowed
@@ -200,7 +199,8 @@ final class CarPlayVoiceScreen {
         template.activateVoiceControlState(withIdentifier: id)
     }
 
-    /// Realtime: Mute / Unmute. Push-to-talk: Send ends the turn. End always.
+    /// Realtime: Mute / Unmute. Push-to-talk: Send ends the turn. Stop always — the
+    /// card's one way out (no separate Done button doing the same thing).
     /// CarPlay keeps the buttons on each state, so every state gets the same pair;
     /// they are only rebuilt when what they say changes.
     private var buttonsKey: String?
@@ -223,8 +223,8 @@ final class CarPlayVoiceScreen {
             }
             primary.title = store.muted ? "Unmute" : "Mute"
         }
-        let stop = CPButton(image: UIImage(systemName: "xmark") ?? UIImage()) { [weak self] _ in self?.close() }
-        stop.title = "End"
+        let stop = CPButton(image: UIImage(systemName: "stop.fill") ?? UIImage()) { [weak self] _ in self?.close() }
+        stop.title = "Stop"
         for state in template.voiceControlStates { state.actionButtons = [primary, stop] }
     }
 

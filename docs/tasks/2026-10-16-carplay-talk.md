@@ -91,6 +91,23 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
 - [ ] **13. Softer, more professional sounds**
   - Built: soft bell notes (C5→G5 rising for listening, G5→C5 falling for thinking), quiet, slow decay.
 
+## Round 4 — the Jarvis voice screen in CarPlay
+
+- [ ] **14. The voice card covers the text; two X buttons** — his pick: text above the card
+  - Found (phone console, cp-diag): the header WAS set to nil when the card opened (`listHeader -> nil`,
+    `didAppear … header=false`) but CarPlay never redraws a removed list header, so it stayed and pushed the
+    conversation under the card.
+  - Built: no list header at all — idle is a "Talk to Jarvis" row with the orb and the state; with the card
+    open the top is just "You: …" and "Jarvis: …". The card has Mute (or Send) and Stop; the separate Done/X
+    is gone.
+- [ ] **15. Mic startup painfully slow / stuck "Connecting…" / "bad response from the server"**
+  - Found (phone console, JC_VOICE_CONSOLE): audio session 0.4 s, mic live 0.6 s after the tap; the voice
+    socket opened and never answered. The server dropped off at ~18:20 CDT: Cloudflare 530 (tunnel can't
+    reach it), Tailscale offline, ping and both ssh routes time out. Not the app. → he restarts the server.
+- [ ] **16. Didn't stop listening after he stopped talking** — no evidence yet (that run had no voice log; every
+  run since stalled at Connecting). The server's speech engine normally ends the turn first; next logged try
+  once the server is back.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).

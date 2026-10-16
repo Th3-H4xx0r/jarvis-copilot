@@ -13,6 +13,8 @@ struct CarPlayRow: Equatable, Identifiable {
     var detail: String? = nil
     var symbol: String? = nil
     var tint: CarPlayTint? = nil
+    /// The Jarvis orb as the row's image (the Voice tab's Talk row).
+    var orb = false
     /// A dashcam clip whose thumbnail the renderer loads into the row.
     var clipThumbID: String? = nil
     var enabled = true
@@ -108,7 +110,6 @@ struct CarPlaySectionsCache {
 // MARK: Inputs (plain snapshots of the stores, so the builders stay pure)
 
 /// The Voice tab's buttons.
-enum CarPlayVoiceButton: Equatable { case talk, mute, unmute, send, stop }
 
 /// What the Voice tab shows of the conversation.
 struct CarPlayVoiceText: Equatable {

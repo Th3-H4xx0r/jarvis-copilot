@@ -42,50 +42,53 @@ final class CarPlayScreensTests: XCTestCase {
 
     // MARK: Voice tab
 
-    /// Before anything is said the Voice tab is just its header (orb, state, Talk).
-    func testVoiceTabIsJustItsHeaderBeforeAConversation() {
-        XCTAssertTrue(rows(CarPlayScreens.voiceTab(nil, speaking: false)).isEmpty)
-    }
-
-    /// The voice card covers the bottom of the tab and already shows the orb and the
-    /// state: while it's open the header steps aside so the text sits above the card.
-    func testTheHeaderStepsAsideWhileTheVoiceCardIsOpen() {
-        XCTAssertTrue(CarPlayScreens.showsVoiceHeader(cardOpen: false))
-        XCTAssertFalse(CarPlayScreens.showsVoiceHeader(cardOpen: true))
-    }
-
-    /// The reply in the big row text as it's spoken (the newest words), what you said under it.
-    func testVoiceTabShowsTheReplyAsItIsSpoken() {
-        let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
-        let r = rows(CarPlayScreens.voiceTab(text, speaking: true))
+    /// Idle: one big row — the orb, "Talk to Jarvis", and Jarvis's state under it.
+    /// (No list header: CarPlay never redraws a header taken away, so a header that
+    /// "stepped aside" for the voice card stayed on screen and pushed the text under it.)
+    func testIdleVoiceTabOffersTalkWithTheOrb() {
+        let r = rows(CarPlayScreens.voiceTab(nil, speaking: false, cardOpen: false, state: "Tap Talk to start"))
         XCTAssertEqual(r.count, 1)
-        XCTAssertEqual(r[0].title, "Here, sir. The")
-        XCTAssertEqual(r[0].detail, "Are you there?")
-        XCTAssertEqual(r[0].action, .none)
+        XCTAssertEqual(r[0].title, "Talk to Jarvis")
+        XCTAssertEqual(r[0].detail, "Tap Talk to start")
+        XCTAssertTrue(r[0].orb)
+        XCTAssertEqual(r[0].action, .startVoice)
     }
 
-    /// Done speaking (or a text-only reply): the whole reply.
-    func testTheWholeReplyShowsOnceSpoken() {
+    /// The voice card covers the bottom with the orb, the state, Mute and Stop: above
+    /// it, only the conversation — what you said, then Jarvis's reply as it's spoken.
+    func testWithTheCardOpenTheTopIsTheConversation() {
+        let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir. The worker is waiting.", spokenWords: 3)
+        let r = rows(CarPlayScreens.voiceTab(text, speaking: true, cardOpen: true, state: "Speaking"))
+        XCTAssertEqual(r.map(\.title), ["You: Are you there?", "Jarvis: Here, sir. The"])
+        XCTAssertTrue(r.allSatisfy { $0.action == .none && !$0.orb })
+    }
+
+    func testWithTheCardOpenAndNothingSaidTheTopIsEmpty() {
+        XCTAssertTrue(rows(CarPlayScreens.voiceTab(nil, speaking: false, cardOpen: true, state: "Listening…")).isEmpty)
+    }
+
+    /// After a conversation the last exchange stays under Talk.
+    func testIdleKeepsTheLastExchangeUnderTalk() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "Here, sir.", spokenWords: 0)
-        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false)).first?.title, "Here, sir.")
+        let r = rows(CarPlayScreens.voiceTab(text, speaking: false, cardOpen: false, state: "Tap Talk to start"))
+        XCTAssertEqual(r.map(\.title), ["Talk to Jarvis", "You: Are you there?", "Jarvis: Here, sir."])
     }
 
-    /// While Jarvis thinks there's no reply yet: what you said is the line.
+    /// While Jarvis thinks there's no reply yet: only what you said.
     func testOnlyWhatYouSaidWhileJarvisThinks() {
         let text = CarPlayScreens.voiceText(heard: "Are you there?", reply: "", spokenWords: 0)
-        let r = rows(CarPlayScreens.voiceTab(text, speaking: false))
-        XCTAssertEqual(r.first?.title, "Are you there?")
-        XCTAssertNil(r.first?.detail)
+        XCTAssertEqual(rows(CarPlayScreens.voiceTab(text, speaking: false, cardOpen: true, state: "Thinking…")).map(\.title),
+                       ["You: Are you there?"])
     }
 
     /// A long reply shows its newest words, cut at a word, so the line keeps up with the voice.
     func testALongReplyShowsItsNewestWords() {
         let long = (1...40).map { "word\($0)" }.joined(separator: " ")
-        let title = rows(CarPlayScreens.voiceTab(CarPlayScreens.voiceText(heard: "", reply: long, spokenWords: 40), speaking: true))[0].title
-        XCTAssertTrue(title.hasPrefix("…"), title)
+        let text = CarPlayScreens.voiceText(heard: "", reply: long, spokenWords: 40)
+        let title = rows(CarPlayScreens.voiceTab(text, speaking: true, cardOpen: true, state: "Speaking"))[0].title
+        XCTAssertTrue(title.hasPrefix("Jarvis: …"), title)
         XCTAssertTrue(title.hasSuffix("word40"), title)
-        XCTAssertLessThanOrEqual(title.count, CarPlayScreens.replyLength + 1)
-        XCTAssertFalse(title.dropFirst().hasPrefix(" "))
+        XCTAssertLessThanOrEqual(title.count, "Jarvis: ".count + CarPlayScreens.replyLength + 1)
     }
 
     /// Like the phone: what you said, then Jarvis's reply with the spoken words lit.
