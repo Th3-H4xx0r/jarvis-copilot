@@ -242,8 +242,8 @@ private struct PortfolioCard: View {
 
 /// Talking to Jarvis in the notch: jc-client's voice panel (orb, transcript,
 /// mute / start / send) in its island layout — one stage the island's width. It holds
-/// the microphone while it's up, so "Hey Jarvis" steps aside, and keeps the
-/// island open while you talk.
+/// the microphone while it's up, so "Hey Jarvis" steps aside; the island stays
+/// open while it's showing (IslandPin).
 struct VoicePane: View {
     let ui: IslandUI
     let make: (() -> NSViewController?)?
@@ -267,11 +267,9 @@ struct VoicePane: View {
         .onAppear {
             if panel == nil { panel = make?() }
             tried = true
-            ui.pinned = true
             NotificationCenter.default.post(name: .jarvisVoicePanelOpened, object: nil)
         }
         .onDisappear {
-            ui.pinned = false
             NotificationCenter.default.post(name: .jarvisVoicePanelClosed, object: nil)
         }
     }

@@ -235,3 +235,12 @@ enum IslandTick {
         nearIsland ? fast : (expanded || inBand) ? near : idle
     }
 }
+
+/// What keeps the open island from folding on its own: something you're
+/// typing into, a request waiting on you, or the Voice view (by rule — panes
+/// appear and disappear in an order that would clear a flag they share).
+enum IslandPin {
+    static func holds(pinned: Bool, tab: IslandTab, pending: Bool) -> Bool {
+        pinned || pending || tab == .voice
+    }
+}

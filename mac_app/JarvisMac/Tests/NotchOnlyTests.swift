@@ -83,7 +83,7 @@ final class NotchOnlyTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(1.5))
         host.layoutSubtreeIfNeeded()
-        XCTAssertTrue(ui.pinned, "the island stays open while you talk")
+        XCTAssertTrue(IslandPin.holds(pinned: ui.pinned, tab: ui.tab, pending: false), "the island stays open while you talk")
         // The window server's own picture of the window (materials and all, which
         // a view snapshot can't draw): say which window, hold it for a capture.
         if let out = env["JC_ISLAND_SNAPSHOT"] {
@@ -104,6 +104,29 @@ final class NotchOnlyTests: XCTestCase {
         XCTAssertEqual(IslandTab.forIslandClick(current: .voice, last: ui.lastTab), .music)
         XCTAssertEqual(IslandTab.forIslandClick(current: .voice, last: .agents), .agents)
         XCTAssertEqual(IslandTab.forIslandClick(current: .chat, last: .agents), .chat)
+    }
+
+    /// Folding leaves Voice (it's the orb's): whatever reopens the island next
+    /// — an agent finishing, Show the island, hover — opens Agents, not a
+    /// voice panel that pins it open (sweep finding).
+    @MainActor
+    func testFoldingLeavesVoiceSoTheIslandReopensOnAgents() {
+        let c = IslandController(model: AppModel())
+        c.openVoice()
+        XCTAssertEqual(c.ui.tab, .voice)
+        c.close()
+        XCTAssertEqual(c.ui.tab, .agents)
+        c.attention()
+        XCTAssertEqual(c.ui.tab, .agents)
+    }
+
+    /// Voice holds the island open by rule, not by a flag the panes set and
+    /// clear (Chat's disappear ran after Voice's appear and unpinned it).
+    func testVoiceHoldsTheIslandOpenWhateverThePanesDid() {
+        XCTAssertTrue(IslandPin.holds(pinned: false, tab: .voice, pending: false))
+        XCTAssertFalse(IslandPin.holds(pinned: false, tab: .agents, pending: false))
+        XCTAssertTrue(IslandPin.holds(pinned: true, tab: .chat, pending: false))
+        XCTAssertTrue(IslandPin.holds(pinned: false, tab: .agents, pending: true))
     }
 }
 

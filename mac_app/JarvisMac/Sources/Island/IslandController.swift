@@ -76,7 +76,8 @@ final class IslandController {
     /// band around the panel wakes the fast poll at once. Right-clicks on the
     /// island pop the menu.
     private func watchPointer() {
-        moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+        // A drag too: a file dragged to the notch must find it awake to drop on it.
+        moveMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.interval == Self.idle, let panel = self.panel else { return }
                 if panel.frame.insetBy(dx: -120, dy: -120).contains(NSEvent.mouseLocation) { self.tick() }
@@ -290,7 +291,9 @@ final class IslandController {
                                               working: model.workingCount > 0,
                                               showWhileWorking: Prefs.showWhileWorking,
                                               alwaysShow: !Prefs.hideWhenIdle && model.connected)
-        machine.tick(now: now, hovering: inIsland, pinned: ui.pinned || !model.pending.isEmpty, hasSessions: keep)
+        machine.tick(now: now, hovering: inIsland,
+                     pinned: IslandPin.holds(pinned: ui.pinned, tab: ui.tab, pending: !model.pending.isEmpty),
+                     hasSessions: keep)
         sync()
         let nearIsland = rect.offsetBy(dx: pf.minX, dy: pf.minY).insetBy(dx: -200, dy: -160).contains(mouse)
         let inBand = pf.insetBy(dx: -120, dy: -120).contains(mouse)
@@ -300,7 +303,10 @@ final class IslandController {
 
     private func sync() {
         if ui.state != machine.state {
+            let folding = ui.state == .expanded && machine.state != .expanded
             withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { ui.state = machine.state }
+            // Voice is the orb's: whatever opens the island next opens your last tab.
+            if folding && ui.tab == .voice { ui.tab = ui.lastTab }
             // Folded: hand the keyboard back to the app you were in.
             if machine.state != .expanded, panel.isKeyWindow { panel.resignKey() }
         }
