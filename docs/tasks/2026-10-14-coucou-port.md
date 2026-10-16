@@ -99,7 +99,8 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Live on the server (restarted 07:14 UTC, 3d8c1c68e3).
 50. [x] Every turn names the device it came from, exactly as registered ("Pranavs-MacBook-Pro.local", "JarvisCopilot (iPhone)", "Jarvis Pod"); jc-client counts as the Mac for reading its screen
    - ✅ Live on the server (0b10876a3d, restarted 07:29 UTC).
-51. [ ] When a voice turn hands off to a harness agent ("I'll have a larger model compare…"), speak its answer when it's back, and show that agent's job (task, steps, result) in the island's Agents tab
+51. [x] When a voice turn hands off to a harness agent ("I'll have a larger model compare…"), speak its answer when it's back, and show that agent's job (task, steps, result) in the island's Agents tab
+   - ✅ Deployed (server 4e9352ac84 restarted 07:52 UTC, Mac app + dylib 87071ec981): hand-offs listed in the Agents tab (model, state, clock, steps, answer, Read aloud/Copy); a voice hand-off's answer is spoken on the Mac in the small island when it's back. Not yet tried live. To check: possible double speech when a voice connection is still open (app speaks + server audio); a speak-back is lost if Jarvis.app isn't running.
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
