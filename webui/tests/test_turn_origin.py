@@ -92,3 +92,19 @@ def test_a_turn_from_the_mac_knows_it_can_see_the_screen(monkeypatch):
     assert "you can see its screen" in text and "ui_look" in text
     _paired(monkeypatch, PHONE, ["open_url"])
     assert "ui_look" not in turn_origin.directive(turn_origin.origin_for_handler(object()), "voice")
+
+
+def test_a_turn_from_jc_client_on_the_mac_counts_as_from_the_mac(monkeypatch):
+    """Live: the Mac's jc-client is paired with kind "browser"; the gate took its push to talk
+    for "not the Mac" and refused to look at the screen. What it offers decides."""
+    jc = {"id": "mac1", "name": "Pranavs-MacBook-Pro.local", "kind": "browser"}
+    _paired(monkeypatch, jc, ["ui_look", "ui_do"])
+    turn_origin.note_turn("s-mac", turn_origin.origin_for_handler(object()))
+    assert turn_origin.is_mac_session("s-mac")
+    _paired(monkeypatch, {"id": "web1", "name": "Macbook Web", "kind": "browser"}, [])
+    turn_origin.note_turn("s-web", turn_origin.origin_for_handler(object()))
+    assert not turn_origin.is_mac_session("s-web")
+    _paired(monkeypatch, {"id": "app1", "name": "Jarvis.app", "kind": "desktop"}, [])
+    turn_origin.note_turn("s-app", turn_origin.origin_for_handler(object()))
+    assert turn_origin.is_mac_session("s-app")
+    assert not turn_origin.is_mac_session("unknown")

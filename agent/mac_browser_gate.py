@@ -104,7 +104,7 @@ def _from_mac(task_id) -> bool:
     """Whether this turn came from the user's Mac (its paired desktop app)."""
     try:
         from api import turn_origin
-        return turn_origin.kind_for_session(task_id) == "desktop"
+        return turn_origin.is_mac_session(task_id)
     except Exception:
         return False
 

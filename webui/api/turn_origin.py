@@ -108,6 +108,16 @@ def device_for_session(session_id: Optional[str]) -> Optional[str]:
         return _SESSION_DEVICE.get(session_id)
 
 
+def is_mac_session(session_id: Optional[str]) -> bool:
+    """Whether this turn came from the user's Mac: the Mac app, or a device that
+    can see the Mac's screen (jc-client, paired as kind "browser", offers ui_look —
+    its push to talk is the Mac talking)."""
+    if kind_for_session(session_id) == "desktop":
+        return True
+    device = device_for_session(session_id)
+    return bool(device) and "ui_look" in _skill_names(device)
+
+
 def kind_for_session(session_id: Optional[str]) -> str:
     """The kind of device this turn came from ("desktop" = the Mac app), or ""."""
     if not session_id:
