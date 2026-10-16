@@ -42,15 +42,26 @@ end and push to all devices after this". A box is ticked only once it is live.
 16. [x] The open island cuts off the session row at the bottom
 18. [ ] Agent Live Activities: one per agent type (Claude, Codex, Gemini…) with that agent's logo, started even when the app is closed (push-to-start), and settings in Code Master + Island Designs (on/off, which agents, end after idle, Lock Screen Allow/Deny). Today's single Jarvis activity hides coding whenever voice is up.
 17. [x] Instructions-from-phone switch (iPhone + web), Agents tab redesign, real orb, old tray menu items, click-outside folds — shipped 2026-10-15
-19. [ ] Mac island Music tab: as tall as its content (was a fixed 250 pt with blank space), laid out like Apple's Now Playing
-20. [ ] The 5h / wk / Codex pills flicker ~3×/s: every Claude session sends its own stale usage snapshot; keep the highest per window, send only real changes (Mac, server, phone)
-21. [ ] Mac island: opening an agent's details cuts off the bottom — the island grows to fit, and scrolls past the panel with a slim bar on the right
-22. [ ] iPhone agent chat loads the WHOLE transcript at once (slow): open on the last page, load older pages on scroll up
-23. [ ] Tray app + notch island together glitch the Mac and burn CPU (idle: tray 8.6%, jc-client 8.2%, Jarvis.app 6.2%; orb draws 30 fps nonstop; two menu-bar items when the app starts after the tray) — brainstorm folding it all into the notch
+19. [x] Mac island Music tab: as tall as its content (was a fixed 250 pt with blank space), laid out like Apple's Now Playing
+   - ✅ Live on the Mac; checked on the real island with a paused Spotify track.
+20. [x] The 5h / wk / Codex pills flicker ~3×/s: every Claude session sends its own stale usage snapshot; keep the highest per window, send only real changes (Mac, server, phone)
+   - ✅ Live (jc-client + server): ~80 usage messages/s → only real changes; the Mac app gets usage in its hello.
+21. [x] Mac island: opening an agent's details cuts off the bottom — the island grows to fit, and scrolls past the panel with a slim bar on the right
+   - ✅ Live on the Mac; an offscreen render of the island with an opened session fits it exactly.
+22. [x] iPhone agent chat loads the WHOLE transcript at once (slow): open on the last page, load older pages on scroll up
+   - ✅ Live (server + iPhone 18:08+ build): a 1.2 MB chat opens with 331 KB (last 40 messages, tool output/diffs load when opened); polls fetch only new messages.
+23. [x] Tray app + notch island together glitch the Mac and burn CPU (idle: tray 8.6%, jc-client 8.2%, Jarvis.app 6.2%; orb draws 30 fps nonstop; two menu-bar items when the app starts after the tray) — brainstorm folding it all into the notch
+   - ✅ Live: the Python tray is retired on the Mac (`jc-client start` runs the client + opens Jarvis.app); no menu-bar icon — right-click the notch for the menu; the orb / Hey Jarvis opens Voice in the island; Jarvis.app 19.5 % → ~7 % CPU and 3,041 → 7 idle wakeups with agents working; tray's 14 % gone; opens at login.
 24. [ ] iPhone Dynamic Island shows a full-width EMPTY black bar (compact view broken); the Lock Screen Claude activity shows the Jarvis orb instead of the Claude logo (old server → old activity)
-25. [ ] A "waiting for your OK" alert like coucou's (logo, elapsed timer, Deny / Allow) when an agent asks or needs approval — no Face ID
+   - Installed (static busy ring replaces the compact ProgressView; Claude logo live on the Lock Screen). Waiting on Pranav's phone check before ticking.
+25. [x] A "waiting for your OK" alert like coucou's (logo, elapsed timer, Deny / Allow) when an agent asks or needs approval — no Face ID
+   - ✅ Live (server + iPhone 19:3x build): one alert per wait, glass Deny/Allow, instant "Allowed ✓" on tap, no Face ID.
 26. [ ] Voice: Soniox rejects odd-length audio chunks ("Invalid data length: must be a multiple of 2") — seen 2026-10-15 23:27
 27. [ ] Battery: the phone polls /api/island/designs every ~6 s while open
+28. [x] Mac: Jarvis lives only in the notch — Python tray retired (`jc-client start` opens Jarvis.app), right-click menu, voice in the island, fluid open/close, mic released on stop, compact coucou-style voice stage, Capture the room fits
+29. [x] Mac: each agent's limits in the island (Claude + Codex: session/week bars, reset, deficit/reserved)
+30. [ ] Mac: live code view in the island (agent logo + steps + code card, like coucou) — design shown, waiting on Pranav: default when one agent works, or only on click?
+31. [ ] Deferred minors from the 2026-10-15 sweep: queued message can be lost at Stop on a very slow link; two voice surfaces share one open flag; right-click roster can be stale; transcript that shrinks >40 msgs can't re-join pages; quick Island-Designs toggles race; failed Lock Screen undo can restore stale state; duplicate "Sent" bubble after paging; after a server restart a still-waiting session alerts once more
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
