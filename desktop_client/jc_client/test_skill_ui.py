@@ -369,3 +369,94 @@ def test_layout_rows_and_cells_in_a_web_page_are_not_elements():
         _el("AXRow", "Downloads", pos=(0, 280), size=(100, 15))])
     r = ui.read_window(ax=FakeAX(win), capture=_capture)
     assert [e["label"] for e in r["elements"]] == ["Downloads", "story 0", "story 1", "story 2"]
+
+
+# ── push to talk on another display ──────────────────────────────────────────
+# Jarvis.app tells jc-client which screen he held the talk key on; a look with
+# no app named then reads the top window on that screen, not the frontmost
+# app (which may be on the other monitor).
+
+LAPTOP = (0.0, 0.0, 1512.0, 982.0)
+MONITOR = (1512.0, -200.0, 2560.0, 1440.0)
+
+
+def _cg(pid, owner, x, y, w, h, layer=0):
+    return {"kCGWindowOwnerPID": pid, "kCGWindowOwnerName": owner, "kCGWindowLayer": layer,
+            "kCGWindowBounds": {"X": x, "Y": y, "Width": w, "Height": h}}
+
+
+WINDOWS = [
+    _cg(10, "Calc", 100, 50, 400, 300),             # frontmost, on the laptop
+    _cg(77, "Jarvis", 1600, -200, 720, 560, 27),    # the island: not an ordinary window
+    _cg(60, "Brave Browser", 1512, -170, 2560, 74),  # a browser's toolbar strip
+    _cg(61, "WindowManager", 1520, 300, 66, 82),    # Stage Manager's thumbnails
+    _cg(50, "Messages", 1530, 300, 121, 124),
+    _cg(20, "Safari", 1700, 0, 1400, 900),          # on top of the monitor
+    _cg(40, "Notes", 1800, 100, 800, 600),          # under Safari
+]
+EMPTY = (-2560.0, 0.0, 2560.0, 1440.0)
+
+
+class TwoScreenAX(FakeAX):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.asked_for = None
+
+    def front_on(self, bounds):
+        return ui._front_on(bounds, WINDOWS)
+
+    def window_on(self, app_el, bounds):
+        self.asked_for = (app_el["pid"], bounds)
+        return self.win
+
+
+@pytest.fixture
+def _no_talk_screen():
+    ui._talk_screen = None
+    yield
+    ui._talk_screen = None
+
+
+def test_the_top_window_on_a_screen(_no_talk_screen):
+    assert ui._front_on(MONITOR, WINDOWS) == (20, "Safari")
+    assert ui._front_on(LAPTOP, WINDOWS) == (10, "Calc")
+    assert ui._front_on(EMPTY, WINDOWS) is None
+
+
+def test_a_look_after_push_to_talk_reads_the_screen_he_talked_on(_no_talk_screen):
+    ui.note_talk_screen(MONITOR, "LG UltraFine")
+    ax = TwoScreenAX(_window())
+    r = ui.read_window(ax=ax, capture=_capture)
+    assert r["ok"] and r["app"] == "Safari" and r["screen"] == "LG UltraFine"
+    assert ax.asked_for == (20, MONITOR), "its window on that screen, not its focused one elsewhere"
+    assert ui._looks[r["look_id"]]["pid"] == 20, "ui_do acts on what he was looking at"
+
+
+def test_a_named_app_or_an_old_talk_still_reads_as_before(_no_talk_screen, monkeypatch):
+    ui.note_talk_screen(MONITOR, "LG UltraFine")
+    assert ui.read_window(app="calc", ax=TwoScreenAX(_window()), capture=_capture)["app"] == "Calc"
+    now = ui.time.monotonic()
+    monkeypatch.setattr(ui.time, "monotonic", lambda: now + ui.TALK_SCREEN_S + 1)
+    r = ui.read_window(ax=TwoScreenAX(_window()), capture=_capture)
+    assert r["app"] == "Calc" and "screen" not in r
+
+
+def test_a_bad_screen_is_ignored(_no_talk_screen):
+    ui.note_talk_screen(("x", 0, 0, 0), "bad")
+    assert ui._talk_screen is None
+    ui.note_talk_screen((0, 0, 0, 900), "empty")
+    assert ui._talk_screen is None
+
+
+def test_a_screen_with_nothing_open_is_read_whole(_no_talk_screen, monkeypatch):
+    monkeypatch.setattr(ui, "_ocr", lambda cg, frame: [
+        {"role": "text", "label": "Wallpaper clock 9:41", "pt": (-2000.0, 100.0, 200.0, 40.0), "ref": None}])
+    ui.note_talk_screen(EMPTY, "KG271U N3 (1)")
+    r = ui.read_window(ax=TwoScreenAX(_window()), capture=lambda frame, pid=None: (_capture(frame)[0], object()))
+    assert r["ok"] and r["app"] == "Desktop" and r["screen"] == "KG271U N3 (1)"
+    assert r["origin"] == [-2560.0, 0.0] and r["source"] == "ocr"
+    assert [e["label"] for e in r["elements"]] == ["Wallpaper clock 9:41"]
+    assert ui._looks[r["look_id"]]["pid"] is None
+    for action, kw in (("key", {"keys": "return"}), ("fill", {"text": "hi"})):
+        res = ui.do_action(action, look_id=r["look_id"], ax=TwoScreenAX(_window()), **kw)
+        assert not res["ok"] and "Nothing is open" in res["error"], "never types into the app in front elsewhere"

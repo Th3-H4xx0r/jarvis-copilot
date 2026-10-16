@@ -101,6 +101,8 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Live on the server (0b10876a3d, restarted 07:29 UTC).
 51. [x] When a voice turn hands off to a harness agent ("I'll have a larger model compare…"), speak its answer when it's back, and show that agent's job (task, steps, result) in the island's Agents tab
    - ✅ Deployed (server 4e9352ac84 restarted 07:52 UTC, Mac app + dylib 87071ec981): hand-offs listed in the Agents tab (model, state, clock, steps, answer, Read aloud/Copy); a voice hand-off's answer is spoken on the Mac in the small island when it's back. Not yet tried live. To check: possible double speech when a voice connection is still open (app speaks + server audio); a speak-back is lost if Jarvis.app isn't running.
+52. [ ] With several monitors, holding push to talk brings the notch island to the screen the pointer is on, lights that screen, and Jarvis's look reads that screen
+   - Built: the island comes to the pointer's display for the talk (and a hand-off's answer), home after the fold; the glow follows it; jc-client hears the display (`talk_screen`) and for 3 min `ui_look` with no app reads the app on top of that screen (its window there), or the bare screen with its text read when nothing's open. Live test on his 4 displays passed (island + glow on each, home after each fold; looks read Brave on the right monitor, the desktop on empty ones).
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).

@@ -52,6 +52,33 @@ enum TalkKeyChoice {
     }
 }
 
+/// The display push to talk is held on — the one under the pointer. The
+/// island and the glow go there, and jc-client hears of it so Jarvis's look at
+/// "this" reads that screen, not the frontmost app on another monitor
+/// (desktop_client/jc_client/skills/ui.py note_talk_screen).
+enum TalkScreen {
+    /// Which of `frames` (AppKit coordinates) the pointer is on — edges count,
+    /// the notch is at the very top — else the nearest; nil with no screens.
+    static func index(of point: CGPoint, in frames: [CGRect]) -> Int? {
+        if let i = frames.firstIndex(where: { (($0.minX)...($0.maxX)).contains(point.x) && (($0.minY)...($0.maxY)).contains(point.y) }) {
+            return i
+        }
+        func distance(_ r: CGRect) -> CGFloat {
+            hypot(max(r.minX - point.x, 0, point.x - r.maxX), max(r.minY - point.y, 0, point.y - r.maxY))
+        }
+        return frames.indices.min { distance(frames[$0]) < distance(frames[$1]) }
+    }
+
+    /// Tell jc-client: the display in global points, top-left origin, as the
+    /// window server's window bounds are.
+    static func tell(_ screen: NSScreen) {
+        guard let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return }
+        let b = CGDisplayBounds(CGDirectDisplayID(num.uint32Value))
+        JcLink.shared.request(["type": "talk_screen", "bounds": [b.minX, b.minY, b.width, b.height],
+                               "name": screen.localizedName])
+    }
+}
+
 /// Watches the talk key everywhere (a global monitor — it needs Accessibility,
 /// like Flow) and in Jarvis's own windows (a local one).
 @MainActor

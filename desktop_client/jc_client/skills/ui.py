@@ -49,6 +49,57 @@ _looks: "OrderedDict[str, dict]" = OrderedDict()
 _looks_lock = threading.Lock()
 _enabled_pids: set = set()
 
+# The screen he last held push to talk on (Jarvis.app says so over ui.sock).
+# For a while after, a look with no app named reads the top window on that
+# screen: with two monitors the frontmost app may be on the other one.
+TALK_SCREEN_S = 180.0
+_talk_screen: dict | None = None
+
+
+def note_talk_screen(bounds, name: str = "") -> None:
+    """``bounds``: the display in global points, top-left origin (CGDisplayBounds)."""
+    global _talk_screen
+    try:
+        x, y, w, h = (float(v) for v in bounds)
+    except (TypeError, ValueError):
+        return
+    if w <= 0 or h <= 0:
+        return
+    _talk_screen = {"bounds": (x, y, w, h), "name": str(name or "")[:80], "at": time.monotonic()}
+
+
+def _talk_screen_now() -> dict | None:
+    s = _talk_screen
+    return s if s and time.monotonic() - s["at"] <= TALK_SCREEN_S else None
+
+
+def _mostly_on(frame, bounds) -> bool:
+    """Whether at least half of ``frame`` is on the screen at ``bounds``."""
+    x, y, w, h = frame
+    sx, sy, sw, sh = bounds
+    ix = max(0.0, min(x + w, sx + sw) - max(x, sx))
+    iy = max(0.0, min(y + h, sy + sh) - max(y, sy))
+    return w > 0 and h > 0 and ix * iy >= 0.5 * w * h
+
+
+def _front_on(bounds, windows) -> tuple | None:
+    """(pid, owner) of the app on top of the screen at ``bounds`` — ``windows``
+    front to back, as the window server lists them. Not Stage Manager's
+    thumbnails or a browser's toolbar strips: too small to be what he sees."""
+    for w in windows:
+        if int(w.get("kCGWindowLayer", 1)) != 0 or float(w.get("kCGWindowAlpha", 1) or 0) <= 0:
+            continue
+        owner = str(w.get("kCGWindowOwnerName") or "")
+        if owner == "WindowManager":
+            continue
+        b = w.get("kCGWindowBounds") or {}
+        frame = tuple(float(b.get(k, 0)) for k in ("X", "Y", "Width", "Height"))
+        if frame[2] < 200 or frame[3] < 160:
+            continue
+        if _mostly_on(frame, bounds):
+            return int(w["kCGWindowOwnerPID"]), owner
+    return None
+
 
 # ── accessibility adapter (tests swap it) ────────────────────────────────────
 
@@ -110,6 +161,22 @@ class _MacAX:
             err, wins = self.AS.AXUIElementCopyAttributeValue(app_el, "AXWindows", None)
             win = wins[0] if err == 0 and wins else None
         return win
+
+    def front_on(self, bounds):
+        return _front_on(bounds, _window_list(True))
+
+    def window_on(self, app_el, bounds):
+        """The app's window on the screen at ``bounds``: its focused one if
+        that is there, else its first one there (it may have one per screen)."""
+        err, focused = self.AS.AXUIElementCopyAttributeValue(app_el, "AXFocusedWindow", None)
+        found = [focused] if err == 0 and focused is not None else []
+        err, wins = self.AS.AXUIElementCopyAttributeValue(app_el, "AXWindows", None)
+        found += list(wins or []) if err == 0 else []
+        for win in found:
+            a = self.attrs(win, ["AXPosition", "AXSize"])
+            if a.get("AXPosition") and a.get("AXSize") and _mostly_on((*a["AXPosition"], *a["AXSize"]), bounds):
+                return win
+        return None
 
     def _plain(self, v):
         AS = self.AS
@@ -369,6 +436,8 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
     ax = ax or _ax()
     capture = capture or _capture
     started = time.monotonic()
+    # Right after push to talk: the screen he held it on (its name, its bounds).
+    screen, on = None, None
     if not ax.trusted():
         return {"ok": False, "error": _NOT_TRUSTED}
     if pid:
@@ -381,19 +450,30 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
             return {"ok": False, "error": f"{app} isn't running. Open it first (open_app)."}
         pid, name = found
     else:
-        pid, name = ax.frontmost()
-    app_el = ax.app_element(pid)
-    win = ax.window(app_el)
-    if win is None:
-        return {"ok": False, "error": f"{name} has no open window."}
-    wa = ax.attrs(win, ["AXTitle", "AXPosition", "AXSize"])
-    if not wa.get("AXPosition") or not wa.get("AXSize"):
-        return {"ok": False, "error": f"Could not read {name}'s window."}
-    frame = (*wa["AXPosition"], *wa["AXSize"])
+        talk = _talk_screen_now() if hasattr(ax, "front_on") else None
+        found = ax.front_on(talk["bounds"]) if talk else None
+        if talk:
+            screen, on = talk["name"] or "that screen", talk["bounds"]
+        if found:
+            pid, name = found
+        elif not talk:
+            pid, name = ax.frontmost()
     max_elements = max(1, min(int(max_elements or 250), 400))
     texts: list = []
-    elements = walk(ax, win, frame, max_elements, texts)
-    title = str(wa.get("AXTitle") or "")
+    if on and not pid:
+        # Nothing open on that screen: the screen itself, its text read.
+        name, title, frame, elements = "Desktop", screen, on, []
+    else:
+        app_el = ax.app_element(pid)
+        win = (on and ax.window_on(app_el, on)) or ax.window(app_el)
+        if win is None:
+            return {"ok": False, "error": f"{name} has no open window."}
+        wa = ax.attrs(win, ["AXTitle", "AXPosition", "AXSize"])
+        if not wa.get("AXPosition") or not wa.get("AXSize"):
+            return {"ok": False, "error": f"Could not read {name}'s window."}
+        frame = (*wa["AXPosition"], *wa["AXSize"])
+        elements = walk(ax, win, frame, max_elements, texts)
+        title = str(wa.get("AXTitle") or "")
     sig = _sig(title, elements, texts)  # the same signature settle() polls
     img, cg = capture(frame, pid)
     source = "ax"
@@ -425,6 +505,7 @@ def read_window(app: str | None = None, max_elements: int = 250, width: int = 10
             "elements": [{"i": e["i"], "role": e["role"], "label": e["label"], "box": e["box"],
                           **({"kind": e["kind"]} if e.get("kind") else {})} for e in elements],
             "source": source, "sig": sig, "ms": int((time.monotonic() - started) * 1000),
+            **({"screen": screen} if screen else {}),
             # The window's text from accessibility: readable even under a banner or popup.
             "text": "\n".join(t for t in texts if t.strip())[:TEXT_CAP]}
 
@@ -568,6 +649,9 @@ def _do(ax, action, look_id, element, text, keys, direction, x, y, app, url=None
                          or (action == "click" and (element is not None or x is not None))):
         # Keys need to know which app they are for: never guess the frontmost one.
         return {"ok": False, "error": "That screen is gone; look again."}
+    if seen is not None and seen["pid"] is None and action in ("fill", "key"):
+        # A look at an empty screen: no app to type into (never the one in front elsewhere).
+        return {"ok": False, "error": "Nothing is open on that screen to type into; open an app first."}
     pid = seen["pid"] if seen else ax.frontmost()[0]
     el = None
     if element is not None and seen is not None:

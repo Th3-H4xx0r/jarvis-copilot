@@ -72,7 +72,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onSpeak = { [weak self, weak island] job in
             guard let self, let island,
                   VoicePanelSpeak.speak(job.result, heard: job.task, on: self.menu?.voicePanelClass()) else { return }
-            if !(island.isExpanded && island.ui.tab != .voice) { island.openVoice(mini: true) }
+            if !(island.isExpanded && island.ui.tab != .voice) {
+                // On the display you're on now (you may have talked on another).
+                if !island.isExpanded { island.comeToPointer() }
+                island.openVoice(mini: true)
+            }
         }
 
         let nc = NotificationCenter.default
@@ -118,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch action {
         case .talk:
             if down {
+                talkHere(island)
                 VoicePanelTalk.begin(on: menu?.voicePanelClass()) { [weak island] in
                     island?.openVoice(mini: true)
                     ScreenGlow.shared.show(on: island?.currentScreen)
@@ -182,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and Jarvis listens; let go and it answers; the island folds after.
         let talk = TalkKeyWatcher.shared
         talk.onStart = { [weak self, weak island] in
+            if let island { self?.talkHere(island) }
             VoicePanelTalk.begin(on: self?.menu?.voicePanelClass()) {
                 island?.openVoice(mini: true)
                 ScreenGlow.shared.show(on: island?.currentScreen)
@@ -204,6 +210,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { island?.talkDone() }
         }
         NoteTaker.shared.load()
+    }
+
+    /// Push to talk on the display you're pointing at: the island moves there
+    /// (the glow follows it) and Jarvis's look at the screen reads that one.
+    private func talkHere(_ island: IslandController) {
+        if let screen = island.comeToPointer() { TalkScreen.tell(screen) }
     }
 
     private static func anotherCopyRunning() -> Bool {

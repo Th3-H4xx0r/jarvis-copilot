@@ -247,6 +247,11 @@ class Service:
             self._ui_topics = {str(k): float(v or 0) for k, v in topics.items()}
             self._send_subscription()
             return {"ok": True}
+        if kind == "talk_screen":
+            # Push to talk was held on this display: ui_look reads it next.
+            from jc_client.skills import ui
+            ui.note_talk_screen(req.get("bounds") or (), str(req.get("name") or ""))
+            return {"ok": True}
         if kind == "roster":
             return self._ui_roster()
         if kind == "tray":

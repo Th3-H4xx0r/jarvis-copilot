@@ -179,6 +179,9 @@ final class IslandController {
     private var interval: TimeInterval = 0
     private var screenOff = false
     private var screen: NSScreen?
+    /// Push to talk held on another display: the island is there until it folds.
+    private var talkScreen: NSScreen?
+    private var talkScreenSerial = 0
     /// Bumped by every Voice open: a push-to-talk fold only folds its own talk.
     private var talkSerial = 0
 
@@ -315,6 +318,32 @@ final class IslandController {
         }
     }
 
+    /// Push to talk: the island comes to the display the pointer is on (and
+    /// goes home when it folds). Returns that display.
+    @discardableResult
+    func comeToPointer(at point: CGPoint? = nil) -> NSScreen? {
+        let screens = NSScreen.screens
+        guard let i = TalkScreen.index(of: point ?? NSEvent.mouseLocation, in: screens.map(\.frame)) else { return screen }
+        let s = screens[i]
+        talkScreenSerial += 1
+        let home = targetScreen()
+        talkScreen = s == home ? nil : s
+        if s != screen { relocate() }
+        return s
+    }
+
+    /// Folded on a talk's display: home again once the fold has played.
+    private func goHomeAfterFold() {
+        guard talkScreen != nil else { return }
+        let serial = talkScreenSerial
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(0.6))
+            guard let self, self.talkScreenSerial == serial, !self.isExpanded else { return }
+            self.talkScreen = nil
+            self.relocate()
+        }
+    }
+
     func toggleVoice() {
         if isExpanded && ui.tab == .voice { close() } else { openVoice() }
     }
@@ -370,7 +399,8 @@ final class IslandController {
     }
 
     func relocate() {
-        guard let s = targetScreen() else { return }
+        let talk = talkScreen.flatMap { t in NSScreen.screens.contains(t) ? t : nil }
+        guard let s = talk ?? targetScreen() else { return }
         screen = s
         let menuBar = s.frame.maxY - s.visibleFrame.maxY
         ui.geometry = IslandGeometry(screenWidth: s.frame.width, safeAreaTop: s.safeAreaInsets.top,
@@ -471,7 +501,7 @@ final class IslandController {
     private func sync() {
         if ui.state != machine.state {
             let folding = ui.state == .expanded && machine.state != .expanded
-            if folding { onFolded?() }
+            if folding { onFolded?(); goHomeAfterFold() }
             let flight = OrbFlightPlan.direction(
                 from: ui.state, to: machine.state,
                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
