@@ -95,6 +95,7 @@ bool BondKeeper::service(uint32_t now) {
   check_at_ms_ = 0;
   const bool succeeded = succeeded_;
   succeeded_ = false;
+  const bool paired_last = paired_last_;
 
   Addrs live;
   const int live_n = live_bonds(live);
@@ -113,20 +114,24 @@ bool BondKeeper::service(uint32_t now) {
     nvs_commit(*meta);
   }
 
-  if (bonds::lost_any(kept, kept_len / bonds::addr_len, live, live_n)) {
-    if (heals >= max_heals) {
+  const bool lost = bonds::lost_any(kept, kept_len / bonds::addr_len, live, live_n);
+  switch (bonds::next_step(paired_last, lost, heals, max_heals)) {
+    case bonds::Step::give_up:
       Serial.println("[bond] a saved bond is gone again; waiting for the phone instead of rebooting");
       return false;
-    }
-    nvs_set_u8(*meta, key_heals, heals + 1);
-    nvs_set_u8(*meta, key_heal, 1);
-    nvs_commit(*meta);
-    Serial.printf("[bond] the Bluetooth stack erased a saved bond (%d of %u left); rebooting to put it back\n",
-                  live_n, static_cast<unsigned>(kept_len / bonds::addr_len));
-    return true;
+    case bonds::Step::heal:
+      nvs_set_u8(*meta, key_heals, heals + 1);
+      nvs_set_u8(*meta, key_heal, 1);
+      nvs_commit(*meta);
+      Serial.printf("[bond] the Bluetooth stack erased a saved bond (%d of %u left); rebooting to put it back\n",
+                    live_n, static_cast<unsigned>(kept_len / bonds::addr_len));
+      return true;
+    case bonds::Step::refresh:
+      if (lost) Serial.println("[bond] the phone paired again under a new address; saving the new bond");
+      break;
   }
 
-  // Nothing lost: bring the copy up to date (a new bond, or new keys after a re-pair).
+  // Bring the copy up to date (a new bond, or new keys after a re-pair).
   if (live_n == 0) return false;
   auto* buf = static_cast<uint8_t*>(malloc(bonds::chunk_max));
   if (buf == nullptr) return false;

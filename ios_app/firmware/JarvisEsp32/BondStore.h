@@ -66,6 +66,20 @@ inline bool lost_any(const uint8_t* kept, size_t kept_n, const uint8_t* live, si
   return false;
 }
 
+/// What a check does: bring the copy up to date with the stack's store, reboot to put
+/// the copy back, or stop healing.
+enum class Step { refresh, heal, give_up };
+
+/// Only a failed encryption can mean the stack erased a bond. After a successful pairing
+/// the store holds the keys the phone uses right now, even when a kept address is gone:
+/// Bluedroid files a bond under the address the phone paired from, and an iPhone pairs
+/// from a rotating private address, so a phone forgotten in Settings and paired again
+/// comes back under a new one. Healing then would write the old keys over the new pairing.
+inline Step next_step(bool paired_last, bool lost, uint8_t heals, uint8_t max_heals) {
+  if (paired_last || !lost) return Step::refresh;
+  return heals >= max_heals ? Step::give_up : Step::heal;
+}
+
 }  // namespace jarvis::bonds
 
 #endif  // JARVIS_ESP32_BOND_STORE_H

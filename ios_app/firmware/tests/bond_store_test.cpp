@@ -150,6 +150,21 @@ int main() {
     CHECK(!lost_any(kept, 1, live, 2));             // a new bond on top is not a loss
   }
 
+  // What a check does. Only a failed encryption can mean the stack erased a bond; after a
+  // successful pairing the store is what the phone uses, even when its bond moved to a new
+  // address (a phone forgotten in Settings pairs again under a new private address).
+  // Healing then would put the old keys back over the new pairing.
+  {
+    constexpr uint8_t max = 3;
+    CHECK(next_step(/*paired_last=*/true, /*lost=*/true, 0, max) == Step::refresh);   // re-paired
+    CHECK(next_step(true, true, max, max) == Step::refresh);    // even with heals used up
+    CHECK(next_step(true, false, 0, max) == Step::refresh);
+    CHECK(next_step(false, true, 0, max) == Step::heal);        // failed encryption erased it
+    CHECK(next_step(false, true, max - 1, max) == Step::heal);
+    CHECK(next_step(false, true, max, max) == Step::give_up);   // stop rebooting
+    CHECK(next_step(false, false, 0, max) == Step::refresh);    // boot check, nothing lost
+  }
+
   if (failures == 0) std::printf("bond_store_test: all passed\n");
   return failures == 0 ? 0 : 1;
 }

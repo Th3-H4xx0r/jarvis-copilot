@@ -168,7 +168,13 @@ removed pairing information") until the board was forgotten in Settings.
 encryption. When a bond in that copy disappears, it sets `heal` in `jc_bonds` and
 reboots. The next boot writes the copy back before Bluetooth starts, and the phone
 reconnects with the keys it already has. Three heals with no successful encryption in
-between, and it stops rebooting. The app keeps reconnecting for 30 s after "peer removed
+between, and it stops rebooting.
+
+Only a failed encryption heals (firmware 1.3). Bluedroid files a bond under the address
+the phone paired from, and an iPhone pairs from a rotating private address, so a phone
+forgotten in Settings and paired again comes back under a new address. After a successful
+pairing the copy follows the stack's store; 1.2 read the old address's absence as an
+erase and wrote the old keys back over the new pairing. The app keeps reconnecting for 30 s after "peer removed
 pairing information" before asking the user to forget the board. Serial lines start with
 `[bond]`.
 

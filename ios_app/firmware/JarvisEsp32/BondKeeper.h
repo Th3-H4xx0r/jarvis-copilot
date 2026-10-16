@@ -9,8 +9,9 @@
 // forgets the board in Settings. The stack has no switch to stop it.
 //
 // So the board keeps its own copy of the stack's bond store (BondStore.h), refreshed after
-// each pairing or encryption. When a bond that copy holds disappears, the board asks for a
-// heal and reboots; at the next boot, before Bluetooth starts (the stack reads its store
+// each pairing or encryption. When a bond that copy holds disappears after a failed one
+// (after a successful pairing the store is the truth: bonds::next_step), the board asks
+// for a heal and reboots; at the next boot, before Bluetooth starts (the stack reads its store
 // only then), the copy goes back and the iPhone's key works again. A successful encryption
 // re-arms it; after max_heals in a row without one it stops, so a phone whose keys really
 // are different can't keep the board rebooting.
@@ -34,6 +35,7 @@ class BondKeeper {
   /// Bluetooth task: a pairing or re-encryption finished.
   void on_auth(bool success) {
     if (success) succeeded_ = true;
+    paired_last_ = success;
     check_in(success ? 3000 : 500);  // let the stack finish rewriting its store first
   }
   /// loop(): refreshes the copy, or finds an erased bond. True when the board must
@@ -45,6 +47,7 @@ class BondKeeper {
 
   volatile uint32_t check_at_ms_ = 0;  // 0 = nothing pending
   volatile bool succeeded_ = false;    // an encryption succeeded since the last check
+  volatile bool paired_last_ = false;  // the latest pairing/encryption succeeded (boot: no)
 };
 
 }  // namespace jarvis
