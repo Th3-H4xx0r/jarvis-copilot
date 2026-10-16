@@ -233,5 +233,14 @@ final class IslandTabsTests: XCTestCase {
         try shot("-chat.png")
         chat.endDemo()
     }
-}
 
+    /// The chat's file picker opens over the island, not under it.
+    @MainActor
+    func testTheFilePickerOpensOverTheIsland() {
+        let panel = ChatAttachPanel.make()
+        panel.begin { _ in }
+        defer { panel.cancel(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertGreaterThan(panel.level.rawValue, Int(CGWindowLevelForKey(.mainMenuWindow)) + 3)
+    }
+}

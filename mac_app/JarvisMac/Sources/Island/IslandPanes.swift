@@ -150,11 +150,15 @@ struct ChatPane: View {
     }
 
     private func attach() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
+        let panel = ChatAttachPanel.make()
+        ui.pinned = true
         NSApp.activate()
-        if panel.runModal() == .OK { chat.attach(panel.urls) }
+        panel.begin { response in
+            MainActor.assumeIsolated {
+                if response == .OK { chat.attach(panel.urls) }
+                ui.pinned = !chat.draft.isEmpty || chat.busy
+            }
+        }
     }
 }
 
@@ -668,5 +672,21 @@ struct MailPane: View {
                     .buttonStyle(IslandButtonStyle(tint: JcAccent.color)).disabled(mail.sending)
             }
         }
+    }
+}
+
+/// The chat's "+" file picker. Over the island (main menu + 3): at the normal
+/// level the island covered it. Opened with `begin` (not `runModal`, which
+/// puts a panel back at the modal level).
+enum ChatAttachPanel {
+    static let level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 4)
+
+    @MainActor
+    static func make() -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.level = level
+        return panel
     }
 }

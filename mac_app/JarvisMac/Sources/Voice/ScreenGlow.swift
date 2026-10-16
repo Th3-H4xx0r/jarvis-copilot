@@ -42,16 +42,19 @@ final class ScreenGlowModel {
     var visible = false
 }
 
-/// The Siri-like light around the screen while you hold to talk: Jarvis's
+/// The Siri-like light around the screen while you hold to talk, in Jarvis's
 /// colours, slowly turning, soft outside and bright at the edge.
 struct ScreenGlowView: View {
     let model: ScreenGlowModel
+    /// Jarvis's colours: the accent's teal into the orb's azure, indigo and
+    /// violet, and back.
     static let colors: [Color] = [
-        Color(red: 0.25, green: 0.66, blue: 1.0),   // blue
-        Color(red: 0.55, green: 0.38, blue: 1.0),   // violet
-        Color(red: 1.0, green: 0.35, blue: 0.80),   // pink
-        Color(red: 1.0, green: 0.62, blue: 0.30),   // amber
-        Color(red: 0.25, green: 0.66, blue: 1.0),
+        JcAccent.color,
+        Color(red: 0.24, green: 0.55, blue: 1.0),   // azure
+        Color(red: 0.36, green: 0.36, blue: 0.96),  // indigo
+        Color(red: 0.61, green: 0.36, blue: 1.0),   // violet
+        Color(red: 0.24, green: 0.55, blue: 1.0),
+        JcAccent.color,
     ]
 
     var body: some View {

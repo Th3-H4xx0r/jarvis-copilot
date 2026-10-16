@@ -12,6 +12,7 @@ struct MacVoiceMini: View {
     @State private var store: VoiceStore
     @State private var talk: MacPushToTalk
     @State private var onScreen = false
+    @Namespace private var wordsSpace
     private static let orbRender: CGFloat = 124
     private static let orbSide: CGFloat = 32
 
@@ -71,33 +72,28 @@ struct MacVoiceMini: View {
         .frame(width: 64)
     }
 
-    /// Your words big, then — once Jarvis answers — small and grey above the answer.
+    /// Your words big, then — once Jarvis answers — small and grey above the
+    /// answer, which lights word by word as it's spoken (like the stage).
+    /// Both scroll like a teleprompter when they run past two lines.
     private var words: some View {
-        GeometryReader { g in
-            let subtitleScale: CGFloat = 0.7
-            VStack(alignment: .leading, spacing: answering ? 2 : 0) {
+        VStack(alignment: .leading, spacing: 1) {
+            if answering {
                 Text(heard)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(answering ? JcTheme.muted : JcTheme.text)
-                    .lineLimit(answering ? 1 : 2)
-                    .truncationMode(answering ? .tail : .head)
-                    // Scaled, not re-fonted: a scale animates, a font size jumps.
-                    .frame(width: answering ? g.size.width / subtitleScale : g.size.width, alignment: .leading)
-                    .scaleEffect(answering ? subtitleScale : 1, anchor: .topLeading)
-                    .frame(width: g.size.width, height: answering ? 14 : nil, alignment: .topLeading)
-                if answering {
-                    Text(store.reply.text)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(JcTheme.text)
-                        .lineLimit(2)
-                        .truncationMode(.head)        // the latest words, as they come
-                        .frame(width: g.size.width, alignment: .leading)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .matchedGeometryEffect(id: "heard", in: wordsSpace)
+                MiniKaraoke(segments: store.replySegments, spokenWords: store.spokenWords, text: store.reply.text)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                MiniTeleprompter(text: heard)
+                    .matchedGeometryEffect(id: "heard", in: wordsSpace)
             }
-            .frame(width: g.size.width, height: g.size.height, alignment: .leading)
-            .animation(.spring(response: 0.42, dampingFraction: 0.86), value: answering)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: answering)
     }
 
     /// "Release to send", with a dot that breathes, while the key is down.
@@ -142,6 +138,95 @@ struct MacVoiceMini: View {
         case .thinking: return "…"
         default: return ""
         }
+    }
+}
+
+/// What you're saying, big and white: centred while it fits, and once it runs
+/// past the band it scrolls up like a teleprompter, the newest words at the
+/// bottom, the oldest fading out at the top.
+private struct MiniTeleprompter: View {
+    let text: String
+    @State private var overflows = false
+
+    var body: some View {
+        GeometryReader { g in
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(text)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(JcTheme.text)
+                            .lineSpacing(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { overflows = $0 > g.size.height + 1 }
+                        Color.clear.frame(height: 1).id("end")
+                    }
+                    .frame(minHeight: g.size.height, alignment: .center)
+                }
+                .scrollDisabled(true)
+                .onChange(of: text) { _, _ in
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                .onAppear { proxy.scrollTo("end", anchor: .bottom) }
+            }
+            .mask {
+                LinearGradient(stops: [.init(color: overflows ? .clear : .black, location: 0),
+                                       .init(color: .black, location: overflows ? 0.35 : 0),
+                                       .init(color: .black, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+        }
+    }
+}
+
+/// Jarvis's answer as a teleprompter: lit word by word as it's spoken (the
+/// stage's karaoke), the sentence being spoken kept in view, the rest faded
+/// at the edges.
+private struct MiniKaraoke: View {
+    let segments: [VoiceSegment]
+    let spokenWords: Int
+    let text: String
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                    if segments.isEmpty {
+                        Text(text).foregroundStyle(JcTheme.text)
+                    }
+                    ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                        Text(attributed(segment))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(index)
+                    }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .lineSpacing(1)
+                .padding(.vertical, 6)
+            }
+            .scrollDisabled(true)
+            .onChange(of: spokenWords) { _, _ in
+                let active = voiceActiveSegment(segments, spokenWords: spokenWords)
+                guard active >= 0 else { return }
+                withAnimation(.easeOut(duration: 0.26)) { proxy.scrollTo(active, anchor: .center) }
+            }
+        }
+        .mask {
+            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.22),
+                                   .init(color: .black, location: 0.78), .init(color: .clear, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    /// One run per word: spoken words lit, the rest still grey.
+    private func attributed(_ segment: VoiceSegment) -> AttributedString {
+        var out = AttributedString()
+        for (i, word) in segment.words.enumerated() {
+            var run = AttributedString(i == 0 ? word : " " + word)
+            run.foregroundColor = segment.wordOffset + i < spokenWords ? JcTheme.text : JcTheme.muted
+            out.append(run)
+        }
+        return out
     }
 }
 
