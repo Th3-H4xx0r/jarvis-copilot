@@ -154,7 +154,7 @@ struct MacVoicePanel: View {
 
             Group {
                 if conversationLayout {
-                    HStack(alignment: .center, spacing: 18) {
+                    HStack(alignment: .center, spacing: 30) {
                         VStack(spacing: 6) {
                             islandOrb(64)
                             statusLine
@@ -165,9 +165,10 @@ struct MacVoicePanel: View {
                     }
                     .padding(.horizontal, 22)
                 } else {
-                    VStack(spacing: 8) {
+                    // Spaced so the rings (1.7 × the orb) clear the words.
+                    VStack(spacing: 34) {
                         statusLine
-                        islandOrb(92)
+                        islandOrb(80)
                         headline
                     }
                 }
@@ -191,14 +192,18 @@ struct MacVoicePanel: View {
         }
     }
 
-    /// The orb for the island, rendered full size and scaled (see `orb`).
+    /// The orb for the island, rendered full size and scaled (see `orb`), in
+    /// its JARVIS rings — drawn behind it, outside its frame, so they never push
+    /// the words or the controls.
     private func islandOrb(_ side: CGFloat) -> some View {
-        VoiceOrb(state: store.state,
-                 amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
-                 size: Self.orbSize,
-                 animating: onScreen)
+        let amplitude = store.state == .listening && store.muted ? 0 : store.amplitude
+        return VoiceOrb(state: store.state, amplitude: amplitude, size: Self.orbSize, animating: onScreen)
             .scaleEffect(side / Self.orbSize)
             .frame(width: side, height: side)
+            .background {
+                JarvisHUD(state: store.state, amplitude: Double(amplitude), size: side * 1.7, animating: onScreen)
+                    .frame(width: side * 1.7, height: side * 1.7)
+            }
             .allowsHitTesting(false)
     }
 

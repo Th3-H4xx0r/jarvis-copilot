@@ -173,7 +173,7 @@ enum IslandLayout {
     /// The tab bar's height (IslandViews pins it, so the sums below are exact).
     static let tabsHeight: CGFloat = 26
     /// The voice stage's height (the panel's island layout, the island's width).
-    static let voicePanelHeight: CGFloat = 280
+    static let voicePanelHeight: CGFloat = 320
 
     /// The Music tab's rows, each pinned by MusicPane: the cover with title and
     /// artist, the progress bar between its times, the controls.
