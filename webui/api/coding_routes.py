@@ -359,12 +359,13 @@ _last_alert: dict = {}
 _ALERT_DEBOUNCE = 5.0  # seconds — catches few-second flapping, lets distinct prompts through
 
 
-def _push_device_alert(title: str, body: str, data: dict | None = None) -> int:
+def _push_device_alert(title: str, body: str, data: dict | None = None, wake: bool = False) -> int:
     """Send a VISIBLE banner to every registered mobile device, so a coding
     event reaches the phone even when the app is force-quit (unlike the silent
     wake / WS bridge, which iOS won't deliver to a terminated app). Tapping the
-    banner relaunches the app — which reconnects the bridge. Best-effort; never
-    raises. Returns the number of devices the push reached.
+    banner relaunches the app — which reconnects the bridge. ``wake``: it also
+    wakes the app (it carries a glasses card). Best-effort; never raises.
+    Returns the number of devices the push reached.
     """
     sent = 0
     try:
@@ -385,7 +386,7 @@ def _push_device_alert(title: str, body: str, data: dict | None = None) -> int:
             if not (d.get("kind") or "").strip().lower().startswith("mobile"):
                 continue
             res = push_mod.send(kind, token, data or {"type": "coding"},
-                                alert={"title": title, "body": body})
+                                alert={"title": title, "body": body, **({"wake": True} if wake else {})})
             if res.get("ok"):
                 sent += 1
         except Exception:
@@ -702,16 +703,26 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             focus_mutes = bool((store.get_setting("agents_focus", None) or {}).get("only_waiting"))
         except Exception:
             focus_mutes = False
+    static_keys = {c["key"] for c in _STATIC_NOTIFY_CHANNELS}
+    devices = sorted((k for k, on in chans.items() if on and k not in static_keys),
+                     key=lambda k: k != "glasses")
     if chans.get("mobile") and focus_mutes:
         sent["mobile"] = False
     elif chans.get("mobile"):
         if not _phone_ok():
             sent["mobile"] = False
         else:
+            # The glasses card rides on the phone's banner: one push, and the app
+            # it wakes puts the card on the lens.
+            card = devices[0] if devices else None
+            data = {"type": "coding", "notify_channel": card, "notify_title": title,
+                    "notify_body": label or ""} if card else None
             try:
-                sent["mobile"] = _push_device_alert(title, label) > 0
+                sent["mobile"] = _push_device_alert(title, label, data=data, wake=bool(card)) > 0
             except Exception:
                 sent["mobile"] = False
+            if card and sent["mobile"]:
+                sent[card] = True
     if chans.get("telegram"):
         # Telegram lives here now (matrix-gated), for BOTH hosts. A Mac session
         # reaches this via the /activity/event hook; a server session via the
@@ -739,7 +750,6 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             sent["photon"] = _send_coding_photon(f"{title} — {label}" if label else title)
         except Exception:
             sent["photon"] = False
-    static_keys = {c["key"] for c in _STATIC_NOTIFY_CHANNELS}
     for ch_key in chans:
         if ch_key in static_keys or ch_key in sent:
             continue

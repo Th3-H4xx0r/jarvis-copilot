@@ -396,6 +396,27 @@ def needs_you_alert(group: str, cs: dict) -> dict:
     return {"title": title, "body": body[:180], "sound": "default"}
 
 
+def just_done(last_cs: dict, cs: dict) -> bool:
+    """The lead just stopped after real work — working → finished, or an error —
+    and not a quick reply you're probably right there for (the tracker's rule)."""
+    if cs.get("state") not in ("finished", "error"):
+        return False
+    if (last_cs or {}).get("state") not in ("working", "thinking", "approval", "question"):
+        return False
+    if cs.get("state") == "error":
+        return True
+    from agent.agent_tracking import FINISHED_MIN_SECONDS
+    return float(cs.get("last") or 0) - float(cs.get("since") or 0) >= FINISHED_MIN_SECONDS
+
+
+def done_alert(group: str, cs: dict) -> dict:
+    """The island pops once when a turn ends — quietly: Code Master's banner on
+    the phone already chimes."""
+    who = cs.get("name") or group_title(group)
+    title = f"{who} finished" if cs.get("state") == "finished" else f"{who} hit an error"
+    return {"title": title, "body": str(cs.get("project") or "")[:180]}
+
+
 # ── the pusher ────────────────────────────────────────────────────────────────
 
 class _Unavailable(Exception):
@@ -632,6 +653,19 @@ class AgentLaPusher:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"raised: {exc}"}
 
+    def _phone_hears(self, state: str) -> bool:
+        """Whether Code Master tells the phone about a finished / failed turn: its
+        "Mobile push" box for that event, and not muted by the Focus filter
+        ("only approvals and questions"). A store that can't be read: no pop."""
+        try:
+            doc = self.store.get_setting("notifications", None) or {}
+            event = (doc.get("events") or {}).get("finished" if state == "finished" else "error") or {}
+            if not event.get("mobile", True):
+                return False
+            return not (self.store.get_setting("agents_focus", None) or {}).get("only_waiting")
+        except Exception:  # noqa: BLE001
+            return False
+
     @staticmethod
     def _dead(res) -> bool:
         return res.get("status") in (400, 410)
@@ -645,7 +679,8 @@ class AgentLaPusher:
         last_cs = prev.get("cs") or {}
         wait = _wait_id(cs)
         new_wait = bool(wait) and self._alerted.get(key) != wait
-        urgent = new_wait or bool(cs["fingerprint"] and cs["fingerprint"] != last_cs.get("fingerprint")) \
+        done = not force and just_done(last_cs, cs) and self._phone_hears(cs["state"])
+        urgent = new_wait or done or bool(cs["fingerprint"] and cs["fingerprint"] != last_cs.get("fingerprint")) \
             or cs["waiting"] > int(last_cs.get("waiting") or 0)
         now = self._mono()
         if not force and not urgent and now - prev.get("ts", -1e18) < MIN_PUSH_INTERVAL:
@@ -656,6 +691,8 @@ class AgentLaPusher:
         # fingerprint shows up a moment after its hook.
         if new_wait and not force:
             extra["alert"] = needs_you_alert(group, cs)
+        elif done:
+            extra["alert"] = done_alert(group, cs)
         res = self._send(token, cs, event="update", priority=10 if (urgent or force) else 5,
                          extra=extra)
         if res.get("ok"):

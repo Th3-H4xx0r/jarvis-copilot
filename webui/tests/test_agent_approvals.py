@@ -183,43 +183,58 @@ def test_legacy_poll_flow_still_works(env):
 
 
 # ── the glasses hear about questions and approvals too ──────────────────────
+# Phone approvals on: the tracker leaves "needs you" to the phone's actionable
+# banner, which never reached the glasses. That banner now carries the glasses
+# card and wakes the app, which puts it on the lens: one push, one banner.
 
-def _glasses(monkeypatch, store, on=True):
+def _glasses(monkeypatch, store, on=True, extra=()):
     from api import device_bridge
     from api import coding_routes as cr
-    monkeypatch.setattr(device_bridge, "all_device_notification_channels",
-                        lambda: [{"key": "glasses", "label": "Glasses", "default_on": False}])
-    store.settings["notifications"]["events"] = {"needs_input": {"glasses": on, "mobile": True}}
+    chans = [{"key": "glasses", "label": "Glasses", "default_on": False}] + \
+        [{"key": k, "label": k, "default_on": False} for k in extra]
+    monkeypatch.setattr(device_bridge, "all_device_notification_channels", lambda: chans)
+    store.settings["notifications"]["events"] = {
+        "needs_input": {"glasses": on, "mobile": True, **{k: True for k in extra}}}
     cards = []
     monkeypatch.setattr(cr, "_send_coding_device_notify",
                         lambda ch, t, b, app="", banner=True: cards.append((ch, t, b, banner)) or True)
     return cards
 
 
-def test_a_question_reaches_the_glasses_when_the_phone_answers_it(env, monkeypatch):
-    """Phone approvals on: the tracker leaves "needs you" to the phone's actionable
-    banner, which never reached the glasses. They get the same words, wake-only."""
+def test_a_question_carries_the_glasses_card_on_the_phones_banner(env, monkeypatch):
     _, pushes, store = env
     cards = _glasses(monkeypatch, store)
     agent_hooks.on_agent_pending("d1", dict(PENDING, kind="ask", fingerprint="fq",
                                             questions=[{"question": "Which database?"}]))
-    assert cards == [("glasses", "Claude has a question", "app: Which database?", False)]
-    assert pushes[0]["title"] == "Claude has a question"
+    push = pushes[0]
+    assert push["title"] == "Claude has a question" and push["wake"] is True
+    assert (push["data"]["notify_channel"], push["data"]["notify_title"], push["data"]["notify_body"]) == \
+        ("glasses", "Claude has a question", "app: Which database?")
+    assert push["data"]["type"] == "coding_permission", "still the actionable Allow / Deny banner"
+    assert cards == [], "no second push"
 
 
-def test_an_approval_reaches_the_glasses(env, monkeypatch):
-    _, _, store = env
-    cards = _glasses(monkeypatch, store)
+def test_an_approval_carries_the_glasses_card(env, monkeypatch):
+    _, pushes, store = env
+    _glasses(monkeypatch, store)
     agent_hooks.on_agent_pending("d1", dict(PENDING))
-    assert cards == [("glasses", "Claude needs approval", "app: Bash: rm -rf build", False)]
+    assert pushes[0]["data"]["notify_body"] == "app: Bash: rm -rf build"
 
 
-def test_no_glasses_card_when_glasses_are_off_or_the_tracker_sends_it(env, monkeypatch):
-    _, _, store = env
+def test_another_device_channel_gets_its_own_wake(env, monkeypatch):
+    _, pushes, store = env
+    cards = _glasses(monkeypatch, store, extra=("ring",))
+    agent_hooks.on_agent_pending("d1", dict(PENDING))
+    assert pushes[0]["data"]["notify_channel"] == "glasses"
+    assert cards == [("ring", "Claude needs approval", "app: Bash: rm -rf build", False)]
+
+
+def test_no_card_when_glasses_are_off_or_the_tracker_sends_it(env, monkeypatch):
+    _, pushes, store = env
     cards = _glasses(monkeypatch, store, on=False)
     agent_hooks.on_agent_pending("d1", dict(PENDING))
-    assert cards == []
+    assert "notify_channel" not in pushes[-1]["data"] and not pushes[-1].get("wake") and cards == []
     cards = _glasses(monkeypatch, store, on=True)
     store.settings["notifications"]["remote_approvals"] = False   # the tracker fans "needs you" out itself
     agent_hooks.on_agent_pending("d1", dict(PENDING, fingerprint="fp9"))
-    assert cards == []
+    assert "notify_channel" not in pushes[-1]["data"] and cards == []

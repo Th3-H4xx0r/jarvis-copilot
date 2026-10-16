@@ -719,3 +719,38 @@ def test_a_failing_pending_list_does_not_strip_the_buttons():
     clock.t += 30
     p.tick()
     assert sender.calls[-1]["cs"]["fingerprint"] == "fp"
+
+
+# ── finished / failed pop the island too ────────────────────────────────────
+# Code Master told the glasses and banner'd the phone, but the island only
+# popped for waits; a finished or failed turn now pops it once, quietly (the
+# phone's banner already chimes), as the phone's own Code Master settings allow.
+
+def _finish(state="finished", started=9_900.0, last=10_020.0, settings=None):
+    sender = Sender()
+    p, box, clock, st = pusher([tracked("a", state="working", started=started, last=last - 5)], sender=sender)
+    st.settings.update(settings or {})
+    p.register_activity_token("phone", "claude", "ACT1")
+    box["sessions"] = [tracked("a", state=state, project="api", started=started, last=last)]
+    clock.t += 30
+    p.tick()
+    return sender
+
+
+def test_finishing_pops_the_island_once_quietly():
+    sender = _finish()
+    alert = sender.calls[-1]["extra"]["alert"]
+    assert alert == {"title": "Claude Code finished", "body": "api"}
+    assert sender.calls[-1]["priority"] == 10
+    assert len(sender.alerts()) == 1
+
+
+def test_an_error_pops_the_island():
+    assert _finish(state="error").calls[-1]["extra"]["alert"]["title"] == "Claude Code hit an error"
+
+
+def test_a_quick_reply_or_a_muted_finish_does_not_pop_the_island():
+    assert not _finish(started=10_000.0).alerts(), "a quick reply: you're probably right there"
+    off = {"notifications": {"events": {"finished": {"mobile": False}}}}
+    assert not _finish(settings=off).alerts(), "Mobile push off for Finished"
+    assert not _finish(settings={"agents_focus": {"only_waiting": True}}).alerts(), "Focus: only what waits on you"

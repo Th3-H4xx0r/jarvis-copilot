@@ -99,7 +99,7 @@ def _spy_channels(monkeypatch):
     monkeypatch.setattr(cr, "_send_coding_telegram",
                         lambda text: (calls.__setitem__("tg", calls["tg"] + 1) or True))
     monkeypatch.setattr(cr, "_push_device_alert",
-                        lambda t, b: (calls.__setitem__("mob", calls["mob"] + 1) or 1))
+                        lambda t, b, data=None, wake=False: (calls.__setitem__("mob", calls["mob"] + 1) or 1))
     monkeypatch.setattr(cr, "_notify_webui_event",
                         lambda **kw: calls.__setitem__("toast", calls["toast"] + 1))
     monkeypatch.setattr(cr, "_send_coding_device_notify",
@@ -331,7 +331,7 @@ def test_focus_only_waiting_mutes_finished_pushes(monkeypatch):
             return None
 
     pushed = []
-    monkeypatch.setattr(cr, "_push_device_alert", lambda t, b: pushed.append(t) or 1)
+    monkeypatch.setattr(cr, "_push_device_alert", lambda t, b, data=None, wake=False: pushed.append(t) or 1)
     monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: True)
     monkeypatch.setattr(cr, "_alert_debounce_ok", lambda sid, ev: True)
     store = S()
@@ -371,3 +371,32 @@ def test_a_device_card_can_wake_without_a_second_banner(monkeypatch):
     _, payload, alert = sent[0]
     assert alert is None, "the phone already shows its own banner"
     assert (payload["notify_title"], payload["notify_body"]) == ("Claude has a question", "app: Which DB?")
+
+
+def test_the_phones_banner_carries_the_glasses_card(monkeypatch):
+    """Finished with Mobile + Glasses on: one push — the phone's banner, carrying
+    the card and waking the app — not a second banner for the glasses."""
+    m = FakeManager()
+    cr._last_alert.clear()
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "all_device_notification_channels",
+                        lambda: [{"key": "glasses", "label": "Glasses", "default_on": True}])
+    banners, cards = [], []
+    monkeypatch.setattr(cr, "_push_device_alert",
+                        lambda t, b, data=None, wake=False: banners.append((t, b, data, wake)) or 1)
+    monkeypatch.setattr(cr, "_send_coding_device_notify",
+                        lambda ch, t, b, app="", banner=True: cards.append(ch) or True)
+    monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: True)
+    monkeypatch.setattr(cr, "_notify_webui_event", lambda **kw: None)
+    sent = cr._dispatch_coding_notifications(m.store, event="stop", row=None, cwd="/x/proj")
+    assert sent["mobile"] is True and sent["glasses"] is True
+    assert cards == [], "the glasses rode on the banner"
+    title, body, data, wake = banners[0]
+    assert wake is True and data["notify_channel"] == "glasses"
+    assert (data["notify_title"], data["notify_body"]) == (title, body)
+    # Mobile off: the glasses still get their own card.
+    m.store.set_setting("notifications", {"events": {"finished": {"mobile": False, "glasses": True}}})
+    banners.clear()
+    cr._last_alert.clear()
+    sent = cr._dispatch_coding_notifications(m.store, event="stop", row=None, cwd="/x/proj")
+    assert banners == [] and cards == ["glasses"] and sent["glasses"] is True

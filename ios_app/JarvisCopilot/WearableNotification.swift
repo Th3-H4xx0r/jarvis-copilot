@@ -22,7 +22,13 @@ struct WearableNotification: Equatable {
             channel = "glasses"
             title = payload["glasses_title"] as? String ?? ""
             body = payload["glasses_body"] as? String ?? ""
-        default: return nil
+        default:
+            // Another push (Code Master's Allow / Deny or Finished banner)
+            // carrying a card for a wearable as well.
+            guard let value = payload["notify_channel"] as? String, !value.isEmpty else { return nil }
+            channel = value
+            title = payload["notify_title"] as? String ?? ""
+            body = payload["notify_body"] as? String ?? ""
         }
         guard !title.isEmpty || !body.isEmpty else { return nil }
         let app = payload["notify_app"] as? String
