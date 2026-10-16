@@ -76,6 +76,17 @@ final class JarvisMenu: NSObject {
         return make(cls as AnyObject, sel, origin as NSString, false)
     }
 
+    /// The small voice island's view (push to talk); nil from an older dylib.
+    func makeVoiceMiniPanel() -> NSViewController? {
+        guard let origin = model.apiOrigin, let cls = voicePanelClass(),
+              let meta = cls as AnyObject as? NSObjectProtocol else { return nil }
+        let sel = NSSelectorFromString("makeIslandMiniViewControllerWithBaseURL:")
+        guard meta.responds(to: sel) else { return nil }
+        typealias Make = @convention(c) (AnyObject, Selector, NSString) -> NSViewController?
+        let make = unsafeBitCast((cls as AnyObject).method(for: sel), to: Make.self)
+        return make(cls as AnyObject, sel, origin as NSString)
+    }
+
     /// jc-client's dylib's `JarvisVoicePanel` class, loading the dylib the first time.
     func voicePanelClass() -> AnyClass? {
         if !voiceLoaded, let path = model.voiceDylib, FileManager.default.fileExists(atPath: path) {
@@ -220,6 +231,9 @@ enum VoicePanelOrb {
 /// (`holdToTalkBegan` / `holdToTalkEnded`). An older dylib has neither: the
 /// voice view just opens.
 enum VoicePanelTalk {
+    /// Posted by the panel when a push-to-talk answer is done (or never started).
+    static let doneNotification = Notification.Name("JarvisVoicePanelTalkDone")
+
     @MainActor
     static func began(on cls: AnyClass?) { call("holdToTalkBegan", on: cls) }
 

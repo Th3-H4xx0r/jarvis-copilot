@@ -2,13 +2,69 @@ import AVFoundation
 import Speech
 import SwiftUI
 
-/// Settings → Voice: the "Hey Jarvis" wake word.
+/// Settings → Voice: push to talk and the "Hey Jarvis" wake word.
 struct VoiceSettings: View {
     var body: some View {
         Form {
+            TalkSection()
             WakeWordSection()
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Talk to Jarvis: hold one key (Right ⌥…) to talk — it listens while the key
+/// is down, and the answer comes in a small island under the notch — or a key
+/// combination (Press opens Voice, Hold talks the same way).
+struct TalkSection: View {
+    @State private var key: FlowKey? = Prefs.talkKey
+    private var watcher: TalkKeyWatcher { TalkKeyWatcher.shared }
+    private var flow: FlowDictation { FlowDictation.shared }
+
+    var body: some View {
+        Section {
+            Picker("Hold to talk", selection: $key) {
+                Text("Off").tag(FlowKey?.none)
+                ForEach(FlowKey.allCases) { k in Text(k.label).tag(FlowKey?.some(k)) }
+            }
+            .onChange(of: key) { _, k in
+                Prefs.talkKey = k
+                watcher.sync()
+            }
+            if let key, TalkKeyChoice.clashes(talk: key, flow: flow.key, flowOn: flow.enabled) {
+                let other = TalkKeyChoice.otherKey(than: key)
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Flow dictation is held on \(key.label) too, so it stays Flow's.")
+                    Spacer()
+                    Button("Move Flow to \(other.label)") {
+                        flow.key = other
+                        watcher.sync()
+                    }
+                }
+            } else if key != nil && !watcher.trusted {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Accessibility is off — Jarvis can't see the key")
+                    Spacer()
+                    Button("Open System Settings") {
+                        flow.askForAccessibility()
+                        flow.openAccessibilitySettings()
+                    }
+                }
+            }
+            Text("Hold it, say what you need, let go: Jarvis answers in a small island under the notch, which folds when it's done. Click it for the full voice view. Held with another key (⌥E) it types as usual.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Shortcut")
+                Spacer()
+                ShortcutField(action: .talk)
+            }
+            Text("A key combination instead: Press opens Voice, Hold talks like the key above.")
+                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Text("Talk to Jarvis")
+        }
     }
 }
 

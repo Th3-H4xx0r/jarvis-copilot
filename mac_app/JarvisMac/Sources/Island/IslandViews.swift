@@ -19,7 +19,8 @@ struct IslandRootView: View {
 
     @MainActor
     static func expandedHeight(model: AppModel, tab: IslandTab = .agents, topInset: CGFloat = 40,
-                               measured: IslandMeasure? = nil) -> CGFloat {
+                               measured: IslandMeasure? = nil, voiceMini: Bool = false) -> CGFloat {
+        if tab == .voice && voiceMini { return IslandLayout.voiceMiniHeight(topInset: topInset) }
         if tab == .music { return IslandLayout.musicHeight(topInset: topInset) }
         if tab == .voice { return IslandLayout.voiceHeight(topInset: topInset) }
         if tab != .agents { return tab.height }
@@ -50,7 +51,7 @@ struct IslandRootView: View {
                         .transition(.opacity.animation(.easeOut(duration: 0.14)))
                 case .expanded:
                     ExpandedIsland(model: model, ui: ui, controller: controller)
-                        .frame(width: Self.expandedWidth)
+                        .frame(width: ui.expandedWidth)
                         .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.07)),
                                                 removal: .opacity.animation(.easeOut(duration: 0.08))))
                 }
@@ -91,9 +92,9 @@ struct IslandRootView: View {
         case .compact:
             return CGSize(width: ui.compactWidth, height: ui.geometry.height)
         case .expanded:
-            return CGSize(width: Self.expandedWidth,
+            return CGSize(width: ui.expandedWidth,
                           height: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
-                                                      measured: ui.agentsMeasure))
+                                                      measured: ui.agentsMeasure, voiceMini: ui.voiceMini))
         }
     }
 
@@ -213,6 +214,28 @@ private struct ExpandedIsland: View {
     @State private var scroll: ScrollGeometry?
 
     var body: some View {
+        if ui.tab == .voice && ui.voiceMini {
+            mini
+        } else {
+            full
+        }
+    }
+
+    /// Push to talk: the small voice island — the orb and your words, then
+    /// Jarvis's answer — in a band under the notch. A click opens the stage.
+    private var mini: some View {
+        VoicePane(ui: ui, make: controller.voiceMiniPanel, height: IslandLayout.voiceMiniBand - 10)
+            .overlay {
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { controller.expandVoice() }
+                    .help("Open the voice view")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, ui.geometry.height + 8)
+            .padding(.bottom, 10)
+    }
+
+    private var full: some View {
         VStack(alignment: .leading, spacing: 10) {
             tabs
             switch ui.tab {
@@ -221,7 +244,7 @@ private struct ExpandedIsland: View {
             case .services: ServicesPane(model: model)
             case .music: MusicPane()
             case .mail: MailPane(ui: ui)
-            case .voice: VoicePane(ui: ui, make: controller.voicePanel)
+            case .voice: VoicePane(ui: ui, make: controller.voicePanel).id("voice-stage")
             }
         }
         .padding(.horizontal, 16)

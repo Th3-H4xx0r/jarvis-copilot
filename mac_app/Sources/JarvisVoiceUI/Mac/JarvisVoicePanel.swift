@@ -111,34 +111,31 @@ public final class JarvisVoicePanel: NSObject {
         VoiceStore.shared.startWatchTurn(text: text)
     }
 
-    /// Hold-to-talk (Jarvis.app's Talk to Jarvis shortcut, set to Hold): the
-    /// key went down — start listening. A conversation already going (listening
-    /// or answering) is left as it is.
+    /// Push to talk (Jarvis.app's hold-to-talk key, or a Talk to Jarvis
+    /// shortcut set to Hold): the key went down — start listening (cutting in
+    /// if Jarvis is talking). See `MacPushToTalk`.
     @objc(holdToTalkBegan)
     @MainActor
     public static func holdToTalkBegan() {
-        let store = VoiceStore.shared
-        guard !store.isActive else { return }
-        Task { @MainActor in
-            guard await store.ensureMic() else { return }
-            await store.primaryAction()
-        }
+        MacPushToTalk.shared.began()
     }
 
-    /// The key came up: what was said is sent. Let go before the mic was up
-    /// (it takes a moment to connect), it's sent as soon as it is listening.
+    /// The key came up: what was said is sent; once Jarvis has answered, the
+    /// session ends and `JarvisVoicePanelTalkDone` is posted.
     @objc(holdToTalkEnded)
     @MainActor
     public static func holdToTalkEnded() {
-        let store = VoiceStore.shared
-        if store.state == .listening { store.finishSpeaking(); return }
-        Task { @MainActor in
-            for tick in 0..<40 {                       // up to 4 s
-                try? await Task.sleep(for: .milliseconds(100))
-                if store.state == .listening { store.finishSpeaking(); return }
-                if tick > 15 && !store.isActive { return }   // it never started
-            }
-        }
+        MacPushToTalk.shared.ended()
+    }
+
+    /// The small voice island for push to talk: the orb and a line or two of
+    /// words, sized by the island.
+    @objc(makeIslandMiniViewControllerWithBaseURL:)
+    @MainActor
+    public static func makeIslandMiniViewController(baseURL: String) -> NSViewController? {
+        guard let url = URL(string: baseURL), url.scheme != nil else { return nil }
+        ProxyCredentials.configure(baseURL: url)
+        return NSHostingController(rootView: MacVoiceMini())
     }
 
     /// Open Jarvis Settings — the tray's "Settings…" menu item. The proxy is the

@@ -34,6 +34,12 @@ extension Prefs {
         set { store.set(newValue, forKey: "flow.cleanup") }
     }
 
+    /// The key you hold to talk to Jarvis (Settings → Voice); nil = off.
+    static var talkKey: FlowKey? {
+        get { store.string(forKey: "voice.talkKey").flatMap(FlowKey.init(rawValue:)) }
+        set { store.set(newValue?.rawValue ?? "", forKey: "voice.talkKey") }
+    }
+
     /// The model Flow's clean-up runs on (an `/api/models` id and its provider
     /// id); nil = Jarvis picks (`auxiliary.flow_cleanup`, else auto).
     static var flowCleanupModel: String? {

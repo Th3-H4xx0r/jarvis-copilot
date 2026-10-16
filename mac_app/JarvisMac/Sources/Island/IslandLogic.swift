@@ -175,6 +175,13 @@ enum IslandLayout {
     /// The voice stage's height (the panel's island layout, the island's width).
     static let voicePanelHeight: CGFloat = 190
 
+    /// The small voice island (push to talk): a band under the notch with the
+    /// orb and a line or two of words, narrower than the open island.
+    static let voiceMiniWidth: CGFloat = 420
+    static let voiceMiniBand: CGFloat = 60
+
+    static func voiceMiniHeight(topInset: CGFloat) -> CGFloat { topInset + voiceMiniBand }
+
     /// The Music tab's rows, each pinned by MusicPane: the cover with title and
     /// artist, the progress bar between its times, the controls.
     enum Music {

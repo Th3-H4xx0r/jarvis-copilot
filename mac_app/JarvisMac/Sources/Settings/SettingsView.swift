@@ -176,11 +176,35 @@ private struct AgentsSettings: View {
 }
 
 /// Settings → Shortcuts: click a shortcut and press the keys you want — each
-/// combo replaces the last as you go — then Esc. Talk to Jarvis and the island
-/// can be held instead of pressed: Jarvis listens while the key is down and
-/// sends what you said when you let go.
+/// combo replaces the last as you go — then Esc. Show the island can be held
+/// instead of pressed. Talk to Jarvis lives in Settings → Voice.
 struct ShortcutsSettings: View {
-    @State private var recording: ShortcutAction?
+    var body: some View {
+        Form {
+            Section {
+                ForEach(ShortcutAction.shortcutsTab) { action in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(action.title)
+                        Spacer()
+                        ShortcutField(action: action)
+                    }
+                }
+            } footer: {
+                Text("Click a shortcut, press the keys you want, then Esc. ✕ turns one off. Hold: the island shows while the key is down. Talk to Jarvis is in Voice.")
+                    .font(.caption)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// One shortcut's recorder: click it and press the keys — each combo replaces
+/// the last, shown as you go — then Esc. Press / Hold for the actions that can
+/// be held, ✕ turns it off. The global shortcuts step aside while it records,
+/// so pressing one records it instead of firing it; one records at a time.
+struct ShortcutField: View {
+    let action: ShortcutAction
+    @State private var recording = false
     @State private var session = ShortcutRecording()
     @State private var monitor: Any?
     /// "Taken from …" after a combo moved over from another action.
@@ -188,33 +212,12 @@ struct ShortcutsSettings: View {
     /// Bumped after a change: the bindings live in UserDefaults.
     @State private var revision = 0
 
-    var body: some View {
-        Form {
-            Section {
-                ForEach(ShortcutAction.allCases) { action in
-                    row(action)
-                }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let note { Text(note).foregroundStyle(JcAccent.color) }
-                    Text(recording == nil
-                         ? "Click a shortcut, press the keys you want, then Esc. ✕ turns one off. Hold: Jarvis listens while the key is down and sends what you said when you let go."
-                         : "Capturing your keys… press Esc when you're done.")
-                }
-                .font(.caption)
-            }
-        }
-        .formStyle(.grouped)
-        .onDisappear { finish(saving: true) }
-    }
+    static let recordingBegan = Notification.Name("jarvis.shortcutRecordingBegan")
 
-    private func row(_ action: ShortcutAction) -> some View {
-        let live = recording == action
+    var body: some View {
         let current = action.shortcut
-        return VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .trailing, spacing: 4) {
             HStack(spacing: 10) {
-                Text(action.title)
-                Spacer()
                 if action.supportsHold {
                     Picker("", selection: Binding(get: { action.holds }, set: { held in
                         action.holds = held
@@ -225,20 +228,20 @@ struct ShortcutsSettings: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 116).tint(JcAccent.color)
                 }
-                Button { live ? finish(saving: true) : begin(action) } label: {
-                    Text(live ? (session.captured?.display ?? "Type the keys…") : (current?.display ?? "Record"))
+                Button { recording ? finish(saving: true) : begin() } label: {
+                    Text(recording ? (session.captured?.display ?? "Type the keys…") : (current?.display ?? "Record"))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(live || current != nil ? Color.primary : Color.secondary)
+                        .foregroundStyle(recording || current != nil ? Color.primary : Color.secondary)
                         .frame(minWidth: 104)
                         .padding(.vertical, 5).padding(.horizontal, 10)
                         .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(live ? JcAccent.color.opacity(0.16) : Color.primary.opacity(0.06)))
+                            .fill(recording ? JcAccent.color.opacity(0.16) : Color.primary.opacity(0.06)))
                         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(live ? JcAccent.color : Color.primary.opacity(0.12), lineWidth: live ? 1.5 : 0.5))
+                            .strokeBorder(recording ? JcAccent.color : Color.primary.opacity(0.12), lineWidth: recording ? 1.5 : 0.5))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(live ? "Press Esc when you're done" : "Click, then press the keys")
+                .help(recording ? "Press Esc when you're done" : "Click, then press the keys")
                 Button {
                     action.shortcut = nil
                     changed()
@@ -247,25 +250,29 @@ struct ShortcutsSettings: View {
                 }
                 .buttonStyle(.plain)
                 .help("Turn this shortcut off")
-                .opacity(current == nil || live ? 0 : 1)
-                .disabled(current == nil || live)
+                .opacity(current == nil || recording ? 0 : 1)
+                .disabled(current == nil || recording)
             }
-            if live {
+            if recording {
                 Text(session.hint ?? "Capturing your keys… press Esc when you're done.")
                     .font(.caption)
                     .foregroundStyle(session.hint == nil ? JcAccent.color : .orange)
+            } else if let note {
+                Text(note).font(.caption).foregroundStyle(JcAccent.color)
             }
         }
-        .id("\(action.rawValue)-\(revision)")
+        .id(revision)
+        .onReceive(NotificationCenter.default.publisher(for: Self.recordingBegan)) { note in
+            if (note.object as? String) != action.rawValue { finish(saving: true) }
+        }
+        .onDisappear { finish(saving: true) }
     }
 
-    /// Record `action`: the global shortcuts step aside (pressing one records it
-    /// instead of firing it) and every key goes to the recorder until Esc.
-    private func begin(_ action: ShortcutAction) {
-        finish(saving: true)
+    private func begin() {
+        NotificationCenter.default.post(name: Self.recordingBegan, object: action.rawValue)
         note = nil
         session = ShortcutRecording()
-        recording = action
+        recording = true
         HotKeyCenter.shared.unregisterAll()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             if case .finished = session.key(code: UInt32(event.keyCode), modifiers: event.modifierFlags) {
@@ -276,10 +283,10 @@ struct ShortcutsSettings: View {
     }
 
     private func finish(saving: Bool) {
-        guard let action = recording else { return }
+        guard recording else { return }
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        recording = nil
+        recording = false
         if saving, let shortcut = session.captured {
             let moved = action.assign(shortcut)
             note = moved.isEmpty ? nil : "\(shortcut.display) was taken from “\(moved.map(\.title).joined(separator: "”, “"))”."

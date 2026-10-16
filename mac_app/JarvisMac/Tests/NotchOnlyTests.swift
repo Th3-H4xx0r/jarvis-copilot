@@ -66,9 +66,14 @@ final class NotchOnlyTests: XCTestCase {
         let menu = JarvisMenu(model: model, island: controller)
         XCTAssertNotNil(menu.makeVoicePanel(island: true), "the dylib gives the island's voice panel")
         controller.voicePanel = { menu.makeVoicePanel(island: true) }
+        controller.voiceMiniPanel = { menu.makeVoiceMiniPanel() }
         let ui = IslandUI()
         ui.state = .expanded
         ui.tab = .voice
+        // JC_VOICE_MINI: the small push-to-talk island instead of the stage.
+        let mini = env["JC_VOICE_MINI"] != nil
+        ui.voiceMini = mini
+        if mini { XCTAssertNotNil(menu.makeVoiceMiniPanel(), "the dylib gives the small voice island") }
         let host = NSHostingView(rootView: IslandRootView(model: model, ui: ui, controller: controller)
             .transaction { $0.disablesAnimations = true })
         host.frame = CGRect(origin: .zero, size: IslandController.panelSize)
@@ -89,9 +94,16 @@ final class NotchOnlyTests: XCTestCase {
         // The stage told the island where its orb sits (across the dylib), so the
         // notch's orb can fly onto it: centred on the stage, at its full size.
         let home = try XCTUnwrap(ui.orbHomes[.voice], "the stage reported its orb")
-        XCTAssertEqual(home.midX, IslandController.panelSize.width / 2, accuracy: 2)
-        XCTAssertEqual(home.width, 72, accuracy: 1)
-        XCTAssertGreaterThan(home.minY, ui.geometry.height + 8 + IslandLayout.tabsHeight)
+        if mini {
+            // The small island's orb sits at its left, under the notch.
+            XCTAssertEqual(home.width, 36, accuracy: 1)
+            XCTAssertLessThan(home.midX, IslandController.panelSize.width / 2 - 100)
+            XCTAssertGreaterThan(home.minY, ui.geometry.height)
+        } else {
+            XCTAssertEqual(home.midX, IslandController.panelSize.width / 2, accuracy: 2)
+            XCTAssertEqual(home.width, 72, accuracy: 1)
+            XCTAssertGreaterThan(home.minY, ui.geometry.height + 8 + IslandLayout.tabsHeight)
+        }
         // The window server's own picture of the window (materials and all, which
         // a view snapshot can't draw): say which window, hold it for a capture.
         if let out = env["JC_ISLAND_SNAPSHOT"] {

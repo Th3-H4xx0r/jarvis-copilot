@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onNotes = { FlowWindow.show(.notes) }
         self.menu = menu
         island.voicePanel = { [weak menu] in menu?.makeVoicePanel(island: true) }
+        island.voiceMiniPanel = { [weak menu] in menu?.makeVoiceMiniPanel() ?? menu?.makeVoicePanel(island: true) }
         island.ui.setVoiceOrbHidden = { [weak menu] hidden in
             VoicePanelOrb.setHidden(hidden, on: menu?.voicePanelClass())
         }
@@ -109,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch action {
         case .talk:
             if down {
-                island.openVoice()
+                island.openVoice(mini: true)
                 VoicePanelTalk.began(on: menu?.voicePanelClass())
             } else {
                 VoicePanelTalk.ended(on: menu?.voicePanelClass())
@@ -167,6 +168,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         wake.start()
         FlowDictation.shared.start()
+        // Push to talk: hold the key (Settings → Voice), the small island opens
+        // and Jarvis listens; let go and it answers; the island folds after.
+        let talk = TalkKeyWatcher.shared
+        talk.onStart = { [weak self, weak island] in
+            island?.openVoice(mini: true)
+            VoicePanelTalk.began(on: self?.menu?.voicePanelClass())
+        }
+        talk.onSend = { [weak self] in VoicePanelTalk.ended(on: self?.menu?.voicePanelClass()) }
+        talk.sync()
+        NotificationCenter.default.addObserver(forName: VoicePanelTalk.doneNotification, object: nil, queue: .main) { [weak island] _ in
+            MainActor.assumeIsolated { island?.talkDone() }
+        }
         NoteTaker.shared.load()
     }
 

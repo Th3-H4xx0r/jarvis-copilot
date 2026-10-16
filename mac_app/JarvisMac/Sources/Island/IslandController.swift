@@ -21,6 +21,12 @@ final class IslandUI {
     private(set) var lastTab: IslandTab = .agents
     /// The Agents tab's limits card (the usage pills open it).
     var showLimits = false
+    /// Voice as the small island under the notch (push to talk), not the stage.
+    var voiceMini = false
+    /// The open island's width: the small voice island is narrower.
+    var expandedWidth: CGFloat {
+        tab == .voice && voiceMini ? IslandLayout.voiceMiniWidth : IslandRootView.expandedWidth
+    }
     /// The Agents tab's measured parts (nil until its first layout).
     var agentsTop: CGFloat?
     var agentsList: CGFloat?
@@ -173,6 +179,8 @@ final class IslandController {
     private var interval: TimeInterval = 0
     private var screenOff = false
     private var screen: NSScreen?
+    /// Bumped by every Voice open: a push-to-talk fold only folds its own talk.
+    private var talkSerial = 0
 
     private static let fast = IslandTick.fast
     private static let near = IslandTick.near
@@ -182,6 +190,8 @@ final class IslandController {
 
     /// The voice panel for the Voice view (JarvisMenu loads it from the dylib).
     var voicePanel: (() -> NSViewController?)?
+    /// The small voice island's view, from the same dylib (push to talk).
+    var voiceMiniPanel: (() -> NSViewController?)?
     /// A right-click on the island: the menu (JarvisMenu), at that point.
     var onMenu: ((NSView, NSPoint) -> Void)?
 
@@ -266,9 +276,37 @@ final class IslandController {
     }
 
     /// Talk to Jarvis: the island opens on the voice panel, with the keyboard
-    /// (it has a text field).
-    func openVoice() {
-        open(.voice, reason: .typing)
+    /// (it has a text field). `mini` (push to talk): the small voice island,
+    /// and the app you're in keeps the keyboard — unless the full stage is
+    /// already open, which stays.
+    func openVoice(mini: Bool = false) {
+        talkSerial += 1
+        if mini {
+            if !(isExpanded && ui.tab == .voice && !ui.voiceMini) { ui.voiceMini = true }
+            open(.voice, reason: .attention)
+        } else {
+            ui.voiceMini = false
+            open(.voice, reason: .typing)
+        }
+    }
+
+    /// The small voice island to the full stage (a click on it).
+    func expandVoice() {
+        withAnimation(IslandRootView.morph) { ui.voiceMini = false }
+    }
+
+    /// A push-to-talk answer is done: the small island folds a moment later
+    /// (not while the pointer is on it, and not if you've talked again).
+    func talkDone() {
+        let serial = talkSerial
+        Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .seconds(2.5))
+                guard let self, self.talkSerial == serial, self.isExpanded,
+                      self.ui.tab == .voice, self.ui.voiceMini else { return }
+                if !self.ui.hovering { self.close(); return }
+            }
+        }
     }
 
     func toggleVoice() {

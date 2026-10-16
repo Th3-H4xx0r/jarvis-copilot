@@ -173,6 +173,10 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
 
     private var defaultsKey: String { "shortcut.\(rawValue)" }
 
+    /// The Shortcuts tab's list. Talk to Jarvis lives in Settings → Voice, next
+    /// to its hold-to-talk key.
+    static var shortcutsTab: [ShortcutAction] { allCases.filter { $0 != .talk } }
+
     /// Can be held: Talk to Jarvis listens while the key is down and sends
     /// when you let go; the island shows while it's down.
     var supportsHold: Bool { self == .talk || self == .toggleIsland }

@@ -330,6 +330,8 @@ private struct PortfolioCard: View {
 struct VoicePane: View {
     let ui: IslandUI
     let make: (() -> NSViewController?)?
+    /// The stage's height, or the small island's band.
+    var height: CGFloat = IslandLayout.voicePanelHeight
     /// Made once when the view appears (it starts a voice session), not per render.
     @State private var panel: NSViewController?
     @State private var tried = false
@@ -359,7 +361,7 @@ struct VoicePane: View {
                     .font(.system(size: 12)).foregroundStyle(dim)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: IslandLayout.voicePanelHeight, maxHeight: IslandLayout.voicePanelHeight)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
         .onAppear {
             if panel == nil { panel = make?() }
             tried = true
