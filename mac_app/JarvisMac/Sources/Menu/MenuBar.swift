@@ -273,3 +273,17 @@ enum VoicePanelTalk {
         _ = meta.perform(sel)
     }
 }
+
+/// A hand-off's answer, read out by the voice panel (`speakText:heard:`) in the
+/// JARVIS voice, with what was asked as its subtitle. False when the dylib is
+/// older and has no such entry: the answer is then only in the Agents tab.
+enum VoicePanelSpeak {
+    @MainActor
+    static func speak(_ text: String, heard: String, on cls: AnyClass?) -> Bool {
+        let sel = NSSelectorFromString("speakText:heard:")
+        guard !text.isEmpty, let cls, let meta = cls as AnyObject as? NSObjectProtocol,
+              meta.responds(to: sel) else { return false }
+        _ = meta.perform(sel, with: text as NSString, with: heard as NSString)
+        return true
+    }
+}

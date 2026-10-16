@@ -155,7 +155,7 @@ struct MacVoicePanel: View {
                 ZStack {
                     VStack(spacing: 3) {
                         headline
-                        Text(store.state == .idle ? "Click the orb, or say \u{201C}Hey Jarvis\u{201D}" : statusText)
+                        Text(store.state == .idle && !MacSpeakBack.shared.speaking ? "Click the orb, or say \u{201C}Hey Jarvis\u{201D}" : statusText)
                             .font(.system(size: 11))
                             .foregroundStyle(JcTheme.muted)
                             .lineLimit(1)
@@ -247,7 +247,7 @@ struct MacVoicePanel: View {
     /// The orb for the island, rendered full size and scaled (see `orb`), so a
     /// change of size animates.
     private func islandOrb(_ side: CGFloat) -> some View {
-        VoiceOrb(state: store.state,
+        VoiceOrb(state: orbState,
                  amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
                  size: Self.orbSize,
                  animating: onScreen)
@@ -381,7 +381,12 @@ struct MacVoicePanel: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// A hand-off's answer being read out (`MacSpeakBack`) speaks like a reply,
+    /// though no conversation is open.
+    private var orbState: VoiceState { MacSpeakBack.shared.speaking ? .speaking : store.state }
+
     private var statusText: String {
+        if MacSpeakBack.shared.speaking { return "Speaking" }
         if store.audioInterrupted { return "Audio paused" }
         if store.muted && store.isActive { return "Microphone off" }
         if store.state == .listening && !store.captureReady { return "Starting microphone…" }
@@ -407,7 +412,7 @@ struct MacVoicePanel: View {
     /// scaled to 54 looks exactly like a 54-point one.
     private var orb: some View {
         let side = conversationLayout ? Self.orbCompact : Self.orbSize
-        return VoiceOrb(state: store.state,
+        return VoiceOrb(state: orbState,
                         amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
                         size: Self.orbSize,
                         animating: onScreen)

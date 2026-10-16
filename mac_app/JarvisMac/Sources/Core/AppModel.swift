@@ -26,6 +26,9 @@ final class AppModel {
     /// Devices and wearables for the menu (refreshed when it opens and every 45 s).
     private(set) var roster: MacRoster?
     private(set) var portfolio: [String: Any] = [:]
+    /// What the harnesses handed to a bigger model, newest first (the server's
+    /// `harness_jobs` feed): listed in the Agents tab with the sessions.
+    private(set) var jobs: [MacJob] = []
     /// The session that just finished or failed, shown for a few seconds.
     private(set) var flash: MacSession?
     var selectedKey: String?
@@ -35,6 +38,13 @@ final class AppModel {
     @ObservationIgnored var onMoment: ((Moment, MacSession?) -> Void)?
     /// Jarvis asked for a tab (the `jarvis_island` skill): tab, chat draft.
     @ObservationIgnored var onIsland: ((String, String?) -> Void)?
+    /// Read a job's answer out: a voice hand-off finished after the push-to-talk
+    /// turn that asked had ended (the server sends it to this Mac alone), or
+    /// Read aloud in the Agents tab.
+    @ObservationIgnored var onSpeak: ((MacJob) -> Void)?
+    /// Jobs already read out: a feed sent again (a reconnect) doesn't repeat one.
+    @ObservationIgnored private var spokenJobs: Set<String> = []
+    @ObservationIgnored private var jobsPrune: Task<Void, Never>?
     @ObservationIgnored private var lastStates: [String: MacState] = [:]
     @ObservationIgnored private var flashTask: Task<Void, Never>?
     /// The real services while a demo shows made-up ones.
@@ -42,7 +52,9 @@ final class AppModel {
 
     var lead: MacSession? { sessions.first { $0.state != .idle } }
     var waitingCount: Int { max(pending.count, sessions.filter { $0.state.urgency == 0 }.count) }
-    var workingCount: Int { sessions.filter { $0.state == .working || $0.state == .thinking }.count }
+    var workingCount: Int {
+        sessions.filter { $0.state == .working || $0.state == .thinking }.count + jobs.filter(\.running).count
+    }
     var mood: OrbMood { pending.isEmpty ? (lead?.state.mood ?? .idle) : .waiting }
     var selected: MacSession? { sessions.first { $0.key == selectedKey } ?? lead ?? sessions.first }
 
@@ -57,7 +69,7 @@ final class AppModel {
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["services": 0, "portfolio": 5]])
+                link.request(["type": "subscribe", "topics": ["services": 0, "portfolio": 5, "harness_jobs": 0]])
                 self?.refreshRoster()
             }
         }
@@ -96,6 +108,9 @@ final class AppModel {
             switch J.s(msg["topic"]) {
             case "services": services = J.arr(data["services"])
             case "portfolio": portfolio = data
+            case "harness_jobs":
+                apply(jobs: J.arr(data["jobs"]))
+                if let speak = data["speak"] as? [String: Any] { speakOnce(MacJob(json: speak)) }
             default: break
             }
         default:
@@ -123,6 +138,33 @@ final class AppModel {
         }
         lastStates = Dictionary(uniqueKeysWithValues: next.map { ($0.key, $0.state) })
         sessions = next
+    }
+
+    /// Replace the jobs: the feed is the whole list each time. An ended job
+    /// leaves the list after `MacJob.shownFor`, even if nothing else changes.
+    func apply(jobs raw: [[String: Any]], now: Date = Date()) {
+        jobs = raw.map(MacJob.init(json:)).filter { !$0.id.isEmpty && !$0.expired(at: now) }
+        jobsPrune?.cancel()
+        guard let next = jobs.compactMap({ $0.completedAt?.addingTimeInterval(MacJob.shownFor) }).min() else { return }
+        jobsPrune = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(1, next.timeIntervalSinceNow + 1)))
+            guard !Task.isCancelled, let self else { return }
+            let left = self.jobs.filter { !$0.expired(at: Date()) }
+            if left.count != self.jobs.count { self.jobs = left }
+        }
+    }
+
+    /// The server sends a voice job's answer once, but a resent feed must not
+    /// read it out twice.
+    private func speakOnce(_ job: MacJob) {
+        guard !job.id.isEmpty, !job.result.isEmpty, spokenJobs.insert(job.id).inserted else { return }
+        onSpeak?(job)
+    }
+
+    /// The Agents tab's Read aloud.
+    func readAloud(_ job: MacJob) {
+        guard !job.result.isEmpty else { return }
+        onSpeak?(job)
     }
 
     private func showFlash(_ s: MacSession) {

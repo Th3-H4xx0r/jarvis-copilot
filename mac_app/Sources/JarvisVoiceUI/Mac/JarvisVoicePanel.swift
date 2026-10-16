@@ -128,6 +128,16 @@ public final class JarvisVoicePanel: NSObject {
         MacPushToTalk.shared.ended()
     }
 
+    /// Read a hand-off's answer out: the bigger model a push-to-talk turn handed
+    /// to has finished, after that conversation ended (Jarvis.app gets it on the
+    /// server's jobs feed). `heard` — what was asked — is the subtitle. Talking
+    /// again cuts it off; `JarvisVoicePanelTalkDone` is posted once it's said.
+    @objc(speakText:heard:)
+    @MainActor
+    public static func speakText(_ text: String, heard: String) {
+        MacSpeakBack.shared.speak(text, heard: heard)
+    }
+
     /// The small voice island for push to talk: the orb and a line or two of
     /// words, sized by the island.
     @objc(makeIslandMiniViewControllerWithBaseURL:)

@@ -152,6 +152,120 @@ struct MacSession: Identifiable, Equatable {
     }
 }
 
+/// A job a harness handed to a bigger model (the server's `harness_jobs` feed,
+/// webui/api/harness_runner.py): the quick model said "I'll have a larger model
+/// look into it", and this is that model at work — shown in the Agents tab
+/// beside the coding sessions, with what was asked, its steps and its answer.
+struct MacJob: Identifiable, Equatable {
+    struct Step: Equatable {
+        let text: String
+        let detail: String
+    }
+
+    let id: String
+    let sessionId: String
+    let label: String
+    let model: String
+    let status: String
+    let activity: String
+    let steps: Int
+    let startedAt: Date
+    let completedAt: Date?
+    /// What he asked (the turn's words), else the hand-off note.
+    let task: String
+    /// "voice" or "chat": how he asked.
+    let surface: String
+    /// The device he asked from, by its registered name.
+    let device: String
+    let trail: [Step]
+    let result: String
+    let error: String
+
+    /// Its row's key in the Agents tab's selection (sessions use theirs).
+    var key: String { "job:\(id)" }
+    var running: Bool { status == "running" }
+
+    var state: MacState {
+        switch status {
+        case "running": return .working
+        case "done": return .finished
+        case "failed", "lost": return .error
+        default: return .idle
+        }
+    }
+
+    /// "Claude" for the built-in node (its label is its id), else its label.
+    var agentName: String {
+        if label.isEmpty { return "Hand-off" }
+        return label == label.lowercased() ? label.capitalized : label
+    }
+
+    /// The model without its provider: "claude-sonnet-5-5".
+    var modelName: String {
+        guard model.hasPrefix("@"), let colon = model.firstIndex(of: ":") else { return model }
+        return String(model[model.index(after: colon)...])
+    }
+
+    var stateLabel: String {
+        switch status {
+        case "running": return "Working"
+        case "done": return "Done"
+        case "failed": return "Failed"
+        case "lost": return "Cut short"
+        case "stopped": return "Stopped"
+        default: return status.capitalized
+        }
+    }
+
+    /// The row's second line: what it's doing, or how it ended.
+    var line: String {
+        if running { return activity.isEmpty ? "Working on it" : activity }
+        if !error.isEmpty && status == "failed" { return error }
+        let first = result.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        return first.isEmpty ? stateLabel : first
+    }
+
+    /// "By voice on Pranav's MacBook".
+    var origin: String {
+        let how = surface == "voice" ? "By voice" : surface == "chat" ? "In chat" : ""
+        if device.isEmpty { return how }
+        return how.isEmpty ? "From \(device)" : "\(how) on \(device)"
+    }
+
+    /// How long it ran (or has been running, by `now`).
+    func elapsed(now: Date = Date()) -> String {
+        let s = max(0, Int((completedAt ?? now).timeIntervalSince(startedAt)))
+        return s < 60 ? "\(s)s" : "\(s / 60)m \(s % 60)s"
+    }
+
+    /// An ended job stays listed this long, like the server keeps it.
+    static let shownFor: TimeInterval = 15 * 60
+
+    func expired(at now: Date) -> Bool {
+        guard let done = completedAt else { return false }
+        return now.timeIntervalSince(done) > Self.shownFor
+    }
+
+    init(json: [String: Any]) {
+        id = J.s(json["id"])
+        sessionId = J.s(json["session_id"])
+        label = J.s(json["label"])
+        model = J.s(json["model"])
+        status = J.s(json["status"], "running")
+        activity = J.s(json["activity"])
+        steps = J.i(json["steps"])
+        startedAt = Date(timeIntervalSince1970: J.d(json["started_at"]) ?? 0)
+        completedAt = J.d(json["completed_at"]).map { Date(timeIntervalSince1970: $0) }
+        let asked = J.s(json["task"])
+        task = asked.isEmpty ? J.s(json["note"]) : asked
+        surface = J.s(json["surface"])
+        device = J.s(json["device"])
+        trail = J.arr(json["trail"]).map { Step(text: J.s($0["t"]), detail: J.s($0["detail"])) }
+        result = J.s(json["result"])
+        error = J.s(json["error"])
+    }
+}
+
 struct MacQuestion: Equatable, Identifiable {
     let question: String
     let header: String

@@ -26,7 +26,7 @@ struct IslandRootView: View {
         if tab != .agents { return tab.height }
         if let m = measured { return IslandLayout.agentsHeight(topInset: topInset, top: m.top, list: m.list) }
         let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
-        return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count,
+        return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count + model.jobs.count,
                                          pending: pending, flash: model.flash != nil)
     }
 
@@ -338,10 +338,22 @@ private struct ExpandedIsland: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 6) {
-                    if model.sessions.isEmpty && model.connected {
+                    if model.sessions.isEmpty && model.jobs.isEmpty && model.connected {
                         Text("No agent sessions. Start Claude Code (or Codex, Gemini…) and it shows up here.")
                             .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    // What Jarvis handed to a bigger model, first: it's what you
+                    // just asked for.
+                    ForEach(model.jobs) { j in
+                        JobRow(job: j, selected: model.selectedKey == j.key)
+                            .id(j.key)
+                            .onTapGesture {
+                                model.selectedKey = model.selectedKey == j.key ? nil : j.key
+                            }
+                        if model.selectedKey == j.key {
+                            JobDetail(job: j, model: model)
+                        }
                     }
                     ForEach(model.sessions) { s in
                         SessionRow(session: s, selected: model.selectedKey == s.key)
@@ -581,6 +593,87 @@ private struct SessionDetail: View {
                 Spacer()
             }
             .buttonStyle(IslandButtonStyle(tint: .white.opacity(0.8)))
+        }
+        .padding(.horizontal, 12).padding(.bottom, 6)
+    }
+}
+
+/// A job a harness handed to a bigger model: who has it, how it stands, and
+/// what it's doing now (or the first line of its answer once it's done).
+private struct JobRow: View {
+    let job: MacJob
+    let selected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(stateColor(job.state)).frame(width: 8, height: 8).padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(job.agentName).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("Hand-off · \(job.stateLabel)")
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                    if job.running {
+                        // The clock ticks while it works.
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            Text(job.elapsed(now: ctx.date))
+                        }
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.white.opacity(0.45))
+                    }
+                }
+                if !job.task.isEmpty {
+                    Text(job.task).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                }
+                Text(job.line).font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(job.state == .error ? Color.red.opacity(0.85) : .white.opacity(0.75))
+                    .lineLimit(1)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(selected ? 0.10 : 0.05)))
+        .contentShape(Rectangle())
+    }
+}
+
+/// An opened job: what was asked and where from, its recent steps, and its
+/// whole answer (selectable, scrolling) with Read aloud and Copy.
+private struct JobDetail: View {
+    let job: MacJob
+    let model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text([job.origin, job.modelName, "\(job.steps) step\(job.steps == 1 ? "" : "s")",
+                  job.running ? "" : job.elapsed()].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+            if !job.task.isEmpty {
+                Text(job.task).font(.system(size: 11)).foregroundStyle(.white.opacity(0.8)).lineLimit(3)
+            }
+            ForEach(Array(job.trail.suffix(5).enumerated()), id: \.offset) { _, step in
+                Text("› \(step.text)\(step.detail.isEmpty ? "" : " — \(step.detail)")")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+            }
+            if !job.result.isEmpty {
+                ScrollView {
+                    Text(job.result)
+                        .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.9))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 170)
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                HStack {
+                    Button("Read aloud") { model.readAloud(job) }
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(job.result, forType: .string)
+                    }
+                    Spacer()
+                }
+                .buttonStyle(IslandButtonStyle(tint: .white.opacity(0.8)))
+            }
         }
         .padding(.horizontal, 12).padding(.bottom, 6)
     }

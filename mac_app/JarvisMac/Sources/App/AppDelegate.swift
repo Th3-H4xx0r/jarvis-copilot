@@ -66,6 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let text, !text.isEmpty { MacChatStore.shared.draft = text }
             island.open(IslandTab(rawValue: tab) ?? .agents)
         }
+        // A hand-off's answer, read out: the small voice island opens without
+        // the keyboard and speaks it, then folds. Open on another tab, the
+        // island stays where it is and just speaks.
+        model.onSpeak = { [weak self, weak island] job in
+            guard let self, let island,
+                  VoicePanelSpeak.speak(job.result, heard: job.task, on: self.menu?.voicePanelClass()) else { return }
+            if !(island.isExpanded && island.ui.tab != .voice) { island.openVoice(mini: true) }
+        }
 
         let nc = NotificationCenter.default
         nc.addObserver(forName: .jarvisRelocateIsland, object: nil, queue: .main) { _ in

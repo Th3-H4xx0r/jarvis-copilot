@@ -11,6 +11,7 @@ import SwiftUI
 struct MacVoiceMini: View {
     @State private var store: VoiceStore
     @State private var talk: MacPushToTalk
+    @State private var speakBack: MacSpeakBack
     @State private var onScreen = false
     @Namespace private var wordsSpace
     private static let orbRender: CGFloat = 124
@@ -19,7 +20,12 @@ struct MacVoiceMini: View {
     init() {
         _store = State(initialValue: MainActor.assumeIsolated { VoiceStore.shared })
         _talk = State(initialValue: MainActor.assumeIsolated { MacPushToTalk.shared })
+        _speakBack = State(initialValue: MainActor.assumeIsolated { MacSpeakBack.shared })
     }
+
+    /// A hand-off's answer being read out speaks like a reply, though no
+    /// conversation is open.
+    private var orbState: VoiceState { speakBack.speaking ? .speaking : store.state }
 
     /// Jarvis's words have started: yours become the subtitle.
     private var answering: Bool { !store.reply.isEmpty && store.error == nil }
@@ -48,7 +54,7 @@ struct MacVoiceMini: View {
     /// The orb, and right under it what it's doing.
     private var orbColumn: some View {
         VStack(spacing: 3) {
-            VoiceOrb(state: store.state,
+            VoiceOrb(state: orbState,
                      amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
                      size: Self.orbRender,
                      animating: onScreen)
@@ -118,6 +124,7 @@ struct MacVoiceMini: View {
     }
 
     private var status: String {
+        if speakBack.speaking { return "Speaking" }
         switch store.state {
         case .idle: return store.reply.isEmpty ? "Jarvis" : "Done"
         case .connecting: return store.captureReady || talk.held ? "Listening" : "Connecting"
@@ -256,6 +263,8 @@ final class MacPushToTalk {
 
     func began() {
         held = true
+        // A hand-off's answer being read out stops: he's talking now.
+        MacSpeakBack.shared.stop()
         let store = VoiceStore.shared
         if store.state == .speaking || store.state == .thinking { store.interrupt() }
         store.muted = false
