@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import SwiftUI
 @testable import Jarvis
 
 /// Flow dictation's pure rules: the hold / double-tap key, which physical key is
@@ -168,6 +169,26 @@ final class FlowTests: XCTestCase {
         let auto = FlowCleanup.body("uh hi there you", style: .natural, app: nil, words: [], model: nil, provider: nil)
         XCTAssertNil(auto["model"])
         XCTAssertNil(auto["provider"])
+    }
+
+    /// Settings → Flow with Jarvis's real model list (JC_API_ORIGIN) rendered
+    /// offscreen when JC_ISLAND_SNAPSHOT is set.
+    @MainActor
+    func testRenderTheFlowSettings() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let out = env["JC_ISLAND_SNAPSHOT"], let api = env["JC_API_ORIGIN"] else {
+            throw XCTSkip("set JC_ISLAND_SNAPSHOT and JC_API_ORIGIN to render Flow settings")
+        }
+        AppModel.shared.handle(["type": "hello", "api": api])
+        await FlowModelCatalog.shared.load()
+        XCTAssertFalse(FlowModelCatalog.shared.groups.isEmpty, "Jarvis listed its models")
+        let host = NSHostingView(rootView: Form { FlowEngineSection() }.formStyle(.grouped).frame(width: 620, height: 520))
+        host.frame = CGRect(x: 0, y: 0, width: 620, height: 520)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .seconds(0.5))
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-flow-settings.png"))
     }
 
     /// Jarvis's model list (`/api/models`) → the picker's sections, empty
