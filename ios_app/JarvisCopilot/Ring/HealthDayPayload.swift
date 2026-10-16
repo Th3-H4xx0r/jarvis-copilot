@@ -1,4 +1,81 @@
+import CryptoKit
 import Foundation
+
+/// What each day last went up as, so a sync that re-reads a fortnight of unchanged days sends none
+/// of them. The band and rings re-sent 17–18 days (~38 KB each) in one burst every few hours when
+/// all that had changed was `synced_at`.
+final class DayPushLedger: @unchecked Sendable {
+    static let shared = DayPushLedger()
+    /// An unchanged day still goes again after this long, in case the server lost its copy.
+    static let resendAfter: TimeInterval = 24 * 3600
+    /// Days remembered; the oldest sends are forgotten first.
+    static let keep = 160
+
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    private let lock = NSLock()
+    private static let storeKey = "healthDayPushLedger"
+
+    init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+        self.defaults = defaults
+        self.now = now
+    }
+
+    /// False when this exact day went up less than `resendAfter` ago.
+    func shouldSend(_ day: [String: Any], space: String) -> Bool {
+        guard let entry = Self.entry(day, space: space, at: now()) else { return true }
+        return lock.withLock {
+            guard let row = load()[entry.key], row.print == entry.print else { return true }
+            return now().timeIntervalSince(row.at) >= Self.resendAfter
+        }
+    }
+
+    /// The server took `day`.
+    func sent(_ day: [String: Any], space: String) {
+        guard let entry = Self.entry(day, space: space, at: now()) else { return }
+        lock.withLock {
+            var rows = load()
+            rows[entry.key] = (entry.print, now())
+            if rows.count > Self.keep {
+                for key in rows.sorted(by: { $0.value.at < $1.value.at }).prefix(rows.count - Self.keep).map(\.key) {
+                    rows[key] = nil
+                }
+            }
+            defaults.set(rows.mapValues { ["p": $0.print, "t": $0.at.timeIntervalSince1970] }, forKey: Self.storeKey)
+        }
+    }
+
+    /// Where a day is filed and a print of what matters in it. `synced_at` changes on every sync and
+    /// says nothing; the battery rides on a day only for today's alert rule, so on an older day it
+    /// is left out too.
+    static func entry(_ day: [String: Any], space: String, at date: Date) -> (key: String, print: String)? {
+        guard let key = day["date"] as? String else { return nil }
+        var content = day
+        content["synced_at"] = nil
+        let format = DateFormatter()
+        format.calendar = Calendar(identifier: .gregorian)
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        let yesterday = format.string(from: date.addingTimeInterval(-86_400))
+        if key < yesterday {
+            content["battery_percent"] = nil
+            content["charging"] = nil
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: content, options: [.sortedKeys]) else { return nil }
+        let print = SHA256.hash(data: data).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let device = day["device_id"] as? String ?? ""
+        let source = day["source"] as? String ?? ""
+        return ("\(space)|\(device)|\(source)|\(key)", print)
+    }
+
+    private func load() -> [String: (print: String, at: Date)] {
+        let raw = defaults.dictionary(forKey: Self.storeKey) as? [String: [String: Any]] ?? [:]
+        return raw.compactMapValues { row in
+            guard let print = row["p"] as? String, let t = row["t"] as? Double else { return nil }
+            return (print, Date(timeIntervalSince1970: t))
+        }
+    }
+}
 
 /// The one shape a day of ring data travels in.
 ///

@@ -133,6 +133,13 @@ struct SettingsPage: View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Battery")
             GlassGroup {
+                NavigationLink {
+                    BatteryUsagePage()
+                } label: {
+                    GlassRow(symbol: "battery.75percent", title: "Battery usage",
+                             subtitle: "What used the most, hour by hour")
+                }
+                .buttonStyle(.plain)
                 if let snapshot = EnergyReport.load() {
                     InfoRow(symbol: "bolt.fill", title: "CPU while running",
                             value: cpuRateText(snapshot))

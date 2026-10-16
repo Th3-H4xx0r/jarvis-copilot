@@ -150,3 +150,69 @@ final class HealthSavedWorkoutTests: XCTestCase {
         XCTAssertEqual(model.workouts[HealthTabModel.windowKey]?.count, 1, "saved twice is still one")
     }
 }
+
+/// A day goes up only when what it says changed, not on every sync.
+final class DayPushLedgerTests: XCTestCase {
+    private var clock = Date(timeIntervalSince1970: 1_792_000_000)   // 2026-10-15 UTC
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        defaults = UserDefaults(suiteName: "DayPushLedgerTests")
+        defaults.removePersistentDomain(forName: "DayPushLedgerTests")
+    }
+
+    private func ledger() -> DayPushLedger { DayPushLedger(defaults: defaults, now: { [unowned self] in clock }) }
+
+    private func day(_ date: String, hr: [Int] = [60, 62], synced: String = "2026-10-15T01:00:00Z",
+                     battery: Int = 80) -> [String: Any] {
+        ["date": date, "source": "band", "device_id": "b1", "synced_at": synced, "battery_percent": battery,
+         "heart_rate": ["interval_minutes": 5, "values": hr]]
+    }
+
+    func testTheSameDayResyncedIsNotSentAgain() {
+        let l = ledger()
+        l.sent(day("2026-10-01"), space: "s")
+        XCTAssertFalse(l.shouldSend(day("2026-10-01", synced: "2026-10-15T04:00:00Z"), space: "s"))
+    }
+
+    func testAChangedDayIsSent() {
+        let l = ledger()
+        l.sent(day("2026-10-01"), space: "s")
+        XCTAssertTrue(l.shouldSend(day("2026-10-01", hr: [60, 62, 70]), space: "s"))
+    }
+
+    func testTheBatteryCountsOnlyOnRecentDays() {
+        let l = ledger()
+        l.sent(day("2026-10-01"), space: "s")
+        l.sent(day("2026-10-15"), space: "s")
+        XCTAssertFalse(l.shouldSend(day("2026-10-01", battery: 40), space: "s"), "an old day's battery is noise")
+        XCTAssertTrue(l.shouldSend(day("2026-10-15", battery: 40), space: "s"), "today's feeds the battery alert")
+    }
+
+    func testAnUnchangedDayGoesAgainAfterADay() {
+        let l = ledger()
+        l.sent(day("2026-10-01"), space: "s")
+        clock += DayPushLedger.resendAfter
+        XCTAssertTrue(l.shouldSend(day("2026-10-01"), space: "s"))
+    }
+
+    func testADayNeverSentOrForAnotherDeviceIsSent() {
+        let l = ledger()
+        l.sent(day("2026-10-01"), space: "s")
+        var other = day("2026-10-01")
+        other["device_id"] = "ring2"
+        XCTAssertTrue(l.shouldSend(other, space: "s"))
+        XCTAssertTrue(l.shouldSend(day("2026-10-02"), space: "s"))
+        XCTAssertTrue(l.shouldSend(day("2026-10-01"), space: "another-space"))
+    }
+
+    func testTheLedgerKeepsOnlyTheNewestDays() {
+        let l = ledger()
+        for i in 0..<(DayPushLedger.keep + 5) {
+            clock += 1
+            l.sent(day(String(format: "2026-%02d-%02d", 1 + i / 28, 1 + i % 28)), space: "s")
+        }
+        XCTAssertTrue(l.shouldSend(day("2026-01-01"), space: "s"), "the oldest were forgotten")
+        XCTAssertEqual((defaults.dictionary(forKey: "healthDayPushLedger") ?? [:]).count, DayPushLedger.keep)
+    }
+}

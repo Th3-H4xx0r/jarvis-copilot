@@ -30,13 +30,19 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
             var last = (cpu: Self.cpuSeconds(), at: Date())
             var lastThreads = Self.threadSeconds()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3600))
+                // On the clock's hours, so the Battery page's hours line up with the time of day.
+                try? await Task.sleep(for: .seconds(Self.secondsToNextHour(from: Date())))
                 let now = (cpu: Self.cpuSeconds(), at: Date())
                 let threads = Self.threadSeconds()
                 // Where the hour's CPU went, by thread name: the audio keepalive, Bluetooth, the main thread…
                 let top = threads.map { ($0.key, max(0, $0.value - (lastThreads[$0.key] ?? 0))) }
                     .filter { $0.1 >= 1 }.sorted { $0.1 > $1.1 }.prefix(8)
                 lastThreads = threads
+                let byThread = Dictionary(top.map { ($0.0, ($0.1 * 10).rounded() / 10) }, uniquingKeysWith: +)
+                // The hour as the Battery page keeps it: states, screens, battery, what woke the radio.
+                let hour = await MainActor.run {
+                    EnergyLedger.shared.closeHour(threads: byThread, battery: EnergyLedger.level())
+                }
                 var body: [String: Any] = [
                     "kind": "probe",
                     "received": ISO8601DateFormatter().string(from: now.at),
@@ -45,7 +51,8 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
                     "background": BridgeClient.appInBackground ? 1 : 0,
                     "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
                 ]
-                body["threads"] = Dictionary(top.map { ($0.0, ($0.1 * 10).rounded() / 10) }, uniquingKeysWith: +)
+                body["threads"] = byThread
+                body["hour"] = Self.wire(hour)
                 last = now
                 _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: body)
             }
@@ -93,6 +100,27 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     /// The main thread's pthread, taken at launch (register runs on it).
     nonisolated(unsafe) private static var mainThread: pthread_t?
 
+    /// Seconds to the next top of the hour (at least a minute).
+    static func secondsToNextHour(from date: Date, calendar: Calendar = .current) -> TimeInterval {
+        let next = calendar.nextDate(after: date, matching: DateComponents(minute: 0, second: 0),
+                                     matchingPolicy: .nextTime) ?? date.addingTimeInterval(3600)
+        return max(60, next.timeIntervalSince(date))
+    }
+
+    /// The ledger's hour for the server: rounded, and without keys that never moved.
+    static func wire(_ hour: EnergyLedger.Hour) -> [String: Any] {
+        func rounded(_ d: [String: Double]) -> [String: Double] {
+            d.filter { $0.value >= 0.5 }.mapValues { ($0 * 10).rounded() / 10 }
+        }
+        var out: [String: Any] = [
+            "start": hour.start.timeIntervalSince1970, "end": hour.end.timeIntervalSince1970,
+            "seconds": rounded(hour.seconds), "cpu": rounded(hour.cpu), "counts": hour.counts,
+        ]
+        if let b = hour.batteryStart { out["batteryStart"] = b }
+        if let b = hour.batteryEnd { out["batteryEnd"] = b }
+        return out
+    }
+
     /// User + system CPU time of the whole process so far.
     static func cpuSeconds() -> Double {
         var usage = rusage()
@@ -120,6 +148,28 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
                 report.backgroundAudioSeconds = run.cumulativeBackgroundAudioTime.converted(to: .seconds).value
                 report.backgroundLocationSeconds = run.cumulativeBackgroundLocationTime.converted(to: .seconds).value
             }
+            // What went over which radio: a socket kept up on cellular costs far more than on Wi-Fi.
+            if let net = payload.networkTransferMetrics {
+                report.wifiUpBytes = net.cumulativeWifiUpload.converted(to: .bytes).value
+                report.wifiDownBytes = net.cumulativeWifiDownload.converted(to: .bytes).value
+                report.cellularUpBytes = net.cumulativeCellularUpload.converted(to: .bytes).value
+                report.cellularDownBytes = net.cumulativeCellularDownload.converted(to: .bytes).value
+            }
+            // Why iOS ended the app in the background: a keepalive that dies to memory pressure
+            // looks like a battery drain (relaunches) and like an unreachable phone.
+            if let exits = payload.applicationExitMetrics?.backgroundExitData {
+                report.backgroundExits = [
+                    "normal": exits.cumulativeNormalAppExitCount,
+                    "memory pressure": exits.cumulativeMemoryPressureExitCount,
+                    "memory limit": exits.cumulativeMemoryResourceLimitExitCount,
+                    "CPU limit": exits.cumulativeCPUResourceLimitExitCount,
+                    "watchdog": exits.cumulativeAppWatchdogExitCount,
+                    "locked file": exits.cumulativeSuspendedWithLockedFileExitCount,
+                    "task timeout": exits.cumulativeBackgroundTaskAssertionTimeoutExitCount,
+                    "crash": exits.cumulativeAbnormalExitCount + exits.cumulativeBadAccessExitCount
+                        + exits.cumulativeIllegalInstructionExitCount,
+                ].filter { $0.value > 0 }
+            }
             // Kept so Settings can show it. `log show` needs a Mac, a cable and
             // root; the number that decides whether a battery change worked
             // should be readable on the phone that has the battery.
@@ -138,7 +188,7 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     }
 
     private static func send(_ report: EnergyReport) {
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "received": ISO8601DateFormatter().string(from: report.received),
             "cpuSeconds": report.cpuSeconds,
             "foregroundSeconds": report.foregroundSeconds,
@@ -147,7 +197,13 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
             "backgroundLocationSeconds": report.backgroundLocationSeconds,
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
         ]
-        Task { _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: body) }
+        if let v = report.wifiUpBytes { body["wifiUpBytes"] = v }
+        if let v = report.wifiDownBytes { body["wifiDownBytes"] = v }
+        if let v = report.cellularUpBytes { body["cellularUpBytes"] = v }
+        if let v = report.cellularDownBytes { body["cellularDownBytes"] = v }
+        if let v = report.backgroundExits, !v.isEmpty { body["backgroundExits"] = v }
+        let sent = body
+        Task { _ = try? await JarvisAPI.shared.post("/api/devices/mobile/energy", json: sent) }
     }
 
     func didReceive(_ payloads: [MXDiagnosticPayload]) {

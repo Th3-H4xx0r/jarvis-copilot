@@ -127,6 +127,21 @@ final class BackgroundKeepaliveArbiterTests: XCTestCase {
                        "restarting the silent engine must not steal the mic back")
     }
 
+    /// A call or Siri stopped the engine and no `.ended` came: the next sync (a reconnect, any
+    /// background wake) puts it back instead of waiting for the app to be opened.
+    func testSyncingWithAnEngineTheSystemStoppedRestartsIt() {
+        let rig = makeRig()
+        rig.keepalive.sync(active: true)
+        rig.engine.simulateStoppedByTheSystem()
+
+        rig.keepalive.sync(active: true)
+
+        XCTAssertEqual(rig.engine.startCount, 2)
+        XCTAssertTrue(rig.engine.isRunning)
+        XCTAssertEqual(rig.keepalive.resumes, 1)
+        XCTAssertEqual(rig.applier.calls.last, .active(true, []), "the session is re-activated too")
+    }
+
     func testAConfigurationChangeWithAHealthyEngineIsIgnored() {
         let rig = makeRig()
         rig.keepalive.sync(active: true)

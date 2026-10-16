@@ -332,6 +332,9 @@ private struct JcNavigationTitle: ViewModifier {
     func body(content: Content) -> some View {
         if let title {
             content
+                // Settings → Battery usage charges on-screen CPU to the titled screen showing.
+                .onAppear { EnergyLedger.shared.screenAppeared(title) }
+                .onDisappear { EnergyLedger.shared.screenDisappeared(title) }
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 // Transparent chrome so the aurora runs behind the bar, as the

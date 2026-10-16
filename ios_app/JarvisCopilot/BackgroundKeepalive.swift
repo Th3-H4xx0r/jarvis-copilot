@@ -45,9 +45,19 @@ final class BackgroundKeepalive {
 
     /// Brings the keepalive in line with whether it should be running. Idempotent, so
     /// callers can invoke it on every state change without tracking transitions.
+    ///
+    /// Also the repair: a claim whose engine is dead buys no background time. iOS stops the
+    /// engine for a call or Siri and does not always say when it ended, and the keepalive used
+    /// to come back only when the app was opened — 10:38 pm to 12:45 am on Oct 15 the phone
+    /// spent suspended between 30-second wakes. Every connect, reconnect and background wake
+    /// syncs, so any of them now puts it back.
     func sync(active: Bool) {
-        if active { start() } else { stop() }
+        guard active else { return stop() }
+        if !isRunning { start() } else if !engine.isRunning { resume() }
     }
+
+    /// Times the engine was found stopped under a live claim and restarted.
+    private(set) var resumes = 0
 
     // MARK: - Lifecycle
 
@@ -66,11 +76,13 @@ final class BackgroundKeepalive {
         }
         installObservers()
         isRunning = true
+        EnergyLedger.shared.set(.keepalive, true)
     }
 
     private func stop() {
         guard isRunning else { return }
         isRunning = false
+        EnergyLedger.shared.set(.keepalive, false)
         removeObservers()
         engine.stop()
         // Only a release, never a deactivation: a voice turn may be holding the same
@@ -91,9 +103,13 @@ final class BackgroundKeepalive {
         // on screen to show for it. If the field logs show this firing more than
         // a handful of times an hour, that is the bug.
         JcLog.devices.debug("keepalive: reasserting (engine running: \(self.engine.isRunning, privacy: .public))")
+        // Every reassert is counted (a chattering loop shows as hundreds an hour); a restart only
+        // when the engine had really stopped.
+        EnergyLedger.shared.count("keepalive.reassert")
         try? arbiter.hold(.keepalive, reassert: true)
         guard !engine.isRunning else { return }
-        _ = engine.start()
+        resumes += 1
+        EnergyLedger.shared.count(engine.start() ? "keepalive.restart" : "keepalive.restart_failed")
     }
 
     // MARK: - Observers

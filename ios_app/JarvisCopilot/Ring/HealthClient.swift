@@ -12,10 +12,12 @@ struct HealthClient {
 
     let api: JarvisAPI
     let spaceID: String
+    let ledger: DayPushLedger
 
-    init(api: JarvisAPI = .shared, spaceID: String) {
+    init(api: JarvisAPI = .shared, spaceID: String, ledger: DayPushLedger = .shared) {
         self.api = api
         self.spaceID = spaceID
+        self.ledger = ledger
     }
 
     var base: String { "/api/integrations/\(spaceID)/health" }
@@ -89,9 +91,12 @@ struct HealthClient {
         return try Self.decode(HealthSettings.self, from: try response.object()["settings"] ?? [:])
     }
 
-    /// Hand the server a day the phone synced from the ring.
+    /// Hand the server a day the phone synced from the ring — unless that exact day already went up
+    /// (`DayPushLedger`).
     func pushDay(_ day: [String: Any]) async throws {
+        guard ledger.shouldSend(day, space: spaceID) else { return }
         _ = try await api.post("\(base)/day", json: ["day": day])
+        ledger.sent(day, space: spaceID)
     }
 
     /// A finished workout, with ISO times as the server keeps them.

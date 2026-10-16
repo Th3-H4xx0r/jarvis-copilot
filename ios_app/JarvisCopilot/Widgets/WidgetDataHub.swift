@@ -7,14 +7,15 @@ import WidgetKit
 @MainActor
 protocol WidgetDataProvider {
     func values() async -> [String: JCJSON]
-    /// Asks the server. In the background such a provider runs only when the server says its data
-    /// changed (`widgets` push) — not after every band sync, which was seven requests every few
-    /// minutes all night.
-    var usesNetwork: Bool { get }
+    /// The server area this provider asks about, as the server's `widgets` push names it (`health`,
+    /// `chat`, `coding`); nil for what the phone knows itself, read on every pass. In the background
+    /// an area is asked only when a push named it (or it is old) — a coding change on the Mac used to
+    /// refetch all eleven requests, health histories included, twice an hour all night.
+    var area: String? { get }
 }
 
 extension WidgetDataProvider {
-    var usesNetwork: Bool { false }
+    var area: String? { nil }
 }
 
 /// Gathers every area's values into the App Group snapshot the widgets read, and reloads the
@@ -48,13 +49,25 @@ final class WidgetDataHub {
     /// Whether any Jarvis widget is on a Home or Lock Screen; nil until asked. With none there is
     /// nothing to keep fresh, so nothing is fetched.
     private(set) var installed: Bool?
-    /// A pass that may ask the server is owed (launch, foreground, a `widgets` push, a reconnect).
-    private var networkDue = true
-    /// When a pass last asked the server. In the background the phone's own changes (its band's
-    /// days, which the server merges into the histories) make one at most every `backgroundFullEvery`.
-    private var lastFull: Date?
-    static let backgroundFullEvery: TimeInterval = 7200
     private var lastInstalledCheck: Date?
+    /// Server areas owed a fetch: named by a `widgets` push, or all of them after a launch, a
+    /// foregrounding or a reconnect.
+    private(set) var dirty: Set<String>
+    /// When each server area was last asked.
+    private var fetchedAt: [String: Date] = [:]
+    /// Each provider's values from its last run, by position: a provider this pass does not ask
+    /// keeps showing what it gave, and one that stops giving a key drops it.
+    private var byProvider: [Int: [String: JCJSON]] = [:]
+    /// The next pass runs because the phone was just unlocked: the Home Screen is about to show.
+    private var unlockPass = false
+    /// In the background a pushed change waits until its area was last asked this long ago — or for
+    /// the phone to be unlocked. The widgets can only redraw every few minutes anyway.
+    static let backgroundAreaEvery: TimeInterval = 3600
+    /// An area nobody pushes for (chat, and health after the phone's own band uploads) is asked
+    /// again this often in the background…
+    static let backgroundFullEvery: TimeInterval = 7200
+    /// …or on an unlock once it is this old.
+    static let unlockStaleAfter: TimeInterval = 1800
 
     init(providers: [any WidgetDataProvider],
          write: @escaping ([String: JCJSON]) -> Void = { WidgetDataFile.write($0) },
@@ -64,7 +77,11 @@ final class WidgetDataHub {
         self.write = write
         self.reload = reload
         self.now = now
+        dirty = Set(providers.compactMap(\.area))
     }
+
+    /// Every server area some provider asks about.
+    private var areas: Set<String> { Set(providers.compactMap(\.area)) }
 
     /// Every 15 minutes while the app is on screen, whenever something worth showing changes, and
     /// in the background when the server pushes `widgets` (at most every 30 minutes).
@@ -72,21 +89,41 @@ final class WidgetDataHub {
         guard watches.isEmpty else { return }
         if foreground { startTimer() }      // a background launch (the watch, a push) waits for the screen
         checkInstalled()
-        BridgeTopics.shared.on("widgets") { _ in
-            WidgetDataHub.shared.networkDue = true
-            WidgetDataHub.shared.refreshSoon()
-        }
+        BridgeTopics.shared.on("widgets") { data in WidgetDataHub.shared.pushed(data) }
         // Pushes sent while the socket was down never arrive: catch up once it is back.
-        BridgeTopics.shared.onResync {
-            guard WidgetDataHub.shared.installed != false else { return }
-            WidgetDataHub.shared.networkDue = true
-            WidgetDataHub.shared.refreshSoon()
-        }
+        BridgeTopics.shared.onResync { WidgetDataHub.shared.resynced() }
         for name in [Notification.Name.jcKeepAliveChanged, UIDevice.batteryStateDidChangeNotification] {
             watches.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { WidgetDataHub.shared.refreshSoon() }
             })
         }
+        watches.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { WidgetDataHub.shared.unlocked() }
+        })
+    }
+
+    /// The server's `widgets` push: the areas in `what` changed (none named: all of them).
+    func pushed(_ data: [String: Any]) {
+        let named = Set(data["what"] as? [String] ?? [])
+        dirty.formUnion(named.isEmpty ? areas : named.intersection(areas))
+        refreshSoon()
+    }
+
+    /// The socket came back after missing whatever was pushed while it was down.
+    func resynced() {
+        guard installed != false else { return }
+        dirty.formUnion(areas)
+        refreshSoon()
+    }
+
+    /// The phone was unlocked with the app in the background: what changed is fetched now, so the
+    /// Home Screen about to show is current.
+    func unlocked() {
+        guard !foreground, installed != false else { return }
+        unlockPass = true
+        refreshSoon()
     }
 
     /// The app came forward (true) or went to the background (false).
@@ -94,7 +131,7 @@ final class WidgetDataHub {
         guard on != foreground else { return }
         foreground = on
         if on {
-            networkDue = true
+            dirty.formUnion(areas)
             startTimer()
             checkInstalled()        // a widget may have been added or removed meanwhile
         } else {
@@ -103,9 +140,9 @@ final class WidgetDataHub {
         }
     }
 
-    /// The background refresh task: the phone's own values, and the server's only when a push
-    /// said they changed or the last ask is `backgroundFullEvery` old. Forcing the server here
-    /// made ten requests on every refresh, three or four times an hour.
+    /// The background refresh task: the phone's own values, and a server area only when `toAsk`
+    /// allows it. Forcing the server here made ten requests on every refresh, three or four times
+    /// an hour.
     func refreshAll() async {
         checkInstalled()        // a widget added from the Home Screen while the app was away
         await refresh()
@@ -170,17 +207,20 @@ final class WidgetDataHub {
             if lastInstalledCheck.map({ now().timeIntervalSince($0) > 600 }) ?? true { checkInstalled() }
             return
         }
-        // In the background without a reason to ask the server, only what the phone knows itself
-        // is read again; the server's part stays as it was.
-        let stale = lastFull.map { now().timeIntervalSince($0) >= Self.backgroundFullEvery } ?? true
-        let full = foreground || networkDue || stale
-        if full {
-            networkDue = false
-            lastFull = now()
+        let ask = toAsk(at: now(), unlocking: unlockPass)
+        unlockPass = false
+        for area in ask {
+            fetchedAt[area] = now()
+            dirty.remove(area)
         }
-        var values: [String: JCJSON] = full ? [:] : current
-        for provider in providers where full || !provider.usesNetwork {
-            values.merge(await provider.values()) { _, new in new }
+        // What the phone knows itself is read on every pass; a server area only when asked.
+        for (index, provider) in providers.enumerated() {
+            if let area = provider.area, !ask.contains(area) { continue }
+            byProvider[index] = await provider.values()
+        }
+        var values: [String: JCJSON] = [:]
+        for index in providers.indices {
+            values.merge(byProvider[index] ?? [:]) { _, new in new }
         }
         let clock = DateFormatter()
         clock.dateFormat = "HH:mm"
@@ -192,6 +232,19 @@ final class WidgetDataHub {
             reload()
             reloaded = values
             lastReload = now()
+        }
+    }
+
+    /// The server areas a pass at `date` asks about. On screen, all of them (each provider keeps
+    /// its own short cache). In the background, an area a push named waits until it was last asked
+    /// `backgroundAreaEvery` ago, or for an unlock; any other area goes after `backgroundFullEvery`,
+    /// or on an unlock after `unlockStaleAfter`.
+    func toAsk(at date: Date, unlocking: Bool) -> Set<String> {
+        if foreground { return areas }
+        return areas.filter { area in
+            let age = fetchedAt[area].map { date.timeIntervalSince($0) } ?? .infinity
+            if dirty.contains(area) { return unlocking || age >= Self.backgroundAreaEvery }
+            return age >= (unlocking ? Self.unlockStaleAfter : Self.backgroundFullEvery)
         }
     }
 
@@ -217,7 +270,7 @@ final class WidgetDataHub {
 /// Scores from the last Jarvis Health run, and each metric's last seven days from the server.
 @MainActor
 final class HealthWidgetData: WidgetDataProvider {
-    let usesNetwork = true
+    let area: String? = "health"
     private var cache: (at: Date, values: [String: JCJSON])?
     private static let metrics = ["steps": "steps", "sleep": "sleep", "heart_rate": "hr", "hrv": "hrv",
                                   "spo2": "spo2", "stress": "stress", "sleep_debt": "sleep_debt"]
@@ -303,7 +356,7 @@ struct WearablesWidgetData: WidgetDataProvider {
 /// The most recent chat: its title, Jarvis's last reply, and whether a turn is running.
 @MainActor
 final class ChatWidgetData: WidgetDataProvider {
-    let usesNetwork = true
+    let area: String? = "chat"
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {
@@ -330,7 +383,7 @@ final class ChatWidgetData: WidgetDataProvider {
 /// Coding sessions: how many are working, how many are waiting on you.
 @MainActor
 final class CodingWidgetData: WidgetDataProvider {
-    let usesNetwork = true
+    let area: String? = "coding"
     private var cache: (at: Date, values: [String: JCJSON])?
 
     func values() async -> [String: JCJSON] {

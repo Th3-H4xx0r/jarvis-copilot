@@ -89,7 +89,17 @@ final class URLSessionTransport: APITransport {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.badResponse("not HTTP") }
+        Self.account(request, bytes: (request.httpBody?.count ?? 0) + data.count)
         return (data, http)
+    }
+
+    /// Settings → Battery usage: every request counted under its feature, in a pocket or not.
+    private static func account(_ request: URLRequest, bytes: Int) {
+        #if os(iOS)
+        EnergyLedger.shared.request(path: request.url?.path ?? "", bytes: bytes,
+                                    background: request.value(forHTTPHeaderField: BridgeClient.appStateHeader.name)
+                                        == "background")
+        #endif
     }
 
     /// Coalesce URLSession's byte sequence into line-sized `Data` chunks. A frame
@@ -102,6 +112,7 @@ final class URLSessionTransport: APITransport {
     func stream(_ request: URLRequest) async throws -> (AsyncThrowingStream<Data, Error>, HTTPURLResponse) {
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.badResponse("not HTTP") }
+        Self.account(request, bytes: request.httpBody?.count ?? 0)
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             let task = Task {
                 var buffer = Data()

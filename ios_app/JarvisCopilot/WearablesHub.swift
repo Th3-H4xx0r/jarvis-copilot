@@ -251,7 +251,10 @@ final class WearablesHub: ObservableObject {
         stateSoon = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let self else { return }
-            let rows = Self.stateRows(self.roster())
+            let roster = self.roster()
+            // Settings → Battery usage: how long each wearable held a link.
+            EnergyLedger.shared.setLinks(Set(roster.filter(\.connected).map(\.name)))
+            let rows = Self.stateRows(roster)
             guard let data = try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys]),
                   let encoded = String(data: data, encoding: .utf8), encoded != self.sentState,
                   BridgeClient.shared.status == .online else { return }

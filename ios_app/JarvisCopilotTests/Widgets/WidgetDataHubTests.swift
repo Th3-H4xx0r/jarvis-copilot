@@ -127,4 +127,108 @@ final class WidgetDataHubTests: XCTestCase {
         XCTAssertEqual(written.last?["a.b"], .number(Double(slow.calls)), "the newest values are the ones kept")
     }
 
+    // MARK: server areas (a push names what changed)
+
+    final class Counting: WidgetDataProvider {
+        let area: String?
+        var calls = 0
+        init(_ area: String) { self.area = area }
+        func values() async -> [String: JCJSON] {
+            calls += 1
+            return ["\(area ?? "").calls": .number(Double(calls))]
+        }
+    }
+
+    func testABackgroundPushRefetchesOnlyTheAreaItNames() async {
+        let health = Counting("health"), coding = Counting("coding")
+        let h = hub([health, coding])
+        await h.refresh()
+        h.setForeground(false)
+        clock += WidgetDataHub.backgroundAreaEvery
+        h.pushed(["what": ["coding"]])
+        await h.refresh()
+        XCTAssertEqual(coding.calls, 2)
+        XCTAssertEqual(health.calls, 1, "a coding change does not refetch seven health histories")
+        XCTAssertEqual(written.last?["health.calls"], .number(1), "an area not asked keeps showing its values")
+    }
+
+    func testInTheBackgroundAPushedChangeWaitsUntilTheAreaIsAnHourOld() async {
+        let coding = Counting("coding")
+        let h = hub([coding])
+        await h.refresh()
+        h.setForeground(false)
+        clock += 600
+        h.pushed(["what": ["coding"]])
+        await h.refresh()
+        XCTAssertEqual(coding.calls, 1, "asked ten minutes ago: held")
+        clock += WidgetDataHub.backgroundAreaEvery
+        await h.refresh()
+        XCTAssertEqual(coding.calls, 2, "the held change goes once the hour is up")
+        await h.refresh()
+        XCTAssertEqual(coding.calls, 2, "and only once")
+    }
+
+    func testAnUnlockFetchesWhatChangedAtOnceAndLeavesTheRest() async {
+        let health = Counting("health"), coding = Counting("coding")
+        let h = hub([health, coding])
+        await h.refresh()
+        h.setForeground(false)
+        clock += 60
+        h.pushed(["what": ["coding"]])
+        h.unlocked()
+        await h.refresh()
+        XCTAssertEqual(coding.calls, 2)
+        XCTAssertEqual(health.calls, 1, "unchanged and a minute old: not asked")
+    }
+
+    func testAnUnlockAlsoRefreshesAnAreaNobodyPushesForOnceItIsHalfAnHourOld() async {
+        let chat = Counting("chat")
+        let h = hub([chat])
+        await h.refresh()
+        h.setForeground(false)
+        clock += WidgetDataHub.unlockStaleAfter
+        await h.refresh()
+        XCTAssertEqual(chat.calls, 1, "no unlock: waits for the two-hour mark")
+        h.unlocked()
+        await h.refresh()
+        XCTAssertEqual(chat.calls, 2)
+        clock += WidgetDataHub.backgroundFullEvery
+        await h.refresh()
+        XCTAssertEqual(chat.calls, 3, "and without an unlock, every two hours")
+    }
+
+    func testAPushNamingNoAreaMarksThemAll() async {
+        let health = Counting("health"), coding = Counting("coding")
+        let h = hub([health, coding])
+        await h.refresh()
+        h.setForeground(false)
+        clock += WidgetDataHub.backgroundAreaEvery
+        h.pushed([:])
+        await h.refresh()
+        XCTAssertEqual([health.calls, coding.calls], [2, 2])
+    }
+
+    func testOnScreenEveryAreaIsAskedEachPass() async {
+        let health = Counting("health"), local = Fake(values: ["phone.battery": .number(50)])
+        let h = hub([health, local])
+        await h.refresh()
+        await h.refresh()
+        XCTAssertEqual(health.calls, 2, "each provider's own cache bounds the requests on screen")
+        XCTAssertEqual(written.last?["phone.battery"], .number(50))
+    }
+
+    func testAKeyAProviderStopsGivingIsDropped() async {
+        struct Live: WidgetDataProvider {
+            let box: Box<[String: JCJSON]>
+            var area: String? { "coding" }
+            func values() async -> [String: JCJSON] { box.value }
+        }
+        let source = Box<[String: JCJSON]>(["coding.lead_agent": .string("claude"), "coding.total": .number(1)])
+        let h = hub([Live(box: source)])
+        await h.refresh()
+        source.value = ["coding.total": .number(0)]
+        await h.refresh()
+        XCTAssertNil(written.last?["coding.lead_agent"])
+        XCTAssertEqual(written.last?["coding.total"], .number(0))
+    }
 }

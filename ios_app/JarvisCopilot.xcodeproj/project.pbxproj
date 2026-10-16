@@ -38,6 +38,7 @@
 		0749DE7EA697FBD3A1FA5961 /* CronsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D883E45BA9E8351D1C9F64D /* CronsAPI.swift */; };
 		07621D37A721396DB5BC4BB2 /* VoiceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */; };
 		07858C14AA2A0A27DE12000D /* WorkoutConfirmTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E543A7C4A022939CB88217 /* WorkoutConfirmTests.swift */; };
+		079FE7937A34765A25717BCD /* EnergyLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */; };
 		07B0149DF3A970843CAC9FAE /* VolumeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82E59FAF921605DD0EC6CBA3 /* VolumeSlider.swift */; };
 		085988788290EBE575080AA6 /* SelfImprovementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6265DAEFF934AE9F0F286C1 /* SelfImprovementUITests.swift */; };
 		08B5E2CA057B33670250410F /* InsightsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C19E8EDFF135D15FE24B54 /* InsightsModels.swift */; };
@@ -70,6 +71,7 @@
 		0ED8A4B8EB574C59129B76EA /* LensCaptionSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3471BCE9CDA03A53E0C21E8 /* LensCaptionSurface.swift */; };
 		0EF5FC37A0A94387FDEF2139 /* SpeechAnalyzerServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */; };
 		0F940F8BB8B243893DCF1CD5 /* CodeMasterSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25159CEA86AB41F696FDEA56 /* CodeMasterSettingsPage.swift */; };
+		0FE9065C6AF13C6C13FB7351 /* BatteryUsageRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8539BC1E4EC4D51D3F09195 /* BatteryUsageRenderTests.swift */; };
 		102A0D7FDBEAFF7A41083B2D /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41861373A7C8A84FC03D47B /* AgentActivityAttributes.swift */; };
 		1072D13A323CAA4496AE03D0 /* GlassesNoteWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5913A62B3554196E1D94E28 /* GlassesNoteWireTests.swift */; };
 		1081228674F8BFDF6B9A7CE9 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51624CD16AAF0E4FB10620F /* WidgetData.swift */; };
@@ -603,9 +605,11 @@
 		8A12120E7EE316B66BD78063 /* IntegrationDataViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A22A70581DCA427A6D14AB /* IntegrationDataViews.swift */; };
 		8A2F24DE106216C708DBC958 /* LocalExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C318AFCA17561381E2A63382 /* LocalExecutorTests.swift */; };
 		8A77006780862440FFABC749 /* IslandSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E59E07D2EDF7FA617EA5FCB5 /* IslandSync.swift */; };
+		8A7F4CA2B7E8BE05D804F6F9 /* BatteryUsageSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16998A65B0E5B2E052548EC4 /* BatteryUsageSummaryTests.swift */; };
 		8A89844DB365A740B6E4085C /* OnDeviceModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BBAF4DEE3A26FB116A04D7C /* OnDeviceModelCatalog.swift */; };
 		8AA6F0CBDD0E4740E90D6949 /* SystemSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880324585FCBF620B71CB25A /* SystemSkills.swift */; };
 		8AB7544A0E6E9EDF43C4EB6E /* GlassesNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F527682D7EBAB98DE66BB543 /* GlassesNavigator.swift */; };
+		8B0472F39F728B24AF43C804 /* EnergyLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD9197DD940F955EE173280 /* EnergyLedger.swift */; };
 		8B079864B18F0239056CE9F0 /* CodingLoadErrorBannerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D64AC1D5A30DE01403F4FD /* CodingLoadErrorBannerUITests.swift */; };
 		8B11489F5AEA33496C25C0D3 /* InmoTraceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FDEAC53FA3724209C25EFA7 /* InmoTraceView.swift */; };
 		8BC0D485BF48FD089073419D /* RingChartScrubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 540B47B5D3521F0505453945 /* RingChartScrubTests.swift */; };
@@ -997,6 +1001,7 @@
 		E52FCE97C7D2AFF0DB19CD6B /* CarClimateScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7507DD7EB111403DAA984979 /* CarClimateScreen.swift */; };
 		E5715376CB0AB7D6DF884F76 /* InsightsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */; };
 		E64C1674A2CCAA1EB7C1EAB2 /* RingProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE6A435982222E11D399BF /* RingProtocolTests.swift */; };
+		E6830FE9E81508E186DFBCF4 /* BatteryUsagePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2BBDA27A914B416B67A76AB /* BatteryUsagePage.swift */; };
 		E6E64A577F6F8E45C2A7E1D0 /* RingWearPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE54605B1E14B0AA592ED8A0 /* RingWearPrompt.swift */; };
 		E6F4F7B27F50088EF5CF9079 /* ModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8595E5B98E7802EC5B8F1698 /* ModelSelection.swift */; };
 		E7257FFAA639B6A6101D2A93 /* SkillsGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03A1C8EE55E835D55208BEE /* SkillsGrouping.swift */; };
@@ -1034,6 +1039,7 @@
 		EF68334C2E3FA0DEE887F4D1 /* BandDayMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C65987BA1B90E1F1651471 /* BandDayMapper.swift */; };
 		EF92979F1C515F4B3B67A85B /* DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D462E83EF512750EA59A8A4 /* DeviceView.swift */; };
 		EFB1ACAC16F131B3CEFCC54B /* AppGroupIslandDesignCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DF80D244E7502C4F6D2591D /* AppGroupIslandDesignCache.swift */; };
+		EFCBAD2D87CF5CB5789DDC3C /* BatteryUsageSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF5A6735872D4E62D6F7AD9 /* BatteryUsageSummary.swift */; };
 		EFFC269A1DC505D512810084 /* PhotonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6DDD351067C14D230E2285D /* PhotonTests.swift */; };
 		EFFEFAA97F1EEA6870A6C36A /* InsightsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A55E446DAE753E76FE9849B /* InsightsTests.swift */; };
 		F0957230CA29EC2F8040C55D /* GlassesNotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E666532096401202B0233F7 /* GlassesNotesView.swift */; };
@@ -1259,6 +1265,7 @@
 		15A5AE9B26C4B75A08852A2A /* NotesStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotesStore.swift; sourceTree = "<group>"; };
 		15E07F70B0F3B547523638C3 /* WearablesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesHub.swift; sourceTree = "<group>"; };
 		15EA1BB17E5186EDBF66B78D /* IntegrationsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IntegrationsPage.swift; sourceTree = "<group>"; };
+		16998A65B0E5B2E052548EC4 /* BatteryUsageSummaryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryUsageSummaryTests.swift; sourceTree = "<group>"; };
 		17B862D13722CC32639DF633 /* MelkFrames.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MelkFrames.swift; sourceTree = "<group>"; };
 		17D81F3D77511AA70B32B057 /* ActionBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ActionBanner.swift; sourceTree = "<group>"; };
 		18882C61E749AD15922B366C /* MoreTone+Color.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MoreTone+Color.swift"; sourceTree = "<group>"; };
@@ -1424,6 +1431,7 @@
 		40C064350AA8B81978194E2B /* ShellSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShellSnapshotTests.swift; sourceTree = "<group>"; };
 		413E3BCBB775B509259D57DF /* InvokeRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InvokeRunner.swift; sourceTree = "<group>"; };
 		419A48CB3F0A5BBA8E2741CA /* ProfilesModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfilesModels.swift; sourceTree = "<group>"; };
+		41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnergyLedgerTests.swift; sourceTree = "<group>"; };
 		41B3E4ABF4C21C088EC1CCAD /* LiveActivityModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityModels.swift; sourceTree = "<group>"; };
 		41C2B664CE0AB70ECB93269B /* DashcamSyncActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DashcamSyncActivity.swift; path = JarvisWidget/DashcamSyncActivity.swift; sourceTree = "<group>"; };
 		41DCD577ADAA3427809FECC3 /* RingDayJSON.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDayJSON.swift; sourceTree = "<group>"; };
@@ -1852,6 +1860,7 @@
 		A7AFC4A43B57C159790A3A8E /* DashcamDestinationsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDestinationsView.swift; sourceTree = "<group>"; };
 		A7B663766BEAF55E61B289A7 /* CarModelRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarModelRenderTests.swift; sourceTree = "<group>"; };
 		A7EFD59A50C3FF7D7A443DF5 /* InsightsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsAPI.swift; sourceTree = "<group>"; };
+		A8539BC1E4EC4D51D3F09195 /* BatteryUsageRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryUsageRenderTests.swift; sourceTree = "<group>"; };
 		A8C977B201AFD54C03773DE4 /* AppDeepLinkTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppDeepLinkTests.swift; sourceTree = "<group>"; };
 		A90581F17A4279EB115AA519 /* DashcamDeviceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamDeviceTests.swift; sourceTree = "<group>"; };
 		A90E1D05DBCB57D4A986B917 /* PodSetupCode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PodSetupCode.swift; sourceTree = "<group>"; };
@@ -1890,6 +1899,7 @@
 		B225BC7B720833E133240924 /* CodingApprovalCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingApprovalCard.swift; sourceTree = "<group>"; };
 		B29D1AF169D0CE441CDDC9CF /* HealthTabSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthTabSettings.swift; sourceTree = "<group>"; };
 		B2A709DD60E60C1D6F93F561 /* DashcamAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamAPI.swift; sourceTree = "<group>"; };
+		B2BBDA27A914B416B67A76AB /* BatteryUsagePage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryUsagePage.swift; sourceTree = "<group>"; };
 		B2FD2373F18760AD55FB00A8 /* LiveSpeakerTracker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveSpeakerTracker.swift; sourceTree = "<group>"; };
 		B3048AE0F95563C1E6BD0B85 /* IslandAutoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandAutoTests.swift; sourceTree = "<group>"; };
 		B33FB3FAB1036008A4F39AF9 /* JarvisWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = JarvisWidget.entitlements; path = JarvisWidget/JarvisWidget.entitlements; sourceTree = "<group>"; };
@@ -2140,6 +2150,7 @@
 		EBFD7DFA6DB3D4B1B5317BC9 /* ChatDashboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatDashboard.swift; sourceTree = "<group>"; };
 		ED69956E5A404410D189DB90 /* PairPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairPage.swift; sourceTree = "<group>"; };
 		ED899060A8E9519B6538191B /* PhotoLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
+		EDD9197DD940F955EE173280 /* EnergyLedger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnergyLedger.swift; sourceTree = "<group>"; };
 		EE005B9FC27E7A101BF66255 /* GlassesScreenRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesScreenRenderTests.swift; sourceTree = "<group>"; };
 		EE015A444EA73A915FDAB241 /* GlassesTranslateWireTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GlassesTranslateWireTests.swift; sourceTree = "<group>"; };
 		EE029576C3EECD8DD6F9EC4A /* RingFirmwareUpdate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareUpdate.swift; sourceTree = "<group>"; };
@@ -2222,6 +2233,7 @@
 		FF38FA02DB3C09C3D924287E /* DashcamRenderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamRenderTests.swift; sourceTree = "<group>"; };
 		FF62BEF2FA9BF96229F9DA3A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisWatchWidget/Info.plist; sourceTree = "<group>"; };
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
+		FFF5A6735872D4E62D6F7AD9 /* BatteryUsageSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryUsageSummary.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2434,6 +2446,8 @@
 			children = (
 				445A6579AAFC137DB6F4F411 /* WebBrowserSettingsTests.swift */,
 				90B23E91BEA3BA4CCE0D6F9E /* PromptCacheSettingsTests.swift */,
+				16998A65B0E5B2E052548EC4 /* BatteryUsageSummaryTests.swift */,
+				A8539BC1E4EC4D51D3F09195 /* BatteryUsageRenderTests.swift */,
 			);
 			name = Settings;
 			path = Settings;
@@ -2748,6 +2762,7 @@
 				1B145F905C6C1F52C25BF7D0 /* BridgeTopicsTests.swift */,
 				18F0D88DF1A2FAFE47BE1F6C /* AgentLiveActivityTests.swift */,
 				975E31E42A842EE614B01831 /* AgentActivityRenderTests.swift */,
+				41B02670EF3C9A31EF6A5151 /* EnergyLedgerTests.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -2917,6 +2932,8 @@
 				37E1006EA5C2931DACA7FA80 /* WebBrowserSettings.swift */,
 				5BD03C89004C0F46A02A23CD /* PromptCacheSettings.swift */,
 				A1DE265BC34482F62295C26B /* DefaultChoiceScreen.swift */,
+				B2BBDA27A914B416B67A76AB /* BatteryUsagePage.swift */,
+				FFF5A6735872D4E62D6F7AD9 /* BatteryUsageSummary.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -4132,6 +4149,7 @@
 				2E176E9603F6B391D2E28857 /* BridgeTopics.swift */,
 				CACEC2930E15C9759206B2B3 /* LiveActivityAgentController.swift */,
 				04C04135E995B71A97D2D08B /* LiveActivityAgents.swift */,
+				EDD9197DD940F955EE173280 /* EnergyLedger.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -4835,6 +4853,9 @@
 				170AB64557B9EF212410FA6B /* AgentsScreensTests.swift in Sources */,
 				81DA501E048CE0D97595129D /* AgentLiveActivityTests.swift in Sources */,
 				EA7631D5CF9E73424172159D /* AgentActivityRenderTests.swift in Sources */,
+				079FE7937A34765A25717BCD /* EnergyLedgerTests.swift in Sources */,
+				8A7F4CA2B7E8BE05D804F6F9 /* BatteryUsageSummaryTests.swift in Sources */,
+				0FE9065C6AF13C6C13FB7351 /* BatteryUsageRenderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5578,6 +5599,9 @@
 				5A7E8150B57FEE44447FED38 /* AgentActivityViews.swift in Sources */,
 				9DB4F673B8C5784D269D94DF /* AgentBrand.swift in Sources */,
 				C48CDD4863876D3DFEAFF0A4 /* AgentActivitySettingsSection.swift in Sources */,
+				8B0472F39F728B24AF43C804 /* EnergyLedger.swift in Sources */,
+				E6830FE9E81508E186DFBCF4 /* BatteryUsagePage.swift in Sources */,
+				EFCBAD2D87CF5CB5789DDC3C /* BatteryUsageSummary.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

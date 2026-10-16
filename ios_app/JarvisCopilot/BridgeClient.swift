@@ -33,7 +33,9 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
-    @Published private(set) var status: Status = .off
+    @Published private(set) var status: Status = .off {
+        didSet { EnergyLedger.shared.set(.bridge, status == .online) }
+    }
     @Published private(set) var registeredSkills = 0
     @Published private(set) var lastActivity: Date?
     /// When a silent push last woke us, and what came of it. Persisted so it survives
@@ -84,10 +86,20 @@ final class BridgeClient: NSObject, ObservableObject {
     /// on background and every invoke goes through the silent push. `AppServices`
     /// also calls this at launch, since the setters only sync on a change.
     func syncKeepalive() {
-        BackgroundKeepalive.shared.sync(active: (enabled && backgroundKeepalive && isPaired && !isInSustainedOutage)
+        let wasHolding = BackgroundKeepalive.shared.isRunning
+        BackgroundKeepalive.shared.sync(active: (enabled && backgroundKeepalive && isPaired && !isInSustainedOutage
+                                                 // Low Power Mode asks every app to stop background work, and the
+                                                 // silent audio plus a ping every 40 s is exactly that.
+                                                 && !ProcessInfo.processInfo.isLowPowerModeEnabled)
                                         // Dashcam clips moving keep the app awake too: uploads and the sync Live
                                         // Activity otherwise freeze the moment the app goes to the background.
                                         || DashcamSync.shared.holdsKeepalive)
+        // Let go while backgrounded (Low Power Mode came on): iOS is about to suspend us with the
+        // socket half-open, and the server would keep routing invokes into it instead of pushing.
+        if wasHolding, !BackgroundKeepalive.shared.isRunning, Self.appInBackground, socket != nil {
+            disconnect()
+            Task { await drainQueue(foreground: false) }
+        }
     }
 
     /// How long the socket may stay down before the keepalive is not worth its
@@ -398,6 +410,7 @@ final class BridgeClient: NSObject, ObservableObject {
                 case .failure(let error):
                     self.handleDrop(error.localizedDescription)
                 case .success(let message):
+                    EnergyLedger.shared.count("bridge.in")
                     self.lastActivity = Date()
                     // Anything at all counts as liveness, which is what lets the
                     // ping task stay silent on a healthy socket.
@@ -412,6 +425,7 @@ final class BridgeClient: NSObject, ObservableObject {
     }
 
     private func handleDrop(_ reason: String) {
+        EnergyLedger.shared.count("bridge.drop")
         socket = nil
         BridgeTopics.shared.forget()
         pingTask?.cancel(); pingTask = nil
@@ -506,6 +520,8 @@ final class BridgeClient: NSObject, ObservableObject {
         guard let socket,
               let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return }
+        EnergyLedger.shared.count("bridge.out")
+        EnergyLedger.shared.count("bridge.out_bytes", by: data.count)
         socket.send(.string(text)) { [weak self] error in
             guard let error else { return }
             Task { @MainActor in self?.handleDrop(error.localizedDescription) }

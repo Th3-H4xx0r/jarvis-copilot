@@ -177,6 +177,7 @@ final class AppServices {
     private let phoneWindowActive: () -> Bool
 
     private(set) var didStart = false
+    private var powerWatch: NSObjectProtocol?
     /// True while the app is in the foreground, as this object last saw it.
     private(set) var isForeground = true
 
@@ -281,8 +282,16 @@ final class AppServices {
         // 7. Background location, if the user left it on.
         location.startIfEnabled()
 
-        // 8. Field metrics + the home-screen quick actions.
+        // 8. Field metrics + the home-screen quick actions. The battery ledger first, so the probe
+        //    it closes every hour has the network, charger and Low Power Mode from the start.
+        EnergyLedger.shared.start()
+        EnergyLedger.shared.setTab(router.selectedTab.rawValue)
         metrics.register()
+        // Low Power Mode lets the keepalive go (and an off brings it back) without waiting for a reconnect.
+        powerWatch = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange,
+                                                            object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { BridgeClient.shared.syncKeepalive() }
+        }
         QuickAction.install()
 
         // 9. "Ask JARVIS" from Siri, until the Chat screen registers its own.
@@ -371,6 +380,7 @@ final class AppServices {
         // wait for the phone, car or no car — they get the tap-to-run notification.
         lifecycle.isForeground = phone
         BridgeClient.appInBackground = !foreground
+        EnergyLedger.shared.set(.foreground, foreground)
         WidgetDataHub.shared.setForeground(foreground)
         if carPlayActive, foreground == isForeground { return }
         isForeground = foreground

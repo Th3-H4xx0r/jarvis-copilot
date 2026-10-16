@@ -56,7 +56,10 @@ final class AppRouter {
     /// and the Siri/wake-word bridge touch the singleton.
     static let shared = AppRouter()
 
-    var selectedTab: AppTab = .chat
+    var selectedTab: AppTab = .chat {
+        // Settings → Battery usage charges on-screen CPU to the tab showing.
+        didSet { EnergyLedger.shared.setTab(selectedTab.rawValue) }
+    }
 
     /// Latched request to "open Voice and start a turn", fired by the Siri App
     /// Intent and the wake word.
