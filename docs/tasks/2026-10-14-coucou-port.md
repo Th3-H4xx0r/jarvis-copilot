@@ -89,8 +89,13 @@ end and push to all devices after this". A box is ticked only once it is live.
 44. [x] Snippets fired inside sentences ("what my email is" → the address): only the whole dictation now
    - ✅ Installed (56212c0165).
 45. [ ] Push to talk sends what's on screen (front app, window, a look at it) when you don't give context
-46. [ ] Siri-style screen-edge glow while holding push to talk (two arcs from the top meet at the bottom; back to the top when it ends), toggle in Settings
+   - Built (3d8c1c68e3): a turn from the Mac may read its screen (device_ui_look) unasked and is told to look first; "look at my screen" now counts as an ask (it was refused). Server restart waits for a quiet moment. Not yet: the front window's name sent with each turn.
+46. [x] Siri-style screen-edge glow while holding push to talk (two arcs from the top meet at the bottom; back to the top when it ends), toggle in Settings
 47. [ ] Mac island Chat: match the phone's chat exactly, harness / single model choice in Settings, the + file picker opens behind the island, full tools like the regular chat agent
+48. [x] Picking a file from the island chat's + folded the island (the picker's clicks look like clicks elsewhere)
+   - ✅ Installed (dbf1b542a1).
+49. [ ] "Look at my screen" → "I can't access your Mac screen from this request" (the Mac gate only knew "on my screen")
+   - Built (3d8c1c68e3); live once the server restarts.
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
