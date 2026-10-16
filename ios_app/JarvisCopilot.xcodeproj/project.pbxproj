@@ -128,6 +128,7 @@
 		1DD386DFF05B636A0903A0E7 /* Endpointer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 322E1110A5953ECE2DE854A9 /* Endpointer.swift */; };
 		1E18F4882BF3D67E23D0322E /* HealthDayPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */; };
 		1E2636C279EE5D84BBB665C4 /* TasksPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C68CD5E3CB910CEC450F59 /* TasksPage.swift */; };
+		1E2769C44E659D038473904F /* CarCardTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAA65DDD4E0CD69C0D63873D /* CarCardTextTests.swift */; };
 		1E3368A723AD8E5B2DB99AFB /* DashcamRTSP.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D568440F5B97033A3C9656 /* DashcamRTSP.swift */; };
 		1E541AEE4B390920A746197F /* VoiceStoreTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101FA39DE2C20912964EA545 /* VoiceStoreTransport.swift */; };
 		1E6D01AA4CA1EC7C838846ED /* InmoAIResponseRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D25430B8EECD051E1F0311 /* InmoAIResponseRendererTests.swift */; };
@@ -596,6 +597,7 @@
 		88194090C2BA108F0F43F08E /* DashcamSyncAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF92DEBDA1CDCB88B6640D5B /* DashcamSyncAttributes.swift */; };
 		8874BBEE51233544D14A95A5 /* JarvisMemoryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EDDD964DC3E96BEC2E2D53B /* JarvisMemoryAPI.swift */; };
 		88CD4B373D65096135F6BC82 /* RingSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB967D41CB1681FEC3E5EFBC /* RingSessionTests.swift */; };
+		88D58356CBBEED4EB5CEE1C3 /* CarCardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132AAD600C97329A4954EDA6 /* CarCardText.swift */; };
 		891B860B662070C064E8FFF0 /* NoteDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 059A0CC3B6767D273FAD7A75 /* NoteDetailScreen.swift */; };
 		893CCE570E4D0A17C414627F /* NotesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E2B50C7BDAB19EBC8A962E /* NotesModels.swift */; };
 		8955CEE8412946C04ACA270F /* SkillsPageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10AB262C0BC02FC5A3E2B77F /* SkillsPageModel.swift */; };
@@ -794,6 +796,7 @@
 		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		B702131C489F94D2E5DF658D /* AgentLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3B787CD98A2B37225ADAD4 /* AgentLiveActivity.swift */; };
 		B777422940BE057265208DDB /* X5Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A3A19FD77D7466DE72F90D /* X5Sync.swift */; };
+		B7855CFF3F28D8DE39AEDFB2 /* CarCardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 132AAD600C97329A4954EDA6 /* CarCardText.swift */; };
 		B7FE2B1590C9CEB980287CC2 /* BandMeasureSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5909EF0B6B0DED28DF2BCBA8 /* BandMeasureSchedule.swift */; };
 		B8772BBE4770F5AF25A3C1DB /* SpeechServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F3BF326978B8240E913298 /* SpeechServices.swift */; };
 		B8AEAF21BE8844C5268A67FF /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8255E22F98CF91A5B288D04E /* VoiceSession.swift */; };
@@ -1245,6 +1248,7 @@
 		1214332EFACB64EEB1C57FC3 /* ControlButtonsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ControlButtonsPage.swift; sourceTree = "<group>"; };
 		124A19CCFEEDF76C4C2B8451 /* CodeMasterSettingsStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeMasterSettingsStore.swift; sourceTree = "<group>"; };
 		13230616650AD4EA4F83CF5A /* X5Protocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = X5Protocol.swift; sourceTree = "<group>"; };
+		132AAD600C97329A4954EDA6 /* CarCardText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCardText.swift; sourceTree = "<group>"; };
 		133F6A5DE33D36FDF8CC9578 /* JarvisWatchWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisWatchWidget.swift; path = JarvisWatchWidget/JarvisWatchWidget.swift; sourceTree = "<group>"; };
 		134F6461E057F80F94D07A81 /* CodingStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingStoreTests.swift; sourceTree = "<group>"; };
 		137F8D68A44C517D75AAAA5A /* ThinkingDots.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThinkingDots.swift; sourceTree = "<group>"; };
@@ -2140,6 +2144,7 @@
 		E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionStoreTests.swift; sourceTree = "<group>"; };
 		EA2C017FD5F777076F1BD6B5 /* HealthDayPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthDayPayload.swift; sourceTree = "<group>"; };
 		EA6038CB0FF7811FD94722CD /* ServicesTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServicesTestSupport.swift; sourceTree = "<group>"; };
+		EAA65DDD4E0CD69C0D63873D /* CarCardTextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CarCardTextTests.swift; sourceTree = "<group>"; };
 		EACB05CBB8C6472542BDCC6E /* DashcamWiFiPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashcamWiFiPicker.swift; sourceTree = "<group>"; };
 		EB058DEAF58CF0670B328304 /* MarkdownText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		EB5FF67E8522F08547878377 /* BandHandModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BandHandModel.swift; sourceTree = "<group>"; };
@@ -3980,6 +3985,7 @@
 				E41861373A7C8A84FC03D47B /* AgentActivityAttributes.swift */,
 				09B892DDF16C02A8C8730BEA /* AgentActivityViews.swift */,
 				A2C0998844A4F29E81101966 /* AgentBrand.swift */,
+				132AAD600C97329A4954EDA6 /* CarCardText.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -4169,6 +4175,7 @@
 			children = (
 				A6EB9C7771C46F50FD2210D9 /* CarPlayScreensTests.swift */,
 				4B976D91C1CD0EC4809B358F /* CarPlayVoiceTests.swift */,
+				EAA65DDD4E0CD69C0D63873D /* CarCardTextTests.swift */,
 			);
 			name = CarPlay;
 			path = CarPlay;
@@ -4544,6 +4551,7 @@
 				102A0D7FDBEAFF7A41083B2D /* AgentActivityAttributes.swift in Sources */,
 				93A16D888A4CF737CB4E7CB4 /* AgentActivityViews.swift in Sources */,
 				7AB7348477FDCEDEE6A7614F /* AgentBrand.swift in Sources */,
+				B7855CFF3F28D8DE39AEDFB2 /* CarCardText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4856,6 +4864,7 @@
 				079FE7937A34765A25717BCD /* EnergyLedgerTests.swift in Sources */,
 				8A7F4CA2B7E8BE05D804F6F9 /* BatteryUsageSummaryTests.swift in Sources */,
 				0FE9065C6AF13C6C13FB7351 /* BatteryUsageRenderTests.swift in Sources */,
+				1E2769C44E659D038473904F /* CarCardTextTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5602,6 +5611,7 @@
 				8B0472F39F728B24AF43C804 /* EnergyLedger.swift in Sources */,
 				E6830FE9E81508E186DFBCF4 /* BatteryUsagePage.swift in Sources */,
 				EFCBAD2D87CF5CB5789DDC3C /* BatteryUsageSummary.swift in Sources */,
+				88D58356CBBEED4EB5CEE1C3 /* CarCardText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5764,7 +5774,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = JarvisWidget/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -5904,7 +5914,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = JarvisWidget/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

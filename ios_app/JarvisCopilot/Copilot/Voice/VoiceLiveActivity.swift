@@ -14,6 +14,8 @@ struct VoiceLiveActivitySnapshot: Equatable, Sendable {
     let connected: Bool
     /// Icon kinds for the online-devices strip, e.g. ["laptop", "phone"].
     let devices: [String]
+    /// A one-shot (CarPlay Talk) reply holding the card after its turn ended.
+    var holdsCard = false
 }
 
 /// Throttles + dedupes Live Activity pushes. iOS gives an app a limited update
@@ -85,10 +87,13 @@ func voiceFirstLine(_ s: String, limit: Int = VoiceLiveActivityThrottle.lineLimi
 }
 
 /// JARVIS's side of the line for the island.
+/// `holdReply`: a finished one-shot turn's reply stays on the card while idle.
 func voiceOutputLine(error: String?, toolStatus: String?,
-                     state: VoiceState, assistantText: String) -> String {
+                     state: VoiceState, assistantText: String, holdReply: Bool = false) -> String {
     if let error, !error.isEmpty { return error }
     if let toolStatus, !toolStatus.isEmpty { return toolStatus }
-    if state == .speaking, !assistantText.isEmpty { return voiceFirstLine(assistantText) }
+    if state == .speaking || (holdReply && state == .idle), !assistantText.isEmpty {
+        return voiceFirstLine(assistantText)
+    }
     return ""
 }

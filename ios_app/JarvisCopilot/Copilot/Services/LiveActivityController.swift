@@ -11,6 +11,7 @@ import ActivityKit
 final class DefaultActivityController: ActivityControlling {
 
     var onPushToken: ((String) -> Void)?
+    var onExternalUpdate: (() -> Void)?
 
     /// Prefetches remote images referenced by a custom design's data payload, so
     /// the widget can render them without a network of its own.
@@ -18,6 +19,10 @@ final class DefaultActivityController: ActivityControlling {
     /// Push-token observers, keyed by activity id, so each can be cancelled when
     /// its activity goes away instead of leaking a live `for await` per activity.
     private var tokenTasks: [String: Task<Void, Never>] = [:]
+    /// Content observers, per activity id, to notice the server's pushes.
+    private var contentTasks: [String: Task<Void, Never>] = [:]
+    /// The last few states this app sent: anything else arriving came from the server.
+    private var recentSent: [JarvisActivityAttributes.ContentState] = []
     private var observing = false
     /// Serialises the `await`-ing ActivityKit calls (see `ActivityUpdateQueue`).
     private let queue = ActivityUpdateQueue()
@@ -38,7 +43,11 @@ final class DefaultActivityController: ActivityControlling {
         images?.prefetch(IslandImageCache.urls(inData: state.data))
         let content = ActivityContent(state: Self.contentState(state), staleDate: nil,
                                       relevanceScore: Self.relevance(state))
+        recentSent.append(content.state)
+        if recentSent.count > 4 { recentSent.removeFirst(recentSent.count - 4) }
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
+            // An activity left from an earlier launch is watched too (its server pushes).
+            startObserving()
             // Through the queue, not a bare `Task`: unstructured tasks run in an
             // arbitrary order, so a stale frame could land after a newer one and
             // freeze the island on old text.
@@ -76,6 +85,8 @@ final class DefaultActivityController: ActivityControlling {
         // here: otherwise every ended activity leaves a live `for await` behind.
         for task in tokenTasks.values { task.cancel() }
         tokenTasks.removeAll()
+        for task in contentTasks.values { task.cancel() }
+        contentTasks.removeAll()
         queue.enqueue {
             for activity in Activity<JarvisActivityAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
@@ -88,7 +99,7 @@ final class DefaultActivityController: ActivityControlling {
     /// "Tap to talk" launcher yields to any agent (see
     /// `AgentActivityAttributes.ContentState.relevance`, 5–80).
     static func relevance(_ s: LiveActivityState) -> Double {
-        if s.state != "idle" { return 100 }
+        if s.state != "idle" || s.voiceHold { return 100 }
         switch s.mode {
         case "custom": return 50
         case "coding": return 40
@@ -132,6 +143,17 @@ final class DefaultActivityController: ActivityControlling {
 
     private func observe(_ activity: Activity<JarvisActivityAttributes>) {
         let id = activity.id
+        if contentTasks[id] == nil {
+            contentTasks[id] = Task { [weak self] in
+                for await content in activity.contentUpdates {
+                    await MainActor.run {
+                        guard let self, !self.recentSent.contains(content.state) else { return }
+                        self.onExternalUpdate?()
+                    }
+                }
+                await MainActor.run { self?.contentTasks[id] = nil }
+            }
+        }
         guard tokenTasks[id] == nil else { return }
         tokenTasks[id] = Task { [weak self] in
             for await data in activity.pushTokenUpdates {

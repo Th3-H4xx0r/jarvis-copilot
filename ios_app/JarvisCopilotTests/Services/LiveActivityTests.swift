@@ -231,6 +231,76 @@ final class LiveActivityTests: XCTestCase {
                        "the coding fields are cleared so the widget can't render both")
     }
 
+    // MARK: - The car: a one-shot reply holds the card
+
+    func testHeldReplyShowsAtIdle() {
+        XCTAssertEqual(voiceOutputLine(error: nil, toolStatus: nil, state: .idle,
+                                       assistantText: "It's 72 degrees.", holdReply: true),
+                       "It's 72 degrees.")
+        XCTAssertEqual(voiceOutputLine(error: nil, toolStatus: nil, state: .idle,
+                                       assistantText: "It's 72 degrees."), "",
+                       "without a hold an idle island shows no reply, as before")
+    }
+
+    func testHoldKeepsVoiceModeOverCoding() async {
+        let controller = FakeActivityController()
+        let (coordinator, transport) = makeCoordinator(controller: controller)
+        transport.route("/api/coding/projects", json: [
+            "projects": [["id": "p1", "name": "hermes",
+                          "sessions": [["id": "a", "status": "running",
+                                        "activity_state": "working"]]]],
+            "ungrouped": [],
+        ])
+        transport.route("/api/coding/usage", json: ["usage": [:]])
+        transport.route("/api/island/designs", json: [
+            "designs": [],
+            "catalog": [["id": "coding", "name": "Coding", "builtin": true,
+                         "enabled": true, "priority": 10]],
+        ])
+        await coordinator.refreshCoding()
+        XCTAssertEqual(controller.updates.last?.mode, "coding")
+
+        coordinator.reportVoice(VoiceLiveActivitySnapshot(
+            state: "idle", transcript: "how hot is it", activity: "It's 72 degrees.",
+            connected: true, devices: [], holdsCard: true))
+        let held = controller.updates.last
+        XCTAssertEqual(held?.mode, "voice", "his reply wins the card for its 2 minutes")
+        XCTAssertEqual(held?.voiceHold, true)
+        XCTAssertEqual(held?.activity, "It's 72 degrees.")
+
+        coordinator.reportVoice(VoiceLiveActivitySnapshot(
+            state: "idle", transcript: "", activity: "", connected: true, devices: []))
+        XCTAssertEqual(controller.updates.last?.mode, "coding", "then the card goes back to normal")
+    }
+
+    func testHoldRelevanceIsTop() {
+        XCTAssertEqual(DefaultActivityController.relevance(LiveActivityState(state: "idle", voiceHold: true)), 100)
+        XCTAssertEqual(DefaultActivityController.relevance(LiveActivityState(state: "idle")), 0)
+        XCTAssertTrue(LiveActivityState(state: "idle", voiceHold: true).isWorthStarting)
+    }
+
+    func testAServerPushDuringTheHoldIsOverwritten() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.reportVoice(VoiceLiveActivitySnapshot(
+            state: "idle", transcript: "", activity: "It's 72 degrees.",
+            connected: true, devices: [], holdsCard: true))
+        let before = controller.updates.count
+        controller.emitExternalUpdate()
+        XCTAssertEqual(controller.updates.count, before + 1, "the reply is put back on the card")
+        XCTAssertEqual(controller.updates.last?.activity, "It's 72 degrees.")
+    }
+
+    func testAServerPushWithoutAHoldIsLeftAlone() {
+        let controller = FakeActivityController()
+        let (coordinator, _) = makeCoordinator(controller: controller)
+        coordinator.reportVoice(VoiceLiveActivitySnapshot(
+            state: "listening", transcript: "hi", activity: "", connected: true, devices: []))
+        let before = controller.updates.count
+        controller.emitExternalUpdate()
+        XCTAssertEqual(controller.updates.count, before)
+    }
+
     func testTurningTheSettingOffEndsTheActivityAndStopsPushing() {
         let controller = FakeActivityController()
         let (coordinator, _) = makeCoordinator(controller: controller)

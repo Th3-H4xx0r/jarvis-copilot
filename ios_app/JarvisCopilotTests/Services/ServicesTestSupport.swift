@@ -137,6 +137,7 @@ final class FakeMetrics: MetricsRegistering {
 @MainActor
 final class FakeActivityController: ActivityControlling {
     var onPushToken: ((String) -> Void)?
+    var onExternalUpdate: (() -> Void)?
     private(set) var updates: [LiveActivityState] = []
     private(set) var ends = 0
 
@@ -144,6 +145,8 @@ final class FakeActivityController: ActivityControlling {
     func end() { ends += 1 }
     /// Pretend iOS handed us an activity push token.
     func emitToken(_ token: String) { onPushToken?(token) }
+    /// Pretend the server pushed new content over APNs.
+    func emitExternalUpdate() { onExternalUpdate?() }
 }
 
 /// An `IslandDesignCache` that keeps payloads in memory.

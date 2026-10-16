@@ -641,15 +641,18 @@ extension VoiceStore {
     /// state change and whenever a line of text changes.
     func pushLiveActivity() {
         maybeRefreshDevices()
+        let holding = replyHoldUntil != nil && machine.state == .idle
         let snapshot = VoiceLiveActivitySnapshot(
             // `connecting` shows as `thinking`: the island has no distinct art
             // for it and flipping between the two reads as a glitch.
             state: machine.state == .connecting ? "thinking" : machine.state.rawValue,
             transcript: voiceFirstLine(userTranscript),
             activity: voiceOutputLine(error: error, toolStatus: toolStatus,
-                                      state: machine.state, assistantText: reply.text),
+                                      state: machine.state, assistantText: reply.text,
+                                      holdReply: holding),
             connected: voice.api.isPaired,
-            devices: deviceKinds)
+            devices: deviceKinds,
+            holdsCard: holding)
         let terminal = machine.state == .idle || machine.state == .error
         liveActivity.offer(snapshot, terminal: terminal)
     }

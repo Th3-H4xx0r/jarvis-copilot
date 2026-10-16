@@ -6,152 +6,158 @@ import UIKit
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: JarvisActivityAttributes.self) { context in
-            JarvisLockScreen(st: context.state)
+            JarvisFamilyLockScreen(st: context.state)
                 .activityBackgroundTint(Color.black.opacity(0.65))
                 .activitySystemActionForegroundColor(.white)
                 .widgetURL(URL(string: jcWidgetURL(context.state)))
         } dynamicIsland: { context in
-            let st = context.state
-            // Custom data-driven design (Dynamic Island Designs). A `regions`
-            // top-level node maps to the native DI regions; otherwise the whole
-            // expanded tree lands in the bottom region. Compact/minimal pull from
-            // their presentation nodes, with the orb/fallback as a safety net.
-            if st.mode == "custom" {
-                let design = JCDesignCache.load(st.designId)
-                let ctx = JCBindingContext(dataJSON: st.data)
-                let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
-                let node = design?.presentations.expanded
-                let isRegions = (node?.type == "regions")
-                // Declare the four regions inline (mirrors the coding pattern) so
-                // the @DynamicIslandExpandedContentBuilder body is straight-line;
-                // all branching lives inside each region's ViewBuilder closure.
-                return DynamicIsland {
-                    DynamicIslandExpandedRegion(.leading) {
-                        if isRegions {
-                            JCDesignRenderer(tint: tint).render(node?.node("leading"), ctx)
-                        }
-                    }
-                    DynamicIslandExpandedRegion(.trailing) {
-                        if isRegions {
-                            JCDesignRenderer(tint: tint).render(node?.node("trailing"), ctx)
-                        }
-                    }
-                    DynamicIslandExpandedRegion(.center) {
-                        if isRegions {
-                            JCDesignRenderer(tint: tint).render(node?.node("center"), ctx)
-                        }
-                    }
-                    DynamicIslandExpandedRegion(.bottom) {
-                        // Small safety inset so wide content (bars/lists) doesn't
-                        // run into the island's rounded corners; designs should
-                        // still pad their own root (see the skill's layout rules).
-                        Group {
-                            if isRegions {
-                                JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
-                            } else if let node = node {
-                                JCDesignRenderer(tint: tint).render(node, ctx)
-                            } else {
-                                JCDesignFallback(st: st)
-                            }
-                        }
-                        .padding(.horizontal, 6)
-                    }
-                } compactLeading: {
-                    JCDesignView(st: st, presentation: .compactLeading)
-                } compactTrailing: {
-                    JCDesignView(st: st, presentation: .compactTrailing)
-                } minimal: {
-                    JCDesignView(st: st, presentation: .minimal)
-                }
-                .widgetURL(URL(string: jcWidgetURL(st)))
-            }
-            return DynamicIsland {
-                // Header left-aligned: orb + JARVIS/Connected sit together on the
-                // leading side (a little padding off the orb), state pill trailing.
-                DynamicIslandExpandedRegion(.leading) {
-                    if st.mode == "coding" {
-                        HStack(spacing: 9) {
-                            JarvisOrb(state: "idle", size: 38)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Claude Code").font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(.white)
-                                (Text("\(st.sessionTotal) sessions").foregroundColor(.white.opacity(0.55))
-                                 + Text(st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
-                                    .foregroundColor(jcCodingColor("waiting")))
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                        }
-                        .padding(.leading, 4)
-                    } else {
-                        HStack(spacing: 9) {
-                            JarvisOrb(state: st.state, size: 42)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("JARVIS").font(.system(size: 15, weight: .heavy))
-                                    .foregroundStyle(.white)
-                                HStack(spacing: 4) {
-                                    Circle().fill(st.connected ? Color.green : Color.gray)
-                                        .frame(width: 5, height: 5)
-                                    Text(st.connected ? "Connected" : "Offline")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.5))
-                                }
-                            }
-                        }
-                        .padding(.leading, 4)
-                    }
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    if st.mode == "coding" {
-                        JCUsageBlock(st: st).padding(.trailing, 4)
-                    } else {
-                        jcStatePill(st.state).padding(.trailing, 4)
-                    }
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    if st.mode == "coding" {
-                        VStack(alignment: .leading, spacing: 9) {
-                            if !st.leadAgent.isEmpty {
-                                JCLeadRow(st: st)
-                            } else {
-                                JCSegBar(sessions: jcDecodeSessions(st.sessions))
-                            }
-                            JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
-                        }
-                    } else {
-                        // Both the expanded island AND the lock-screen banner are
-                        // height-capped by the system, so the waveform is dropped
-                        // from both. State is conveyed by the pill + animating orb,
-                        // so the freed room goes to the content.
-                        VStack(spacing: 6) {
-                            JarvisConvo(st: st)
-                            JarvisDevices(st: st)
-                        }
-                    }
-                }
-            } compactLeading: {
-                if st.mode == "coding" {
-                    JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
-                } else {
-                    JarvisOrb(state: st.state, size: 24)
-                }
-            } compactTrailing: {
-                if st.mode == "coding" {
-                    JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
-                } else {
-                    Text(jcStateLabel(st.state))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(jcStateColor(st.state))
-                }
-            } minimal: {
-                if st.mode == "coding" {
-                    JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
-                } else {
-                    JarvisOrb(state: st.state, size: 22)
+            jarvisDynamicIsland(context.state)
+        }
+        // The `.small` card: the CarPlay Dashboard (and the Watch Smart Stack).
+        .supplementalActivityFamilies([.small])
+    }
+}
+
+/// The Dynamic Island.
+func jarvisDynamicIsland(_ st: JarvisActivityAttributes.ContentState) -> DynamicIsland {
+    // Custom data-driven design (Dynamic Island Designs). A `regions`
+    // top-level node maps to the native DI regions; otherwise the whole
+    // expanded tree lands in the bottom region. Compact/minimal pull from
+    // their presentation nodes, with the orb/fallback as a safety net.
+    if st.mode == "custom" {
+        let design = JCDesignCache.load(st.designId)
+        let ctx = JCBindingContext(dataJSON: st.data)
+        let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
+        let node = design?.presentations.expanded
+        let isRegions = (node?.type == "regions")
+        // Declare the four regions inline (mirrors the coding pattern) so
+        // the @DynamicIslandExpandedContentBuilder body is straight-line;
+        // all branching lives inside each region's ViewBuilder closure.
+        return DynamicIsland {
+            DynamicIslandExpandedRegion(.leading) {
+                if isRegions {
+                    JCDesignRenderer(tint: tint).render(node?.node("leading"), ctx)
                 }
             }
-            .widgetURL(URL(string: jcWidgetURL(st)))
+            DynamicIslandExpandedRegion(.trailing) {
+                if isRegions {
+                    JCDesignRenderer(tint: tint).render(node?.node("trailing"), ctx)
+                }
+            }
+            DynamicIslandExpandedRegion(.center) {
+                if isRegions {
+                    JCDesignRenderer(tint: tint).render(node?.node("center"), ctx)
+                }
+            }
+            DynamicIslandExpandedRegion(.bottom) {
+                // Small safety inset so wide content (bars/lists) doesn't
+                // run into the island's rounded corners; designs should
+                // still pad their own root (see the skill's layout rules).
+                Group {
+                    if isRegions {
+                        JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
+                    } else if let node = node {
+                        JCDesignRenderer(tint: tint).render(node, ctx)
+                    } else {
+                        JCDesignFallback(st: st)
+                    }
+                }
+                .padding(.horizontal, 6)
+            }
+        } compactLeading: {
+            JCDesignView(st: st, presentation: .compactLeading)
+        } compactTrailing: {
+            JCDesignView(st: st, presentation: .compactTrailing)
+        } minimal: {
+            JCDesignView(st: st, presentation: .minimal)
+        }
+        .widgetURL(URL(string: jcWidgetURL(st)))
+    }
+    return DynamicIsland {
+        // Header left-aligned: orb + JARVIS/Connected sit together on the
+        // leading side (a little padding off the orb), state pill trailing.
+        DynamicIslandExpandedRegion(.leading) {
+            if st.mode == "coding" {
+                HStack(spacing: 9) {
+                    JarvisOrb(state: "idle", size: 38)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Claude Code").font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                        (Text("\(st.sessionTotal) sessions").foregroundColor(.white.opacity(0.55))
+                         + Text(st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
+                            .foregroundColor(jcCodingColor("waiting")))
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                }
+                .padding(.leading, 4)
+            } else {
+                HStack(spacing: 9) {
+                    JarvisOrb(state: st.state, size: 42)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("JARVIS").font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(.white)
+                        HStack(spacing: 4) {
+                            Circle().fill(st.connected ? Color.green : Color.gray)
+                                .frame(width: 5, height: 5)
+                            Text(st.connected ? "Connected" : "Offline")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                }
+                .padding(.leading, 4)
+            }
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+            if st.mode == "coding" {
+                JCUsageBlock(st: st).padding(.trailing, 4)
+            } else {
+                jcStatePill(st.state).padding(.trailing, 4)
+            }
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+            if st.mode == "coding" {
+                VStack(alignment: .leading, spacing: 9) {
+                    if !st.leadAgent.isEmpty {
+                        JCLeadRow(st: st)
+                    } else {
+                        JCSegBar(sessions: jcDecodeSessions(st.sessions))
+                    }
+                    JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
+                }
+            } else {
+                // Both the expanded island AND the lock-screen banner are
+                // height-capped by the system, so the waveform is dropped
+                // from both. State is conveyed by the pill + animating orb,
+                // so the freed room goes to the content.
+                VStack(spacing: 6) {
+                    JarvisConvo(st: st)
+                    JarvisDevices(st: st)
+                }
+            }
+        }
+    } compactLeading: {
+        if st.mode == "coding" {
+            JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
+        } else {
+            JarvisOrb(state: st.state, size: 24)
+        }
+    } compactTrailing: {
+        if st.mode == "coding" {
+            JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
+        } else {
+            Text(jcStateLabel(st.state))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(jcStateColor(st.state))
+        }
+    } minimal: {
+        if st.mode == "coding" {
+            JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
+        } else {
+            JarvisOrb(state: st.state, size: 22)
         }
     }
+    .widgetURL(URL(string: jcWidgetURL(st)))
 }
 
 /// Deep-link target for a tap on the activity. Coding → coding tab; custom →
@@ -213,7 +219,7 @@ struct JarvisLockScreen: View {
 struct JarvisWidgetBundle: WidgetBundle {
     var body: some Widget {
         JarvisWidget()
-        // Dynamic Island / Lock Screen Live Activity.
+        // Dynamic Island / Lock Screen Live Activity, and its CarPlay card.
         JarvisLiveActivity()
         // One per coding agent with live sessions, wearing that agent's logo.
         AgentLiveActivity()

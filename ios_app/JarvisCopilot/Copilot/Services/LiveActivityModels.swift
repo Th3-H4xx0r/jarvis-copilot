@@ -16,6 +16,9 @@ struct LiveActivityState: Equatable, Sendable {
     var activity = ""
     var connected = true
     var devices: [String] = []
+    /// A one-shot (CarPlay Talk) reply is holding the card: voice wins and the
+    /// activity stays top relevance. App-side only — not part of the ContentState.
+    var voiceHold = false
 
     /// "voice" | "coding" | "custom".
     var mode = "voice"
@@ -41,7 +44,7 @@ struct LiveActivityState: Equatable, Sendable {
     var isWorthStarting: Bool {
         if mode == "coding" && sessionTotal > 0 { return true }
         if mode == "custom" && !designId.isEmpty { return true }
-        return state != "idle"
+        return state != "idle" || voiceHold
     }
 }
 
@@ -187,4 +190,6 @@ protocol ActivityControlling: AnyObject {
     /// Called with each activity's APNs push token, so the server can
     /// push-to-update while the app is suspended. Tokens rotate.
     var onPushToken: ((String) -> Void)? { get set }
+    /// Content arrived that this app didn't send (the server's APNs push-to-update).
+    var onExternalUpdate: (() -> Void)? { get set }
 }

@@ -92,6 +92,7 @@ final class LiveActivityCoordinator {
         self.controller.onPushToken = { [weak self] token in
             Task { @MainActor in self?.registerPushToken(token) }
         }
+        self.controller.onExternalUpdate = { [weak self] in self?.reassertHold() }
         // Off on this phone: no agent activities either (and any left over end).
         if !enabled { self.agents.setEnabled(false) }
     }
@@ -155,6 +156,14 @@ final class LiveActivityCoordinator {
     /// rather than pushing ActivityKit itself.
     func reportVoice(_ snapshot: VoiceLiveActivitySnapshot) {
         voice = snapshot
+        push()
+    }
+
+    /// The server pushed over a held one-shot reply (its APNs updates carry
+    /// idle + blank text): put the reply back for the rest of its 2 minutes.
+    private func reassertHold() {
+        guard enabled, voice.holdsCard else { return }
+        lastPushed = nil
         push()
     }
 
@@ -268,7 +277,8 @@ final class LiveActivityCoordinator {
     /// Build the state the island should show right now. Pure given the
     /// coordinator's snapshots, so the mode-selection rules can be asserted.
     func compose() -> LiveActivityState {
-        let voiceActive = voice.state != "idle"
+        // A held one-shot reply counts as live voice: it keeps the card (his pick).
+        let voiceActive = voice.state != "idle" || voice.holdsCard
         // With per-agent activities on, each agent shows its own sessions; the
         // fleet on this activity would be the same thing twice.
         let agentsOwnCoding = agents.ownsCoding
@@ -280,6 +290,7 @@ final class LiveActivityCoordinator {
         state.activity = voice.activity
         state.connected = voice.connected
         state.devices = voice.devices
+        state.voiceHold = voice.holdsCard
 
         var showCoding = false
         var activeDesign: IslandDesign?

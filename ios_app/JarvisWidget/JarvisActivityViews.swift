@@ -415,3 +415,63 @@ struct JCCompactFleetBar: View {
         }
     }
 }
+
+// ── CarPlay card (the activity's `.small` family) ─────────────────────────────
+
+/// Picks the CarPlay / Smart Stack card for the `.small` family, the full
+/// Lock Screen layout otherwise.
+struct JarvisFamilyLockScreen: View {
+    @Environment(\.activityFamily) private var family
+    let st: JarvisActivityAttributes.ContentState
+
+    var body: some View {
+        if family == .small {
+            JarvisSmallActivity(st: st)
+        } else {
+            JarvisLockScreen(st: st)
+        }
+    }
+}
+
+/// The CarPlay Dashboard card: the orb and what's happening, then his words while he
+/// talks and Jarvis's reply after — two short lines at most.
+struct JarvisSmallActivity: View {
+    let st: JarvisActivityAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 10) {
+            JarvisOrb(state: st.mode == "voice" ? st.state : "idle", size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(st.mode == "voice" && st.state != "idle" ? jcStateColor(st.state) : .white)
+                    .lineLimit(1)
+                if !line.isEmpty {
+                    Text(line)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private var title: String {
+        switch st.mode {
+        case "coding": return "Claude Code"
+        case "custom": return "JARVIS"
+        default: return CarCardText.title(state: st.state)
+        }
+    }
+
+    private var line: String {
+        switch st.mode {
+        case "coding":
+            return "\(st.sessionTotal) sessions" + (st.waitingCount > 0 ? " · \(st.waitingCount) waiting" : "")
+        case "custom": return ""
+        default: return CarCardText.line(state: st.state, transcript: st.transcript, activity: st.activity)
+        }
+    }
+}

@@ -17,7 +17,7 @@ APP = 'JarvisCopilot'
 WIDGET = 'JarvisWidget'
 BUNDLE = 'com.jarviscopilot.jarviscopilotMobileAndIOS.JarvisWidget1'
 TEAM = 'VY5CNF8734'
-DEPLOYMENT = '17.0'
+DEPLOYMENT = '18.0'   # the .small Live Activity (CarPlay card) needs iOS 18
 LOCK = File.join(ROOT, 'build', '.sync-project.lock')
 
 # Build settings the widget needs, applied on every run so a hand-edit or a
