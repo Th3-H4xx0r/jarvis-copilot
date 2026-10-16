@@ -111,6 +111,36 @@ public final class JarvisVoicePanel: NSObject {
         VoiceStore.shared.startWatchTurn(text: text)
     }
 
+    /// Hold-to-talk (Jarvis.app's Talk to Jarvis shortcut, set to Hold): the
+    /// key went down — start listening. A conversation already going (listening
+    /// or answering) is left as it is.
+    @objc(holdToTalkBegan)
+    @MainActor
+    public static func holdToTalkBegan() {
+        let store = VoiceStore.shared
+        guard !store.isActive else { return }
+        Task { @MainActor in
+            guard await store.ensureMic() else { return }
+            await store.primaryAction()
+        }
+    }
+
+    /// The key came up: what was said is sent. Let go before the mic was up
+    /// (it takes a moment to connect), it's sent as soon as it is listening.
+    @objc(holdToTalkEnded)
+    @MainActor
+    public static func holdToTalkEnded() {
+        let store = VoiceStore.shared
+        if store.state == .listening { store.finishSpeaking(); return }
+        Task { @MainActor in
+            for tick in 0..<40 {                       // up to 4 s
+                try? await Task.sleep(for: .milliseconds(100))
+                if store.state == .listening { store.finishSpeaking(); return }
+                if tick > 15 && !store.isActive { return }   // it never started
+            }
+        }
+    }
+
     /// Open Jarvis Settings — the tray's "Settings…" menu item. The proxy is the
     /// one the panel was built with, so the server's own sections load signed in.
     @objc(showSettings)

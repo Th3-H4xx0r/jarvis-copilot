@@ -86,12 +86,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerShortcuts() {
         guard let island else { return }
-        var bindings: [(Shortcut, () -> Void)] = []
+        var bindings: [HotKeyCenter.Binding] = []
         for action in ShortcutAction.allCases {
             guard let shortcut = action.shortcut else { continue }
-            bindings.append((shortcut, { [weak self] in self?.perform(action, island: island) }))
+            if action.holds {
+                bindings.append(HotKeyCenter.Binding(
+                    shortcut: shortcut,
+                    pressed: { [weak self] in self?.hold(action, down: true, island: island) },
+                    released: { [weak self] in self?.hold(action, down: false, island: island) }))
+            } else {
+                bindings.append(HotKeyCenter.Binding(shortcut: shortcut,
+                                                     pressed: { [weak self] in self?.perform(action, island: island) }))
+            }
         }
         HotKeyCenter.shared.register(bindings)
+    }
+
+    /// A held shortcut. Talk to Jarvis: the island opens on Voice and Jarvis
+    /// listens while the key is down; letting go sends what you said. The
+    /// island: shown while the key is down.
+    private func hold(_ action: ShortcutAction, down: Bool, island: IslandController) {
+        switch action {
+        case .talk:
+            if down {
+                island.openVoice()
+                VoicePanelTalk.began(on: menu?.voicePanelClass())
+            } else {
+                VoicePanelTalk.ended(on: menu?.voicePanelClass())
+            }
+        case .toggleIsland:
+            if down { if !island.isExpanded { island.toggle() } } else { island.close() }
+        default:
+            if down { perform(action, island: island) }
+        }
     }
 
     private func perform(_ action: ShortcutAction, island: IslandController) {

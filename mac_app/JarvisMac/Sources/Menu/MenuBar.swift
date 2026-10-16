@@ -214,3 +214,22 @@ enum VoicePanelOrb {
         return true
     }
 }
+
+/// Hold-to-talk across the dylib boundary: the voice panel starts listening
+/// when the shortcut goes down and sends what was said when it comes up
+/// (`holdToTalkBegan` / `holdToTalkEnded`). An older dylib has neither: the
+/// voice view just opens.
+enum VoicePanelTalk {
+    @MainActor
+    static func began(on cls: AnyClass?) { call("holdToTalkBegan", on: cls) }
+
+    @MainActor
+    static func ended(on cls: AnyClass?) { call("holdToTalkEnded", on: cls) }
+
+    @MainActor
+    private static func call(_ name: String, on cls: AnyClass?) {
+        let sel = NSSelectorFromString(name)
+        guard let cls, let meta = cls as AnyObject as? NSObjectProtocol, meta.responds(to: sel) else { return }
+        _ = meta.perform(sel)
+    }
+}
