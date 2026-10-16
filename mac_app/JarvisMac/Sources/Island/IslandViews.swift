@@ -65,12 +65,18 @@ struct IslandRootView: View {
         .frame(width: IslandController.panelSize.width, height: IslandController.panelSize.height, alignment: .top)
         .coordinateSpace(.named(Self.space))
         // The orb in flight, over everything (the shape clips; it mustn't).
+        // Always here, out of sight between flights: a view added in the same
+        // update that starts its spring shows at the spring's end — the orb
+        // would jump instead of fly. Still (idle mood) while hidden.
         .overlay(alignment: .topLeading) {
-            if let flight = ui.orbFlight, let ear = ui.orbEar {
-                FlyingOrb(ear: ear, home: flight.from ?? ui.orbHomes[flight.home] ?? ear,
-                          progress: ui.orbProgress, mood: model.connected ? model.mood : .idle)
+            if let ear = ui.orbEar {
+                let flight = ui.orbFlight
+                FlyingOrb(ear: ear,
+                          home: flight?.from ?? ui.orbHomes[flight?.home ?? OrbHome.of(ui.tab)] ?? ear,
+                          progress: ui.orbProgress,
+                          mood: flight != nil && model.connected ? model.mood : .idle)
+                    .opacity(flight == nil ? 0 : 1)
                     .allowsHitTesting(false)
-                    .transition(.opacity)
             }
         }
         .preferredColorScheme(.dark)

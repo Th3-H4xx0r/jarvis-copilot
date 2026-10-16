@@ -100,6 +100,44 @@ final class OrbFlightTests: XCTestCase {
         XCTAssertEqual(hidden, [true, false])
     }
 
+    /// Each flight leaves from where the last one left the orb — never from a
+    /// reset in the same update as its spring (that made every open after the
+    /// first, and every fold, jump instead of fly).
+    @MainActor
+    func testEveryFlightLeavesFromWhereTheLastLeftIt() {
+        let ui = IslandUI()
+        ui.orbEar = ear
+        ui.reportOrbHome(.agents, CGRect(x: 96, y: 90, width: 22, height: 22))
+        ui.tab = .agents
+        for _ in 0..<3 {
+            XCTAssertEqual(ui.orbProgress, 0, "folded: the orb is in the notch")
+            ui.flyOrb(.out)
+            XCTAssertEqual(ui.orbFlight?.launched, true)
+            XCTAssertEqual(ui.orbProgress, 1)
+            ui.landOrb(serial: ui.orbFlight!.serial)
+            ui.flyOrb(.back)
+            XCTAssertEqual(ui.orbFlight?.direction, .back)
+            XCTAssertEqual(ui.orbProgress, 0)
+            ui.landOrb(serial: ui.orbFlight!.serial)
+        }
+    }
+
+    /// Opened or folded without a flight, the orb rests where that state keeps it,
+    /// so the next flight starts from the right end.
+    @MainActor
+    func testWithoutAFlightTheOrbRestsWhereTheStateKeepsIt() {
+        let ui = IslandUI()
+        ui.restOrb(open: true)
+        XCTAssertEqual(ui.orbProgress, 1)
+        ui.restOrb(open: false)
+        XCTAssertEqual(ui.orbProgress, 0)
+        ui.orbEar = ear
+        ui.tab = .chat
+        ui.flyOrb(.out)
+        ui.restOrb(open: false)
+        XCTAssertNil(ui.orbFlight, "a fold to hidden ends the flight")
+    }
+
     /// An older voice panel (no orb hand-off) opens without a flight rather
     /// than showing two orbs.
     @MainActor
@@ -135,6 +173,42 @@ final class OrbFlightTests: XCTestCase {
         let serial = ui.orbFlight!.serial
         ui.abandonOrbFlight(serial: serial)
         XCTAssertNil(ui.orbFlight)
+    }
+
+    /// The real island on the real notch, opened and folded a few times — the
+    /// orb must fly every time, both ways. Runs only with JC_ISLAND_LIVE=<marker
+    /// path> (and JC_VOICE_DYLIB / JC_API_ORIGIN for Voice): it writes the marker,
+    /// gives a screen recorder a moment to start, then plays the sequence.
+    @MainActor
+    func testLiveFlightsOnTheNotch() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let marker = env["JC_ISLAND_LIVE"] else { throw XCTSkip("set JC_ISLAND_LIVE to fly the orb on the notch") }
+        let model = AppModel()
+        model.attach()                                  // connected: the pill stays up
+        let c = IslandController(model: model)
+        let menu = JarvisMenu(model: model, island: c)
+        if let dylib = env["JC_VOICE_DYLIB"], let api = env["JC_API_ORIGIN"] {
+            model.handle(["type": "hello", "api": api, "voice_dylib": dylib])
+        }
+        c.voicePanel = { menu.makeVoicePanel(island: true) }
+        c.ui.setVoiceOrbHidden = { VoicePanelOrb.setHidden($0, on: menu.voicePanelClass()) }
+        func wait(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        c.activity()
+        wait(1.5)
+        try "go".write(toFile: marker, atomically: true, encoding: .utf8)
+        wait(1.5)
+        var log: [String] = []
+        for open in [{ c.toggle() }, { c.toggle() }, { c.openVoice() }, { c.openVoice() }] {
+            open()
+            wait(0.05)
+            log.append("open: flight=\(c.ui.orbFlight.map { "\($0.direction) \($0.home) launched=\($0.launched)" } ?? "none")")
+            wait(1.3)
+            c.close()
+            wait(0.05)
+            log.append("close: flight=\(c.ui.orbFlight.map { "\($0.direction) \($0.home)" } ?? "none")")
+            wait(1.1)
+        }
+        try log.joined(separator: "\n").write(toFile: marker + ".log", atomically: true, encoding: .utf8)
     }
 
     /// The flight drawn at points along the way (offscreen; JC_ISLAND_SNAPSHOT
