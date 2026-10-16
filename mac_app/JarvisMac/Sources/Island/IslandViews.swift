@@ -177,8 +177,9 @@ private struct ExpandedIsland: View {
                         if ui.tab == t { Text(t.title).font(.system(size: 11, weight: .semibold)) }
                     }
                     .padding(.horizontal, 9).padding(.vertical, 5)
-                    .background(Capsule().fill(ui.tab == t ? JcAccent.color.opacity(0.22) : .white.opacity(0.06)))
-                    .foregroundStyle(ui.tab == t ? JcAccent.color : .white.opacity(0.7))
+                    // Bare glyphs; only the selected tab sits in a capsule.
+                    .background(Capsule().fill(ui.tab == t ? Color.white.opacity(0.10) : .clear))
+                    .foregroundStyle(ui.tab == t ? Color.white : .white.opacity(0.55))
                 }
                 .buttonStyle(.plain)
                 .help(t.title)

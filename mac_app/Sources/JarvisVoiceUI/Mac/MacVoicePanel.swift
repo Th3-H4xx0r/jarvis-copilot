@@ -136,68 +136,118 @@ struct MacVoicePanel: View {
         .preferredColorScheme(.dark)
     }
 
-    /// The island: one wide stage. Mode and chat on the left, settings on the
-    /// right, both on the stage's edges; the orb in the middle with its words
-    /// under it — or, once there's a conversation, the small orb on the left
-    /// and the words beside it, using the width; the controls at the bottom.
+    /// The island: a short, wide stage, after coucou's. One quiet row of
+    /// glyphs — Voice / Live and the chat on the left; mute, send and end
+    /// (while talking) and settings on the right — and the orb as the control:
+    /// click it to talk or to stop. Centred with its words under it, then, once
+    /// there's a conversation, gliding left while the words fill the stage.
     private var islandLayout: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                MacPanelModeSwitch(mode: panelMode)
-                MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
-                              enabled: !store.isActive,
-                              accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
-                    openPicker = .session
-                }
-                Spacer(minLength: 8)
-                MacSettingsButton()
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-
-            // ONE orb that glides: centred with the invitation under it, then —
-            // once there's a conversation — sliding left and shrinking while the
-            // words fade in beside it. Its position and size animate; nothing
-            // is swapped out, so the movement is continuous.
+            islandTopRow
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
             GeometryReader { g in
                 let w = g.size.width, h = g.size.height
-                let side: CGFloat = conversationLayout ? 60 : 84
-                let orbCenter = conversationLayout ? CGPoint(x: 64, y: h / 2 - 6)
-                                                   : CGPoint(x: w / 2, y: h / 2 - 14)
-                let textLeft: CGFloat = 116
+                let side: CGFloat = conversationLayout ? 54 : 72
+                let orbCenter = conversationLayout ? CGPoint(x: 52, y: h / 2 - 8)
+                                                   : CGPoint(x: w / 2, y: side / 2 + 4)
+                let textLeft: CGFloat = 100
                 ZStack {
-                    headline
-                        .frame(width: w - 40)
-                        .position(x: w / 2, y: orbCenter.y + side / 2 + 26)
-                        .opacity(conversationLayout ? 0 : 1)
+                    VStack(spacing: 3) {
+                        headline
+                        Text(store.state == .idle ? "Click the orb, or say \u{201C}Hey Jarvis\u{201D}" : statusText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(JcTheme.muted)
+                            .lineLimit(1)
+                    }
+                    .frame(width: w - 40)
+                    .position(x: w / 2, y: orbCenter.y + side / 2 + 30)
+                    .opacity(conversationLayout ? 0 : 1)
                     conversation
-                        .frame(width: max(0, w - textLeft - 22), height: max(0, h - 8))
-                        .position(x: textLeft + max(0, w - textLeft - 22) / 2, y: h / 2)
+                        .frame(width: max(0, w - textLeft - 18), height: max(0, h - 6))
+                        .position(x: textLeft + max(0, w - textLeft - 18) / 2, y: h / 2)
                         .opacity(conversationLayout ? 1 : 0)
                     statusLine
-                        .position(x: orbCenter.x, y: conversationLayout ? orbCenter.y + side / 2 + 14
-                                                                        : orbCenter.y - side / 2 - 16)
-                    islandOrb(side)
+                        .position(x: orbCenter.x, y: orbCenter.y + side / 2 + 13)
+                        .opacity(conversationLayout ? 1 : 0)
+                    orbButton(side)
                         .position(orbCenter)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 10)
             .animation(.spring(response: 0.6, dampingFraction: 0.86), value: conversationLayout)
-
-            VoiceControls(state: store.state,
-                          isActive: store.isActive,
-                          muted: store.muted,
-                          onPrimary: { Task { await primary() } },
-                          onMute: store.toggleMute,
-                          onFinish: store.finishSpeaking,
-                          onInterrupt: {
-                              if store.mode == .quality { Task { await store.stopAll() } }
-                              else { store.interrupt() }
-                          })
-                .scaleEffect(0.82)
-                .frame(height: VoiceControls.height * 0.82)
-                .padding(.bottom, 10)
         }
+    }
+
+    /// The row of glyphs: bare icons, only the selected mode in a capsule.
+    private var islandTopRow: some View {
+        HStack(spacing: 4) {
+            ForEach([MacPanelMode.voice, .live], id: \.self) { m in
+                let on = panelMode.wrappedValue == m
+                Button { panelMode.wrappedValue = m } label: {
+                    Image(systemName: m == .voice ? "waveform" : "dot.radiowaves.left.and.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(on ? JcTheme.text : JcTheme.muted)
+                        .frame(width: 32, height: 26)
+                        .background(Capsule().fill(Color.white.opacity(on ? 0.10 : 0)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(m == .voice ? "Voice" : "Live")
+                .accessibilityLabel(m == .voice ? "Voice" : "Live")
+            }
+            MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
+                          enabled: !store.isActive,
+                          accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
+                openPicker = .session
+            }
+            .padding(.leading, 4)
+            Spacer(minLength: 8)
+            if store.isActive {
+                islandIcon(store.muted ? "mic.slash.fill" : "mic.fill", help: store.muted ? "Unmute" : "Mute",
+                           tint: store.muted ? JcTheme.danger : JcTheme.muted) { store.toggleMute() }
+                if store.state == .listening {
+                    islandIcon("arrow.up", help: "Send — I'm done talking") { store.finishSpeaking() }
+                }
+                islandIcon("stop.fill", help: "End") { Task { await store.stopAll() } }
+            }
+            MacSettingsButton()
+        }
+        .animation(.easeOut(duration: 0.18), value: store.isActive)
+    }
+
+    private func islandIcon(_ symbol: String, help: String, tint: Color = JcTheme.muted,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    /// The orb as the button (talk / stop), in a soft halo of its own colour.
+    private func orbButton(_ side: CGFloat) -> some View {
+        Button { Task { await primary() } } label: {
+            ZStack {
+                Circle()
+                    .fill(JcAccent.deep.opacity(store.isActive ? 0.30 : 0.18))
+                    .frame(width: side * 1.5, height: side * 1.5)
+                    .blur(radius: side * 0.3)
+                islandOrb(side)
+                Circle().fill(Color.white.opacity(0.001)).frame(width: side, height: side)
+            }
+            .frame(width: side, height: side)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(store.isActive ? "Stop" : "Talk to Jarvis")
+        .accessibilityLabel(store.isActive ? "Stop" : "Talk to Jarvis")
     }
 
     /// The orb for the island, rendered full size and scaled (see `orb`), so a
