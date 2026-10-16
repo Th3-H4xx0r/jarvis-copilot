@@ -62,7 +62,7 @@ enum FlowWindow {
     }
 }
 
-private struct FlowRoot: View {
+struct FlowRoot: View {
     @Bindable var router: FlowWindow.Router
 
     var body: some View {
@@ -368,22 +368,61 @@ private struct SnippetsPage: View {
     private var store: FlowStore { FlowStore.shared }
     @State private var trigger = ""
     @State private var text = ""
+    /// The snippet being changed (its trigger before any edit), nil for a new one.
+    @State private var editing: String?
+    @FocusState private var focus: Field?
+    private enum Field { case trigger, text }
+
+    private var canSave: Bool {
+        !trigger.trimmingCharacters(in: .whitespaces).isEmpty && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         Form {
             Section {
-                TextField("Say this (“my address”)", text: $trigger)
-                TextEditor(text: $text).frame(height: 70).font(.system(size: 13))
-                Button("Add the snippet") {
-                    store.addSnippet(trigger: trigger, text: text)
-                    trigger = ""
-                    text = ""
+                LabeledContent("When you say") {
+                    TextField("", text: $trigger, prompt: Text("my address"))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: 320)
+                        .focused($focus, equals: .trigger)
+                        .onSubmit { focus = .text }
                 }
-                .disabled(trigger.trimmingCharacters(in: .whitespaces).isEmpty || text.isEmpty)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Jarvis types")
+                    ZStack(alignment: .topLeading) {
+                        TextEditor(text: $text)
+                            .font(.system(size: 13))
+                            .scrollContentBackground(.hidden)
+                            .focused($focus, equals: .text)
+                            .padding(6)
+                        if text.isEmpty {
+                            Text("1625 Main Street, Springfield")
+                                .font(.system(size: 13)).foregroundStyle(.tertiary)
+                                .padding(.horizontal, 11).padding(.vertical, 6)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .frame(height: 96)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(focus == .text ? JcAccent.color : Color.primary.opacity(0.15), lineWidth: focus == .text ? 1.5 : 0.5))
+                }
+                HStack {
+                    if editing != nil {
+                        Button("Cancel") { reset() }
+                    }
+                    Spacer()
+                    Button(editing == nil ? "Add the snippet" : "Save the snippet") { save() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(!canSave)
+                }
             } header: {
-                Text("New snippet")
+                Text(editing == nil ? "New snippet" : "Change “\(editing ?? "")”")
             } footer: {
-                Text("Say the trigger in a dictation and the whole text goes in its place, exactly as written.").font(.caption)
+                Text("Say the trigger in a dictation and the whole text goes in its place, exactly as written. ⌘↩ adds it.")
+                    .font(.caption)
             }
             Section("Snippets") {
                 if store.snippets.isEmpty { Text("None yet.").foregroundStyle(.secondary) }
@@ -394,14 +433,40 @@ private struct SnippetsPage: View {
                             Text(s.text).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                         }
                         Spacer()
+                        Button { edit(s) } label: { Image(systemName: "pencil") }
+                            .buttonStyle(.borderless).help("Change this snippet")
                         Button { store.snippets.removeAll { $0.id == s.id } } label: { Image(systemName: "minus.circle") }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.borderless).help("Remove this snippet")
                     }
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Snippets")
+        .onAppear { if trigger.isEmpty { focus = .trigger } }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        if let editing, editing.caseInsensitiveCompare(trigger.trimmingCharacters(in: .whitespaces)) != .orderedSame {
+            store.snippets.removeAll { $0.trigger.caseInsensitiveCompare(editing) == .orderedSame }
+        }
+        store.addSnippet(trigger: trigger, text: text)
+        reset()
+    }
+
+    private func edit(_ s: FlowSnippet) {
+        editing = s.trigger
+        trigger = s.trigger
+        text = s.text
+        focus = .text
+    }
+
+    private func reset() {
+        editing = nil
+        trigger = ""
+        text = ""
+        focus = .trigger
     }
 }
 

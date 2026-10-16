@@ -8,7 +8,10 @@ struct NotesPage: View {
     @State private var selected: UUID?
 
     var body: some View {
-        HSplitView {
+        // Two plain columns — not an HSplitView: a split view nested in the
+        // Flow window's own asked for the note's unwrapped width, so the
+        // window's content grew past the window and was cut off at both sides.
+        HStack(spacing: 0) {
             VStack(spacing: 0) {
                 RecordBar()
                     .padding(12)
@@ -25,7 +28,8 @@ struct NotesPage: View {
                     .listStyle(.inset)
                 }
             }
-            .frame(minWidth: 230, idealWidth: 260, maxWidth: 320)
+            .frame(width: 270)
+            Divider()
             Group {
                 if let id = selected ?? taker.recordingID ?? taker.notes.first?.id, let note = taker.note(id) {
                     NoteDetail(note: note, live: note.id == taker.recordingID, syncing: taker.syncing.contains(note.id))
@@ -34,7 +38,7 @@ struct NotesPage: View {
                     Text("No note selected").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Notes")
         .onAppear { taker.sync() }
@@ -197,6 +201,8 @@ private struct NoteDetail: View {
                 }
             }
             .padding(20)
+            // The text wraps to the column; its one-line width never widens it.
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
         .toolbar {
             ToolbarItemGroup {

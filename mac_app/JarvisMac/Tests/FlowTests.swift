@@ -191,6 +191,43 @@ final class FlowTests: XCTestCase {
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: out + "-flow-settings.png"))
     }
 
+    /// Every page of the Flow window fits the window: Notes asked for 991 pt in
+    /// a 900 pt window, so the sidebar was cut off on the left and the note on
+    /// the right. JC_ISLAND_SNAPSHOT also writes each page as a PNG.
+    @MainActor
+    func testEveryFlowPageFitsTheWindow() throws {
+        let out = ProcessInfo.processInfo.environment["JC_ISLAND_SNAPSHOT"]
+        for page in FlowWindow.Page.allCases {
+            let router = FlowWindow.Router()
+            router.page = page
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
+                                  styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                                  backing: .buffered, defer: false)
+            window.titlebarAppearsTransparent = true
+            let host = NSHostingView(rootView: FlowRoot(router: router).tint(JcAccent.color))
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            host.layoutSubtreeIfNeeded()
+            XCTAssertLessThanOrEqual(host.fittingSize.width, 900, "\(page) is wider than the window")
+            guard let out else { continue }
+            if page == .notes {
+                // Its lists draw only on screen: a real window below the desktop
+                // picture, held for `screencapture -l <winid>`.
+                window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+                window.orderFrontRegardless()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+                try "\(window.windowNumber)".write(toFile: out + "-notes.winid", atomically: true, encoding: .utf8)
+                RunLoop.main.run(until: Date().addingTimeInterval(4))
+                window.orderOut(nil)
+            }
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                .write(to: URL(fileURLWithPath: out + "-flow-\(page.rawValue).png"))
+        }
+    }
+
     /// Jarvis's model list (`/api/models`) → the picker's sections, empty
     /// providers left out.
     func testTheModelPickerListsJarvisModels() {
