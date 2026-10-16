@@ -28,7 +28,7 @@ def test_voice_from_the_pod_names_it_and_asks_for_the_screen(monkeypatch):
     _paired(monkeypatch, POD, ["pod_show", "pod_status"])
     origin = turn_origin.origin_for_handler(object())
     text = turn_origin.directive(origin, "voice")
-    assert 'from the Jarvis Pod (device "Jarvis Pod", id pod1)' in text
+    assert 'from their device "Jarvis Pod" (id pod1)' in text
     assert "by voice" in text
     assert 'device="pod1"' in text
     assert "never answer with only a link" in text
@@ -37,7 +37,7 @@ def test_voice_from_the_pod_names_it_and_asks_for_the_screen(monkeypatch):
 def test_chat_from_the_phone_targets_the_phone(monkeypatch):
     _paired(monkeypatch, PHONE, ["open_url", "directions"])
     text = turn_origin.directive(turn_origin.origin_for_handler(object()), "chat")
-    assert "in chat" in text and "from their iPhone" in text
+    assert "in chat" in text and '"Pranav\'s iPhone"' in text
     assert 'device="phone1"' in text
     assert "screen" not in text  # no show tool
 
@@ -113,18 +113,15 @@ def test_a_turn_from_jc_client_on_the_mac_counts_as_from_the_mac(monkeypatch):
 import pytest  # noqa: E402
 
 
-@pytest.mark.parametrize("device,skills,said", [
-    ({"id": "mac1", "name": "Pranavs-MacBook-Pro.local", "kind": "browser"}, ["ui_look", "open_url"], "from their Mac"),
-    ({"id": "app1", "name": "Jarvis.app", "kind": "desktop"}, [], "from their Mac"),
-    ({"id": "pod1", "name": "Jarvis Pod", "kind": "browser"}, ["pod_show"], "from the Jarvis Pod"),
-    ({"id": "ph1", "name": "JarvisCopilot (iPhone)", "kind": "mobile-ios"}, ["open_url"], "from their iPhone"),
-    ({"id": "w1", "name": "Macbook Web", "kind": "browser"}, [], "from the web app on their Mac"),
-    ({"id": "w2", "name": "Chrome", "kind": "browser"}, [], "from the web app"),
+@pytest.mark.parametrize("device", [
+    {"id": "mac1", "name": "Pranavs-MacBook-Pro.local", "kind": "browser"},
+    {"id": "pod1", "name": "Jarvis Pod", "kind": "browser"},
+    {"id": "ph1", "name": "JarvisCopilot (iPhone)", "kind": "mobile-ios"},
 ])
-def test_every_turn_says_plainly_which_device_he_is_on(monkeypatch, device, skills, said):
-    """Pranav: "If I'm on my phone it should pass that I'm saying this from my phone; on my Mac,
-    from my Mac; on the pod, from the pod." The Mac's jc-client and the Pod are paired as kind
-    "browser", which named both "the web app"."""
-    _paired(monkeypatch, device, skills)
+def test_every_turn_names_the_device_as_it_is_registered(monkeypatch, device):
+    """Pranav: "it should just send the device name that it's registered as with Jarvis so it
+    will know and not have to guess anything." The name, verbatim, first."""
+    _paired(monkeypatch, device, [])
     text = turn_origin.directive(turn_origin.origin_for_handler(object()), "voice")
-    assert text.startswith("[Turn context: the user is talking to you by voice " + said)
+    assert text.startswith(f'[Turn context: the user is talking to you by voice from their device "{device["name"]}" '
+                           f'(id {device["id"]}).')
