@@ -304,7 +304,7 @@ final class IslandController {
     private func sync() {
         if ui.state != machine.state {
             let folding = ui.state == .expanded && machine.state != .expanded
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { ui.state = machine.state }
+            withAnimation(IslandRootView.morph) { ui.state = machine.state }
             // Voice is the orb's: whatever opens the island next opens your last tab.
             if folding && ui.tab == .voice { ui.tab = ui.lastTab }
             // Folded: hand the keyboard back to the app you were in.

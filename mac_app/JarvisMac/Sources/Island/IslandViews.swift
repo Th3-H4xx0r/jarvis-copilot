@@ -27,36 +27,55 @@ struct IslandRootView: View {
                                          pending: pending, flash: model.flash != nil)
     }
 
+    /// One spring for the island's shape: a soft, fluid open and close (not a
+    /// snap), and the same glide when the open island changes height.
+    static let morph = Animation.spring(response: 0.55, dampingFraction: 0.86)
+
     var body: some View {
+        let size = shapeSize
+        let radius: CGFloat = ui.state == .expanded ? 24 : 12
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius)
         VStack(spacing: 0) {
-            content
-                .background(
-                    UnevenRoundedRectangle(bottomLeadingRadius: ui.state == .expanded ? 24 : 12,
-                                           bottomTrailingRadius: ui.state == .expanded ? 24 : 12)
-                        .fill(Color.black))
-                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: ui.state == .expanded ? 24 : 12,
-                                                  bottomTrailingRadius: ui.state == .expanded ? 24 : 12))
-                .shadow(color: .black.opacity(ui.state == .expanded ? 0.45 : 0), radius: 14, y: 6)
+            // One black shape that grows from the pill into the open island and
+            // back — the content fades in just after it opens, and out first
+            // when it closes, like the iPhone's Dynamic Island.
+            ZStack(alignment: .top) {
+                switch ui.state {
+                case .hidden:
+                    Color.clear
+                case .compact:
+                    compact
+                        .transition(.opacity.animation(.easeOut(duration: 0.14)))
+                case .expanded:
+                    ExpandedIsland(model: model, ui: ui, controller: controller)
+                        .frame(width: Self.expandedWidth)
+                        .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.24).delay(0.12)),
+                                                removal: .opacity.animation(.easeOut(duration: 0.1))))
+                }
+            }
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .background(shape.fill(Color.black))
+            .clipShape(shape)
+            .shadow(color: .black.opacity(ui.state == .expanded ? 0.45 : 0), radius: 14, y: 6)
+            .animation(Self.morph, value: size)
             Spacer(minLength: 0)
         }
         .frame(width: IslandController.panelSize.width, height: IslandController.panelSize.height, alignment: .top)
         .preferredColorScheme(.dark)
     }
 
-    @ViewBuilder private var content: some View {
+    /// The shape's size in each state: the notch, the pill with its ears, or
+    /// the open island at its tab's height.
+    private var shapeSize: CGSize {
         switch ui.state {
         case .hidden:
-            Color.clear.frame(width: ui.geometry.width, height: ui.geometry.height)
+            return CGSize(width: ui.geometry.width, height: ui.geometry.height)
         case .compact:
-            compact
+            return CGSize(width: ui.compactWidth, height: ui.geometry.height)
         case .expanded:
-            let height = Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
-                                             measured: ui.agentsMeasure)
-            ExpandedIsland(model: model, ui: ui, controller: controller)
-                .frame(width: Self.expandedWidth)
-                .frame(maxHeight: height, alignment: .top)
-                .animation(.spring(response: 0.3, dampingFraction: 0.9), value: height)
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            return CGSize(width: Self.expandedWidth,
+                          height: Self.expandedHeight(model: model, tab: ui.tab, topInset: ui.geometry.height + 8,
+                                                      measured: ui.agentsMeasure))
         }
     }
 

@@ -111,7 +111,10 @@ struct MacVoicePanel: View {
         .onAppear {
             onScreen = true
             // Opening the panel is the moment to connect: the session and the
-            // socket are ready by the time the mic is tapped.
+            // socket are ready by the time the mic is tapped. Not the mic: the
+            // panel can sit open in the notch, and a prepared input keeps the
+            // menu bar's mic indicator on while nothing is being said.
+            store.prewarmsMic = false
             Task { await store.prewarmVoice() }
         }
         .onDisappear {
@@ -152,29 +155,34 @@ struct MacVoicePanel: View {
             .padding(.horizontal, 14)
             .padding(.top, 12)
 
-            Group {
-                if conversationLayout {
-                    HStack(alignment: .center, spacing: 30) {
-                        VStack(spacing: 6) {
-                            islandOrb(64)
-                            statusLine
-                        }
-                        .frame(width: 96)
-                        conversation
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .padding(.horizontal, 22)
-                } else {
-                    // Spaced so the rings (1.7 × the orb) clear the words.
-                    VStack(spacing: 34) {
-                        statusLine
-                        islandOrb(80)
-                        headline
-                    }
+            // ONE orb that glides: centred with the invitation under it, then —
+            // once there's a conversation — sliding left and shrinking while the
+            // words fade in beside it. Its position and size animate; nothing
+            // is swapped out, so the movement is continuous.
+            GeometryReader { g in
+                let w = g.size.width, h = g.size.height
+                let side: CGFloat = conversationLayout ? 60 : 84
+                let orbCenter = conversationLayout ? CGPoint(x: 64, y: h / 2 - 6)
+                                                   : CGPoint(x: w / 2, y: h / 2 - 14)
+                let textLeft: CGFloat = 116
+                ZStack {
+                    headline
+                        .frame(width: w - 40)
+                        .position(x: w / 2, y: orbCenter.y + side / 2 + 26)
+                        .opacity(conversationLayout ? 0 : 1)
+                    conversation
+                        .frame(width: max(0, w - textLeft - 22), height: max(0, h - 8))
+                        .position(x: textLeft + max(0, w - textLeft - 22) / 2, y: h / 2)
+                        .opacity(conversationLayout ? 1 : 0)
+                    statusLine
+                        .position(x: orbCenter.x, y: conversationLayout ? orbCenter.y + side / 2 + 14
+                                                                        : orbCenter.y - side / 2 - 16)
+                    islandOrb(side)
+                        .position(orbCenter)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.spring(response: 0.5, dampingFraction: 0.86), value: conversationLayout)
+            .animation(.spring(response: 0.6, dampingFraction: 0.86), value: conversationLayout)
 
             VoiceControls(state: store.state,
                           isActive: store.isActive,
@@ -192,18 +200,15 @@ struct MacVoicePanel: View {
         }
     }
 
-    /// The orb for the island, rendered full size and scaled (see `orb`), in
-    /// its JARVIS rings — drawn behind it, outside its frame, so they never push
-    /// the words or the controls.
+    /// The orb for the island, rendered full size and scaled (see `orb`), so a
+    /// change of size animates.
     private func islandOrb(_ side: CGFloat) -> some View {
-        let amplitude = store.state == .listening && store.muted ? 0 : store.amplitude
-        return VoiceOrb(state: store.state, amplitude: amplitude, size: Self.orbSize, animating: onScreen)
+        VoiceOrb(state: store.state,
+                 amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
+                 size: Self.orbSize,
+                 animating: onScreen)
             .scaleEffect(side / Self.orbSize)
             .frame(width: side, height: side)
-            .background {
-                JarvisHUD(state: store.state, amplitude: Double(amplitude), size: side * 1.7, animating: onScreen)
-                    .frame(width: side * 1.7, height: side * 1.7)
-            }
             .allowsHitTesting(false)
     }
 

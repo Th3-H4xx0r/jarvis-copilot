@@ -254,6 +254,11 @@ final class VoiceStore {
     /// A voice surface asked for pre-warming and is still on screen — so a
     /// conversation that ends re-warms for the next one.
     var prewarmWanted = false
+    /// Whether warming up also prepares the microphone. The phone does (its
+    /// Voice screen is one tap from talking); the Mac's panel doesn't — it sits
+    /// open in the notch, and a prepared input lights macOS's mic indicator
+    /// while nothing is being said.
+    var prewarmsMic = true
     /// Plain (markdown-stripped) reply, joined segments.
     var assistantText: String { reply.text }
     /// Leading words of `assistantText` already spoken — the view colours these
@@ -581,7 +586,7 @@ final class VoiceStore {
     func prewarmVoice() async {
         prewarmWanted = true
         guard !isActive else { return }
-        input.prepare(sampleRate: Self.micRate)
+        if prewarmsMic { input.prepare(sampleRate: Self.micRate) } else { input.releasePrepared() }
         guard !session.isOpen else { return }
         do {
             _ = try await ensureSession()

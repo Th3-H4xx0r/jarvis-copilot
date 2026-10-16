@@ -478,8 +478,7 @@ extension EnvironmentValues {
 }
 
 /// The island's stage: a dark rounded card the width of the island with a
-/// hairline rim — no gradients, no particles. The motion is the JARVIS rings
-/// around the orb (`JarvisHUD`).
+/// hairline rim — no gradients, no particles.
 struct MacIslandStage: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -490,52 +489,3 @@ struct MacIslandStage: View {
     }
 }
 
-/// The JARVIS rings around the orb: a ring of fine ticks, two short accent
-/// arcs on the outside and a longer one inside, turning slowly at rest,
-/// quicker while it connects or thinks, and swelling with the voice while it
-/// listens or speaks. Drawn only while `animating` (the panel is on screen).
-struct JarvisHUD: View {
-    let state: VoiceState
-    let amplitude: Double
-    let size: CGFloat
-    let animating: Bool
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animating)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let busy = state == .thinking || state == .connecting
-            let speed = busy ? 3.2 : (state == .idle ? 0.5 : 1.2)
-            let turn = t.truncatingRemainder(dividingBy: 3600) * speed
-            let level = (state == .listening || state == .speaking) ? min(1, max(0, amplitude)) : 0
-            ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 1, dash: [1, 5]))
-                    .rotationEffect(.radians(-turn * 0.12))
-                ForEach(0..<2, id: \.self) { i in
-                    Circle()
-                        .trim(from: 0, to: 0.11)
-                        .stroke(JcAccent.color.opacity(0.8), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                        .rotationEffect(.radians(turn * 0.32 + Double(i) * .pi))
-                }
-                Circle()
-                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                    .padding(size * 0.1)
-                Circle()
-                    .trim(from: 0, to: busy ? 0.42 : 0.28)
-                    .stroke(JcAccent.color.opacity(0.35 + 0.55 * level),
-                            style: StrokeStyle(lineWidth: 2 + 2.5 * level, lineCap: .round))
-                    .padding(size * 0.1)
-                    .rotationEffect(.radians(-turn * 0.5))
-                Circle()
-                    .fill(JcAccent.color.opacity(0.05 + 0.12 * level))
-                    .padding(size * 0.22)
-                    .blur(radius: size * 0.1)
-            }
-            .frame(width: size, height: size)
-            .scaleEffect(1 + 0.05 * level)
-            .animation(.easeOut(duration: 0.12), value: level)
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}

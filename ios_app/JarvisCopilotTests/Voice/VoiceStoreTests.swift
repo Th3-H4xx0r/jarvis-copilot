@@ -303,6 +303,18 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.input.preparedRates.count, 2)
     }
 
+    /// The Mac's panel sits open in the notch: warming up there must not hold
+    /// the microphone (macOS shows its orange mic indicator for a prepared
+    /// input). Only the socket is warmed, and a prepared mic is let go.
+    func testWithoutPrewarmingTheMicTheInputIsNeverPreparedWhileIdle() async {
+        let rig = makeRig()
+        rig.store.prewarmsMic = false
+        await rig.store.prewarmVoice()
+        XCTAssertTrue(rig.input.preparedRates.isEmpty, "no prepared mic while the panel just sits open")
+        XCTAssertEqual(rig.input.releaseCount, 1)
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1, "the socket is still warmed")
+    }
+
     func testLeavingTheVoiceSurfaceReleasesThePreparedMic() async {
         let rig = makeRig()
         await rig.store.prewarmVoice()
