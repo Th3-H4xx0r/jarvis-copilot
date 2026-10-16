@@ -157,15 +157,15 @@ def test_ui_subscribe_forwards_the_union_to_the_server():
     svc = service.Service()
     ws = FakeWs()
     svc._ws = ws
-    svc._ui_request({"type": "subscribe", "topics": {"services": 0, "portfolio": 5}})
-    assert ws.sent[-1] == {"type": "subscribe", "topics": {"services": 0, "portfolio": 5}}
+    svc._ui_request({"type": "subscribe", "topics": {"harness_jobs": 0}})
+    assert ws.sent[-1] == {"type": "subscribe", "topics": {"harness_jobs": 0}}
 
 
 def test_server_topic_frames_reach_the_app():
     svc = service.Service()
     svc._ui = FakeUi()
-    svc._handle_frame(FakeWs(), {"type": "topic", "topic": "services", "data": {"services": []}})
-    assert svc._ui.sent == [{"type": "topic", "topic": "services", "data": {"services": []}}]
+    svc._handle_frame(FakeWs(), {"type": "topic", "topic": "harness_jobs", "data": {"jobs": []}})
+    assert svc._ui.sent == [{"type": "topic", "topic": "harness_jobs", "data": {"jobs": []}}]
 
 
 def test_config_change_is_told_to_the_app(tmp_path, monkeypatch):

@@ -13,7 +13,7 @@ final class IslandUI {
     /// Something the user is typing into (an approval note, a question's Other):
     /// the island stays open while it's set.
     var pinned = false
-    /// The expanded island's tab (Agents, Chat, Services, Music, Mail, Voice).
+    /// The expanded island's tab (Agents, Chat, Music, Voice).
     var tab: IslandTab = .agents {
         didSet { if tab != .voice { lastTab = tab } }
     }

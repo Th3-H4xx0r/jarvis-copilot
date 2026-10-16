@@ -241,9 +241,7 @@ private struct ExpandedIsland: View {
             switch ui.tab {
             case .agents: agents
             case .chat: ChatPane(ui: ui)
-            case .services: ServicesPane(model: model)
             case .music: MusicPane()
-            case .mail: MailPane(ui: ui)
             case .voice: VoicePane(ui: ui, make: controller.voicePanel).id("voice-stage")
             }
         }

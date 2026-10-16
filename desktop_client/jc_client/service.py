@@ -816,7 +816,7 @@ class Service:
             return
 
         if msg_type == "topic":
-            # A server push the Mac app subscribed to (services, portfolio…).
+            # A server push the Mac app subscribed to (harness_jobs).
             self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
                                 "data": frame.get("data") or {}})
             return

@@ -22,10 +22,8 @@ final class AppModel {
     private(set) var usage: MacPlanUsage?
     /// Codex's limits (jc-client reads them from `codex app-server` every 5 min).
     private(set) var codexUsage: MacPlanUsage?
-    private(set) var services: [[String: Any]] = []
     /// Devices and wearables for the menu (refreshed when it opens and every 45 s).
     private(set) var roster: MacRoster?
-    private(set) var portfolio: [String: Any] = [:]
     /// What the harnesses handed to a bigger model, newest first (the server's
     /// `harness_jobs` feed): listed in the Agents tab with the sessions.
     private(set) var jobs: [MacJob] = []
@@ -47,8 +45,6 @@ final class AppModel {
     @ObservationIgnored private var jobsPrune: Task<Void, Never>?
     @ObservationIgnored private var lastStates: [String: MacState] = [:]
     @ObservationIgnored private var flashTask: Task<Void, Never>?
-    /// The real services while a demo shows made-up ones.
-    @ObservationIgnored private var stashedServices: [[String: Any]]?
 
     var lead: MacSession? { sessions.first { $0.state != .idle } }
     var waitingCount: Int { max(pending.count, sessions.filter { $0.state.urgency == 0 }.count) }
@@ -69,7 +65,7 @@ final class AppModel {
         link.onConnection = { [weak self] up in
             self?.connected = up
             if up {
-                link.request(["type": "subscribe", "topics": ["services": 0, "portfolio": 5, "harness_jobs": 0]])
+                link.request(["type": "subscribe", "topics": ["harness_jobs": 0]])
                 self?.refreshRoster()
             }
         }
@@ -106,8 +102,6 @@ final class AppModel {
         case "topic":
             let data = J.obj(msg["data"])
             switch J.s(msg["topic"]) {
-            case "services": services = J.arr(data["services"])
-            case "portfolio": portfolio = data
             case "harness_jobs":
                 apply(jobs: J.arr(data["jobs"]))
                 if let speak = data["speak"] as? [String: Any] { speakOnce(MacJob(json: speak)) }
@@ -212,15 +206,8 @@ final class AppModel {
         pending = p.compactMap(MacPending.init(json:))
     }
 
-    func setDemo(services raw: [[String: Any]]) {
-        if stashedServices == nil { stashedServices = services }
-        services = raw
-    }
-
     func endDemo() {
         demoActive = false
-        if let real = stashedServices { services = real }
-        stashedServices = nil
         sessions = []
         pending = []
         lastStates = [:]

@@ -16,7 +16,7 @@ final class OrbFlightTests: XCTestCase {
     func testEachTabHasItsOrbHome() {
         XCTAssertEqual(OrbHome.of(.voice), .voice)
         XCTAssertEqual(OrbHome.of(.agents), .agents)
-        for tab in [IslandTab.chat, .services, .music, .mail] {
+        for tab in [IslandTab.chat, .music] {
             XCTAssertEqual(OrbHome.of(tab), .row, "\(tab) keeps its orb in the tab row")
         }
     }

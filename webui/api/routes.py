@@ -3526,14 +3526,6 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, manager=default_manager())
         return j(handler, payload, status=status)
 
-    if parsed.path == "/api/services" or parsed.path.startswith("/api/services/"):
-        from api.services_routes import SERVICES_PATH_PREFIX, handle_services_request
-        sub = parsed.path[len(SERVICES_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_services_request("GET", sub, None)
-        return j(handler, payload, status=status)
-
     if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):
         from api.agent_notes_routes import AGENT_NOTES_PATH_PREFIX, handle_agent_notes_request
         sub = parsed.path[len(AGENT_NOTES_PATH_PREFIX):]
@@ -4955,14 +4947,6 @@ def handle_post(handler, parsed) -> bool:
                 coding_events.notify()
             except Exception:
                 pass
-        return j(handler, payload, status=status)
-
-    if parsed.path == "/api/services" or parsed.path.startswith("/api/services/"):
-        from api.services_routes import SERVICES_PATH_PREFIX, handle_services_request
-        sub = parsed.path[len(SERVICES_PATH_PREFIX):]
-        if parsed.query:
-            sub += "?" + parsed.query
-        status, payload = handle_services_request("POST", sub, body)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/agent-notes" or parsed.path.startswith("/api/agent-notes/"):

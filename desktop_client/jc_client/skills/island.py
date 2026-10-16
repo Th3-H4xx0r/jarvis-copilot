@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 from jc_client.skills import skill
 
-TABS = ("agents", "chat", "services", "music", "mail", "recap")
+TABS = ("agents", "chat", "music", "recap")
 _broadcast: Optional[Callable[[dict], None]] = None
 
 
@@ -28,8 +28,8 @@ def _app_running() -> bool:
 @skill(
     "jarvis_island",
     "Open the Jarvis island at the top of this Mac's screen on one tab: agents (coding agents and "
-    "what waits on you), chat, services (Stripe, GitHub, Vercel…), music (now playing), mail, or "
-    "recap (the week with the agents). For chat, `text` pre-fills the message box.",
+    "what waits on you), chat, music (now playing), or recap (the week with the agents). For chat, "
+    "`text` pre-fills the message box.",
     {
         "type": "object",
         "properties": {

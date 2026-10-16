@@ -122,22 +122,11 @@ enum DemoEngine {
                                                 "question": "Which database?", "multiSelect": false,
                                                 "options": [["label": "Postgres"], ["label": "SQLite"]]]]]]) }),
             (17, {
-                model.setDemo(services: [
-                    ["id": "github", "display_name": "GitHub", "tone": "warning", "headline": "2 PRs to review",
-                     "reason": "CI failed on storefront#42"],
-                    ["id": "stripe", "display_name": "Stripe", "tone": "ok", "headline": "$1,204 today",
-                     "reason": "31 payments, none failed"],
-                    ["id": "vercel", "display_name": "Vercel", "tone": "ok", "headline": "Deployed 4 min ago",
-                     "reason": "storefront · production"],
-                ])
-                island.open(.services)
-            }),
-            (22, {
                 MacChatStore.shared.showDemo([("Why did CI fail on storefront#42?",
                                                "The **api** tests need `STRIPE_KEY`; it isn't set in the CI env.")])
                 island.open(.chat)
             }),
-            (27, {
+            (22, {
                 model.endDemo()
                 MacChatStore.shared.endDemo()
                 island.open(.agents)

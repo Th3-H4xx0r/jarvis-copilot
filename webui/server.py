@@ -641,15 +641,6 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Agent hook tracking failed to start: {e}', flush=True)
 
-    # Service pills (Stripe, GitHub, Vercel…) and crypto/portfolio: one thread polls the
-    # configured ones and publishes `services` / `portfolio` on the device bridge.
-    # Idle (no network) until a key or the watchlist is set in Settings → Services.
-    try:
-        from api import services_routes
-        services_routes.start()
-    except Exception as e:
-        print(f'[!!] WARNING: Services hub failed to start: {e}', flush=True)
-
     # The door alarm: ESP32 bridge events, Tuya's cloud feed and the alarm's 1 s timer (entry/exit
     # delays, siren timeout, health warnings) must run from boot, not from the first page view.
     try:

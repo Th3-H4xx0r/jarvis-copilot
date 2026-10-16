@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 @testable import Jarvis
 
-/// The expanded island's tabs: Agents, Chat, Services, Music, Mail.
+/// The expanded island's tabs: Agents, Chat, Music (and Voice, the orb's).
 final class IslandTabsTests: XCTestCase {
 
     func testTabsAndTheirHeights() {
@@ -15,54 +15,25 @@ final class IslandTabsTests: XCTestCase {
         }
     }
 
-    func testServiceCardDecodesTheSnapshot() {
-        let c = MacServiceCard(json: ["id": "stripe", "display_name": "Stripe", "tone": "error",
-                                      "headline": "$1,204 today", "reason": "2 failed payments",
-                                      "sections": [["title": "Latest", "items": [
-                                          ["title": "Ada", "subtitle": "$40 · failed", "url": "https://dashboard.stripe.com/x"]]]]])
-        XCTAssertEqual(c.name, "Stripe")
-        XCTAssertEqual(c.tone, .error)
-        XCTAssertEqual(c.items.first?.title, "Ada")
-        XCTAssertEqual(c.items.first?.url?.host, "dashboard.stripe.com")
-        XCTAssertEqual(MacServiceCard(json: ["id": "x", "tone": "weird"]).tone, .idle)
-        // Cards that need you come first.
-        let sorted = MacServiceCard.sorted([MacServiceCard(json: ["id": "a", "tone": "ok"]), c])
-        XCTAssertEqual(sorted.first?.id, "stripe")
-    }
-
-    func testOnlyWebLinksOpen() {
-        let c = MacServiceCard(json: ["id": "x", "sections": [["items": [
-            ["title": "a", "url": "javascript:alert(1)"], ["title": "b", "url": "file:///etc/passwd"],
-            ["title": "c", "url": "https://ok.example"]]]]])
-        XCTAssertEqual(c.items.map { $0.url?.absoluteString }, [nil, nil, "https://ok.example"])
-    }
-
-    func testPortfolioSummary() {
-        let p = MacPortfolio(json: [
-            "portfolio": ["total_usd": 12_345.6, "accounts": [["label": "Ledger", "total_usd": 12_000.0]]],
-            "crypto": ["currency": "USD", "quotes": [["symbol": "BTC", "price": 61_000.5, "change_24h": -2.4]]],
-        ])
-        XCTAssertEqual(p.total, "$12,346")
-        XCTAssertEqual(p.quotes.first?.symbol, "BTC")
-        XCTAssertEqual(p.quotes.first?.change, "−2.4%")
-        XCTAssertTrue(MacPortfolio(json: [:]).isEmpty)
-    }
-
     @MainActor
-    func testTheDemoShowsMadeUpServicesAndChatThenPutsTheRealOnesBack() {
-        let model = AppModel()
-        model.handle(["type": "topic", "topic": "services", "data": ["services": [["id": "stripe", "tone": "ok"]]]])
+    func testTheDemoShowsAMadeUpChatThenClearsIt() {
         let chat = MacChatStore.shared
         chat.newChat()
+        let model = AppModel()
         model.demoActive = true
-        model.setDemo(services: [["id": "github", "tone": "warning"], ["id": "vercel", "tone": "ok"]])
         chat.showDemo([("What failed in CI?", "The `api` tests: a missing env var.")])
-        XCTAssertEqual(model.services.map { J.s($0["id"]) }, ["github", "vercel"])
         XCTAssertEqual(chat.lines.count, 2)
         model.endDemo()
         chat.endDemo()
-        XCTAssertEqual(model.services.map { J.s($0["id"]) }, ["stripe"])
         XCTAssertTrue(chat.lines.isEmpty)
+    }
+
+    /// Only Agents, Chat and Music are tabs now (Services, the portfolio and
+    /// Mail are gone); Voice is the orb's.
+    func testTheTabsAreAgentsChatAndMusic() {
+        XCTAssertEqual(IslandTab.tabBar, [.agents, .chat, .music])
+        XCTAssertNil(IslandTab(rawValue: "services"))
+        XCTAssertNil(IslandTab(rawValue: "mail"))
     }
 
     @MainActor

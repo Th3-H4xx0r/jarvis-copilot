@@ -20,7 +20,8 @@ def sent(monkeypatch):
 def test_registered():
     assert "jarvis_island" in _REGISTRY
     tabs = _REGISTRY["jarvis_island"]["input_schema"]["properties"]["tab"]["enum"]
-    assert {"agents", "chat", "services", "music", "mail", "recap"} <= set(tabs)
+    assert {"agents", "chat", "music", "recap"} <= set(tabs)
+    assert not {"services", "mail"} & set(tabs), "Services and Mail are gone from the island"
 
 
 def test_opens_the_tab(sent):
