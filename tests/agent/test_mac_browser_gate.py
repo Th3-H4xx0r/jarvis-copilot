@@ -231,3 +231,34 @@ def test_follow_ups_in_the_same_chat_keep_his_mac_ask_for_ten_minutes(monkeypatc
     assert not gate.allowed("chat")
     gate.note_turn("other-chat", "Continue.")
     assert not gate.allowed("other-chat")
+
+
+@pytest.mark.parametrize("text", [
+    "look at my screen",
+    "Can you look at my screen?",
+    "see my screen and tell me what's wrong",
+    "check my screen",
+    "read my Mac's screen",
+    "take a screenshot of my screen",
+    "describe what's on my display",
+])
+def test_asking_jarvis_to_look_at_his_screen_counts(text):
+    """Live (2026-10-16): "look at my screen" was refused — only "on my screen" counted."""
+    assert gate.explicit_mac_request(text)
+
+
+def test_looking_at_a_screen_that_isnt_his_is_not_an_ask():
+    assert not gate.explicit_mac_request("look at the screen in this photo")
+    assert not gate.explicit_mac_request("don't look at my screen")
+
+
+def test_reading_the_screen_is_allowed_for_a_turn_from_the_mac(monkeypatch):
+    """Push to talk / the island chat on the Mac can see what's on it; driving it still needs an ask,
+    and a turn from the phone can't look at the Mac unasked."""
+    monkeypatch.setattr(gate, "_from_mac", lambda task_id: task_id == "mac-turn")
+    gate.note_turn("mac-turn", "what does this error mean?")
+    assert gate.block_message("device_ui_look", "mac-turn") is None
+    assert gate.block_message("device_ui_do", "mac-turn") is not None
+    assert gate.block_message("device_mouse_click", "mac-turn") is not None
+    gate.note_turn("phone-turn", "what does this error mean?")
+    assert gate.block_message("device_ui_look", "phone-turn") is not None

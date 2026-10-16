@@ -74,6 +74,12 @@ def directive(origin: Optional[dict], channel: str) -> str:
                 "This device has a screen: when the user asks to see something (a picture, a chart), "
                 "put it on the screen with its show tool — never answer with only a link."
             )
+        if "ui_look" in skills:
+            parts.append(
+                "This is the user's Mac and you can see its screen: when they ask about what's on it "
+                "(\"this\", \"here\", \"what am I looking at\", an error, a page), look first with the device_ui_look "
+                "tool instead of asking them to describe it."
+            )
     else:
         parts.append(
             "This device has no device tools, so results belong in the reply itself; "

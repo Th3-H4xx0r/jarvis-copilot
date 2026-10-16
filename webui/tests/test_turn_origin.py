@@ -82,3 +82,13 @@ def test_device_tool_defaults_to_the_device_the_user_is_on(monkeypatch):
     finally:
         turn_origin.note_turn("sess-phone", None)
     assert calls == ["phone1", "mac1", "mac1"]
+
+
+def test_a_turn_from_the_mac_knows_it_can_see_the_screen(monkeypatch):
+    """Push to talk on the Mac said it couldn't see the screen; the Mac offers ui_look."""
+    mac = {"id": "mac1", "name": "Pranav's MacBook", "kind": "desktop"}
+    _paired(monkeypatch, mac, ["ui_look", "ui_do", "open_url"])
+    text = turn_origin.directive(turn_origin.origin_for_handler(object()), "voice")
+    assert "you can see its screen" in text and "ui_look" in text
+    _paired(monkeypatch, PHONE, ["open_url"])
+    assert "ui_look" not in turn_origin.directive(turn_origin.origin_for_handler(object()), "voice")

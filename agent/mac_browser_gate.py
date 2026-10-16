@@ -40,6 +40,11 @@ _ASKS = (
                rf"(?:{_TARGET}|{_BROWSER})\b", re.I),
     # "on my screen", "on my Mac's screen" — "the screen" alone is not an ask
     re.compile(rf"\b(?:on|in|from)\s+my\s+(?:own\s+)?(?:{_TARGET}(?:'s)?\s+)?screen\b", re.I),
+    # "look at my screen", "check my Mac's screen", "a screenshot of my screen",
+    # "describe what's on my display" (live 2026-10-16: "look at my screen" was refused)
+    re.compile(rf"\b(?:look(?:ing)?\s+at|see|check|read|view|scan|describe|analy[sz]e|glance\s+at|screenshot)"
+               rf"\s+(?:of\s+)?(?:what(?:'s|\s+is)\s+on\s+)?my\s+(?:own\s+)?(?:{_TARGET}(?:'s)?\s+)?"
+               rf"(?:screen|display|monitor)\b", re.I),
 )
 # Said to the Mac itself (its voice panel or app): a show-me request means this screen.
 _SHOW = re.compile(r"\b(?:open|show(?:\s+me)?|pull\s+up|bring\s+up|go\s+to|navigate\s+to|play|launch|"
@@ -172,12 +177,21 @@ def _remember(task_id: str, value: bool) -> None:
         _pinned.discard(old)
 
 
+# Reading the Mac's screen (no clicking, no typing): a turn from the Mac itself —
+# its push to talk or its island chat — may look at what's on it unasked
+# (Pranav 2026-10-16: push to talk should "collect auto context on what I'm
+# seeing"). Driving the Mac still needs an explicit ask.
+_LOOK_TOOLS = frozenset({"device_ui_look"})
+
+
 def block_message(tool_name: str, task_id: Optional[str]) -> Optional[str]:
     """The reason to refuse ``tool_name`` this turn, or None to let it run."""
     if is_mac_browser_tool(tool_name):
         return None if allowed(task_id) else BLOCK_MESSAGE
     if is_mac_control_tool(tool_name):
-        return None if allowed(task_id) else CONTROL_BLOCK_MESSAGE
+        if allowed(task_id) or (tool_name in _LOOK_TOOLS and _from_mac(task_id)):
+            return None
+        return CONTROL_BLOCK_MESSAGE
     return None
 
 
