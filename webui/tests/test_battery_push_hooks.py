@@ -92,3 +92,51 @@ def test_probe_thread_breakdown_is_kept_small(tmp_path):
     row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "threads": threads},
                                        state_dir=tmp_path)
     assert len(row["threads"]) <= 8 and all(isinstance(v, float) for v in row["threads"].values())
+
+
+def test_probe_rows_keep_the_ledger_hour_bounded(tmp_path):
+    from api import routes
+    hour = {"start": 1792000000, "end": 1792003600, "batteryStart": 0.8, "batteryEnd": 0.77,
+            "seconds": {"foreground": 600, "background": 3000, "bg.keepalive": 3000, "junk": "x"},
+            "cpu": {f"where.chat|S{i}": float(i) for i in range(300)},
+            "counts": {"bridge.in": 90, "bridge.out": 90, "net.Chat": 4, "flag": True}}
+    row = routes._append_energy_report("phone-1", {"kind": "probe", "cpuSeconds": 1, "hour": hour,
+                                                   "backgroundExits": {"memory pressure": 2, "x": "y"}},
+                                       state_dir=tmp_path)
+    kept = row["hour"]
+    assert kept["batteryEnd"] == 0.77 and kept["seconds"]["bg.keepalive"] == 3000.0
+    assert "junk" not in kept["seconds"] and "flag" not in kept["counts"]
+    assert len(kept["cpu"]) <= routes._ENERGY_MAP_KEYS
+    assert row["backgroundExits"] == {"memory pressure": 2}
+
+
+def test_the_hour_line_says_where_the_battery_went():
+    from api import routes
+    line = routes._energy_hour_line({
+        "batteryStart": 0.8, "batteryEnd": 0.77,
+        "seconds": {"foreground": 600, "background": 3000, "bg.keepalive": 3000, "bg.cellular": 1200},
+        "cpu": {"foreground": 150, "background": 20, "where.health|Sleep": 100, "where.chat|": 50},
+        "counts": {"bridge.in": 90, "bridge.out": 90, "bridge.drop": 1, "net.Chat": 4, "net.bg.Chat": 2}})
+    assert "battery -3%" in line
+    assert "screen 10 min / 150 s CPU" in line
+    assert "kept alive 50, cellular 20" in line
+    assert "top health › Sleep 100 s, chat 50 s" in line
+    assert "link 180 frames, 1 drops; 4 requests" in line
+
+
+def test_energy_report_summarises_pocket_drain():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+    import phone_energy_report as report
+    t = 1792000000
+
+    def row(i, **seconds):
+        return json.dumps({"kind": "probe", "hour": {"start": t + i * 3600, "end": t + (i + 1) * 3600,
+                                                      "batteryStart": 0.9 - i * 0.02, "batteryEnd": 0.88 - i * 0.02,
+                                                      "seconds": seconds}})
+    hours = report.hours_from([row(0, background=3600, **{"bg.keepalive": 3600, "bg.wifi": 3600}),
+                               row(1, background=3600, **{"bg.cellular": 3600}), "noise"])
+    rates = report.summary(hours)
+    assert round(rates["pocket, kept alive"][0], 3) == 2.0
+    assert round(rates["pocket, suspended"][0], 3) == 2.0
+    assert rates["on screen"][0] is None
+    assert "+2%" not in report.row_text(hours[0], -5) and "-2%" in report.row_text(hours[0], -5)

@@ -975,7 +975,56 @@ _ENERGY_KEEP = 400
 _ENERGY_FIELDS = ("received", "cpuSeconds", "foregroundSeconds", "backgroundSeconds",
                   "backgroundAudioSeconds", "backgroundLocationSeconds", "app_version",
                   # the app's own hourly reading (kind "probe"): CPU over wallSeconds
-                  "kind", "wallSeconds", "background")
+                  "kind", "wallSeconds", "background",
+                  # MetricKit's day: what went over which radio
+                  "wifiUpBytes", "wifiDownBytes", "cellularUpBytes", "cellularDownBytes")
+_ENERGY_MAP_KEYS = 120
+
+
+def _energy_map(raw, cast) -> dict:
+    """A small {name: number} map from the phone, keys and size bounded."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key, value in list(raw.items())[:_ENERGY_MAP_KEYS]:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[str(key)[:80]] = cast(value)
+    return out
+
+
+def _energy_hour(raw) -> dict | None:
+    """The phone ledger's hour (Settings → Battery usage): states, CPU, counts, battery at each end."""
+    if not isinstance(raw, dict):
+        return None
+    hour = {k: float(raw[k]) for k in ("start", "end", "batteryStart", "batteryEnd")
+            if isinstance(raw.get(k), (int, float)) and not isinstance(raw.get(k), bool)}
+    hour["seconds"] = _energy_map(raw.get("seconds"), float)
+    hour["cpu"] = _energy_map(raw.get("cpu"), float)
+    hour["counts"] = _energy_map(raw.get("counts"), int)
+    return hour
+
+
+def _energy_hour_line(hour: dict) -> str:
+    """One line for the journal: battery, screen vs pocket, network, keepalive, the busiest place."""
+    secs, cpu, counts = hour.get("seconds", {}), hour.get("cpu", {}), hour.get("counts", {})
+    parts = []
+    if "batteryStart" in hour and "batteryEnd" in hour:
+        delta = (hour["batteryEnd"] - hour["batteryStart"]) * 100
+        parts.append(f"battery {delta:+.0f}%" + (" (charging)" if secs.get("charging", 0) >= 60 else ""))
+    parts.append(f"screen {secs.get('foreground', 0) / 60:.0f} min / {cpu.get('foreground', 0):.0f} s CPU")
+    bg = secs.get("background", 0)
+    if bg:
+        parts.append(f"pocket {bg / 60:.0f} min (kept alive {secs.get('bg.keepalive', 0) / 60:.0f}, "
+                     f"cellular {secs.get('bg.cellular', 0) / 60:.0f}) / {cpu.get('background', 0):.0f} s CPU")
+    places = sorted(((k[6:], v) for k, v in cpu.items() if k.startswith("where.")), key=lambda kv: -kv[1])
+    if places:
+        parts.append("top " + ", ".join(f"{k.replace('|', ' › ').rstrip(' › ')} {v:.0f} s" for k, v in places[:2]))
+    frames = counts.get("bridge.in", 0) + counts.get("bridge.out", 0)
+    requests = sum(v for k, v in counts.items() if k.startswith("net.") and not k.startswith("net.bg."))
+    parts.append(f"link {frames} frames, {counts.get('bridge.drop', 0)} drops; {requests} requests")
+    if counts.get("keepalive.restart"):
+        parts.append(f"keepalive restarted {counts['keepalive.restart']}x")
+    return "; ".join(parts)
 
 
 def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
@@ -994,6 +1043,12 @@ def _append_energy_report(device_id: str, body: dict, state_dir=None) -> dict:
     if isinstance(threads, dict):
         row["threads"] = {str(k)[:40]: float(v) for k, v in list(threads.items())[:8]
                           if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    hour = _energy_hour(body.get("hour"))
+    if hour:
+        row["hour"] = hour
+    exits = _energy_map(body.get("backgroundExits"), int)
+    if exits:
+        row["backgroundExits"] = dict(list(exits.items())[:12])
     path = _Path(state_dir or STATE_DIR) / _ENERGY_FILE
     lines = path.read_text().splitlines()[-(_ENERGY_KEEP - 1):] if path.exists() else []
     lines.append(_json.dumps(row, sort_keys=True))
@@ -6674,6 +6729,9 @@ def handle_post(handler, parsed) -> bool:
                                                               key=lambda kv: -kv[1])[:5])
             print(f"[energy] {device.get('name') or device['id']}: {cpu:.0f} s CPU in {hours:.2f} h "
                   f"({cpu / hours if hours else 0:.0f} s/h, {where} now){' — ' + top if top else ''}", flush=True)
+            if row.get("hour"):
+                print(f"[energy] {device.get('name') or device['id']} hour: {_energy_hour_line(row['hour'])}",
+                      flush=True)
         else:
             bg_h = (row.get("backgroundSeconds") or 0) / 3600
             print(f"[energy] {device.get('name') or device['id']}: MetricKit day — {cpu:.0f} s CPU, "
