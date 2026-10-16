@@ -96,6 +96,9 @@ end and push to all devices after this". A box is ticked only once it is live.
    - ✅ Installed (dbf1b542a1).
 49. [x] "Look at my screen" → "I can't access your Mac screen from this request" (the Mac gate only knew "on my screen")
    - ✅ Live on the server (restarted 07:14 UTC, 3d8c1c68e3).
+50. [x] Every turn names the device it came from, exactly as registered ("Pranavs-MacBook-Pro.local", "JarvisCopilot (iPhone)", "Jarvis Pod"); jc-client counts as the Mac for reading its screen
+   - ✅ Live on the server (0b10876a3d, restarted 07:29 UTC).
+51. [ ] When a voice turn hands off to a harness agent ("I'll have a larger model compare…"), speak its answer when it's back, and show that agent's job (task, steps, result) in the island's Agents tab
 
 ## Shipped
 - 2026-10-15: the whole port is live (server f062666ae+, Jarvis.app, iPhone build af06c84f09).
