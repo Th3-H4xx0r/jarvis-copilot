@@ -81,19 +81,34 @@ struct FlowAppStyle: Codable, Hashable, Identifiable, Sendable {
     var style: FlowStyle
     var id: String { bundleID }
 
-    /// Apps that get a style from the start: mail polished, chats natural, code
-    /// and AI chats as said.
+    /// Apps that get a style from the start: mail polished, chats natural, and
+    /// code and AI chats natural too — a prompt to Claude reads better without
+    /// the "uh"s (they used to be "as said", which never reached Jarvis).
     static let defaults: [FlowAppStyle] = [
         FlowAppStyle(bundleID: "com.apple.mail", name: "Mail", style: .polished),
         FlowAppStyle(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", style: .natural),
         FlowAppStyle(bundleID: "com.apple.MobileSMS", name: "Messages", style: .natural),
         FlowAppStyle(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", style: .natural),
-        FlowAppStyle(bundleID: "com.anthropic.claudefordesktop", name: "Claude", style: .verbatim),
-        FlowAppStyle(bundleID: "com.apple.Terminal", name: "Terminal", style: .verbatim),
-        FlowAppStyle(bundleID: "com.googlecode.iterm2", name: "iTerm", style: .verbatim),
-        FlowAppStyle(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code", style: .verbatim),
-        FlowAppStyle(bundleID: "com.todesktop.230313mzl4w4u92", name: "Cursor", style: .verbatim),
+        FlowAppStyle(bundleID: "com.anthropic.claudefordesktop", name: "Claude", style: .natural),
+        FlowAppStyle(bundleID: "com.apple.Terminal", name: "Terminal", style: .natural),
+        FlowAppStyle(bundleID: "com.googlecode.iterm2", name: "iTerm", style: .natural),
+        FlowAppStyle(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code", style: .natural),
+        FlowAppStyle(bundleID: "com.todesktop.230313mzl4w4u92", name: "Cursor", style: .natural),
     ]
+
+    /// The code and AI apps that were "as said" by default.
+    static let codeApps: Set<String> = ["com.anthropic.claudefordesktop", "com.apple.Terminal", "com.googlecode.iterm2",
+                                        "com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92"]
+
+    /// Saved styles still on that old default move to the clean-up (once, see
+    /// FlowStore); another style, or another app set to "as said", stays.
+    static func migratingCodeApps(_ saved: [FlowAppStyle]) -> [FlowAppStyle] {
+        saved.map { app in
+            var app = app
+            if codeApps.contains(app.bundleID) && app.style == .verbatim { app.style = .natural }
+            return app
+        }
+    }
 }
 
 /// How long the history is kept.

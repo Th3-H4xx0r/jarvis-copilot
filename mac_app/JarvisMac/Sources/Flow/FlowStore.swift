@@ -51,6 +51,11 @@ final class FlowStore {
         snippets = load([FlowSnippet].self, from: "snippets.json") ?? []
         appStyles = load([FlowAppStyle].self, from: "styles.json") ?? FlowAppStyle.defaults
         loading = false
+        if !Prefs.flowCodeAppsCleaned {
+            // Once: code and AI apps left on the old "as said" default get the clean-up.
+            appStyles = FlowAppStyle.migratingCodeApps(appStyles)
+            Prefs.flowCodeAppsCleaned = true
+        }
         prune()
     }
 

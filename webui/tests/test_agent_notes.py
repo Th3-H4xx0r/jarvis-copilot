@@ -364,6 +364,61 @@ def test_flow_cleanup_survives_a_model_failure():
     assert handle_flow_cleanup(None)[0] == 400
 
 
+def test_flow_cleanup_runs_on_the_model_picked_in_flow_settings(monkeypatch):
+    picked = []
+
+    def pick(model, provider):
+        picked.append((model, provider))
+        return FakeModel("Let's meet at four.")
+
+    monkeypatch.setattr(agent_notes_routes, "_picked_model_call", pick)
+    status, payload = handle_flow_cleanup({"text": "uh let's meet at three no at four", "style": "natural",
+                                           "model": "claude-haiku-5-5", "provider": "anthropic-api"})
+    assert (status, payload) == (200, {"text": "Let's meet at four.", "cleaned": True})
+    assert picked == [("claude-haiku-5-5", "anthropic-api")]
+
+
+def test_flow_cleanup_without_a_pick_lets_jarvis_choose(monkeypatch):
+    monkeypatch.setattr("agent.flow_cleanup.default_model_call", FakeModel("Meet at four.", "Meet at four."))
+    monkeypatch.setattr(agent_notes_routes, "_picked_model_call",
+                        lambda *a: pytest.fail("no model was picked"))
+    for body in ({"text": "uh meet at three no at four", "style": "natural"},
+                 {"text": "uh meet at three no at four", "style": "natural", "model": "  ", "provider": "x"}):
+        assert handle_flow_cleanup(body)[1] == {"text": "Meet at four.", "cleaned": True}
+
+
+def test_the_picked_model_is_resolved_the_web_uis_way_and_called_once_without_tools(monkeypatch):
+    import api.config as cfg
+    seen = {}
+    monkeypatch.setattr(cfg, "model_with_provider_context", lambda m, p: f"@{p}:{m}")
+    monkeypatch.setattr(cfg, "resolve_model_provider", lambda ref: (ref.split(":", 1)[1], "anthropic", None))
+    monkeypatch.setattr(cfg, "route_anthropic_via_claude_code", lambda m, p, b: (m, "claude-code", "cli"))
+    monkeypatch.setattr("jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
+                        lambda requested=None, **_: {"provider": requested, "api_key": "k"})
+
+    def fake_call_llm(**kw):
+        seen.update(kw)
+        return {"choices": [{"message": {"content": "Meet at four."}}]}
+
+    monkeypatch.setattr("agent.auxiliary_client.call_llm", fake_call_llm)
+    monkeypatch.setattr("agent.auxiliary_client.extract_content_or_reasoning",
+                        lambda r: r["choices"][0]["message"]["content"])
+    call = agent_notes_routes._picked_model_call("claude-sonnet-5-5", "anthropic")
+    assert call([{"role": "user", "content": "x"}]) == "Meet at four."
+    assert (seen["provider"], seen["model"], seen["base_url"], seen["api_key"]) == \
+        ("claude-code", "claude-sonnet-5-5", "cli", "k")
+    assert seen["task"] == "flow_cleanup" and "tools" not in seen
+
+
+def test_flow_cleanup_on_a_picked_model_that_cant_be_reached_keeps_the_words(monkeypatch):
+    def broken(messages):
+        raise RuntimeError("Provider 'x' has no API key")
+
+    monkeypatch.setattr(agent_notes_routes, "_picked_model_call", lambda m, p: broken)
+    status, payload = handle_flow_cleanup({"text": "one two three four", "style": "polished", "model": "m"})
+    assert (status, payload) == (200, {"text": "one two three four", "cleaned": False})
+
+
 def test_flow_cleanup_strips_tags_and_keeps_snippet_marks():
     status, payload = handle_flow_cleanup({"text": "sign it ⟦1⟧ thanks a lot", "style": "natural"},
                                           call=FakeModel("<dictation>Sign it ⟦1⟧, thanks a lot.</dictation>"))

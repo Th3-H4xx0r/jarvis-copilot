@@ -72,6 +72,8 @@ struct FlowEngineSection: View {
     @State private var cleanup = Prefs.flowCleanup
     @State private var style = Prefs.flowDefaultStyle
     @State private var detail = ""
+    @State private var pick = FlowModelPick(model: Prefs.flowCleanupModel, provider: Prefs.flowCleanupProvider)
+    private var catalog: FlowModelCatalog { FlowModelCatalog.shared }
 
     var body: some View {
         Section {
@@ -87,15 +89,56 @@ struct FlowEngineSection: View {
                 .onChange(of: cleanup) { _, v in Prefs.flowCleanup = v }
             Text("Removes the “uh”s, repeats and corrections said on the way, fixes punctuation and writes in each app's style. The words then go to your Jarvis server; if it's slow or away they're pasted as heard.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("Clean-up model", selection: $pick) {
+                Text("Auto — Jarvis picks").tag(FlowModelPick())
+                if let model = pick.model, !catalog.groups.contains(where: { g in g.models.contains { $0.id == model } }) {
+                    // The saved pick, while the list loads (or if it's gone from it).
+                    Text(model).tag(pick)
+                }
+                ForEach(catalog.groups) { group in
+                    Section(group.provider) {
+                        ForEach(group.models) { m in
+                            Text(m.label).tag(FlowModelPick(model: m.id, provider: group.providerID))
+                        }
+                    }
+                }
+            }
+            .disabled(!cleanup)
+            .onChange(of: pick) { _, v in
+                Prefs.flowCleanupModel = v.model
+                Prefs.flowCleanupProvider = v.provider
+            }
+            if let error = catalog.error {
+                Text(error).font(.caption).foregroundStyle(.orange)
+            } else {
+                Text("A small, fast model keeps you from waiting to paste.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Picker("Style for other apps", selection: $style) {
                 ForEach(FlowStyle.allCases) { Text($0.label).tag($0) }
             }
             .onChange(of: style) { _, v in Prefs.flowDefaultStyle = v }
+            HStack {
+                Text("Code and AI apps (VS Code, Terminal, Claude…) get a light clean-up. Set any app's style — or “As said” to skip Jarvis there — in the Flow window.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Styles per app…") { FlowWindow.show(.styles) }
+            }
         } header: {
             Text("Words")
         }
-        .task { detail = await DictationEngines.describe(engine) }
+        .task {
+            detail = await DictationEngines.describe(engine)
+            await catalog.load()
+        }
     }
+}
+
+/// The clean-up model picked in Flow settings: an `/api/models` id and its
+/// provider; both nil is Auto.
+struct FlowModelPick: Hashable {
+    var model: String?
+    var provider: String?
 }
 
 struct FlowHistorySection: View {

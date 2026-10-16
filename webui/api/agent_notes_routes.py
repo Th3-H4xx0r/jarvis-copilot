@@ -20,9 +20,11 @@ Contract (``<path>`` is what follows ``/api/agent-notes``)::
 
 Every change publishes ``notes`` {"id"[, "deleted"]} on the device bridge.
 
-``POST /api/flow/cleanup {text, style, app?, words?}`` → 200 ``{"text", "cleaned"}``
-(the words as heard and ``cleaned: false`` whenever the model fails or answers
-something that isn't a clean-up) · 400 bad body.
+``POST /api/flow/cleanup {text, style, app?, words?, model?, provider?}`` → 200
+``{"text", "cleaned"}`` (the words as heard and ``cleaned: false`` whenever the
+model fails or answers something that isn't a clean-up) · 400 bad body. ``model``
+/ ``provider`` are the pick in the Mac's Flow settings (an ``/api/models`` entry);
+without one, ``auxiliary.flow_cleanup`` (else auto) decides.
 
 after coucou (github.com/Louis-CFM/coucou, MIT)
 """
@@ -135,12 +137,36 @@ def handle_agent_notes_request(method: str, sub: str, body: Optional[dict], stor
     return 405, {"error": "method not allowed"}
 
 
+def _picked_model_call(model: str, provider: str = "") -> Callable[[list], str]:
+    """The clean-up on the model picked in Flow settings: resolved the web UI's
+    way (``@provider:model``, custom providers, Anthropic picks on the Claude
+    Code CLI) and called once, with no tools — the user is waiting to paste.
+    Resolution happens inside the call, so a provider that can't be reached
+    fails like a model error: the words are pasted as heard."""
+    def call(messages: list) -> str:
+        import api.config as cfg
+        from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+        from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
+
+        name, prov, base_url = cfg.route_anthropic_via_claude_code(
+            *cfg.resolve_model_provider(cfg.model_with_provider_context(model, provider)))
+        runtime = resolve_runtime_provider(requested=prov) or {}
+        response = call_llm(task="flow_cleanup", provider=prov or runtime.get("provider"), model=name,
+                            base_url=base_url or runtime.get("base_url"), api_key=runtime.get("api_key"),
+                            messages=messages, max_tokens=1024, temperature=0.0, timeout=10.0)
+        return str(extract_content_or_reasoning(response) or "")
+    return call
+
+
 def handle_flow_cleanup(body: Optional[dict], call: Optional[Callable[[list], str]] = None) -> tuple:
     if not isinstance(body, dict) or not isinstance(body.get("text"), str):
         return 400, {"error": "text is required"}
     from agent import flow_cleanup
     words = body.get("words") if isinstance(body.get("words"), list) else []
     app = body.get("app") if isinstance(body.get("app"), str) else None
-    text, cleaned = flow_cleanup.clean(body["text"], str(body.get("style") or "natural"), app, words,
-                                       call or flow_cleanup.default_model_call)
+    model = body.get("model").strip() if isinstance(body.get("model"), str) else ""
+    provider = body.get("provider").strip() if isinstance(body.get("provider"), str) else ""
+    if call is None:
+        call = _picked_model_call(model, provider) if model else flow_cleanup.default_model_call
+    text, cleaned = flow_cleanup.clean(body["text"], str(body.get("style") or "natural"), app, words, call)
     return 200, {"text": text, "cleaned": cleaned}

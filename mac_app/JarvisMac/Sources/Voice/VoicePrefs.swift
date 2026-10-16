@@ -34,6 +34,24 @@ extension Prefs {
         set { store.set(newValue, forKey: "flow.cleanup") }
     }
 
+    /// The model Flow's clean-up runs on (an `/api/models` id and its provider
+    /// id); nil = Jarvis picks (`auxiliary.flow_cleanup`, else auto).
+    static var flowCleanupModel: String? {
+        get { store.string(forKey: "flow.cleanupModel").flatMap { $0.isEmpty ? nil : $0 } }
+        set { store.set(newValue ?? "", forKey: "flow.cleanupModel") }
+    }
+
+    static var flowCleanupProvider: String? {
+        get { store.string(forKey: "flow.cleanupProvider").flatMap { $0.isEmpty ? nil : $0 } }
+        set { store.set(newValue ?? "", forKey: "flow.cleanupProvider") }
+    }
+
+    /// The one-time move of code and AI apps off "as said" has run.
+    static var flowCodeAppsCleaned: Bool {
+        get { store.bool(forKey: "flow.codeAppsCleaned") }
+        set { store.set(newValue, forKey: "flow.codeAppsCleaned") }
+    }
+
     /// The style of the apps that have none of their own.
     static var flowDefaultStyle: FlowStyle {
         get { FlowStyle(rawValue: store.string(forKey: "flow.defaultStyle") ?? "") ?? .natural }

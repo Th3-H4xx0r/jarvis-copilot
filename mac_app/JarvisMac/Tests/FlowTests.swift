@@ -133,7 +133,53 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(FlowStyle.resolve(bundleID: "com.apple.mail", in: styles, default: .natural), .polished)
         XCTAssertEqual(FlowStyle.resolve(bundleID: "com.other", in: styles, default: .natural), .natural)
         XCTAssertEqual(FlowStyle.resolve(bundleID: nil, in: styles, default: .verbatim), .verbatim)
-        XCTAssertTrue(FlowAppStyle.defaults.contains { $0.bundleID == "com.apple.Terminal" && $0.style == .verbatim })
+        XCTAssertTrue(FlowAppStyle.defaults.contains { $0.bundleID == "com.apple.Terminal" && $0.style == .natural })
+    }
+
+    /// Code and AI apps get Jarvis's light clean-up too ("natural"), not the
+    /// words as heard: a prompt to Claude reads better without the "uh"s. (They
+    /// were "as said", so dictating in VS Code never reached Jarvis.)
+    func testCodeAndAIAppsAreCleanedByDefault() {
+        for id in FlowAppStyle.codeApps {
+            XCTAssertEqual(FlowAppStyle.defaults.first { $0.bundleID == id }?.style, .natural, id)
+        }
+        XCTAssertTrue(FlowAppStyle.codeApps.contains("com.microsoft.VSCode"))
+    }
+
+    /// Styles saved on the old "as said" default for those apps move once; any
+    /// other style, or another app set to "as said", stays as it was.
+    func testOldAsSaidDefaultsMoveToTheCleanUp() {
+        let saved = [FlowAppStyle(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code", style: .verbatim),
+                     FlowAppStyle(bundleID: "com.apple.mail", name: "Mail", style: .polished),
+                     FlowAppStyle(bundleID: "com.example.Editor", name: "Editor", style: .verbatim),
+                     FlowAppStyle(bundleID: "com.apple.Terminal", name: "Terminal", style: .polished)]
+        XCTAssertEqual(FlowAppStyle.migratingCodeApps(saved).map(\.style), [.natural, .polished, .verbatim, .polished])
+    }
+
+    /// The model picked in Flow settings travels with every clean-up; none
+    /// picked, Jarvis chooses.
+    func testTheCleanUpCarriesThePickedModel() {
+        let picked = FlowCleanup.body("uh hi there you", style: .natural, app: "Code", words: ["Supabase"],
+                                      model: "claude-haiku-5-5", provider: "anthropic-api")
+        XCTAssertEqual(picked["model"] as? String, "claude-haiku-5-5")
+        XCTAssertEqual(picked["provider"] as? String, "anthropic-api")
+        XCTAssertEqual(picked["style"] as? String, "natural")
+        XCTAssertEqual(picked["words"] as? [String], ["Supabase"])
+        let auto = FlowCleanup.body("uh hi there you", style: .natural, app: nil, words: [], model: nil, provider: nil)
+        XCTAssertNil(auto["model"])
+        XCTAssertNil(auto["provider"])
+    }
+
+    /// Jarvis's model list (`/api/models`) → the picker's sections, empty
+    /// providers left out.
+    func testTheModelPickerListsJarvisModels() {
+        let json = #"{"groups":[{"provider":"Anthropic API","provider_id":"anthropic-api","models":[{"id":"claude-haiku-5-5","label":"Claude Haiku 5 5"}]},{"provider":"Celeris","provider_id":"celeris","models":[]}]}"#
+        let groups = FlowModelCatalog.parse(Data(json.utf8))
+        XCTAssertEqual(groups.map(\.provider), ["Anthropic API"])
+        XCTAssertEqual(groups.first?.providerID, "anthropic-api")
+        XCTAssertEqual(groups.first?.models.map(\.id), ["claude-haiku-5-5"])
+        XCTAssertEqual(groups.first?.models.first?.label, "Claude Haiku 5 5")
+        XCTAssertTrue(FlowModelCatalog.parse(Data("nope".utf8)).isEmpty)
     }
 
     func testCleanUpRepliesThatAreNotACleanUpAreRefused() {
