@@ -141,7 +141,8 @@ final class TodosTests: XCTestCase {
 
         XCTAssertEqual(transport.method(0), "GET")
         XCTAssertEqual(transport.path(0), "/api/sessions")
-        XCTAssertEqual(transport.query(0), [:])
+        // Only the newest few: the whole list is 660 KB.
+        XCTAssertEqual(transport.query(0), ["limit": "20"])
         XCTAssertEqual(transport.method(1), "GET")
         XCTAssertEqual(transport.path(1), "/api/session")
         XCTAssertEqual(transport.query(1),

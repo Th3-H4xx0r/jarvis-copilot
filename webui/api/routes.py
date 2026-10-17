@@ -4432,6 +4432,11 @@ def handle_get(handler, parsed) -> bool:
             if show_cli_sessions:
                 diag.stage("cli_cap")
                 scoped = _cap_recent_cli_sessions(scoped, cli_cap=CLI_VISIBLE_SESSION_CAP)
+            # ?limit=N: only the N most recent. The phone's chat widget wants the latest
+            # chat, and the whole list is ~1.1 KB a chat (660 KB at 578, 2026-10-17).
+            limit_raw = parse_qs(parsed.query).get("limit", [""])[0]
+            if limit_raw.isdigit() and int(limit_raw) > 0:
+                scoped = scoped[: int(limit_raw)]
             diag.stage("redact_sessions")
             safe_merged = []
             for s in scoped:

@@ -19,7 +19,8 @@ struct TodosAPI {
     /// "active session" singleton, so we mirror what the user sees as their open
     /// chat (`ChatController.openInitial`: sort by `updated_at` desc, take first).
     func activeSessionID() async throws -> String? {
-        let response = try await api.get("/api/sessions")
+        // The newest few are enough to pick the latest; the whole list is 660 KB.
+        let response = try await api.get("/api/sessions", query: ["limit": "20"])
         let body = try response.object()
         let raw = (body["sessions"] as? [Any]) ?? []
         var rows = MoreJSON.mapList(raw)

@@ -362,7 +362,9 @@ final class ChatWidgetData: WidgetDataProvider {
     func values() async -> [String: JCJSON] {
         if let cache, Date().timeIntervalSince(cache.at) < 120 { return cache.values }
         guard BridgeClient.shared.isPaired,
-              let sessions = try? await SessionsAPI().list(),
+              // The newest 20 hold the latest chat and any that is streaming; the whole
+              // list (660 KB) was fetched for every refresh, in the background too.
+              let sessions = try? await SessionsAPI().recent(limit: 20),
               let latest = sessions.filter({ !$0.archived }).max(by: { ($0.updatedAt ?? 0) < ($1.updatedAt ?? 0) })
         else { return cache?.values ?? [:] }
         var out: [String: JCJSON] = ["chat.last_title": .string(latest.title),

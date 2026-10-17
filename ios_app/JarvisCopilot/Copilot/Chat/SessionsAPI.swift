@@ -41,6 +41,13 @@ struct SessionsAPI {
         return try response.object().list("sessions").map { ChatSessionSummary(json: $0) }
     }
 
+    /// The `limit` most recent chats, newest first (≈1.1 KB each; `list()` is every chat,
+    /// 660 KB at 578). A server without `limit` sends them all, which still answers.
+    func recent(limit: Int) async throws -> [ChatSessionSummary] {
+        let response = try await api.get("/api/sessions", query: ["limit": String(limit)])
+        return try response.object().list("sessions").map { ChatSessionSummary(json: $0) }
+    }
+
     func get(_ sessionID: String) async throws -> ChatSessionDetail {
         let response = try await api.get("/api/session", query: [
             "session_id": sessionID, "messages": "1", "resolve_model": "0",
