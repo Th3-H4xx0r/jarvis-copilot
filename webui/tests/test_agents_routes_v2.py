@@ -360,3 +360,39 @@ def test_resuming_a_moved_session_on_the_mac_merges_first(env):
     assert any(f["type"] == "agent_transcript_sync" and f.get("then") == "resume_local"
                for _, f in env["frames"])
     assert not any(f["type"] == "agent_resume_local" for _, f in env["frames"])
+
+
+class FakeCodexServer:
+    def __init__(self):
+        self.answered = []
+
+    def available(self):
+        return True, ""
+
+    def answer_approval(self, approval_id, decision):
+        self.answered.append((approval_id, decision))
+        return True
+
+
+def test_server_codex_approval_reaches_needs_you_and_is_answered(env):
+    from api import agent_hooks  # noqa: F401  (installs the decision router)
+    from api import coding_permission as cp
+    cp._reset_for_tests()
+    codex = FakeCodexServer()
+    env["core"].codex = env["core"].handoff.codex = codex
+    env["core"].conv.upsert("codex|c1", agent="codex", session_id="c1", owner="server",
+                            status="live", cwd="/srv/app", title="Port the parser",
+                            run={"kind": "headless", "handle": "c1"})
+    env["core"].on_codex_event("approval", {"id": "a1", "handle": "c1", "kind": "command",
+                                            "title": "Run ls -la", "command": "ls -la",
+                                            "cwd": "/srv/app"})
+    _, body = call("GET", "/agents/list")
+    (c,) = body["needs_you"]
+    assert c["ckey"] == "codex|c1" and c["pending"]["summary"] == "Run ls -la"
+    (req,) = [r for r in cp.list_pending() if r.get("fingerprint") == "codex:a1"]
+    status, _ = call("POST", "/permission/verdict", {"request_id": req["request_id"],
+                                                     "decision": "allow"})
+    assert status == 200 and codex.answered == [("a1", "allow")]
+    env["core"].on_codex_event("approval_resolved", {"id": "a1", "handle": "c1"})
+    _, body = call("GET", "/agents/list")
+    assert body["needs_you"] == []

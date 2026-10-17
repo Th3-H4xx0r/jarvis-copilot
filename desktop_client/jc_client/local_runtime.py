@@ -33,6 +33,42 @@ def _alive(pid) -> bool:
         return False
 
 
+_PATH_CACHE: list = []
+
+
+def _login_shell_path() -> str:
+    """His login shell's PATH (brew, node, ~/.local/bin...), read once. jc-client
+    itself runs under launchd with PATH=/usr/bin:/bin:/usr/sbin:/sbin."""
+    if _PATH_CACHE:
+        return _PATH_CACHE[0]
+    path = ""
+    shell = os.environ.get("SHELL") or "/bin/zsh"
+    try:
+        out = subprocess.run([shell, "-lc", 'printf %s "$PATH"'], capture_output=True, text=True,
+                             timeout=5, stdin=subprocess.DEVNULL)
+        path = (out.stdout or "").strip()
+    except (OSError, subprocess.SubprocessError):
+        path = ""
+    if not path:
+        home = os.path.expanduser("~")
+        path = os.pathsep.join([os.path.join(home, ".local/bin"), "/opt/homebrew/bin",
+                                "/opt/homebrew/sbin", "/usr/local/bin", os.path.join(home, ".bun/bin")])
+    _PATH_CACHE.append(path)
+    return path
+
+
+def _session_env() -> dict:
+    """The environment a session started here gets: ours, with his login PATH first."""
+    env = os.environ.copy()
+    seen, parts = set(), []
+    for d in (_login_shell_path() + os.pathsep + env.get("PATH", "")).split(os.pathsep):
+        if d and d not in seen:
+            seen.add(d)
+            parts.append(d)
+    env["PATH"] = os.pathsep.join(parts)
+    return env
+
+
 def _looks_like_model(name) -> bool:
     n = str(name or "").strip().lower()
     return n in ("opus", "sonnet", "haiku") or n.startswith("claude-")
@@ -95,7 +131,7 @@ class LocalRuntime:
             argv.append(prompt)
         # Never a pipe: `claude --bg` leaves a daemon holding its stdout.
         with tempfile.TemporaryFile(mode="w+") as fh:
-            out = self._run(argv, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, text=True,
+            out = self._run(argv, cwd=cwd, env=_session_env(), stdout=fh, stderr=subprocess.STDOUT, text=True,
                             stdin=subprocess.DEVNULL, timeout=60)
             fh.seek(0)
             text = fh.read()

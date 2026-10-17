@@ -169,3 +169,36 @@ def test_start_refuses_home_dir_local(tmp_path, monkeypatch):
     creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
     assert creates == []
     assert any(f.get("type") == "coding_sync_error" for f in sent)
+
+
+def test_git_conflicts_pause_the_sync_and_report_once():
+    """Conflicts inside .git are never auto-resolved: the sync stops and the
+    server is told (it alerts the phone), once."""
+    sent, runner = [], FakeRunner()
+    a = _agent(runner, sent)
+
+    class Healer:
+        def due(self, name):
+            return True
+
+        def heal(self, raw, name):
+            return {"healed": 0, "skipped": 0, "git_conflicts": [".git/index"]}
+
+    a._healer = Healer()
+    a._heal("sync-1")
+    a._heal("sync-1")
+    pauses = [c for c in runner.calls if c[1:3] == ["sync", "pause"]]
+    assert len(pauses) == 1
+    errs = [f for f in sent if f.get("type") == "coding_sync_error" and f.get("op") == "git_conflict"]
+    assert len(errs) == 1 and ".git" in errs[0]["error"]
+
+
+def test_turning_sync_back_on_resumes_a_git_paused_sync(monkeypatch):
+    sent, runner = [], FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    a._git_paused.add("sync-1")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",
+                    "local_path": "/Users/me/p", "remote_path": "/root/p"})
+    assert any(c[1:3] == ["sync", "resume"] for c in runner.calls)
+    assert "sync-1" not in a._git_paused

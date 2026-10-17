@@ -88,3 +88,33 @@ def test_launch_bg_parses_id_and_trusts(tmp_path, monkeypatch):
     cfg = json.loads((tmp_path / ".claude.json").read_text())
     import os
     assert cfg["projects"][os.path.realpath(str(tmp_path))]["hasTrustDialogAccepted"] is True
+
+
+def test_launch_finds_claude_outside_the_launchd_path(tmp_path, monkeypatch):
+    """jc-client runs under launchd (PATH=/usr/bin:/bin:...): a bare "claude" isn't found."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    from jc_client import agent_roster
+    monkeypatch.setattr(agent_roster, "claude_binary", lambda: "/Users/p/.local/bin/claude")
+    run = Rec(stdout="backgrounded · ab12cd34\n")
+    LocalRuntime(run=run).launch_bg(str(tmp_path), prompt="hi")
+    assert run.calls[-1][0] == "/Users/p/.local/bin/claude"
+
+
+def test_launch_gives_claude_the_users_path(tmp_path, monkeypatch):
+    """A session started from the phone must find brew/node/git like one he starts himself."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    import jc_client.local_runtime as lr
+    monkeypatch.setattr(lr, "_login_shell_path", lambda: "/opt/homebrew/bin:/Users/p/.local/bin:/usr/bin")
+    seen = {}
+
+    def run(argv, **kw):
+        seen["env"] = kw.get("env")
+        kw["stdout"].write("backgrounded · ab12cd34\n")
+        kw["stdout"].flush()
+        return subprocess.CompletedProcess(argv, 0, None, None)
+
+    LocalRuntime(run=run, claude_bin="/x/claude").launch_bg(str(tmp_path), prompt="hi")
+    assert seen["env"]["PATH"].startswith("/opt/homebrew/bin:/Users/p/.local/bin")

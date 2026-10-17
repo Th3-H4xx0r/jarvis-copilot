@@ -419,6 +419,11 @@ def broadcast_config(settings: dict) -> None:
 def _route_decision(record, decision, message, answers) -> bool:
     fingerprint = record.get("fingerprint")
     device_id = record.get("device_id")
+    if str(fingerprint or "").startswith("codex:"):
+        # A Codex session running on the server (codex app-server) asked.
+        from api.agents_core import core
+        c = core()
+        return bool(c is not None and c.answer_codex(fingerprint, decision))
     if device_id:
         from api import device_bridge
         return bool(device_bridge.send_frame(device_id, {

@@ -99,6 +99,7 @@ class AgentsCore:
         self._last_tick = 0.0
         self._recover_pending = False
         self._msg_cache: OrderedDict = OrderedDict()
+        self._codex_pending: dict = {}   # approval id -> {ckey, kind, tool, summary, fingerprint}
         self._cache_lock = threading.Lock()
         self._lock = threading.RLock()
 
@@ -223,6 +224,56 @@ class AgentsCore:
         if row and row.get("moved_from") == device_id:
             self.handoff.continue_on_mac(ckey)
             self._changed()
+
+    # ── Codex sessions running on the server: their approvals ────────────
+    def on_codex_event(self, kind: str, data: dict) -> None:
+        """The server's Codex runtime asks before running a command or editing
+        files. The request joins the same queue as a Mac's (the phone's and the
+        web's approval cards, the push), answered back to Codex."""
+        aid = str((data or {}).get("id") or "")
+        if not aid:
+            return
+        if kind == "approval":
+            conv = next((r for r in self.conv.by_owner("server")
+                         if (r.get("run") or {}).get("handle") == data.get("handle")), None)
+            if conv is None:
+                return
+            fp = "codex:" + aid
+            tool = {"command": "Bash", "file_change": "Edit"}.get(str(data.get("kind")), "Tool")
+            self._codex_pending[aid] = {"ckey": conv["ckey"], "kind": "approval", "tool": tool,
+                                        "summary": str(data.get("title") or ""), "fingerprint": fp}
+            try:
+                from api.agent_hooks import on_agent_pending
+                on_agent_pending(None, {"fingerprint": fp, "kind": "permission", "tool": tool,
+                                        "summary": str(data.get("title") or ""),
+                                        "session_id": conv.get("session_id"), "cwd": conv.get("cwd"),
+                                        "agent": "codex", "command": data.get("command") or "",
+                                        "can_always": False})
+            except Exception:  # noqa: BLE001
+                log.warning("registering a Codex approval failed", exc_info=True)
+        elif kind == "approval_resolved":
+            self._codex_pending.pop(aid, None)
+            try:
+                from api import coding_permission
+                coding_permission.drop_by_fingerprint("codex:" + aid)
+            except Exception:  # noqa: BLE001
+                pass
+        self._changed()
+
+    def answer_codex(self, fingerprint: str, decision: str) -> bool:
+        aid = str(fingerprint or "")[len("codex:"):]
+        ok = bool(self.codex.answer_approval(aid, "allow" if decision in ("allow", "always")
+                                                  else "deny"))
+        if ok:
+            self._codex_pending.pop(aid, None)
+            self._changed()
+        return ok
+
+    def _codex_pending_for(self, ckey: str):
+        for p in self._codex_pending.values():
+            if p["ckey"] == ckey:
+                return {k: p[k] for k in ("kind", "tool", "summary", "fingerprint")}
+        return None
 
     def on_delivery(self, _device_id, data) -> None:
         self.handoff.on_device_delivery(str(data.get("delivery_id") or ""),
@@ -472,6 +523,9 @@ class AgentsCore:
         run = row.get("run") or {}
         term = run.get("terminal") or {}
         state = (ts.get("state") or row.get("state") or "idle") if status == "live" else status
+        pending = ts.get("pending") or self._codex_pending_for(row["ckey"])
+        if pending and status == "live" and not ts.get("pending"):
+            state = "approval"
         project = self._project_name(row)
         agent = row.get("agent") or "claude"
         typable = owner == "server" or str(term.get("term_program") or "").lower() in _TYPABLE_TERMS \
@@ -482,7 +536,7 @@ class AgentsCore:
             "title": short_title(row.get("title")) or project or os.path.basename(row.get("cwd") or ""),
             "project_id": row.get("project_id"), "project": project, "cwd": row.get("cwd") or "",
             "owner": owner, "owner_name": "Server" if owner == "server" else self._name(owner),
-            "status": status, "state": state, "step": ts.get("step"), "pending": ts.get("pending"),
+            "status": status, "state": state, "step": ts.get("step"), "pending": pending,
             "turn_summary": ts.get("turn_summary"), "model": ts.get("model"),
             "last_event_at": row.get("last_event_at") or row.get("updated_at"),
             "terminal_app": term.get("term_program") or "",
@@ -597,7 +651,7 @@ def start(store) -> AgentsCore:
         alert_phones = None
     try:
         from agent.codex_server_runtime import CodexRuntime
-        codex = CodexRuntime()
+        codex = CodexRuntime(on_event=lambda kind, data: core() and core().on_codex_event(kind, data))
     except Exception:  # noqa: BLE001
         codex = _NoCodex()
     c = AgentsCore(store, send_frame=device_bridge.send_frame,

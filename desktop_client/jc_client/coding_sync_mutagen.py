@@ -77,6 +77,7 @@ class CodingMutagenAgent:
         self._threads: dict = {}   # sync_id -> Thread
         self._last_status: dict = {}  # sync_id -> last status dict (for the tray)
         self._healed: dict = {}       # sync_id -> conflicts auto-resolved (total)
+        self._git_paused: set = set() # syncs stopped for a conflict inside .git
         from jc_client.coding_sync_heal import ConflictHealer
         self._healer = ConflictHealer(self._state_dir)
         self._pubkey: Optional[str] = None
@@ -137,6 +138,13 @@ class CodingMutagenAgent:
         remote = str(frame.get("remote_path") or "")
         ignore = frame.get("ignore") if isinstance(frame.get("ignore"), list) else None
         local = os.path.expanduser(local)
+        if sync_id in self._git_paused:
+            # He switched the project's sync back on after resolving .git by hand.
+            self._git_paused.discard(sync_id)
+            try:
+                self._driver.resume(sync_id)
+            except MutagenError as exc:
+                log.warning("sync[%s] resume failed: %s", sync_id, exc)
         if not sync_id or not local or not remote:
             return
         # SAFEGUARD (client side): refuse a home/system dir, a folder outside the
@@ -303,6 +311,19 @@ class CodingMutagenAgent:
         if not raw:
             return 0
         res = self._healer.heal(raw, name)
+        git = res.get("git_conflicts") or []
+        if git and sync_id not in self._git_paused:
+            # Never resolved by newest-edit-wins: stop the sync and tell the server
+            # (it alerts the phone). Turning the project's sync on again resumes it.
+            self._git_paused.add(sync_id)
+            try:
+                self._driver.pause(sync_id)
+            except MutagenError as exc:
+                log.warning("sync[%s] pause after .git conflict failed: %s", sync_id, exc)
+            self._safe_send({"type": "coding_sync_error", "sync_id": sync_id, "op": "git_conflict",
+                             "error": "Conflicting changes inside .git (" + ", ".join(git[:3])
+                                      + "). Sync paused: resolve them on the Mac, then turn "
+                                        "the project's sync back on."})
         healed = int(res.get("healed") or 0)
         if healed:
             self._driver.flush(sync_id)

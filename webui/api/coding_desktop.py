@@ -327,10 +327,20 @@ class MutagenSyncSession:
             self.last_sync_at = time.time()
 
     def on_error(self, op: str, error: str, relpath=None) -> None:
+        first = self.status != "error" or not str(self.error or "").startswith(op)
         self.error = f"{op}: {error}" + (f" ({relpath})" if relpath else "")
         self.status = "error"
         log.warning("coding_sync[%s] desktop error op=%s: %s",
                     self.sync_id, op, error)
+        if op == "git_conflict" and first:
+            # The Mac paused this sync: conflicts inside .git need a human.
+            try:
+                from api.push import alert_phones
+                name = os.path.basename(self.local_path.rstrip("/")) or "a project"
+                alert_phones(f"Sync paused: {name}", str(error),
+                             data={"kind": "sync_git_conflict", "sync_id": self.sync_id})
+            except Exception:  # noqa: BLE001
+                log.warning("git-conflict alert failed", exc_info=True)
 
     def close(self) -> None:
         try:

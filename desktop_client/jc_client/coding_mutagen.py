@@ -124,6 +124,14 @@ def flush_argv(mutagen: str, name: str) -> list:
     return [mutagen, "sync", "flush", name]
 
 
+def pause_argv(mutagen: str, name: str) -> list:
+    return [mutagen, "sync", "pause", name]
+
+
+def resume_argv(mutagen: str, name: str) -> list:
+    return [mutagen, "sync", "resume", name]
+
+
 def parse_status(stdout: str) -> dict:
     """Normalize ``mutagen sync list --template {{json .}}`` output.
 
@@ -322,6 +330,15 @@ class MutagenDriver:
     def flush(self, session_id: str) -> None:
         """Force a sync cycle (after the healer moved conflicted copies)."""
         self._run(flush_argv(self._require(), session_name(session_id)),
+                  self._env, _CREATE_TIMEOUT)
+
+    def pause(self, session_id: str) -> None:
+        """Stop syncing (a conflict a human must resolve); resumed by a new start."""
+        self._run(pause_argv(self._require(), session_name(session_id)),
+                  self._env, _CREATE_TIMEOUT)
+
+    def resume(self, session_id: str) -> None:
+        self._run(resume_argv(self._require(), session_name(session_id)),
                   self._env, _CREATE_TIMEOUT)
 
     def name_for(self, session_id: str) -> str:
