@@ -213,11 +213,15 @@ class ClaudeRuntime:
 
     # ── listing ──────────────────────────────────────────────────────────
     def roster(self) -> list:
+        """Live sessions here. Raises when Claude couldn't be asked: an empty
+        list would read as "every server session ended"."""
         rc, text = self._call([self._bin, "agents", "--json"], timeout=15)
         try:
             items = json.loads(text or "[]")
         except ValueError:
-            return []
+            items = None
+        if rc != 0 or not isinstance(items, list):
+            raise RuntimeError(f"claude agents failed ({rc}): {(text or '').strip()[:200]}")
         entries = []
         for s in items if isinstance(items, list) else []:
             if not isinstance(s, dict) or not s.get("sessionId"):

@@ -405,6 +405,9 @@ class Service:
         """The Stop hook's answer: a phone message waiting for this session."""
         if agent not in ("claude", "claude-desktop") or not self._agent_instructions:
             return None
+        link = self._agents_link
+        if link is not None and not link.gate.may_continue(agent, str(payload.get("session_id") or "")):
+            return None   # a moved session's stale copy: the message is not for it
         text = self._instruction_queue().take(str(payload.get("session_id") or ""))
         if not text:
             return None

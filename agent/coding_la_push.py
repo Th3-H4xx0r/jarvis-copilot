@@ -53,14 +53,23 @@ def _live_state(row, hook_state=None) -> str:
 
 
 def _tracked_states() -> dict:
-    """{(agent, session_id): state} from the hook tracker, or {} without one."""
+    """{(agent, session_id, host): state} from the hook tracker, or {} without
+    one. Keyed by host too: a moved session's stale Mac copy can still be
+    tracked there, and its state isn't the conversation's."""
     try:
         from agent.agent_tracking import tracker
         tr = tracker()
-        return {(s.get("agent"), s.get("session_id")): s.get("state")
+        return {(s.get("agent"), s.get("session_id"), s.get("host") or "server"): s.get("state")
                 for s in (tr.sessions() if tr is not None else [])}
     except Exception:  # noqa: BLE001
         return {}
+
+
+def tracked_state(states: dict, row: dict):
+    """The tracked state of conversation ``row`` on the machine that owns it."""
+    agent, sid = row.get("agent"), row.get("session_id")
+    hit = states.get((agent, sid, row.get("owner") or "server"))
+    return hit if hit is not None else states.get((agent, sid))
 
 
 def _is_live(row) -> bool:
@@ -158,7 +167,7 @@ def build_coding_content_state(store, usage=None):
         if not _is_live(r):
             continue
         total += 1
-        st = _live_state(r, hook_states.get((r.get("agent"), r.get("session_id"))))
+        st = _live_state(r, tracked_state(hook_states, r))
         if st == "waiting":
             waiting += 1
         pid = r.get("project_id")

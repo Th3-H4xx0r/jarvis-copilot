@@ -274,3 +274,21 @@ def test_ui_tray_actions_run_what_the_old_tray_ran(monkeypatch):
     assert svc._ui_request({"type": "tray", "action": "logs"})["ok"] is True
     assert opened[0] == "https://jarvis.example.dev" and opened[1].endswith(".log")
     assert svc._ui_request({"type": "tray", "action": "rm -rf"})["ok"] is False
+
+
+def test_a_moved_sessions_stale_copy_never_takes_a_queued_message(tmp_path, monkeypatch):
+    """A message queued for a working session, then the session moved to the
+    server: the stale Mac process's next Stop must not get it (it would run it
+    from its out-of-date copy, and the message would never reach the server)."""
+    monkeypatch.setattr(service, "_agent_config_path", lambda: str(tmp_path / "agent_config.json"))
+    from jc_client.agents_link import AgentsLink
+    svc = service.Service()
+    svc._agents_link = AgentsLink(lambda f: None, inline=True, power_thread=False)
+    svc._handle_frame(FakeWs(), {"type": "agent_config", "remote_approvals": False,
+                                 "remote_instructions": True})
+    svc._handle_frame(FakeWs(), {"type": "agent_instruction", "mode": "queue", "session_id": "s1",
+                                 "cwd": "/w", "agent": "claude", "text": "also run lint"})
+    svc._agents_link.gate.set_moved(["claude|s1"])
+    assert svc._stop_answer("claude", {"session_id": "s1"}) is None
+    svc._agents_link.gate.set_moved([])
+    assert "also run lint" in svc._stop_answer("claude", {"session_id": "s1"})["reason"]

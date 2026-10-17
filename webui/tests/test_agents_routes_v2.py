@@ -190,6 +190,9 @@ def test_hello_triggers_roster_request_and_merge_back(env):
     _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
     env["core"].on_sleeping("d1", {"entries": []})
     call("POST", "/agents/continue", {"ckeys": ["claude|s1"], "to": "server"})
+    from agent import transcript_mirror as tm
+    row = env["core"].conv.get("claude|s1")
+    tm.append_chunk(row, tm.size(row), b'{"type":"user","uuid":"u2"}\n')   # a new server turn
     env["frames"].clear()
     env["core"].on_hello("d1", {})
     types = [f["type"] for _, f in env["frames"]]
@@ -268,3 +271,92 @@ def test_messages_full_tool_output_on_request(env, monkeypatch):
     assert seen["lite"] is False
     call("GET", "/agents/messages?ckey=claude%7Cs1")
     assert seen["lite"] is True
+
+
+def test_launch_on_the_mac_keeps_the_macs_own_path(env):
+    """The Mac's folder typeahead answers with ~/... paths; expanding them here
+    would hand the Mac the server's home."""
+    env["core"].on_hello("d1", {})
+    env["frames"].clear()
+    status, _ = call("POST", "/agents/launch", {"where": "d1", "cwd": "~/code/app"})
+    assert status == 200
+    (dev, frame), = [(d, f) for d, f in env["frames"] if f["type"] == "agent_launch"]
+    assert dev == "d1" and frame["cwd"] == "~/code/app"
+
+
+def test_chunk_paths_cannot_escape_the_transcript_dirs(env):
+    """A device's ckey / codex_rel name a file under ~/.claude or ~/.codex only."""
+    tmp = env["tmp"]
+    env["core"].on_hello("d1", {})
+    data = base64.b64encode(b"pwned\n").decode()
+    env["core"].on_chunk("d1", {"ckey": "codex|c1", "agent": "codex", "session_id": "c1",
+                                "cwd": "/Users/p/app", "offset": 0, "data_b64": data,
+                                "codex_rel": "../../evil.sh"})
+    env["core"].on_chunk("d1", {"ckey": "claude|../../../../evil2", "agent": "claude",
+                                "cwd": "/Users/p/app", "offset": 0, "data_b64": data})
+    assert not (tmp / "evil.sh").exists() and not (tmp.parent / "evil.sh").exists()
+    assert not list(tmp.rglob("evil2*")) and not list(tmp.parent.glob("evil2*"))
+
+
+def test_a_moved_sessions_state_comes_from_where_it_runs(env):
+    """The Mac's stale copy of a moved session can still be tracked there; the
+    row shows the server run's state, not the stale one's."""
+    tr = env["tr"]
+    _three(env)
+    _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
+    env["core"].on_sleeping("d1", {"entries": []})
+    call("POST", "/agents/continue", {"ckeys": ["claude|s1"], "to": "server"})
+    tr.ingest(None, "permission", "claude", ev("PermissionRequest", sid="s1", cwd="/srv/app",
+                                               tool_name="Bash", tool_input={"command": "ls"}))
+    tr.ingest("d1", "event", "claude", ev("UserPromptSubmit", sid="s1", prompt="stale"))
+    _, body = call("GET", "/agents/list")
+    row = next(c for c in body["needs_you"] if c["ckey"] == "claude|s1")
+    assert row["owner"] == "server" and row["state"] == "approval"
+
+
+def test_message_cache_keeps_only_recent_sessions(env):
+    for i in range(40):
+        _ship(env, f"m{i}", [{"type": "user", "uuid": f"u{i}",
+                              "message": {"role": "user", "content": "x"}}])
+        env["core"].messages(f"claude|m{i}")
+    assert len(env["core"]._msg_cache) <= 16
+
+
+def _moved_then_stopped(env):
+    _three(env)
+    _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
+    env["core"].on_sleeping("d1", {"entries": []})
+    call("POST", "/agents/continue", {"ckeys": ["claude|s1"], "to": "server"})
+    env["core"].on_hello("d1", {})
+    call("POST", "/agents/stop", {"ckey": "claude|s1"})
+    assert env["core"].conv.get("claude|s1")["status"] == "ended"
+
+
+def test_the_macs_stale_copy_is_not_adopted_after_the_server_run_ends(env):
+    """The stale Mac process of a moved session is still alive (blocked), so
+    `claude agents` on the Mac lists it. Once the server run is stopped, that
+    must not make it the conversation again: the gate would then let it take
+    prompts from its out-of-date memory and fork the transcript."""
+    _moved_then_stopped(env)
+    env["core"].on_roster("d1", {"entries": [{"agent": "claude", "session_id": "s1", "pid": 9,
+                                              "kind": "interactive", "cwd": "/Users/p/app"}],
+                                 "agents": ["claude", "codex"]})
+    env["tr"].ingest("d1", "event", "claude", ev("Notification", sid="s1"))
+    row = env["core"].conv.get("claude|s1")
+    assert row["owner"] == "server" and row["status"] == "ended"
+    env["frames"].clear()
+    env["core"].on_hello("d1", {})
+    moved = [f for _, f in env["frames"] if f["type"] == "agent_moved"]
+    assert "claude|s1" in moved[-1]["ckeys"]
+
+
+def test_resuming_a_moved_session_on_the_mac_merges_first(env):
+    """Resume on Mac of a session that ran on the server: the server's turns are
+    merged into the Mac's copy before it reopens (the Continue-on-Mac path)."""
+    _moved_then_stopped(env)
+    env["frames"].clear()
+    status, _ = call("POST", "/agents/resume", {"ckey": "claude|s1", "where": "mac"})
+    assert status == 200
+    assert any(f["type"] == "agent_transcript_sync" and f.get("then") == "resume_local"
+               for _, f in env["frames"])
+    assert not any(f["type"] == "agent_resume_local" for _, f in env["frames"])

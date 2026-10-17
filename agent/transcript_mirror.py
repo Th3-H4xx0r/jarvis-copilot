@@ -15,9 +15,10 @@ appended in the wrong place.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import threading
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
 
 _LOCKS: dict[str, threading.Lock] = {}
@@ -48,10 +49,33 @@ def server_cwd_for(origin_cwd: str) -> str:
     return os.path.join(server_projects_root(), os.path.basename(origin_cwd.rstrip("/")))
 
 
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+
+
+def safe_id(session_id) -> bool:
+    """A session id that is one plain file name (devices send it; it names a file)."""
+    sid = str(session_id or "")
+    return bool(_ID_RE.match(sid)) and ".." not in sid
+
+
+def safe_codex_rel(rel) -> Optional[str]:
+    """A rollout path relative to ~/.codex/sessions that stays inside it, or None."""
+    if not rel:
+        return None
+    p = PurePosixPath(str(rel))
+    if p.is_absolute() or ".." in p.parts or p.suffix != ".jsonl" or "\\" in str(rel):
+        return None
+    return p.as_posix()
+
+
 def transcript_path(agent: str, session_id: str, cwd: str,
                     codex_rel: Optional[str] = None) -> Path:
+    """Raises ValueError for an id that would leave the transcript dirs."""
+    if not safe_id(session_id):
+        raise ValueError(f"unsafe session id {session_id!r}")
     if agent == "codex":
-        return Path.home() / ".codex" / "sessions" / (codex_rel or f"{session_id}.jsonl")
+        return Path.home() / ".codex" / "sessions" / (safe_codex_rel(codex_rel)
+                                                      or f"{session_id}.jsonl")
     return claude_config_dir() / "projects" / encode_project_dir(cwd) / f"{session_id}.jsonl"
 
 
@@ -64,7 +88,7 @@ def path_for(conv: dict) -> Path:
 def size(conv: dict) -> int:
     try:
         return path_for(conv).stat().st_size
-    except OSError:
+    except (OSError, ValueError):
         return 0
 
 
@@ -81,7 +105,10 @@ def append_chunk(conv: dict, offset: int, data: bytes) -> tuple[bool, int]:
 
 
 def read_from(conv: dict, offset: int = 0) -> bytes:
-    path = path_for(conv)
+    try:
+        path = path_for(conv)
+    except ValueError:
+        return b""
     with _lock(path):
         try:
             with open(path, "rb") as fh:
@@ -89,6 +116,25 @@ def read_from(conv: dict, offset: int = 0) -> bytes:
                 return fh.read()
         except OSError:
             return b""
+
+
+def trim_partial(conv: dict) -> int:
+    """Cut a half-shipped last line (the Mac dropped off mid-chunk), so an agent
+    resuming here appends after a whole line. Returns the new size."""
+    try:
+        path = path_for(conv)
+    except ValueError:
+        return 0
+    with _lock(path):
+        try:
+            with open(path, "rb+") as fh:
+                data = fh.read()
+                keep = data.rfind(b"\n") + 1
+                if keep < len(data):
+                    fh.truncate(keep)
+                return keep
+        except OSError:
+            return 0
 
 
 def replace(conv: dict, data: bytes) -> None:

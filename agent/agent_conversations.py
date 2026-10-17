@@ -50,6 +50,15 @@ class Conversations:
         return self.upsert(ckey, owner=owner, run=dict(run or {}), status=status,
                            ended_at=None)
 
+    def transition(self, ckey: str, from_statuses, status: str, **fields) -> Optional[dict]:
+        """``mark`` only if the row's status is still one of ``from_statuses``
+        (atomic, so two callers can't both act on one check). None otherwise."""
+        with self._lock:
+            row = self.store.get_conversation(ckey)
+            if row is None or row.get("status") not in tuple(from_statuses):
+                return None
+            return self.mark(ckey, status, **fields)
+
     def mark(self, ckey: str, status: str, **fields) -> dict:
         if status == "ended" and "ended_at" not in fields:
             fields["ended_at"] = self._clock()

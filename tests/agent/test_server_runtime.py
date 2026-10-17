@@ -131,8 +131,15 @@ def test_roster_parses_agents_json(home):
     assert inter["pid"] == 4707 and inter["kind"] == "interactive" and inter["bg_id"] is None
 
 
-def test_roster_tolerates_garbage(home):
-    assert ClaudeRuntime(run=Run(stdout="nope")).roster() == []
+def test_roster_failure_raises_instead_of_listing_nothing(home):
+    """An empty list means "every server session ended": a failed or garbled
+    `claude agents` (timeout, update in progress, a notice on stdout) must not
+    say that."""
+    with pytest.raises(RuntimeError):
+        ClaudeRuntime(run=Run(stdout="nope")).roster()
+    with pytest.raises(RuntimeError):
+        ClaudeRuntime(run=Run(stdout="[]", returncode=1)).roster()
+    assert ClaudeRuntime(run=Run(stdout="[]")).roster() == []
 
 
 def test_ensure_trusted_preserves_other_keys(home):

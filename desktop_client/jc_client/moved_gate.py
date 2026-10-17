@@ -47,6 +47,14 @@ class MovedGate:
             self._hold_until = self._clock() + seconds
         self._confirmed.clear()
 
+    def may_continue(self, agent: str, session_id: str) -> bool:
+        """Without waiting: True only when this copy is known not to have moved
+        (a queued phone message is handed over only then)."""
+        if not self._confirmed.is_set() and self._hold_until > self._clock():
+            return False
+        with self._lock:
+            return f"{agent}|{session_id}" not in self._moved
+
     def check(self, agent: str, session_id: str) -> tuple:
         if not self._confirmed.is_set():
             left = self._hold_until - self._clock()

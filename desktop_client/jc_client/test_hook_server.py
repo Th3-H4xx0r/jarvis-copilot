@@ -298,3 +298,44 @@ def test_stop_is_an_event_that_also_gets_an_answer(sockdir):
         assert asked == [("claude", "s1"), ("claude", "s2")]
     finally:
         hs.close()
+
+
+def test_gate_answers_before_the_bridge_send(sockdir):
+    """Every PreToolUse now waits on the gate's answer: a slow bridge send must
+    never hold Claude's tool call up."""
+    eng = agent_engine.Engine()
+    release = threading.Event()
+
+    def slow_forward(_f):
+        release.wait(3)
+
+    hs = HookServer(os.path.join(sockdir, "h.sock"), eng, forward=slow_forward,
+                    on_gate=lambda a, p: {})
+    hs.start()
+    try:
+        t0 = time.time()
+        assert send(hs.path, frame("gate", {"hook_event_name": "PreToolUse", "session_id": "s",
+                                            "cwd": "/w", "tool_name": "Bash"}), wait=True) == {}
+        assert time.time() - t0 < 1.0
+    finally:
+        release.set()
+        hs.close()
+
+
+def test_a_blocked_prompt_is_not_activity(sockdir):
+    """A prompt the gate refused (the session moved to the server) never ran:
+    it must not show the stale Mac copy as thinking, here or on the server."""
+    eng = agent_engine.Engine()
+    forwarded, hooked = [], []
+    hs = HookServer(os.path.join(sockdir, "h.sock"), eng, forward=forwarded.append,
+                    on_gate=lambda a, p: {"decision": "block", "reason": "moved"},
+                    on_hook=lambda k, a, p: hooked.append(k))
+    hs.start()
+    try:
+        out = send(hs.path, frame("gate", {"hook_event_name": "UserPromptSubmit", "session_id": "s",
+                                           "cwd": "/w", "prompt": "hi"}), wait=True)
+        assert out == {"decision": "block", "reason": "moved"}
+        time.sleep(0.2)
+        assert forwarded == [] and hooked == [] and eng.sessions() == []
+    finally:
+        hs.close()

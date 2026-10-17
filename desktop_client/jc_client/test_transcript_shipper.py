@@ -123,3 +123,19 @@ def test_reconnect_resends_after_a_lost_ack(tmp_path):
     sh.set_online(True)
     offs = [c["offset"] for c in _frames(sent, "agent_transcript_chunk")]
     assert offs == [0, 0]
+
+
+def test_server_paths_cannot_escape_the_transcript_dirs(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    sh = TranscriptShipper(lambda f: None)
+    data = base64.b64encode(b'{"x":1}\n').decode()
+    for frame in ({"agent": "codex", "session_id": "c1", "codex_rel": "../../evil.jsonl"},
+                  {"agent": "claude", "session_id": "../../../evil2", "origin_cwd": "/x"}):
+        try:
+            sh.apply_tail(dict(frame, ckey="k", data_b64=data))
+        except ValueError:
+            pass
+    assert not list(tmp_path.rglob("evil*"))

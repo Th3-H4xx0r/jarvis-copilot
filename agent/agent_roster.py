@@ -10,6 +10,7 @@ until it's closed), and never touches one mid-hand-off.
 from __future__ import annotations
 
 from agent.agent_conversations import Conversations, ckey_for
+from agent.transcript_mirror import safe_id
 
 _RUN_KEYS = ("kind", "pid", "shell_pid", "bg_id", "terminal")
 
@@ -26,13 +27,15 @@ def apply_roster(conv: Conversations, owner: str, entries: list, now: float,
     seen: set = set()
     for e in entries or []:
         agent, sid = str(e.get("agent") or "claude"), str(e.get("session_id") or "")
-        if not sid:
+        if not sid or not safe_id(sid):
             continue
         ckey = ckey_for(agent, sid)
         seen.add(ckey)
         row = conv.get(ckey)
         if row is not None and row.get("status") == "moving":
             continue
+        if row is not None and row.get("owner") == "server" and row.get("moved_from") == owner:
+            continue  # this Mac's stale copy of a moved session: never the conversation again
         if row is not None and row.get("owner") not in (None, owner) \
                 and row.get("status") != "ended":
             continue

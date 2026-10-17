@@ -18,11 +18,12 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
 from jc_client.transcript_merge import line_id, merge
@@ -30,6 +31,20 @@ from jc_client.transcript_merge import line_id, merge
 log = logging.getLogger(__name__)
 
 CHUNK = 256 * 1024
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+
+
+def _safe_id(session_id: str) -> bool:
+    return bool(_ID_RE.match(session_id or "")) and ".." not in session_id
+
+
+def _safe_rel(rel) -> Optional[str]:
+    if not rel:
+        return None
+    p = PurePosixPath(str(rel))
+    if p.is_absolute() or ".." in p.parts or p.suffix != ".jsonl":
+        return None
+    return p.as_posix()
 
 
 def _claude_dir() -> Path:
@@ -76,6 +91,7 @@ class TranscriptShipper:
             for w in self._watch.values():
                 w["sent"] = w["acked"]
                 w["inflight"] = False   # an ack lost with the old connection never comes
+            self._parts.clear()         # sync parts lost with it never come either
         if online:
             for ckey in list(self._watch):
                 self.poke(ckey)
@@ -127,10 +143,16 @@ class TranscriptShipper:
         w["inflight"] = True
         return True
 
-    def on_ack(self, ckey: str, ok: bool, size: int) -> None:
+    def on_ack(self, ckey: str, ok: bool, size: int, reason: Optional[str] = None) -> None:
         with self._lock:
             w = self._watch.get(ckey)
             if w is None:
+                return
+            if reason == "not_owner":
+                # It runs elsewhere now (moved to the server): the server keeps the
+                # copy; resending from 0 on every refusal would loop forever. A
+                # new local run's hooks watch it again.
+                self._watch.pop(ckey, None)
                 return
             w["inflight"] = False
             if ok:
@@ -162,8 +184,13 @@ class TranscriptShipper:
     # ── merging back ─────────────────────────────────────────────────────
     def local_path(self, agent: str, session_id: str, cwd: str,
                    codex_rel: Optional[str] = None) -> Path:
+        """Where this Mac keeps that transcript. ValueError for names that would
+        leave ~/.claude/projects or ~/.codex/sessions."""
+        if not _safe_id(session_id):
+            raise ValueError(f"unsafe session id {session_id!r}")
         if agent == "codex":
-            return Path.home() / ".codex" / "sessions" / (codex_rel or f"{session_id}.jsonl")
+            return Path.home() / ".codex" / "sessions" / (_safe_rel(codex_rel)
+                                                          or f"{session_id}.jsonl")
         enc = os.path.realpath(cwd).replace("/", "-").replace(".", "-")
         return _claude_dir() / "projects" / enc / f"{session_id}.jsonl"
 
@@ -175,10 +202,12 @@ class TranscriptShipper:
             chunk = b""
         parts = max(1, int(frame.get("parts") or 1))
         with self._lock:
+            part = int(frame.get("part") or 0)
             slot = self._parts.get(ckey)
-            if slot is None or slot["parts"] != parts or int(frame.get("part") or 0) == 0:
+            # Parts may arrive in any order; a part seen twice means a new sync began.
+            if slot is None or slot["parts"] != parts or part in slot["got"]:
                 slot = self._parts[ckey] = {"parts": parts, "got": {}}
-            slot["got"][int(frame.get("part") or 0)] = chunk
+            slot["got"][part] = chunk
             if len(slot["got"]) < parts:
                 return
             self._parts.pop(ckey, None)

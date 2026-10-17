@@ -76,12 +76,15 @@ def test_stop_escalates():
 
 
 def test_launch_bg_parses_id_and_trusts(tmp_path, monkeypatch):
+    import os
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     run = Rec(stdout="backgrounded · ab12cd34\n")
     rt = LocalRuntime(run=run)
     assert rt.launch_bg(str(tmp_path), prompt="hi", model="claude-sonnet-5-5") == "ab12cd34"
-    assert run.calls[-1][:2] == ["claude", "--bg"] and run.calls[-1][-1] == "hi"
+    argv = run.calls[-1]
+    # launchd's PATH lacks Claude's install dir: the executable is resolved
+    assert os.path.basename(argv[0]) == "claude" and argv[1] == "--bg" and argv[-1] == "hi"
     cfg = json.loads((tmp_path / ".claude.json").read_text())
     import os
     assert cfg["projects"][os.path.realpath(str(tmp_path))]["hasTrustDialogAccepted"] is True

@@ -21,6 +21,7 @@ import logging
 import os
 import threading
 import time
+from collections import OrderedDict
 from typing import Callable, Optional
 
 from agent import transcript_mirror as tm
@@ -39,6 +40,7 @@ _WAITING = ("approval", "question")
 _WORKING = ("working", "thinking")
 _REVERSE_EVENTS = ("Stop", "PostToolUse", "UserPromptSubmit", "SubagentStop", "StopFailure")
 _TYPABLE_TERMS = ("vscode", "iterm.app")
+_MSG_CACHE_MAX = 16       # parsed transcripts kept (the webui's memory is capped)
 
 
 def short_title(title) -> Optional[str]:
@@ -95,13 +97,15 @@ class AgentsCore:
                                project_synced=project_synced or self._project_synced, clock=clock)
         self._last_server_roster = 0.0
         self._last_tick = 0.0
-        self._msg_cache: dict = {}
+        self._recover_pending = False
+        self._msg_cache: OrderedDict = OrderedDict()
+        self._cache_lock = threading.Lock()
         self._lock = threading.RLock()
 
     # ── hooks (the tracker's observer) ───────────────────────────────────
     def on_hook(self, device_id, agent, payload, session) -> None:
         sid = str((payload or {}).get("session_id") or "")
-        if not sid:
+        if not sid or not tm.safe_id(sid):
             return
         event = payload.get("hook_event_name") or ""
         owner = device_id or "server"
@@ -110,6 +114,9 @@ class AgentsCore:
             row = self.conv.get(ckey)
             if row and row.get("owner") not in (None, owner) and row.get("status") in ("live", "moving"):
                 return  # a stale copy on the machine it left; its hooks refuse it there
+            if row and device_id and row.get("owner") == "server" \
+                    and row.get("moved_from") == device_id:
+                return  # the Mac's stale copy of a moved session, even once that run ended
             if event == "UserPromptSubmit":
                 self.deliveries.on_prompt(ckey, payload.get("prompt") or "")
             if event == "SessionEnd" or session is None:
@@ -167,8 +174,8 @@ class AgentsCore:
     def on_chunk(self, device_id, data) -> None:
         ckey = str(data.get("ckey") or "")
         agent, _, sid = ckey.partition("|")
-        if not sid:
-            return
+        if not sid or not tm.safe_id(sid):
+            return   # it names a file: nothing outside the transcript dirs
         with self._lock:
             row = self.conv.get(ckey)
             if row is None:
@@ -183,8 +190,8 @@ class AgentsCore:
             upd = {}
             if not row.get("server_cwd"):
                 upd["server_cwd"] = tm.server_cwd_for(row.get("cwd") or data.get("cwd") or sid)
-            if data.get("codex_rel") and not row.get("codex_rel"):
-                upd["codex_rel"] = data["codex_rel"]
+            if tm.safe_codex_rel(data.get("codex_rel")) and not row.get("codex_rel"):
+                upd["codex_rel"] = tm.safe_codex_rel(data["codex_rel"])
             if upd:
                 row = self.conv.upsert(ckey, **upd)
             try:
@@ -228,6 +235,8 @@ class AgentsCore:
         if now - self._last_tick < _TICK_EVERY:
             return
         self._last_tick = now
+        if self._recover_pending:
+            self._recover_pending = not self.handoff.recover()
         self.presence.tick()
         live_here = [r for r in self.conv.by_owner("server") if r.get("status") == "live"
                      and (r.get("run") or {}).get("kind") == "background"]
@@ -248,9 +257,10 @@ class AgentsCore:
         tsess = {}
         tr = self._tracker()
         if tr is not None:
-            for s in tr.sessions():
-                tsess[(s.get("agent"), s.get("session_id"))] = s
-        convs = [self._present(r, tsess.get((r.get("agent"), r.get("session_id"))))
+            for s in tr.sessions():   # by host too: a moved session's stale Mac copy isn't it
+                tsess[(s.get("agent"), s.get("session_id"), s.get("host") or "server")] = s
+        convs = [self._present(r, tsess.get((r.get("agent"), r.get("session_id"),
+                                             r.get("owner") or "server")))
                  for r in self.conv.list_visible(now)]
         convs.sort(key=lambda c: (c["status"] != "live", -(c.get("last_event_at") or 0)))
         needs = [c for c in convs if c["status"] == "live" and c["state"] in _WAITING]
@@ -286,13 +296,14 @@ class AgentsCore:
         if row is None:
             return None
         from agent.coding_transcript_read import slice_messages
-        path = tm.path_for(row)
         try:
+            path = tm.path_for(row)
             st = path.stat()
             sig = (str(path), st.st_size, st.st_mtime_ns)
-        except OSError:
+        except (OSError, ValueError):
             return {"messages": [], "total": 0, "start": 0, "context": None}
-        cached = self._msg_cache.get(ckey)
+        with self._cache_lock:
+            cached = self._msg_cache.get(ckey)
         if cached is None or cached[0] != sig:
             text = path.read_text(encoding="utf-8", errors="replace")
             if row.get("agent") == "codex":
@@ -301,7 +312,12 @@ class AgentsCore:
             else:
                 from agent.coding_transcript_read import parse_transcript_text
                 msgs = parse_transcript_text(text)
-            self._msg_cache[ckey] = cached = (sig, msgs)
+            cached = (sig, msgs)
+        with self._cache_lock:
+            self._msg_cache[ckey] = cached
+            self._msg_cache.move_to_end(ckey)
+            while len(self._msg_cache) > _MSG_CACHE_MAX:
+                self._msg_cache.popitem(last=False)
         return slice_messages(cached[1], after, before, limit, lite=lite)
 
     # ── actions ──────────────────────────────────────────────────────────
@@ -329,6 +345,9 @@ class AgentsCore:
             return {"ok": False, "reason": "not_ended", "error": "It's still running."}
         if where == "server":
             return self.handoff.continue_on_server(ckey)
+        if row.get("owner") == "server" and row.get("moved_from"):
+            # It ran on the server: its turns merge into the Mac's copy first.
+            return self.handoff.continue_on_mac(ckey)
         device = row.get("owner") if row.get("owner") != "server" else (
             row.get("moved_from") or row.get("origin_device_id"))
         if not device or self.presence.state(device) != "online":
@@ -343,10 +362,11 @@ class AgentsCore:
     def launch(self, body: dict) -> dict:
         where = str(body.get("where") or "server")
         agent = str(body.get("agent") or "claude")
-        cwd = os.path.expanduser(str(body.get("cwd") or "").strip())
+        cwd = str(body.get("cwd") or "").strip()
         if not cwd:
             return {"ok": False, "reason": "no_cwd", "error": "Pick a folder."}
         if where == "server":
+            cwd = os.path.expanduser(cwd)   # a Mac path's ~ is the Mac's: it expands there
             if not os.path.isabs(cwd):
                 return {"ok": False, "reason": "bad_cwd", "error": "Use a full path."}
             os.makedirs(cwd, exist_ok=True)
@@ -591,7 +611,11 @@ def start(store) -> AgentsCore:
         device_bridge.on_device_event(name, fn)
     device_bridge.on_device_disconnect(c.on_disconnect)
     try:
-        c.handoff.recover()
+        c.presence.on_boot(connected=device_bridge.connected_device_ids())
+    except Exception:  # noqa: BLE001
+        log.warning("presence boot pass failed", exc_info=True)
+    try:
+        c._recover_pending = not c.handoff.recover()
     except Exception:  # noqa: BLE001
         log.warning("hand-off recovery failed", exc_info=True)
     return c

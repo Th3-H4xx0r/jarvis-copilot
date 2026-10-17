@@ -145,3 +145,92 @@ def test_moved_list_reaches_the_mac_app():
     link.handle_frame({"type": "agent_resume_local", "ckey": "claude|s1", "agent": "claude",
                        "session_id": "s1", "cwd": "/w", "terminal": {"term_program": "vscode"}})
     assert ui[-1] == {"type": "moved", "sessions": []} and link.moved_sessions() == []
+
+
+def test_not_owner_ack_stops_shipping_instead_of_resending_forever(tmp_path):
+    """A session that moved to the server: the server refuses the Mac's chunks
+    (not_owner). The Mac must stop, not rewind to 0 and resend on every ack."""
+    link, up, _ = _link()
+    p = tmp_path / "s9.jsonl"
+    p.write_text('{"uuid":"a"}\n')
+    link.on_hook("event", "claude", {"hook_event_name": "Stop", "session_id": "s9",
+                                     "cwd": "/Users/p/app", "transcript_path": str(p)})
+    for _ in range(5):
+        link.handle_frame({"type": "agent_transcript_ack", "ckey": "claude|s9", "ok": False,
+                           "size": 0, "reason": "not_owner"})
+    assert len(_events(up, "agent_transcript_chunk")) == 1
+
+
+class FakeRoster:
+    def __init__(self, entries):
+        self.entries, self.triggers = entries, []
+
+    def scan_now(self, send=True):
+        return list(self.entries)
+
+    def trigger(self, reason=""):
+        self.triggers.append(reason)
+
+    def note_hook(self, *a, **k):
+        pass
+
+    def close(self):
+        pass
+
+
+class FakeRuntime:
+    def __init__(self):
+        self.resumed = []
+
+    def resume_in_terminal(self, agent, sid, cwd, terminal, stale_pid=None):
+        self.resumed.append((agent, sid, cwd, stale_pid))
+        return "vscode"
+
+
+def test_continue_on_mac_stops_the_stale_claude_process():
+    """Claude hooks carry no pid: the stale process still running the old copy
+    is found by its session id, so it's stopped instead of left running
+    (unblocked) next to the resumed one."""
+    rt = FakeRuntime()
+    link = AgentsLink(lambda f: None, vscode=FakeVSCode(), queue=lambda: Queue(), runtime=rt,
+                      inline=True, power_thread=False)
+    link.roster = FakeRoster([{"agent": "claude", "session_id": "s1", "pid": 4242,
+                               "kind": "interactive"}])
+    link.handle_frame({"type": "agent_moved", "ckeys": ["claude|s1"]})
+    link.handle_frame({"type": "agent_resume_local", "ckey": "claude|s1", "agent": "claude",
+                       "session_id": "s1", "cwd": "/w", "terminal": {"term_program": "vscode"}})
+    assert rt.resumed == [("claude", "s1", "/w", 4242)]
+
+
+def test_wake_tells_the_server_the_mac_is_back():
+    """A short sleep can keep the socket: no reconnect, no hello. The wake itself
+    must reach the server, or the Mac stays 'asleep' there (sends refused) and
+    the gate never hears what moved."""
+    link, up, _ = _link()
+    link.roster = FakeRoster([])
+    link.on_wake()
+    assert _events(up, "agent_hello")
+
+
+def test_sync_parts_out_of_order_still_merge(tmp_path, monkeypatch):
+    """Frames run on a worker pool: part 1 can be handled before part 0."""
+    import json
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    up = []
+    link = AgentsLink(up.append, vscode=FakeVSCode(), queue=lambda: Queue(), inline=True,
+                      power_thread=False)
+    sh = link.shipper
+    local = sh.local_path("claude", "s1", "/x")
+    local.parent.mkdir(parents=True)
+    a = json.dumps({"uuid": "a"})
+    b = json.dumps({"uuid": "b"})
+    local.write_text(a + "\n")
+    data = (a + "\n" + b + "\n").encode()
+    half = len(data) // 2
+    base = {"type": "agent_transcript_sync", "ckey": "claude|s1", "agent": "claude",
+            "session_id": "s1", "origin_cwd": "/x", "parts": 2, "then": "merge"}
+    link.handle_frame(dict(base, part=1, data_b64=base64.b64encode(data[half:]).decode()))
+    link.handle_frame(dict(base, part=0, data_b64=base64.b64encode(data[:half]).decode()))
+    assert local.read_text() == a + "\n" + b + "\n"
+    assert _events(up, "agent_merge_done")

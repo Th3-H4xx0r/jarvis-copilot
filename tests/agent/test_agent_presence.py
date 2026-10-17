@@ -91,3 +91,28 @@ def test_card_survives_restart(tmp_path):
     pres.on_sleep("dev1", "MacBook")
     again = Presence(store, conv, clock=clock, push=lambda _p: None)
     assert again.card()["kind"] == "sleep"
+
+
+def test_a_restart_doesnt_keep_an_unseen_mac_online(tmp_path):
+    """A webui restart drops every bridge without a disconnect event. A Mac that
+    was online and never comes back (it slept meanwhile) must still go offline
+    with its card, not read 'live' forever."""
+    store, conv, pres, _, clock = _setup(tmp_path)
+    pres.on_connect("dev1", "MacBook")
+    # restart: a new Presence over the same store, the Mac not connected
+    pushes = []
+    pres2 = Presence(store, conv, clock=clock, push=pushes.append)
+    pres2.on_boot(connected=())
+    clock.t += 61
+    pres2.tick()
+    assert conv.get("claude|a")["status"] == "offline"
+    assert pres2.card()["kind"] == "offline" and pushes
+
+
+def test_boot_leaves_a_mac_that_already_reconnected_alone(tmp_path):
+    store, conv, pres, _, clock = _setup(tmp_path)
+    pres.on_connect("dev1", "MacBook")
+    pres.on_boot(connected=("dev1",))
+    clock.t += 61
+    pres.tick()
+    assert pres.state("dev1") == "online" and conv.get("claude|a")["status"] == "live"

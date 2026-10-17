@@ -189,11 +189,13 @@ def in_process_available() -> bool:
 
 def _register(conn: _DeviceConn) -> None:
     with _REG_LOCK:
-        # If a previous connection from this device is still around, drop it.
+        # If a previous connection from this device is still around, drop it —
+        # after the new one is in and the lock is released: closing runs the
+        # disconnect callbacks, which may read the registry (non-reentrant lock).
         old = _REG.get(conn.device_id)
-        if old and old is not conn:
-            _safe_close(old)
         _REG[conn.device_id] = conn
+    if old and old is not conn:
+        _safe_close(old)
 
 
 def _unregister(device_id: str, conn: Optional[_DeviceConn] = None) -> None:
@@ -235,6 +237,13 @@ def _safe_close(conn: _DeviceConn) -> None:
                 cb("closed", {"reason": "device disconnected"})
             except Exception:
                 pass
+    # A connection a reconnect already replaced isn't the device going away:
+    # the device is still here on its new socket.
+    with _REG_LOCK:
+        cur = _REG.get(conn.device_id)
+        replaced = cur is not None and cur is not conn and not cur.closed
+    if replaced:
+        return
     with _REGISTRY_CHANGE_LOCK:
         callbacks = list(_DISCONNECT_CALLBACKS)
     for cb in callbacks:
@@ -409,8 +418,9 @@ _DISCONNECT_CALLBACKS: list = []
 
 
 def on_device_disconnect(callback) -> None:
-    """Register ``callback(device_id)``, fired whenever a device's connection
-    closes (also when a reconnect replaces it). Best-effort."""
+    """Register ``callback(device_id)``, fired when a device's connection
+    closes and no newer connection of that device replaced it. Best-effort;
+    called without the registry lock held."""
     with _REGISTRY_CHANGE_LOCK:
         if callback not in _DISCONNECT_CALLBACKS:
             _DISCONNECT_CALLBACKS.append(callback)

@@ -82,3 +82,30 @@ def test_titles_are_one_short_line():
                          "name": "y" * 500, "status": "idle"}])
     (e2,) = RosterAgent(lambda f: None, run=_run(long2), alive=lambda pid: True).scan_now()
     assert len(e2["name"]) == 120 and e2["name"].endswith("…")
+
+
+def test_a_failed_claude_listing_does_not_report_claude_sessions_gone():
+    """`claude agents --json` failing (missing binary, crash, timeout) must not
+    send an empty Claude list: the server would end every live Claude session."""
+    def boom(argv, **kw):
+        raise FileNotFoundError(argv[0])
+
+    sent = []
+    r = RosterAgent(sent.append, run=boom, alive=lambda pid: True)
+    r.note_hook("codex", "c1", pid=77, cwd="/w")
+    r.scan_now()
+    data = sent[-1]["data"]
+    assert "claude" not in data["agents"] and "codex" in data["agents"]
+    assert [e["session_id"] for e in data["entries"]] == ["c1"]
+
+
+def test_claude_is_found_outside_the_launchd_path(tmp_path, monkeypatch):
+    """jc-client runs under launchd (PATH=/usr/bin:/bin:...); Claude Code's
+    installer puts `claude` in ~/.local/bin."""
+    from jc_client.agent_roster import find_claude
+    bin_dir = tmp_path / ".local" / "bin"
+    bin_dir.mkdir(parents=True)
+    exe = bin_dir / "claude"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    assert find_claude(home=str(tmp_path), path_env="/usr/bin:/bin") == str(exe)

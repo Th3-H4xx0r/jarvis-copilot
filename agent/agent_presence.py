@@ -49,13 +49,26 @@ class Presence:
             p = self.store.get_presence(device_id) or {}
             revived = []
             for row in self.conv.by_owner(device_id):
-                if row.get("status") in _PAUSED:
-                    self.conv.mark(row["ckey"], "live")
+                # Only rows still paused: one a hand-off took meanwhile stays moving.
+                if row.get("status") in _PAUSED and \
+                        self.conv.transition(row["ckey"], _PAUSED, "live") is not None:
                     revived.append(row["ckey"])
             self.store.put_presence(device_id, state="online", since=self._clock(),
                                     device_name=device_name or p.get("device_name") or "",
                                     sessions=[], dismissed=[], pushed_at=None)
             return revived
+
+    def on_boot(self, connected=()) -> None:
+        """At webui start no bridge is up, and none closed with a disconnect
+        event: a Mac stored as online that isn't connected now starts its grace
+        period, so it reads offline (with its card) if it never comes back."""
+        now = self._clock()
+        live = set(connected or ())
+        with self._lock:
+            for p in self.store.list_presence():
+                if p.get("state") == "online" and p["device_id"] not in live:
+                    self.store.put_presence(p["device_id"], **dict(
+                        _strip(p), state="disconnected", since=now))
 
     def tick(self) -> None:
         now = self._clock()
@@ -101,9 +114,8 @@ class Presence:
         with self._lock:
             now = self._clock()
             p = self.store.get_presence(device_id) or {}
-            live = [r["ckey"] for r in self.conv.by_owner(device_id) if r.get("status") == "live"]
-            for ckey in live:
-                self.conv.mark(ckey, status)
+            live = [r["ckey"] for r in self.conv.by_owner(device_id) if r.get("status") == "live"
+                    and self.conv.transition(r["ckey"], ("live",), status) is not None]
             name = device_name or p.get("device_name") or ""
             already = p.get("state") in ("asleep", "offline") and p.get("pushed_at")
             sessions = sorted(set(p.get("sessions") or []) | set(live)) if already else live

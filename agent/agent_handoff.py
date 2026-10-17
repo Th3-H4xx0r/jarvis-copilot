@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import threading
 import time
 from typing import Callable, Optional
 
@@ -51,6 +52,9 @@ class Handoff:
         self._send_frame = send_frame
         self._project_synced = project_synced
         self._clock = clock
+        # One sender at a time of a conversation's copy to its Mac, so the
+        # "how far the Mac has" mark (mac_bytes) never goes backwards.
+        self._mirror_lock = threading.RLock()
 
     # ── continue on server ───────────────────────────────────────────────
     def continue_on_server(self, ckey: str, *, confirm_offline: bool = False) -> dict:
@@ -81,21 +85,43 @@ class Handoff:
         probe = dict(row, server_cwd=server_cwd)
         if tm.size(probe) == 0:
             return _fail("no_transcript", "The server doesn't have this conversation yet.")
-        self.conv.mark(ckey, "moving", prev_status=status, moving_to="server",
-                       server_cwd=server_cwd, origin_cwd=origin_cwd,
-                       origin_run=row.get("run") or {})
+        # Atomic: of two callers (a double tap, phone + web), or a caller racing
+        # the Mac waking up, exactly one moves it.
+        if self.conv.transition(ckey, (status,), "moving", prev_status=status,
+                                moving_to="server", server_cwd=server_cwd,
+                                origin_cwd=origin_cwd, origin_run=row.get("run") or {}) is None:
+            cur = self.conv.get(ckey) or {}
+            if cur.get("owner") == "server" or cur.get("moving_to") == "server":
+                return {"ok": True, "owner": "server", "pending": cur.get("status") == "moving"}
+            return _fail("owner_awake", "It's running on the Mac again.")
+        # Resume after a whole line, never onto a fragment the Mac didn't finish sending.
+        mac_size = tm.trim_partial(probe)   # all of it came from the Mac: the Mac has it
+        if mac_size == 0:
+            self.conv.mark(ckey, status, moving_to=None)
+            self._tell_moved(origin)
+            return _fail("no_transcript", "The server doesn't have this conversation yet.")
         try:
             run = self._start_on_server(row, server_cwd)
         except Exception as exc:  # noqa: BLE001
             log.warning("continue on server failed for %s", ckey, exc_info=True)
-            self.conv.mark(ckey, status, moving_to=None)
+            back = "live" if origin and self.presence.state(origin) == "online" else status
+            self.conv.mark(ckey, back, moving_to=None)
+            self._tell_moved(origin)
             return _fail("start_failed", f"The server couldn't start it: {exc}")
         self.conv.set_owner(ckey, "server", run)
+        # Measured before the start: what the server's run writes from here on is
+        # what the Mac doesn't have.
         self.conv.upsert(ckey, moved_from=origin, moved_at=self._clock(), moving_to=None,
-                         cwd=server_cwd, mac_bytes=tm.size(probe))
+                         cwd=server_cwd, mac_bytes=mac_size)
+        self._tell_moved(origin)
         if row.get("state") in _WORKING:
             self.send(ckey, CARRY_ON)
         return {"ok": True, "owner": "server"}
+
+    def _tell_moved(self, device_id) -> None:
+        """A Mac that is up hears the hand-off's outcome now (its gate list)."""
+        if device_id and device_id != "server" and self.presence.state(device_id) == "online":
+            self._announce_moved(device_id)
 
     def _start_on_server(self, row: dict, cwd: str) -> dict:
         sid = row.get("session_id") or ""
@@ -147,15 +173,25 @@ class Handoff:
 
     # ── merge back ───────────────────────────────────────────────────────
     def on_device_connect(self, device_id: str) -> None:
+        moved = self._announce_moved(device_id)
+        for r in moved:
+            # Only what the Mac doesn't have yet: every wake says hello.
+            if r.get("owner") == "server" and tm.size(r) > int(r.get("mac_bytes") or 0):
+                self._send_sync(device_id, r, then="merge")
+
+    def _announce_moved(self, device_id: str) -> list:
+        """Tell the Mac which of its sessions run on the server now — and those
+        being moved there this moment, so its stale copy is blocked from the
+        start. Always sent, even empty: the Mac's gate holds prompts after a
+        wake until it hears."""
         moved = [r for r in self.conv.all()
-                 if r.get("moved_from") == device_id and r.get("owner") == "server"]
-        # Always answer, even with nothing: the Mac's gate holds prompts after a
-        # wake until it hears what moved.
+                 if (r.get("moved_from") == device_id and r.get("owner") == "server")
+                 or (r.get("owner") == device_id and r.get("status") == "moving"
+                     and r.get("moving_to") == "server")]
         self._send_frame(device_id, {
             "type": "agent_moved", "ckeys": [r["ckey"] for r in moved],
             "sessions": [self._descr(r) for r in moved]})
-        for r in moved:
-            self._send_sync(device_id, r, then="merge")
+        return moved
 
     def push_reverse(self, ckey: str) -> None:
         """New server turns of a moved session follow it to its Mac as tails."""
@@ -165,14 +201,16 @@ class Handoff:
         device = row["moved_from"]
         if self.presence.state(device) != "online":
             return
-        sent = int(row.get("mac_bytes") or 0)
-        data = tm.read_from(row, sent)
-        cut = data.rfind(b"\n") + 1
-        if cut <= 0:
-            return
-        if self._send_frame(device, dict(self._descr(row), type="agent_transcript_tail",
-                                         data_b64=base64.b64encode(data[:cut]).decode())):
-            self.conv.upsert(ckey, mac_bytes=sent + cut)
+        with self._mirror_lock:
+            row = self.conv.get(ckey) or row
+            sent = int(row.get("mac_bytes") or 0)
+            data = tm.read_from(row, sent)
+            cut = data.rfind(b"\n") + 1
+            if cut <= 0:
+                return
+            if self._send_frame(device, dict(self._descr(row), type="agent_transcript_tail",
+                                             data_b64=base64.b64encode(data[:cut]).decode())):
+                self.conv.upsert(ckey, mac_bytes=sent + cut)
 
     def _descr(self, row: dict) -> dict:
         origin = row.get("origin_cwd") or row.get("cwd") or ""
@@ -183,16 +221,19 @@ class Handoff:
                 "project": os.path.basename(origin.rstrip("/"))}
 
     def _send_sync(self, device_id: str, row: dict, then: str) -> bool:
-        data = tm.read_from(row, 0)
-        parts = max(1, -(-len(data) // _CHUNK))
-        for i in range(parts):
-            chunk = data[i * _CHUNK:(i + 1) * _CHUNK]
-            if not self._send_frame(device_id, dict(
-                    self._descr(row), type="agent_transcript_sync", part=i, parts=parts,
-                    then=then, data_b64=base64.b64encode(chunk).decode())):
-                return False
-        self.conv.upsert(row["ckey"], mac_bytes=len(data))
-        return True
+        with self._mirror_lock:
+            data = tm.read_from(row, 0)
+            # The copy may be mid-write: only whole lines go; the rest follows as a tail.
+            data = data[:data.rfind(b"\n") + 1]
+            parts = max(1, -(-len(data) // _CHUNK))
+            for i in range(parts):
+                chunk = data[i * _CHUNK:(i + 1) * _CHUNK]
+                if not self._send_frame(device_id, dict(
+                        self._descr(row), type="agent_transcript_sync", part=i, parts=parts,
+                        then=then, data_b64=base64.b64encode(chunk).decode())):
+                    return False
+            self.conv.upsert(row["ckey"], mac_bytes=len(data))
+            return True
 
     # ── continue on Mac ──────────────────────────────────────────────────
     def continue_on_mac(self, ckey: str) -> dict:
@@ -218,6 +259,9 @@ class Handoff:
             return
         if fork_session_id:
             self.conv.upsert(ckey, mac_fork_session_id=fork_session_id)
+        if then == "merge" and not ok:
+            self.conv.upsert(ckey, mac_bytes=0)   # the next connect sends it again
+            return
         if then != "resume_local" or row.get("status") != "moving":
             return
         if not ok:
@@ -242,17 +286,29 @@ class Handoff:
             log.warning("stopping the server run of %s failed", row.get("ckey"), exc_info=True)
 
     # ── restart recovery ─────────────────────────────────────────────────
-    def recover(self) -> None:
+    def recover(self) -> bool:
+        """Settle hand-offs a restart interrupted. False when Claude couldn't be
+        asked what runs (try again later): a session caught mid-move may already
+        run here, so it is never rolled back blind."""
+        # A server Codex thread is a child of this process: a restart ended it.
+        for r in self.conv.all():
+            if r.get("owner") == "server" and r.get("status") == "live" \
+                    and (r.get("run") or {}).get("kind") == "headless":
+                self.conv.mark(r["ckey"], "ended")
         stuck = [r for r in self.conv.all() if r.get("status") == "moving"]
         if not stuck:
-            return
+            return True
         try:
             live = {e.get("session_id"): e for e in self.claude.roster()}
         except Exception:  # noqa: BLE001
-            live = {}
+            live = None
+        done = True
         for r in stuck:
             if r.get("moving_to") == "server":
-                hit = live.get(r.get("session_id"))
+                if live is None and (r.get("agent") or "claude") == "claude":
+                    done = False
+                    continue
+                hit = (live or {}).get(r.get("session_id"))
                 if hit and hit.get("bg_id"):
                     self.conv.set_owner(r["ckey"], "server",
                                         {"kind": "background", "bg_id": hit["bg_id"]})
@@ -264,3 +320,4 @@ class Handoff:
             else:
                 self.conv.mark(r["ckey"], "ended", moving_to=None,
                                error="The move to the Mac was interrupted.")
+        return done

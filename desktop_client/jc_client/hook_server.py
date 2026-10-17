@@ -186,11 +186,9 @@ class HookServer:
                     except Exception:
                         log.debug("usage callback failed", exc_info=True)
                 return
-            self._send_up(kind, agent, payload)
-            key = agent_engine.session_key(self.host, agent, str(payload.get("session_id") or ""),
-                                           str(payload.get("cwd") or ""))
-            engine_kind = kind if kind in _BLOCKING_KINDS else "event"
             if kind == "gate":
+                # Answered first: the agent's prompt / tool call waits on it, and
+                # must never wait on the bridge.
                 answer = None
                 if self._on_gate is not None:
                     try:
@@ -198,6 +196,12 @@ class HookServer:
                     except Exception:
                         log.debug("on_gate failed", exc_info=True)
                 self._reply(conn, answer or {})
+                if (answer or {}).get("decision") == "block":
+                    return  # refused, so it never happened: no state, no forward
+            self._send_up(kind, agent, payload)
+            key = agent_engine.session_key(self.host, agent, str(payload.get("session_id") or ""),
+                                           str(payload.get("cwd") or ""))
+            engine_kind = kind if kind in _BLOCKING_KINDS else "event"
             if self._ingest is not None:
                 effects = self._ingest(engine_kind, agent, payload) or []
             else:

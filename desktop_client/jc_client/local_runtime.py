@@ -41,13 +41,19 @@ def _looks_like_model(name) -> bool:
 class LocalRuntime:
     def __init__(self, *, run: Callable = subprocess.run, vscode=None,
                  kill: Callable = os.kill, alive: Callable = _alive, grace: float = 5.0,
-                 claude_bin: str = "claude", codex_bin: str = "codex") -> None:
+                 claude_bin: Optional[str] = None, codex_bin: str = "codex") -> None:
         self._run = run
         self._vscode = vscode
         self._kill = kill
         self._alive = alive
         self._grace = grace
-        self._claude = claude_bin
+        # Typed into a terminal: the user's shell finds `claude`. Run from here:
+        # launchd's PATH doesn't reach Claude Code's install dir, so resolve it.
+        self._claude = claude_bin or "claude"
+        if claude_bin is None:
+            from jc_client.agent_roster import claude_binary
+            claude_bin = claude_binary()
+        self._claude_exe = claude_bin
         self._codex = codex_bin
 
     # ── new sessions ─────────────────────────────────────────────────────
@@ -80,7 +86,7 @@ class LocalRuntime:
             self.open_in_terminal(cwd, cmd, terminal or {"term_program": "vscode"})
             return ""
         self.ensure_trusted(cwd)
-        argv = [self._claude, "--bg"]
+        argv = [self._claude_exe, "--bg"]
         if _looks_like_model(model):
             argv += ["--model", str(model)]
         if permission_mode in _PERMISSION_MODES:
@@ -167,5 +173,5 @@ class LocalRuntime:
 
     def stop_bg(self, bg_id: str) -> None:
         with tempfile.TemporaryFile(mode="w+") as fh:
-            self._run([self._claude, "stop", bg_id], stdout=fh, stderr=subprocess.STDOUT,
+            self._run([self._claude_exe, "stop", bg_id], stdout=fh, stderr=subprocess.STDOUT,
                       stdin=subprocess.DEVNULL, text=True, timeout=30)

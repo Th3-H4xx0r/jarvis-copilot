@@ -32,6 +32,9 @@ log = logging.getLogger(__name__)
 FRAME_TYPES = frozenset({"agent_roster_request", "agent_transcript_ack", "agent_moved",
                          "agent_transcript_sync", "agent_transcript_tail", "agent_resume_local",
                          "agent_launch", "agent_stop_local"})
+# Handled one at a time, in arrival order (see AgentsLink.handle_frame).
+_ORDERED = frozenset({"agent_transcript_ack", "agent_transcript_sync", "agent_transcript_tail",
+                      "agent_moved", "agent_resume_local"})
 _SHIPPED_AGENTS = ("claude", "codex")
 _STOP_QUEUE_AGENTS = ("claude", "claude-desktop")
 _WORKING = ("working", "thinking")
@@ -60,14 +63,20 @@ class AgentsLink:
         self._pids: dict = {}
         self._ui = ui_broadcast
         self._moved: dict = {}   # ckey -> what the Mac app shows ("On server", Bring back)
+        # Two lanes: transcript frames (acks, sync parts, tails, what moved) must be
+        # handled in the order they came, so they share one worker; slow ones
+        # (typing, launching, reopening) run beside them and never hold them up.
         self._pool = None if inline else ThreadPoolExecutor(max_workers=2,
                                                              thread_name_prefix="jc-agents")
+        self._serial = None if inline else ThreadPoolExecutor(max_workers=1,
+                                                               thread_name_prefix="jc-agents-seq")
 
     def close(self) -> None:
         self.power.close()
         self.roster.close()
-        if self._pool is not None:
-            self._pool.shutdown(wait=False, cancel_futures=True)
+        for pool in (self._pool, self._serial):
+            if pool is not None:
+                pool.shutdown(wait=False, cancel_futures=True)
 
     # ── hooks ────────────────────────────────────────────────────────────
     def on_hook(self, kind: str, agent: str, payload: dict) -> None:
@@ -109,18 +118,25 @@ class AgentsLink:
             entries = self.roster.scan_now(send=False)
         except Exception:  # noqa: BLE001
             entries = []
-        self._event("device_sleeping", {"entries": entries})
+        self._event("device_sleeping", {"entries": entries,
+                                        "agents": list(getattr(self.roster, "last_agents",
+                                                               ["claude", "codex"]))})
 
     def on_wake(self) -> None:
         self.gate.hold_until_confirmed(10.0)
+        # A short sleep can keep the socket, so no reconnect (and no hello) would
+        # follow: say it, so the server marks this Mac awake and answers with
+        # what moved (which releases the gate).
+        self._event("agent_hello", {"v": 1, "wake": True})
         self.roster.trigger("wake")
 
     # ── frames from the server ───────────────────────────────────────────
     def handle_frame(self, frame: dict) -> None:
         if self._pool is None:
             self._dispatch(frame)
-        else:
-            self._pool.submit(self._safe_dispatch, frame)
+            return
+        lane = self._serial if frame.get("type") in _ORDERED else self._pool
+        lane.submit(self._safe_dispatch, frame)
 
     def _safe_dispatch(self, frame: dict) -> None:
         try:
@@ -134,7 +150,8 @@ class AgentsLink:
         if t == "agent_roster_request":
             self.roster.trigger("server")
         elif t == "agent_transcript_ack":
-            self.shipper.on_ack(ckey, bool(frame.get("ok")), int(frame.get("size") or 0))
+            self.shipper.on_ack(ckey, bool(frame.get("ok")), int(frame.get("size") or 0),
+                                reason=frame.get("reason"))
         elif t == "agent_moved":
             self.gate.set_moved(frame.get("ckeys") or [])
             self._moved = {d.get("ckey"): {k: d.get(k) for k in ("ckey", "agent", "title", "project")}
@@ -148,10 +165,11 @@ class AgentsLink:
             self.gate.discard(ckey)
             if self._moved.pop(ckey, None) is not None:
                 self._push_moved()
+            agent, sid = str(frame.get("agent") or "claude"), str(frame.get("session_id") or "")
+            stale = self._pids.get(ckey) or self._stale_pid(agent, sid)
             via = self.runtime.resume_in_terminal(
-                str(frame.get("agent") or "claude"), str(frame.get("session_id") or ""),
-                str(frame.get("cwd") or os.path.expanduser("~")), frame.get("terminal") or {},
-                stale_pid=self._pids.get(ckey))
+                agent, sid, str(frame.get("cwd") or os.path.expanduser("~")),
+                frame.get("terminal") or {}, stale_pid=stale)
             log.info("reopened %s on this Mac via %s", ckey, via)
             self.roster.trigger("resume")
         elif t == "agent_launch":
@@ -189,6 +207,29 @@ class AgentsLink:
             return self._report(did, "sent", None)
         return self._report(did, "failed", f"Jarvis can't type into this session's terminal ({why}). "
                                            "Type it there, or send it while it's working.")
+
+    def _stale_pid(self, agent: str, sid: str):
+        """The process still running this conversation's old copy here. Claude's
+        hooks carry no pid, so it's looked up by session id in Claude's own list
+        (a background copy is stopped outright)."""
+        try:
+            entries = self.roster.scan_now(send=False)
+        except Exception:  # noqa: BLE001
+            return None
+        for e in entries or []:
+            if e.get("agent") != agent or e.get("session_id") != sid:
+                continue
+            if e.get("kind") == "background" and e.get("bg_id"):
+                stop = getattr(self.runtime, "stop_bg", None)
+                if stop is not None:
+                    try:
+                        stop(e["bg_id"])
+                    except Exception:  # noqa: BLE001
+                        log.warning("stopping the stale background copy failed", exc_info=True)
+                return None
+            if e.get("pid"):
+                return e["pid"]
+        return None
 
     def moved_sessions(self) -> list:
         return list(self._moved.values())

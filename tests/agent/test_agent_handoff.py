@@ -172,6 +172,8 @@ def test_restart_mid_handoff_recovers(env):
 def test_merge_back_sent_on_connect(env):
     ck = _asleep(env, state="idle")
     env["h"].continue_on_server(ck)
+    row = env["conv"].get(ck)
+    tm.append_chunk(row, tm.size(row), b'{"uuid":"b"}\n')     # a server turn the Mac lacks
     env["frames"].clear()
     env["h"].on_device_connect("dev1")
     types = [f["type"] for _, f in env["frames"]]
@@ -180,7 +182,7 @@ def test_merge_back_sent_on_connect(env):
     assert descr["title"] and descr["project"] == "app"
     sync = [f for _, f in env["frames"] if f["type"] == "agent_transcript_sync"]
     data = b"".join(base64.b64decode(f["data_b64"]) for f in sync)
-    assert data == b'{"uuid":"a"}\n' and sync[-1]["part"] == sync[-1]["parts"] - 1
+    assert data == b'{"uuid":"a"}\n{"uuid":"b"}\n' and sync[-1]["part"] == sync[-1]["parts"] - 1
 
 
 def test_continue_on_mac_stops_server_and_merges(env):
@@ -240,3 +242,149 @@ def test_connect_always_tells_the_mac_what_moved(env):
     env["h"].on_device_connect("dev1")
     (dev, frame), = env["frames"]
     assert dev == "dev1" and frame == {"type": "agent_moved", "ckeys": [], "sessions": []}
+
+
+def test_two_continues_at_once_start_one_server_process(env):
+    """A double tap, or the phone and the web at once: never two
+    `claude --bg --resume` on one conversation."""
+    import threading
+    ck = _asleep(env, state="idle")
+    both = threading.Barrier(2, timeout=2)
+
+    def synced(_row):           # both callers are past their checks here
+        try:
+            both.wait()
+        except threading.BrokenBarrierError:
+            pass
+        return True
+
+    env["h"]._project_synced = synced
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(env["h"].continue_on_server(ck)))
+               for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(env["claude"].started) == 1
+    assert env["conv"].get(ck)["owner"] == "server"
+
+
+def test_mac_waking_mid_move_is_told_it_moved(env):
+    """The Mac reconnects while the server is starting the session: its hello
+    must neither revive the moving row nor leave the stale copy unblocked."""
+    ck = _asleep(env, state="idle")
+    real = env["claude"].start
+
+    def start_while_mac_wakes(cwd, **kw):
+        env["presence"].on_connect("dev1")
+        env["h"].on_device_connect("dev1")
+        return real(cwd, **kw)
+
+    env["claude"].start = start_while_mac_wakes
+    assert env["h"].continue_on_server(ck)["ok"] is True
+    moved = [f for _, f in env["frames"] if f["type"] == "agent_moved"]
+    assert moved and ck in moved[0]["ckeys"]
+    assert ck in moved[-1]["ckeys"]
+    row = env["conv"].get(ck)
+    assert row["owner"] == "server" and row["status"] == "live"
+
+
+def test_a_failed_move_unblocks_the_mac_again(env):
+    """If the Mac was told a session is moving and the start then fails, it is
+    told again (without it) so its copy isn't blocked for nothing."""
+    ck = _asleep(env, state="idle")
+
+    def fail_while_mac_wakes(cwd, **kw):
+        env["presence"].on_connect("dev1")
+        env["h"].on_device_connect("dev1")
+        raise RuntimeError("claude refused")
+
+    env["claude"].start = fail_while_mac_wakes
+    assert env["h"].continue_on_server(ck)["ok"] is False
+    moved = [f for _, f in env["frames"] if f["type"] == "agent_moved"]
+    assert ck in moved[0]["ckeys"] and ck not in moved[-1]["ckeys"]
+
+
+def test_restart_ends_server_codex_threads(env):
+    """A Codex thread lives in a webui child: after a restart it's gone, so its
+    row must not stay 'live' with a dead handle."""
+    ck = "codex|c1"
+    env["conv"].upsert(ck, agent="codex", session_id="c1", owner="server", status="live",
+                       run={"kind": "headless", "handle": "c1"}, moved_from="dev1")
+    env["h"].recover()
+    assert env["conv"].get(ck)["status"] == "ended"
+
+
+def test_sync_to_the_mac_stops_at_a_whole_line(env):
+    """The server's copy is live: a sync taken mid-write must not hand the Mac
+    half a line (it would be split into two broken lines)."""
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    row = env["conv"].get(ck)
+    tm.append_chunk(row, tm.size(row), b'{"uuid":"b"}\n{"uuid":"c"')
+    env["presence"].on_connect("dev1")
+    env["frames"].clear()
+    env["h"].on_device_connect("dev1")
+    sync = [f for _, f in env["frames"] if f["type"] == "agent_transcript_sync"]
+    data = b"".join(base64.b64decode(f["data_b64"]) for f in sync)
+    assert data == b'{"uuid":"a"}\n{"uuid":"b"}\n'
+    tm.append_chunk(row, tm.size(row), b'}\n')
+    env["frames"].clear()
+    env["h"].push_reverse(ck)
+    (_, tail), = env["frames"]
+    assert base64.b64decode(tail["data_b64"]) == b'{"uuid":"c"}\n'
+
+
+def test_restart_recovery_waits_when_claude_cant_be_asked(env):
+    """If `claude agents` fails at boot, a session caught mid-move may already
+    run on the server: rolling it back would let a second Continue start a
+    second copy. It stays moving until Claude answers."""
+    ck = _asleep(env)
+    env["conv"].mark(ck, "moving", prev_status="asleep", moving_to="server", server_cwd="/x")
+
+    def broken():
+        raise RuntimeError("claude agents failed")
+
+    env["claude"].roster = broken
+    assert env["h"].recover() is False
+    assert env["conv"].get(ck)["status"] == "moving"
+    env["claude"].roster = lambda: [{"session_id": "s1", "bg_id": "bgLIVE", "kind": "background"}]
+    assert env["h"].recover() is True
+    assert env["conv"].get(ck)["owner"] == "server"
+
+
+def test_reconnect_doesnt_resend_a_transcript_the_mac_already_has(env):
+    """Every wake / reconnect says hello: a moved session's whole transcript
+    goes to the Mac only when the server has lines the Mac doesn't."""
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    env["presence"].on_connect("dev1")
+    env["h"].on_device_connect("dev1")
+    env["frames"].clear()
+    env["h"].on_device_connect("dev1")
+    assert [f["type"] for _, f in env["frames"]] == ["agent_moved"]
+    row = env["conv"].get(ck)
+    tm.append_chunk(row, tm.size(row), b'{"uuid":"b"}\n')
+    env["frames"].clear()
+    env["h"].on_device_connect("dev1")
+    assert any(f["type"] == "agent_transcript_sync" for _, f in env["frames"])
+
+
+def test_continue_drops_a_half_shipped_last_line_first(env):
+    """The Mac dropped off mid-chunk: the server's copy ends in half a line.
+    Resuming on it would glue the server's first new line onto the fragment."""
+    ck = _asleep(env, state="idle", status="offline")
+    row = env["conv"].get(ck)
+    probe = dict(row, server_cwd=tm.server_cwd_for("/Users/p/app"))
+    tm.append_chunk(probe, tm.size(probe), b'{"uuid":"b","big":"aaaa')
+    seen = {}
+    real = env["claude"].start
+
+    def start(cwd, **kw):
+        seen["data"] = tm.read_from(probe, 0)
+        return real(cwd, **kw)
+
+    env["claude"].start = start
+    assert env["h"].continue_on_server(ck, confirm_offline=True)["ok"] is True
+    assert seen["data"] == b'{"uuid":"a"}\n'

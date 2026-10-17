@@ -32,6 +32,28 @@ def _title(name) -> str:
     return line if len(line) <= TITLE_MAX else line[:TITLE_MAX - 1].rstrip() + "…"
 
 
+def find_claude(home: Optional[str] = None, path_env: Optional[str] = None) -> Optional[str]:
+    """The ``claude`` executable. jc-client runs under launchd, whose PATH
+    (/usr/bin:/bin:/usr/sbin:/sbin) doesn't hold Claude Code's install dirs."""
+    home = home or os.path.expanduser("~")
+    path_env = os.environ.get("PATH", "") if path_env is None else path_env
+    candidates = [os.path.join(d, "claude") for d in path_env.split(os.pathsep) if d]
+    candidates += [os.path.join(home, ".local/bin/claude"), os.path.join(home, ".claude/local/claude"),
+                   "/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+                   os.path.join(home, ".npm-global/bin/claude"), os.path.join(home, ".bun/bin/claude")]
+    nvm = os.path.join(home, ".nvm/versions/node")
+    try:
+        for v in sorted(os.listdir(nvm), reverse=True):
+            candidates.append(os.path.join(nvm, v, "bin/claude"))
+    except OSError:
+        pass
+    return next((c for c in candidates if os.path.isfile(c) and os.access(c, os.X_OK)), None)
+
+
+def claude_binary() -> str:
+    return find_claude() or "claude"
+
+
 def _pid_alive(pid) -> bool:
     try:
         os.kill(int(pid), 0)
@@ -44,19 +66,22 @@ class RosterAgent:
     def __init__(self, send: Callable[[dict], None], *, run: Callable = subprocess.run,
                  alive: Callable[[int], bool] = _pid_alive, clock=time.time,
                  debounce: float = 1.0, heartbeat: float = 60.0,
-                 claude_bin: str = "claude") -> None:
+                 claude_bin: Optional[str] = None) -> None:
         self._send = send
         self._run = run
         self._alive = alive
         self._clock = clock
         self._debounce = debounce
         self._heartbeat = heartbeat
-        self._bin = claude_bin
+        self._bin = claude_bin or claude_binary()
         self._lock = threading.Lock()
         self._terms: dict = {}      # (agent, session_id) -> terminal context from hooks
         self._codex: dict = {}      # session_id -> {pid, cwd}
         self._timer: Optional[threading.Timer] = None
         self._last: list = []
+        # The agents the last scan could list: a failed `claude agents` leaves
+        # Claude out, so the server doesn't take its silence for "all ended".
+        self.last_agents: list = ["claude", "codex"]
 
     def note_hook(self, agent: str, session_id: str, *, pid=None, cwd: str = "",
                   terminal: Optional[dict] = None, ended: bool = False) -> None:
@@ -101,11 +126,14 @@ class RosterAgent:
         return list(self._last)
 
     def scan_now(self, send: bool = True) -> list:
-        entries = self._claude_entries() + self._codex_entries()
+        claude = self._claude_entries()
+        entries = (claude or []) + self._codex_entries()
+        agents = ["claude", "codex"] if claude is not None else ["codex"]
         self._last = entries
+        self.last_agents = agents
         if send:
             self._send({"type": "event", "name": "agent_roster",
-                        "data": {"entries": entries, "agents": ["claude", "codex"]}})
+                        "data": {"entries": entries, "agents": agents}})
         return entries
 
     def close(self) -> None:
@@ -114,17 +142,21 @@ class RosterAgent:
                 self._timer.cancel()
                 self._timer = None
 
-    def _claude_entries(self) -> list:
+    def _claude_entries(self) -> Optional[list]:
+        """Claude's live sessions, or None when Claude couldn't be asked."""
         # Never through a pipe: a `claude` command can leave its daemon holding
         # the stdout it was given, and a pipe would then never reach EOF.
         try:
             with tempfile.TemporaryFile(mode="w+") as fh:
-                self._run([self._bin, "agents", "--json"], stdout=fh, stderr=subprocess.DEVNULL,
-                          stdin=subprocess.DEVNULL, text=True, timeout=10)
+                out = self._run([self._bin, "agents", "--json"], stdout=fh,
+                                stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True,
+                                timeout=10)
                 fh.seek(0)
                 items = json.loads(fh.read() or "[]")
         except (OSError, ValueError, subprocess.SubprocessError):
-            return []
+            return None
+        if getattr(out, "returncode", 0) not in (0, None) or not isinstance(items, list):
+            return None
         out = []
         for s in items if isinstance(items, list) else []:
             sid = s.get("sessionId") if isinstance(s, dict) else None

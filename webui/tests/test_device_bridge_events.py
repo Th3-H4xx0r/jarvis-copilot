@@ -83,3 +83,42 @@ def test_a_raising_handler_does_not_stop_later_events():
     finally:
         db._unregister("board-3")
         db.on_device_event("test_flaky", None)
+
+
+def test_reconnect_does_not_deadlock_a_disconnect_callback_that_reads_the_registry():
+    """A reconnect replaces the old connection while the registry is locked; a
+    disconnect callback that asks the bridge something (the Agents layer reads
+    the device's name) must not hang every bridge call forever."""
+    seen = []
+
+    def cb(device_id):
+        seen.append((device_id, db.device_name(device_id)))
+
+    db.on_device_disconnect(cb)
+    try:
+        _conn("mac-dl")
+        t = threading.Thread(target=_conn, args=("mac-dl",), daemon=True)
+        t.start()
+        t.join(2)
+        assert not t.is_alive(), "registering the new connection deadlocked"
+    finally:
+        db._DISCONNECT_CALLBACKS.remove(cb)
+        db._unregister("mac-dl")
+
+
+def test_a_replaced_connection_closing_late_does_not_report_the_device_gone():
+    """The old socket's thread closes it again after the new connection is up:
+    that must not tell the Agents layer the (connected) Mac dropped off."""
+    gone = []
+    cb = gone.append
+    db.on_device_disconnect(cb)
+    try:
+        old = _conn("mac-late")
+        _conn("mac-late")
+        gone.clear()
+        db._unregister("mac-late", old)
+        db._safe_close(old)          # the old pump thread's finally
+        assert gone == []
+    finally:
+        db._DISCONNECT_CALLBACKS.remove(cb)
+        db._unregister("mac-late")

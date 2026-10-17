@@ -651,7 +651,7 @@ def _conversation_sessions(store, *, live_only: bool) -> list:
     conversation records (visible ones; only live ones with ``live_only``), their
     state from the hook tracker. Jarvis's own chats aren't coding sessions."""
     from agent.agent_conversations import Conversations
-    from agent.coding_la_push import _tracked_states
+    from agent.coding_la_push import _tracked_states, tracked_state
     hook_states = _tracked_states()
     out = []
     for conv in Conversations(store).list_visible():
@@ -659,8 +659,7 @@ def _conversation_sessions(store, *, live_only: bool) -> list:
             continue
         if live_only and conv.get("status") != "live":
             continue
-        out.append(_fleet_session(conv, hook_states.get((conv.get("agent"),
-                                                         conv.get("session_id")))))
+        out.append(_fleet_session(conv, tracked_state(hook_states, conv)))
     return out
 
 
