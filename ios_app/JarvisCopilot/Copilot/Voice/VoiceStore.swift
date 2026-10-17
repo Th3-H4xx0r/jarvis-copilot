@@ -316,13 +316,13 @@ final class VoiceStore {
     var earcons: EarconPlaying?
     /// Sounds for every turn, not only one-shot ones: set by the app to "in the car".
     var wantsEarcons: () -> Bool = { false }
-    /// Mic audio ignored after an earcon (ms of audio, not wall time), so the tone
-    /// can't be heard as speech or as him cutting in.
+    /// Mic audio ignored after an earcon (ms of audio, not wall time) for as long
+    /// as the mic can still hear it, so the tone can't be heard as speech or as
+    /// him cutting in.
     private var earconQuietMs = 0
     /// This session is a car turn: it holds the mixing car audio session for its
     /// whole length (set before the first claim, cleared at teardown).
     private(set) var carAudio = false
-    static let earconQuietWindowMs = 250
     private var micHealthTimer: VoiceTimerToken?
     private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
@@ -389,6 +389,8 @@ final class VoiceStore {
     var micBytesSent = 0
     /// Loudest sample seen since the last batched mic line.
     var micPeakSent = 0.0
+    /// Quietest frame's peak since the last batched mic line: the room's noise.
+    var micFloorSent = 1.0
     /// One "the socket is gone" line per turn, not one per 43 ms frame.
     var loggedMicDrop = false
 
@@ -961,8 +963,7 @@ final class VoiceStore {
         if machine.oneShot, before != .listening, machine.state == .listening { armOneShotSilence() }
         if let earcon = VoiceEarcon.forTransition(from: before, to: machine.state),
            machine.oneShot || wantsEarcons(), let earcons {
-            earcons.play(earcon)
-            earconQuietMs = Self.earconQuietWindowMs
+            earconQuietMs = earcons.play(earcon)
         }
         if !machine.state.isActive, let mode = modeAfterOneShot {
             modeAfterOneShot = nil

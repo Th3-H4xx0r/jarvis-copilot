@@ -1897,6 +1897,28 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.stopAll()
     }
 
+    /// The car's mic hears the "listening" chime for as long as it plays — its
+    /// length plus the car's output delay, not a fixed quarter second. Heard as
+    /// speech, the chime alone was a turn: "no speech", back to listening, chime
+    /// again (his 18:44 CarPlay log).
+    func testTheListeningChimeIsNotATurn() async throws {
+        let rig = makeRig()
+        let sounds = RecordingEarcons()
+        sounds.lastsMs = 600
+        rig.store.earcons = sounds
+        rig.store.wantsEarcons = { true }   // in the car
+        await startListening(rig)
+        XCTAssertEqual(sounds.played, [.listening])
+        rig.input.emitFrames(amplitude: 0.05, ms: 600)   // the chime, as the mic hears it
+        rig.input.emitFrames(amplitude: 0.0, ms: Endpointer.extendedSilenceMs + 400)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening, "nobody spoke")
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("end_turn"))
+        await speakThenPause(rig)
+        XCTAssertEqual(rig.store.state, .thinking, "his words after the chime still end the turn")
+        await rig.store.stopAll()
+    }
+
     func testARefusedCarTalkTapLeavesNoFalseListening() async {
         let rig = makeRig()
         rig.input.permission = false
@@ -1947,7 +1969,12 @@ final class VoiceStoreTests: XCTestCase {
 /// Records the earcons the store asked for.
 final class RecordingEarcons: EarconPlaying {
     private(set) var played: [VoiceEarcon] = []
-    func play(_ earcon: VoiceEarcon) { played.append(earcon) }
+    /// How long each sound plays, as the mic hears it.
+    var lastsMs = 0
+    func play(_ earcon: VoiceEarcon) -> Int {
+        played.append(earcon)
+        return lastsMs
+    }
 }
 
 func isolatedCarTalkDefaults(_ function: String = #function) -> UserDefaults {

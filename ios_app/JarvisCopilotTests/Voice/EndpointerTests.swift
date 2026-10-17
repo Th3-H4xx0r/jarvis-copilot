@@ -15,6 +15,23 @@ private func feed(_ ep: Endpointer, _ amp: Double, _ ms: Int, frameMs: Int = 20)
     return .none
 }
 
+/// Feed 100 ms frames cycling through `amps` (the phone's real frame size) for
+/// `ms`, returning the ms fed when the first non-`.none` event came, or nil.
+private func feedCycle(_ ep: Endpointer, _ amps: [Double], _ ms: Int) -> Int? {
+    var fed = 0, i = 0
+    while fed < ms {
+        fed += 100
+        if ep.update(amps[i % amps.count], 100) != .none { return fed }
+        i += 1
+    }
+    return nil
+}
+
+/// His car on CarPlay (2026-10-16 log): a quiet talker through the car's mic,
+/// and road/fan noise that never drops under `silenceThreshold`.
+private let carSpeech = [0.03, 0.045, 0.012, 0.04, 0.035, 0.02, 0.045]
+private let carNoise = [0.005, 0.0096, 0.007, 0.009, 0.006, 0.0085]
+
 final class EndpointerTests: XCTestCase {
 
     // MARK: - VAD hysteresis
@@ -173,5 +190,43 @@ final class EndpointerTests: XCTestCase {
         }
         XCTAssertLessThan(silence, 1500)
         XCTAssertLessThanOrEqual(silence, Endpointer.baseSilenceMs)
+    }
+
+    // MARK: - Steady background noise (a car)
+
+    /// The noise after his last word stayed between 0.005 and 0.0096 — over the
+    /// fixed silence level, under the 15% relative one — so no pause counted and
+    /// a finished turn stayed open for seconds. Steady and far below the turn is
+    /// a pause.
+    func testSteadyCarNoiseAfterAQuietTalkerEndsTheTurn() throws {
+        let ep = Endpointer()
+        XCTAssertNil(feedCycle(ep, carNoise, 1000), "the car alone is not a turn")
+        XCTAssertNil(feedCycle(ep, carSpeech, 2100))
+        XCTAssertTrue(ep.speaking)
+        let waited = try XCTUnwrap(feedCycle(ep, carNoise, 3000), "the turn must end in the car's noise")
+        XCTAssertLessThanOrEqual(waited, Endpointer.extendedSilenceMs + 200)
+    }
+
+    /// Speech is never steady: a soft syllable is next to a loud one.
+    func testAQuietTalkerInTheCarIsNotCutOffMidSentence() {
+        let ep = Endpointer()
+        _ = feedCycle(ep, carNoise, 1000)
+        XCTAssertNil(feedCycle(ep, carSpeech, 8000))
+    }
+
+    /// A breath in the car is not the end: the steady rule waits the long window.
+    func testABreathInTheCarDoesNotEndTheTurn() {
+        let ep = Endpointer()
+        _ = feedCycle(ep, carSpeech, 2100)
+        XCTAssertNil(feedCycle(ep, carNoise, Endpointer.extendedSilenceMs - 200))
+        XCTAssertNil(feedCycle(ep, carSpeech, 1400), "he carried on talking")
+        XCTAssertTrue(ep.speaking)
+    }
+
+    /// Noise as loud as the turn itself (the turn opened on it) is not "far
+    /// below" it — nothing here may end a turn that has no speech in it.
+    func testLoudSteadyNoiseAloneIsNotEndedEarly() {
+        let ep = Endpointer()
+        XCTAssertNil(feedCycle(ep, [0.02, 0.026, 0.022], 5000))
     }
 }

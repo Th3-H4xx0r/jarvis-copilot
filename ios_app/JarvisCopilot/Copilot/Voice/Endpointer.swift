@@ -83,6 +83,17 @@ final class Endpointer {
     static let relativeSilenceRatio = 0.15
     static let relativeSilenceCap = 0.06
 
+    /// A pause in steady noise — a car's road and fan noise, a quiet talker
+    /// through its mic — sits above both silence levels, and the turn stayed open
+    /// for seconds after his last word. So a pause is also `extendedSilenceMs` in
+    /// which every frame stayed under this share of the turn's peak AND the
+    /// loudest was within `steadyBandRatio` of the quietest: flat, which speech
+    /// never is (a soft syllable always sits next to a loud one). The long window
+    /// keeps a breath from ending the turn; a quiet room ends it sooner the
+    /// ordinary way, so it never gets here.
+    static let steadyPeakRatio = 0.35
+    static let steadyBandRatio = 3.0
+
     // MARK: - State
 
     /// The turn's loudest smoothed level, and the smoothing it is taken from
@@ -108,6 +119,8 @@ final class Endpointer {
     /// Recent VOICED frames, newest last. Bounded to two tail windows — that's
     /// all `computeRisingTail` ever looks at.
     private var tail: [Frame] = []
+    /// The turn's last `extendedSilenceMs` of frames, voiced or not, newest last.
+    private var recent: [Frame] = []
 
     /// Milliseconds of actual voiced audio in this turn.
     var voicedMs: Int { speechMs - silenceMs }
@@ -150,6 +163,7 @@ final class Endpointer {
         speechMs += dtMs
         smoothed = smoothed * 0.7 + amp * 0.3
         utterancePeak = max(utterancePeak, smoothed)
+        pushRecent(dtMs, amp)
 
         if amp < silenceLevel {
             // Latch the rising-tail verdict at the moment silence starts: the
@@ -174,6 +188,7 @@ final class Endpointer {
             pushTail(dtMs, amp)
         }
 
+        if voicedMs >= Self.minUtteranceMs, steadyPause { return .endOfTurn }
         // Checked last so a max-length turn still ends even while the mic is loud.
         if speechMs >= Self.maxUtteranceMs { return .endOfTurn }
         return .none
@@ -188,6 +203,26 @@ final class Endpointer {
         silenceMs = 0
         _risingTail = false
         tail.removeAll()
+        recent.removeAll()
+    }
+
+    private func pushRecent(_ dtMs: Int, _ amp: Double) {
+        recent.append(Frame(ms: dtMs, amp: amp))
+        var total = recent.reduce(0) { $0 + $1.ms }
+        while recent.count > 1, total - recent[0].ms >= Self.extendedSilenceMs {
+            total -= recent[0].ms
+            recent.removeFirst()
+        }
+    }
+
+    /// The last `extendedSilenceMs` were flat and far below the turn: steady
+    /// background, not him (see `steadyPeakRatio`).
+    private var steadyPause: Bool {
+        guard recent.reduce(0, { $0 + $1.ms }) >= Self.extendedSilenceMs,
+              let loudest = recent.map(\.amp).max(),
+              let quietest = recent.map(\.amp).min() else { return false }
+        return loudest < utterancePeak * Self.steadyPeakRatio
+            && loudest <= max(quietest, Self.silenceThreshold) * Self.steadyBandRatio
     }
 
     private func pushTail(_ dtMs: Int, _ amp: Double) {

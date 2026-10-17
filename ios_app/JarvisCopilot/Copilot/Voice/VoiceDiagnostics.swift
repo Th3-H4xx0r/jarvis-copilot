@@ -91,12 +91,13 @@ enum VoiceDiagnostics {
     /// muted in hardware, denied by the OS, or an input device that hears
     /// nothing — looks exactly like a healthy one: frames keep flowing, bytes
     /// keep climbing, and the turn simply never ends.
-    static func describe(micFrames count: Int, bytes: Int, peak: Double,
+    static func describe(micFrames count: Int, bytes: Int, peak: Double, floor: Double = 0,
                          local: Bool = false) -> String {
         // `local`: on-device transcription, where the frames go to the engine
         // here and not over the socket — the line must not claim otherwise.
         (local ? "mic→ stt " : "ws→ pcm ")
             + "\(count) frame(s) \(bytes)B peak=\(String(format: "%.4f", peak))"
+            + " floor=\(String(format: "%.4f", floor))"
             + " raw=\(String(format: "%.4f", DefaultAudioInput.lastRawPeak))"
     }
 
@@ -182,10 +183,12 @@ extension VoiceStore {
         micFramesSent += 1
         micBytesSent += bytes
         micPeakSent = max(micPeakSent, peak)
+        micFloorSent = min(micFloorSent, peak)
         guard micFramesSent % Self.micLogBatch == 0 else { return }
         note(VoiceDiagnostics.describe(micFrames: Self.micLogBatch, bytes: micBytesSent,
-                                       peak: micPeakSent, local: local))
+                                       peak: micPeakSent, floor: micFloorSent, local: local))
         micBytesSent = 0
         micPeakSent = 0
+        micFloorSent = 1
     }
 }

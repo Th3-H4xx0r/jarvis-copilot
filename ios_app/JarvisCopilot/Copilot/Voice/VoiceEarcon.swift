@@ -16,7 +16,8 @@ enum VoiceEarcon: Equatable {
 }
 
 protocol EarconPlaying: AnyObject {
-    func play(_ earcon: VoiceEarcon)
+    /// Plays the sound; returns how many ms of mic audio will still carry it.
+    @discardableResult func play(_ earcon: VoiceEarcon) -> Int
 }
 
 /// Plays the earcons as generated tones through the voice audio session, so they
@@ -26,7 +27,11 @@ protocol EarconPlaying: AnyObject {
 final class ToneEarconPlayer: EarconPlaying {
     private var players: [VoiceEarcon: AVAudioPlayer] = [:]
 
-    func play(_ earcon: VoiceEarcon) {
+    /// Past the sound's end, room for the car's cabin to stop ringing with it.
+    static let echoTailMs = 100
+
+    @discardableResult
+    func play(_ earcon: VoiceEarcon) -> Int {
         if players[earcon] == nil {
             // C5 → G5 rising; G5 → C5 falling.
             let tones: [(hz: Double, ms: Int)] = earcon == .listening
@@ -35,9 +40,18 @@ final class ToneEarconPlayer: EarconPlaying {
             players[earcon] = try? AVAudioPlayer(data: Self.wav(tones), fileTypeHint: AVFileType.wav.rawValue)
             players[earcon]?.prepareToPlay()
         }
-        guard let player = players[earcon] else { return }
+        guard let player = players[earcon] else { return 0 }
         player.currentTime = 0
         player.play()
+        // The mic hears the sound until it has left the speaker — its length plus
+        // the route's output delay (wireless CarPlay adds a lot) — and the frames
+        // carrying it arrive later still, by the input delay and one buffer.
+        var heard = player.duration
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        heard += session.outputLatency + session.inputLatency + session.ioBufferDuration
+        #endif
+        return Int((heard * 1000).rounded()) + Self.echoTailMs
     }
 
     /// 16-bit mono PCM WAV of the notes back to back. Each is a soft bell: a quick

@@ -85,6 +85,8 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Built: car turns use their own session — `.playAndRecord`, `.default` mode (Apple's CarPlay voice-app
     mode), mixing and ducking his music. No echo cancellation there, so a car turn takes no talk-over
     (tap the orb to stop). Awaiting his test: works with Jarvis in the background?
+  - Evidence 18:44 CDT: the widget turn worked once (18:44:19, just after using Jarvis's own car screen), then
+    two taps at 18:44:36/38 were refused with `!int` again — the mixing session alone did not fix it.
 - [ ] **12. Can the Jarvis card on the CarPlay home screen be the clickable orb?** — answered: Apple turns off
   buttons on Live Activities in CarPlay; tapping the card can only open Jarvis on the car screen (it already
   opens it listening). The widget orb is the stay-on-screen button.
@@ -104,9 +106,18 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Found (phone console, JC_VOICE_CONSOLE): audio session 0.4 s, mic live 0.6 s after the tap; the voice
     socket opened and never answered. The server dropped off at ~18:20 CDT: Cloudflare 530 (tunnel can't
     reach it), Tailscale offline, ping and both ssh routes time out. Not the app. → he restarts the server.
-- [ ] **16. Didn't stop listening after he stopped talking** — no evidence yet (that run had no voice log; every
-  run since stalled at Connecting). The server's speech engine normally ends the turn first; next logged try
-  once the server is back.
+- [ ] **16. Didn't stop listening after he stopped talking**
+  - Found (phone console 18:34–18:45 CDT, his CarPlay turns): (a) "speech detected" 260–420 ms into EVERY
+    listen — the new listening chime (390 ms + the car's output delay) outlasted its 250 ms mic mute, so the
+    chime opened the turn; at 18:44:10 the chime alone was sent as a turn ("no speech"), back to listening,
+    chime, again. (b) After his last word the car's noise sat at 0.005–0.0096, above the 0.006 silence level:
+    18:43:34–39 had no speech yet the turn stayed open ~5 s (18:36 turn: 20 s). (c) The server's speech engine
+    sent no live words and no "done talking" on those turns (no error logged); a probe from the server now
+    gets both, right as the clip ends, in silence and in noise — transient, after the outage.
+  - Built: the chime mutes the mic for as long as it is really heard (its length + the route's output/input
+    delay + 100 ms). The phone's end-of-speech also ends a turn when the last 1.1 s stayed flat and under 35%
+    of how loud he spoke — steady noise, not him; a quiet room ends sooner the old way, so nothing changes
+    there. The mic log line now prints the quietest frame (floor=) next to the loudest.
 
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
