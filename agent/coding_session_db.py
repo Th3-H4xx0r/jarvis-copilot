@@ -93,6 +93,19 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
   kind TEXT NOT NULL, decision TEXT NOT NULL, at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_decisions_at ON agent_decisions(at);
+-- One row per agent conversation (agent + its own session id), whichever
+-- machine runs it (agent/agent_conversations.py). ``data`` holds the row as
+-- JSON; owner/status/ended_at are copied out for the list query.
+CREATE TABLE IF NOT EXISTS agent_conversations (
+  ckey TEXT PRIMARY KEY, owner TEXT, status TEXT, ended_at REAL,
+  data TEXT NOT NULL, updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_conversations_owner ON agent_conversations(owner);
+-- Whether a paired Mac is awake, asleep or offline, and the sessions it left
+-- paused (agent/agent_presence.py). Survives a webui restart.
+CREATE TABLE IF NOT EXISTS device_presence (
+  device_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at REAL NOT NULL
+);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -379,6 +392,61 @@ class CodingSessionStore:
     def delete_agent_session(self, key: str) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM agent_sessions WHERE key=?", (key,))
+
+    # --- agent conversations + device presence -------------------------------
+
+    def put_conversation(self, ckey: str, row: dict) -> None:
+        import json as _json
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO agent_conversations(ckey,owner,status,ended_at,data,updated_at) "
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(ckey) DO UPDATE SET owner=excluded.owner, "
+                "status=excluded.status, ended_at=excluded.ended_at, data=excluded.data, "
+                "updated_at=excluded.updated_at",
+                (ckey, row.get("owner"), row.get("status"), row.get("ended_at"),
+                 _json.dumps(row, default=str), time.time()))
+
+    def get_conversation(self, ckey: str) -> dict | None:
+        import json as _json
+        with self._conn() as c:
+            r = c.execute("SELECT data FROM agent_conversations WHERE ckey=?", (ckey,)).fetchone()
+        return _json.loads(r["data"]) if r else None
+
+    def list_conversations(self, *, owner: str | None = None) -> list[dict]:
+        import json as _json
+        sql, args = "SELECT data FROM agent_conversations", ()
+        if owner is not None:
+            sql, args = sql + " WHERE owner=?", (owner,)
+        with self._conn() as c:
+            rows = c.execute(sql + " ORDER BY updated_at DESC", args).fetchall()
+        return [_json.loads(r["data"]) for r in rows]
+
+    def delete_conversations_ended_before(self, cutoff: float) -> int:
+        with self._conn() as c:
+            return c.execute("DELETE FROM agent_conversations WHERE status='ended' "
+                             "AND ended_at IS NOT NULL AND ended_at < ?", (cutoff,)).rowcount
+
+    def put_presence(self, device_id: str, **fields) -> None:
+        import json as _json
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO device_presence(device_id,data,updated_at) VALUES(?,?,?) "
+                "ON CONFLICT(device_id) DO UPDATE SET data=excluded.data, "
+                "updated_at=excluded.updated_at",
+                (device_id, _json.dumps(fields, default=str), time.time()))
+
+    def get_presence(self, device_id: str) -> dict | None:
+        import json as _json
+        with self._conn() as c:
+            r = c.execute("SELECT data FROM device_presence WHERE device_id=?",
+                          (device_id,)).fetchone()
+        return dict(_json.loads(r["data"]), device_id=device_id) if r else None
+
+    def list_presence(self) -> list[dict]:
+        import json as _json
+        with self._conn() as c:
+            rows = c.execute("SELECT device_id, data FROM device_presence").fetchall()
+        return [dict(_json.loads(r["data"]), device_id=r["device_id"]) for r in rows]
 
     def insert_agent_turn(self, **fields) -> None:
         cols = ("key", "host", "agent", "project", "cwd", "started_at", "ended_at",
