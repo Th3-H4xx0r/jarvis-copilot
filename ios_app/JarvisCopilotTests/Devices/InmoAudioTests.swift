@@ -101,4 +101,19 @@ final class InmoAudioTests: XCTestCase {
         input.receive(pcm)
         XCTAssertEqual(frames, [pcm])
     }
+
+    /// With the glasses away, a failed reconnect used to retry 2 s later forever (a connect waits
+    /// 20 s): every ~22 s all night, each state change re-sending the phone's skill list.
+    @MainActor
+    func testAIReconnectsBackOffToFiveMinutes() {
+        XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 0), 2)
+        XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 1), 4)
+        XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 6), 128)
+        XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 8), 300)
+        XCTAssertEqual(InmoAIChannel.reconnectDelay(after: 500), 300)
+        XCTAssertTrue(InmoAIChannel.isDown(.failed))
+        XCTAssertTrue(InmoAIChannel.isDown(.disconnected))
+        XCTAssertFalse(InmoAIChannel.isDown(.connecting))
+        XCTAssertFalse(InmoAIChannel.isDown(.ready))
+    }
 }

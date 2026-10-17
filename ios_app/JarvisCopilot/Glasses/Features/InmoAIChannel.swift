@@ -1,6 +1,8 @@
+import AVFoundation
+import Combine
 import Foundation
 import Observation
-import Combine
+import UIKit
 
 @MainActor
 @Observable
@@ -107,25 +109,14 @@ final class InmoAIChannel {
             }
             connectionObservation = InmoSession.shared.$state.sink { [weak self] state in
                 guard let self, self.enabled else { return }
-                if state == .disconnected || state == .failed || state == .unavailable {
-                    self.reconnect?.cancel()
-                    self.reconnect = Task { [weak self] in
-                        guard let self else { return }
-                        let reconnectEpoch = self.generation + 1
-                        await self.cancel()
-                        guard self.enabled, self.generation == reconnectEpoch, !Task.isCancelled else { return }
-                        self.status = "GO3 disconnected; waiting to reconnect"
-                        try? await Task.sleep(for: .seconds(2))
-                        guard !Task.isCancelled, self.enabled, self.generation == reconnectEpoch else { return }
-                        do {
-                            try await InmoSession.shared.ensureConnected()
-                            guard self.enabled, self.generation == reconnectEpoch else { return }
-                            await self.armWake()
-                            self.status = "Waiting for glasses AI activation"
-                        } catch { if self.generation == reconnectEpoch { self.status = "GO3 AI connection unavailable: \(error.localizedDescription)" } }
-                    }
+                if state == .ready { self.reconnectFailures = 0 }
+                if Self.isDown(state) {
+                    let delay = Self.reconnectDelay(after: self.reconnectFailures)
+                    self.reconnectFailures += 1
+                    self.scheduleReconnect(after: delay)
                 }
             }
+            watchForGlassesBack()
             do {
                 try await InmoSession.shared.ensureConnected()
                 guard enabled, generation == enableEpoch else { return }
@@ -137,9 +128,68 @@ final class InmoAIChannel {
             observer = nil
             connectionObservation = nil
             reconnect?.cancel(); reconnect = nil
+            wakeups.forEach(NotificationCenter.default.removeObserver)
+            wakeups = []
             await cancel()
             // cancel owns the final status only while its generation is current.
         }
+    }
+
+    // MARK: Reconnecting
+
+    /// Reconnects that failed in a row; each waits twice as long as the one before (2 s … 5 min).
+    /// The session gives a connect 20 s, so a flat 2 s retry with the glasses away or off looped
+    /// all night: a fresh Bluetooth central and three state changes every ~22 s, each one re-sending
+    /// the phone's 85 KB skill list (Oct 17: ~41 MB an hour up).
+    @ObservationIgnored private var reconnectFailures = 0
+    @ObservationIgnored private var wakeups: [NSObjectProtocol] = []
+
+    static func isDown(_ state: InmoConnectionState) -> Bool {
+        state == .disconnected || state == .failed || state == .unavailable
+    }
+
+    static func reconnectDelay(after failures: Int) -> TimeInterval {
+        min(300, 2 * pow(2, Double(min(failures, 10))))
+    }
+
+    private func scheduleReconnect(after delay: TimeInterval) {
+        reconnect?.cancel()
+        reconnect = Task { [weak self] in
+            guard let self else { return }
+            let reconnectEpoch = self.generation + 1
+            await self.cancel()
+            guard self.enabled, self.generation == reconnectEpoch, !Task.isCancelled else { return }
+            self.status = "GO3 disconnected; waiting to reconnect"
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, self.enabled, self.generation == reconnectEpoch else { return }
+            do {
+                try await InmoSession.shared.ensureConnected()
+                guard self.enabled, self.generation == reconnectEpoch else { return }
+                await self.armWake()
+                self.status = "Waiting for glasses AI activation"
+            } catch { if self.generation == reconnectEpoch { self.status = "GO3 AI connection unavailable: \(error.localizedDescription)" } }
+        }
+    }
+
+    /// The glasses may be back — Jarvis opened, or a new audio device (the glasses' own audio link)
+    /// arrived: skip the rest of a long wait and try now.
+    private func watchForGlassesBack() {
+        guard wakeups.isEmpty else { return }
+        let center = NotificationCenter.default
+        wakeups.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.retryNow() }
+        })
+        wakeups.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init)
+            guard reason == .newDeviceAvailable else { return }
+            MainActor.assumeIsolated { self?.retryNow() }
+        })
+    }
+
+    private func retryNow() {
+        guard enabled, reconnectFailures > 1, Self.isDown(InmoSession.shared.state) else { return }
+        reconnectFailures = 1
+        scheduleReconnect(after: 0)
     }
 
     private func receive(_ event: InmoEvent) {
