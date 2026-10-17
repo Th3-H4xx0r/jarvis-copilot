@@ -329,7 +329,6 @@ class Engine:
         term = s["terminal"]
         for src, dst in (("bundle_id", "bundle_id"), ("term_program", "term_program"),
                          ("iterm_session_id", "iterm"), ("term_session_id", "tab"),
-                         ("tmux_session", "tmux"), ("tmux_pane", "tmux_pane"),
                          ("entrypoint", "entrypoint")):
             if p.get(src):
                 term[dst] = str(p[src])

@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS coding_projects (
 );
 CREATE TABLE IF NOT EXISTS coding_sessions (
   id TEXT PRIMARY KEY, project_id TEXT, host TEXT NOT NULL,
-  cwd TEXT NOT NULL, worktree_path TEXT, branch TEXT, tmux_name TEXT,
+  cwd TEXT NOT NULL, worktree_path TEXT, branch TEXT,
   claude_session_id TEXT, status TEXT NOT NULL DEFAULT 'starting',
   title TEXT, source TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
   last_activity_at REAL, skip_permissions INTEGER NOT NULL DEFAULT 0,
@@ -161,18 +161,16 @@ class CodingSessionStore:
                 # on different paired devices stays distinct.
                 "ALTER TABLE coding_projects ADD COLUMN device_id TEXT",
                 # Live "activity state" of a running session (working | waiting |
-                # idle), detected from the tmux pane. Separate from the lifecycle
-                # `status` column so it never breaks running/stopped/error.
+                # idle). Separate from the lifecycle `status` column so it never
+                # breaks running/stopped/error.
                 "ALTER TABLE coding_sessions ADD COLUMN activity_state TEXT",
                 # Soft-delete: an IGNORED project is hidden from the main tree and
                 # NOT re-discovered (its path is skipped on ingest), but its row +
                 # sessions survive so it can be Restored from the "Ignored" menu.
                 "ALTER TABLE coding_projects ADD COLUMN "
                 "ignored INTEGER NOT NULL DEFAULT 0",
-                # Whether a tmux client is attached to a discovered session (1/0),
-                # reported by the desktop discovery. NULL/1 = attached (default);
-                # 0 = detached. Lets the fleet de-emphasize a forgotten
-                # (detached + idle) session without hiding it.
+                # Legacy (old desktop discovery): whether a terminal client was
+                # attached to a discovered session. NULL/1 = attached.
                 "ALTER TABLE coding_sessions ADD COLUMN attached INTEGER",
             ):
                 try:
@@ -225,7 +223,7 @@ class CodingSessionStore:
 
     # --- sessions -----------------------------------------------------------
 
-    def create_session(self, *, project_id, host, cwd, branch, tmux_name,
+    def create_session(self, *, project_id, host, cwd, branch,
                        source, title, worktree_path=None,
                        skip_permissions=False, sync_config=None,
                        device_id=None, external=False, status="starting",
@@ -235,17 +233,17 @@ class CodingSessionStore:
         with self._conn() as c:
             c.execute(
                 "INSERT INTO coding_sessions(id,project_id,host,cwd,worktree_path,"
-                "branch,tmux_name,status,title,source,created_at,updated_at,"
+                "branch,status,title,source,created_at,updated_at,"
                 "skip_permissions,sync_config,device_id,external,claude_session_id)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (sid, project_id, host, cwd, worktree_path, branch, tmux_name,
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (sid, project_id, host, cwd, worktree_path, branch,
                  status, short_title(title), source, now, now,
                  1 if skip_permissions else 0, sync_config,
                  device_id, 1 if external else 0, claude_session_id))
         return sid
 
     def update_session(self, sid: str, **fields) -> None:
-        allowed = {"status", "claude_session_id", "title", "tmux_name",
+        allowed = {"status", "claude_session_id", "title",
                    "worktree_path", "branch", "last_activity_at",
                    "skip_permissions", "sync_config", "cwd",
                    "device_id", "external", "project_id", "source",
@@ -386,7 +384,7 @@ class CodingSessionStore:
     # --- hook-driven agent sessions ------------------------------------------
 
     def upsert_agent_session(self, *, key, host, device_id, agent, session_id, cwd,
-                             coding_session_id, state, data, last_hook_at) -> None:
+                             state, data, last_hook_at, coding_session_id=None) -> None:
         import json as _json
         now = time.time()
         with self._conn() as c:

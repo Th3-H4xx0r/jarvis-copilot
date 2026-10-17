@@ -10,7 +10,7 @@ suggest — the standard typeahead/drill-down behavior:
                                     with the typed basename
 
 This is the SERVER-side lister (the host the webui runs on). The desktop
-``jc-client`` carries its own copy (``coding_discover._suggest_dirs``) for
+``jc-client`` carries its own copy (``jc_client/dir_list.suggest_dirs``) for
 listing a paired device's filesystem over the bridge, so both sides behave
 identically. Pure stdlib; directories only; never raises.
 """

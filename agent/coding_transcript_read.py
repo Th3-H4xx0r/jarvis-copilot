@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from agent.coding_session_capture import claude_projects_dir, encode_project_dir
+from agent.transcript_mirror import claude_config_dir, encode_project_dir
 
 # Caps keep a huge session renderable + the API payload bounded.
 MAX_MESSAGES = 400        # tail-capped; `total` still reports the full count
@@ -285,7 +285,7 @@ def find_transcript_file(cwd: str, csid: str,
                          projects_dir: str | None = None) -> Path | None:
     """Locate ``<csid>.jsonl`` — first under the cwd-encoded project dir, then
     (cwd moved/renamed) anywhere under the projects root."""
-    base = Path(projects_dir) if projects_dir else claude_projects_dir()
+    base = Path(projects_dir) if projects_dir else claude_config_dir() / "projects"
     name = f"{csid}.jsonl"
     p = base / encode_project_dir(cwd or "") / name
     if p.is_file():

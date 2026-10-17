@@ -1,4 +1,4 @@
-"""Start, reopen and stop coding-agent sessions on this Mac. No tmux.
+"""Start, reopen and stop coding-agent sessions on this Mac.
 
 * New sessions from the phone start as Claude background sessions
   (``claude --bg``): nothing pops up on the Mac, and ``claude attach`` opens one.

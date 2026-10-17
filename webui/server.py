@@ -612,32 +612,15 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Gateway watcher failed to start: {e}', flush=True)
 
-    # Start the coding-session activity-state poll loop: classifies each live
-    # server-host session's tmux pane (working/waiting/idle) into the DB so the
-    # Web UI, mobile, and the iOS Live Activity see live status. Desktop-host
-    # sessions are classified Mac-side and reported via the discovery push.
-    _coding_status_stop = None
-    _coding_usage_stop = None
-    try:
-        from agent.coding_status_loop import start_status_loop
-        from tools.coding_session_tool import _mgr
-        _mgr_inst = _mgr()
-        _coding_status_thread, _coding_status_stop = start_status_loop(_mgr_inst)
-        # Background poller for accurate Claude account usage (5h/weekly rings):
-        # fetches the OAuth usage API ~every 60s and persists it, so get_usage()
-        # on the status/activity hot path stays non-blocking.
-        from agent.coding_usage import start_refresher as start_usage_refresher
-        _coding_usage_thread, _coding_usage_stop = start_usage_refresher(_mgr_inst.store)
-    except Exception as e:
-        print(f'[!!] WARNING: Coding status loop failed to start: {e}', flush=True)
-
     # Hook-driven agent tracking: Mac sessions arrive as `agent_hook` device
     # events, this host's own over $HERMES_HOME/agent-hook.sock. Hooks are the
-    # source of truth for session state; the pane scraper above is the fallback.
+    # only source of session state. It also starts the Agents conversation
+    # layer and the coding housekeeping thread (Claude plan-usage poller, the
+    # coding Live Activity push, the server disk guard).
     try:
         from api import agent_hooks
-        from tools.coding_session_tool import _mgr as _agent_mgr
-        agent_hooks.start(_agent_mgr().store)
+        from api.coding_routes import default_manager as _coding_store
+        agent_hooks.start(_coding_store().store)
     except Exception as e:
         print(f'[!!] WARNING: Agent hook tracking failed to start: {e}', flush=True)
 
@@ -680,18 +663,12 @@ def main() -> None:
             stop_watcher()
         except Exception:
             logger.debug("Failed to stop gateway watcher during shutdown")
-        # Stop the coding status loop on shutdown
+        # Stop agent tracking + the coding housekeeping thread on shutdown
         try:
-            if _coding_status_stop is not None:
-                _coding_status_stop.set()
+            from api import agent_hooks
+            agent_hooks.stop()
         except Exception:
-            logger.debug("Failed to stop coding status loop during shutdown")
-        # Stop the coding usage refresher on shutdown
-        try:
-            if _coding_usage_stop is not None:
-                _coding_usage_stop.set()
-        except Exception:
-            logger.debug("Failed to stop coding usage refresher during shutdown")
+            logger.debug("Failed to stop agent tracking during shutdown")
 
 if __name__ == '__main__':
     main()

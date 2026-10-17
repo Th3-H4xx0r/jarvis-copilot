@@ -5,7 +5,7 @@ Agents tab and the Mac island. Mounted inside the coding dispatcher
     GET  /agents/sessions             -> {sessions, usage, pending}
     GET  /agents/session?key=<key>    -> {session} (steps, last turn, diffs)
     POST /agents/instruction {key, text}
-                                      -> {ok, via: "terminal"|"resume"}
+                                      -> {ok, via: "queued"|"typed"|"chat"}
     GET  /agents/usage                -> {claude, codex}
     GET  /agents/recap?days=7&tz=-300 -> the week's numbers (agent/agent_recap.py)
 """
@@ -35,8 +35,8 @@ def _tracker():
 
 
 def _remote_instructions() -> bool:
-    """Code Master switch: may the phone continue a Mac session that isn't in
-    tmux (``claude -p … --resume`` on the Mac)? Off unless turned on."""
+    """Code Master switch: may the phone send messages into a Mac session (typed
+    into its terminal, or handed over at its next Stop)? Off unless turned on."""
     try:
         from api.coding_routes import _coding_settings, default_manager
         return bool(_coding_settings(default_manager("server").store).get("remote_instructions"))
@@ -53,6 +53,7 @@ def _pending():
 
 
 def handle_agents_request(method, p, query, body, *, manager, manager_for_host=None):
+    """``manager`` holds the shared store; ``manager_for_host`` is unused (old callers)."""
     tr = _tracker()
     if p == "/agents/sessions" and method == "GET":
         return _ok({"sessions": tr.sessions() if tr else [],
@@ -68,7 +69,7 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
     if p == "/agents/usage" and method == "GET":
         return _ok({"claude": tr.usage() if tr else None, "codex": tr.usage("codex") if tr else None})
     if p == "/agents/instruction" and method == "POST":
-        return _instruction(tr, body, manager, manager_for_host)
+        return _instruction(tr, body)
     if p == "/agents/decide" and method == "POST":
         return _decide(body)
     if p == "/agents/focus" and method == "POST":
@@ -252,14 +253,15 @@ def _jarvis_instruction(session, text):
     return _ok({"ok": True, "via": "chat"})
 
 
-def _instruction(tr, body, manager, manager_for_host):
-    """The phone's next instruction for a session.
+def _instruction(tr, body):
+    """The phone's next instruction for a session (the older path; the Agents tab
+    sends through ``/agents/send``).
 
     Never a background `claude --resume` of a live session: that forks the
-    conversation into a second copy that acts on its own. Instead a tmux session
-    gets it typed in, a working session is handed it when it finishes its
-    current step (the Mac's Stop hook), an idle one in iTerm or tmux on the
-    Mac gets it typed in, and a Jarvis chat gets it as a chat turn."""
+    conversation into a second copy that acts on its own. Instead a working
+    session is handed it when it finishes its current step (the Mac's Stop
+    hook), an idle one in iTerm on the Mac gets it typed in, and a Jarvis chat
+    gets it as a chat turn."""
     key = str((body or {}).get("key") or "").strip()
     text = str((body or {}).get("text") or "").strip()
     if not key or not text:
@@ -271,21 +273,6 @@ def _instruction(tr, body, manager, manager_for_host):
         return _err(404, "no such agent session")
     if (session.get("agent") or "") == "jarvis":
         return _jarvis_instruction(session, text)
-    rid = session.get("coding_session_id")
-    row = None
-    if rid and manager is not None:
-        try:
-            row = manager.store.get_session(rid)
-        except Exception:  # noqa: BLE001
-            row = None
-    if row and row.get("tmux_name"):
-        host = row.get("host") or "server"
-        mgr = manager_for_host(host) if manager_for_host else manager
-        try:
-            mgr.send_message(rid, text)
-        except Exception as exc:  # noqa: BLE001
-            return _err(502, f"could not type into the session: {exc}")
-        return _ok({"ok": True, "via": "terminal"})
     device_id = session.get("device_id")
     if not device_id:
         return _err(409, "this session can't take instructions (no terminal to type into)")
@@ -294,7 +281,7 @@ def _instruction(tr, body, manager, manager_for_host):
     terminal = dict(session.get("terminal") or {})
     agent = session.get("agent") or "claude"
     working = (session.get("state") or "") in _WORKING
-    typable = bool(terminal.get("iterm") or terminal.get("tmux_pane") or terminal.get("tmux"))
+    typable = bool(terminal.get("iterm"))
     if working and agent in _STOP_HAND_OFF_AGENTS:
         mode, via = "queue", "queued"
     elif typable:

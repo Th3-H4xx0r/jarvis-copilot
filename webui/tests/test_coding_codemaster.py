@@ -1,6 +1,5 @@
-"""Tests for the Code Master control plane: settings endpoint, the settings-gated
-notification dispatch, and the more-robust live-session matching that keeps the
-LA/WebUI on the instant (hook) path instead of the slow reconcile poll.
+"""Tests for the Code Master control plane: settings endpoint and the
+settings-gated notification dispatch.
 """
 from __future__ import annotations
 
@@ -153,167 +152,30 @@ def test_dispatch_unknown_event_is_noop(monkeypatch):
         m.store, event="user_prompt_submit", row=None, cwd="/x") == {}
 
 
-# ── robust live-session matching ─────────────────────────────────────────────
+# ── what a banner says ───────────────────────────────────────────────────────
 
-def test_match_tmux_takes_priority():
+def test_alert_text_names_the_project_then_the_folder():
+    """The tracker hands over the session (agent, project, project_id, cwd)."""
+    class S:
+        def get_project(self, pid):
+            return {"name": "IntelliStock"} if pid == "p1" else None
+
+    row = {"agent": "claude", "project": "intel", "project_id": "p1", "cwd": "/x/intel"}
+    assert cr._coding_alert_text(S(), row, "stop") == ("✅ Claude finished", "IntelliStock")
+    assert cr._coding_alert_text(S(), dict(row, project_id=None), "notification") == \
+        ("🔔 Claude needs you", "intel")
+    assert cr._coding_alert_text(S(), {"agent": "codex", "cwd": "/x/app/"}, "stop") == \
+        ("✅ Codex finished", "app")
+
+
+def test_one_session_rings_once_per_edge(monkeypatch):
+    """The debounce keys on the tracker's session key."""
     m = FakeManager()
-    m.store.sessions = [{"id": "a", "status": "running", "tmux_name": "jc-1", "cwd": "/x"}]
-    assert cr._match_live_session(m.store, tmux_name="jc-1")["id"] == "a"
-
-
-def test_match_cwd_ambiguous_gives_up():
-    # Several live rows share the cwd: a recency GUESS writes the event's
-    # state onto a sibling session (the cross-session "waiting" bug). Give up;
-    # the poll loops reconcile within ~5s and the banner labels by cwd anyway.
-    m = FakeManager()
-    m.store.sessions = [
-        {"id": "a", "status": "running", "cwd": "/x", "last_activity_at": 100},
-        {"id": "b", "status": "running", "cwd": "/x", "last_activity_at": 200},
-    ]
-    assert cr._match_live_session(m.store, cwd="/x") is None
-
-
-def test_match_none_when_only_stopped():
-    m = FakeManager()
-    m.store.sessions = [{"id": "a", "status": "stopped", "cwd": "/x"}]
-    assert cr._match_live_session(m.store, cwd="/x") is None
-
-
-def test_match_tmux_scoped_to_sender_device():
-    # Mac tmux names are bare numbers, so the same name can exist on two
-    # devices — the sender's device_id must pick ITS row, not the first hit.
-    m = FakeManager()
-    m.store.sessions = [
-        {"id": "a", "status": "running", "tmux_name": "2", "cwd": "/x",
-         "device_id": "dev-A"},
-        {"id": "b", "status": "running", "tmux_name": "2", "cwd": "/y",
-         "device_id": "dev-B"},
-    ]
-    assert cr._match_live_session(
-        m.store, tmux_name="2", device_id="dev-B")["id"] == "b"
-    # No device_id (old client / server hook) keeps the unscoped behavior.
-    assert cr._match_live_session(m.store, tmux_name="2")["id"] == "a"
-
-
-def test_match_cwd_scoped_to_sender_device():
-    m = FakeManager()
-    m.store.sessions = [
-        {"id": "a", "status": "running", "cwd": "/x", "device_id": "dev-A",
-         "last_activity_at": 999},
-        {"id": "b", "status": "running", "cwd": "/x", "device_id": "dev-B",
-         "last_activity_at": 1},
-    ]
-    # Unscoped would pick the most-recent ("a"); the device scope must win.
-    assert cr._match_live_session(m.store, cwd="/x", device_id="dev-B")["id"] == "b"
-
-
-def test_match_csid_scoped_when_device_known():
-    # After resume-to-server the Mac claude and the server session SHARE one
-    # csid — a device-tagged hook must NOT stamp the other host's row.
-    m = FakeManager()
-    m.store.sessions = [
-        {"id": "srv", "status": "running", "cwd": "/x",
-         "claude_session_id": "csid-1", "device_id": None, "host": "server"},
-        {"id": "mac", "status": "running", "cwd": "/x",
-         "claude_session_id": "csid-1", "device_id": "dev-A"},
-    ]
-    assert cr._match_live_session(
-        m.store, claude_session_id="csid-1", device_id="dev-A")["id"] == "mac"
-    # No device on the event → global csid match still works.
-    assert cr._match_live_session(
-        m.store, claude_session_id="csid-1")["id"] == "srv"
-
-
-def test_match_never_targets_transcript_history_rows():
-    # discovered-transcript rows are HISTORY (status "idle" puts them in the
-    # live set) and NOTHING ever clears a state written onto them — a hook
-    # firing before the discovery scan creates the tmux row must not poison one.
-    m = FakeManager()
-    m.store.sessions = [{"id": "h", "status": "idle", "cwd": "/x",
-                         "claude_session_id": "csid-1",
-                         "source": "discovered-transcript"}]
-    assert cr._match_live_session(m.store, claude_session_id="csid-1") is None
-    assert cr._match_live_session(m.store, cwd="/x") is None
-
-
-def test_match_jc_name_falls_back_unscoped():
-    # Jarvis-LAUNCHED rows carry no device_id; the device-scoped pass misses
-    # them but the jc- name is unique, so the unscoped fallback must find it.
-    # Bare user names ("2") must NOT fall back across devices.
-    m = FakeManager()
-    m.store.sessions = [
-        {"id": "launched", "status": "running", "tmux_name": "jc-abc123",
-         "cwd": "/x", "device_id": None},
-        {"id": "other-dev", "status": "running", "tmux_name": "2",
-         "cwd": "/y", "device_id": "dev-B"},
-    ]
-    assert cr._match_live_session(
-        m.store, tmux_name="jc-abc123", device_id="dev-A")["id"] == "launched"
-    assert cr._match_live_session(
-        m.store, tmux_name="2", device_id="dev-A") is None
-
-
-# ── /activity-event integration ──────────────────────────────────────────────
-
-def test_activity_event_matched_updates_and_dispatches(monkeypatch):
-    m = FakeManager()
-    m.store.sessions = [{"id": "a", "status": "running", "tmux_name": "jc-1",
-                         "cwd": "/x", "activity_state": "working"}]
-    monkeypatch.setattr(cr, "_push_coding_now", lambda store: None)
-    monkeypatch.setattr(cr, "_notify_webui", lambda: None)
-    fired = {}
-    monkeypatch.setattr(cr, "_dispatch_coding_notifications",
-                        lambda store, **kw: (fired.update(kw) or {"telegram": True}))
-    status, body = handle_coding_request(
-        "POST", "/activity-event", {"event": "stop", "tmux_name": "jc-1"}, manager=m)
-    assert status == 200
-    assert body["matched"] is True and body["changed"] is True
-    assert body["state"] == "idle"
-    assert m.store.sessions[0]["activity_state"] == "idle"
-    assert fired.get("event") == "stop"
-
-
-def test_activity_event_unmatched_still_dispatches(monkeypatch):
-    m = FakeManager()  # no sessions → no match
-    fired = {}
-    monkeypatch.setattr(cr, "_dispatch_coding_notifications",
-                        lambda store, **kw: (fired.update(kw) or {"telegram": True}))
-    status, body = handle_coding_request(
-        "POST", "/activity-event", {"event": "stop", "cwd": "/x"}, manager=m)
-    assert status == 200
-    assert body["matched"] is False
-    assert fired.get("event") == "stop"  # notifications fire even without a match
-
-
-# ── waiting-prompt pane parsing (chat-view "needs input" modal) ──────────────
-
-def test_parse_pane_prompt_permission_box():
-    raw = ("╭──────────────────────────╮\n"
-           "│ Bash command             │\n"
-           "│   rm -rf build           │\n"
-           "│ Do you want to proceed?  │\n"
-           "│ ❯ 1. Yes                 │\n"
-           "│   2. Yes, don't ask again│\n"
-           "│   3. No, tell Claude     │\n"
-           "╰──────────────────────────╯")
-    q, opts = cr._parse_pane_prompt(raw)
-    assert q == "Do you want to proceed?"
-    assert [(o["key"], o["label"]) for o in opts] == [
-        ("1", "Yes"), ("2", "Yes, don't ask again"), ("3", "No, tell Claude")]
-
-
-def test_parse_pane_prompt_restarts_on_new_menu():
-    raw = ("1. old\n2. older\n"
-           "Which approach?\n"
-           "❯ 1. Rewrite\n  2. Patch\n")
-    q, opts = cr._parse_pane_prompt(raw)
-    assert q == "Which approach?"
-    assert [o["label"] for o in opts] == ["Rewrite", "Patch"]
-
-
-def test_parse_pane_prompt_no_options():
-    q, opts = cr._parse_pane_prompt("Overwrite file? (y/n)")
-    assert opts == [] and q is None
+    calls = _spy_channels(monkeypatch)
+    row = {"id": "d1|claude|s1", "agent": "claude", "cwd": "/x/a"}
+    cr._dispatch_coding_notifications(m.store, event="stop", row=row, cwd="/x/a")
+    cr._dispatch_coding_notifications(m.store, event="stop", row=row, cwd="/x/a")
+    assert calls["mob"] == 1 and calls["tg"] == 1
 
 
 def test_focus_only_waiting_mutes_finished_pushes(monkeypatch):

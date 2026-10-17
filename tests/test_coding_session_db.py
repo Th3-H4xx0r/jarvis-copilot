@@ -12,7 +12,7 @@ def _store(tmp_path):
 def test_create_and_get_session(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/repo",
-                           branch="main", tmux_name="jc-abc", source="chat",
+                           branch="main", source="chat",
                            title="fix tests")
     row = s.get_session(sid)
     assert row["id"] == sid
@@ -25,7 +25,7 @@ def test_create_and_get_session(tmp_path):
 def test_update_status_and_claude_id(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/r",
-                           branch=None, tmux_name="jc-x", source="chat", title="t")
+                           branch=None, source="chat", title="t")
     s.update_session(sid, status="running", claude_session_id="uuid-1")
     row = s.get_session(sid)
     assert row["status"] == "running"
@@ -35,7 +35,7 @@ def test_update_status_and_claude_id(tmp_path):
 def test_skip_permissions_persisted(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
-                           tmux_name="jc-x", source="chat", title="t",
+                           source="chat", title="t",
                            skip_permissions=True)
     assert s.get_session(sid)["skip_permissions"] == 1
 
@@ -43,7 +43,7 @@ def test_skip_permissions_persisted(tmp_path):
 def test_delete_session(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
-                           tmux_name="jc-x", source="chat", title="t")
+                           source="chat", title="t")
     s.delete_session(sid)
     assert s.get_session(sid) is None
 
@@ -51,9 +51,9 @@ def test_delete_session(tmp_path):
 def test_list_sessions_filters_by_status(tmp_path):
     s = _store(str(tmp_path))
     a = s.create_session(project_id=None, host="server", cwd="/a", branch=None,
-                         tmux_name="jc-a", source="chat", title="a")
+                         source="chat", title="a")
     b = s.create_session(project_id=None, host="server", cwd="/b", branch=None,
-                         tmux_name="jc-b", source="chat", title="b")
+                         source="chat", title="b")
     s.update_session(a, status="running")
     s.update_session(b, status="stopped")
     running = [r["id"] for r in s.list_sessions(status="running")]
@@ -64,7 +64,7 @@ def test_list_sessions_filters_by_status(tmp_path):
 def test_sync_config_persisted(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
-                           tmux_name="jc-x", source="chat", title="t",
+                           source="chat", title="t",
                            sync_config='{"enabled": true, "device": "mac", "remote_path": "~/p"}')
     row = s.get_session(sid)
     assert '"device": "mac"' in row["sync_config"]
@@ -108,10 +108,10 @@ def test_list_sessions_filtered_by_project_and_device(tmp_path):
     p1 = s.get_or_create_project_for_path(repo_path="/x/a", device_id="d1")
     p2 = s.get_or_create_project_for_path(repo_path="/x/b", device_id="d1")
     s.create_session(project_id=p1, host="desktop", cwd="/x/a", branch=None,
-                     tmux_name="jc-1", source="discovered-tmux", title="a",
+                     source="discovered-tmux", title="a",
                      device_id="d1", external=True)
     s.create_session(project_id=p2, host="desktop", cwd="/x/b", branch=None,
-                     tmux_name="jc-2", source="manual", title="b", device_id="d1")
+                     source="manual", title="b", device_id="d1")
     assert len(s.list_sessions(project_id=p1)) == 1
     assert len(s.list_sessions(device_id="d1")) == 2
     assert len(s.list_sessions(project_id=p2, device_id="d1")) == 1
@@ -120,7 +120,7 @@ def test_list_sessions_filtered_by_project_and_device(tmp_path):
 def test_create_session_discovered_fields(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="desktop", cwd="/x/c",
-                           branch=None, tmux_name="jc-c", source="discovered-tmux",
+                           branch=None, source="discovered-tmux",
                            title="c", device_id="dev9", external=True,
                            status="running", claude_session_id="ccc")
     row = s.get_session(sid)
@@ -134,8 +134,7 @@ def test_create_session_column_value_alignment(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(
         project_id="cp_x", host="desktop", cwd="/the/cwd",
-        worktree_path="/the/wt", branch="feat", tmux_name="jc-z",
-        source="manual", title="the-title", skip_permissions=True,
+        worktree_path="/the/wt", branch="feat", source="manual", title="the-title", skip_permissions=True,
         sync_config='{"k":1}', device_id="devX", external=True,
         status="idle", claude_session_id="cuid")
     row = s.get_session(sid)
@@ -144,7 +143,6 @@ def test_create_session_column_value_alignment(tmp_path):
     assert row["cwd"] == "/the/cwd"
     assert row["worktree_path"] == "/the/wt"
     assert row["branch"] == "feat"
-    assert row["tmux_name"] == "jc-z"
     assert row["status"] == "idle"
     assert row["title"] == "the-title"
     assert row["source"] == "manual"
@@ -163,7 +161,7 @@ def test_schema_reinit_is_idempotent(tmp_path):
     db.CodingSessionStore(db_path=p)
     s = db.CodingSessionStore(db_path=p)
     sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
-                           tmux_name="jc-x", source="chat", title="t")
+                           source="chat", title="t")
     assert s.get_session(sid) is not None
 
 
@@ -286,7 +284,7 @@ def test_migration_dedupes_preexisting_duplicate_projects(tmp_path):
 def test_activity_state_round_trips(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
-                           tmux_name="jc-x", source="chat", title="t")
+                           source="chat", title="t")
     # default is NULL until the detector writes one
     assert s.get_session(sid)["activity_state"] is None
     s.update_session(sid, activity_state="working")
@@ -333,7 +331,7 @@ def test_short_title_is_one_capped_line():
 def test_titles_are_stored_short(tmp_path):
     s = _store(str(tmp_path))
     sid = s.create_session(project_id=None, host="desktop", cwd="/r", branch=None,
-                           tmux_name=None, source="discovered-transcript", title=_PROMPT)
+                           source="discovered-transcript", title=_PROMPT)
     assert len(s.get_session(sid)["title"]) <= db.TITLE_MAX
     s.update_session(sid, title="renamed\nwith a second line")
     assert s.get_session(sid)["title"] == "renamed"
@@ -343,7 +341,7 @@ def test_long_titles_already_stored_are_trimmed_on_open(tmp_path):
     path = os.path.join(str(tmp_path), "coding.db")
     s = db.CodingSessionStore(db_path=path)
     sid = s.create_session(project_id=None, host="desktop", cwd="/r", branch=None,
-                           tmux_name=None, source="discovered-transcript", title="short")
+                           source="discovered-transcript", title="short")
     with sqlite3.connect(path) as c:   # a row written before short_title existed
         c.execute("UPDATE coding_sessions SET title=?, updated_at=1 WHERE id=?", (_PROMPT, sid))
     row = db.CodingSessionStore(db_path=path).get_session(sid)

@@ -4954,10 +4954,6 @@ def handle_post(handler, parsed) -> bool:
         return handle_upload(handler)
     if parsed.path == "/api/upload/extract":
         return handle_upload_extract(handler)
-    if parsed.path == "/api/coding/upload":
-        from api.coding_desktop import handle_coding_upload
-        return handle_coding_upload(handler)
-
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)
 
@@ -4990,12 +4986,9 @@ def handle_post(handler, parsed) -> bool:
         if parsed.query:
             sub += "?" + parsed.query
         status, payload = handle_coding_request(
-            "POST", sub, body, manager=default_manager(),
-            manager_for_host=default_manager)
+            "POST", sub, body, manager=default_manager())
         # Nudge connected browsers to refetch immediately after any successful
-        # mutation (launch/message/stop/restart/delete/…) so the list + detail
-        # go live without waiting for the poll. activity-event already nudged
-        # internally (on a real change); a second nudge here is harmless.
+        # mutation so the list + detail go live without waiting for the poll.
         if status == 200:
             try:
                 from api import coding_events
@@ -7110,7 +7103,7 @@ def handle_delete(handler, parsed) -> bool:
             if _integrations_delete(handler, parsed, body):
                 return True
 
-    # ── Coding Sessions (DELETE /api/coding/project/<id>, /session/<id>/delete) ──
+    # ── Coding (DELETE /api/coding/project/<id>) ──
     # The coding dispatcher handles its own DELETE routes; it was only wired into
     # handle_get/handle_post, so DELETE fell through to a generic 404 "not found"
     # (e.g. deleting a project).
@@ -7121,8 +7114,7 @@ def handle_delete(handler, parsed) -> bool:
         if parsed.query:
             sub += "?" + parsed.query
         status, payload = handle_coding_request(
-            "DELETE", sub, body, manager=default_manager(),
-            manager_for_host=default_manager)
+            "DELETE", sub, body, manager=default_manager())
         if status == 200:
             try:
                 from api import coding_events
@@ -8372,13 +8364,10 @@ def _handle_clarify_sse_stream(handler, parsed):
 def _handle_coding_events_sse_stream(handler, parsed):
     """SSE feed of coding-session change nudges (instant WebUI updates).
 
-    Long-lived connection that pushes a ``coding`` event the moment any
-    session's activity_state or lifecycle changes (hook-driven via
-    ``/api/coding/activity-event``, the server poll backstop, or a lifecycle
-    mutation), replacing the browser's 4-5s poll as the primary update path.
-    The payload is just a nudge; the front-end refetches ``/sessions`` and the
-    selected ``/session/<id>``. The front-end keeps its poll as a fallback if
-    this stream fails (same pattern as the kanban events SSE).
+    Long-lived connection that pushes a ``coding`` event the moment a hook
+    changes a session's state or a coding mutation lands, so open pages refetch
+    instead of polling. The payload is just a nudge (same pattern as the kanban
+    events SSE).
     """
     from api import coding_events
 

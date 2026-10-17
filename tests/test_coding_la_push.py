@@ -15,6 +15,17 @@ def _reset_la_push_state():
     yield
 
 
+_STATE = {"working": "working", "waiting": "approval", "idle": "idle"}
+
+
+def conv(cid, activity="working", status="live", project_id=None, cwd="/x/a", last=1,
+         agent="claude"):
+    """An Agents conversation record (agent/agent_conversations.py)."""
+    return {"ckey": f"{agent}|{cid}", "agent": agent, "session_id": cid, "status": status,
+            "state": _STATE.get(activity, activity), "project_id": project_id, "cwd": cwd,
+            "last_event_at": last}
+
+
 class FakeStore:
     def __init__(self, sessions, projects, tokens):
         self._sessions = sessions
@@ -22,7 +33,7 @@ class FakeStore:
         self._tokens = list(tokens)
         self.deleted = []
 
-    def list_sessions(self):
+    def list_conversations(self):
         return [dict(s) for s in self._sessions]
 
     def list_projects(self):
@@ -39,13 +50,10 @@ class FakeStore:
 def test_build_content_state_aggregates_by_project():
     store = FakeStore(
         sessions=[
-            {"id": "s1", "status": "running", "activity_state": "working",
-             "project_id": "p1", "cwd": "/x/intel", "last_activity_at": 100},
-            {"id": "s2", "status": "running", "activity_state": "waiting",
-             "project_id": "p1", "cwd": "/x/intel", "last_activity_at": 200},
-            {"id": "s3", "status": "running", "activity_state": "working",
-             "project_id": None, "cwd": "/x/jarvis-copilot", "last_activity_at": 50},
-            {"id": "s4", "status": "stopped", "project_id": "p1"},  # not live
+            conv("s1", project_id="p1", cwd="/x/intel", last=100),
+            conv("s2", activity="waiting", project_id="p1", cwd="/x/intel", last=200),
+            conv("s3", cwd="/x/jarvis-copilot", last=50),
+            conv("s4", status="ended", project_id="p1"),  # not live
         ],
         projects=[{"id": "p1", "name": "IntelliStock"}],
         tokens=[])
@@ -74,11 +82,9 @@ def test_per_session_substates_capped_and_ordered():
     # ordered waiting>working>idle and capped at 8.
     sessions = []
     for i in range(10):
-        sessions.append({"id": f"s{i}", "status": "running",
-                         "activity_state": "idle", "project_id": "p1",
-                         "cwd": "/x/big", "last_activity_at": i})
-    sessions[0]["activity_state"] = "working"
-    sessions[1]["activity_state"] = "waiting"
+        sessions.append(conv(f"s{i}", activity="idle", project_id="p1", cwd="/x/big", last=i))
+    sessions[0]["state"] = "working"
+    sessions[1]["state"] = "approval"
     store = FakeStore(sessions, [{"id": "p1", "name": "Big"}], [])
     cs = build_coding_content_state(store)
     parts = cs["sessions"][0].split(_US)
@@ -91,8 +97,7 @@ def test_per_session_substates_capped_and_ordered():
 
 def test_single_session_project_has_no_substate_field():
     store = FakeStore(
-        [{"id": "s1", "status": "running", "activity_state": "working",
-          "project_id": "p1", "cwd": "/x/solo", "last_activity_at": 1}],
+        [conv("s1", project_id="p1", cwd="/x/solo")],
         [{"id": "p1", "name": "Solo"}], [])
     cs = build_coding_content_state(store)
     assert cs["sessions"][0].split(_US) == ["Solo", "working"]
@@ -100,15 +105,13 @@ def test_single_session_project_has_no_substate_field():
 
 def test_build_content_state_none_when_no_live():
     assert build_coding_content_state(FakeStore([], [], [])) is None
-    # a discovered-transcript idle row is not "live"
-    store = FakeStore([{"id": "t", "status": "idle", "source": "discovered-transcript",
-                        "project_id": None, "cwd": "/x/a"}], [], [])
+    # an ended conversation is not live
+    store = FakeStore([conv("t", status="ended")], [], [])
     assert build_coding_content_state(store) is None
 
 
 def test_build_content_state_usage():
-    store = FakeStore([{"id": "s", "status": "running", "activity_state": "working",
-                        "project_id": None, "cwd": "/x/a"}], [], [])
+    store = FakeStore([conv("s")], [], [])
     cs = build_coding_content_state(store, usage={
         "five_hour_pct": 47, "weekly_pct": 23,
         "five_hour_resets": "2h 10m", "weekly_resets": "Mon"})
@@ -119,8 +122,7 @@ def test_build_content_state_usage():
 def test_push_dedupes_and_sends():
     m._last_sig["v"] = ""  # reset module dedupe
     store = FakeStore(
-        [{"id": "s", "status": "running", "activity_state": "working",
-          "project_id": None, "cwd": "/x/a", "last_activity_at": 1}],
+        [conv("s")],
         [], [{"token": "tokA"}])
     sent = []
 
@@ -135,69 +137,45 @@ def test_push_dedupes_and_sends():
     assert len(sent) == 1
 
 
-def test_dim_forgotten_detached_idle_session():
-    # A discovered-tmux session that's idle with NO client attached is "forgotten"
-    # → encoded 'dim' (dimmed + sorted last) but still COUNTED (de-emphasize, not
-    # hide). Alongside an attached working session in the same project, the project
-    # aggregates to the active state and the dim one shows as a 'd' sub-segment.
+def test_paused_sessions_and_jarvis_chats_are_not_live():
+    """Asleep / offline Mac sessions read as paused: off the island. Jarvis's own
+    chats aren't coding sessions."""
     store = FakeStore(
-        sessions=[
-            {"id": "a", "status": "running", "activity_state": "working",
-             "source": "discovered-tmux", "attached": 1,
-             "project_id": "p1", "cwd": "/x/proj", "last_activity_at": 2},
-            {"id": "b", "status": "running", "activity_state": "idle",
-             "source": "discovered-tmux", "attached": 0,
-             "project_id": "p1", "cwd": "/x/proj", "last_activity_at": 1},
-        ],
-        projects=[{"id": "p1", "name": "Proj"}], tokens=[])
+        sessions=[conv("a", status="asleep"), conv("b", status="offline"),
+                  conv("c", status="moving"), conv("j", agent="jarvis"),
+                  conv("live", activity="waiting", cwd="/x/app")],
+        projects=[], tokens=[])
     cs = build_coding_content_state(store)
-    assert cs["sessionTotal"] == 2                  # dim still counts
-    parts = cs["sessions"][0].split(_US)
-    assert parts[:2] == ["Proj", "working"]
-    assert parts[2] == "w,d"                          # working, then dim (sorted last)
+    assert cs["sessionTotal"] == 1 and cs["waitingCount"] == 1
+    assert cs["sessions"] == ["app" + _US + "waiting"]
 
 
-def test_all_dim_project_aggregates_to_dim_and_sorts_last():
-    store = FakeStore(
-        sessions=[
-            {"id": "act", "status": "running", "activity_state": "working",
-             "source": "discovered-tmux", "attached": 1,
-             "project_id": "p1", "cwd": "/x/a", "last_activity_at": 5},
-            {"id": "forgot", "status": "running", "activity_state": "idle",
-             "source": "discovered-tmux", "attached": 0,
-             "project_id": "p2", "cwd": "/x/b", "last_activity_at": 9},
-        ],
-        projects=[{"id": "p1", "name": "Active"}, {"id": "p2", "name": "Forgotten"}],
-        tokens=[])
+def test_question_counts_as_waiting_and_thinking_as_working():
+    store = FakeStore([conv("q", activity="question", project_id="p1", cwd="/x/p", last=2),
+                       conv("t", activity="thinking", project_id="p1", cwd="/x/p", last=1)],
+                      [{"id": "p1", "name": "P"}], [])
     cs = build_coding_content_state(store)
-    # The all-dim project aggregates to 'dim' and sorts AFTER the active one even
-    # though it's more recent.
-    states = [s.split(_US)[1] for s in cs["sessions"]]
-    assert states == ["working", "dim"]
-    assert cs["sessions"][0].split(_US)[0] == "Active"
-    assert cs["sessions"][1].split(_US)[0] == "Forgotten"
+    assert cs["waitingCount"] == 1
+    assert cs["sessions"][0].split(_US) == ["P", "waiting", "p,w"]
 
 
-def test_attached_idle_is_not_dim():
-    # An ATTACHED idle session (the one you're looking at) is normal idle, never dim.
-    store = FakeStore(
-        [{"id": "s", "status": "running", "activity_state": "idle",
-          "source": "discovered-tmux", "attached": 1,
-          "project_id": None, "cwd": "/x/here", "last_activity_at": 1}], [], [])
-    cs = build_coding_content_state(store)
-    assert cs["sessions"][0].split(_US)[1] == "idle"
+def test_the_trackers_current_state_wins_over_the_stored_one(monkeypatch):
+    """Between hooks the stored state can lag (the tracker's sweep moves it on)."""
+    monkeypatch.setattr(m, "_tracked_states", lambda: {("claude", "s"): "idle"})
+    cs = build_coding_content_state(FakeStore([conv("s", activity="working", cwd="/x/w")],
+                                              [], []))
+    assert cs["sessions"] == ["w" + _US + "idle"]
 
 
 def test_push_clears_fleet_on_live_to_empty_edge():
-    # When the LAST live coding session disappears (e.g. reaped because its Mac
-    # went away), build_coding_content_state returns None. Returning 0 here used to
+    # When the LAST live coding session disappears (e.g. its Mac went to
+    # sleep), build_coding_content_state returns None. Returning 0 here used to
     # mean "no push" → a SUSPENDED device's Dynamic Island froze on the now-dead
     # fleet (the native LiveActivityManager.update never auto-ends). The server
     # must push ONE resting/clear state on the live->empty edge.
     m._last_sig["v"] = ""
     m._last_push_ts["v"] = 0.0
-    sessions = [{"id": "s", "status": "running", "activity_state": "working",
-                 "project_id": None, "cwd": "/x/a", "last_activity_at": 1}]
+    sessions = [conv("s")]
     store = FakeStore(sessions, [], [{"token": "tokA"}])
     sent = []
 
@@ -237,8 +215,7 @@ def test_push_silent_when_never_had_live_content():
 def test_push_drops_unregistered_token():
     m._last_sig["v"] = ""
     store = FakeStore(
-        [{"id": "s", "status": "running", "activity_state": "working",
-          "project_id": None, "cwd": "/x/a"}],
+        [conv("s")],
         [], [{"token": "bad"}])
 
     def fake(tok, cs, event="update"):
@@ -249,8 +226,7 @@ def test_push_drops_unregistered_token():
 
 
 def _one_live_store():
-    return FakeStore(sessions=[{"id": "s1", "status": "running", "activity_state": "waiting",
-                                "project_id": None, "cwd": "/x/app", "last_activity_at": 100}],
+    return FakeStore(sessions=[conv("s1", activity="waiting", cwd="/x/app", last=100)],
                      projects=[], tokens=[])
 
 
@@ -280,8 +256,7 @@ def test_a_new_step_alone_does_not_push_again(monkeypatch):
     lead = {"agent": "claude", "project": "app", "state": "working", "step": "Bash: one",
             "fingerprint": "", "kind": "", "since": 1.0, "key": "k"}
     monkeypatch.setattr(m, "_lead_summary", lambda: dict(lead))
-    store = FakeStore(sessions=[{"id": "s1", "status": "running", "activity_state": "working",
-                                 "project_id": None, "cwd": "/x/app", "last_activity_at": 100}],
+    store = FakeStore(sessions=[conv("s1", cwd="/x/app", last=100)],
                       projects=[], tokens=[{"token": "t1"}])
     sent = []
     sender = lambda token, cs, **kw: sent.append(cs) or {"ok": True}  # noqa: E731
@@ -306,8 +281,7 @@ class SettingsStore(FakeStore):
 
 
 def _live_rows():
-    return [{"id": "s", "status": "running", "activity_state": "working",
-             "project_id": None, "cwd": "/x/a", "last_activity_at": 1}]
+    return [conv("s")]
 
 
 def test_the_jarvis_activity_leaves_coding_to_the_agent_activities():

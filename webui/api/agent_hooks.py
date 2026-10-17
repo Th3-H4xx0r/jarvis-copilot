@@ -5,11 +5,12 @@ Two inputs feed one ``AgentTracker`` (``agent/agent_tracking.py``):
 * ``agent_hook`` device events — a Mac's jc-client forwards every frame its
   ``jc-hook`` relay sends it over the device bridge;
 * the server's own hook socket (``$HERMES_HOME/agent-hook.sock``) for agents
-  running on this host (Jarvis-launched tmux sessions).
+  running on this host (its background sessions).
 
-The tracker's outputs reuse what the Coding Sessions UI already has: the
-``agents`` bridge topic, the Live-Activity push + WebUI SSE nudge, and the
-Code Master notification matrix.
+The tracker's outputs: the ``agents`` bridge topic, the Agents conversation
+layer (``agents_core``), the Live-Activity push + WebUI SSE nudge, and the
+Code Master notification matrix. ``start()`` also starts the coding
+housekeeping thread (usage poller, Live Activity push, disk guard).
 """
 from __future__ import annotations
 
@@ -27,7 +28,9 @@ _SWEEP_EVERY = 1.0
 #: (the idle-end rule, coding rows no hook talks for). Pushes still go out only
 #: on a change — this is a cheap local comparison.
 _AGENT_LA_EVERY = 5.0
-_TURN_EVENTS = ("UserPromptSubmit", "Stop", "StopFailure", "PostToolUse", "SessionStart")
+#: A device that dropped off the bridge and hasn't come back within this long has
+#: lost its tracked sessions (most drops are brief relay blips).
+_GONE_GRACE = 12.0
 _state: dict = {"server": None, "stop": None, "arbiter": None}
 
 
@@ -109,8 +112,8 @@ def _pending_fingerprints() -> set:
 
 
 def build_la_pusher(store):
-    """The per-agent Live Activity pusher: the tracker's sessions + the coding
-    rows, the Code Master ``agent_live`` settings, the held requests."""
+    """The per-agent Live Activity pusher: the tracker's sessions, the Code
+    Master ``agent_live`` settings, the held requests."""
     from agent.agent_la_push import AgentLaPusher
 
     def sessions():
@@ -132,16 +135,9 @@ def build_tracker(store) -> AgentTracker:
         from api import device_bridge
         device_bridge.publish(topic, data)
 
-    def notify(event, row, cwd):
+    def notify(event, session, cwd):
         from api.coding_routes import _dispatch_coding_notifications
-        _dispatch_coding_notifications(store, event=event, row=row, cwd=cwd)
-
-    def dismissed(device_id, key):
-        try:
-            from api.coding_desktop import _is_dismissed
-            return _is_dismissed(device_id, key)
-        except Exception:  # noqa: BLE001
-            return False
+        _dispatch_coding_notifications(store, event=event, row=session, cwd=cwd)
 
     def observe(device_id, agent, payload, session):
         from api.agents_core import core
@@ -150,18 +146,41 @@ def build_tracker(store) -> AgentTracker:
             c.on_hook(device_id, agent, payload, session)
 
     return AgentTracker(store, publish=publish, notify=notify,
-                        live_push=lambda: _live_push(store), is_dismissed=dismissed,
+                        live_push=lambda: _live_push(store),
                         phone_approvals=lambda: _remote_approvals(), observer=observe)
 
 
-def _mark_transcript(payload) -> None:
-    if payload.get("hook_event_name") not in _TURN_EVENTS:
+# ── a device dropping off the bridge ─────────────────────────────────────────
+_gone_lock = threading.Lock()
+_gone_pending: dict = {}      # device_id -> generation of its pending "gone"
+_gone_seq = [0]               # process-wide, so a reconnect can't collide with a later drop
+
+
+def _on_device_disconnect(device_id) -> None:
+    """A device dropped its bridge: its tracked sessions are dropped only if it
+    hasn't come back (a hook frame or its hello) within ``_GONE_GRACE``."""
+    d = str(device_id or "").strip()
+    if not d:
         return
-    try:
-        from api.coding_desktop import mark_transcript_dirty
-        mark_transcript_dirty(payload.get("session_id"))
-    except Exception:  # noqa: BLE001
-        pass
+    with _gone_lock:
+        _gone_seq[0] += 1
+        gen = _gone_pending[d] = _gone_seq[0]
+    timer = threading.Timer(_GONE_GRACE, _gone_if_still_away, (d, gen))
+    timer.daemon = True
+    timer.start()
+
+
+def _note_alive(device_id) -> None:
+    with _gone_lock:
+        _gone_pending.pop(str(device_id or "").strip(), None)
+
+
+def _gone_if_still_away(device_id: str, gen: int) -> None:
+    with _gone_lock:
+        if _gone_pending.get(device_id) != gen:
+            return  # back within the grace (or a newer drop owns the timer)
+        _gone_pending.pop(device_id, None)
+    on_device_gone(device_id)
 
 
 def on_agent_hook(device_id, data) -> None:
@@ -172,14 +191,9 @@ def on_agent_hook(device_id, data) -> None:
     payload = data.get("payload")
     if not isinstance(payload, dict):
         return
-    try:
-        from api.coding_desktop import note_device_reconnect
-        note_device_reconnect(device_id)  # a live frame: the device is back
-    except Exception:  # noqa: BLE001
-        pass
+    _note_alive(device_id)  # a live frame: the device is back
     tr.ingest(device_id or None, str(data.get("kind") or "event"),
               str(data.get("agent") or "claude"), payload)
-    _mark_transcript(payload)
 
 
 def on_device_gone(device_id) -> None:
@@ -382,6 +396,7 @@ def maybe_send_recap(store, now: float, push=None) -> bool:
 
 
 def on_agent_hello(device_id, _data=None) -> None:
+    _note_alive(device_id)
     from api import device_bridge
     device_bridge.send_frame(device_id, _config_frame(_settings()))
     from api.agents_core import core
@@ -430,9 +445,7 @@ def start_server_socket(tr: AgentTracker, path: str):
     Arbiter = load_arbiter()
 
     def ingest(kind, agent, payload):
-        effects = tr.ingest(None, kind, agent, payload)
-        _mark_transcript(payload)
-        return effects
+        return tr.ingest(None, kind, agent, payload)
 
     def local_event(frame):
         name, data = frame.get("name"), frame.get("data") or {}
@@ -471,6 +484,7 @@ def start(store) -> None:
     device_bridge.on_device_event("agent_pending", on_agent_pending)
     device_bridge.on_device_event("agent_settled", on_agent_settled)
     device_bridge.on_device_event("agent_hello", on_agent_hello)
+    device_bridge.on_device_disconnect(_on_device_disconnect)
     try:
         _state["server"] = start_server_socket(tr, socket_path())
     except Exception as exc:  # noqa: BLE001 — device events still work without it
@@ -501,12 +515,22 @@ def start(store) -> None:
                 log.debug("agent recap push failed", exc_info=True)
 
     threading.Thread(target=sweep_loop, daemon=True, name="agent-sweep").start()
+    try:
+        from api import coding_housekeeping
+        coding_housekeeping.start(store)
+    except Exception as exc:  # noqa: BLE001 — tracking works without it
+        print(f"[!!] WARNING: coding housekeeping failed to start: {exc}", flush=True)
 
 
 def stop() -> None:
     if _state["stop"] is not None:
         _state["stop"].set()
         _state["stop"] = None
+    try:
+        from api import coding_housekeeping
+        coding_housekeeping.stop()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from agent import agent_la_push
         agent_la_push.set_pusher(None)

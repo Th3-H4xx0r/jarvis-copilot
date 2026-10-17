@@ -13,16 +13,10 @@ from agent import agent_la_push as m
 # ── fixtures ───────────────────────────────────────────────────────────────
 
 def tracked(key, agent="claude", state="working", last=1000.0, project="app", step="Bash: ls",
-            pending=None, started=900.0, csid=None):
+            pending=None, started=900.0):
     return {"key": key, "agent": agent, "state": state, "last_event_at": last,
             "project": project, "step": step, "pending": pending, "started_at": started,
-            "turn_summary": {"started_at": started}, "coding_session_id": csid}
-
-
-def row(rid, status="running", activity="working", cwd="/x/repo", last=1000.0, project_id=None,
-        source="chat"):
-    return {"id": rid, "status": status, "activity_state": activity, "cwd": cwd,
-            "last_activity_at": last, "project_id": project_id, "source": source}
+            "turn_summary": {"started_at": started}}
 
 
 class Clock:
@@ -34,19 +28,8 @@ class Clock:
 
 
 class FakeStore:
-    def __init__(self, rows=(), projects=()):
-        self.rows = list(rows)
-        self.projects = list(projects)
+    def __init__(self):
         self.settings = {}
-        self.locked = False     # SQLite "database is locked"
-
-    def list_sessions(self):
-        if self.locked:
-            raise RuntimeError("database is locked")
-        return [dict(r) for r in self.rows]
-
-    def list_projects(self):
-        return [dict(p) for p in self.projects]
 
     def get_setting(self, key, default=None):
         return json.loads(json.dumps(self.settings[key])) if key in self.settings else default
@@ -79,9 +62,9 @@ class Sender:
         return [(c["event"], c["token"]) for c in self.calls]
 
 
-def pusher(sessions=(), rows=(), settings=None, pending=(), clock=None, sender=None, store=None):
+def pusher(sessions=(), settings=None, pending=(), clock=None, sender=None, store=None):
     clock = clock or Clock()
-    st = store or FakeStore(rows=rows)
+    st = store or FakeStore()
     box = {"sessions": list(sessions), "settings": settings, "pending": set(pending)}
     p = m.AgentLaPusher(st, tracked=lambda: box["sessions"], settings=lambda: box["settings"],
                         pending=lambda: box["pending"], sender=sender or Sender(),
@@ -109,33 +92,9 @@ def test_every_group_has_a_display_name():
 
 def test_hook_sessions_group_by_agent_type():
     groups = m.group_sessions(m.collect_sessions(
-        [tracked("a", "claude"), tracked("b", "claude-desktop"), tracked("c", "codex")], [], {}))
+        [tracked("a", "claude"), tracked("b", "claude-desktop"), tracked("c", "codex")]))
     assert sorted(groups) == ["claude", "codex"]
     assert {s["key"] for s in groups["claude"]} == {"a", "b"}
-
-
-def test_a_live_coding_row_without_hooks_counts_as_a_claude_session():
-    sessions = m.collect_sessions([], [row("r1", activity="waiting", cwd="/x/jarvis")], {})
-    assert len(sessions) == 1
-    s = sessions[0]
-    assert s["agent"] == "claude" and s["state"] == "approval" and s["project"] == "jarvis"
-    assert s["fingerprint"] == ""     # nothing holds a scraped prompt: no buttons
-
-
-def test_a_row_already_owned_by_a_hook_session_is_not_counted_twice():
-    sessions = m.collect_sessions([tracked("a", csid="r1")], [row("r1"), row("r2")], {})
-    assert sorted(s["key"] for s in sessions) == ["a", "row:r2"]
-
-
-def test_dead_and_transcript_rows_are_left_out():
-    sessions = m.collect_sessions([], [row("r1", status="stopped"),
-                                       row("r2", status="idle", source="discovered-transcript")], {})
-    assert sessions == []
-
-
-def test_a_row_in_a_project_is_labelled_by_the_project():
-    sessions = m.collect_sessions([], [row("r1", project_id="p1")], {"p1": {"name": "IntelliStock"}})
-    assert sessions[0]["project"] == "IntelliStock"
 
 
 # ── the lead ───────────────────────────────────────────────────────────────
@@ -147,13 +106,13 @@ def test_the_session_that_needs_you_first_leads():
                 pending={"kind": "approval", "fingerprint": "f2"}),
         tracked("asked-first", state="question", last=3000,
                 pending={"kind": "question", "fingerprint": "f1"}),
-    ], [], {})
+    ])
     assert m.lead_of(sessions)["key"] == "asked-first"
 
 
 def test_without_a_waiting_session_the_most_recently_active_leads():
     sessions = m.collect_sessions([tracked("old", state="working", last=100),
-                                   tracked("new", state="idle", last=900)], [], {})
+                                   tracked("new", state="idle", last=900)])
     assert m.lead_of(sessions)["key"] == "new"
 
 
@@ -164,12 +123,12 @@ def test_no_sessions_no_lead():
 # ── idle-end rule ──────────────────────────────────────────────────────────
 
 def test_an_active_session_is_always_wanted():
-    s = m.collect_sessions([tracked("a", state="working", last=0)], [], {})
+    s = m.collect_sessions([tracked("a", state="working", last=0)])
     assert m.wanted(s, now=10**9, idle_minutes=10)
 
 
 def test_idle_sessions_are_wanted_until_the_idle_window_passes():
-    s = m.collect_sessions([tracked("a", state="idle", last=1000)], [], {})
+    s = m.collect_sessions([tracked("a", state="idle", last=1000)])
     assert m.wanted(s, now=1000 + 29 * 60, idle_minutes=30)
     assert not m.wanted(s, now=1000 + 30 * 60, idle_minutes=30)
     assert not m.wanted(s, now=1000 + 11 * 60, idle_minutes=10)
@@ -177,7 +136,7 @@ def test_idle_sessions_are_wanted_until_the_idle_window_passes():
 
 def test_an_errored_or_rate_limited_session_does_not_hold_the_activity_forever():
     for state in ("error", "ratelimit", "finished"):
-        s = m.collect_sessions([tracked("a", state=state, last=0)], [], {})
+        s = m.collect_sessions([tracked("a", state=state, last=0)])
         assert not m.wanted(s, now=31 * 60, idle_minutes=30), state
 
 
@@ -193,7 +152,7 @@ def test_content_state_summarises_the_group():
                 pending={"kind": "approval", "fingerprint": "fp"}, step="Needs approval: Bash: rm x"),
         tracked("b", state="working", last=500),
         tracked("c", agent="claude-desktop", state="idle", last=100),
-    ], [], {})
+    ])
     cs = m.content_state(sessions, actions=True, decidable={"fp"})
     assert cs["count"] == 3 and cs["waiting"] == 1 and cs["working"] == 1
     assert cs["name"] == "Claude Code" and cs["project"] == "api"
@@ -205,13 +164,13 @@ def test_content_state_summarises_the_group():
 
 def test_a_request_nothing_holds_gets_no_buttons():
     sessions = m.collect_sessions([tracked("a", state="approval",
-                                           pending={"kind": "approval", "fingerprint": "fp"})], [], {})
+                                           pending={"kind": "approval", "fingerprint": "fp"})])
     cs = m.content_state(sessions, actions=True, decidable=set())
     assert cs["fingerprint"] == "" and cs["kind"] == "approval"
 
 
 def test_every_content_state_key_is_always_present():
-    cs = m.content_state(m.collect_sessions([tracked("a")], [], {}), actions=False, decidable=set())
+    cs = m.content_state(m.collect_sessions([tracked("a")]), actions=False, decidable=set())
     assert set(cs) == set(m.CONTENT_KEYS)
 
 
@@ -220,7 +179,7 @@ def test_content_state_stays_far_under_the_4kb_budget():
     sessions = m.collect_sessions(
         [tracked("k" * 400, state="approval", project=huge, step=huge,
                  pending={"kind": "approval", "fingerprint": "f" * 400})
-         for _ in range(50)], [], {})
+         for _ in range(50)])
     cs = m.content_state(sessions, actions=True, decidable={"f" * 400})
     size = len(json.dumps({"aps": {"content-state": cs, "timestamp": 1, "event": "update"}}))
     assert size < 1024, size
@@ -253,16 +212,16 @@ def test_a_partial_save_keeps_the_rest():
 
 def test_desired_states_follow_the_settings():
     sessions = [tracked("a", "claude"), tracked("b", "codex")]
-    want = m.desired_states(sessions, [], {}, m.merge_settings({"agents": {"codex": False}}),
+    want = m.desired_states(sessions, m.merge_settings({"agents": {"codex": False}}),
                             now=1000, decidable=set())
     assert list(want) == ["claude"]
-    assert m.desired_states(sessions, [], {}, m.merge_settings({"enabled": False}),
+    assert m.desired_states(sessions, m.merge_settings({"enabled": False}),
                             now=1000, decidable=set()) == {}
 
 
 def test_actions_off_hides_the_buttons_everywhere():
     sessions = [tracked("a", state="approval", pending={"kind": "approval", "fingerprint": "fp"})]
-    want = m.desired_states(sessions, [], {}, m.merge_settings({"actions": False}),
+    want = m.desired_states(sessions, m.merge_settings({"actions": False}),
                             now=1000, decidable={"fp"})
     assert want["claude"]["actions"] is False
 
@@ -468,15 +427,15 @@ def _question(q="Which region should I deploy to?", options=("us-east", "eu-west
 
 def test_a_waiting_lead_carries_when_it_started_waiting():
     sessions = m.collect_sessions([tracked("a", state="approval", last=4321,
-                                           pending={"kind": "approval", "fingerprint": "fp"})], [], {})
+                                           pending={"kind": "approval", "fingerprint": "fp"})])
     cs = m.content_state(sessions, actions=True, decidable={"fp"})
     assert cs["waitingSince"] == 4321
-    cs = m.content_state(m.collect_sessions([tracked("b")], [], {}), actions=True, decidable=set())
+    cs = m.content_state(m.collect_sessions([tracked("b")]), actions=True, decidable=set())
     assert cs["waitingSince"] == 0 and cs["question"] == "" and cs["options"] == []
 
 
 def test_a_question_carries_its_text_and_short_options():
-    sessions = m.collect_sessions([tracked("a", state="question", pending=_question())], [], {})
+    sessions = m.collect_sessions([tracked("a", state="question", pending=_question())])
     cs = m.content_state(sessions, actions=True, decidable={"fq"})
     assert cs["question"] == "Which region should I deploy to?"
     assert cs["options"] == ["us-east", "eu-west"]
@@ -487,7 +446,7 @@ def test_options_that_wont_fit_become_one_answer_button():
     for pending in (_question(options=("a", "b", "c", "d")),
                     _question(options=("a very long option label indeed", "b")),
                     _question(multi=True)):
-        sessions = m.collect_sessions([tracked("a", state="question", pending=pending)], [], {})
+        sessions = m.collect_sessions([tracked("a", state="question", pending=pending)])
         assert m.content_state(sessions, actions=True, decidable={"fq"})["options"] == []
 
 
@@ -548,7 +507,7 @@ def test_a_running_activity_stays_through_the_idle_window():
 
 
 def test_wanted_needs_work_to_begin():
-    s = m.collect_sessions([tracked("a", state="idle", last=1000)], [], {})
+    s = m.collect_sessions([tracked("a", state="idle", last=1000)])
     assert not m.wanted(s, now=1001, idle_minutes=30, ongoing=False)
     assert m.wanted(s, now=1001, idle_minutes=30, ongoing=True)
 
@@ -643,7 +602,7 @@ def test_two_waiting_sessions_keep_one_lead():
 
 def test_lead_of_orders_waiting_sessions_by_when_they_started_waiting():
     sessions = m.collect_sessions([_asks("a", fp="fa", last=900, at=100),
-                                   _asks("b", fp="fb", last=500, at=200)], [], {})
+                                   _asks("b", fp="fb", last=500, at=200)])
     assert m.lead_of(sessions)["key"] == "a"
 
 
@@ -693,13 +652,15 @@ def test_a_failed_push_to_start_is_retried():
     assert [c["event"] for c in sender.calls] == ["start", "start"]
 
 
-def test_a_locked_store_skips_the_tick_instead_of_ending_everything():
+def test_an_unreadable_source_skips_the_tick_instead_of_ending_everything():
     sender = Sender()
-    p, box, clock, store = pusher([], rows=[row("r1", activity="working", last=10_000)],
-                                  sender=sender)
+    p, box, clock, store = pusher([tracked("a", state="working", last=10_000)], sender=sender)
     p.register_activity_token("phone", "claude", "ACT1")
     n = len(sender.calls)
-    store.locked = True
+
+    def locked():
+        raise RuntimeError("database is locked")
+    p._tracked = locked
     clock.t += 30
     assert p.tick() == 0
     assert len(sender.calls) == n                   # no end, no update

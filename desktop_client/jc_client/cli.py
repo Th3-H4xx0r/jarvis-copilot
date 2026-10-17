@@ -823,43 +823,6 @@ def cmd_notify(args) -> int:
     return 0
 
 
-def cmd_coding_event(args) -> int:
-    """Report a Claude Code lifecycle event for the live coding session so the
-    iOS Live Activity (force APNs push) and the WebUI (SSE) update INSTANTLY,
-    instead of waiting for the server's 4-5s poll to rediscover it.
-
-    Hook-safe: silent no-op + exit 0 on any problem so it never disrupts Claude.
-    Unlike `notify`, this is NOT gated on a messaging target — it drives the
-    live status regardless of whether Telegram/etc. is configured.
-    """
-    from jc_client import credentials
-    from jc_client.protocol import HttpClient
-    creds = credentials.load()
-    if not creds.paired:
-        return 0
-    body = {"event": args.event}
-    if args.tmux:
-        body["tmux_name"] = args.tmux
-    if args.cwd:
-        body["cwd"] = args.cwd
-    if getattr(args, "session_id", ""):
-        body["claude_session_id"] = args.session_id
-    if creds.device_id:
-        # Lets the server scope tmux-name/cwd matching to THIS device's rows —
-        # Mac tmux names are bare numbers and cwds repeat across hosts, so an
-        # unscoped match can stamp the event on another host's session.
-        body["device_id"] = creds.device_id
-    http = HttpClient(creds.server_url, cookie=creds.cookie,
-                      expected_fingerprint=creds.cert_fingerprint,
-                      cf_client_id=creds.cf_client_id,
-                      cf_client_secret=creds.cf_client_secret)
-    try:
-        http.request_json("POST", "/api/coding/activity-event", body)
-    except Exception:
-        pass  # never let a status ping disrupt a hook
-    return 0
-
-
 def cmd_coding_permission(args) -> int:
     """PreToolUse permission relay: POST the tool the agent wants to run to the
     server (which pushes an actionable Approve/Deny/Reply banner to the phone),
@@ -893,8 +856,6 @@ def cmd_coding_permission(args) -> int:
     except Exception:
         tinput = {}
     body = {"tool": args.tool, "input": tinput}
-    if args.tmux:
-        body["tmux_name"] = args.tmux
     if args.cwd:
         body["cwd"] = args.cwd
     if getattr(args, "session_id", ""):
@@ -1169,7 +1130,7 @@ def cmd_agents(args) -> int:
     if not sessions:
         print("No agent sessions. (Hooks installed? `jc-client hooks status`)")
     for x in sessions:
-        term = (x.get("terminal") or {}).get("term_program") or (x.get("terminal") or {}).get("tmux") or ""
+        term = (x.get("terminal") or {}).get("term_program") or ""
         print(f"{x.get('project', '?'):24} {x.get('agent', ''):10} {x.get('state', ''):10} "
               f"{term:16} {x.get('step', '')}")
     for p in hello.get("pending") or []:
@@ -1296,29 +1257,15 @@ def _build_parser() -> argparse.ArgumentParser:
     nt.add_argument("--list", action="store_true", help="List available messaging targets")
     nt.set_defaults(func=cmd_notify)
 
-    ce = sub.add_parser(
-        "coding-event",
-        help="Report a Claude lifecycle event for the live coding session "
-             "(instant Live Activity + WebUI update)")
-    ce.add_argument("--event", required=True,
-                    choices=["stop", "notification", "user_prompt_submit"])
-    ce.add_argument("--tmux", default="",
-                    help="tmux session name (from `tmux display -p '#S'`)")
-    ce.add_argument("--cwd", default="", help="session working directory")
-    ce.add_argument("--session-id", dest="session_id", default="",
-                    help="claude session id (fallback match when outside tmux)")
-    ce.set_defaults(func=cmd_coding_event)
-
     cperm = sub.add_parser(
         "coding-permission",
         help="PreToolUse permission relay: block for a remote approve/deny and "
              "print the permissionDecision JSON")
     cperm.add_argument("--tool", required=True, help="tool name (e.g. Bash)")
     cperm.add_argument("--input", default="{}", help="tool input as JSON")
-    cperm.add_argument("--tmux", default="", help="tmux session name")
     cperm.add_argument("--cwd", default="", help="session working directory")
     cperm.add_argument("--session-id", dest="session_id", default="",
-                       help="claude session id (fallback match)")
+                       help="claude session id")
     cperm.add_argument("--timeout", type=float, default=120.0,
                        help="max seconds to wait for the phone verdict")
     cperm.set_defaults(func=cmd_coding_permission)

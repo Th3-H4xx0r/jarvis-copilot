@@ -32,7 +32,7 @@ import threading
 import time
 from typing import Callable, Iterable, Optional
 
-from agent.coding_la_push import _folder, _is_live, _live_state, _recency, _sanitize
+from agent.coding_la_push import _sanitize
 
 log = logging.getLogger(__name__)
 
@@ -205,37 +205,15 @@ def _first_question(questions):
     return text, labels if fits else []
 
 
-_ROW_STATE = {"waiting": "approval", "working": "working"}
-
-
-def _from_row(r: dict, projects: dict) -> dict:
-    """A live coding_sessions row no hook is talking for — a Claude Code session
-    whose state comes from the pane scraper. Waiting has no fingerprint: nothing
-    holds that prompt, so it gets no buttons."""
-    proj = projects.get(r.get("project_id")) if r.get("project_id") else None
-    state = _ROW_STATE.get(_live_state(r), "idle")
-    return {"key": "row:" + str(r.get("id") or ""), "agent": "claude",
-            "project": (proj or {}).get("name") or _folder(r.get("cwd")),
-            "state": state, "step": "", "fingerprint": "",
-            "kind": "approval" if state == "approval" else "",
-            "since": _num(r.get("created_at")), "last": _recency(r),
-            "question": "", "options": [], "wait_start": 0.0}
-
-
-def collect_sessions(tracked: Iterable[dict], rows: Iterable[dict], projects: dict) -> list:
-    """Hook-tracked sessions of every agent, plus live coding rows no hook owns."""
-    out, linked = [], set()
+def collect_sessions(tracked: Iterable[dict]) -> list:
+    """The hook-tracked sessions of every agent (hooks are the only source of state)."""
+    out = []
     for s in tracked or ():
         if not isinstance(s, dict):
             continue
-        if s.get("coding_session_id"):
-            linked.add(s["coding_session_id"])
         n = _from_tracked(s)
         if n is not None:
             out.append(n)
-    for r in rows or ():
-        if isinstance(r, dict) and _is_live(r) and r.get("id") not in linked:
-            out.append(_from_row(r, projects or {}))
     return out
 
 
@@ -323,13 +301,13 @@ def _answered(s: dict) -> dict:
     return {**s, "state": "working", "fingerprint": "", "kind": "", "question": "", "options": []}
 
 
-def desired_states(tracked, rows, projects, settings, *, now: float, decidable,
+def desired_states(tracked, settings, *, now: float, decidable,
                    ongoing=None, answered=()) -> dict:
     """{group: content_state} for every agent whose activity should be up now.
     ``ongoing`` names the groups whose activity is already up (None = all, for
     callers that don't track it). ``answered`` holds request fingerprints just
     answered whose hook hasn't reported back yet: those sessions read as working."""
-    return desired_from_sessions(collect_sessions(tracked, rows, projects), settings, now=now,
+    return desired_from_sessions(collect_sessions(tracked), settings, now=now,
                                  decidable=decidable, ongoing=ongoing, answered=answered)
 
 
@@ -592,8 +570,6 @@ class AgentLaPusher:
         """What every agent's activity should show now. Raises ``_Unavailable``
         when a source can't be read (the caller skips, keeping the last state)."""
         tracked = self._read(self._tracked, "tracked sessions") or []
-        rows = self._read(self.store.list_sessions, "coding sessions")
-        projects = {p["id"]: p for p in self._read(self.store.list_projects, "projects")}
         decidable = set(self._read(self._pending, "held requests") or ())
         settings = self._read(self._settings, "settings")
         now = self._clock()
@@ -601,7 +577,7 @@ class AgentLaPusher:
                     if fp not in decidable and now - at < ANSWERED_GRACE}
         self._held = {fp: at for fp, at in self._held.items() if now - at < ANSWERED_GRACE}
         self._held.update({fp: now for fp in decidable})
-        sessions = collect_sessions(tracked, rows, projects)
+        sessions = collect_sessions(tracked)
         self._note_waits(sessions, now)
         desired = desired_from_sessions(sessions, settings, now=now, decidable=decidable,
                                         ongoing=set(self._episodes), answered=answered)

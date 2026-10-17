@@ -227,7 +227,7 @@ private struct AgentsSettings: View {
                     Spacer()
                     if busy { ProgressView().controlSize(.small) }
                 }
-                Text("Jarvis follows every Claude Code session through its hooks — in Terminal, iTerm, VS Code or tmux — and adds a status line that reports your plan's limits (the one you had keeps running underneath). Your settings.json is backed up first.")
+                Text("Jarvis follows every Claude Code session through its hooks — in Terminal, iTerm or VS Code — and adds a status line that reports your plan's limits (the one you had keeps running underneath). Your settings.json is backed up first.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button(installed ? "Update hooks" : "Install hooks") { install() }

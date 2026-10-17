@@ -6,21 +6,18 @@ from its local hook socket. They feed the shared engine
 (``agent/agent_engine_shim.py`` — the same file jc-client runs), and this
 module turns the engine's effects into the rest of Jarvis:
 
-* the ``coding_sessions`` row for the session (joined by tmux name, then by
-  Claude session id, else created) gets ``activity_state`` + ``status``, so a
-  ``claude`` started in Terminal / iTerm / VS Code is a live row, not history;
+* the Agents conversation layer (``webui/api/agents_core.py``) hears about
+  every hook through the observer;
 * the ``agents`` bridge topic carries the compact session list to the phone
   and the Mac (the bridge coalesces per subscriber);
 * finished / needs-you / error go to the existing notification matrix;
 * finished turns are recorded for the weekly recap.
 
-Hooks are the source of truth: ``hook_fresh`` tells the pane scraper and the
-discovery ingest to leave a row alone while its hooks are talking.
+Hooks are the only source of session state.
 """
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from typing import Callable, Optional
@@ -29,9 +26,7 @@ from agent import agent_engine_shim as engine_mod
 
 log = logging.getLogger(__name__)
 
-HOOK_FRESH = 30 * 60.0          # a hook this recent owns the row's state
 _PERSIST_EVERY = 2.0            # write a busy session at most this often
-_LIVE_STATUSES = ("running", "starting", "idle")
 _ACTIVITY = {"working": "working", "thinking": "working",
              "approval": "waiting", "question": "waiting"}
 #: "Claude finished" rings the phone only for a turn that ran at least this long.
@@ -52,13 +47,6 @@ _NOTIFY_EVENT = {"stop": "stop", "approval": "notification", "notification": "no
                  "question": "notification", "error": "error"}
 _COMMAND_TOOLS = ("Bash", "mcp__ide__executeCode")
 
-try:
-    from agent.coding_sync_safety import is_dangerous_path as _dangerous_cwd
-except Exception:  # noqa: BLE001
-    def _dangerous_cwd(_path):
-        return False
-
-
 def _activity(state: str) -> str:
     return _ACTIVITY.get(state, "idle")
 
@@ -67,7 +55,6 @@ class AgentTracker:
     def __init__(self, store, publish: Optional[Callable[[str, dict], None]] = None,
                  notify: Optional[Callable[[str, Optional[dict], str], None]] = None,
                  live_push: Optional[Callable[[], None]] = None,
-                 is_dismissed: Optional[Callable[[str, str], bool]] = None,
                  phone_approvals: Optional[Callable[[], bool]] = None,
                  observer: Optional[Callable[[Optional[str], str, dict, Optional[dict]], None]] = None,
                  clock=time.time) -> None:
@@ -75,7 +62,6 @@ class AgentTracker:
         self._publish_cb = publish
         self._notify_cb = notify
         self._live_push_cb = live_push
-        self._is_dismissed = is_dismissed or (lambda _d, _k: False)
         # While on, a relayed request reaches the phone as its own actionable
         # push, so the matrix "needs you" banner would be a second buzz.
         self._phone_approvals = phone_approvals or (lambda: False)
@@ -85,7 +71,7 @@ class AgentTracker:
         self._clock = clock
         self._lock = threading.RLock()
         self.engine = engine_mod.Engine(clock=clock)
-        self._rows: dict[str, str] = {}        # engine key -> coding_sessions.id
+        self._activity: dict[str, str] = {}    # engine key -> working | waiting | idle
         self._devices: dict[str, Optional[str]] = {}  # engine key -> device_id
         self._last_hook: dict[str, float] = {}
         self._persisted: dict[str, float] = {}
@@ -107,20 +93,8 @@ class AgentTracker:
             s = self.engine.session(key)
             if s is None:
                 return None
-            s["coding_session_id"] = self._rows.get(key)
             s["device_id"] = self._devices.get(key)
             return s
-
-    def hook_fresh(self, coding_session_id: str) -> bool:
-        if not coding_session_id:
-            return False
-        now = self._clock()
-        with self._lock:
-            for key, rid in self._rows.items():
-                if rid == coding_session_id and now - self._last_hook.get(key, 0) < HOOK_FRESH \
-                        and self.engine.session(key) is not None:
-                    return True
-        return False
 
     def usage(self, agent: str = "claude") -> Optional[dict]:
         with self._lock:
@@ -145,7 +119,6 @@ class AgentTracker:
             if session is not None:
                 self._last_hook[key] = now
                 self._devices[key] = device_id
-                self._join(key, device_id, payload, session)
             changed = self._apply(effects, device_id)
             if session is not None:
                 self._persist(key, force=bool(effects))
@@ -202,9 +175,7 @@ class AgentTracker:
         with self._lock:
             keys = [k for k, d in self._devices.items() if d == device_id]
             for key in keys:
-                session = self.engine.drop(key)
-                if session is not None:
-                    self._end_row(key, session)
+                self.engine.drop(key)
                 self._forget(key)
         if keys:
             self._live_push()
@@ -222,14 +193,14 @@ class AgentTracker:
             if not isinstance(r.get("data"), dict):
                 continue
             snap[r["key"]] = r["data"]
-            if r.get("coding_session_id"):
-                self._rows[r["key"]] = r["coding_session_id"]
             self._devices[r["key"]] = r.get("device_id")
             self._last_hook[r["key"]] = float(r.get("last_hook_at") or 0)
         self.engine.restore({"v": 1, "sessions": snap})
+        for key, data in snap.items():
+            self._activity[key] = _activity(str(data.get("state") or ""))
 
     def _forget(self, key: str) -> None:
-        self._rows.pop(key, None)
+        self._activity.pop(key, None)
         self._devices.pop(key, None)
         self._last_hook.pop(key, None)
         self._persisted.pop(key, None)
@@ -250,93 +221,10 @@ class AgentTracker:
             self.store.upsert_agent_session(
                 key=key, host=session["host"], device_id=self._devices.get(key),
                 agent=session["agent"], session_id=session["session_id"], cwd=session["cwd"],
-                coding_session_id=self._rows.get(key), state=session["state"], data=session,
+                state=session["state"], data=session,
                 last_hook_at=self._last_hook.get(key, now))
         except Exception:  # noqa: BLE001
             log.debug("agent session persist failed", exc_info=True)
-
-    def _candidate_rows(self, device_id):
-        try:
-            if device_id:
-                return self.store.list_sessions(device_id=device_id)
-            return [r for r in self.store.list_sessions()
-                    if (r.get("host") or "server") == "server"]
-        except Exception:  # noqa: BLE001
-            return []
-
-    def _join(self, key, device_id, payload, session) -> None:
-        """Find (or create) the coding_sessions row this session belongs to."""
-        known = self._rows.get(key)
-        event = payload.get("hook_event_name")
-        if known and event not in ("SessionStart", "UserPromptSubmit"):
-            return
-        csid = session.get("session_id") or ""
-        tmux = (session.get("terminal") or {}).get("tmux") or ""
-        rows = self._candidate_rows(device_id)
-        row = None
-        if tmux:
-            # Discovery keeps one row per tmux session; a second Claude in another
-            # window of it must not take over a row a live hook session already holds.
-            taken = {rid for k, rid in self._rows.items() if k != key}
-            row = next((r for r in rows if r.get("tmux_name") == tmux
-                        and (r.get("status") in _LIVE_STATUSES) and r.get("id") not in taken), None)
-        if row is None and csid:
-            hits = [r for r in rows if (r.get("claude_session_id") or "") == csid]
-            hits.sort(key=lambda r: r.get("source") == "discovered-transcript")
-            row = hits[0] if hits else None
-        if row is None and known:
-            row = next((r for r in rows if r.get("id") == known), None)
-        if row is None:
-            row = self._create_row(device_id, session)
-            if row is None:
-                return
-        fields = {}
-        src = row.get("source") or ""
-        if csid and (row.get("claude_session_id") or "") != csid and (
-                src == "discovered-tmux" or not row.get("claude_session_id")):
-            fields["claude_session_id"] = csid
-        if src in ("discovered-transcript", "hook") and row.get("status") != "running":
-            fields["status"] = "running"
-        if fields:
-            try:
-                self.store.update_session(row["id"], **fields)
-            except Exception:  # noqa: BLE001
-                log.debug("agent row update failed", exc_info=True)
-        self._rows[key] = row["id"]
-
-    def _create_row(self, device_id, session) -> Optional[dict]:
-        cwd = session.get("cwd") or ""
-        csid = session.get("session_id") or ""
-        if not cwd or not csid or _dangerous_cwd(cwd):
-            return None
-        if device_id and self._is_dismissed(device_id, csid):
-            return None
-        host = "desktop" if device_id else "server"
-        try:
-            for p in self.store.list_projects():
-                if p.get("ignored") and p.get("repo_path") == cwd and \
-                        (p.get("device_id") or None) == (device_id or None):
-                    return None
-            pid = self.store.get_or_create_project_for_path(
-                repo_path=cwd, host=host, device_id=device_id)
-            rid = self.store.create_session(
-                project_id=pid, host=host, cwd=cwd, branch=None, tmux_name=None,
-                source="discovered-transcript" if device_id else "hook",
-                title=session.get("project") or os.path.basename(cwd), device_id=device_id,
-                external=True, status="running", claude_session_id=csid)
-            return self.store.get_session(rid)
-        except Exception:  # noqa: BLE001
-            log.warning("agent row create failed", exc_info=True)
-            return None
-
-    def _row(self, key) -> Optional[dict]:
-        rid = self._rows.get(key)
-        if not rid:
-            return None
-        try:
-            return self.store.get_session(rid)
-        except Exception:  # noqa: BLE001
-            return None
 
     def _apply(self, effects: list, device_id) -> bool:
         changed = False
@@ -345,17 +233,10 @@ class AgentTracker:
             if not key or session is None:
                 continue
             if kind == "state":
-                row = self._row(key)
-                if row is not None:
-                    act = _activity(session["state"])
-                    fields = {"last_activity_at": self._clock()}
-                    if (row.get("activity_state") or None) != act:
-                        fields["activity_state"] = act
-                        changed = True
-                    try:
-                        self.store.update_session(row["id"], **fields)
-                    except Exception:  # noqa: BLE001
-                        pass
+                act = _activity(session["state"])
+                if self._activity.get(key) != act:
+                    self._activity[key] = act
+                    changed = True
             elif kind == "notify":
                 if session.get("agent") == "jarvis":
                     continue  # Jarvis notifies about its own replies already
@@ -368,28 +249,29 @@ class AgentTracker:
                 event = _NOTIFY_EVENT.get(e.get("event") or "")
                 if event and self._notify_cb is not None:
                     try:
-                        self._notify_cb(event, self._row(key), session.get("cwd") or "")
+                        self._notify_cb(event, self._notice(key, session),
+                                        session.get("cwd") or "")
                     except Exception:  # noqa: BLE001
                         log.debug("agent notify failed", exc_info=True)
             elif kind == "turn_done":
                 self._record_turn(session)
             elif kind == "ended":
-                self._end_row(key, session)
                 self._forget(key)
                 changed = True
         return changed
 
-    def _end_row(self, key, session) -> None:
-        row = self._row(key)
-        if row is None:
-            return
-        fields = {"activity_state": None}
-        if (row.get("source") or "") in ("discovered-transcript", "hook"):
-            fields["status"] = "idle"
+    def _notice(self, key: str, session: dict) -> dict:
+        """What a notification names: the session, its project and its title (from
+        the Agents conversation record when there is one)."""
+        agent, sid = session.get("agent") or "claude", session.get("session_id") or ""
+        conv = None
         try:
-            self.store.update_session(row["id"], **fields)
+            conv = self.store.get_conversation(f"{agent}|{sid}") if sid else None
         except Exception:  # noqa: BLE001
-            pass
+            conv = None
+        return {"id": key, "key": key, "agent": agent, "session_id": sid,
+                "cwd": session.get("cwd") or "", "project": session.get("project") or "",
+                "project_id": (conv or {}).get("project_id"), "title": (conv or {}).get("title")}
 
     def _record_turn(self, session) -> None:
         turn = session.get("turn") or {}
@@ -440,7 +322,7 @@ class AgentTracker:
             "state": s["state"], "step": s["step"], "steps": s["steps"][-6:],
             "subagents": s["subagents"], "compactions": s["compactions"], "model": s["model"],
             "terminal": s["terminal"], "started_at": s["started_at"],
-            "last_event_at": s["last_event_at"], "coding_session_id": self._rows.get(s["key"]),
+            "last_event_at": s["last_event_at"],
             "device_id": self._devices.get(s["key"]),
             "pending": None if not pend else {
                 k: pend.get(k) for k in ("kind", "tool", "summary", "fingerprint", "questions")
@@ -502,9 +384,3 @@ def lead_summary():
                         ("approval" if pend.get("kind") == "approval" else ""),
                 "since": turn.get("started_at") or s["started_at"], "key": s["key"]}
     return None
-
-
-def hook_fresh(coding_session_id: str) -> bool:
-    """True while hooks own this coding_sessions row's state (scrapers keep off)."""
-    tr = _TRACKER
-    return bool(tr and tr.hook_fresh(coding_session_id))

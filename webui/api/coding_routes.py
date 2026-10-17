@@ -1,192 +1,36 @@
-"""Pure HTTP dispatcher for JarvisCopilot's Coding Sessions WebUI API.
+"""Pure HTTP dispatcher for JarvisCopilot's coding API (``/api/coding/*``).
 
-The single public entry point, :func:`handle_coding_request`, is a *pure*
-function decoupled from the ``http.server`` plumbing: it takes the method,
-the path (already stripped to the part after ``/api/coding``), the parsed
-JSON body, and a ``CodingSessionManager`` (injected, so tests pass a fake —
-no real claude/tmux/git), and returns ``(status_code, payload_dict)``.
+The single public entry point, :func:`handle_coding_request`, takes the method,
+the path (already stripped to the part after ``/api/coding``), the parsed JSON
+body and the shared store holder (``default_manager()``; tests pass a fake with a
+``.store``), and returns ``(status_code, payload_dict)``. The wiring in
+``routes.py`` adapts that tuple to the wire.
 
-The wiring in ``routes.py`` adapts that tuple to the wire with
-``j(handler, payload, status=status)``.
+Sessions themselves live in the Agents layer (``/agents/*``, mounted from
+``agents_routes.py``): one record per conversation, driven by hooks. What stays
+here is around them::
 
-Contract (``<path>`` is what follows ``/api/coding``)::
+    GET  /projects[?expand=sessions[&live=1]] -> {projects, ungrouped?, ignored?}
+    POST /projects {name, repo_path}          -> {ok, project_id}
+    POST /project/<id> {name?, sync_enabled?, sync_desktop_path?, ignore_rules?,
+                        device_id?, ignored?}  -> {ok, project}
+    DELETE /project/<id>[?permanent=1]        -> {ok}
+    GET  /usage, /dir-suggest, /settings, /la-debug, /agent-la/state
+    POST /settings, /la-token, /agent-la/token, /test-alert, /la-debug
+    /permission/{request,poll,verdict,pending}
 
-    GET  /projects                      -> 200 {"projects": [...]}
-    POST /projects {name, repo_path,
-                    default_branch?}     -> 200 {"ok": True, "project_id": id}
-    GET  /sessions [?status=]            -> 200 {"sessions": [...],
-                                                 "usage": {...}|None}
-    POST /launch {cwd?, repo_path?,
-                  worktree?, title?,
-                  prompt?, model?}       -> 200 {"ok": True, "session": {...}}
-    GET  /session/<id>                   -> 200 {"ok": True, "session": {...},
-                                                 "subagents": [...]}
-    POST /session/<id>/message {text}    -> 200 {"ok": True}
-    POST /session/<id>/stop              -> 200 {"ok": True}
-
-Errors: 400 on validation, 404 on unknown session / route (and on
-``KeyError`` bubbling out of the manager), 500 on any other manager
-exception (with ``{"error": str(e)}``).
+Errors: 400 on validation, 404 on an unknown route or id, 500 on anything else
+(with ``{"error": str(e)}``).
 """
 from __future__ import annotations
 
 import logging
-import re
+import threading
 from urllib.parse import parse_qs, urlsplit
 
 log = logging.getLogger(__name__)
 
 CODING_PATH_PREFIX = "/api/coding"
-
-_MANAGERS: dict = {}
-
-# Lifecycle statuses for which a live activity_state is meaningful (mirrors
-# agent.coding_status_loop / agent.coding_la_push). A stopped/errored row has no
-# live pane, so a stray hook for it must NOT revive it.
-_LIVE_STATUSES = {"running", "starting", "idle"}
-
-# Claude Code hook event → the live activity_state it announces. A finishing
-# Stop means "back at the prompt" (idle); a Notification means "needs you"
-# (waiting); a submitted prompt means Claude is now "working". Both snake_case
-# and camelCase are tolerated so the hook can pass the raw Claude event name.
-_EVENT_STATE = {
-    "stop": "idle",
-    "notification": "waiting",
-    "user_prompt_submit": "working",
-    "userpromptsubmit": "working",
-}
-
-
-_PROMPT_OPTION_RE = re.compile(r"^[\s│|]*(?:❯\s*)?(\d+)\.\s+(.*?)[\s│|]*$")
-_PROMPT_QUESTION_HINTS = ("do you want", "would you like", "do you trust",
-                          "select", "choose", "which", "?")
-
-
-def _live_status_line(row, manager) -> str | None:
-    """The live spinner/status line for a WORKING session ("✳ Zesting… (50s ·
-    ↑ 2.0k tokens)") — server sessions capture the pane; desktop sessions read
-    the snapshot shipped with the discover frame. None when not working."""
-    if (row.get("activity_state") or "") != "working":
-        return None
-    if (row.get("host") or "server") == "server":
-        tn = (row.get("tmux_name") or "").strip()
-        if not tn:
-            return None
-        try:
-            from agent.coding_activity_state import extract_status_line
-            return extract_status_line(
-                manager.driver.capture_pane(tmux_name=tn, lines=40))
-        except Exception:  # noqa: BLE001
-            return None
-    try:
-        from api.coding_desktop import get_status_line
-        return get_status_line(row)
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _parse_pane_prompt(raw: str):
-    """(question, options) parsed from a waiting pane's tail: numbered option
-    rows ("❯ 1. Yes" / "│ 2. No │") plus the nearest question-looking line
-    above them. Best-effort — callers fall back to the raw tail."""
-    options, question = [], None
-    lines = (raw or "").splitlines()
-    first_opt_idx = None
-    for i, line in enumerate(lines):
-        m = _PROMPT_OPTION_RE.match(line)
-        if m and m.group(2).strip():
-            if first_opt_idx is None or not options:
-                first_opt_idx = i if first_opt_idx is None else first_opt_idx
-            # A new "1." restarts the list (an older menu higher in the tail).
-            if m.group(1) == "1" and options:
-                options, first_opt_idx = [], i
-            options.append({"key": m.group(1),
-                            "label": m.group(2).strip()[:120]})
-    if options and first_opt_idx is not None:
-        for line in reversed(lines[:first_opt_idx]):
-            txt = line.strip().strip("│|╭╮╰╯─ ").strip()
-            if not txt:
-                continue
-            low = txt.lower()
-            if any(h in low for h in _PROMPT_QUESTION_HINTS):
-                question = txt[:200]
-                break
-            if question is None:
-                question = txt[:200]   # fallback: nearest non-empty line
-    return question, options
-
-
-def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd="",
-                        device_id=""):
-    """Resolve the live coding-session row a hook fired from, or None.
-
-    Match priority, most-specific first:
-      1. tmux session name — the hook reads it from its own ``$TMUX_PANE`` and
-         it's the session row's join key on BOTH hosts (Jarvis ``jc-xxxx`` or
-         a discovered Mac session name). Tried within the sender's device
-         scope first, then unscoped: Jarvis-LAUNCHED rows carry no device_id,
-         but their ``jc-xxxx`` names are unique, so the exact unscoped match
-         is still safe.
-      2. claude_session_id — when the hook ran outside tmux.
-      3. cwd — exactly ONE live row in scope wins. SEVERAL rows sharing the
-         cwd → give up (None): guessing (e.g. most-recently-active) writes the
-         event's state onto a sibling session. The poll loops reconcile within
-         ~5s, and the notification path doesn't need a row (it labels by cwd).
-    When the sender identifies its ``device_id`` (jc-client does), the matches
-    are SCOPED to that device's rows: Mac session names are bare numbers
-    ("2", "15") and cwds repeat across hosts, so an unscoped match can hit a
-    row belonging to a different device/host. That includes the csid pass —
-    after a resume-to-server the Mac claude and the server session SHARE one
-    csid, and an unscoped csid match would let the still-running Mac twin's
-    hooks stamp the server row.
-    Never matches a ``discovered-transcript`` row: those are HISTORY entries
-    (status "idle" puts them in _LIVE_STATUSES) with no poller that could ever
-    clear a state written onto them.
-    Only ever matches a *live* row, so a stale hook can't revive a stopped one.
-    """
-    try:
-        rows = store.list_sessions()
-    except Exception:
-        return None
-    live = [r for r in rows
-            if r.get("status") in _LIVE_STATUSES
-            and r.get("source") != "discovered-transcript"]
-    scoped = [r for r in live if r.get("device_id") == device_id] \
-        if device_id else live
-    if tmux_name:
-        for r in scoped:
-            if r.get("tmux_name") == tmux_name:
-                return r
-        # Unscoped fallback ONLY for Jarvis-launched names: launched rows
-        # carry no device_id (so the scoped pass misses them) but their
-        # ``jc-xxxx`` names are globally unique. Bare user names ("2", "15")
-        # stay device-scoped — they repeat across devices.
-        if tmux_name.startswith("jc-"):
-            for r in live:
-                if r.get("tmux_name") == tmux_name:
-                    return r
-    if claude_session_id:
-        for r in scoped:
-            if r.get("claude_session_id") == claude_session_id:
-                return r
-    if cwd:
-        hits = [r for r in scoped if r.get("cwd") == cwd]
-        if len(hits) == 1:
-            return hits[0]
-    return None
-
-
-def _recency_key(row) -> float:
-    """Best available recency for a session row (last_activity_at, else updated/created)."""
-    for k in ("last_activity_at", "updated_at", "created_at"):
-        v = row.get(k)
-        try:
-            n = float(v)
-            return n / 1000.0 if n > 1e12 else n
-        except (TypeError, ValueError):
-            continue
-    return 0.0
-
 
 def _push_coding_now(store) -> None:
     """Push the latest APNs Live-Activity state now (don't wait for the poll
@@ -264,80 +108,14 @@ def _folder_label(cwd) -> str:
     return str(cwd or "").rstrip("/").split("/")[-1] or "session"
 
 
-def _parse_ignore_rules(raw) -> list:
-    """Project ``ignore_rules`` is stored as TEXT — accept a JSON list or a
-    newline-separated string and normalise to a list of patterns."""
-    if not raw:
-        return []
-    if isinstance(raw, list):
-        return [str(x) for x in raw]
-    s = str(raw).strip()
-    if not s:
-        return []
-    try:
-        import json as _json
-        v = _json.loads(s)
-        if isinstance(v, list):
-            return [str(x) for x in v]
-    except Exception:
-        pass
-    return [ln.strip() for ln in s.splitlines() if ln.strip()]
-
-
-def _project_sync(proj) -> dict | None:
-    """Translate a project's stored sync columns into a session ``sync`` dict (the
-    shape manager.launch / start_sync_for_session expect), or None when the
-    project's sync is OFF. ``sync_enabled`` is the AUTHORITATIVE switch — a left-
-    over device/path (e.g. the user unchecked sync but the device dropdown kept
-    its value) must NOT keep sync alive, so we gate solely on ``enabled``."""
-    if not isinstance(proj, dict):
-        return None
-    if not bool(proj.get("sync_enabled")):
-        return None
-    device = (proj.get("device_id") or "").strip()
-    remote = (proj.get("sync_desktop_path") or "").strip()
-    return {"enabled": True, "device": device or None,
-            "remote_path": remote or None,
-            "ignore": _parse_ignore_rules(proj.get("ignore_rules"))}
-
-
-def _reconcile_project_sync(manager, pid: str, proj) -> None:
-    """Apply a project's (now-updated) sync settings to every RUNNING child
-    session: persist the project sync dict onto each session and start/stop its
-    file sync to match. The project is authoritative — changing it pushes to all
-    current children. Scoped to LAUNCHED sessions (a discovered session already
-    lives on the device; we don't retro-sync someone's live Mac tmux). Best-
-    effort; never raises into the request."""
-    try:
-        from api.coding_desktop import (start_sync_for_session,
-                                        stop_sync_for_session)
-    except Exception:
-        return
-    sync = _project_sync(proj)
-    try:
-        rows = manager.store.list_sessions(project_id=pid, status="running")
-    except Exception:
-        rows = []
-    import json as _json
-    for row in rows:
-        sid = row.get("id")
-        if not sid or (row.get("source") or "").startswith("discovered"):
-            continue
-        try:
-            if sync:
-                manager.store.update_session(sid, sync_config=_json.dumps(sync))
-                start_sync_for_session(session_id=sid,
-                                       cwd=row.get("cwd") or "", sync=sync)
-            else:
-                manager.store.update_session(sid, sync_config=None)
-                stop_sync_for_session(sid)
-        except Exception:  # noqa: BLE001
-            continue
+_AGENT_WORD = {"codex": "Codex", "gemini": "Gemini", "cursor": "Cursor", "copilot": "Copilot",
+               "opencode": "OpenCode", "amp": "Amp", "antigravity": "Antigravity", "muse": "Muse"}
 
 
 def _coding_alert_text(store, row, event) -> tuple[str, str]:
-    """(title, body) for a coding-event phone banner — mirrors the wording of
-    the Telegram notify.sh hook. Labelled by project name, else the cwd folder."""
+    """(title, body) for a coding-event phone banner. ``row`` is the session as the
+    hook tracker describes it (agent, cwd, project, project_id, title). Labelled by
+    the project's name, else the session's project, else the cwd folder."""
     label = ""
     try:
         pid = row.get("project_id")
@@ -347,10 +125,11 @@ def _coding_alert_text(store, row, event) -> tuple[str, str]:
     except Exception:
         label = ""
     if not label:
-        label = _folder_label(row.get("cwd"))
+        label = str(row.get("project") or "").strip() or _folder_label(row.get("cwd"))
+    who = _AGENT_WORD.get(str(row.get("agent") or "").lower(), "Claude")
     if event == "stop":
-        return ("✅ Claude finished", label)
-    return ("🔔 Claude needs you", label)
+        return (f"✅ {who} finished", label)
+    return (f"🔔 {who} needs you", label)
 
 
 # Per-(session,event) debounce for the mobile banner — a flapping edge must not
@@ -476,8 +255,8 @@ _DEFAULT_NOTIFY_SETTINGS = {
     },
     "usage_display": True,
     "remote_approvals": False,
-    # Let the phone continue a Mac session that isn't in tmux (the Mac runs
-    # `claude -p <text> --resume <id>` in its folder). Off unless turned on.
+    # Let the phone send messages into a Mac session (typed into its terminal
+    # or handed over at its next Stop). Off unless turned on.
     "remote_instructions": False,
     # Per-agent Live Activities on the iPhone (agent/agent_la_push.py): on/off,
     # which agents, end-after-idle minutes, Allow / Deny on the Lock Screen.
@@ -669,9 +448,9 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
     is the SINGLE source of truth for coding notifications — every channel is gated
     here by the per-event matrix, for BOTH the server host and the Mac (the Mac's
     old client-side notify.sh path, which fired Telegram regardless of the matrix,
-    is retired). Fires regardless of whether the session row was matched (so
-    notifications stay reliable even if the LA state-update couldn't bind a row);
-    the label falls back to the cwd folder. Returns {channel: bool}. Never raises."""
+    is retired). ``row`` is the session as the hook tracker describes it (None
+    is fine: the label falls back to the cwd folder). Returns {channel: bool}.
+    Never raises."""
     ekey = _EVENT_NOTIFY_KEY.get(event)
     if not ekey:
         return {}
@@ -724,10 +503,9 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             if card and sent["mobile"]:
                 sent[card] = True
     if chans.get("telegram"):
-        # Telegram lives here now (matrix-gated), for BOTH hosts. A Mac session
-        # reaches this via the /activity/event hook; a server session via the
-        # status-loop transition. Unchecking Telegram in the matrix actually
-        # stops the ping — that's the whole point of consolidating it here.
+        # Telegram lives here (matrix-gated), for every host: the hook tracker
+        # reports each session's edges. Unchecking Telegram in the matrix
+        # actually stops the ping — that's the point of consolidating it here.
         if not _phone_ok():
             sent["telegram"] = False
         else:
@@ -787,78 +565,29 @@ def _coding_usage():
         return None
 
 
+class _StoreHolder:
+    """What ``default_manager()`` hands out now: just the shared store."""
+
+    __slots__ = ("store",)
+
+    def __init__(self, store) -> None:
+        self.store = store
+
+
+_HOLDER = None
+_HOLDER_LOCK = threading.Lock()
+
+
 def default_manager(host: str = "server"):
-    """The CodingSessionManager for a given host ('server' or 'desktop').
-
-    Both share the same SQLite store (so list/status see every session), and the
-    desktop manager reuses the server manager's config with a DesktopDriver
-    swapped in. Lazily built and cached per host.
-    """
-    host = host if host in ("server", "desktop") else "server"
-    if host not in _MANAGERS:
-        from tools.coding_session_tool import _mgr
-
-        base = _mgr()  # fully-configured server (LocalDriver) manager
-
-        def _sync_starter(*, session_id, cwd, sync):
-            # Kick the file sync for a session that opted in, on EITHER host.
-            from api.coding_desktop import start_sync_for_session
-
-            start_sync_for_session(session_id=session_id, cwd=cwd, sync=sync)
-
-        def _sync_stopper(*, session_id):
-            # Stop the file sync when a session stops (no-op if a sibling on the
-            # same folder pair still runs) so a stopped session can't orphan a sync.
-            from api.coding_desktop import stop_sync_for_session
-
-            stop_sync_for_session(session_id)
-
-        def _announce_cb(*, session_id, finished=False):
-            # Announce a SERVER-origin session to its sync device: a native Mac
-            # notification + a transcript mirror so `claude /resume` lists it.
-            # Async + self-gating (no-op unless it's a server session syncing to
-            # a connected device), so it never blocks or breaks launch/stop.
-            from api.coding_desktop import announce_server_session_async
-
-            announce_server_session_async(session_id, finished=finished)
-
-        # Server-host sessions can sync too (claude on the server, files mirrored
-        # to the chosen desktop) — wire the start/stop hooks onto the server manager.
-        base.sync_starter = _sync_starter
-        base.sync_stopper = _sync_stopper
-        base.announce_cb = _announce_cb
-
-        if host == "server":
-            _MANAGERS["server"] = base
-        else:
-            from agent.coding_host_drivers import DesktopDriver
-            from agent.coding_session_manager import CodingSessionManager
-
-            def _desktop_bridge_run_factory():
-                # Resolve the connected desktop client + an in-process bridge_run
-                # at launch time, so the cached manager binds to whichever client
-                # is connected now (devices come and go).
-                from api.coding_desktop import (
-                    make_bridge_run, resolve_desktop_device_id)
-
-                device_id = resolve_desktop_device_id()
-                if not device_id:
-                    return None
-                return make_bridge_run(device_id)
-
-            # Sync is kicked by the manager's sync_starter for ALL hosts now,
-            # so the desktop driver no longer kicks it via on_launched (avoids a
-            # double-sync). on_launched_fn stays None.
-            _MANAGERS["desktop"] = CodingSessionManager(
-                store=base.store,
-                driver=DesktopDriver(
-                    bridge_run_factory=_desktop_bridge_run_factory),
-                plugin_dir=base.plugin_dir, memory_loader=base.memory_loader,
-                long_term_recall=base.long_term_recall,
-                context_root=str(base.context_root),
-                session_capturer=base.session_capturer,
-                sync_starter=_sync_starter, sync_stopper=_sync_stopper)
-    return _MANAGERS[host]
+    """The shared coding store, as ``default_manager().store`` (one
+    ``CodingSessionStore`` per process). The name stays for its callers; sessions
+    are run by the Agents layer, so ``host`` no longer matters."""
+    global _HOLDER
+    with _HOLDER_LOCK:
+        if _HOLDER is None:
+            from agent.coding_session_db import CodingSessionStore
+            _HOLDER = _StoreHolder(CodingSessionStore())
+        return _HOLDER
 
 
 def matches(path: str) -> bool:
@@ -888,43 +617,111 @@ def _err(status: int, msg: str) -> tuple[int, dict]:
     return status, {"error": msg}
 
 
-def _fleet_live(row) -> bool:
-    """A session the iPhone's island counts — ``LiveFleet``'s ``isLive && !isTranscriptIdle``:
-    running, starting or idle, and not a transcript-only history row that isn't running."""
-    status = row.get("status") or ""
-    if status not in ("running", "starting", "idle"):
+# A conversation's hook state -> what the island's session rows read.
+_FLEET_ACTIVITY = {"working": "working", "thinking": "working",
+                   "approval": "waiting", "question": "waiting"}
+_FLEET_STATUS = {"live": "running", "ended": "stopped"}   # asleep / offline / moving: paused
+
+
+def _fleet_session(conv: dict, hook_state=None) -> dict:
+    """One Agents conversation in the ``/projects?expand=sessions`` session shape
+    the iPhone's Live Activity reads (``CodingSession``): ``status`` running for a
+    live session (anything else isn't live there), ``activity_state`` working /
+    waiting / idle from its hooks."""
+    status = str(conv.get("status") or "live")
+    owner = conv.get("owner") or "server"
+    live = status == "live"
+    state = str(hook_state or conv.get("state") or "")
+    return {
+        "id": conv.get("ckey") or "", "agent": conv.get("agent") or "claude",
+        "title": conv.get("title"), "status": _FLEET_STATUS.get(status, "paused"),
+        "activity_state": _FLEET_ACTIVITY.get(state, "idle") if live else None,
+        "host": "server" if owner == "server" else "desktop",
+        "device_id": None if owner == "server" else owner,
+        "cwd": conv.get("cwd") or "", "project_id": conv.get("project_id"),
+        "claude_session_id": conv.get("session_id"), "source": "agent",
+        "external": owner != "server", "attached": 1,
+        "last_activity_at": conv.get("last_event_at") or conv.get("updated_at"),
+        "created_at": conv.get("created_at"),
+    }
+
+
+def _conversation_sessions(store, *, live_only: bool) -> list:
+    """The coding sessions for ``/projects?expand=sessions``: the Agents
+    conversation records (visible ones; only live ones with ``live_only``), their
+    state from the hook tracker. Jarvis's own chats aren't coding sessions."""
+    from agent.agent_conversations import Conversations
+    from agent.coding_la_push import _tracked_states
+    hook_states = _tracked_states()
+    out = []
+    for conv in Conversations(store).list_visible():
+        if (conv.get("agent") or "") == "jarvis":
+            continue
+        if live_only and conv.get("status") != "live":
+            continue
+        out.append(_fleet_session(conv, hook_states.get((conv.get("agent"),
+                                                         conv.get("session_id")))))
+    return out
+
+
+def _hook_owned(claude_session_id: str) -> bool:
+    """True when the hook tracker follows this session: its own arbiter (jc-hook)
+    then owns the session's approvals."""
+    if not claude_session_id:
         return False
-    return not (row.get("source") == "discovered-transcript"
-                and status.lower() not in ("running", "active", "busy"))
+    try:
+        from agent.agent_tracking import tracker
+        tr = tracker()
+        return bool(tr) and any(s.get("session_id") == claude_session_id
+                                for s in tr.sessions())
+    except Exception:  # noqa: BLE001
+        return False
 
 
-def _with_sync(row):
-    """Attach a parsed ``sync`` object (from the stored ``sync_config`` JSON) to a
-    session row returned to clients.
-
-    The DB column is ``sync_config`` (a JSON string), but the mobile model reads
-    ``session.sync`` (``CodingSession.fromJson`` -> ``j['sync']``). Without this
-    the toggle always parsed null and reverted to unchecked. The WebUI reads
-    ``sync_config`` directly, so we keep that key intact and just ADD ``sync``.
-    Best-effort: malformed/absent config leaves the row unchanged.
-    """
-    if not isinstance(row, dict):
-        return row
-    raw = row.get("sync_config")
-    if raw:
+def _apply_project_sync(store, pid: str, before: dict, proj: dict, fields: dict) -> None:
+    """A project's sync settings changed: its folder sync follows now. The
+    project owns the sync (Mac folder <-> its server copy), not a session.
+    Switching it off is remembered so auto-sync never turns it back on. Best
+    effort; never raises into the request."""
+    try:
+        from agent import transcript_mirror as tm
+        from api import coding_desktop as cd
+    except Exception:  # noqa: BLE001
+        return
+    on = bool(proj.get("sync_enabled"))
+    if "sync_enabled" in fields:
         try:
-            import json as _json
-            return {**row, "sync": _json.loads(raw)}
-        except (ValueError, TypeError):
+            from agent.agent_sync_policy import SWITCHED_OFF_SETTING
+            off = set(store.get_setting(SWITCHED_OFF_SETTING, []) or [])
+            if on:
+                off.discard(pid)
+            else:
+                off.add(pid)
+            store.set_setting(SWITCHED_OFF_SETTING, sorted(off))
+        except Exception:  # noqa: BLE001
             pass
-    return row
+
+    def pair(p):
+        return ((p.get("device_id") or "").strip(),
+                (p.get("sync_desktop_path") or p.get("repo_path") or "").strip())
+
+    old_dev, old_local = pair(before or {})
+    new_dev, new_local = pair(proj)
+    try:
+        if before and before.get("sync_enabled") and old_dev and old_local and (
+                not on or (old_dev, old_local) != (new_dev, new_local)):
+            cd.stop_folder_sync(old_dev, old_local, tm.server_cwd_for(old_local))
+        if on and new_dev and new_local:
+            from api.agents_core import _start_folder_sync
+            _start_folder_sync(new_dev, new_local, tm.server_cwd_for(new_local))
+    except Exception:  # noqa: BLE001
+        log.warning("project %s sync change failed", pid, exc_info=True)
 
 
 def _run(fn) -> tuple[int, dict]:
-    """Invoke a manager call, mapping exceptions to status codes.
+    """Invoke a route body, mapping exceptions to status codes.
 
-    ``KeyError`` (unknown session id from the manager) -> 404; any other
-    exception -> 500. ``fn`` returns the success ``(status, payload)`` tuple.
+    ``KeyError`` (an unknown id) -> 404; any other exception -> 500. ``fn`` returns the success ``(status, payload)`` tuple.
     """
     try:
         return fn()
@@ -942,19 +739,17 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                           manager, manager_for_host=None) -> tuple[int, dict]:
     """Route a single coding-API request. See module docstring for the contract.
 
-    ``manager`` is the default (server) manager used for most routes. When
-    ``manager_for_host`` is provided (the live wiring passes ``default_manager``),
-    /launch selects the manager for the requested ``host`` ('server'|'desktop').
+    ``manager`` holds the shared store (``manager.store``); ``manager_for_host``
+    is accepted for old callers and unused.
     """
     method = (method or "").upper()
     body = body or {}
     p, query = _split_path(path)
 
-    # ── /agents/* — hook-tracked agent sessions (iPhone Agents tab, Mac island) ──
+    # ── /agents/* — the Agents layer (iPhone Agents tab, web panel, Mac island) ──
     if p.startswith("/agents/"):
         from api.agents_routes import handle_agents_request
-        return handle_agents_request(method, p, query, body, manager=manager,
-                                     manager_for_host=manager_for_host)
+        return handle_agents_request(method, p, query, body, manager=manager)
 
     # ── /projects ──
     if p == "/projects":
@@ -969,17 +764,16 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 active = [p for p in all_projects if not p.get("ignored")]
                 ignored = [p for p in all_projects if p.get("ignored")]
                 if expand:
+                    known = {proj["id"] for proj in all_projects}
                     by_pid = {}
-                    for s in manager.list():
-                        if live_only and not _fleet_live(s):
-                            continue
-                        by_pid.setdefault(
-                            s.get("project_id"), []).append(_with_sync(s))
+                    for s in _conversation_sessions(manager.store, live_only=live_only):
+                        pid = s.get("project_id") if s.get("project_id") in known else None
+                        by_pid.setdefault(pid, []).append(s)
                     for proj in all_projects:
                         proj["sessions"] = by_pid.get(proj["id"], [])
-                    # Sessions with no project (legacy rows) surface in a synthetic
-                    # bucket so nothing is hidden in the UI. Ignored projects' own
-                    # sessions stay attached to them (shown under the Ignored menu).
+                    # Sessions with no project surface in a synthetic bucket so
+                    # nothing is hidden. Ignored projects' own sessions stay
+                    # attached to them (shown under the Ignored menu).
                     orphans = by_pid.get(None, [])
                     if live_only:
                         return _ok({"projects": [p for p in active if p["sessions"]],
@@ -1004,7 +798,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(_create)
         return _err(404, "not found")
 
-    # ── /project/<id>[/session] ──
+    # ── /project/<id> ──
     if p.startswith("/project/"):
         ptail = p[len("/project/"):]
         pparts = ptail.split("/")
@@ -1033,12 +827,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 sync_changed = any(
                     k in fields for k in ("sync_enabled", "sync_desktop_path",
                                           "ignore_rules", "device_id"))
+                before = manager.store.get_project(pid) or {}
                 manager.store.update_project(pid, **fields)
                 proj = manager.store.get_project(pid)
-                # Project sync settings are authoritative: a change retro-applies
-                # to every running child session (start/stop sync to match).
+                # The project owns its folder sync: a change applies now.
                 if sync_changed:
-                    _reconcile_project_sync(manager, pid, proj)
+                    _apply_project_sync(manager.store, pid, before, proj or {}, fields)
                 return _ok({"ok": True, "project": proj})
 
             return _run(_update_project)
@@ -1060,52 +854,18 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     manager.store.update_project(pid, ignored=True)
                     return _ok({"ok": True, "ignored": True})
                 for s in manager.store.list_sessions(project_id=pid):
-                    if cascade:
-                        try:
-                            manager.delete(s["id"])
-                        except Exception:
-                            pass
-                    else:
-                        manager.store.update_session(s["id"], project_id=None)
+                    try:
+                        if cascade:
+                            manager.store.delete_session(s["id"])
+                        else:
+                            manager.store.update_session(s["id"], project_id=None)
+                    except Exception:  # noqa: BLE001
+                        pass
                 manager.store.delete_project(pid)
                 return _ok({"ok": True})
 
             return _run(_delete_project)
 
-        # POST /project/<id>/session  — launch a session IN this project
-        if paction == "session" and method == "POST":
-            def _launch_in_project():
-                proj = manager.store.get_project(pid)
-                if proj is None:
-                    return _err(404, "project not found: " + pid)
-                host = body.get("host") or proj.get("host") or "server"
-                launch_mgr = manager_for_host(host) if manager_for_host else manager
-                cwd = body.get("cwd") or proj.get("repo_path")
-                # The launch form may override sync; otherwise inherit the
-                # PROJECT's sync defaults so every child of a synced project syncs.
-                sync = body.get("sync")
-                if sync is None:
-                    sync = _project_sync(proj)
-                session = launch_mgr.launch(
-                    cwd=cwd, title=body.get("title"),
-                    initial_prompt=body.get("prompt"), model=body.get("model"),
-                    project_id=pid,
-                    skip_permissions=bool(body.get("skip_permissions")),
-                    sync=sync,
-                    resume_session_id=body.get("resume_session_id"))
-                return _ok({"ok": True, "session": session})
-
-            return _run(_launch_in_project)
-
-        return _err(404, "not found")
-
-    # ── /sessions ──
-    if p == "/sessions":
-        if method == "GET":
-            status = query.get("status") or None
-            return _run(lambda: _ok(
-                {"sessions": [_with_sync(s) for s in manager.list(status=status)],
-                 "usage": _coding_usage()}))
         return _err(404, "not found")
 
     # ── /usage ── (just the account usage block, for the Live Activity rings)
@@ -1328,160 +1088,6 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(_test_alert)
         return _err(404, "not found")
 
-    # ── /launch ──
-    if p == "/launch":
-        if method == "POST":
-            worktree = bool(body.get("worktree"))
-            repo_path = body.get("repo_path")
-            cwd = body.get("cwd")
-            if worktree:
-                if not repo_path:
-                    return _err(400, "worktree=true requires repo_path")
-            else:
-                if not cwd:
-                    return _err(400, "cwd is required (or set worktree=true with repo_path)")
-            # pick the manager for the requested host (server | desktop)
-            host = body.get("host") or "server"
-            launch_mgr = manager_for_host(host) if manager_for_host else manager
-
-            def _launch():
-                session = launch_mgr.launch(
-                    cwd=cwd, title=body.get("title"),
-                    initial_prompt=body.get("prompt"), model=body.get("model"),
-                    worktree=worktree, repo_path=repo_path,
-                    project_id=body.get("project_id"),
-                    skip_permissions=bool(body.get("skip_permissions")),
-                    sync=body.get("sync"),
-                    resume_session_id=body.get("resume_session_id"))
-                return _ok({"ok": True, "session": session})
-
-            return _run(_launch)
-        return _err(404, "not found")
-
-    # ── /discover/refresh ──
-    # Ask the connected desktop client to (re)scan its live claude tmux sessions
-    # and push a coding_discover frame now; the server ingests it asynchronously
-    # (see api.coding_desktop.ingest_discovered). No body required.
-    if p == "/discover/refresh":
-        if method == "POST":
-            def _discover_refresh():
-                from api.coding_desktop import (
-                    clear_dismissed, get_desktop_bridge, resolve_desktop_device_id)
-
-                device_id = resolve_desktop_device_id()
-                if not device_id:
-                    return _ok({"ok": False})
-                # Rescan is the recovery path: clear tombstones so sessions hidden
-                # by a Stop / Resume re-appear when the user explicitly re-scans.
-                clear_dismissed(device_id)
-                get_desktop_bridge().send_discover_request(device_id)
-                return _ok({"ok": True, "device": device_id})
-
-            return _run(_discover_refresh)
-        return _err(404, "not found")
-
-    # ── /activity-event ── INSTANT, hook-driven activity_state update.
-    # A Claude Code Stop/Notification/UserPromptSubmit hook (via `jc-client
-    # coding-event`) reports the live transition the moment it happens, so the
-    # iOS Live Activity (force APNs push) and the WebUI (SSE) update INSTANTLY
-    # instead of waiting for the 4-5s poll loops to rediscover it. The poll
-    # loops stay as the reconciling backstop (and cover any session whose hooks
-    # don't fire). Reaches this same endpoint from BOTH hosts: a server-host
-    # hook POSTs to localhost; a Mac-host hook POSTs over the jc-client tunnel.
-    if p == "/activity-event":
-        if method != "POST":
-            return _err(404, "not found")
-        event = (body.get("event") or "").strip().lower()
-        state = _EVENT_STATE.get(event)
-        if state is None:
-            return _err(400, "unknown event: " + (event or "(empty)"))
-        tmux_name = (body.get("tmux_name") or "").strip()
-        csid = (body.get("claude_session_id") or "").strip()
-        cwd = (body.get("cwd") or "").strip()
-        device_id = (body.get("device_id") or "").strip()
-
-        def _activity_event():
-            row = _match_live_session(
-                manager.store, tmux_name=tmux_name,
-                claude_session_id=csid, cwd=cwd, device_id=device_id)
-            matched = row is not None
-            # Hook-driven tracking (agent/agent_tracking.py) owns this session's
-            # state and notifications: an old plugin hook still posting here
-            # must not write a second, coarser state or ping twice.
-            try:
-                import agent.agent_tracking as _at
-                hooked = matched and _at.hook_fresh(row["id"])
-            except Exception:  # noqa: BLE001
-                hooked = False
-            if hooked:
-                return _ok({"ok": True, "matched": True, "session_id": row["id"],
-                            "state": state, "changed": False, "notified": {},
-                            "deferred": True})
-            # A hook fired (Stop/Notification/UserPromptSubmit) — a turn
-            # boundary, so the transcript just grew. Invalidate the chat cache
-            # now so the next /messages poll re-pulls instead of waiting out the
-            # staleness floor (realtime chat).
-            try:
-                from api.coding_desktop import mark_transcript_dirty
-                mark_transcript_dirty(
-                    csid or (row or {}).get("claude_session_id"))
-            except Exception:  # noqa: BLE001
-                pass
-            changed = False
-            if matched:
-                # Backfill the claude_session_id for a server session whose
-                # launch-time capture missed (the 8s window). The hook carries
-                # the real csid every turn, so this self-heals: without it the
-                # row's csid stays NULL forever and /messages 409s (empty mobile
-                # chat). Never clobber a csid that's already set.
-                if csid and not (row.get("claude_session_id") or "").strip():
-                    try:
-                        manager.store.update_session(
-                            row["id"], claude_session_id=csid)
-                        row["claude_session_id"] = csid
-                        # csid is now known — fire the launch announce that
-                        # no-op'd earlier (the Mac "started" notification +
-                        # transcript mirror). announce_cb self-gates to synced
-                        # server sessions and runs async, so this is cheap/safe
-                        # and fires only on the one-time empty->set transition.
-                        if getattr(manager, "announce_cb", None):
-                            manager.announce_cb(session_id=row["id"])
-                    except Exception:  # noqa: BLE001
-                        pass
-                # Live-mirror a SERVER session's transcript to its sync device on
-                # each turn boundary so the Mac's `claude /resume` copy stays
-                # current (one-way push). Gated on sync_config so a non-synced
-                # server session doesn't spawn a thread + DB read every hook.
-                if (row.get("host") or "server") == "server" and row.get("sync_config"):
-                    try:
-                        from api.coding_desktop import push_server_transcript_async
-                        push_server_transcript_async(row["id"])
-                    except Exception:  # noqa: BLE001
-                        pass
-                changed = row.get("activity_state") != state
-                if changed:
-                    manager.store.update_session(row["id"], activity_state=state)
-                    # Fan the new state out INSTANTLY: LA force-push + WebUI SSE.
-                    # Only on a real transition, so a repeated hook costs nothing.
-                    _push_coding_now(manager.store)
-                    _notify_webui()
-            # Notifications for the edges the user must see (finished/needs-input),
-            # gated by the Code Master settings matrix (Telegram + mobile + toast).
-            # Fire even when the row couldn't be matched so they stay reliable.
-            sent = {}
-            if event in ("stop", "notification"):
-                sent = _dispatch_coding_notifications(
-                    manager.store, event=event, row=row, cwd=cwd)
-            # Diagnosis breadcrumb: confirms the instant path matched + pushed,
-            # vs falling back to the reconcile poll (the old lag cause).
-            log.info("coding activity-event: event=%s state=%s matched=%s "
-                     "changed=%s notified=%s", event, state, matched, changed, sent)
-            return _ok({"ok": True, "matched": matched,
-                        "session_id": row["id"] if row else None,
-                        "state": state, "changed": changed, "notified": sent})
-
-        return _run(_activity_event)
-
     # ── Remote permission approval relay (PreToolUse hook ⇄ mobile) ──
     # The hook (via `jc-client coding-permission`) POSTs a request; we push an
     # actionable banner to the phone and HOLD it; the app POSTs a verdict; the
@@ -1495,20 +1101,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                             "disabled": True})
             tool = (body.get("tool") or "").strip() or "tool"
             tinput = body.get("input") if isinstance(body.get("input"), dict) else {}
-            row = _match_live_session(
-                manager.store, tmux_name=(body.get("tmux_name") or "").strip(),
-                claude_session_id=(body.get("claude_session_id") or "").strip(),
-                cwd=(body.get("cwd") or "").strip(),
-                device_id=(body.get("device_id") or "").strip())
-            sid = row["id"] if row else ""
-            try:  # jc-hook's PermissionRequest arbiter owns this session's approvals
-                import agent.agent_tracking as _at
-                if sid and _at.hook_fresh(sid):
-                    return _ok({"ok": True, "request_id": None, "notified": 0,
-                                "disabled": True})
-            except Exception:  # noqa: BLE001
-                pass
-            cwd = (body.get("cwd") or (row.get("cwd") if row else "") or "")
+            sid = (body.get("claude_session_id") or "").strip()
+            # jc-hook's arbiter owns the approvals of a session the hooks follow.
+            if _hook_owned(sid):
+                return _ok({"ok": True, "request_id": None, "notified": 0,
+                            "disabled": True})
+            cwd = (body.get("cwd") or "").strip()
             summary = _permission_summary(tool, tinput)
             rid = coding_permission.create_request(
                 tool=tool, summary=summary, session_id=sid, cwd=cwd)
@@ -1547,406 +1145,5 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             from api import coding_permission
             return _ok({"pending": coding_permission.list_pending()})
         return _run(_perm_pending)
-
-    # ── /session/<id>[/message|/stop] ──
-    if p.startswith("/session/"):
-        tail = p[len("/session/"):]
-        if not tail:
-            return _err(404, "not found")
-        parts = tail.split("/")
-        sid = parts[0]
-        if not sid:
-            return _err(404, "not found")
-        action = parts[1] if len(parts) > 1 else ""
-
-        # GET /session/<id>
-        if action == "" and method == "GET":
-            def _get():
-                session = manager.status(sid)
-                if session is None:
-                    return _err(404, "session not found: " + sid)
-                return _ok({"ok": True, "session": _with_sync(session),
-                            "subagents": manager.subagents(sid)})
-
-            return _run(_get)
-
-        # POST /session/<id>/message
-        if action == "message" and method == "POST":
-            text = body.get("text")
-            if not text:
-                return _err(400, "text is required")
-
-            def _msg():
-                if manager.status(sid) is None:
-                    return _err(404, "session not found: " + sid)
-                manager.send_message(sid, text)
-                return _ok({"ok": True})
-
-            return _run(_msg)
-
-        # GET /session/<id>/messages?after=N — the chat-view message list,
-        # parsed from the session's Claude Code transcript (the canonical
-        # record of every message; the Stop/UserPromptSubmit hooks bump
-        # last_activity so pollers know when to re-read). Desktop sessions
-        # pull the transcript over the device bridge and cache the parsed
-        # list in the DB so history survives the Mac going offline.
-        if action == "messages" and method == "GET":
-            try:
-                after = max(0, int(query.get("after") or 0))
-            except (TypeError, ValueError):
-                after = 0
-            # Paging (?limit=40 opens on the last page, ?before=N&limit=40
-            # loads the page above it); without them, as before.
-            try:
-                before = int(query["before"]) if query.get("before") not in (None, "") else None
-            except (TypeError, ValueError):
-                before = None
-            try:
-                limit = max(0, int(query.get("limit") or 0)) or None
-            except (TypeError, ValueError):
-                limit = None
-            # ?lite=1: tools without their output/diff (fetched when opened).
-            lite = (query.get("lite") or "") in ("1", "true")
-
-            def _messages():
-                import time as _time
-
-                from agent.coding_transcript_read import (
-                    parse_transcript_text, read_local_messages, slice_messages)
-
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                csid = (row.get("claude_session_id") or "").strip()
-                cwd = row.get("cwd") or ""
-                host = (row.get("host") or "server")
-                if not csid and host != "desktop":
-                    # Server-origin session whose launch-time csid capture missed
-                    # the 8s window. Recover it now from the on-disk transcript
-                    # (the projects dir is pinned via CLAUDE_CONFIG_DIR so this
-                    # matches where claude actually wrote) and persist it so
-                    # future polls are cheap. Turns a permanent 409/empty chat
-                    # into a self-healing read.
-                    try:
-                        from agent.coding_session_capture import find_session_id
-                        # require_unique: only adopt a csid when this cwd has a
-                        # SINGLE transcript — never guess "newest" here or we
-                        # could permanently serve a sibling session's chat.
-                        recovered = find_session_id(
-                            cwd, float(row.get("created_at") or 0),
-                            require_unique=True)
-                    except Exception:  # noqa: BLE001
-                        recovered = None
-                    if recovered:
-                        csid = recovered
-                        try:
-                            manager.store.update_session(
-                                sid, claude_session_id=recovered)
-                        except Exception:  # noqa: BLE001
-                            pass
-                if not csid:
-                    return _err(409, "no transcript yet for this session")
-                msgs, source = None, "live"
-                if host == "desktop" and (row.get("device_id") or ""):
-                    from api.coding_desktop import (mark_transcript_dirty,
-                                                    take_transcript_dirty)
-                    cache = manager.store.get_transcript_cache(csid)
-                    last_act = float(row.get("last_activity_at") or 0)
-                    cache_ts = float(cache["updated_at"]) if cache else 0.0
-                    # Re-pull when a turn boundary marked the cache dirty (the
-                    # instant path — realtime chat), when the cache is missing or
-                    # predates the latest activity, or as a short safety floor.
-                    # Event-driven invalidation keeps it fresh WITHOUT pulling
-                    # the bridge on every poll.
-                    dirty = take_transcript_dirty(csid)
-                    stale = (dirty or cache is None or last_act > cache_ts
-                             or _time.time() - cache_ts > 2.5)
-                    if stale:
-                        try:
-                            from api.coding_desktop import get_desktop_bridge
-                            raw = get_desktop_bridge().request_transcript(
-                                row.get("device_id"), claude_session_id=csid,
-                                cwd=cwd, timeout=20)
-                        except Exception:  # noqa: BLE001
-                            raw = None
-                        if raw:
-                            msgs = parse_transcript_text(
-                                raw.decode("utf-8", errors="replace"))
-                            manager.store.set_transcript_cache(csid, msgs)
-                        elif dirty:
-                            # The pull failed — don't lose the dirty signal, or
-                            # the new content waits out the 2.5s floor.
-                            mark_transcript_dirty(csid)
-                    if msgs is None and cache is not None:
-                        msgs, source = cache["messages"], "cache"
-                if msgs is None:
-                    msgs, _mt = read_local_messages(cwd, csid)
-                if msgs is None:
-                    return _err(409, "transcript not available")
-                payload = slice_messages(msgs, after, before=before, limit=limit, lite=lite)
-                payload.update(ok=True, source=source,
-                               activity_state=row.get("activity_state"),
-                               status=row.get("status"),
-                               status_line=_live_status_line(row, manager))
-                return _ok(payload)
-
-            return _run(_messages)
-
-        # GET /session/<id>/prompt — when the session is WAITING, the live
-        # pane's prompt parsed into {question, options:[{key,label}]} so the
-        # mobile chat view can answer with a tap instead of the raw terminal.
-        if action == "prompt" and method == "GET":
-            def _prompt():
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                waiting = (row.get("activity_state") or "") == "waiting"
-                raw = None
-                if waiting:
-                    host = (row.get("host") or "server")
-                    tn = (row.get("tmux_name") or "").strip()
-                    if host == "server" and tn:
-                        try:
-                            raw = manager.driver.capture_pane(
-                                tmux_name=tn, lines=40)
-                        except Exception:  # noqa: BLE001
-                            raw = None
-                    else:
-                        try:
-                            from api.coding_desktop import get_waiting_tail
-                            raw = get_waiting_tail(row)
-                        except Exception:  # noqa: BLE001
-                            raw = None
-                q, opts = _parse_pane_prompt(raw) if raw else (None, [])
-                return _ok({"ok": True, "waiting": waiting, "question": q,
-                            "options": opts,
-                            "raw": (raw[-1500:] if raw else None)})
-
-            return _run(_prompt)
-
-        # POST /session/<id>/stop
-        if action == "stop" and method == "POST":
-            def _stop():
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                manager.stop(sid)
-                # A DISCOVERED session is a live Mac tmux the server can't kill, so
-                # without a tombstone the next 5s discovery push flips it right back
-                # to running — the stopped<->running flip-flop that churns the UI.
-                # Tombstone it so Stop sticks (Rescan brings it back).
-                if (row.get("source") or "").startswith("discovered"):
-                    try:
-                        from api.coding_desktop import dismiss_discovered
-                        dev = (row.get("device_id") or "").strip()
-                        tn = (row.get("tmux_name") or "").strip()
-                        csid = (row.get("claude_session_id") or "").strip()
-                        for ident in (tn, csid):
-                            if dev and ident:
-                                dismiss_discovered(dev, ident)
-                    except Exception:
-                        pass
-                # Sync the (now-final) transcript OUT to the device so a later
-                # local `claude --resume` on the Mac sees this session's turns.
-                # Fire-and-forget (off the request thread): nothing here depends
-                # on it, and a 30s device round-trip on the request thread holds
-                # an edge connection slot and can 503 other requests under load.
-                try:
-                    from api.coding_desktop import reconcile_session_transcript_async
-                    reconcile_session_transcript_async(sid)
-                except Exception:
-                    pass
-                return _ok({"ok": True})
-
-            return _run(_stop)
-
-        # POST /session/<id>/restart  — resume the conversation (claude --continue)
-        if action == "restart" and method == "POST":
-            def _restart():
-                if manager.status(sid) is None:
-                    return _err(404, "session not found: " + sid)
-                # Pull the device's latest transcript IN first (newest-wins), so
-                # `claude --continue` picks up changes made on the Mac since this
-                # server session last ran. One-shot, BEFORE claude starts.
-                try:
-                    from api.coding_desktop import reconcile_session_transcript
-                    reconcile_session_transcript(sid)
-                except Exception:
-                    pass
-                session = manager.restart(sid)
-                return _ok({"ok": True, "session": session})
-
-            return _run(_restart)
-
-        # POST /session/<id>/resume  — resume a DISCOVERED (Mac) session as a new
-        # session ON THE SERVER: pull its transcript from the device, mirror it
-        # into the server's ~/.claude, and run `claude --resume <csid>` in a
-        # server-side checkout with sync back to the Mac. The discovered session
-        # NEVER relaunches on the Mac.
-        if action == "resume" and method == "POST":
-            def _resume():
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                # Resume is ONLY for discovered (device-side) rows. A server-host
-                # / Jarvis-launched session that happens to carry a
-                # claude_session_id must be rejected — it already runs on the
-                # server; "resuming" it would spin up a confusing duplicate.
-                if not (row.get("source") or "").startswith("discovered"):
-                    return _err(400, "only discovered sessions can be resumed")
-                if not (row.get("claude_session_id") or "").strip():
-                    return _err(400, "session has no claude_session_id to resume")
-                from api.coding_desktop import (
-                    get_desktop_bridge, resolve_desktop_device_id,
-                    resume_discovered_to_server)
-
-                device_id = (row.get("device_id") or "").strip() \
-                    or resolve_desktop_device_id()
-                if not device_id:
-                    return _err(409, "desktop client is not connected")
-                # Always run the resumed session on the SERVER (host LocalDriver),
-                # regardless of where the discovered session was scanned.
-                server_mgr = (manager_for_host("server")
-                              if manager_for_host else manager)
-                result = resume_discovered_to_server(
-                    sid, manager=server_mgr, bridge=get_desktop_bridge())
-                payload = {"ok": True, "session": result.get("session")}
-                if result.get("warning"):
-                    payload["warning"] = result["warning"]
-                return _ok(payload)
-
-            return _run(_resume)
-
-        # POST or DELETE /session/<id>/delete  — stop + permanently remove
-        if action == "delete" and method in ("POST", "DELETE"):
-            def _delete():
-                if manager.status(sid) is None:
-                    return _err(404, "session not found: " + sid)
-                # Stop the file sync first so the desktop terminates its Mutagen
-                # session + poller (otherwise it lingers as a stale "active"
-                # sync in the tray until the next reconnect-reconcile).
-                try:
-                    from api.coding_desktop import stop_sync_for_session
-                    stop_sync_for_session(sid)
-                except Exception:
-                    pass
-                manager.delete(sid)
-                return _ok({"ok": True})
-
-            return _run(_delete)
-
-        # GET /session/<id>/sync  — sync status (device, online, progress)
-        if action == "sync" and len(parts) <= 2 and method == "GET":
-            def _sync_get():
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                from api.coding_desktop import sync_status
-
-                return _ok(sync_status(sid, row.get("sync_config"), cwd=row.get("cwd")))
-
-            return _run(_sync_get)
-
-        # POST /session/<id>/sync/refresh  — re-open the sync (re-reconcile)
-        if (action == "sync" and len(parts) > 2 and parts[2] == "refresh"
-                and method == "POST"):
-            def _sync_refresh():
-                row = manager.status(sid)
-                if row is None:
-                    return _err(404, "session not found: " + sid)
-                import json as _json
-                from api.coding_desktop import start_sync_for_session
-
-                cfg = None
-                if row.get("sync_config"):
-                    try:
-                        cfg = _json.loads(row["sync_config"])
-                    except Exception:
-                        cfg = None
-                start_sync_for_session(session_id=sid, cwd=row.get("cwd"), sync=cfg)
-                from api.coding_desktop import sync_status
-
-                return _ok(sync_status(sid, row.get("sync_config"), cwd=row.get("cwd")))
-
-            return _run(_sync_refresh)
-
-        # POST /session/<id>/settings  — update stored settings (skip-perms,
-        # sync, cwd, title). cwd/skip-perms apply on next Restart.
-        if action == "settings" and method == "POST":
-            def _settings():
-                if manager.status(sid) is None:
-                    return _err(404, "session not found: " + sid)
-                session = manager.update_settings(
-                    sid,
-                    skip_permissions=body.get("skip_permissions"),
-                    sync=body.get("sync"),
-                    cwd=body.get("cwd"),
-                    title=body.get("title"))
-                return _ok({"ok": True, "session": _with_sync(session)})
-
-            return _run(_settings)
-
-        # POST /session/<id>/terminal/start  — attach a live terminal to the
-        # session's tmux (server-host sessions only; reuses the existing
-        # /api/terminal/{output,input,resize,close} machinery, keyed by <id>).
-        if action == "terminal" and len(parts) > 2 and parts[2] == "start" and method == "POST":
-            def _term_start():
-                session = manager.status(sid)
-                if session is None:
-                    return _err(404, "session not found: " + sid)
-                host = session.get("host") or "server"
-                tmux_name = session.get("tmux_name")
-                if not tmux_name:
-                    return _err(409, "session has no tmux session to attach to")
-                rows = int(body.get("rows") or 24)
-                cols = int(body.get("cols") or 80)
-                if host == "desktop":
-                    from api.coding_desktop import (
-                        adopt_discovered_tmux, get_desktop_bridge,
-                        resolve_desktop_device_id)
-
-                    # A DISCOVERED live Mac tmux session: ADOPT it — tell the
-                    # desktop to open a PTY attached to the user's existing tmux,
-                    # so web/phone drive the SAME live claude (one process, no
-                    # fork). If the Mac is offline, signal the front-end to offer
-                    # resume-to-server instead.
-                    if (session.get("source") or "").startswith("discovered"):
-                        res = adopt_discovered_tmux(sid, rows=rows, cols=cols)
-                        if not res.get("ok"):
-                            # 409 + can_resume so the front-end offers
-                            # resume-to-server when the Mac is offline. Resume
-                            # needs a csid (`claude --resume <id>`); rows in a
-                            # cwd with several live siblings are left bare on
-                            # purpose, so don't offer a button that would 400.
-                            can = bool(session.get("claude_session_id"))
-                            return 409, {"error": "desktop is offline",
-                                         "can_resume": can}
-                        return _ok({"ok": True, "session_id": sid,
-                                    "running": res.get("running", True)})
-                    # A Jarvis-LAUNCHED desktop session already runs tmux+claude
-                    # and streams coding_term_output; just attach a feed. fresh=True
-                    # drops a stale CLOSED feed left by a prior WS drop so a reopen
-                    # after the Mac reconnects re-wires cleanly (the manager-owned
-                    # tmux+claude keep streaming) instead of returning the dead feed.
-                    device_id = resolve_desktop_device_id()
-                    if not device_id:
-                        return _err(409, "desktop client is not connected")
-                    feed = get_desktop_bridge().attach_feed(
-                        session_id=sid, device_id=device_id, term_id=tmux_name,
-                        rows=rows, cols=cols, fresh=True)
-                    return _ok({"ok": True, "session_id": sid,
-                                "running": feed.is_alive()})
-                if host != "server":
-                    return _err(400, "live terminal is not available for this session host")
-                from api.terminal import start_attach_terminal
-
-                term = start_attach_terminal(
-                    sid, tmux_name, rows=rows, cols=cols,
-                    restart=bool(body.get("restart")))
-                return _ok({"ok": True, "session_id": sid, "running": term.is_alive()})
-
-            return _run(_term_start)
-
-        return _err(404, "not found")
 
     return _err(404, "not found")

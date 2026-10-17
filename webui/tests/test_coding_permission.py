@@ -109,20 +109,18 @@ def test_request_disabled_by_default():
 
 
 def test_request_when_enabled_holds_and_resolves():
-    sess = {"id": "sess-X", "status": "running", "tmux_name": "19",
-            "device_id": "dev1", "cwd": "/w/proj"}
-    m = _Mgr(_Store(remote=True, sessions=[sess]))
+    m = _Mgr(_Store(remote=True))
     st, body = handle_coding_request(
         "POST", "/permission/request",
         {"tool": "Bash", "input": {"command": "rm -rf build"},
-         "tmux_name": "19", "device_id": "dev1", "cwd": "/w/proj"}, manager=m)
+         "claude_session_id": "csid-X", "device_id": "dev1", "cwd": "/w/proj"}, manager=m)
     assert st == 200 and body["ok"] is True
     rid = body["request_id"]
     assert rid  # a request was held
-    # it shows up in pending (for the in-app card), tied to the matched session
+    # it shows up in pending (for the in-app card), tied to the claude session
     st, pend = handle_coding_request("GET", "/permission/pending", None, manager=m)
     rows = pend["pending"]
-    assert any(r["request_id"] == rid and r["session_id"] == "sess-X"
+    assert any(r["request_id"] == rid and r["session_id"] == "csid-X"
                and r["summary"].startswith("Bash:") for r in rows)
     # mobile posts a verdict; the hook poll then sees it
     st, v = handle_coding_request(
@@ -143,14 +141,28 @@ def test_poll_requires_request_id():
 def test_legacy_request_steps_aside_for_a_hook_tracked_session(monkeypatch):
     """With jc-hook installed, the PermissionRequest arbiter owns approvals; the
     old PreToolUse relay (plugin copies in other projects) must not prompt twice."""
-    import agent.agent_tracking as at
-    monkeypatch.setattr(at, "hook_fresh", lambda rid: rid == "sess-X")
-    sess = {"id": "sess-X", "status": "running", "tmux_name": "19",
-            "device_id": "dev1", "cwd": "/w/proj"}
-    m = _Mgr(_Store(remote=True, sessions=[sess]))
+    import api.coding_routes as cr
+    monkeypatch.setattr(cr, "_hook_owned", lambda csid: csid == "csid-X")
+    m = _Mgr(_Store(remote=True))
     st, body = handle_coding_request(
         "POST", "/permission/request",
         {"tool": "Bash", "input": {"command": "rm -rf build"},
-         "tmux_name": "19", "device_id": "dev1", "cwd": "/w/proj"}, manager=m)
+         "claude_session_id": "csid-X", "device_id": "dev1", "cwd": "/w/proj"}, manager=m)
     assert st == 200 and body["request_id"] is None and body["disabled"] is True
     assert cp.list_pending() == []
+
+
+def test_hook_owned_follows_the_tracker(tmp_path):
+    from agent.agent_tracking import AgentTracker, set_tracker
+    from agent.coding_session_db import CodingSessionStore
+    import api.coding_routes as cr
+    tr = AgentTracker(CodingSessionStore(str(tmp_path / "c.db")))
+    set_tracker(tr)
+    try:
+        tr.ingest("dev1", "event", "claude", {"hook_event_name": "UserPromptSubmit",
+                                              "session_id": "csid-X", "cwd": "/w/proj",
+                                              "prompt": "go"})
+        assert cr._hook_owned("csid-X") is True
+        assert cr._hook_owned("other") is False and cr._hook_owned("") is False
+    finally:
+        set_tracker(None)

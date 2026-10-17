@@ -1,11 +1,12 @@
 """Build + APNs-push the coding-mode Live Activity ContentState.
 
-Mirrors the Dart ``LiveActivityCoordinator`` project aggregation so the SERVER
-can keep the iOS Live Activity live while the app is suspended/closed
-(push-to-update). The status-loop calls ``push_coding_update`` each tick; it
-rebuilds the content-state from the store (so both server-host poll changes AND
-desktop discovery changes are reflected) and pushes to all registered Live
-Activity tokens ONLY when the content actually changed.
+Mirrors the iPhone's ``LiveFleet`` project aggregation so the SERVER can keep
+the iOS Live Activity live while the app is suspended/closed (push-to-update).
+The coding housekeeping thread (``webui/api/coding_housekeeping.py``) and every
+hook-driven state change call ``push_coding_update``; it rebuilds the content
+state from the Agents conversation records (``agent/agent_conversations.py``:
+one per live session, its state from the session's hooks) and pushes to all
+registered Live Activity tokens ONLY when the content actually changed.
 
 The content-state keys MUST match the Swift ``JarvisActivityAttributes
 .ContentState`` Codable property names exactly, and ALL of them must be present
@@ -20,12 +21,15 @@ import time
 
 log = logging.getLogger(__name__)
 
-_LIVE_STATUSES = {"running", "starting", "idle"}
 _US = "\x1f"  # unit separator between name and state (matches the Swift decode)
 
 # Per-session sub-state shorthand for the segmented bar (3rd encoded field).
-# "d" = a forgotten (detached + idle) session — rendered dimmed, sorted last.
 _SHORT = {"working": "w", "waiting": "p", "idle": "i", "dim": "d"}
+# A conversation's hook state (tracker states) -> the island's three states.
+_ACTIVITY = {"working": "working", "thinking": "working",
+             "approval": "waiting", "question": "waiting"}
+# Not coding sessions: Jarvis's own chat turns (it notifies about them itself).
+_NOT_CODING = ("jarvis",)
 _MAX_SUBS = 8  # cap sub-segments per project (budget + legibility)
 
 
@@ -42,59 +46,31 @@ _last_push_ts = {"v": 0.0}
 _MIN_PUSH_INTERVAL = 15.0  # seconds between non-forced pushes
 
 
-def _status_class(status) -> str:
-    s = str(status or "").lower()
-    if s in ("running", "active", "busy"):
-        return "running"
-    if s in ("done", "completed", "finished"):
-        return "done"
-    if s in ("error", "failed"):
-        return "error"
-    if s in ("stopped", "cancelled", "canceled"):
-        return "stopped"
-    return "idle"
+def _live_state(row, hook_state=None) -> str:
+    """working | waiting | idle for a conversation, from its hook state (the
+    tracker's current one when given, else the last one stored on the row)."""
+    return _ACTIVITY.get(str(hook_state or row.get("state") or "").lower(), "idle")
 
 
-def _is_transcript_idle(row) -> bool:
-    return (row.get("source") == "discovered-transcript"
-            and _status_class(row.get("status")) != "running")
+def _tracked_states() -> dict:
+    """{(agent, session_id): state} from the hook tracker, or {} without one."""
+    try:
+        from agent.agent_tracking import tracker
+        tr = tracker()
+        return {(s.get("agent"), s.get("session_id")): s.get("state")
+                for s in (tr.sessions() if tr is not None else [])}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _is_live(row) -> bool:
-    return row.get("status") in _LIVE_STATUSES and not _is_transcript_idle(row)
-
-
-def _live_state(row) -> str:
-    act = str(row.get("activity_state") or "").lower()
-    if act in ("waiting", "working", "idle"):
-        return act
-    # A row with no fresh activity_state is NOT necessarily working. When a Mac
-    # host goes offline it stops sending classifications and the disconnect
-    # grace-timer nulls activity_state for ALL its sessions at once, while
-    # lifecycle status stays "running" (no push arrives to reconcile it).
-    # Defaulting that to "working" made the Live Activity flash "working" for
-    # every session of an offline Mac (the random "all sessions working" bug).
-    # Treat an unknown/empty activity_state as idle, never working.
-    return "idle"
-
-
-def _is_dim(row) -> bool:
-    """A FORGOTTEN session: a discovered tmux with NO client attached, sitting
-    idle. De-emphasized (dimmed + sorted last) in the fleet — not hidden. `attached`
-    is 1/None = attached (default); only an explicit 0 means detached."""
-    return (str(row.get("source") or "").startswith("discovered-tmux")
-            and row.get("attached") == 0
-            and _live_state(row) == "idle")
-
-
-def _session_state(row) -> str:
-    """Per-session fleet state: 'dim' for a forgotten detached+idle session, else
-    its live activity state (working/waiting/idle)."""
-    return "dim" if _is_dim(row) else _live_state(row)
+    """A conversation its owner is running right now (asleep / offline / ended
+    sessions are paused or gone, not live)."""
+    return row.get("status") == "live" and (row.get("agent") or "") not in _NOT_CODING
 
 
 def _recency(row) -> float:
-    raw = row.get("last_activity_at") or row.get("created_at") or 0
+    raw = row.get("last_event_at") or row.get("updated_at") or row.get("created_at") or 0
     try:
         n = float(raw)
         return n / 1000.0 if n > 1e12 else n
@@ -103,7 +79,6 @@ def _recency(row) -> float:
 
 
 def _priority(state: str) -> int:
-    # dim (forgotten) sorts LAST, after idle.
     return {"waiting": 0, "working": 1, "idle": 2}.get(state, 3)
 
 
@@ -114,7 +89,7 @@ def _aggregate(states) -> str:
         return "working"
     if "idle" in states:
         return "idle"
-    return "dim"  # every live session here is a forgotten detached+idle one
+    return "dim"
 
 
 def _folder(cwd) -> str:
@@ -167,13 +142,14 @@ def build_coding_content_state(store, usage=None):
     """The coding-mode ContentState dict, or None if there are no live sessions.
 
     One legend entry per PROJECT (aggregate state), labeled by project name;
-    ungrouped sessions fall back to their cwd folder. Spotlight-sorted
+    sessions without a project fall back to their cwd folder. Spotlight-sorted
     waiting > working > idle, then most-recent."""
     try:
-        rows = store.list_sessions()
+        rows = store.list_conversations()
         projects = {p["id"]: p for p in store.list_projects()}
     except Exception:
         return None
+    hook_states = _tracked_states()
     by_project: dict = {}
     ungrouped: list = []
     total = 0
@@ -182,7 +158,7 @@ def build_coding_content_state(store, usage=None):
         if not _is_live(r):
             continue
         total += 1
-        st = _session_state(r)  # 'dim' for a forgotten detached+idle session
+        st = _live_state(r, hook_states.get((r.get("agent"), r.get("session_id"))))
         if st == "waiting":
             waiting += 1
         pid = r.get("project_id")

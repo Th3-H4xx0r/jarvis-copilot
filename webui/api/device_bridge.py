@@ -235,13 +235,6 @@ def _safe_close(conn: _DeviceConn) -> None:
                 cb("closed", {"reason": "device disconnected"})
             except Exception:
                 pass
-    # Close any coding terminal feeds bound to this device so their SSE ends
-    # instead of freezing on a dead stream (the device's tmux+claude survive).
-    try:
-        from api.coding_desktop import get_desktop_bridge
-        get_desktop_bridge().on_device_disconnect(conn.device_id)
-    except Exception:
-        pass
     with _REGISTRY_CHANGE_LOCK:
         callbacks = list(_DISCONNECT_CALLBACKS)
     for cb in callbacks:
@@ -746,38 +739,22 @@ def _relay_session(conn: "_DeviceConn", session_id) -> Optional[dict]:
         return conn.relay_sessions.get(session_id)
 
 
-# ── Coding-session channel (Phase 4: desktop-host coding sessions) ───────────
+# ── Coding channel: file sync + folder listing ───────────────────────────────
 #
-# A desktop-host coding session drives tmux+claude on the paired desktop client
-# and streams its PTY + a bidirectional file sync over the bridge. The webui
-# process sends ``coding_term_*`` / ``coding_sync_*`` frames to the device and
-# routes the device's replies to a registered handler. Unlike the MCP relay
-# (one session_id per channel) and invokes (call_id correlation), coding frames
-# are routed by their own ``term_id`` / ``sync_id`` *inside* the frame, so the
-# bridge just forwards the whole frame to a single process-wide subscriber
-# (api.coding_desktop.DesktopBridge) which fans out by id.
+# The webui process sends ``coding_sync_*`` / ``coding_dir_list_get`` frames to
+# a desktop and routes the device's replies to a registered handler. Unlike the
+# MCP relay (one session_id per channel) and invokes (call_id correlation),
+# coding frames are routed by their own ``sync_id`` / ``req_id`` *inside* the
+# frame, so the bridge just forwards the whole frame to a single process-wide
+# subscriber (api.coding_desktop.DesktopBridge) which fans out by id.
 
 # Frame types the device sends back that belong to the coding channel.
 _CODING_INBOUND_TYPES = frozenset({
-    "coding_term_output", "coding_term_exit",
     # Mutagen sync: the desktop pushes status snapshots + actionable errors,
     # and (once per connect) its sync SSH public key to authorize.
     "coding_sync_status", "coding_sync_error", "coding_sync_authorize_key",
-    # Device-side session discovery: the desktop pushes its live `claude` tmux
-    # sessions so the server upserts them as discovered coding-session rows.
-    "coding_discover",
-    # Resume-to-server: the desktop streams a discovered session's transcript
-    # back (gzipped, base64, chunked) in response to a coding_transcript_get.
-    "coding_transcript_data",
-    # File delivery ack (response to coding_file_put) — WITHOUT this the inbound
-    # frame was dropped here before reaching DesktopBridge.on_frame, so
-    # deliver_file always timed out (latent bug).
-    "coding_file_done",
-    # Server->device session announce ack: the desktop confirms it received a
-    # coding_session_announce (so the server knows the Mac was notified).
-    "coding_session_ack",
     # Directory-listing reply: the desktop returns sub-dirs of a path for the
-    # coding form's Working Directory / sync-folder autocomplete.
+    # folder typeahead (/api/coding/dir-suggest).
     "coding_dir_list_data",
 })
 
@@ -790,7 +767,7 @@ def set_coding_frame_handler(handler) -> None:
     """Register the process-wide inbound coding-frame handler.
 
     ``handler(device_id, frame)`` is invoked (from the bridge pump thread) for
-    every inbound ``coding_term_*`` / ``coding_sync_*`` frame. Passing ``None``
+    every inbound coding-channel frame (``_CODING_INBOUND_TYPES``). Passing ``None``
     clears it. Only one handler is supported — the webui's DesktopBridge owns it.
     """
     global _coding_frame_handler
@@ -859,33 +836,6 @@ def _trigger_relay_autoregister() -> None:
         except Exception as exc:
             logger.debug("relay autoregister rescan failed: %s", exc)
     threading.Thread(target=_rescan, daemon=True, name="relay-autoregister").start()
-
-
-def _trigger_coding_resync(device_id: str) -> None:
-    """When a (desktop) device (re)connects, re-open the file sync for every
-    still-running synced coding session so the manifest-diff reconcile re-checks
-    whether any files need re-syncing.
-
-    Best-effort and fully isolated: runs off the bridge pump thread (so a slow
-    reconcile can't stall the connection) and swallows every error (so it can
-    never break device registration). The resync itself only does meaningful
-    work for desktop/synced sessions — non-desktop devices simply find nothing
-    to re-open."""
-    if not device_id:
-        return
-
-    def _run():
-        try:
-            from api.coding_desktop import resync_device
-
-            n = resync_device(device_id)
-            if n:
-                logger.info("coding resync: re-opened %d sync(s) for device %s",
-                            n, device_id)
-        except Exception as exc:
-            logger.debug("coding resync failed for %s: %s", device_id, exc)
-
-    threading.Thread(target=_run, daemon=True, name="coding-resync").start()
 
 
 # ── Mobile push fallback ───────────────────────────────────────────────────
@@ -1322,13 +1272,8 @@ def handle_websocket(handler, parsed) -> bool:
             "device_name": conn.name,
             "ts": time.time(),
         }))
-        # Device-connect hook: a (re)connecting desktop should re-open the file
-        # sync for any running synced coding session so it re-reconciles. Fired
-        # off-thread + fully defensive so it can never break the connection.
-        try:
-            _trigger_coding_resync(conn.device_id)
-        except Exception:
-            pass
+        # A (re)connecting Mac's synced projects re-open their file syncs on its
+        # agent_hello (api.agents_core.on_hello).
         _pump(conn)
     finally:
         _unregister(conn.device_id, conn)

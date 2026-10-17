@@ -84,19 +84,19 @@ def test_session_detail_has_the_whole_turn(env):
     assert status == 404
 
 
-def test_instruction_to_a_tmux_session_types_into_it(env):
+def test_a_terminal_context_from_an_old_hook_is_not_typable(env, monkeypatch):
+    """No tmux: an idle session whose only locator is an old hook's terminal-pane
+    key can't be typed into, so the phone is told why instead of "sent"."""
     store, tr, mgr, frames = env
-    pid = store.get_or_create_project_for_path(repo_path="/Users/p/code/app", host="desktop",
-                                               device_id="d1")
-    rid = store.create_session(project_id=pid, host="desktop", cwd="/Users/p/code/app",
-                               branch=None, tmux_name="2", source="discovered-tmux", title="2",
-                               device_id="d1", external=True, status="running")
-    tr.ingest("d1", "event", "claude", ev("Stop", tmux_session="2"))
+    import api.agents_routes as ar
+    monkeypatch.setattr(ar, "_remote_instructions", lambda: True)
+    tr.ingest("d1", "event", "claude", ev("Stop", term_program="Apple_Terminal"))
     key = tr.sessions()[0]["key"]
-    status, body = call("POST", "/agents/instruction", {"key": key, "text": "now run the tests"},
-                        mgr=mgr)
-    assert status == 200 and body["via"] == "terminal"
-    assert mgr.sent == [(rid, "now run the tests")]
+    s = tr.session(key)
+    s["terminal"]["tmux_pane"] = "%1"      # what an old jc-hook might have sent
+    monkeypatch.setattr(tr, "session", lambda k: s)
+    status, body = call("POST", "/agents/instruction", {"key": key, "text": "go"}, mgr=mgr)
+    assert status == 409 and body["reason"] == "idle_untypable"
     assert frames == []
 
 

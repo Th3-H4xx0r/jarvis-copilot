@@ -134,11 +134,8 @@ class Service:
         # Per-connection MCP relay manager (Phase 2): tunnels a local Playwright
         # MCP to the server. Created in _connect_and_pump, torn down on drop.
         self._relay = None
-        # Coding Sessions desktop execution + file sync + discovery (created
-        # per connection).
-        self._coding_term = None
+        # Coding file sync (Mutagen; created per connection).
         self._coding_sync = None
-        self._coding_discover = None
         # Coding-agent hooks (jc-hook → hook.sock): one server per process,
         # outliving reconnects, so a hook during a bridge drop still updates
         # the local engine (the island) and is simply not forwarded.
@@ -149,7 +146,7 @@ class Service:
         self._arbiter = None
         _cfg = _load_agent_config()
         self._agent_approvals = _cfg.get("remote_approvals") is True
-        # Instructions from the phone for sessions outside tmux (claude --resume).
+        # Instructions from the phone for a live session (typed in, or at its Stop).
         self._agent_instructions = _cfg.get("remote_instructions") is True
         self._instructions = None
         # The merged Agents tab: roster, live transcript copy, sleep/wake, the
@@ -372,7 +369,7 @@ class Service:
 
     def _run_instruction(self, frame: dict, wait: bool = False) -> None:
         """The phone's next instruction for a live session on this Mac: queued
-        for its next Stop, or typed into its tmux pane / iTerm session. Never a
+        for its next Stop, or typed into its iTerm session. Never a
         background `claude --resume` (it forks the live conversation)."""
         if not self._agent_instructions:
             log.info("instruction from the phone ignored: the switch is off")
@@ -690,25 +687,15 @@ class Service:
                 log.warning("mcp relay unavailable: %s", exc)
                 self._relay = None
 
-        # Coding Sessions: desktop execution (PTY relay) + bidirectional file
-        # sync. Always on (core feature). Frames flow over this same bridge.
+        # Coding file sync (Mutagen over the relay). Always on (core feature).
+        # Frames flow over this same bridge.
         try:
             from jc_client.coding_sync_mutagen import CodingMutagenAgent
-            from jc_client.coding_term import CodingTermManager
-            from jc_client.coding_discover import CodingDiscoverAgent
 
             def _coding_send(f):
                 ws.send_text(json.dumps(f))
 
-            self._coding_term = CodingTermManager(send=_coding_send)
             self._coding_sync = CodingMutagenAgent(send=_coding_send)
-            # Discovery: periodically scan for live `claude` tmux sessions and
-            # push them upstream so the server can surface them as coding
-            # sessions. device_id may be "" here — the server fills it from the
-            # bridge in that case.
-            self._coding_discover = CodingDiscoverAgent(
-                send=_coding_send, device_id=(creds.device_id or None))
-            self._coding_discover.start()
             # Authorize this client's sync key on the server so Mutagen's SSH
             # (through the WS<->TCP relay) can connect. Idempotent on both ends.
             try:
@@ -718,10 +705,8 @@ class Service:
             except Exception as exc:  # noqa: BLE001
                 log.debug("sync key authorize push failed: %s", exc)
         except Exception as exc:
-            log.warning("coding sessions desktop support unavailable: %s", exc)
-            self._coding_term = None
+            log.warning("coding file sync unavailable: %s", exc)
             self._coding_sync = None
-            self._coding_discover = None
 
         # iMessages → glasses: iOS keeps Messages from Bluetooth accessories, so the Mac
         # watches its own Messages database and posts new ones to the server. Once per
@@ -808,16 +793,12 @@ class Service:
                 except Exception:
                     pass
                 self._relay = None
-            for _mgr_attr, _stop in (("_coding_term", "shutdown_all"),
-                                     ("_coding_sync", "close"),
-                                     ("_coding_discover", "close")):
-                _m = getattr(self, _mgr_attr, None)
-                if _m is not None:
-                    try:
-                        getattr(_m, _stop)()
-                    except Exception:
-                        pass
-                    setattr(self, _mgr_attr, None)
+            if self._coding_sync is not None:
+                try:
+                    self._coding_sync.close()
+                except Exception:
+                    pass
+                self._coding_sync = None
             try:
                 ws.close()
             except Exception:
@@ -843,24 +824,16 @@ class Service:
             self._executor.submit(self._run_invoke, ws, call_id, skill_name, args)
             return
 
-        if msg_type and msg_type.startswith("coding_term_"):
-            if self._coding_term:
-                self._coding_term.handle_frame(frame)
-            return
-
         if msg_type and msg_type.startswith("coding_sync_"):
             if self._coding_sync:
                 self._coding_sync.handle_frame(frame)
             return
 
-        if msg_type and (msg_type.startswith("coding_discover")
-                         or msg_type in ("coding_transcript_get",
-                                         "coding_transcript_put",
-                                         "coding_file_put",
-                                         "coding_session_announce",
-                                         "coding_dir_list_get")):
-            if self._coding_discover:
-                self._coding_discover.handle_frame(frame)
+        if msg_type == "coding_dir_list_get":
+            # The server's folder typeahead: list a folder off the read loop.
+            from jc_client import dir_list
+            self._executor.submit(dir_list.handle_frame, frame,
+                                  lambda f: ws.send_text(json.dumps(f)))
             return
 
         if msg_type == "agent_config":

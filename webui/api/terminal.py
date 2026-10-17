@@ -46,10 +46,6 @@ class TerminalSession:
     output: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=2000))
     closed: threading.Event = field(default_factory=threading.Event)
     reader: threading.Thread | None = None
-    # For an ATTACH terminal (live coding tmux): the tmux session name, so the
-    # reader can tell a clean DETACH from the tmux session being GONE (claude
-    # quit / ctrl-C) and emit reason="ended" accordingly.
-    tmux_name: str | None = None
     close_reason: str | None = None
 
     def is_alive(self) -> bool:
@@ -106,7 +102,7 @@ def _reader_loop(term: TerminalSession) -> None:
             if not ready:
                 continue
             try:
-                # Read big: a single tmux full-pane repaint can be tens of KB.
+                # Read big: a single full-screen repaint can be tens of KB.
                 # Pulling it in one read (vs many 8KB reads) means fewer queue
                 # items → fewer SSE frames → far less terminal lag.
                 data = os.read(term.master_fd, 65536)
@@ -125,21 +121,6 @@ def _reader_loop(term: TerminalSession) -> None:
         term.closed.set()
         code = term.proc.poll()
         payload = {"exit_code": code}
-        # An ATTACH terminal whose tmux session is GONE means claude actually
-        # ENDED (the user quit / ctrl-C'd it), not just a detach. Tell the client
-        # via reason="ended" so it shows the ended panel instead of re-attaching
-        # the dead tmux — re-attaching looped forever (the infinite-reload bug).
-        tn = getattr(term, "tmux_name", None)
-        if tn:
-            try:
-                r = subprocess.run(["tmux", "has-session", "-t", tn],
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, timeout=5)
-                if r.returncode != 0:
-                    payload["reason"] = "ended"
-                    term.close_reason = "ended"
-            except Exception:
-                pass
         term.put_output("terminal_closed", payload)
 
 
@@ -222,95 +203,6 @@ def start_terminal(session_id: str, workspace: Path, rows: int = 24, cols: int =
         return term
 
 
-def _tmux_set_mouse(name: str) -> None:
-    """Best-effort: enable tmux mouse mode for session ``name``.
-
-    With mouse mode on, the browser/mobile xterm forwards the wheel to tmux as
-    real mouse events (tmux enters copy-mode and scrolls its scrollback) instead
-    of xterm translating the wheel into ↑/↓ arrow keys — which the ``claude``
-    REPL reads as command-history cycling. Idempotent; safe to call per attach.
-    A missing/locked tmux server must never block the attach, so we swallow all
-    errors.
-    """
-    try:
-        subprocess.run(["tmux", "set-option", "-t", name, "mouse", "on"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       timeout=5, check=False)
-    except Exception:
-        pass
-
-
-def start_attach_terminal(session_id: str, tmux_name: str,
-                          rows: int = 24, cols: int = 80,
-                          restart: bool = False) -> TerminalSession:
-    """Start (or return) a live terminal ATTACHED to a coding session's tmux.
-
-    Unlike ``start_terminal`` (which spawns a fresh shell in a workspace), this
-    runs ``tmux attach-session -t <tmux_name>`` in a PTY so the WebUI can watch
-    and type into the live ``claude`` session. Closing this terminal DETACHES
-    (the tmux session and its claude keep running). Registered under
-    ``session_id`` so the existing /api/terminal/{output,input,resize,close}
-    machinery drives it unchanged.
-    """
-    sid = str(session_id or "").strip()
-    if not sid:
-        raise ValueError("session_id is required")
-    name = str(tmux_name or "").strip()
-    if not name:
-        raise ValueError("tmux_name is required")
-    if not shutil.which("tmux"):
-        raise RuntimeError("tmux is not installed on this host")
-
-    with _LOCK:
-        current = _TERMINALS.get(sid)
-        # Single live viewer per coding session. The live terminal is a view of
-        # ONE tmux pane, which can only be a single size at a time and whose
-        # output we fan out through one queue. If two viewers (e.g. web + phone)
-        # attach at once they fight over the pane size — the smaller client wins
-        # and squishes the other — AND race each other draining the output
-        # queue. That is exactly the doubled / condensed / garbled terminal
-        # users hit. So a new attach always TAKES OVER: tear down any existing
-        # attach and re-attach fresh at THIS client's size. The previous
-        # viewer's SSE sees terminal_closed and shows a "reopen to resume" note.
-        if current:
-            close_terminal(sid)
-
-        # Mouse mode so the wheel scrolls tmux scrollback instead of cycling
-        # the claude REPL's command history (see _tmux_set_mouse).
-        _tmux_set_mouse(name)
-
-        master_fd, slave_fd = os.openpty()
-        _SAFE_ENV_KEYS = {
-            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL",
-            "LC_CTYPE", "LC_MESSAGES", "LANGUAGE", "TZ", "TMPDIR", "TEMP",
-            "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
-        }
-        env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
-        env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor",
-                    "COLUMNS": str(cols), "LINES": str(rows)})
-        home = env.get("HOME") or os.path.expanduser("~") or "/"
-        proc = subprocess.Popen(
-            # -d detaches any other client first, guaranteeing this PTY is the
-            # ONLY client so tmux sizes the pane to us (no smallest-client
-            # squish from a leftover/stray attach).
-            ["tmux", "attach-session", "-d", "-t", name],
-            cwd=home, env=env,
-            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            close_fds=True, start_new_session=True,
-        )
-        os.close(slave_fd)
-        _set_nonblocking(master_fd)
-
-        term = TerminalSession(session_id=sid, workspace=home, proc=proc,
-                               master_fd=master_fd, rows=rows, cols=cols,
-                               tmux_name=name)
-        _set_size(term, rows, cols)
-        term.reader = threading.Thread(target=_reader_loop, args=(term,), daemon=True)
-        term.reader.start()
-        _TERMINALS[sid] = term
-        return term
-
-
 def start_argv_terminal(session_id: str, argv: list, *, cwd: str | None = None,
                         rows: int = 24, cols: int = 80) -> TerminalSession:
     """Start a live terminal running ``argv`` in a PTY (e.g. ``claude attach
@@ -356,8 +248,7 @@ def get_terminal(session_id: str) -> TerminalSession | None:
 def register_terminal(session_id: str, term) -> None:
     """Register a TerminalSession-compatible object under ``session_id``.
 
-    Used by non-PTY feeds (e.g. a desktop-host coding session whose output is
-    fed by ``coding_term_output`` bridge frames). The object must expose the
+    Used by non-PTY feeds (output arriving from elsewhere). The object must expose the
     read surface the SSE route uses (``output`` queue, ``closed`` Event,
     ``proc.poll()``, ``is_alive()``); it MAY expose ``feed_write(data)`` /
     ``feed_resize(rows, cols)`` / ``feed_close()`` to override the PTY write

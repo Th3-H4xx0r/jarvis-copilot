@@ -1,6 +1,6 @@
 """Run Claude Code sessions on the server as Claude's own background sessions.
 
-No tmux. ``claude --bg`` starts (or ``--resume <id>`` continues) a session
+``claude --bg`` starts (or ``--resume <id>`` continues) a session
 detached; ``claude agents --json`` lists what runs; ``claude stop`` ends it.
 A message is delivered by opening ``claude attach <id>`` in a pseudo-terminal
 for a moment and pasting it in (bracketed paste, then Enter); the session

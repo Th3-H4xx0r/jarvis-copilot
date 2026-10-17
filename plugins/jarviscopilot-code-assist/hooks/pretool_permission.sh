@@ -35,12 +35,7 @@ except Exception:
 [ -n "$tool" ] || exit 0
 [ -n "$cwd" ] || cwd="$PWD"
 
-tmux=""
-if [ -n "$TMUX" ]; then
-  tmux="$(tmux display-message -p '#S' 2>/dev/null)"
-fi
-
 # Blocking: its stdout is the permissionDecision JSON Claude reads.
 jc-client coding-permission --tool "$tool" --input "$tinput" \
-  --tmux "$tmux" --cwd "$cwd" --session-id "$sid" --timeout 120 2>/dev/null || true
+  --cwd "$cwd" --session-id "$sid" --timeout 120 2>/dev/null || true
 exit 0

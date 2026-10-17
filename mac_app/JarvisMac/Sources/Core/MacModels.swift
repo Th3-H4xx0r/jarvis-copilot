@@ -106,7 +106,6 @@ struct MacSession: Identifiable, Equatable {
     let terminalBundleId: String
     let termProgram: String
     let itermSession: String
-    let tmux: String
     let pendingFingerprint: String
     let prompt: String
     let final: String
@@ -147,7 +146,6 @@ struct MacSession: Identifiable, Equatable {
         terminalBundleId = J.s(term["bundle_id"])
         termProgram = J.s(term["term_program"])
         itermSession = J.s(term["iterm"])
-        tmux = J.s(term["tmux"])
         pendingFingerprint = J.s(J.obj(json["pending"])["fingerprint"])
         let turn = J.obj(json["turn"])
         prompt = J.s(turn["prompt"])

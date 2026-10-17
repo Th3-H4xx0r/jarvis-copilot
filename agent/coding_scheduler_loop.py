@@ -1,8 +1,9 @@
 """Background tick that delivers due scheduled messages into coding sessions.
 
-Bridges :class:`agent.coding_scheduler.CodingScheduler` to
-:class:`agent.coding_session_manager.CodingSessionManager`: on each tick, due
-schedules are fired by sending their message into the target session. The loop
+Bridges :class:`agent.coding_scheduler.CodingScheduler` to anything with a
+``send_message(session_id, text)`` (e.g. an adapter over the Agents layer's
+``webui/api/agents_core.py``): on each tick, due schedules are fired by sending
+their message into the target session. The loop
 clock + sleep are injectable so it is unit-testable without real time.
 
 Activation (last-mile, in the running webui/gateway process)::

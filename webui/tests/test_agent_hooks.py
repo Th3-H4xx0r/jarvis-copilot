@@ -51,6 +51,72 @@ def test_device_event_reaches_the_tracker(store):
     assert len(s) == 1 and s[0]["state"] == "thinking" and s[0]["device_id"] == "d1"
 
 
+class _FakeTimer:
+    made: list = []
+
+    def __init__(self, delay, fn, args=()):
+        self.delay, self.fn, self.args, self.daemon = delay, fn, args, False
+        _FakeTimer.made.append(self)
+
+    def start(self):
+        pass
+
+    def fire(self):
+        self.fn(*self.args)
+
+
+def _hook(device, sid):
+    agent_hooks.on_agent_hook(device, {"kind": "event", "agent": "claude", "payload": {
+        "hook_event_name": "UserPromptSubmit", "session_id": sid, "cwd": "/Users/p/app",
+        "prompt": "hi"}})
+
+
+def test_a_device_that_stays_away_loses_its_sessions(store, monkeypatch):
+    """A bridge drop is usually a blip: the device's tracked sessions go only once
+    it hasn't come back within the grace."""
+    monkeypatch.setattr(agent_hooks.threading, "Timer", _FakeTimer)
+    _FakeTimer.made = []
+    set_tracker(AgentTracker(store))
+    _hook("d1", "a")
+    _hook("d2", "b")
+    agent_hooks._on_device_disconnect("d1")
+    assert _FakeTimer.made[-1].delay == agent_hooks._GONE_GRACE
+    _FakeTimer.made[-1].fire()
+    assert [s["session_id"] for s in tracker().sessions()] == ["b"]
+
+
+def test_a_device_back_within_the_grace_keeps_its_sessions(store, monkeypatch):
+    monkeypatch.setattr(agent_hooks.threading, "Timer", _FakeTimer)
+    monkeypatch.setattr(agent_hooks, "_config_frame", lambda _s: {})
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "send_frame", lambda *a, **k: True)
+    _FakeTimer.made = []
+    set_tracker(AgentTracker(store))
+    _hook("d1", "a")
+    agent_hooks._on_device_disconnect("d1")
+    _hook("d1", "a")                      # a live hook frame: it's back
+    _FakeTimer.made[-1].fire()
+    agent_hooks._on_device_disconnect("d1")
+    agent_hooks.on_agent_hello("d1")      # its hello on reconnect also counts
+    _FakeTimer.made[-1].fire()
+    assert [s["session_id"] for s in tracker().sessions()] == ["a"]
+
+
+def test_an_old_timer_never_drops_a_device_that_dropped_again(store, monkeypatch):
+    monkeypatch.setattr(agent_hooks.threading, "Timer", _FakeTimer)
+    _FakeTimer.made = []
+    set_tracker(AgentTracker(store))
+    _hook("d1", "a")
+    agent_hooks._on_device_disconnect("d1")
+    first = _FakeTimer.made[-1]
+    _hook("d1", "a")
+    agent_hooks._on_device_disconnect("d1")   # dropped again: a newer timer owns it
+    first.fire()
+    assert len(tracker().sessions()) == 1
+    _FakeTimer.made[-1].fire()
+    assert tracker().sessions() == []
+
+
 def test_device_event_without_tracker_is_ignored():
     agent_hooks.on_agent_hook("d1", {"kind": "event", "payload": {"hook_event_name": "Stop"}})
 
@@ -81,8 +147,6 @@ def test_server_hook_socket_end_to_end(store, allow_outbound_network):
             time.sleep(0.01)
         s = tr.sessions()[0]
         assert (s["host"], s["state"], s["session_id"]) == ("server", "thinking", "srv")
-        row = store.get_session(s["coding_session_id"])
-        assert (row["host"], row["source"], row["activity_state"]) == ("server", "hook", "working")
     finally:
         server.close()
         shutil.rmtree(d, ignore_errors=True)

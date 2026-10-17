@@ -3,8 +3,7 @@ tree size BEFORE starting Mutagen. The desktop is the only side that can stat th
 real tree, and the only side where ``~`` expands to the Mac home.
 
 This MIRRORS the server-side ``agent/coding_sync_safety.py`` (the jc-client is a
-separate install that cannot import ``agent/`` — same reason coding_discover
-replicates ``classify_pane``). Keep the two in sync.
+separate install that cannot import ``agent/``). Keep the two in sync.
 """
 from __future__ import annotations
 
