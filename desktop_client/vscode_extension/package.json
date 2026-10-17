@@ -1,0 +1,18 @@
+{
+  "name": "jarvis-terminal-bridge",
+  "displayName": "Jarvis Terminal Bridge",
+  "description": "Lets the local Jarvis client type into, run commands in, and focus this window's terminals.",
+  "version": "0.1.0",
+  "publisher": "jarviscopilot",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js"
+}

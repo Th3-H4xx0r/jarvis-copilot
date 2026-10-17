@@ -977,6 +977,9 @@ def cmd_update(args) -> int:
     # Ensure the Mutagen sync engine is installed/refreshed for coding-session
     # file sync (best-effort — a failure here must not fail the client update).
     _ensure_mutagen_quiet()
+    # The VS Code extension that lets Jarvis type into VS Code's terminals
+    # (best-effort, like Mutagen: no VS Code just means no bridge).
+    _install_vscode_bridge_quiet()
     _report_voice_panel()
 
     if getattr(args, "no_restart", False):
@@ -1030,6 +1033,19 @@ def _ensure_mutagen_quiet() -> None:
         print(f"(mutagen sync engine not installed: {exc} — sync will be "
               f"unavailable until `jc-client install-mutagen` succeeds)",
               file=sys.stderr)
+
+
+def _install_vscode_bridge_quiet() -> None:
+    try:
+        from jc_client import vscode_pack
+        ok, detail = vscode_pack.install_extension()
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, str(exc)
+    if ok:
+        print(f"VS Code bridge: {detail}")
+    else:
+        print(f"(VS Code terminal bridge not installed: {detail} — Jarvis can't type "
+              f"into VS Code terminals until `jc-client update` succeeds)", file=sys.stderr)
 
 
 def _hooks_settings_path() -> str:
