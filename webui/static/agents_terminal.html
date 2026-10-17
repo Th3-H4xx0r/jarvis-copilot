@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0d13">
+<title>Agent terminal</title>
+<!-- One agent session's terminal, full screen, for the iPhone's WKWebView:
+     static/agents_terminal.html?terminal_id=<id from POST /api/coding/agents/terminal/start>.
+     Rides the session cookie; the <base> points relative URLs at the app root
+     (the page lives under /static/), so subpath mounts keep working. -->
+<script>(function(){var p=location.pathname,i=p.indexOf('/static/'),r=i>=0?p.slice(0,i+1):p.replace(/\/[^\/]*$/,'/');document.write('<base href="'+location.origin+r+'">');})()</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" integrity="sha384-LJcOxlx9IMbNXDqJ2axpfEQKkAYbFjJfhXexLfiRJhjDU81mzgkiQq8rkV0j6dVh" crossorigin="anonymous">
+<style>
+  html,body{margin:0;height:100%;background:#0a0d13;color:#cbd5e1;overflow:hidden;
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;}
+  #term{position:fixed;left:0;right:0;top:0;height:100%;box-sizing:border-box;
+    padding:calc(env(safe-area-inset-top) + 4px) calc(env(safe-area-inset-right) + 4px)
+            calc(env(safe-area-inset-bottom) + 4px) calc(env(safe-area-inset-left) + 4px);}
+  #term .xterm{height:100%;}
+  .note{padding:24px;color:#8E97AD;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js" integrity="sha384-/nfmYPUzWMS6v2atn8hbljz7NE0EI1iGx34lJaNzyVjWGDzMv+ciUZUeJpKA3Glc" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js" integrity="sha384-AQLWHRKAgdTxkolJcLOELg4E9rE89CPE2xMy3tIRFn08NcGKPTsELdvKomqji+DL" crossorigin="anonymous"></script>
+<script src="static/agents_terminal.js"></script>
+</head>
+<body>
+<div id="term"></div>
+<script>
+(function () {
+  var el = document.getElementById('term');
+  var tid = new URLSearchParams(location.search).get('terminal_id');
+  // Tell the app (if it listens) when the PTY goes away, so it can offer to reopen.
+  function tellApp(msg) {
+    try { window.webkit.messageHandlers.agentsTerminal.postMessage(msg); } catch (e) { /* not in the app */ }
+  }
+  if (!tid || !window.AgentsTerminal) {
+    el.innerHTML = '<div class="note">There’s no terminal to open.</div>';
+    tellApp({ event: 'error', reason: tid ? 'no_terminal_module' : 'no_terminal_id' });
+    return;
+  }
+  // The on-screen keyboard shrinks the visual viewport, not the layout one:
+  // follow it so the prompt line stays above the keyboard.
+  if (window.visualViewport) {
+    var follow = function () {
+      el.style.height = window.visualViewport.height + 'px';
+      window.AgentsTerminal.refit();
+    };
+    window.visualViewport.addEventListener('resize', follow);
+  }
+  var ok = window.AgentsTerminal.mount(el, tid, {
+    fontSize: 12,
+    onClosed: function (reason) { tellApp({ event: 'closed', reason: reason }); },
+  });
+  if (ok) {
+    window.AgentsTerminal.focus();
+    tellApp({ event: 'ready' });
+  }
+  window.addEventListener('pagehide', function () { window.AgentsTerminal.close({ keepalive: true }); });
+})();
+</script>
+</body>
+</html>

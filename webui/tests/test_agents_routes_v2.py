@@ -243,3 +243,28 @@ def test_project_sync_switch_route(env):
     status, body = call("POST", "/agents/project/sync", {"project_id": pid, "on": False})
     assert status == 200 and not env["store"].get_project(pid)["sync_enabled"]
     assert pid in env["store"].get_setting("sync_off_projects", [])
+
+
+def test_list_carries_recent_deliveries_and_project_sync(env):
+    _three(env)
+    _, sent = call("POST", "/agents/send", {"ckey": "claude|s1", "text": "Run the tests"})
+    env["core"].on_delivery("d1", {"delivery_id": sent["delivery"]["id"], "state": "queued"})
+    _, body = call("GET", "/agents/list")
+    (proj,) = body["projects"]
+    assert proj["sync_enabled"] is True
+    s1 = next(c for c in proj["sessions"] if c["ckey"] == "claude|s1")
+    assert s1["deliveries"][0] == {"id": sent["delivery"]["id"], "state": "queued", "reason": None}
+
+
+def test_messages_full_tool_output_on_request(env, monkeypatch):
+    _three(env)
+    _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
+    seen = {}
+    import agent.coding_transcript_read as ctr
+    real = ctr.slice_messages
+    monkeypatch.setattr(ctr, "slice_messages",
+                        lambda *a, **kw: seen.update(lite=kw.get("lite")) or real(*a, **kw))
+    call("GET", "/agents/messages?ckey=claude%7Cs1&lite=0")
+    assert seen["lite"] is False
+    call("GET", "/agents/messages?ckey=claude%7Cs1")
+    assert seen["lite"] is True

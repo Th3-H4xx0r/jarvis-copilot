@@ -124,7 +124,8 @@ def _v2(method, p, query, body):
         return _ok(c.list_payload())
     if p == "/agents/messages" and method == "GET":
         page = c.messages(ckey, after=_int(query.get("after")) or 0,
-                          before=_int(query.get("before")), limit=_int(query.get("limit")))
+                          before=_int(query.get("before")), limit=_int(query.get("limit")),
+                          lite=str(query.get("lite") or "1") != "0")
         return _ok(page) if page is not None else _err(404, "no such session")
     if method != "POST":
         return _err(405, "method not allowed")

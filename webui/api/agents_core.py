@@ -260,7 +260,8 @@ class AgentsCore:
                 continue
             pid = c.get("project_id") or ("cwd:" + (c.get("cwd") or ""))
             g = groups.setdefault(pid, {"id": c.get("project_id"), "name": c.get("project") or "",
-                                        "sessions": [], "last": 0.0})
+                                        "sync_enabled": self._project_synced(c), "sessions": [],
+                                        "last": 0.0})
             g["sessions"].append(c)
             g["last"] = max(g["last"], c.get("last_event_at") or 0)
         projects = sorted(groups.values(), key=lambda g: -g["last"])
@@ -280,7 +281,7 @@ class AgentsCore:
                 "usage_codex": tr.usage("codex") if tr is not None else None, "ts": now}
 
     def messages(self, ckey: str, *, after: int = 0, before: Optional[int] = None,
-                 limit: Optional[int] = None) -> Optional[dict]:
+                 limit: Optional[int] = None, lite: bool = True) -> Optional[dict]:
         row = self.conv.get(ckey)
         if row is None:
             return None
@@ -301,7 +302,7 @@ class AgentsCore:
                 from agent.coding_transcript_read import parse_transcript_text
                 msgs = parse_transcript_text(text)
             self._msg_cache[ckey] = cached = (sig, msgs)
-        return slice_messages(cached[1], after, before, limit, lite=True)
+        return slice_messages(cached[1], after, before, limit, lite=lite)
 
     # ── actions ──────────────────────────────────────────────────────────
     def stop(self, ckey: str) -> dict:
@@ -473,7 +474,18 @@ class AgentsCore:
             "can_terminal": owner == "server" and run.get("kind") == "background" and status == "live",
             "moved_from": row.get("moved_from"),
             "moved_from_name": self._name(row["moved_from"]) if row.get("moved_from") else "",
+            "deliveries": self._recent_deliveries(row["ckey"]),
         }
+
+    def _recent_deliveries(self, ckey: str) -> list:
+        """The last few messages sent to it in the past hour, with their state."""
+        cutoff = self._clock() - 3600
+        try:
+            rows = self.deliveries.recent(ckey, limit=3)
+        except Exception:  # noqa: BLE001
+            return []
+        return [{"id": d["id"], "state": d["state"], "reason": d.get("reason")}
+                for d in rows if (d.get("updated_at") or 0) >= cutoff]
 
     def _project_for(self, cwd: str, device_id) -> Optional[str]:
         try:
