@@ -75,7 +75,8 @@ class Presence:
 
     # ── reading ──────────────────────────────────────────────────────────
     def state(self, device_id: str) -> str:
-        return (self.store.get_presence(device_id) or {}).get("state") or "online"
+        """online | disconnected | asleep | offline | unknown (never seen since boot)."""
+        return (self.store.get_presence(device_id) or {}).get("state") or "unknown"
 
     def card(self) -> Optional[dict]:
         for p in sorted(self.store.list_presence(), key=lambda x: -(x.get("since") or 0)):
