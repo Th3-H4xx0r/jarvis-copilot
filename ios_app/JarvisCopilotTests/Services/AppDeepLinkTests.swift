@@ -79,14 +79,12 @@ final class AppDeepLinkTests: XCTestCase {
         XCTAssertNil(targets.consumeChat(), "the latch is taken exactly once")
     }
 
-    /// Coding moved into the More grid, so the link has to open More AND ask for
-    /// the Coding screen — selecting the tab alone would land on the grid.
-    func testCodingLinkOpensTheCodingScreenInMoreAndLatchesTheSession() {
-        let (deepLinks, appRouter, targets) = router()
+    /// Coding merged into the Agents tab, so an old coding link lands there.
+    func testCodingLinkOpensTheAgentsTab() {
+        let (deepLinks, appRouter, _) = router()
         XCTAssertTrue(deepLinks.open(.coding(session: "s1")))
-        XCTAssertEqual(appRouter.selectedTab, .more)
-        XCTAssertEqual(appRouter.consumeMoreDestination(), .coding)
-        XCTAssertEqual(targets.consumeCoding(), "s1")
+        XCTAssertEqual(appRouter.selectedTab, .agents)
+        XCTAssertNil(appRouter.consumeMoreDestination())
     }
 
     func testIslandLinkOpensMoreAndNeverFallsThroughToPairing() {
@@ -103,10 +101,10 @@ final class AppDeepLinkTests: XCTestCase {
 
     func testTargetGenerationBumpsSoARepeatedIdStillFires() {
         let targets = DeepLinkTargets()
-        targets.requestCoding(session: "s1")
+        targets.requestChat(session: "s1")
         let first = targets.generation
-        _ = targets.consumeCoding()
-        targets.requestCoding(session: "s1")
+        _ = targets.consumeChat()
+        targets.requestChat(session: "s1")
         XCTAssertEqual(targets.generation, first + 1)
     }
 }

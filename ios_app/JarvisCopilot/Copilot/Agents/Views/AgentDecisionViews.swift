@@ -50,11 +50,11 @@ struct AgentRequestCard: View {
         Text(AgentToolPhrase.detail(tool: request.tool,
                                     summary: request.command.isEmpty ? request.summary : request.command))
             .font(.system(size: 13, design: .monospaced))
-            .foregroundStyle(CodingUI.paneText)
+            .foregroundStyle(AgentPane.paneText)
             .lineLimit(10)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CodingUI.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(AgentPane.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .textSelection(.enabled)
         if denying {
             TextField("Tell it what to do instead (optional)", text: $note, axis: .vertical)

@@ -98,17 +98,16 @@ struct AgentPromptBubble: View {
     }
 }
 
-/// An instruction this phone sent: the bubble at once, then what became of it.
+/// A message this phone sent: the bubble at once, then what became of it —
+/// Sending…, Sent, Queued, Delivered, or Failed with why and a way on.
 struct AgentOutgoingBubble: View {
     let outgoing: AgentOutgoing
     let retry: () -> Void
     let dismiss: () -> Void
-    let openSettings: () -> Void
+    /// Offered when it failed because its Mac sleeps and it can move.
+    var continueOnServer: (() -> Void)? = nil
 
-    private var failure: AgentSendFailure? {
-        if case .failed(let f) = outgoing.phase { return f }
-        return nil
-    }
+    private var failure: AgentSendFailure? { outgoing.failure }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 7) {
@@ -117,8 +116,10 @@ struct AgentOutgoingBubble: View {
                 switch outgoing.phase {
                 case .sending:
                     AgentSpinner(size: 10, color: JcTheme.muted)
-                case .sent:
-                    JcIcon("checkmark", size: 10, weight: .semibold)
+                case .sent, .delivered:
+                    JcIcon(outgoing.phase == .delivered ? "checkmark.circle" : "checkmark", size: 10, weight: .semibold)
+                case .queued:
+                    JcIcon("clock", size: 10, weight: .semibold)
                 case .failed:
                     JcIcon("exclamationmark.circle.fill", size: 11)
                 }
@@ -130,17 +131,17 @@ struct AgentOutgoingBubble: View {
             .foregroundStyle(failure == nil ? JcTheme.muted : JcTheme.danger)
             .frame(maxWidth: 300, alignment: .trailing)
             .padding(.horizontal, 22)
+            .accessibilityElement(children: .combine)
             if let failure {
                 HStack(spacing: 8) {
                     Button("Dismiss", action: dismiss)
                         .buttonStyle(.jcGlass(tint: JcTheme.muted, compact: true))
-                    if failure.opensSettings {
-                        Button("Code Master settings", action: openSettings)
+                    if failure.offersContinue, let continueOnServer {
+                        Button("Continue on server", action: continueOnServer)
                             .buttonStyle(.jcGlass(tint: JcTheme.accent, compact: true))
-                    } else {
-                        Button("Try again", action: retry)
-                            .buttonStyle(.jcGlass(tint: JcTheme.text, compact: true))
                     }
+                    Button("Retry", action: retry)
+                        .buttonStyle(.jcGlass(tint: JcTheme.text, compact: true))
                 }
                 .padding(.horizontal, 18)
             }
@@ -246,14 +247,14 @@ struct AgentOutputBlock: View {
         ScrollView([.horizontal, .vertical], showsIndicators: false) {
             Text(trimmed)
                 .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(failed ? JcTheme.danger.opacity(0.9) : CodingUI.paneMuted)
+                .foregroundStyle(failed ? JcTheme.danger.opacity(0.9) : AgentPane.paneMuted)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 240)
         .fixedSize(horizontal: false, vertical: true)
-        .background(CodingUI.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(AgentPane.pane, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
     }
@@ -362,9 +363,9 @@ struct AgentEditCard: View {
                     }
                     Spacer(minLength: 6)
                     Text("+\(edit.added)")
-                        .foregroundStyle(CodingUI.diffAdd)
+                        .foregroundStyle(AgentPane.diffAdd)
                     Text("−\(edit.removed)")
-                        .foregroundStyle(CodingUI.diffDel)
+                        .foregroundStyle(AgentPane.diffDel)
                     JcIcon("chevron.right", size: 10, weight: .semibold)
                         .foregroundStyle(JcTheme.muted.opacity(0.7))
                         .rotationEffect(.degrees(open ? 90 : 0))
@@ -380,6 +381,12 @@ struct AgentEditCard: View {
                 Rectangle().fill(JcTheme.glassBorder).frame(height: 0.5)
                 if edit.lines.isEmpty && edit.detailIndex != nil {
                     AgentDetailsLoading().padding(.horizontal, 14)
+                } else if edit.lines.isEmpty {
+                    Text("The diff isn’t available here.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(JcTheme.muted)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                 }
                 AgentDiffLines(lines: Array(edit.lines.prefix(Self.previewLines)))
                 if edit.lines.count > Self.previewLines || edit.truncated {
@@ -393,7 +400,7 @@ struct AgentEditCard: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .background(CodingUI.pane)
+                            .background(AgentPane.pane)
                     }
                     .buttonStyle(.plain)
                     .disabled(edit.lines.count <= Self.previewLines)
@@ -422,7 +429,7 @@ struct AgentDiffLines: View {
             .padding(.vertical, 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CodingUI.pane)
+        .background(AgentPane.pane)
     }
 
     @ViewBuilder private func row(_ line: AgentDiffLine) -> some View {
@@ -436,15 +443,15 @@ struct AgentDiffLines: View {
         default:
             let (mark, color, ground): (String, Color, Color) = {
                 switch line.kind {
-                case .added: return ("+", CodingUI.diffAdd, CodingUI.diffAdd.opacity(0.12))
-                case .removed: return ("−", CodingUI.diffDel, CodingUI.diffDel.opacity(0.12))
-                default: return (" ", CodingUI.paneMuted, .clear)
+                case .added: return ("+", AgentPane.diffAdd, AgentPane.diffAdd.opacity(0.12))
+                case .removed: return ("−", AgentPane.diffDel, AgentPane.diffDel.opacity(0.12))
+                default: return (" ", AgentPane.paneMuted, .clear)
                 }
             }()
             HStack(spacing: 8) {
                 Text(mark).foregroundStyle(color)
                 Text(line.text.isEmpty ? " " : line.text)
-                    .foregroundStyle(line.kind == .context ? CodingUI.paneMuted.opacity(0.8) : CodingUI.paneText)
+                    .foregroundStyle(line.kind == .context ? AgentPane.paneMuted.opacity(0.8) : AgentPane.paneText)
             }
             .font(.system(size: 12, design: .monospaced))
             .padding(.horizontal, 12)
@@ -471,7 +478,7 @@ struct AgentDiffView: View {
                 }
             }
         }
-        .background(CodingUI.pane.ignoresSafeArea())
+        .background(AgentPane.pane.ignoresSafeArea())
     }
 }
 

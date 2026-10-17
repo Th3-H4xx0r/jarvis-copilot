@@ -56,8 +56,19 @@ struct SendAgentInstructionIntent: AppIntent {
         guard let target = overview.sessions.first(where: { $0.state != .idle }) ?? overview.sessions.first else {
             return .result(dialog: "No coding agent is running.")
         }
-        _ = try await AgentsAPI().sendInstruction(key: target.key, text: text)
-        return .result(dialog: IntentDialog(stringLiteral: "Sent to \(target.agentName) in \(target.project)."))
+        let delivery = try await AgentsAPI().send(ckey: AgentsListLayout.ckey(fromKey: target.key), text: text)
+        return .result(dialog: IntentDialog(stringLiteral: Self.reply(delivery, to: target)))
+    }
+
+    /// What Siri says back: where it went, or honestly why it didn't.
+    static func reply(_ delivery: AgentDelivery, to target: AgentSessionItem) -> String {
+        let to = "\(target.agentName) in \(target.project)"
+        switch delivery.state {
+        case .delivered: return "Delivered to \(to)."
+        case .sent: return "Sent to \(to)."
+        case .queued: return "Queued for \(to). It gets it when the turn ends."
+        case .failed: return "Couldn’t send it: \(AgentSendFailure.from(reason: delivery.reason).message)"
+        }
     }
 }
 

@@ -149,7 +149,7 @@ enum QuickAction: String, CaseIterable, Sendable {
         switch self {
         case .voice:  return "Talk to JARVIS"
         case .chat:   return "New chat"
-        case .coding: return "Coding sessions"
+        case .coding: return "Coding agents"
         }
     }
 
@@ -167,7 +167,7 @@ enum QuickAction: String, CaseIterable, Sendable {
         switch self {
         case .voice:  return .voice
         case .chat:   return .chat(session: nil)
-        case .coding: return .coding(session: nil)
+        case .coding: return .agents(key: nil)
         }
     }
 

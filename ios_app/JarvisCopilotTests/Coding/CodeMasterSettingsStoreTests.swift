@@ -127,7 +127,7 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         XCTAssertEqual(events.count, 3)
         for event in CodeMasterSettingsStore.events.map(\.key) {
             let row = events[event] as? [String: Any] ?? [:]
-            XCTAssertEqual(row.count, 5, "every channel is written, default or not")
+            XCTAssertEqual(row.count, store.channels.count, "every channel is written, default or not")
         }
         XCTAssertEqual((events["error"] as? [String: Any])?["photon"] as? Bool, true)
         XCTAssertEqual((events["finished"] as? [String: Any])?["mobile"] as? Bool, true)

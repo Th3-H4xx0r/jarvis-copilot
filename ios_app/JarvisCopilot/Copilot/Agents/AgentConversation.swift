@@ -2,7 +2,7 @@ import Foundation
 
 // A session's conversation as the session screen draws it — your prompts, the
 // agent's text, one-line tool rows, file-edit cards — built from either the
-// full Claude Code transcript (`/api/coding/session/<id>/messages`) or the
+// server's transcript copy (`/api/coding/agents/messages?ckey=`) or the
 // agent's own record of its last turn (`/api/coding/agents/session`). Pure, so
 // both sources read the same and the rules are unit tested.
 
@@ -267,7 +267,9 @@ enum AgentConversation {
     /// The transcript: every prompt, then each assistant message's tools (file
     /// edits as cards) and its text. The server merges an assistant turn's
     /// blocks into one message, so its tools come before its words.
-    static func items(_ messages: [CodingChatMessage], working: Bool) -> [AgentConversationItem] {
+    /// `noDetails`: messages the server can't send in full — their rows don't open.
+    static func items(_ messages: [CodingChatMessage], working: Bool,
+                      noDetails: Set<Int> = []) -> [AgentConversationItem] {
         var out: [AgentConversationItem] = []
         let lastIndex = messages.last?.i
         for m in messages {
@@ -286,7 +288,8 @@ enum AgentConversation {
                     // A lite page: the card shows its +/−, the diff loads when opened.
                     out.append(.edit(id: id, AgentFileEdit(path: t.summary, added: counts.added,
                                                            removed: counts.removed, isNew: t.name == "Write",
-                                                           truncated: false, lines: [], detailIndex: m.i)))
+                                                           truncated: false, lines: [],
+                                                           detailIndex: noDetails.contains(m.i) ? nil : m.i)))
                 } else {
                     let running = live && t.running
                     out.append(.tool(id: id, AgentToolItem(
@@ -294,7 +297,7 @@ enum AgentConversation {
                         line: AgentToolPhrase.line(tool: t.name, summary: t.summary,
                                                    tense: running ? .progressive : .past),
                         output: t.output, failed: !t.ok, running: running,
-                        detailIndex: t.more && t.output.isEmpty ? m.i : nil)))
+                        detailIndex: t.more && t.output.isEmpty && !noDetails.contains(m.i) ? m.i : nil)))
                 }
             }
             let text = trim(m.text)

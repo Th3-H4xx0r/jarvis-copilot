@@ -52,7 +52,7 @@ enum AgentNames {
     }
 
     /// The app a session runs in, from its terminal bundle id / TERM_PROGRAM.
-    static func hostApp(bundleId: String, termProgram: String, tmux: String) -> String {
+    static func hostApp(bundleId: String, termProgram: String) -> String {
         let byBundle: [String: String] = [
             "com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm",
             "dev.warp.Warp-Stable": "Warp", "com.mitchellh.ghostty": "Ghostty",
@@ -66,8 +66,7 @@ enum AgentNames {
         let byProgram: [String: String] = ["apple_terminal": "Terminal", "iterm.app": "iTerm",
                                            "warpterminal": "Warp", "ghostty": "Ghostty",
                                            "wezterm": "WezTerm", "kitty": "kitty"]
-        if let name = byProgram[program] { return name }
-        return tmux.isEmpty ? "" : "tmux"
+        return byProgram[program] ?? ""
     }
 }
 
@@ -163,8 +162,7 @@ struct AgentSessionItem: Identifiable, Equatable {
         model = CodingJSON.text(json["model"])
         let term = CodingJSON.dict(json["terminal"]) ?? [:]
         hostApp = AgentNames.hostApp(bundleId: CodingJSON.text(term["bundle_id"]),
-                                     termProgram: CodingJSON.text(term["term_program"]),
-                                     tmux: CodingJSON.text(term["tmux"]))
+                                     termProgram: CodingJSON.text(term["term_program"]))
         startedAt = Date(timeIntervalSince1970: CodingJSON.double(json["started_at"]) ?? 0)
         lastEventAt = Date(timeIntervalSince1970: CodingJSON.double(json["last_event_at"]) ?? 0)
         codingSessionId = CodingJSON.str(json["coding_session_id"])

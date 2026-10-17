@@ -132,10 +132,11 @@ final class GlassNavBarLayoutTests: XCTestCase {
         XCTAssertEqual(AppTab.allCases.count, 6)
     }
 
-    /// Coding lives in the More grid now, not the bar.
-    func testCodingIsAMoreDestinationAndNotATab() {
+    /// Coding merged into the Agents tab: neither a tab nor a More screen.
+    func testCodingIsNeitherATabNorAMoreDestination() {
         XCTAssertFalse(AppTab.allCases.contains { $0.rawValue == "coding" })
-        XCTAssertTrue(MoreDestination.allCases.contains(.coding))
+        XCTAssertFalse(MoreDestination.allCases.contains { $0.rawValue == "coding" })
+        XCTAssertTrue(AppTab.allCases.contains(.agents))
     }
 
 }

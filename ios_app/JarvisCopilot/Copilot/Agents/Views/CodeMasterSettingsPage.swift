@@ -85,8 +85,8 @@ struct CodeMasterSettingsPage: View {
                                 .foregroundStyle(JcTheme.text)
                         }
                         .tint(JcTheme.accent)
-                        Text("A session in tmux gets it typed in. Any other session on your Mac "
-                             + "continues in the background with claude --resume, in its own folder.")
+                        Text("Messages are typed into the session's terminal on your Mac (VS Code with the Jarvis "
+                             + "extension, or iTerm). A session that's mid-turn gets it when the turn ends.")
                             .font(.system(size: 12))
                             .foregroundStyle(JcTheme.muted)
                     }
@@ -145,5 +145,24 @@ struct CodeMasterSettingsPage: View {
                 }
             }
         }
+    }
+}
+
+/// The inline red strip for a recoverable error inside a sheet or a page
+/// (Code Master settings, the island's agent settings, the Agents sheets).
+struct CodingInlineError: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            JcIcon("exclamationmark.circle", size: 15).foregroundStyle(JcTheme.danger)
+            Text(message).font(.system(size: 13)).foregroundStyle(JcTheme.danger)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(JcTheme.danger.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(JcTheme.danger.opacity(0.30), lineWidth: 1))
     }
 }

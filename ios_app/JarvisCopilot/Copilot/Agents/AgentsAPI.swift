@@ -1,8 +1,10 @@
 import Foundation
 
-/// REST for the Agents tab: hook-tracked sessions of every coding agent
-/// (`/api/coding/agents/*`) and the approval / question endpoints they share
-/// with the Coding tab (`/api/coding/permission/*`).
+/// REST for the Agents tab: the merged conversation list and its actions
+/// (`/api/coding/agents/list`, `/messages`, `/send`, `/continue`, …), the
+/// hook-tracked sessions Siri, the widget and the Live Activity read
+/// (`/api/coding/agents/sessions`), and the approval / question endpoints
+/// (`/api/coding/permission/*`).
 struct AgentsAPI {
     let api: JarvisAPI
 
@@ -87,13 +89,143 @@ struct AgentsAPI {
         }
     }
 
-    /// `POST /api/coding/agents/instruction` → "queued" (handed over at the
-    /// session's next step), "typed"/"terminal" (typed into tmux or iTerm) or
-    /// "chat" (a Jarvis chat's next turn).
-    func sendInstruction(key: String, text: String) async throws -> String {
-        let reply = try await api.post("/api/coding/agents/instruction",
-                                       json: ["key": key, "text": text]).object()
-        if let error = CodingJSON.str(reply["error"]) { throw CodingServerError(message: error) }
-        return CodingJSON.text(reply["via"])
+    // MARK: - The merged list (webui/api/agents_core.py)
+
+    /// `GET /api/coding/agents/list` → `{card, needs_you, projects, usage, usage_codex, ts}`.
+    func list() async throws -> AgentsList {
+        AgentsList(json: try await api.get("/api/coding/agents/list").object())
+    }
+
+    /// `GET /api/coding/agents/messages?ckey=&after=&before=&limit=` — a page of
+    /// the server's transcript copy, the same shape the reducer folds in.
+    func messages(ckey: String, after: Int = 0, before: Int? = nil, limit: Int? = nil,
+                  lite: Bool = true) async throws -> CodingChatPage {
+        var query = ["ckey": ckey, "after": "\(after)"]
+        if let before { query["before"] = "\(before)" }
+        if let limit { query["limit"] = "\(limit)" }
+        if !lite { query["lite"] = "0" }
+        return CodingChatPage(json: try await api.get("/api/coding/agents/messages", query: query).object())
+    }
+
+    /// `POST /api/coding/agents/send {ckey, text}` → `{delivery}` — 200 when it
+    /// went (sent / queued / delivered), 409 with the reason when it didn't.
+    /// Read by hand: the 409's body is the answer, not an error to throw.
+    func send(ckey: String, text: String) async throws -> AgentDelivery {
+        let req = try api.request("POST", "/api/coding/agents/send",
+                                  headers: ["Content-Type": "application/json"],
+                                  body: try JSONSerialization.data(withJSONObject: ["ckey": ckey, "text": text]))
+        let (data, http) = try await api.transport.send(req)
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        if let delivery = CodingJSON.dict(obj["delivery"]) { return AgentDelivery(json: delivery) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.http(status: http.statusCode,
+                                message: APIError.message(status: http.statusCode, body: data))
+        }
+        throw APIError.badResponse("no delivery in the reply")
+    }
+
+    /// `POST /api/coding/agents/continue {ckeys, to, confirm_offline?}` →
+    /// `{results: {ckey: {ok, reason?, error?}}}`.
+    func continueSessions(_ ckeys: [String], to: String, confirmOffline: Bool = false) async throws
+        -> [String: AgentContinueResult] {
+        var body: [String: Any] = ["ckeys": ckeys, "to": to]
+        if confirmOffline { body["confirm_offline"] = true }
+        let reply = try await api.post("/api/coding/agents/continue", json: body).object()
+        var out: [String: AgentContinueResult] = [:]
+        for (k, v) in CodingJSON.dict(reply["results"]) ?? [:] {
+            out[k] = AgentContinueResult(json: CodingJSON.dict(v) ?? [:])
+        }
+        return out
+    }
+
+    /// `POST /api/coding/agents/stop {ckey}` — a 409 says why it couldn't.
+    func stop(ckey: String) async throws {
+        _ = try await api.post("/api/coding/agents/stop", json: ["ckey": ckey])
+    }
+
+    /// `POST /api/coding/agents/resume {ckey, where}` — an ended session, again.
+    func resume(ckey: String, where place: String) async throws {
+        _ = try await api.post("/api/coding/agents/resume", json: ["ckey": ckey, "where": place])
+    }
+
+    /// `POST /api/coding/agents/launch {cwd, where, agent, model?, permission_mode?, prompt?}`.
+    func launch(cwd: String, where place: String, agent: String, model: String? = nil,
+                permissionMode: String? = nil, prompt: String? = nil) async throws {
+        var body: [String: Any] = ["cwd": cwd, "where": place, "agent": agent]
+        if let model, !model.isEmpty { body["model"] = model }
+        if let permissionMode, !permissionMode.isEmpty { body["permission_mode"] = permissionMode }
+        if let prompt, !prompt.isEmpty { body["prompt"] = prompt }
+        _ = try await api.post("/api/coding/agents/launch", json: body)
+    }
+
+    /// `POST /api/coding/agents/card/dismiss {device_id, ckeys?}` — hide the
+    /// Mac-asleep card (or some of its rows).
+    func dismissCard(deviceId: String, ckeys: [String]? = nil) async throws {
+        var body: [String: Any] = ["device_id": deviceId]
+        if let ckeys { body["ckeys"] = ckeys }
+        _ = try await api.post("/api/coding/agents/card/dismiss", json: body)
+    }
+
+    /// `POST /api/coding/agents/terminal/start {ckey, rows, cols}` → `{terminal_id}`
+    /// for the shared `/api/terminal/*` endpoints.
+    func terminalStart(ckey: String, rows: Int, cols: Int) async throws -> String {
+        let reply = try await api.post("/api/coding/agents/terminal/start",
+                                       json: ["ckey": ckey, "rows": rows, "cols": cols]).object()
+        guard let id = CodingJSON.str(reply["terminal_id"]) else {
+            throw CodingServerError(message: "The server didn’t open a terminal.")
+        }
+        return id
+    }
+
+    /// `POST /api/terminal/input {session_id, data}` — the key bar's keys.
+    func terminalInput(_ terminalId: String, data: String) async throws {
+        _ = try await api.post("/api/terminal/input", json: ["session_id": terminalId, "data": data])
+    }
+
+    /// `POST /api/terminal/close {session_id}` — detach (the session keeps running).
+    func terminalClose(_ terminalId: String) async {
+        do {
+            _ = try await api.post("/api/terminal/close", json: ["session_id": terminalId])
+        } catch {
+            JcLog.dropped(JcLog.coding, "agents terminal close", error)
+        }
+    }
+
+    /// `GET /api/coding/permission/pending` → the approvals and questions
+    /// waiting on a verdict (each with the request id the cards answer).
+    func pending() async throws -> [AgentRequest] {
+        let body = try await api.get("/api/coding/permission/pending").object()
+        return ((body["pending"] as? [Any]) ?? []).compactMap(AgentRequest.from)
+    }
+
+    // MARK: - Projects and launching
+
+    /// `GET /api/coding/projects` → one project's settings.
+    func project(_ id: String) async throws -> CodingProject? {
+        let body = try await api.get("/api/coding/projects").object()
+        return CodingJSON.maps(body["projects"]).map(CodingProject.init(json:)).first { $0.id == id }
+    }
+
+    /// `POST /api/coding/project/{id}` — the name and ignore rules.
+    func updateProject(_ id: String, name: String, ignoreRules: String) async throws {
+        _ = try await api.post("/api/coding/project/\(id)",
+                               json: ["name": name, "ignore_rules": ignoreRules])
+    }
+
+    /// `POST /api/coding/agents/project/sync {project_id, on}` — the sync switch.
+    /// Turning it off is remembered, so auto-sync never turns it back on.
+    func setProjectSync(_ id: String, on: Bool) async throws {
+        _ = try await api.post("/api/coding/agents/project/sync", json: ["project_id": id, "on": on])
+    }
+
+    /// Folder typeahead for the launch sheet, on the server or a paired Mac.
+    func dirSuggest(path: String, deviceId: String?) async -> [String] {
+        await CodingSessionsAPI(api: api).dirSuggest(path: path, host: deviceId == nil ? "server" : "desktop",
+                                                     deviceId: deviceId)
+    }
+
+    /// The paired computers a session can be launched on.
+    func desktops() async throws -> [CodingDevice] {
+        try await CodingSessionsAPI(api: api).listDevices()
     }
 }

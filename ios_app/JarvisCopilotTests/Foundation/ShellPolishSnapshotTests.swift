@@ -256,26 +256,6 @@ final class ShellPolishSnapshotTests: XCTestCase {
         }
     }
 
-    /// Coding's Launch capsule is its bottom-most control, and the same blue.
-    ///
-    /// Reached through the More grid now rather than a tab of its own — which is
-    /// also the point: a pushed screen still has to clear the pill.
-    func testCodingLaunchButtonSitsJustAboveTheNavPill() {
-        let router = AppRouter()
-        router.openMore(.coding)
-        let harness = polishShell(router)
-        harness.settle(0.8)
-        let image = harness.snapshot("coding-in-shell")
-
-        guard let buttonBottom = polishBottomOfBlue(in: image, above: harness.pillTop) else {
-            return XCTFail("no Launch button found above the pill — did the Coding tab paint?")
-        }
-        let clearance = harness.pillTop - buttonBottom
-        XCTAssertGreaterThan(clearance, 0, "the Launch button overlaps the nav pill")
-        XCTAssertLessThan(clearance, Self.maxClearance,
-                          "the Launch button clears the pill by \(clearance) pt")
-    }
-
     // MARK: 2 — the Wearables half has no chrome of its own
 
     /// `ScanView` embedded must not bring a second navigation bar, and the one bar

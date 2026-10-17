@@ -6,11 +6,11 @@ import XCTest
 /// that the table is complete, unambiguous and presentable.
 final class MoreDestinationTests: XCTestCase {
 
-    /// Integrations leads: it left the tab bar for the Health tab. Coding
-    /// follows — it left the bar before it, and people reach for it most.
+    /// Integrations leads: it left the tab bar for the Health tab. Coding is
+    /// gone — it merged into the Agents tab.
     func testEveryTileFromTheFlutterGridIsPresent() {
         XCTAssertEqual(MoreDestination.allCases, [
-            .integrations, .coding, .skills, .kanban, .memory, .codeMemory, .longTermMemory,
+            .integrations, .skills, .kanban, .memory, .codeMemory, .longTermMemory,
             .workspaces, .profiles, .todos, .insights, .notes,
             .selfImprovement,
             .serverLogs, .islandDesigns, .harnesses, .photon, .appleWatch, .settings,

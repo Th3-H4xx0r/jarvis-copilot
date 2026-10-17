@@ -10,7 +10,8 @@ enum AppDeepLink: Equatable, Sendable {
     case voice
     /// `jarviscopilot://chat[?session=<id>]`
     case chat(session: String?)
-    /// `jarviscopilot://coding[?session=<id>]`
+    /// `jarviscopilot://coding[?session=<id>]` — the old Coding screen's link;
+    /// coding sessions live in the Agents tab now, so it opens that.
     case coding(session: String?)
     /// `jarviscopilot://agents[?key=<engine key>]` — the Agents tab, opened on
     /// one session (an approval / question / finished push lands here).
@@ -72,7 +73,6 @@ final class DeepLinkTargets {
     static let shared = DeepLinkTargets()
 
     private(set) var chatSession: String?
-    private(set) var codingSession: String?
     /// Bumped on every request so a view can `.onChange` even when the same id
     /// arrives twice.
     private(set) var generation = 0
@@ -84,22 +84,12 @@ final class DeepLinkTargets {
         generation += 1
     }
 
-    func requestCoding(session: String?) {
-        codingSession = session
-        generation += 1
-    }
-
     @discardableResult
     func consumeChat() -> String? {
         defer { chatSession = nil }
         return chatSession
     }
 
-    @discardableResult
-    func consumeCoding() -> String? {
-        defer { codingSession = nil }
-        return codingSession
-    }
 }
 
 /// Applies a parsed link to the app's navigation state. Split from the parser so
@@ -126,9 +116,10 @@ struct AppDeepLinkRouter {
             router.selectedTab = .chat
             targets.requestChat(session: session)
             return true
-        case .coding(let session):
-            router.openMore(.coding)
-            targets.requestCoding(session: session)
+        case .coding:
+            // Coding merged into the Agents tab. An old Coding session id isn't
+            // a conversation key, so the list is as far as it goes.
+            router.selectedTab = .agents
             return true
         case .agents(let key):
             router.selectedTab = .agents

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Port of `coding/coding_models.dart`. These mirror the server's
 /// `coding_sessions` control plane (`agent/coding_session_db.py`): a session is a
-/// tmux-backed Claude Code run on the server or a paired desktop, optionally
+/// Claude Code run on the server or a paired desktop, optionally
 /// file-synced with another device.
 ///
 /// Everything decodes from `[String: Any]` rather than `Codable` on purpose —
@@ -100,7 +100,7 @@ struct CodingSession: Identifiable, Equatable {
     var host: String?
     var cwd: String?
     var claudeSessionId: String?
-    /// chat | manual | discovered-tmux | discovered-transcript
+    /// chat | manual | discovered | hook
     var source: String?
     var model: String?
     var skipPermissions: Bool

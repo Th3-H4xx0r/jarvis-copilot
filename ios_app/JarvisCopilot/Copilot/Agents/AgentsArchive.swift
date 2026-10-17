@@ -33,13 +33,13 @@ enum AgentsSpotlight {
         return String(parts[2])
     }
 
-    static func index(_ sessions: [AgentSessionItem]) {
+    static func index(_ sessions: [AgentConv]) {
         guard enabled else { return }
         var items: [CSSearchableItem] = []
         for s in sessions {
             guard let turn = s.turnSummary, let started = turn.startedAt, turn.endedAt != nil,
                   !turn.prompt.isEmpty || !turn.final.isEmpty else { continue }
-            let id = identifier(key: s.key, startedAt: started)
+            let id = identifier(key: s.ckey, startedAt: started)
             guard !indexed.contains(id) else { continue }
             indexed.insert(id)
             let attrs = CSSearchableItemAttributeSet(contentType: .text)

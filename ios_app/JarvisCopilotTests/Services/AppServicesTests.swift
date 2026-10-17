@@ -336,10 +336,8 @@ final class AppServicesTests: XCTestCase {
         let (services, _, fakes) = makeServices()
         services.start()
         XCTAssertTrue(services.performQuickAction(type: QuickAction.coding.rawValue))
-        // Coding is a More screen now, so its quick action opens More and asks
-        // for it — landing on the More grid would be the bug.
-        XCTAssertEqual(fakes.router.selectedTab, .more)
-        XCTAssertEqual(fakes.router.consumeMoreDestination(), .coding)
+        // Coding sessions live in the Agents tab now.
+        XCTAssertEqual(fakes.router.selectedTab, .agents)
         XCTAssertFalse(services.performQuickAction(type: "com.example.nope"))
     }
 }

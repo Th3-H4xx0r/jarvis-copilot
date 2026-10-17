@@ -2,21 +2,25 @@ import SwiftUI
 
 /// Where the Agents tab's stack can go.
 enum AgentsRoute: Hashable {
+    /// A conversation, by its `agent|session_id` key.
     case session(String)
     case history
     case settings
 }
 
-/// The Agents tab: every coding-agent session on the Mac and the server, live
-/// from their hooks — laid out like the Claude app's Code sessions. One quiet
-/// row per session (the task, then project · agent · terminal), grouped into
-/// what needs you, what's working and the rest. Approvals and questions are
-/// answered inside each session.
+/// The Agents tab: every coding-agent conversation on the Mac and the server,
+/// one record each, live from their hooks. Top to bottom: the plan usage, the
+/// Mac-asleep card when a Mac left sessions behind, what needs you (a flat
+/// list across projects and machines), then every other session in
+/// collapsible project groups. Approvals and questions are answered inside
+/// each session; "+" starts a new one.
 struct AgentsPage: View {
     var store: AgentsStore = .shared
     @Environment(AppRouter.self) private var router
     @State private var path: [AgentsRoute] = []
     @State private var showRecap = false
+    @State private var showLaunch = false
+    @AppStorage(AgentsListPrefs.collapsedKey) private var collapsedRaw = ""
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -28,22 +32,33 @@ struct AgentsPage: View {
                             .padding(.top, 4)
                             .padding(.bottom, 6)
                     }
+                    if let card = store.card {
+                        AgentsSleepCard(card: card, store: store)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 6)
+                    }
                     content
                 }
                 .padding(.bottom, 28)
             }
             .refreshable { await store.refresh() }
             .background(JcTheme.bg.ignoresSafeArea())
-            .loadErrorBanner(store.loadError, hasContent: !store.sessions.isEmpty)
+            .loadErrorBanner(store.loadError, hasContent: !store.isEmpty)
             .navigationTitle("Agents")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { menu }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showLaunch = true } label: {
+                        JcIcon("plus", size: 17, weight: .semibold).foregroundStyle(JcTheme.text)
+                    }
+                    .accessibilityLabel("New session")
+                    menu
+                }
             }
             .navigationDestination(for: AgentsRoute.self) { route in
                 switch route {
-                case .session(let key):
-                    AgentSessionScreen(key: key, store: store,
+                case .session(let ckey):
+                    AgentSessionScreen(ckey: ckey, store: store,
                                        navigate: { path.append($0) },
                                        showRecap: { showRecap = true })
                 case .history:
@@ -54,8 +69,11 @@ struct AgentsPage: View {
             }
         }
         .onTabVisibilityChange(.agents) { store.setVisible($0) }
-        .onChange(of: store.openRequest, initial: true) { _, _ in
-            if let key = store.consumeOpen() { path = [.session(key)] }
+        .onChange(of: "\(store.openRequest ?? "")|\(store.loaded)", initial: true) { _, _ in
+            // A push tap can name its session before the first list is in;
+            // wait for it so the tracker key resolves to its conversation.
+            guard store.openRequest != nil, store.loaded, let key = store.consumeOpen() else { return }
+            path = [.session(store.resolveCkey(key))]
         }
         .onChange(of: store.recapRequested, initial: true) { _, _ in
             if store.consumeRecap() { showRecap = true }
@@ -63,50 +81,69 @@ struct AgentsPage: View {
         .sheet(isPresented: $showRecap) {
             AgentsRecapView(api: store.api)
         }
+        .sheet(isPresented: $showLaunch) {
+            AgentLaunchSheet(store: store)
+        }
     }
 
     // MARK: content
 
     @ViewBuilder private var content: some View {
-        let sections = store.sections
+        let needs = store.needsYou
         let orphans = store.orphanRequests
+        let projects = store.projects
         if !store.loaded {
             AgentsSkeletonList()
-        } else if sections.isEmpty && orphans.isEmpty {
+        } else if needs.isEmpty && orphans.isEmpty && projects.isEmpty {
             if let error = store.loadError {
                 AgentsErrorState(message: error) { Task { await store.refresh() } }
-            } else {
-                AgentsEmptyState { router.openMore(.coding) }
+            } else if store.card == nil {
+                AgentsEmptyState { showLaunch = true }
             }
         } else {
-            if !orphans.isEmpty && !sections.contains(where: { $0.kind == .needsYou }) {
-                AgentSectionHeader(title: AgentListSection.Kind.needsYou.title, count: orphans.count)
-                orphanCards(orphans)
+            if !needs.isEmpty || !orphans.isEmpty {
+                AgentSectionHeader(title: "Needs you", count: store.waitingCount)
+                ForEach(orphans) { request in
+                    AgentRequestCard(request: request, store: store)
+                        .padding(.bottom, 10)
+                }
+                rows(needs, showsProject: true)
             }
-            ForEach(sections) { section in
-                AgentSectionHeader(title: section.kind.title,
-                                   count: section.sessions.count + (section.kind == .needsYou ? orphans.count : 0))
-                if section.kind == .needsYou { orphanCards(orphans) }
-                ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
-                    NavigationLink(value: AgentsRoute.session(session.key)) {
-                        AgentSessionRow(session: session, request: store.request(for: session))
+            if !projects.isEmpty {
+                AgentSectionHeader(title: "Projects")
+                let collapsed = AgentsListLayout.collapsed(from: collapsedRaw)
+                ForEach(projects) { group in
+                    let open = AgentsListLayout.isExpanded(group, collapsed: collapsed, needsYou: needs)
+                    AgentsProjectHeader(group: group, open: open,
+                                        waiting: AgentsListLayout.hasWaiting(group, needsYou: needs)) {
+                        toggle(group, collapsed: collapsed)
                     }
-                    .buttonStyle(AgentRowButtonStyle())
-                    if index < section.sessions.count - 1 {
-                        Rectangle().fill(JcTheme.glassBorder)
-                            .frame(height: 0.5)
-                            .padding(.leading, 52)
-                    }
+                    if open { rows(group.sessions, showsProject: false) }
                 }
             }
         }
     }
 
-    private func orphanCards(_ requests: [AgentRequest]) -> some View {
-        ForEach(requests) { request in
-            AgentRequestCard(request: request, store: store)
-                .padding(.bottom, 10)
+    private func rows(_ convs: [AgentConv], showsProject: Bool) -> some View {
+        ForEach(Array(convs.enumerated()), id: \.element.id) { index, conv in
+            NavigationLink(value: AgentsRoute.session(conv.ckey)) {
+                AgentSessionRow(conv: conv, request: store.request(for: conv), showsProject: showsProject)
+            }
+            .buttonStyle(AgentRowButtonStyle())
+            if index < convs.count - 1 {
+                Rectangle().fill(JcTheme.glassBorder)
+                    .frame(height: 0.5)
+                    .padding(.leading, 52)
+            }
         }
+    }
+
+    /// Remembers how a group was left. A group with something waiting in it
+    /// stays open regardless, and goes back to this once nothing waits.
+    private func toggle(_ group: AgentProjectGroup, collapsed: Set<String>) {
+        var next = collapsed
+        if next.contains(group.id) { next.remove(group.id) } else { next.insert(group.id) }
+        withAnimation(.snappy(duration: 0.25)) { collapsedRaw = AgentsListLayout.encode(next) }
     }
 
     private var menu: some View {
@@ -114,7 +151,6 @@ struct AgentsPage: View {
             Button { path.append(.history) } label: { Label("History", jcIcon: "clock.arrow.circlepath") }
             Button { showRecap = true } label: { Label("This week’s recap", jcIcon: "chart.line.uptrend.xyaxis") }
             Divider()
-            Button { router.openMore(.coding) } label: { Label("Projects and terminals", jcIcon: "terminal") }
             Button { path.append(.settings) } label: { Label("Code Master settings", jcIcon: "gearshape") }
         } label: {
             JcIcon("ellipsis", size: 17)
@@ -126,13 +162,15 @@ struct AgentsPage: View {
 
 // MARK: - Rows
 
-/// One session, the Claude-app way: its status mark, the task, then project ·
-/// agent · terminal, and what it waits on or is doing right now.
+/// One conversation: its status mark, the task, then agent · where it runs
+/// (with the project under Needs you), and what it waits on or is doing.
 struct AgentSessionRow: View {
-    let session: AgentSessionItem
+    let conv: AgentConv
     var request: AgentRequest?
+    var showsProject = false
 
-    private var status: AgentRowStatus { AgentRowStatus.of(session.state, waiting: request != nil) }
+    private var status: AgentRowStatus { AgentsListLayout.status(conv, request: request) }
+    private var subtitle: String { AgentsListLayout.subtitle(conv, showsProject: showsProject) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -140,22 +178,22 @@ struct AgentSessionRow: View {
                 .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(AgentsPresentation.title(session))
+                    Text(conv.title)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(JcTheme.text)
+                        .foregroundStyle(conv.status == .ended ? JcTheme.text.opacity(0.7) : JcTheme.text)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
-                    Text(AgentsPresentation.time(session.lastEventAt))
+                    Text(AgentsPresentation.time(conv.lastEventAt))
                         .font(.system(size: 13))
                         .monospacedDigit()
                         .foregroundStyle(JcTheme.muted)
                 }
-                Text(AgentsPresentation.subtitle(session))
+                Text(subtitle)
                     .font(.system(size: 13.5))
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)
-                if let detail = AgentsPresentation.detail(session, request: request) {
+                if let detail = AgentsListLayout.detail(conv, request: request) {
                     Text(detail.text)
                         .font(.system(size: 13.5, weight: detail.tone == .waiting ? .medium : .regular))
                         .foregroundStyle(Self.color(detail.tone))
@@ -168,8 +206,7 @@ struct AgentSessionRow: View {
         .padding(.vertical, 13)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(AgentsPresentation.title(session)), \(AgentsPresentation.subtitle(session)), "
-                            + AgentRowStatus.label(session.state, request: request))
+        .accessibilityLabel("\(conv.title), \(subtitle), " + AgentsListLayout.statusLabel(conv, request: request))
     }
 
     static func color(_ tone: AgentRowDetail.Tone) -> Color {
@@ -236,6 +273,12 @@ struct AgentStatusMark: View {
                 JcIcon("clock", size: size * 0.86).foregroundStyle(status.color)
             case .idle:
                 Circle().strokeBorder(status.color, lineWidth: 1.5).frame(width: size * 0.56, height: size * 0.56)
+            case .paused:
+                JcIcon("moon.fill", size: size * 0.8).foregroundStyle(status.color)
+            case .moving:
+                AgentSpinner(size: size * 0.9, color: status.color)
+            case .ended:
+                JcIcon("stop.circle", size: size * 0.92).foregroundStyle(status.color)
             }
         }
         .frame(width: size + 4, height: size + 4)
@@ -365,7 +408,7 @@ enum AgentStyle {
 // MARK: - Empty, loading, failed
 
 struct AgentsEmptyState: View {
-    let openProjects: () -> Void
+    let startSession: () -> Void
 
     var body: some View {
         VStack(spacing: 18) {
@@ -380,7 +423,7 @@ struct AgentsEmptyState: View {
                 Text("No agent sessions yet")
                     .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
-                Text("Start Claude Code, Codex or another coding agent on your Mac. It shows up here live, with its approvals and questions.")
+                Text("Start Claude Code, Codex or another coding agent on your Mac, or tap + to start one on the server. It shows up here live, with its approvals and questions.")
                     .font(.system(size: 15))
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)
@@ -401,7 +444,7 @@ struct AgentsEmptyState: View {
             .background(JcTheme.glassFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(JcTheme.glassBorder, lineWidth: 0.5))
-            Button("Open projects", action: openProjects)
+            Button("Start a session", action: startSession)
                 .buttonStyle(.jcGlass(tint: JcTheme.accent))
                 .padding(.top, 4)
         }

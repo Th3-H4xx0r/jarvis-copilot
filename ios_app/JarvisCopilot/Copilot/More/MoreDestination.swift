@@ -4,7 +4,6 @@ import Foundation
 /// into a screen in a single `switch`.
 enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case integrations
-    case coding
     case skills
     case kanban
     case memory
@@ -28,7 +27,6 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .integrations:    return "Integrations"
-        case .coding:          return "Coding"
         case .skills:          return "Skills"
         case .kanban:          return "Kanban"
         case .memory:          return "Memory"
@@ -52,7 +50,6 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .integrations:    return "puzzlepiece"
-        case .coding:          return "terminal"
         case .skills:          return "sparkles"
         case .kanban:          return "rectangle.split.3x1"
         case .memory:          return "memorychip"

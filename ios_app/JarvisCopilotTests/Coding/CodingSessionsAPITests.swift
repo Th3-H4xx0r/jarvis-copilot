@@ -504,8 +504,8 @@ final class CodingSessionsAPITests: XCTestCase {
         XCTAssertEqual(query(t.lastRequest), ["session_id": "s1"])
         XCTAssertEqual(t.lastRequest?.url?.path, "/api/terminal/output")
         XCTAssertEqual(events.map(\.event), ["output", "terminal_closed"])
-        XCTAssertEqual(CodingTerminalEvent(events[0]), .output("$ ls\r\n"))
-        XCTAssertEqual(CodingTerminalEvent(events[1]), .closed(reason: "ended"))
+        XCTAssertEqual(events[0].string("text"), "$ ls\r\n")
+        XCTAssertEqual(events[1].string("reason"), "ended")
     }
 
     func testTerminalInputResizeAndClose() async throws {

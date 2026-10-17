@@ -144,7 +144,7 @@ struct ChatPage: View {
         switch destination {
         case .wearables: router.openDevices(.wearables)
         case .devices:   router.openDevices(.server)
-        case .coding:    router.openMore(.coding)
+        case .coding:    router.selectedTab = .agents
         case .usage:     router.openMore(.insights)
         }
     }

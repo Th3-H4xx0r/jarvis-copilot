@@ -32,32 +32,27 @@ final class AgentsScreensTests: XCTestCase {
         }
         try await scene("03-session-approval", open: Fx.approval)
         try await scene("04-session-question", open: Fx.thinking, requests: [Fx.question])
-        try await scene("05-session-last-turn-403", open: Fx.finished, instructionStatus: 403) { store in
-            await store.send("Also add a section on upgrading from v1", to: Fx.finished, prompts: [])
-        }
+        try await scene("05-session-mac-asleep", open: Fx.asleep)
         try await components("06-components")
-        try await scene("07-empty", sessions: [], requests: [], usage: false)
+        try await scene("07-empty", list: Fx.emptyList, requests: [], usage: false)
     }
 
     // MARK: harness
 
     private func scene(_ name: String, open: String? = nil,
-                       sessions: [[String: Any]] = Fx.sessions, requests: [[String: Any]] = [Fx.approvalRequest],
-                       usage: Bool = true, instructionStatus: Int = 200,
+                       list: [String: Any] = Fx.list, requests: [[String: Any]] = [Fx.approvalRequest],
+                       usage: Bool = true,
                        prepare: (AgentsStore) async -> Void = { _ in }) async throws {
         let (client, transport) = JarvisAPI.mocked()
-        var overview: [String: Any] = ["sessions": sessions, "pending": requests]
+        var payload = list
         if usage {
-            overview["usage"] = Fx.claudeUsage
-            overview["usage_codex"] = Fx.codexUsage
+            payload["usage"] = Fx.claudeUsage
+            payload["usage_codex"] = Fx.codexUsage
         }
-        transport.route("/api/coding/agents/sessions", json: overview)
-        transport.route("/api/coding/agents/session", json: ["session": Fx.detail(open ?? "")])
-        let reply: [String: Any] = instructionStatus == 200
-            ? ["ok": true, "via": "terminal"]
-            : ["error": "turn on \"Instructions from the phone\""]
-        transport.route("/api/coding/agents/instruction", json: reply, status: instructionStatus)
-        transport.route("/messages", json: Fx.transcript(open ?? ""))
+        transport.route("/api/coding/agents/list", json: payload)
+        transport.route("/api/coding/permission/pending", json: ["pending": requests])
+        transport.route("/api/coding/agents/send", json: ["delivery": ["state": "queued"]])
+        transport.route("/api/coding/agents/messages", json: Fx.transcript(open ?? ""))
         let topics = BridgeTopics()
         topics.send = { _ in }
         let store = AgentsStore(api: AgentsAPI(api: client), topics: topics)
@@ -128,64 +123,81 @@ final class AgentsScreensTests: XCTestCase {
 
 // MARK: - Sample data
 
-/// Sessions, a waiting approval, a question, plan usage and transcripts that
-/// read like a real afternoon with the agents.
+/// Conversations, a Mac-asleep card, a waiting approval, a question, plan
+/// usage and transcripts that read like a real afternoon with the agents.
 private enum Fx {
     static let now = Date().timeIntervalSince1970
     static let cwd = "/Users/pranav/code/storefront"
 
-    static let working = "d1|claude|s1"
-    static let approval = "d1|claude|s2"
-    static let thinking = "d1|codex|s3"
-    static let finished = "d1|claude|s4"
+    static let working = "claude|s1"
+    static let approval = "claude|s2"
+    static let thinking = "codex|s3"
+    static let asleep = "claude|s4"
 
-    static func session(_ key: String, agent: String = "claude", state: String, project: String,
-                        prompt: String?, step: String = "", ago: Double, terminal: [String: Any],
-                        coding: String? = nil, pending: String? = nil) -> [String: Any] {
-        var s: [String: Any] = [
-            "key": key, "host": "d1", "agent": agent, "session_id": "4f1c2b7e-\(key.suffix(2))-9a3d",
-            "cwd": project == "storefront" ? cwd : "/Users/pranav/code/\(project)", "project": project,
-            "state": state, "step": step, "steps": [], "subagents": 0,
-            "model": ["codex": "gpt-5-codex", "gemini": "gemini-3-pro"][agent] ?? "claude-opus-5-5",
-            "terminal": terminal, "started_at": now - ago - 1500, "last_event_at": now - ago,
-            "device_id": "d1",
+    static func conv(_ ckey: String, state: String, project: String, title: String, step: String = "",
+                     ago: Double, owner: String = "server", status: String = "live",
+                     pending: String? = nil, canSend: Bool = true) -> [String: Any] {
+        let agent = ckey.components(separatedBy: "|").first ?? "claude"
+        var c: [String: Any] = [
+            "ckey": ckey, "key": "d1|\(ckey)", "agent": agent, "session_id": "4f1c2b7e-\(ckey.suffix(2))-9a3d",
+            "title": title, "project_id": "p-\(project)", "project": project,
+            "cwd": project == "storefront" ? cwd : "/Users/pranav/code/\(project)",
+            "owner": owner, "owner_name": owner == "server" ? "Server" : "MacBook",
+            "status": status, "state": status == "live" ? state : status, "step": step,
+            "model": agent == "codex" ? "gpt-5-codex" : "claude-opus-5-5",
+            "last_event_at": now - ago, "terminal_app": "vscode",
+            "can_send": canSend, "can_continue_server": status == "asleep",
+            "can_terminal": owner == "server" && status == "live",
         ]
-        if let coding { s["coding_session_id"] = coding }
-        if let pending { s["pending"] = ["kind": "approval", "fingerprint": pending] }
-        if let prompt { s["turn_summary"] = ["prompt": prompt, "started_at": now - ago - 300] }
-        return s
+        if let pending { c["pending"] = ["kind": "approval", "fingerprint": pending] }
+        return c
     }
 
-    static let sessions: [[String: Any]] = [
-        session(working, state: "working", project: "storefront",
-                prompt: "Fix the flaky checkout test and make CI green", step: "Bash: npm test",
-                ago: 12, terminal: ["bundle_id": "com.googlecode.iterm2"], coding: "cs_1"),
-        session(approval, state: "approval", project: "jarvis-copilot",
-                prompt: "Clean the build folders and rebuild the widget", ago: 95,
-                terminal: ["bundle_id": "com.apple.Terminal"], coding: "cs_2", pending: "fp-r1"),
-        session(thinking, agent: "codex", state: "thinking", project: "search-api",
-                prompt: "Add rate limiting to the /v1/search endpoint", ago: 240,
-                terminal: ["bundle_id": "com.mitchellh.ghostty"]),
-        session(finished, state: "finished", project: "docs-site",
-                prompt: "Rewrite the getting-started guide for the new CLI", ago: 2 * 3600,
-                terminal: ["term_program": "vscode"]),
-        session("d1|gemini|s5", agent: "gemini", state: "error", project: "ml-pipeline",
-                prompt: "Retrain the ranking model on last week's data", step: "Bash: python train.py",
-                ago: 5 * 3600, terminal: ["bundle_id": "dev.warp.Warp-Stable"]),
-        session("d1|claude|s6", state: "idle", project: "dotfiles", prompt: nil, ago: 2 * 86_400,
-                terminal: ["tmux": "main"]),
+    static let list: [String: Any] = [
+        "card": ["device_id": "d1", "device_name": "MacBook", "kind": "sleep", "since": now - 17 * 60,
+                 "sessions": [
+                    ["ckey": asleep, "title": "Fix CarPlay mic hand-off", "project": "jarvis-copilot",
+                     "was": "working", "agent": "claude"],
+                    ["ckey": "claude|s7", "title": "Refactor order router", "project": "IntelliStock",
+                     "was": "approval", "agent": "claude"],
+                 ] as [[String: Any]]] as [String: Any],
+        "needs_you": [
+            conv(approval, state: "approval", project: "jarvis-copilot", title: "Migrate push tokens",
+                 ago: 60, pending: "fp-r1"),
+        ],
+        "projects": [
+            ["id": "p-storefront", "name": "storefront", "sessions": [
+                conv(working, state: "working", project: "storefront",
+                     title: "Fix the flaky checkout test", step: "Bash: npm test", ago: 12),
+                conv(thinking, state: "thinking", project: "storefront",
+                     title: "Add rate limiting to /v1/search", ago: 240, owner: "d1"),
+            ]] as [String: Any],
+            ["id": "p-jarvis-copilot", "name": "jarvis-copilot", "sessions": [
+                conv(asleep, state: "working", project: "jarvis-copilot", title: "Fix CarPlay mic hand-off",
+                     ago: 17 * 60, owner: "d1", status: "asleep", canSend: false),
+            ]] as [String: Any],
+            ["id": "p-IntelliStock", "name": "IntelliStock", "sessions": [
+                conv("claude|s7", state: "approval", project: "IntelliStock", title: "Refactor order router",
+                     ago: 17 * 60, owner: "d1", status: "asleep", canSend: false),
+                conv("claude|s8", state: "idle", project: "IntelliStock", title: "Tidy the README",
+                     ago: 3 * 3600, status: "ended", canSend: false),
+            ]] as [String: Any],
+        ],
+        "ts": now,
     ]
+
+    static let emptyList: [String: Any] = ["card": NSNull(), "needs_you": [] as [Any], "projects": [] as [Any]]
 
     static let approvalRequest: [String: Any] = [
         "request_id": "r1", "fingerprint": "fp-r1", "kind": "permission", "tool": "Bash",
         "summary": "Bash: rm -rf build DerivedData && xcodebuild -scheme JarvisWidget build",
         "command": "rm -rf build DerivedData && xcodebuild -scheme JarvisWidget build",
-        "project": "jarvis-copilot", "key": approval, "agent": "claude", "can_always": true, "created": now - 95,
+        "project": "jarvis-copilot", "key": "d1|" + approval, "agent": "claude", "can_always": true, "created": now - 95,
     ]
 
     static let question: [String: Any] = [
         "request_id": "r2", "fingerprint": "fp-r2", "kind": "ask", "tool": "AskUserQuestion",
-        "project": "search-api", "key": thinking, "agent": "codex", "created": now - 30,
+        "project": "storefront", "key": "d1|" + thinking, "agent": "codex", "created": now - 30,
         "questions": [[
             "question": "Where should the rate limit live?", "header": "Rate limiting", "multiSelect": false,
             "options": [
@@ -223,41 +235,6 @@ private enum Fx {
         Timeout - Async callback was not invoked within the 5000 ms timeout
     Tests: 1 failed, 23 passed, 24 total
     """
-
-    static func detail(_ key: String) -> [String: Any] {
-        var s = sessions.first { ($0["key"] as? String) == key } ?? sessions[0]
-        if key == finished {
-            s["turn"] = [
-                "prompt": "Rewrite the getting-started guide for the new CLI",
-                "started_at": now - 2 * 3600 - 600, "ended_at": now - 2 * 3600,
-                "final": """
-                The guide now follows the new CLI from install to first deploy.
-
-                - **Install** uses `brew install storefront` instead of the old script
-                - **Login** is one step: `storefront login` opens the browser
-                - Every command example was run against v2.3 and updated
-                """,
-                "actions": [
-                    ["tool": "Read", "summary": "Read: /Users/pranav/code/docs-site/docs/start.md", "output": "…"],
-                    ["tool": "Read", "summary": "Read: /Users/pranav/code/docs-site/docs/cli.md", "output": "…"],
-                    ["tool": "Grep", "summary": "Grep: storefront init", "output": "docs/start.md:14"],
-                    ["tool": "Read", "summary": "Read: /Users/pranav/code/docs-site/sidebars.js", "output": "…"],
-                    ["tool": "Edit", "summary": "Edit: /Users/pranav/code/docs-site/docs/start.md", "file": 0],
-                    ["tool": "Bash", "summary": "Bash: npm run build", "output": "[SUCCESS] Generated static files in build."],
-                ] as [[String: Any]],
-                "files": [[
-                    "path": "/Users/pranav/code/docs-site/docs/start.md", "added": 38, "removed": 21,
-                    "lines": [["k": "-", "t": "Run `./install.sh` to get started."],
-                              ["k": "+", "t": "Install the CLI with Homebrew:"],
-                              ["k": "+", "t": "    brew install storefront"]],
-                ] as [String: Any]],
-            ] as [String: Any]
-        } else {
-            s["turn"] = ["prompt": s["turn_summary"].flatMap { ($0 as? [String: Any])?["prompt"] } ?? "",
-                         "actions": [] as [Any], "files": [] as [Any]] as [String: Any]
-        }
-        return s
-    }
 
     static func transcript(_ key: String) -> [String: Any] {
         if key == approval {

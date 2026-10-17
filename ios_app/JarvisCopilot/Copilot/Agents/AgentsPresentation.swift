@@ -13,6 +13,12 @@ import SwiftUI
 /// waits on you.
 enum AgentRowStatus: Equatable {
     case waiting, working, finished, failed, rateLimited, idle
+    /// Its Mac is asleep or offline: the moon.
+    case paused
+    /// A Continue is moving it between machines.
+    case moving
+    /// The process is gone.
+    case ended
 
     /// A request waiting on you wins over whatever the hooks last said: the
     /// card is what the person has to act on.
@@ -50,70 +56,10 @@ enum AgentRowStatus: Equatable {
         case .finished: return JcTheme.success
         case .failed: return JcTheme.danger
         case .rateLimited: return JcTheme.muted
-        case .idle: return CodingUI.grey
+        case .idle, .ended: return AgentPane.grey
+        case .paused: return JcTheme.blue
+        case .moving: return JcTheme.muted
         }
-    }
-}
-
-// MARK: - Grouping
-
-/// One section of the sessions list.
-struct AgentListSection: Identifiable, Equatable {
-    enum Kind: String, CaseIterable {
-        case needsYou, working, recent
-
-        var title: String {
-            switch self {
-            case .needsYou: return "Needs you"
-            case .working: return "Working"
-            case .recent: return "Recent"
-            }
-        }
-    }
-
-    let kind: Kind
-    let sessions: [AgentSessionItem]
-    var id: String { kind.rawValue }
-}
-
-enum AgentsGrouping {
-    /// Which section a session belongs in. A rate-limited session is still
-    /// live (it resumes when the window resets), so it stays with the working.
-    static func kind(of session: AgentSessionItem, waiting: Bool) -> AgentListSection.Kind {
-        if waiting || session.state.waitsOnYou { return .needsYou }
-        switch session.state {
-        case .working, .thinking, .ratelimit: return .working
-        default: return .recent
-        }
-    }
-
-    /// "Needs you", then "Working", then "Recent", each newest first; empty
-    /// sections are left out.
-    static func sections(_ sessions: [AgentSessionItem], requests: [AgentRequest]) -> [AgentListSection] {
-        let waitingKeys = Set(requests.map(\.key))
-        let byKind = Dictionary(grouping: sessions) { kind(of: $0, waiting: waitingKeys.contains($0.key)) }
-        return AgentListSection.Kind.allCases.compactMap { k in
-            guard let rows = byKind[k], !rows.isEmpty else { return nil }
-            return AgentListSection(kind: k, sessions: rows.sorted { $0.lastEventAt > $1.lastEventAt })
-        }
-    }
-
-    /// Requests whose session isn't in the list (it ended, or it belongs to a
-    /// Coding-tab session) — shown on their own so none is unreachable.
-    static func orphans(_ requests: [AgentRequest], sessions: [AgentSessionItem]) -> [AgentRequest] {
-        let keys = Set(sessions.map(\.key))
-        return requests.filter { !keys.contains($0.key) }
-    }
-
-    /// What waits on you: the "Needs you" rows plus the orphaned cards — the
-    /// same number the list shows, never a different count.
-    static func waitingCount(_ sessions: [AgentSessionItem], requests: [AgentRequest]) -> Int {
-        let rows = sections(sessions, requests: requests).first { $0.kind == .needsYou }?.sessions.count ?? 0
-        return rows + orphans(requests, sessions: sessions).count
-    }
-
-    static func workingCount(_ sessions: [AgentSessionItem], requests: [AgentRequest]) -> Int {
-        sections(sessions, requests: requests).first { $0.kind == .working }?.sessions.count ?? 0
     }
 }
 
@@ -127,38 +73,6 @@ struct AgentRowDetail: Equatable {
 }
 
 enum AgentsPresentation {
-    /// The task: the first line of the last prompt, else the project.
-    static func title(_ s: AgentSessionItem) -> String {
-        let prompt = firstLine(s.turnSummary?.prompt ?? "")
-        return prompt.isEmpty ? s.project : prompt
-    }
-
-    /// "project · agent · terminal", without the project when it is the title.
-    static func subtitle(_ s: AgentSessionItem) -> String {
-        var parts = title(s) == s.project ? [] : [s.project]
-        parts.append(s.agentName)
-        if !s.hostApp.isEmpty { parts.append(s.hostApp) }
-        return parts.joined(separator: " · ")
-    }
-
-    /// What it waits on, or what it's doing, or nil when there's nothing to say.
-    static func detail(_ s: AgentSessionItem, request: AgentRequest?) -> AgentRowDetail? {
-        if let request { return AgentRowDetail(text: ask(request), tone: .waiting) }
-        switch s.state {
-        case .approval: return AgentRowDetail(text: "Needs approval", tone: .waiting)
-        case .question: return AgentRowDetail(text: "Has a question", tone: .waiting)
-        case .working, .thinking:
-            return AgentRowDetail(text: liveStep(s.step), tone: .working)
-        case .error:
-            let step = firstLine(s.step)
-            return AgentRowDetail(text: step.isEmpty ? "Stopped with an error" : step, tone: .failed)
-        case .ratelimit:
-            return AgentRowDetail(text: "Paused until the plan limit resets", tone: .quiet)
-        case .finished, .idle:
-            return nil
-        }
-    }
-
     /// One line for what a request asks: "Wants to run rm -rf build", or the question.
     static func ask(_ request: AgentRequest) -> String {
         if request.kind == .question {
@@ -220,12 +134,13 @@ enum AgentsPresentation {
 
     /// "now", "5m", "3h", "2d", then "Oct 3".
     static func time(_ date: Date, now: Date = Date()) -> String {
-        CodingUI.relativeTime(date.timeIntervalSince1970, now: now)
+        AgentPane.relativeTime(date.timeIntervalSince1970, now: now)
     }
 
     /// The top line of the conversation: where it runs and on what.
-    static func meta(_ s: AgentSessionItem) -> String {
-        [s.project, s.agentName, s.hostApp, s.model].filter { !$0.isEmpty }.joined(separator: " · ")
+    static func meta(_ c: AgentConv) -> String {
+        [c.project, c.agentName, AgentsListLayout.whereLabel(c), c.model].filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     static func firstLine(_ text: String, limit: Int = 140) -> String {
@@ -238,25 +153,36 @@ enum AgentsPresentation {
 
 // MARK: - Sending
 
-/// Why an instruction didn't reach the agent, in words a person can act on.
+/// Why a message didn't reach the agent, in words a person can act on
+/// (`POST /agents/send`'s `delivery.reason`, or the request failing).
 enum AgentSendFailure: Equatable {
-    /// 403: the Code Master switch "Instructions from the phone" is off.
-    case phoneInstructionsOff
-    /// 409 without a reason: nothing to deliver it to.
-    case noTerminal
-    /// 503: the Mac that runs it is offline.
+    /// `owner_offline`: the Mac that runs it is asleep or offline.
     case macOffline
+    /// `no_runtime`: nothing runs it on the server.
+    case noRuntime
+    /// `ended`: the session is over.
+    case ended
+    /// `moving`: a Continue is moving it right now.
+    case moving
+    /// `no_session`: the server doesn't know it any more.
+    case gone
     case other(String)
+
+    static func from(reason: String?) -> AgentSendFailure {
+        switch reason ?? "" {
+        case "owner_offline": return .macOffline
+        case "no_runtime": return .noRuntime
+        case "ended": return .ended
+        case "moving": return .moving
+        case "no_session": return .gone
+        case "": return .other("It didn’t go through.")
+        case let text: return .other(text)
+        }
+    }
 
     static func from(_ error: Error) -> AgentSendFailure {
         if case APIError.http(let status, let message) = error {
-            switch status {
-            case 403: return .phoneInstructionsOff
-            // A 409 says why (idle where Jarvis can't type, Jarvis still answering…).
-            case 409: return message.isEmpty ? .noTerminal : .other(message)
-            case 503: return .macOffline
-            default: return .other(message.isEmpty ? "Couldn’t send it (\(status))" : message)
-            }
+            return .other(message.isEmpty ? "Couldn’t send it (\(status))." : message)
         }
         if let server = error as? CodingServerError { return .other(server.message) }
         return .other(apiErrorLine(error))
@@ -264,28 +190,40 @@ enum AgentSendFailure: Equatable {
 
     var message: String {
         switch self {
-        case .phoneInstructionsOff:
-            return "“Instructions from the phone” is off. Turn it on in Code Master settings to send this."
-        case .noTerminal:
-            return "This session can’t take a message right now."
-        case .macOffline:
-            return "The Mac running this session is offline. Try again once it’s back."
-        case .other(let text):
-            return text
+        case .macOffline: return "The Mac running it is asleep or offline."
+        case .noRuntime: return "Nothing is running it on the server."
+        case .ended: return "This session has ended."
+        case .moving: return "It’s moving between machines. Try again in a moment."
+        case .gone: return "That session is gone."
+        case .other(let text): return text
         }
     }
 
-    /// The 403 comes with a way to the switch.
-    var opensSettings: Bool { self == .phoneInstructionsOff }
+    /// An asleep Mac's session can be continued on the server instead.
+    var offersContinue: Bool { self == .macOffline }
 }
 
-/// An instruction sent from this phone, kept on screen from the tap until the
+/// A message sent from this phone, kept on screen from the tap until the
 /// transcript shows it.
 struct AgentOutgoing: Identifiable, Equatable {
     enum Phase: Equatable {
         case sending
-        case sent(via: String)
+        /// Handed to whatever runs it; not yet seen arriving.
+        case sent
+        /// Waiting for the turn to end (the Stop hook hands it over).
+        case queued
+        /// Its `UserPromptSubmit` arrived.
+        case delivered
         case failed(AgentSendFailure)
+
+        init(_ delivery: AgentDelivery) {
+            switch delivery.state {
+            case .sent: self = .sent
+            case .queued: self = .queued
+            case .delivered: self = .delivered
+            case .failed: self = .failed(.from(reason: delivery.reason))
+            }
+        }
     }
 
     let id: UUID
@@ -302,18 +240,21 @@ struct AgentOutgoing: Identifiable, Equatable {
         self.phase = phase
     }
 
-    var caption: String {
+    var caption: String { Self.caption(phase) }
+
+    static func caption(_ phase: Phase) -> String {
         switch phase {
         case .sending: return "Sending…"
-        case .sent(let via):
-            switch via {
-            case "queued": return "Queued · it gets this when it finishes its current step"
-            case "typed", "terminal": return "Sent · typed into the terminal"
-            case "chat": return "Sent to Jarvis"
-            default: return "Sent"
-            }
-        case .failed(let failure): return failure.message
+        case .sent: return "Sent"
+        case .queued: return "Queued — will send when the turn ends"
+        case .delivered: return "Delivered"
+        case .failed(let failure): return "Failed: \(failure.message)"
         }
+    }
+
+    var failure: AgentSendFailure? {
+        if case .failed(let f) = phase { return f }
+        return nil
     }
 
     static func count(_ text: String, in prompts: [String]) -> Int {
@@ -321,25 +262,28 @@ struct AgentOutgoing: Identifiable, Equatable {
         return prompts.filter { $0.trimmingCharacters(in: .whitespacesAndNewlines) == want }.count
     }
 
-    /// Drops what the conversation now shows. Sending and failed ones stay.
+    /// Drops what the conversation now shows (it arrived). Sending and failed
+    /// ones stay.
     static func reconcile(_ list: [AgentOutgoing], prompts: [String]) -> [AgentOutgoing] {
         list.filter { o in
-            guard case .sent = o.phase else { return true }
-            return count(o.text, in: prompts) <= o.baseline
+            switch o.phase {
+            case .sending, .failed: return true
+            case .sent, .queued, .delivered: return count(o.text, in: prompts) <= o.baseline
+            }
         }
     }
 }
 
 // MARK: - Transcript or last turn
 
-/// What a session screen shows: the full Claude Code transcript when the
-/// session has one, else the agent's own record of its last turn.
+/// What a session screen shows: the full transcript (`/agents/messages`) when
+/// the server has one, else the agent's own record of its last turn.
 enum AgentTranscriptChoice: Equatable {
     case loading, transcript, lastTurn, empty
 
-    static func choose(codingSessionId: String?, transcript: CodingTranscript,
+    static func choose(transcriptId: String?, transcript: CodingTranscript,
                        turn: AgentTurn?, detailLoaded: Bool) -> AgentTranscriptChoice {
-        if codingSessionId != nil {
+        if transcriptId != nil {
             if !transcript.messages.isEmpty { return .transcript }
             // The first page is in flight: wait for it rather than flash the
             // last turn and then swap it out.
@@ -347,5 +291,34 @@ enum AgentTranscriptChoice: Equatable {
         }
         if let turn, !turn.isEmpty { return .lastTurn }
         return detailLoaded ? .empty : .loading
+    }
+}
+
+// MARK: - Pane palette
+
+/// The code-block ground and its text, diff colours and the resting grey —
+/// the terminal look tool output, diffs and approval commands share.
+enum AgentPane {
+    static let pane = Color(jcHex: 0x0A0D13)
+    static let paneText = Color(jcHex: 0xD7DAE0)
+    static let paneMuted = Color(jcHex: 0xB9BFC9)
+    static let diffAdd = Color(jcHex: 0x34D399)
+    static let diffDel = Color(jcHex: 0xF87171)
+    /// Idle — alive but nothing happening.
+    static let grey = Color(jcHex: 0x838B97)
+
+    /// "now" / "5m" / "3h" / "2d" / "Mar 4", or "" when the server never said.
+    static func relativeTime(_ ts: Double, now: Date) -> String {
+        guard ts > 0 else { return "" }
+        let delta = now.timeIntervalSince1970 - ts
+        // A clock skew (the server ahead of the phone) reads as "now".
+        if delta < 45 { return "now" }
+        if delta < 3600 { return "\(Int(delta / 60))m" }
+        if delta < 86_400 { return "\(Int(delta / 3600))h" }
+        if delta < 7 * 86_400 { return "\(Int(delta / 86_400))d" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM d"
+        return f.string(from: Date(timeIntervalSince1970: ts))
     }
 }

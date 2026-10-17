@@ -1,6 +1,7 @@
 import XCTest
 @testable import JarvisCopilot
 
+/// The session screen's transcript reducer (lifted from the old Coding tab).
 final class CodingStreamReducerTests: XCTestCase {
 
     private func msg(_ i: Int, _ role: String = "assistant", _ text: String = "") -> CodingChatMessage {
@@ -34,13 +35,6 @@ final class CodingStreamReducerTests: XCTestCase {
         _ = CodingStreamReducer.apply(grown, full: false, to: &t)
         XCTAssertEqual(t.messages.last?.text, "All 12 tests pass.")
         XCTAssertEqual(t.messages.count, 40)
-    }
-
-    func testEveryTwelfthIncrementalPollReconciles() {
-        XCTAssertFalse(CodingStreamReducer.shouldFullReconcile(tick: 1))
-        XCTAssertFalse(CodingStreamReducer.shouldFullReconcile(tick: 11))
-        XCTAssertTrue(CodingStreamReducer.shouldFullReconcile(tick: 12))
-        XCTAssertTrue(CodingStreamReducer.shouldFullReconcile(tick: 24))
     }
 
     // MARK: - Merging pages
@@ -175,123 +169,6 @@ final class CodingStreamReducerTests: XCTestCase {
         XCTAssertEqual(t.isLive, true)
         t.status = "stopped"
         XCTAssertEqual(t.isLive, false)
-    }
-
-    func testPollIntervalTracksTheLiveState() {
-        XCTAssertEqual(CodingStreamReducer.pollInterval(activityState: "working", showThinking: false), 2.5)
-        XCTAssertEqual(CodingStreamReducer.pollInterval(activityState: "waiting", showThinking: false), 2.5)
-        XCTAssertEqual(CodingStreamReducer.pollInterval(activityState: nil, showThinking: true), 2.5)
-        XCTAssertEqual(CodingStreamReducer.pollInterval(activityState: "idle", showThinking: false), 4)
-        XCTAssertEqual(CodingStreamReducer.pollInterval(activityState: nil, showThinking: false), 4)
-    }
-
-    // MARK: - The thinking bubble
-
-    func testShowThinking() {
-        let now = Date(timeIntervalSince1970: 1_781_006_400)
-        // The real state wins.
-        XCTAssertTrue(CodingStreamReducer.showThinking(activityState: "working", messageCount: 2,
-                                                       localWorkingUntil: nil, now: now))
-        // Waiting for input is never "thinking".
-        XCTAssertFalse(CodingStreamReducer.showThinking(activityState: "waiting", messageCount: 2,
-                                                        localWorkingUntil: now.addingTimeInterval(5), now: now))
-        // An empty transcript shows nothing.
-        XCTAssertFalse(CodingStreamReducer.showThinking(activityState: "working", messageCount: 0,
-                                                        localWorkingUntil: nil, now: now))
-        // The optimistic window covers the ~5s pane-scan lag…
-        XCTAssertTrue(CodingStreamReducer.showThinking(activityState: "idle", messageCount: 1,
-                                                       localWorkingUntil: now.addingTimeInterval(1), now: now))
-        // …and then expires.
-        XCTAssertFalse(CodingStreamReducer.showThinking(activityState: "idle", messageCount: 1,
-                                                        localWorkingUntil: now.addingTimeInterval(-1), now: now))
-        XCTAssertFalse(CodingStreamReducer.showThinking(activityState: nil, messageCount: 1,
-                                                        localWorkingUntil: nil, now: now))
-    }
-
-    func testRetireLocalWorking() {
-        XCTAssertTrue(CodingStreamReducer.retireLocalWorking(activityState: "working", hadNewAssistant: false))
-        XCTAssertTrue(CodingStreamReducer.retireLocalWorking(activityState: "waiting", hadNewAssistant: false))
-        // A fast reply can go straight back to idle — the new answer retires it.
-        XCTAssertTrue(CodingStreamReducer.retireLocalWorking(activityState: "idle", hadNewAssistant: true))
-        XCTAssertFalse(CodingStreamReducer.retireLocalWorking(activityState: "idle", hadNewAssistant: false))
-        XCTAssertFalse(CodingStreamReducer.retireLocalWorking(activityState: nil, hadNewAssistant: false))
-    }
-
-    // MARK: - Queued sends
-
-    func testAQueuedSendIsRetiredByItsEcho() {
-        let now = Date(timeIntervalSince1970: 1_781_006_400)
-        let pending = [PendingSend(text: "  run the tests  ", ts: now.addingTimeInterval(-3)),
-                       PendingSend(text: "and lint", ts: now.addingTimeInterval(-2))]
-        let page = CodingChatPage(messages: [CodingChatMessage(i: 4, role: "user", text: "run the tests")])
-        let left = CodingStreamReducer.expirePendingSends(pending, page: page, messages: [], now: now)
-        XCTAssertEqual(left.map(\.text), ["and lint"], "the echo is matched on trimmed text")
-    }
-
-    func testAQueuedSendIsAlsoRetiredByTheMergedTranscript() {
-        let now = Date()
-        let pending = [PendingSend(text: "hello", ts: now)]
-        let merged = [CodingChatMessage(i: 0, role: "user", text: "hello ")]
-        XCTAssertTrue(CodingStreamReducer.expirePendingSends(pending, page: CodingChatPage(),
-                                                             messages: merged, now: now).isEmpty)
-    }
-
-    func testAnAssistantEchoDoesNotRetireASend() {
-        let now = Date()
-        let pending = [PendingSend(text: "hello", ts: now)]
-        let page = CodingChatPage(messages: [CodingChatMessage(i: 0, role: "assistant", text: "hello")])
-        XCTAssertEqual(CodingStreamReducer.expirePendingSends(pending, page: page, messages: [],
-                                                              now: now).count, 1)
-    }
-
-    func testQueuedSendsExpireOnTimeAndSlashCommandsExpireFast() {
-        let now = Date(timeIntervalSince1970: 1_781_006_400)
-        let slash = PendingSend(text: "/compact", ts: now.addingTimeInterval(-26))
-        let text = PendingSend(text: "keep me", ts: now.addingTimeInterval(-26))
-        let old = PendingSend(text: "too old", ts: now.addingTimeInterval(-91))
-        let left = CodingStreamReducer.expirePendingSends([slash, text, old],
-                                                          page: CodingChatPage(), messages: [], now: now)
-        XCTAssertEqual(left.map(\.text), ["keep me"])
-        XCTAssertEqual(slash.lifetime, 25)
-        XCTAssertEqual(text.lifetime, 90)
-    }
-
-    // MARK: - Terminal frames
-
-    func testTerminalEventParsing() {
-        XCTAssertEqual(CodingTerminalEvent(["event": "output", "text": "hi"]), .output("hi"))
-        XCTAssertEqual(CodingTerminalEvent(["event": "output"]), .output(""))
-        XCTAssertEqual(CodingTerminalEvent(["event": "terminal_closed", "reason": "ended"]),
-                       .closed(reason: "ended"))
-        XCTAssertEqual(CodingTerminalEvent(["event": "terminal_closed"]), .closed(reason: ""))
-        XCTAssertEqual(CodingTerminalEvent(["event": "terminal_error", "error": "pty gone"]),
-                       .failed(message: "pty gone"))
-        XCTAssertEqual(CodingTerminalEvent(["event": "ping"]), .other)
-        XCTAssertEqual(CodingTerminalEvent([:]), .other)
-    }
-
-    func testCloseNoticesExplainWhatHappened() {
-        XCTAssertTrue(CodingTerminalEvent.notice(closedBecause: "ended").contains("session ended"))
-        XCTAssertTrue(CodingTerminalEvent.notice(closedBecause: "reconnecting").contains("retrying"))
-        XCTAssertTrue(CodingTerminalEvent.notice(closedBecause: "disconnected").contains("dropped its connection"))
-        XCTAssertTrue(CodingTerminalEvent.notice(closedBecause: "").contains("detached"))
-        XCTAssertTrue(CodingTerminalEvent.notice(error: "boom").contains("[terminal error: boom]"))
-        // The notices are terminal frames, CRLF-wrapped like the Flutter build.
-        XCTAssertTrue(CodingTerminalEvent.notice(closedBecause: "ended").hasPrefix("\r\n"))
-    }
-
-    func testOnlyASoftReconnectHealsItself() {
-        XCTAssertTrue(CodingTerminalEvent.shouldReattach(afterCloseReason: "reconnecting"))
-        XCTAssertFalse(CodingTerminalEvent.shouldReattach(afterCloseReason: "ended"))
-        XCTAssertFalse(CodingTerminalEvent.shouldReattach(afterCloseReason: "disconnected"))
-    }
-
-    func testReattachBackoffIsBounded() {
-        XCTAssertEqual(CodingTerminalEvent.reattachDelay(attempt: 1), 1.5)
-        XCTAssertEqual(CodingTerminalEvent.reattachDelay(attempt: 4), 6)
-        XCTAssertNil(CodingTerminalEvent.reattachDelay(attempt: 5),
-                     "a truly offline Mac must not loop forever")
-        XCTAssertNil(CodingTerminalEvent.reattachDelay(attempt: 0))
     }
 
     // MARK: - Paging (a long chat opens on its last page)

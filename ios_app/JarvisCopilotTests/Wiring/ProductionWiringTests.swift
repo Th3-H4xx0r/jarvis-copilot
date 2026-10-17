@@ -25,28 +25,6 @@ final class ProductionWiringTests: XCTestCase {
         XCTAssertNil(store.onChanged)
     }
 
-    // MARK: Coding visibility
-
-    /// Three listeners, one call site: the flag `CodingStore` reads, its list
-    /// poll, and the coordinator's poll cadence (`LivePollPolicy` keeps the fast
-    /// cadence while Coding is on screen even before a session goes live).
-    func testCodingVisibilityFansOutToAllThreeListeners() {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/coding/projects", json: ["projects": []])
-        let flag = CodingVisibilityFlag()
-        let store = CodingStore(api: CodingSessionsAPI(api: api), isVisible: { flag.isVisible })
-        let visibility = CodingVisibility(flag: flag, store: store)
-
-        visibility.set(true)
-        XCTAssertTrue(flag.isVisible)
-        XCTAssertTrue(LiveActivityCoordinator.shared.codingVisible)
-
-        visibility.set(false)
-        XCTAssertFalse(flag.isVisible)
-        XCTAssertFalse(LiveActivityCoordinator.shared.codingVisible,
-                       "leaving Coding must let the poll fall back to 60 s discovery")
-    }
-
     // MARK: Startup cost
 
     /// `main.dart` built its voice controller lazily so the audio session was not

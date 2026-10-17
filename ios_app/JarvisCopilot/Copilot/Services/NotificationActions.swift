@@ -16,6 +16,8 @@ enum NotificationVerdict: String, Equatable, Sendable {
     /// The banner body itself — no verdict; the app foregrounds and the in-app
     /// approval card takes over.
     case open
+    /// "Continue all on server" on the Mac-asleep push (`AgentsPushActions`).
+    case continueAll
 }
 
 /// One decoded notification tap.
@@ -41,6 +43,7 @@ struct NotificationAction: Equatable, Sendable {
         static let answer = "ANSWER_QUESTION"
         static let deny = "DENY_PERMISSION"
         static let reply = "REPLY_PERMISSION"
+        static let continueAll = AgentsPushActions.continueAll
     }
 
     /// The envelope the server nests its fields under.
@@ -62,6 +65,7 @@ struct NotificationAction: Equatable, Sendable {
         case Identifier.always:  verdict = .always
         case Identifier.deny:    verdict = .deny
         case Identifier.reply:   verdict = .reply
+        case Identifier.continueAll: verdict = .continueAll
         default:                 verdict = .open
         }
         return NotificationAction(
@@ -69,7 +73,7 @@ struct NotificationAction: Equatable, Sendable {
             requestID: (envelope["request_id"] as? String) ?? "",
             sessionID: (envelope["session_id"] as? String) ?? "",
             agentKey: (envelope["agent_key"] as? String) ?? "",
-            kind: (envelope["type"] as? String) ?? "",
+            kind: (envelope["type"] as? String) ?? (envelope["kind"] as? String) ?? "",
             text: verdict == .reply ? userText : "",
             deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String)
     }
@@ -101,13 +105,16 @@ enum NotificationCategories {
             identifier: NotificationAction.Identifier.reply, title: "Reply", options: [],
             textInputButtonTitle: "Send",
             textInputPlaceholder: "Tell Claude what to do instead…")
-        return [UNNotificationCategory(
-                    identifier: permissionApproval,
-                    actions: [approve, always, deny, reply],
-                    intentIdentifiers: [], options: []),
-                UNNotificationCategory(
-                    identifier: agentQuestion, actions: [answer],
-                    intentIdentifiers: [], options: [])]
+        let base: Set<UNNotificationCategory> = [
+            UNNotificationCategory(
+                identifier: permissionApproval,
+                actions: [approve, always, deny, reply],
+                intentIdentifiers: [], options: []),
+            UNNotificationCategory(
+                identifier: agentQuestion, actions: [answer],
+                intentIdentifiers: [], options: [])]
+        // "MacBook went to sleep" — Continue all on server.
+        return base.union(AgentsPushActions.categories())
     }
 }
 
@@ -156,10 +163,18 @@ final class NotificationActionHandler {
             // session that asked. The in-app card takes it from there.
             if action.kind == "agents_recap" {
                 router.open(.agentsRecap)
+            } else if action.kind == AgentsPushActions.pushKind {
+                // "MacBook went to sleep": the Agents tab, where the card waits.
+                router.open(.agents(key: nil))
             } else if !action.agentKey.isEmpty {
                 router.open(.agents(key: action.agentKey))
             } else if !action.sessionID.isEmpty {
                 router.open(.coding(session: action.sessionID))
+            }
+        case .continueAll:
+            if !(await AgentsPushActions.continueAllInBackground()) {
+                await postFailure(title: "Couldn't continue on the server",
+                                  body: "Open JARVIS to continue your Mac's sessions from the Agents tab.")
             }
         case .allow, .always, .deny, .reply:
             guard !action.requestID.isEmpty else { break }
@@ -184,14 +199,17 @@ final class NotificationActionHandler {
     }
 
     private func postVerdictFailure(decision: String) async {
+        await postFailure(title: "Couldn't send your decision",
+                          body: "\"\(decision.capitalized)\" didn't reach the server. "
+                            + "Open JARVIS to answer the request.")
+    }
+
+    private func postFailure(title: String, body: String) async {
         do {
             _ = try await notifier.post(LocalNotificationRequest(
-                title: "Couldn't send your decision",
-                body: "\"\(decision.capitalized)\" didn't reach the server. "
-                    + "Open JARVIS to answer the request.",
-                identifier: Self.verdictFailureIdentifier))
+                title: title, body: body, identifier: Self.verdictFailureIdentifier))
         } catch {
-            JcLog.dropped(JcLog.services, "verdict failure banner", error)
+            JcLog.dropped(JcLog.services, "failure banner", error)
         }
     }
 }
