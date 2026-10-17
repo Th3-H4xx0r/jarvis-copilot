@@ -27,6 +27,8 @@ final class AppModel {
     /// What the harnesses handed to a bigger model, newest first (the server's
     /// `harness_jobs` feed): listed in the Agents tab with the sessions.
     private(set) var jobs: [MacJob] = []
+    /// Sessions this Mac handed to the server while it slept ("On server").
+    private(set) var onServer: [MacMovedSession] = []
     /// The session that just finished or failed, shown for a few seconds.
     private(set) var flash: MacSession?
     var selectedKey: String?
@@ -70,6 +72,14 @@ final class AppModel {
             }
         }
         link.start()
+        PowerRelay.shared.start(link: link)
+    }
+
+    /// Bring a session that moved to the server back to this Mac: the server
+    /// stops it there, merges the conversation back and reopens it here.
+    func bringBack(_ ckey: String, link: JcLink? = .shared) {
+        onServer.removeAll { $0.ckey == ckey }
+        link?.request(["type": "agent_continue_mac", "ckey": ckey])
     }
 
     func handle(_ msg: [String: Any]) {
@@ -83,6 +93,9 @@ final class AppModel {
             apply(sessions: J.arr(msg["sessions"]), announce: false)
             pending = J.arr(msg["pending"]).compactMap(MacPending.init(json:))
             if let u = MacPlanUsage(json: ["rate_limits": msg["usage"] ?? [:]]) { usage = u }
+            onServer = J.arr(msg["moved"]).map(MacMovedSession.init(json:))
+        case "moved":
+            onServer = J.arr(msg["sessions"]).map(MacMovedSession.init(json:))
         case "sessions":
             apply(sessions: J.arr(msg["sessions"]), announce: true)
         case "pending":

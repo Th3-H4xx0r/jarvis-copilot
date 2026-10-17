@@ -44,7 +44,8 @@ class AgentsLink:
                  queue: Optional[Callable[[], object]] = None,
                  instructions_on: Callable[[], bool] = lambda: True,
                  runtime: Optional[LocalRuntime] = None, inline: bool = False,
-                 power_thread: bool = True) -> None:
+                 power_thread: bool = True,
+                 ui_broadcast: Optional[Callable[[dict], None]] = None) -> None:
         self._up = forward_up
         self.vscode = vscode
         self._queue = queue
@@ -57,6 +58,8 @@ class AgentsLink:
         if power_thread:
             self.power.start()
         self._pids: dict = {}
+        self._ui = ui_broadcast
+        self._moved: dict = {}   # ckey -> what the Mac app shows ("On server", Bring back)
         self._pool = None if inline else ThreadPoolExecutor(max_workers=2,
                                                              thread_name_prefix="jc-agents")
 
@@ -134,12 +137,17 @@ class AgentsLink:
             self.shipper.on_ack(ckey, bool(frame.get("ok")), int(frame.get("size") or 0))
         elif t == "agent_moved":
             self.gate.set_moved(frame.get("ckeys") or [])
+            self._moved = {d.get("ckey"): {k: d.get(k) for k in ("ckey", "agent", "title", "project")}
+                           for d in frame.get("sessions") or [] if d.get("ckey")}
+            self._push_moved()
         elif t == "agent_transcript_sync":
             self.shipper.apply_sync(frame)
         elif t == "agent_transcript_tail":
             self.shipper.apply_tail(frame)
         elif t == "agent_resume_local":
             self.gate.discard(ckey)
+            if self._moved.pop(ckey, None) is not None:
+                self._push_moved()
             via = self.runtime.resume_in_terminal(
                 str(frame.get("agent") or "claude"), str(frame.get("session_id") or ""),
                 str(frame.get("cwd") or os.path.expanduser("~")), frame.get("terminal") or {},
@@ -181,6 +189,16 @@ class AgentsLink:
             return self._report(did, "sent", None)
         return self._report(did, "failed", f"Jarvis can't type into this session's terminal ({why}). "
                                            "Type it there, or send it while it's working.")
+
+    def moved_sessions(self) -> list:
+        return list(self._moved.values())
+
+    def _push_moved(self) -> None:
+        if self._ui is not None:
+            try:
+                self._ui({"type": "moved", "sessions": self.moved_sessions()})
+            except Exception:  # noqa: BLE001
+                pass
 
     def _report(self, did, state, reason) -> None:
         if did:

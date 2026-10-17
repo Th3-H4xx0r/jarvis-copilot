@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import time
 from typing import Callable, Optional
 
@@ -174,9 +175,12 @@ class Handoff:
             self.conv.upsert(ckey, mac_bytes=sent + cut)
 
     def _descr(self, row: dict) -> dict:
+        origin = row.get("origin_cwd") or row.get("cwd") or ""
         return {"ckey": row["ckey"], "agent": row.get("agent") or "claude",
-                "session_id": row.get("session_id"), "origin_cwd": row.get("origin_cwd") or "",
-                "codex_rel": row.get("codex_rel")}
+                "session_id": row.get("session_id"), "origin_cwd": origin,
+                "codex_rel": row.get("codex_rel"),
+                "title": (row.get("title") or os.path.basename(origin.rstrip("/")))[:120],
+                "project": os.path.basename(origin.rstrip("/"))}
 
     def _send_sync(self, device_id: str, row: dict, then: str) -> bool:
         data = tm.read_from(row, 0)

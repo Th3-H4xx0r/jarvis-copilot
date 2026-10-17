@@ -131,3 +131,17 @@ def test_codex_rollout_path_becomes_relative(tmp_path, monkeypatch):
     link.on_hook("event", "codex", {"hook_event_name": "SessionStart", "session_id": "c1",
                                     "cwd": "/w", "transcript_path": str(p), "agent_pid": 77})
     assert _events(up, "agent_transcript_chunk")[-1]["codex_rel"] == "2026/10/17/rollout-x-c1.jsonl"
+
+
+def test_moved_list_reaches_the_mac_app():
+    ui = []
+    link = AgentsLink(lambda f: None, vscode=FakeVSCode(), queue=lambda: Queue(), inline=True,
+                      power_thread=False, ui_broadcast=ui.append)
+    link.handle_frame({"type": "agent_moved", "ckeys": ["claude|s1"],
+                       "sessions": [{"ckey": "claude|s1", "agent": "claude", "title": "Fix it",
+                                     "project": "app"}]})
+    assert ui[-1] == {"type": "moved", "sessions": [{"ckey": "claude|s1", "agent": "claude",
+                                                     "title": "Fix it", "project": "app"}]}
+    link.handle_frame({"type": "agent_resume_local", "ckey": "claude|s1", "agent": "claude",
+                       "session_id": "s1", "cwd": "/w", "terminal": {"term_program": "vscode"}})
+    assert ui[-1] == {"type": "moved", "sessions": []} and link.moved_sessions() == []

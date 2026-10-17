@@ -176,6 +176,8 @@ def test_merge_back_sent_on_connect(env):
     env["h"].on_device_connect("dev1")
     types = [f["type"] for _, f in env["frames"]]
     assert types[0] == "agent_moved" and ck in env["frames"][0][1]["ckeys"]
+    (descr,) = env["frames"][0][1]["sessions"]
+    assert descr["title"] and descr["project"] == "app"
     sync = [f for _, f in env["frames"] if f["type"] == "agent_transcript_sync"]
     data = b"".join(base64.b64decode(f["data_b64"]) for f in sync)
     assert data == b'{"uuid":"a"}\n' and sync[-1]["part"] == sync[-1]["parts"] - 1

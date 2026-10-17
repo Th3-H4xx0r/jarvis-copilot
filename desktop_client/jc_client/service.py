@@ -215,7 +215,8 @@ class Service:
                 "instructions": self._agent_instructions,
                 "sessions": self._hook_server.engine_sessions() if self._hook_server else [],
                 "pending": self._arbiter.pending() if self._arbiter else [],
-                "usage": self._hook_server.usage() if self._hook_server else None}
+                "usage": self._hook_server.usage() if self._hook_server else None,
+                "moved": self._agents_link.moved_sessions() if self._agents_link else []}
 
     def _ui_push_sessions(self, _effects=None) -> None:
         if self._hook_server is not None:
@@ -480,7 +481,8 @@ class Service:
         try:
             self._agents_link = AgentsLink(self._forward_up, vscode=self._vscode,
                                            queue=self._instruction_queue,
-                                           instructions_on=lambda: self._agent_instructions)
+                                           instructions_on=lambda: self._agent_instructions,
+                                           ui_broadcast=self._ui_broadcast)
         except Exception as exc:  # noqa: BLE001
             log.warning("agents link unavailable: %s", exc)
             self._agents_link = None

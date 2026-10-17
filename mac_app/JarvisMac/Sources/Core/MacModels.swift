@@ -74,6 +74,24 @@ struct MacFile: Identifiable, Equatable {
 }
 
 /// One coding-agent session, as the local engine sees it.
+/// A session this Mac handed to the server (it slept): the island lists it as
+/// "On server" with Bring back.
+struct MacMovedSession: Identifiable, Equatable {
+    let ckey: String
+    let agent: String
+    let title: String
+    let project: String
+    var id: String { ckey }
+
+    init(json: [String: Any]) {
+        ckey = J.s(json["ckey"])
+        agent = J.s(json["agent"], "claude")
+        project = J.s(json["project"])
+        let t = J.s(json["title"])
+        title = t.isEmpty ? project : t
+    }
+}
+
 struct MacSession: Identifiable, Equatable {
     let key: String
     let agent: String

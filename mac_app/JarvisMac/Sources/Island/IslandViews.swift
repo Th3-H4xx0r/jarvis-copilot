@@ -26,7 +26,8 @@ struct IslandRootView: View {
         if tab != .agents { return tab.height }
         if let m = measured { return IslandLayout.agentsHeight(topInset: topInset, top: m.top, list: m.list) }
         let pending: IslandLayout.Pending? = model.pending.first.map { $0.isQuestion ? .question : .approval }
-        return IslandLayout.agentsHeight(topInset: topInset, sessions: model.sessions.count + model.jobs.count,
+        return IslandLayout.agentsHeight(topInset: topInset,
+                                         sessions: model.sessions.count + model.jobs.count + model.onServer.count,
                                          pending: pending, flash: model.flash != nil)
     }
 
@@ -363,6 +364,10 @@ private struct ExpandedIsland: View {
                             SessionDetail(session: s)
                         }
                     }
+                    // Continued on the server while this Mac slept.
+                    ForEach(model.onServer) { m in
+                        OnServerRow(session: m) { model.bringBack(m.ckey) }.id(m.ckey)
+                    }
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { ui.agentsList = $0 }
             }
@@ -598,6 +603,30 @@ private struct SessionDetail: View {
 
 /// A job a harness handed to a bigger model: who has it, how it stands, and
 /// what it's doing now (or the first line of its answer once it's done).
+/// A session running on the server since this Mac slept, with Bring back.
+private struct OnServerRow: View {
+    let session: MacMovedSession
+    let bringBack: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "moon.zzz").font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .lineLimit(1)
+                Text("On server · \(session.project)").font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+            }
+            Spacer()
+            Button("Bring back", action: bringBack)
+                .buttonStyle(.borderless).font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(JcAccent.color)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.05)))
+    }
+}
+
 private struct JobRow: View {
     let job: MacJob
     let selected: Bool
