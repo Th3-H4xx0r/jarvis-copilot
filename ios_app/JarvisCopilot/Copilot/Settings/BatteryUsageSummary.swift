@@ -130,10 +130,43 @@ struct BatteryUsageSummary: Equatable {
         let frames = count("bridge.in") + count("bridge.out")
         if frames > 0 {
             items.append(Item(id: "bridge", title: "Live link to Jarvis",
-                              detail: "\(count("bridge.in")) in · \(count("bridge.out")) out · pings & pushes",
+                              detail: "\(count("bridge.in").formatted()) in · \(count("bridge.out").formatted()) out · \(Self.size(count("bridge.out_bytes"))) sent",
                               symbol: "dot.radiowaves.left.and.right", value: Double(frames)))
         }
         return Self.ranked(items)
+    }
+
+    /// The screen left showing when the phone went into a pocket, by the CPU it burned there.
+    var leftOpen: [Item] {
+        var cpuBy: [String: Double] = [:]
+        var timeBy: [String: Double] = [:]
+        for hour in hours {
+            for (key, value) in hour.cpu where key.hasPrefix("left.") { cpuBy[key, default: 0] += value }
+            for (key, value) in hour.seconds where key.hasPrefix("left.") { timeBy[key, default: 0] += value }
+        }
+        return Self.ranked(cpuBy.map { key, value in
+            let (title, symbol) = Self.place(String(key.dropFirst("left.".count)))
+            return Item(id: key, title: title, detail: "left open \(Self.duration(timeBy[key] ?? 0))",
+                        symbol: symbol, value: value)
+        })
+    }
+
+    /// Who asked to send Jarvis the skill list again, and how often it went out or, unchanged,
+    /// stayed home.
+    var catalogue: [Item] {
+        var sent: [String: Int] = [:]
+        var same: [String: Int] = [:]
+        for hour in hours {
+            for (key, n) in hour.counts {
+                if key.hasPrefix("register.sent.") { sent[String(key.dropFirst("register.sent.".count)), default: 0] += n }
+                if key.hasPrefix("register.same.") { same[String(key.dropFirst("register.same.".count)), default: 0] += n }
+            }
+        }
+        return Self.ranked(Set(sent.keys).union(same.keys).map { caller in
+            Item(id: "register.\(caller)", title: caller,
+                 detail: "\((sent[caller] ?? 0).formatted()) sent · \((same[caller] ?? 0).formatted()) unchanged, kept home",
+                 symbol: "list.bullet.rectangle", value: Double((sent[caller] ?? 0) + (same[caller] ?? 0)))
+        })
     }
 
     /// How long each wearable held a Bluetooth link, and how much of it in the background.

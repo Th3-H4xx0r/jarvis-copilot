@@ -208,7 +208,7 @@ final class LiveActivityCoordinator {
         await agents.refresh()
         if agents.ownsCoding != owned { push() }
         do {
-            let view = try await coding.listProjectsExpanded()
+            let view = try await coding.listProjectsExpanded(liveOnly: true)
             if LivePollPolicy.shouldFetchUsage(now: now(), lastUsageFetch: lastUsageFetch) {
                 // `/api/coding/usage` is slow-moving quota; it does not need the
                 // fleet's cadence.

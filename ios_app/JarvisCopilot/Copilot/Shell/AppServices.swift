@@ -20,8 +20,9 @@ protocol AppBridging: AnyObject {
     /// The "stay connected in the background" master switch.
     var isBridgeEnabled: Bool { get }
     func connect()
-    /// Re-advertise the skill catalogue over an already-open socket.
-    func sendRegistration()
+    /// Re-advertise the skill catalogue over an already-open socket. `file`/`line` name the
+    /// caller, for Settings → Battery usage.
+    func sendRegistration(file: String, line: Int)
 }
 
 /// The Siri / Control Center / widget "start voice" latch.
@@ -103,7 +104,7 @@ final class DefaultPhoneSkillInstaller: PhoneSkillInstalling {
         PhoneSkills.install()
         // The socket may already be up (a warm relaunch reuses it), in which case
         // the server is holding a catalogue that predates these skills. Re-send.
-        bridge.sendRegistration()
+        bridge.sendRegistration(file: #fileID, line: #line)
     }
 }
 
@@ -246,7 +247,7 @@ final class AppServices {
         //     above so it fires once per user change, not once per skill.
         //     `sendRegistration` is a no-op when the socket is down; the next
         //     connect sends the current catalogue anyway.
-        registry.onChanged = { [weak self] in self?.bridge.sendRegistration() }
+        registry.onChanged = { [weak self] in self?.bridge.sendRegistration(file: #fileID, line: #line) }
 
         // 2. The live bridge. Unpaired means there is nothing to connect to, and
         //    bridge mode off means the user asked us not to.

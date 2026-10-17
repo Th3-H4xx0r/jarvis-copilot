@@ -37,7 +37,7 @@ final class FakeAppBridge: AppBridging {
     }
 
     func connect() { connects += 1; log.record("bridge.connect") }
-    func sendRegistration() { registrations += 1; log.record("bridge.register") }
+    func sendRegistration(file: String, line: Int) { registrations += 1; log.record("bridge.register") }
 }
 
 @MainActor

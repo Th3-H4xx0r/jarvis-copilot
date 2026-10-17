@@ -22,8 +22,13 @@ final class BatteryUsageRenderTests: XCTestCase {
                             "link.Colmi R12": 1800, "bg.link.Colmi R12": 1800]
             hour.cpu = ["foreground": onScreen ? 260 : 0, "background": 22,
                         "where.chat|": onScreen ? 120 : 0, "where.devices|Car": onScreen ? 100 : 0,
-                        "where.health|Sleep": onScreen ? 40 : 0]
-            hour.counts = ["bridge.in": 90, "bridge.out": 90, "net.Health history": i % 2 == 0 ? 7 : 0,
+                        "where.health|Sleep": onScreen ? 40 : 0,
+                        "left.devices|Band": i < 9 ? 18 : 0, "left.chat|": i >= 9 ? 4 : 0]
+            hour.seconds["left.devices|Band"] = i < 9 ? 3600 - fg : 0
+            hour.seconds["left.chat|"] = i >= 9 ? 3600 - fg : 0
+            hour.counts = ["bridge.in": 90, "bridge.out": 90, "bridge.out_bytes": 60_000,
+                           "register.same.InmoGo3Device:38": 450, "register.sent.BridgeClient:470": 1,
+                           "net.Health history": i % 2 == 0 ? 7 : 0,
                            "net.bg.Health history": i % 2 == 0 ? 7 : 0, "bytes.Health history": 90_000,
                            "net.Coding agents": 2, "net.bg.Coding agents": 2, "bytes.Coding agents": 8_000,
                            "net.Chat": onScreen ? 12 : 0, "bytes.Chat": 40_000, "bridge.drop": i == 4 ? 3 : 0]
@@ -49,6 +54,6 @@ final class BatteryUsageRenderTests: XCTestCase {
             }
             .padding(.horizontal, 20)
         }
-        try RenderHarness.write(page, size: CGSize(width: 402, height: 3000), name: "battery-usage")
+        try RenderHarness.write(page, size: CGSize(width: 402, height: 3700), name: "battery-usage")
     }
 }

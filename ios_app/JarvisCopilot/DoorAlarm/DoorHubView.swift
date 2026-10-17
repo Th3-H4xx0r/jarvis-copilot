@@ -30,7 +30,8 @@ private struct DoorHubScene: UIViewRepresentable {
     let compact: Bool
 
     func makeUIView(context: Context) -> SCNView {
-        let view = SCNView()
+        // Paused while off screen, like every other model (`SceneCanvasView`).
+        let view = SceneCanvasView(frame: .zero, options: nil)
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 30

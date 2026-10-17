@@ -26,13 +26,16 @@ final class EnergyLedger: @unchecked Sendable {
         /// Wall seconds in each state: `foreground` / `background`; the network (`wifi`, `cellular`,
         /// `wired`, `offline`, `other`); `keepalive`, `bridge`, `lowPower`, `charging`; while on
         /// screen `tab.<tab>` and `where.<tab>|<screen title>` (title empty at a tab's root);
+        /// in a pocket `left.<tab>|<screen title>`, the screen left open;
         /// `link.<wearable>` while its Bluetooth link is up; and
         /// `bg.<key>` for the background share of any of them.
         var seconds: [String: Double] = [:]
         /// CPU seconds burned in each of those states.
         var cpu: [String: Double] = [:]
-        /// What woke the radio or the CPU: `bridge.in`, `bridge.out`, `bridge.drop`,
-        /// `keepalive.reassert` / `restart`, `net.<feature>`, `net.bg.<feature>`, `bytes.<feature>`.
+        /// What woke the radio or the CPU: `bridge.in`, `bridge.out`, `bridge.out_bytes`, `bridge.drop`,
+        /// `register.sent.<caller>` / `register.same.<caller>` (skill catalogue sent, or unchanged and
+        /// kept home), `keepalive.reassert` / `restart`, `net.<feature>`, `net.bg.<feature>`,
+        /// `bytes.<feature>`.
         var counts: [String: Int] = [:]
         /// The battery level (0–1) when the hour began and ended.
         var batteryStart: Double?
@@ -292,6 +295,12 @@ final class EnergyLedger: @unchecked Sendable {
             guard !foreground, key != "background" else { continue }
             hour.seconds["bg.\(key)", default: 0] += wall
             hour.cpu["bg.\(key)", default: 0] += used
+        }
+        if !foreground {
+            // The screen left open: SwiftUI still redraws it in a pocket whenever its data changes.
+            let left = "left.\(tab ?? "app")|\(screens.last ?? "")"
+            hour.seconds[left, default: 0] += wall
+            hour.cpu[left, default: 0] += used
         }
     }
 

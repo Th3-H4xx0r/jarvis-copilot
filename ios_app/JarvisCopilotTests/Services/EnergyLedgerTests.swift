@@ -109,6 +109,33 @@ final class EnergyLedgerTests: XCTestCase {
         XCTAssertEqual(bluetooth.first?.detail, "20 min in the background")
     }
 
+    func testPocketTimeGoesToTheScreenLeftOpen() {
+        let l = ledger()
+        l.setTab("devices")
+        l.screenAppeared("Band")
+        clock.advance(60, cpu: 2)
+        l.set(.foreground, false)
+        clock.advance(3000, cpu: 40)
+        let hour = l.closeHour(threads: [:], battery: nil)
+        XCTAssertEqual(hour.cpu("left.devices|Band"), 40, accuracy: 0.01)
+        XCTAssertEqual(hour.seconds("left.devices|Band"), 3000, accuracy: 0.01)
+        XCTAssertEqual(hour.cpu("where.devices|Band"), 2, accuracy: 0.01, "on screen stays apart from left open")
+        let left = BatteryUsageSummary(hours: [hour]).leftOpen
+        XCTAssertEqual(left.map(\.title), ["Devices › Band"])
+        XCTAssertEqual(left.first?.detail, "left open 50 min")
+    }
+
+    func testSkillListSendsAreCountedByCaller() {
+        let l = ledger()
+        l.count("register.sent.InmoGo3Device:38")
+        l.count("register.same.InmoGo3Device:38", by: 400)
+        l.count("register.sent.BridgeClient:470")
+        let hour = l.closeHour(threads: [:], battery: nil)
+        let rows = BatteryUsageSummary(hours: [hour]).catalogue
+        XCTAssertEqual(rows.map(\.title), ["InmoGo3Device:38", "BridgeClient:470"])
+        XCTAssertEqual(rows.first?.detail, "1 sent · 400 unchanged, kept home")
+    }
+
     func testFeatureNames() {
         XCTAssertEqual(EnergyLedger.feature(for: "/api/integrations/x/health/day"), "Health uploads")
         XCTAssertEqual(EnergyLedger.feature(for: "/api/sessions"), "Chat")

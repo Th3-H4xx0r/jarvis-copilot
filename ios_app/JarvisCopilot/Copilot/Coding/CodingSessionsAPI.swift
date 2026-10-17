@@ -98,8 +98,14 @@ struct CodingSessionsAPI {
     ///
     /// Each project carries its nested `sessions`; `ungrouped` holds sessions
     /// with no project (legacy rows + discovered sessions).
-    func listProjectsExpanded() async throws -> CodingProjectsView {
-        let body = try await api.get("/api/coding/projects", query: ["expand": "sessions"]).object()
+    ///
+    /// `liveOnly` asks for just the live sessions and the projects holding them — what the island
+    /// polls every 5 s. The whole list was 3.8 MB (1,000 sessions, Oct 17); an older server sends
+    /// it anyway, and callers filter for live themselves.
+    func listProjectsExpanded(liveOnly: Bool = false) async throws -> CodingProjectsView {
+        var query = ["expand": "sessions"]
+        if liveOnly { query["live"] = "1" }
+        let body = try await api.get("/api/coding/projects", query: query).object()
         return CodingProjectsView(
             projects: CodingJSON.maps(body["projects"]).map(CodingProject.init(json:)),
             ungrouped: CodingJSON.maps(body["ungrouped"]).map(CodingSession.init(json:)))

@@ -146,8 +146,14 @@ final class BridgeClient: NSObject, ObservableObject {
         UserDefaults.standard.set(records, forKey: "jarvisSharedDevices")
     }
 
-    private var socket: URLSessionWebSocketTask?
+    private var socket: URLSessionWebSocketTask? {
+        didSet { if socket !== oldValue { sentCatalogue = nil } }
+    }
     private var session: URLSession?
+    /// The `register` frame this socket last carried. The catalogue is ~85 KB, and something
+    /// re-sent it unchanged every ~8 s, day and night (≈ 40 MB an hour up, Oct 16–17): a new
+    /// socket sends it, after that only a change does.
+    private var sentCatalogue: Data?
 
     /// All bridge traffic goes through this rather than `URLSession.shared`.
     ///
@@ -463,6 +469,7 @@ final class BridgeClient: NSObject, ObservableObject {
             outageStartedAt = nil
             syncKeepalive()      // back online: the allowance is worth holding again
             status = .online
+            sentCatalogue = nil  // the server knows nothing of us yet
             sendRegistration()
             // What this phone wants pushed, and a catch-up for whatever was missed while away.
             BridgeTopics.shared.resubscribe()
@@ -482,12 +489,23 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
-    func sendRegistration() {
+    func sendRegistration(file: String = #fileID, line: Int = #line) {
+        guard socket != nil else { return }
         let skills = DeviceRegistry.shared.allSkills()
         let channels = DeviceRegistry.shared.notificationChannels().map { $0.wireForm }
         var msg: [String: Any] = ["type": "register", "skills": skills]
         if !channels.isEmpty { msg["notification_channels"] = channels }
-        send(msg)
+        // Sorted keys, so the same catalogue always comes out as the same bytes.
+        guard let data = try? JSONSerialization.data(withJSONObject: msg, options: [.sortedKeys]) else { return }
+        // Who asked, so Settings → Battery usage can name a caller that keeps asking.
+        let caller = "\((file as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")):\(line)"
+        guard data != sentCatalogue else {
+            EnergyLedger.shared.count("register.same.\(caller)")
+            return
+        }
+        sentCatalogue = data
+        EnergyLedger.shared.count("register.sent.\(caller)")
+        sendFrame(data)
     }
 
     /// The topics this phone wants pushed (`BridgeTopics`). Dropped while the socket is down:
@@ -517,9 +535,12 @@ final class BridgeClient: NSObject, ObservableObject {
     }
 
     private func send(_ object: [String: Any]) {
-        guard let socket,
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let text = String(data: data, encoding: .utf8) else { return }
+        guard socket != nil, let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+        sendFrame(data)
+    }
+
+    private func sendFrame(_ data: Data) {
+        guard let socket, let text = String(data: data, encoding: .utf8) else { return }
         EnergyLedger.shared.count("bridge.out")
         EnergyLedger.shared.count("bridge.out_bytes", by: data.count)
         socket.send(.string(text)) { [weak self] error in

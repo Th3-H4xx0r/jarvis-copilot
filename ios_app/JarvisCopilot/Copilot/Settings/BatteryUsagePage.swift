@@ -426,6 +426,10 @@ struct BatteryBreakdown: View {
                         tint: JcTheme.accentAlt) { BatteryUsageSummary.duration($0) }
             }
             background
+            if !summary.leftOpen.isEmpty {
+                ranking("Left open in the background", note: "App CPU in a pocket by the screen left showing; it still redraws when its data changes",
+                        items: summary.leftOpen, tint: JcTheme.accentAlt) { "\(BatteryUsageSummary.duration($0)) CPU" }
+            }
             if !summary.bluetooth.isEmpty {
                 ranking("Bluetooth links", note: "Time each wearable stayed linked; a held link wakes the phone for its readings",
                         items: summary.bluetooth, tint: JcTheme.success) { BatteryUsageSummary.duration($0) }
@@ -433,6 +437,10 @@ struct BatteryBreakdown: View {
             if !summary.network.isEmpty {
                 ranking("Talking to Jarvis", note: "Each one wakes the radio; on cellular that costs the most",
                         items: summary.network, tint: JcTheme.amber) { Int($0).formatted() }
+            }
+            if !summary.catalogue.isEmpty {
+                ranking("Skill list sends", note: "Each asks to send Jarvis the phone's skills (~85 KB); an unchanged list stays home",
+                        items: summary.catalogue, tint: JcTheme.amber) { Int($0).formatted() }
             }
         }
     }

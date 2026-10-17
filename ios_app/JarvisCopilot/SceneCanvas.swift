@@ -1,6 +1,54 @@
 import SceneKit
 import SwiftUI
 
+/// The `SCNView` behind `SceneCanvas`: it draws only while its window's scene is on screen.
+///
+/// SceneKit redraws whenever an action runs, `rendersContinuously` or not — a band's pulse, the
+/// flash on each reading — and the keepalive keeps the process alive in a pocket, so a model left
+/// open kept drawing all night (Oct 17: ~35 CPU-s an hour on SceneKit's thread with the phone
+/// asleep). Off screen — app in the background, or another tab — its scene is paused; the frame
+/// it last drew stays, so the app switcher still shows it.
+final class SceneCanvasView: SCNView {
+    /// What the model asks for: every frame while it animates. Granted only on screen.
+    var wantsContinuous = false {
+        didSet { if wantsContinuous != oldValue { showOrPause() } }
+    }
+
+    override var scene: SCNScene? {
+        didSet { showOrPause() }
+    }
+
+    override init(frame: CGRect, options: [String: Any]? = nil) {
+        super.init(frame: frame, options: options)
+        for name in [UIScene.didEnterBackgroundNotification, UIScene.willEnterForegroundNotification,
+                     UIScene.didActivateNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(sceneChanged), name: name, object: nil)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("SceneCanvasView is made in code") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        showOrPause()
+    }
+
+    /// Whichever scene changed, ours is read from the window: the others' are a no-op.
+    @objc private func sceneChanged(_ note: Notification) { showOrPause() }
+
+    /// In a window whose scene is in the foreground (Control Center pulled down still counts).
+    var isShowing: Bool {
+        guard let state = window?.windowScene?.activationState else { return false }
+        return state == .foregroundActive || state == .foregroundInactive
+    }
+
+    private func showOrPause() {
+        let showing = isShowing
+        rendersContinuously = wantsContinuous && showing
+        if let scene, scene.isPaused == showing { scene.isPaused = !showing }
+    }
+}
+
 /// A transparent `SCNView` for the wearable models.
 ///
 /// SwiftUI's `SceneView` gives no way to reach the view's `backgroundColor` /
@@ -25,7 +73,7 @@ struct SceneCanvas: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> SCNView {
-        let view = SCNView()
+        let view = SceneCanvasView(frame: .zero, options: nil)
         view.scene = scene
         view.pointOfView = camera
         view.backgroundColor = .clear
@@ -35,7 +83,7 @@ struct SceneCanvas: UIViewRepresentable {
         view.allowsCameraControl = false
         view.autoenablesDefaultLighting = false
         view.preferredFramesPerSecond = preferredFramesPerSecond
-        view.rendersContinuously = rendersContinuously
+        view.wantsContinuous = rendersContinuously
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
         context.coordinator.onFreePan = onPan
@@ -62,7 +110,7 @@ struct SceneCanvas: UIViewRepresentable {
             view.scene = scene
             view.pointOfView = camera
         }
-        view.rendersContinuously = rendersContinuously
+        (view as? SceneCanvasView)?.wantsContinuous = rendersContinuously
         context.coordinator.onPan = onHorizontalPan
         context.coordinator.onTap = onTap
         context.coordinator.onFreePan = onPan
