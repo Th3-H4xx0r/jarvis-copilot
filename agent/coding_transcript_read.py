@@ -78,6 +78,18 @@ def _clip(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def _clip_tail(s: str, n: int) -> str:
+    """Keep the END: a turn's newest text (its answer) matters most."""
+    s = s or ""
+    return s if len(s) <= n else "…" + s[-(n - 1):]
+
+
+# A message sent from the phone and handed to Claude at its Stop hook
+# (jc_client/instruction_delivery.stop_reply) is written as hook feedback.
+_STOP_FEEDBACK = "Stop hook feedback:\n"
+_PHONE_PREFIX = "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n"
+
+
 def _tool_summary(name: str, inp) -> str:
     """One-line human summary of a tool call's input."""
     if not isinstance(inp, dict):
@@ -193,6 +205,12 @@ def parse_transcript_text(text: str) -> list[dict]:
         if t == "user":
             if isinstance(content, str):
                 if d.get("isMeta"):
+                    if content.startswith(_STOP_FEEDBACK) and \
+                            content[len(_STOP_FEEDBACK):].startswith(_PHONE_PREFIX):
+                        m = _new("user", ts)
+                        m["text"] = _clip(content[len(_STOP_FEEDBACK) + len(_PHONE_PREFIX):].strip(),
+                                          MAX_TEXT)
+                        m["from_phone"] = True
                     continue
                 txt = content.strip()
                 # Skip harness/meta envelopes (command echoes, reminders).
@@ -236,7 +254,7 @@ def parse_transcript_text(text: str) -> list[dict]:
                     continue
                 if m is None:
                     m = _new("assistant", ts)
-                m["text"] = _clip((m["text"] + "\n\n" + txt).strip(), MAX_TEXT)
+                m["text"] = _clip_tail((m["text"] + "\n\n" + txt).strip(), MAX_TEXT)
             elif bt == "tool_use":
                 if m is None:
                     m = _new("assistant", ts)

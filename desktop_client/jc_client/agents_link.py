@@ -61,6 +61,7 @@ class AgentsLink:
         if power_thread:
             self.power.start()
         self._pids: dict = {}
+        self._queued: dict = {}   # session id -> delivery ids waiting for its Stop
         self._ui = ui_broadcast
         self._moved: dict = {}   # ckey -> what the Mac app shows ("On server", Bring back)
         # Two lanes: transcript frames (acks, sync parts, tails, what moved) must be
@@ -201,11 +202,13 @@ class AgentsLink:
             # Its terminal shows a menu: typing would answer it. Only ever after the turn.
             if agent in _STOP_QUEUE_AGENTS and self._queue:
                 self._queue().add(sid, text)
+                self._queued.setdefault(sid, []).append(did)
                 return self._report(did, "queued", None)
             return self._report(did, "failed", "It's waiting on an approval or a question: "
                                                "answer that first.")
         if frame.get("state") in _WORKING and agent in _STOP_QUEUE_AGENTS and self._queue:
             self._queue().add(sid, text)
+            self._queued.setdefault(sid, []).append(did)
             return self._report(did, "queued", None)
         from jc_client.instruction_delivery import type_into
         ok, why = type_into(terminal, text, pid=run.get("pid") or self._pids.get(f"{agent}|{sid}"),
@@ -237,6 +240,11 @@ class AgentsLink:
             if e.get("pid"):
                 return e["pid"]
         return None
+
+    def on_stop_handed(self, session_id: str) -> None:
+        """The Stop hook just handed this session its queued phone messages."""
+        for did in self._queued.pop(str(session_id or ""), []):
+            self._report(did, "delivered", None)
 
     def moved_sessions(self) -> list:
         return list(self._moved.values())

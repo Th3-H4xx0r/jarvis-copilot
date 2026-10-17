@@ -249,3 +249,15 @@ def test_waiting_session_is_never_typed_into():
                        "session_id": "c1", "text": "yes", "state": "question",
                        "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
     assert link.vscode.sent == [] and _events(up, "agent_delivery")[-1]["state"] == "failed"
+
+
+def test_a_queued_message_is_delivered_when_the_stop_hook_hands_it_over():
+    link, up, q = _link()
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "q1", "agent": "claude",
+                       "session_id": "s1", "text": "then lint", "state": "working",
+                       "terminal": {"term_program": "ghostty"}, "run": {"pid": 5}})
+    assert _events(up, "agent_delivery")[-1]["state"] == "queued"
+    link.on_stop_handed("s1")
+    assert _events(up, "agent_delivery")[-1] == {"delivery_id": "q1", "state": "delivered", "reason": None}
+    link.on_stop_handed("s1")
+    assert len([e for e in _events(up, "agent_delivery") if e["state"] == "delivered"]) == 1

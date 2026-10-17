@@ -413,6 +413,8 @@ class Service:
             return None
         from jc_client.instruction_delivery import stop_reply
         log.info("instruction from the phone: handed to the session at its Stop")
+        if self._agents_link is not None:
+            self._agents_link.on_stop_handed(str(payload.get("session_id") or ""))
         return stop_reply(text)
 
     def _forward_up(self, frame: dict) -> None:
