@@ -1,0 +1,109 @@
+"""The server's copy of every conversation's transcript.
+
+While a Mac owns a session, jc-client ships each new transcript line here as
+it is written (append-only, by byte offset), so the copy is complete as of the
+Mac's last flush and "Continue on server" works while the Mac sleeps. The copy
+lives exactly where the agent itself would read it on the server: Claude under
+``~/.claude/projects/<encoded server cwd>/<sid>.jsonl``, Codex under
+``~/.codex/sessions/<rollout path>``, so ``claude --resume <sid>`` /
+``codex resume <sid>`` pick it up unchanged.
+
+A chunk is applied only at the copy's current size; anything else (a lost or
+repeated frame) is refused with the size the sender must resume from, never
+appended in the wrong place.
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+import threading
+from pathlib import Path
+from typing import Optional
+
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock(path: Path) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(str(path), threading.Lock())
+
+
+def encode_project_dir(cwd: str) -> str:
+    """Claude's name for a project dir: realpath, ``/`` and ``.`` become ``-``."""
+    return os.path.realpath(cwd).replace("/", "-").replace(".", "-")
+
+
+def claude_config_dir() -> Path:
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(env) if env else Path.home() / ".claude"
+
+
+def server_projects_root() -> str:
+    return os.environ.get("JC_CODING_PROJECTS_ROOT") or os.path.expanduser("~/codingprojects")
+
+
+def server_cwd_for(origin_cwd: str) -> str:
+    """Where a Mac project's synced copy lives on the server."""
+    return os.path.join(server_projects_root(), os.path.basename(origin_cwd.rstrip("/")))
+
+
+def transcript_path(agent: str, session_id: str, cwd: str,
+                    codex_rel: Optional[str] = None) -> Path:
+    if agent == "codex":
+        return Path.home() / ".codex" / "sessions" / (codex_rel or f"{session_id}.jsonl")
+    return claude_config_dir() / "projects" / encode_project_dir(cwd) / f"{session_id}.jsonl"
+
+
+def path_for(conv: dict) -> Path:
+    cwd = conv.get("server_cwd") or conv.get("cwd") or ""
+    return transcript_path(conv.get("agent") or "claude", conv.get("session_id") or "",
+                           cwd, conv.get("codex_rel"))
+
+
+def size(conv: dict) -> int:
+    try:
+        return path_for(conv).stat().st_size
+    except OSError:
+        return 0
+
+
+def append_chunk(conv: dict, offset: int, data: bytes) -> tuple[bool, int]:
+    path = path_for(conv)
+    with _lock(path):
+        current = path.stat().st_size if path.exists() else 0
+        if offset != current:
+            return False, current
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "ab") as fh:
+            fh.write(data)
+        return True, current + len(data)
+
+
+def read_from(conv: dict, offset: int = 0) -> bytes:
+    path = path_for(conv)
+    with _lock(path):
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(max(0, int(offset)))
+                return fh.read()
+        except OSError:
+            return b""
+
+
+def replace(conv: dict, data: bytes) -> None:
+    """Write the whole copy (a merge result) atomically."""
+    path = path_for(conv)
+    with _lock(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".merge-")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
