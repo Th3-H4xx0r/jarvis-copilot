@@ -1,9 +1,10 @@
-"""Agent tools to launch and drive Claude Code coding sessions.
+"""Agent tools to launch and drive coding-agent sessions from a Jarvis chat.
 
-Toolset ``coding_sessions``. These wrap ``agent/coding_session_manager.py``
-(tmux-backed interactive Claude Code sessions). Registered WITHOUT a check_fn
-(like the ``chrome_*`` tools) so they always surface in the catalog; each
-handler returns a clean JSON error if the ``claude`` CLI or ``tmux`` is missing.
+Toolset ``coding_sessions``. These drive the Agents conversation layer
+(``webui/api/agents_core.py``): sessions run as Claude Code background sessions
+on the server, Mac sessions are reached through jc-client, and every message
+reports whether it was delivered. A session id is the conversation key
+(``claude|<session id>``); a bare session id is taken as a Claude one.
 
 Registrations are explicit top-level ``registry.register(...)`` calls (NOT a
 loop) so ``discover_builtin_tools``'s AST scan picks them up.
@@ -11,54 +12,35 @@ loop) so ``discover_builtin_tools``'s AST scan picks them up.
 from __future__ import annotations
 
 import json
-import shutil
-from pathlib import Path
 
 from tools.registry import registry
 
-_MGR = None
+_NO_CORE = ("Coding sessions are run by the Jarvis app's server (the Agents tab); "
+            "they aren't available from here.")
 
 
-def _load_memory():
-    """Return (memory_text, user_text) from the builtin MEMORY.md / USER.md."""
+def _core():
     try:
-        from tools.memory_tool import get_memory_dir
-
-        d = Path(get_memory_dir())
-        mem = (d / "MEMORY.md").read_text(encoding="utf-8") if (d / "MEMORY.md").exists() else ""
-        usr = (d / "USER.md").read_text(encoding="utf-8") if (d / "USER.md").exists() else ""
-        return mem, usr
+        from api.agents_core import core
+        return core()
     except Exception:
-        return "", ""
-
-
-def _mgr():
-    global _MGR
-    if _MGR is None:
-        from agent.coding_session_db import CodingSessionStore
-        from agent.coding_host_drivers import LocalDriver
-        from agent.coding_session_manager import CodingSessionManager
-
-        from agent.coding_session_capture import wait_for_session_id
-
-        repo = Path(__file__).resolve().parent.parent
-        plugin_dir = str(repo / "plugins" / "jarviscopilot-code-assist")
-        _MGR = CodingSessionManager(
-            store=CodingSessionStore(), driver=LocalDriver(),
-            plugin_dir=plugin_dir, memory_loader=_load_memory,
-            session_capturer=wait_for_session_id)
-    return _MGR
+        return None
 
 
 def _store():
-    return _mgr().store
+    from agent.coding_session_db import CodingSessionStore
+    return CodingSessionStore()
 
 
-def _claude_available() -> bool:
+def _ckey(sid: str) -> str:
+    sid = str(sid or "").strip()
+    return sid if "|" in sid else f"claude|{sid}"
+
+
+def _valid_model(name: str) -> bool:
     try:
-        from agent.claude_code_client import _resolve_command
-
-        return shutil.which(_resolve_command()) is not None
+        from agent.claude_code_client import _looks_like_claude_model
+        return _looks_like_claude_model(name)
     except Exception:
         return False
 
@@ -66,55 +48,47 @@ def _claude_available() -> bool:
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 def _h_launch(args, **kw):
-    import os
-
     a = args or {}
-    worktree = bool(a.get("worktree"))
-    repo_path = a.get("repo_path")
-    # `~`, relative paths, and not-yet-existing dirs are all accepted — the
-    # manager expands/absolutizes/creates the dir and preflights the host
-    # (auto-installing tmux). We only do a light presence check here.
-    if worktree:
-        if not repo_path:
-            return json.dumps({"error": "worktree=true requires repo_path (a git repo)"})
-        cwd = repo_path  # the manager replaces this with the new worktree path
-    else:
-        cwd = a.get("cwd") or a.get("path")
-        if not cwd:
-            return json.dumps({"error": "cwd (project directory) is required"})
+    cwd = a.get("cwd") or a.get("path") or a.get("repo_path")
+    if not cwd:
+        return json.dumps({"error": "cwd (project directory) is required"})
     model = a.get("model")
-    if model:
-        from agent.coding_host_drivers import is_valid_model
-
-        if not is_valid_model(model):
-            return json.dumps({"error": f"invalid model {model!r} (use opus|sonnet|haiku or a claude-* id)"})
-    try:
-        s = _mgr().launch(cwd=cwd, title=a.get("title") or "",
-                          initial_prompt=a.get("prompt"), model=model,
-                          worktree=bool(a.get("worktree")),
-                          repo_path=a.get("repo_path"),
-                          skip_permissions=bool(a.get("skip_permissions")))
-        return json.dumps({"ok": True, "session": s})
-    except Exception as e:  # pragma: no cover - defensive
-        return json.dumps({"error": str(e)})
+    if model and not _valid_model(model):
+        return json.dumps({"error": f"invalid model {model!r} (use opus|sonnet|haiku or a claude-* id)"})
+    c = _core()
+    if c is None:
+        return json.dumps({"error": _NO_CORE})
+    body = {"cwd": cwd, "where": a.get("where") or "server", "agent": a.get("agent") or "claude",
+            "prompt": a.get("prompt"), "model": model,
+            "permission_mode": "bypassPermissions" if a.get("skip_permissions") else None}
+    out = c.launch({k: v for k, v in body.items() if v is not None})
+    return json.dumps(out if not out.get("ok") else {"ok": True, "launched": body["cwd"]})
 
 
 def _h_list(args, **kw):
-    try:
-        return json.dumps({"ok": True,
-                           "sessions": _mgr().list(status=(args or {}).get("status"))})
-    except Exception as e:  # pragma: no cover - defensive
-        return json.dumps({"error": str(e)})
+    c = _core()
+    if c is None:
+        return json.dumps({"error": _NO_CORE})
+    data = c.list_payload()
+    rows = list(data.get("needs_you") or [])
+    for p in data.get("projects") or []:
+        rows += [dict(s, project=s.get("project") or p.get("name")) for s in p.get("sessions") or []]
+    keep = ("ckey", "title", "project", "agent", "owner_name", "status", "state", "step")
+    return json.dumps({"ok": True, "sessions": [{k: r.get(k) for k in keep if k in r} for r in rows],
+                       "mac_asleep": data.get("card")})
 
 
 def _h_status(args, **kw):
     sid = (args or {}).get("session_id")
     if not sid:
         return json.dumps({"error": "session_id is required"})
-    s = _mgr().status(sid)
-    if not s:
+    c = _core()
+    if c is None:
+        return json.dumps({"error": _NO_CORE})
+    row = c.conv.get(_ckey(sid))
+    if not row:
         return json.dumps({"error": "no such session"})
-    return json.dumps({"ok": True, "session": s, "subagents": _mgr().subagents(sid)})
+    return json.dumps({"ok": True, "session": row}, default=str)
 
 
 def _h_message(args, **kw):
@@ -122,26 +96,21 @@ def _h_message(args, **kw):
     sid, text = a.get("session_id"), a.get("text")
     if not sid or not text:
         return json.dumps({"error": "session_id and text are required"})
-    try:
-        _mgr().send_message(sid, text)
-        return json.dumps({"ok": True})
-    except KeyError:
-        return json.dumps({"error": "no such session"})
-    except Exception as e:  # pragma: no cover - defensive
-        return json.dumps({"error": str(e)})
+    c = _core()
+    if c is None:
+        return json.dumps({"error": _NO_CORE})
+    d = c.handoff.send(_ckey(sid), str(text))
+    return json.dumps({"ok": d.get("state") != "failed", "delivery": d})
 
 
 def _h_stop(args, **kw):
     sid = (args or {}).get("session_id")
     if not sid:
         return json.dumps({"error": "session_id is required"})
-    try:
-        _mgr().stop(sid)
-        return json.dumps({"ok": True})
-    except KeyError:
-        return json.dumps({"error": "no such session"})
-    except Exception as e:  # pragma: no cover - defensive
-        return json.dumps({"error": str(e)})
+    c = _core()
+    if c is None:
+        return json.dumps({"error": _NO_CORE})
+    return json.dumps(c.stop(_ckey(sid)))
 
 
 def _h_project_create(args, **kw):
@@ -163,9 +132,8 @@ def _h_project_list(args, **kw):
 _LAUNCH = {
     "name": "coding_session_launch",
     "description": (
-        "Launch an interactive Claude Code coding session in a project directory "
-        "on this host (tmux-backed, live-watchable). The session is auto-equipped "
-        "with the jarviscopilot-code-assist plugin and seeded with Jarvis memory. "
+        "Start a Claude Code session in a project folder on the server (a background "
+        "session the user can watch and drive from the Agents tab). "
         "Use when the user asks to start a coding agent on a project/task."),
     "parameters": {"type": "object",
                    "properties": {
@@ -173,9 +141,7 @@ _LAUNCH = {
                        "title": {"type": "string", "description": "short human label for the session"},
                        "prompt": {"type": "string", "description": "the initial task/instruction for the session"},
                        "model": {"type": "string", "description": "claude model (opus|sonnet|haiku or a full id)"},
-                       "worktree": {"type": "boolean", "description": "isolate in a fresh git worktree (requires repo_path)"},
-                       "repo_path": {"type": "string", "description": "repo to branch a worktree from when worktree=true"},
-                       "skip_permissions": {"type": "boolean", "description": "run claude with --dangerously-skip-permissions (no approval prompts; autonomous)"}},
+                                                                     "skip_permissions": {"type": "boolean", "description": "run claude with --dangerously-skip-permissions (no approval prompts; autonomous)"}},
                    "required": ["cwd"]},
 }
 _LIST = {
@@ -204,7 +170,7 @@ _MESSAGE = {
 }
 _STOP = {
     "name": "coding_session_stop",
-    "description": "Stop a coding session (kills its tmux session).",
+    "description": "Stop a coding session.",
     "parameters": {"type": "object",
                    "properties": {"session_id": {"type": "string"}},
                    "required": ["session_id"]},
