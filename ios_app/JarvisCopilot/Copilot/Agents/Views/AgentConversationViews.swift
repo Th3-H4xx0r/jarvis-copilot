@@ -515,11 +515,14 @@ struct AgentWorkingRow: View {
 // MARK: - Composer
 
 /// The fixed composer: "Reply to Claude Code…" and a send button, on glass.
-/// The edge glows while the agent works, as the Chat tab's does.
+/// The edge glows while the agent works, as the Chat tab's does. While it
+/// works a tap queues the message behind the turn (the terminal's Enter);
+/// holding the button offers "Send now" (its Ctrl+Enter).
 struct AgentComposer: View {
     let placeholder: String
     var working = false
-    let onSend: (String) -> Void
+    /// The text, and whether it goes in now rather than after the turn.
+    let onSend: (String, Bool) -> Void
 
     @State private var draft = ""
     /// Bumped on every send: a multi-line `TextField` keeps stale text on screen
@@ -543,21 +546,49 @@ struct AgentComposer: View {
                 .padding(.vertical, 10)
                 .padding(.leading, 14)
                 .accessibilityLabel("Reply")
-            Button(action: send) {
-                JcIcon("arrow.up", size: 16, weight: .semibold)
-                    .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)
-                    .frame(width: 40, height: 40)
-                    .jcLiquidGlass(in: Circle())
+            if working {
+                Menu {
+                    Button { send(now: true) } label: {
+                        Label("Send now", systemImage: "bolt.fill")
+                    }
+                    Button { send(now: false) } label: {
+                        Label("Queue for after this turn", systemImage: "text.append")
+                    }
+                } label: {
+                    sendIcon
+                } primaryAction: {
+                    send(now: false)
+                }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .animation(.smooth(duration: 0.2), value: canSend)
+                .accessibilityLabel("Queue")
+                .accessibilityHint("Hold for Send now")
+            } else {
+                Button { send(now: false) } label: { sendIcon }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .animation(.smooth(duration: 0.2), value: canSend)
+                    .accessibilityLabel("Send")
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .animation(.smooth(duration: 0.2), value: canSend)
-            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 5)
         .jcLiquidGlass(in: shape)
         .jcBorderBeam(shape, active: working)
+        .overlay(alignment: .topTrailing) {
+            if working && canSend {
+                Text("hold ↑ to send now")
+                    .font(.caption2)
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.trailing, 18)
+                    .offset(y: -17)
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
+            }
+        }
+        .animation(.smooth(duration: 0.2), value: working && canSend)
         .padding(.horizontal, 14)
         .padding(.top, 8)
         .padding(.bottom, 10)
@@ -567,11 +598,18 @@ struct AgentComposer: View {
                 .ignoresSafeArea())
     }
 
-    private func send() {
+    private var sendIcon: some View {
+        JcIcon("arrow.up", size: 16, weight: .semibold)
+            .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)
+            .frame(width: 40, height: 40)
+            .jcLiquidGlass(in: Circle())
+    }
+
+    private func send(now: Bool) {
         let text = jcTrim(draft)
         guard !text.isEmpty else { return }
         draft = ""
         generation += 1
-        onSend(text)
+        onSend(text, now)
     }
 }

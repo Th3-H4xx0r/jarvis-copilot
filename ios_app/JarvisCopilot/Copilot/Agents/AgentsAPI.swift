@@ -107,13 +107,17 @@ struct AgentsAPI {
         return CodingChatPage(json: try await api.get("/api/coding/agents/messages", query: query).object())
     }
 
-    /// `POST /api/coding/agents/send {ckey, text}` → `{delivery}` — 200 when it
-    /// went (sent / queued / delivered), 409 with the reason when it didn't.
+    /// `POST /api/coding/agents/send {ckey, text, now?}` → `{delivery}` — 200 when
+    /// it went (sent / queued / delivered), 409 with the reason when it didn't.
+    /// While the agent works a message joins its own queue; `now` sends it
+    /// straight in (the terminal's Ctrl+Enter).
     /// Read by hand: the 409's body is the answer, not an error to throw.
-    func send(ckey: String, text: String) async throws -> AgentDelivery {
+    func send(ckey: String, text: String, now: Bool = false) async throws -> AgentDelivery {
+        var body: [String: Any] = ["ckey": ckey, "text": text]
+        if now { body["now"] = true }
         let req = try api.request("POST", "/api/coding/agents/send",
                                   headers: ["Content-Type": "application/json"],
-                                  body: try JSONSerialization.data(withJSONObject: ["ckey": ckey, "text": text]))
+                                  body: try JSONSerialization.data(withJSONObject: body))
         let (data, http) = try await api.transport.send(req)
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         if let delivery = CodingJSON.dict(obj["delivery"]) { return AgentDelivery(json: delivery) }

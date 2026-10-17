@@ -86,7 +86,7 @@ final class AgentsScreensTests: XCTestCase {
                 .padding(.vertical, 12)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                AgentComposer(placeholder: "Reply to Claude Code…", working: true) { _ in }
+                AgentComposer(placeholder: "Reply to Claude Code…", working: true) { _, _ in }
             }
             .background(JcTheme.bg.ignoresSafeArea())
             .navigationTitle("Pieces")

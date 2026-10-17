@@ -231,6 +231,9 @@ struct AgentOutgoing: Identifiable, Equatable {
     /// How many of the conversation's prompts already read like this one when
     /// it was sent — a repeat ("continue") is only delivered once there's one more.
     let baseline: Int
+    /// Sent with "Send now" (straight in, not queued behind the turn): a retry
+    /// sends it the same way.
+    var now = false
     var phase: Phase
     /// The server's record of this send (`POST /agents/send`'s `delivery.id`):
     /// the list push carries its later state — typed, queued, delivered, refused.

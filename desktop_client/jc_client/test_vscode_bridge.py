@@ -53,9 +53,12 @@ class FakeExtension:
         self.s.connect(path)
         threading.Thread(target=self._read, daemon=True).start()
 
-    def hello(self):
-        self._send({"type": "hello", "window": self.window, "folders": self.folders,
-                    "terminals": [{"id": i, "pid": p} for i, p in enumerate(self.pids)]})
+    def hello(self, submit=None):
+        msg = {"type": "hello", "window": self.window, "folders": self.folders,
+               "terminals": [{"id": i, "pid": p} for i, p in enumerate(self.pids)]}
+        if submit is not None:
+            msg["submit"] = submit
+        self._send(msg)
         return self
 
     def _send(self, obj):
@@ -239,3 +242,27 @@ def test_terminal_pid_for_walks_up_to_a_known_shell(bridge, monkeypatch):
     assert bridge.terminal_pid_for(100) == 100
     assert bridge.terminal_pid_for(999) is None
     ext.close()
+
+
+def test_send_now_asks_the_terminal_for_ctrl_enter(monkeypatch):
+    from jc_client.vscode_bridge import VSCodeBridge
+    b = VSCodeBridge(sock_path="/tmp/jc-unused-test.sock")
+    seen = {}
+    conn = type("Conn", (), {"hello": {"submit": ["enter", "now"]}})()
+    monkeypatch.setattr(b, "_owner", lambda pid: conn)
+    monkeypatch.setattr(b, "_request", lambda conn, msg, timeout: seen.update(msg) or True)
+    assert b.send_text(5, "hi", now=True) and seen["submit"] == "now"
+    assert b.send_text(5, "hi") and seen["submit"] == "enter"
+
+
+def test_send_now_only_goes_to_a_window_that_can_press_ctrl_enter(bridge):
+    """A window still on the old extension ignores "submit" and presses Enter:
+    Send now there would only queue it while saying "sent"."""
+    old = FakeExtension(bridge.path, "w1", ["/a"], [101]).hello()
+    new = FakeExtension(bridge.path, "w2", ["/b"], [201]).hello(submit=["enter", "now"])
+    assert until(lambda: len(bridge.windows()) == 2)
+    assert bridge.send_text(101, "go", now=True) is False and old.received == []
+    assert bridge.send_text(101, "go") is True
+    assert bridge.send_text(201, "go", now=True) is True and new.received[-1]["submit"] == "now"
+    old.close()
+    new.close()

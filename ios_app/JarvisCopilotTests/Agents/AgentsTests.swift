@@ -213,6 +213,20 @@ final class AgentsTests: XCTestCase {
         XCTAssertTrue(store.outgoing(for: "other").isEmpty)
     }
 
+    func testSendNowAsksForItAndARetryKeepsIt() async throws {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/send",
+                        json: ["delivery": ["state": "failed", "reason": "no_runtime"]], status: 409)
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        await store.send("stop and fix the tests", to: "claude|s1", prompts: [], now: true)
+        XCTAssertEqual(transport.lastBody()["now"] as? Bool, true)
+        let id = try XCTUnwrap(store.outgoing(for: "claude|s1").first?.id)
+        await store.retry(id, ckey: "claude|s1")
+        XCTAssertEqual(transport.lastBody()["now"] as? Bool, true, "a retry goes in the same way")
+        await store.send("then lint", to: "claude|s1", prompts: [])
+        XCTAssertNil(transport.lastBody()["now"], "a plain send joins the queue")
+    }
+
     func testAFailedSendSaysWhy() async {
         let (client, transport) = JarvisAPI.mocked()
         transport.route("/api/coding/agents/send",

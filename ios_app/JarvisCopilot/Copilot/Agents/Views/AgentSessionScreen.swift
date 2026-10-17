@@ -126,8 +126,8 @@ struct AgentSessionScreen: View {
                                  continueOnServer: { continueOnServer() },
                                  resume: { askResume = true })
             } else {
-                AgentComposer(placeholder: "Reply to \(agentName)…", working: working) { text in
-                    Task { await store.send(text, to: ckey, prompts: prompts) }
+                AgentComposer(placeholder: "Reply to \(agentName)…", working: working) { text, now in
+                    Task { await store.send(text, to: ckey, prompts: prompts, now: now) }
                 }
             }
         }

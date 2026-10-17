@@ -133,14 +133,14 @@ class Handoff:
                 "bg_id": self.claude.start(cwd, resume_session_id=sid, bg_origin=bg_origin)}
 
     # ── sending ──────────────────────────────────────────────────────────
-    def send(self, ckey: str, text: str) -> dict:
+    def send(self, ckey: str, text: str, now: bool = False) -> dict:
         did = self.deliveries.create(ckey, text)
         row = self.conv.get(ckey)
-        state, reason = self._deliver(row, did, text)
+        state, reason = self._deliver(row, did, text, now=now)
         self.deliveries.mark(did, state, reason)
         return {"id": did, "state": state, "reason": reason}
 
-    def _deliver(self, row: Optional[dict], did: str, text: str) -> tuple:
+    def _deliver(self, row: Optional[dict], did: str, text: str, now: bool = False) -> tuple:
         if row is None:
             return "failed", "no_session"
         owner, run = row.get("owner"), row.get("run") or {}
@@ -157,8 +157,14 @@ class Handoff:
                     return "delivered", None
                 if not run.get("bg_id"):
                     return "failed", "no_runtime"
-                self.claude.send(run["bg_id"], text)
-                return "sent", None
+                busy = row.get("state") in _WORKING
+                now = now and busy   # Ctrl+Enter only means something mid-turn
+                bg = run["bg_id"]
+                # Mid-turn the message waits in the attach client (queued, or
+                # for the moment Send now takes), so the attach stays open.
+                self.claude.send(bg, text, now=now,
+                                 hold_until=(lambda: self._server_idle(bg)) if busy else None)
+                return ("queued" if busy and not now else "sent"), None
             except Exception as exc:  # noqa: BLE001
                 return "failed", str(exc) or "send_failed"
         if row.get("status") in ("asleep", "offline") or self.presence.state(owner) != "online":
@@ -166,10 +172,20 @@ class Handoff:
         frame = {"type": "agent_instruction", "delivery_id": did, "ckey": row["ckey"],
                  "agent": row.get("agent") or "claude", "session_id": row.get("session_id"),
                  "cwd": row.get("cwd") or "", "text": text, "run": run,
-                 "terminal": run.get("terminal") or {}, "state": row.get("state")}
+                 "terminal": run.get("terminal") or {}, "state": row.get("state"),
+                 "now": bool(now)}
         if not self._send_frame(owner, frame):
             return "failed", "owner_offline"
         return "sent", None
+
+    def _server_idle(self, bg_id: str) -> bool:
+        """True once the server session stopped working (or is gone): the
+        message held in its attach client has gone in by then."""
+        try:
+            entry = next((e for e in self.claude.roster() if e.get("bg_id") == bg_id), None)
+        except Exception:  # noqa: BLE001
+            return False   # can't tell: keep holding (hold_max still ends it)
+        return entry is None or entry.get("status") not in ("working", "running", "busy")
 
     def on_device_delivery(self, did: str, state: str, reason: Optional[str] = None) -> None:
         if state in ("queued", "failed", "sent", "delivered"):

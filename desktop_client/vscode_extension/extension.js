@@ -111,6 +111,7 @@ async function sendHello() {
       window: vscode.env.sessionId,
       folders: workspaceFolderPaths(),
       terminals: terms.map((t, i) => ({ id: i, name: t.name, pid: pids[i] })),
+      submit: ['enter', 'now'],
     });
   } catch (e) {
     console.error('[jarvis-terminal-bridge] hello failed', e);
@@ -159,7 +160,7 @@ async function handle(msg) {
     if (!t) return reply(req, false, 'no terminal with that pid');
     t.sendText('\x1b[200~' + String(msg.text == null ? '' : msg.text) + '\x1b[201~', false);
     await sleep(ENTER_DELAY_MS);
-    t.sendText('\r', false);
+    t.sendText(msg.submit === 'now' ? '\x1b[13;5u' : '\r', false);
     return reply(req, true);
   }
   if (msg.type === 'run') {

@@ -21,8 +21,8 @@ class FakeVSCode:
     def terminal_pid_for(self, pid):
         return 900 if pid == 901 else None
 
-    def send_text(self, shell, text, timeout=3.0):
-        self.sent.append((shell, text))
+    def send_text(self, shell, text, timeout=3.0, now=False):
+        self.sent.append((shell, text) if not now else (shell, text, "now"))
         return True
 
     def run_in_terminal(self, cwd, cmd, timeout=3.0):
@@ -261,3 +261,48 @@ def test_a_queued_message_is_delivered_when_the_stop_hook_hands_it_over():
     assert _events(up, "agent_delivery")[-1] == {"delivery_id": "q1", "state": "delivered", "reason": None}
     link.on_stop_handed("s1")
     assert len([e for e in _events(up, "agent_delivery") if e["state"] == "delivered"]) == 1
+
+
+def test_a_working_session_in_vscode_gets_it_in_claudes_own_queue():
+    """Typed with Enter while it works, Claude Code queues it itself (the
+    "ctrl+enter to send now" line in the terminal)."""
+    link, up, q = _link()
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "k1", "agent": "claude",
+                       "session_id": "s1", "text": "then lint", "state": "working",
+                       "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [(900, "then lint")] and q.items == []
+    assert _events(up, "agent_delivery")[-1]["state"] == "queued"
+
+
+def test_send_now_types_ctrl_enter_into_a_working_session():
+    link, up, _ = _link()
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "k2", "agent": "claude",
+                       "session_id": "s1", "text": "stop and fix tests", "state": "working",
+                       "now": True, "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [(900, "stop and fix tests", "now")]
+    assert _events(up, "agent_delivery")[-1]["state"] == "sent"
+
+
+def test_send_now_to_codex_is_queued_not_ctrl_entered():
+    """Ctrl+Enter is Claude Code's key: typed into Codex's TUI it would be junk."""
+    link, up, q = _link()
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "k3", "agent": "codex",
+                       "session_id": "s1", "text": "and lint", "state": "working", "now": True,
+                       "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [(900, "and lint")] and q.items == []
+    assert _events(up, "agent_delivery")[-1]["state"] == "queued"
+
+
+def test_a_menu_the_mac_already_sees_is_never_typed_into():
+    """The server can still say "working" while Claude's approval menu is up on
+    the Mac (the hook hasn't reached it yet): the Mac's own engine decides, or
+    the Enter would pick the menu's highlighted "Yes"."""
+    up, q = [], Queue()
+    link = AgentsLink(up.append, vscode=FakeVSCode(), queue=lambda: q, instructions_on=lambda: True,
+                      inline=True, power_thread=False,
+                      local_state=lambda agent, sid: "approval" if sid == "s1" else None)
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "k4", "agent": "claude",
+                       "session_id": "s1", "text": "then lint", "state": "working", "now": True,
+                       "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [] and q.items == [("s1", "then lint")]
+    assert _events(up, "agent_delivery")[-1]["state"] == "queued"

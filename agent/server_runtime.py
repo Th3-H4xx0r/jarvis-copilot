@@ -22,6 +22,7 @@ import select
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -109,6 +110,9 @@ class _Pty:
             pass
 
 
+_TRUST_LOCK = threading.Lock()
+
+
 class ClaudeRuntime:
     def __init__(self, *, run: Callable = subprocess.run,
                  pty_factory: Optional[Callable[[list], object]] = None,
@@ -124,6 +128,12 @@ class ClaudeRuntime:
         return Path(cfg) / ".claude.json" if cfg else Path.home() / ".claude.json"
 
     def ensure_trusted(self, cwd: str) -> None:
+        # One at a time: two Continues landing together would each write back
+        # the file they read, and the later write drops the other's folder.
+        with _TRUST_LOCK:
+            self._ensure_trusted(cwd)
+
+    def _ensure_trusted(self, cwd: str) -> None:
         path = self._config_path()
         try:
             data = json.loads(path.read_text()) if path.exists() else {}
@@ -189,11 +199,18 @@ class ClaudeRuntime:
     def attach_argv(self, bg_id: str) -> list:
         return [self._bin, "attach", bg_id]
 
-    def send(self, bg_id: str, text: str, timeout: float = 8.0) -> None:
+    def send(self, bg_id: str, text: str, timeout: float = 8.0, now: bool = False,
+             hold_until=None, hold_poll: float = 5.0, hold_max: float = 900.0) -> None:
+        """Paste ``text`` into the session and submit it: Return, or Ctrl+Enter
+        with ``now`` (Claude's "send now" while it works). A message typed
+        while it works waits in the attach client's own queue, so with
+        ``hold_until`` the attach stays open (in the background) until that
+        says the session is idle, or ``hold_max`` passes."""
         try:
             term = self._pty(self.attach_argv(bg_id))
         except OSError as exc:
             raise DeliveryError(f"couldn't open the session: {exc}") from exc
+        held = False
         try:
             deadline = time.monotonic() + timeout
             opened = False
@@ -206,8 +223,37 @@ class ClaudeRuntime:
             time.sleep(self._settle)
             term.write(b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~")
             time.sleep(self._settle)
-            term.write(b"\r")
+            term.write(b"\x1b[13;5u" if now else b"\r")
             time.sleep(self._settle)
+            if hold_until is not None:
+                held = True
+                threading.Thread(target=self._hold, args=(term, hold_until, hold_poll, hold_max),
+                                 daemon=True, name="claude-attach-hold").start()
+        finally:
+            if not held:
+                term.close()
+
+    @staticmethod
+    def _hold(term, until, poll: float, limit: float) -> None:
+        # Keep reading the screen so the attach client never blocks on a full
+        # PTY, and ask ``until`` every ``poll`` seconds.
+        def drain(seconds: float) -> None:
+            stop = time.monotonic() + seconds
+            while time.monotonic() < stop:
+                t0 = time.monotonic()
+                term.read_some(min(0.2, max(0.0, stop - t0)))
+                if time.monotonic() - t0 < 0.01:
+                    time.sleep(0.02)   # closed or bursting: don't spin
+        end = time.monotonic() + limit
+        try:
+            while time.monotonic() < end:
+                drain(poll)
+                try:
+                    if until():
+                        break
+                except Exception:  # noqa: BLE001
+                    break
+            drain(min(1.0, poll))   # let the queued message go in
         finally:
             term.close()
 
@@ -230,6 +276,8 @@ class ClaudeRuntime:
             entries.append({"agent": "claude", "session_id": s["sessionId"],
                             "kind": s.get("kind") or "interactive",
                             "bg_id": s.get("id") if bg else None, "cwd": s.get("cwd") or "",
-                            "name": s.get("name") or "", "status": s.get("status") or "",
+                            "name": s.get("name") or "",
+                            # background sessions say "state" (working/idle/blocked/...)
+                            "status": s.get("status") or s.get("state") or "",
                             "pid": s.get("pid")})
         return entries

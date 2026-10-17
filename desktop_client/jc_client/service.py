@@ -470,6 +470,16 @@ class Service:
             log.warning("agent hook server unavailable: %s", exc)
             self._hook_server = None
 
+    def _local_agent_state(self, agent: str, sid: str):
+        """What this Mac's hook engine says the session is doing, if it knows it."""
+        server = self._hook_server
+        if server is None:
+            return None
+        for s in server.engine_sessions():
+            if s.get("agent") == agent and s.get("session_id") == sid:
+                return s.get("state")
+        return None
+
     def _start_agents_link(self) -> None:
         try:
             from jc_client.agents_link import AgentsLink
@@ -484,7 +494,8 @@ class Service:
             self._agents_link = AgentsLink(self._forward_up, vscode=self._vscode,
                                            queue=self._instruction_queue,
                                            instructions_on=lambda: self._agent_instructions,
-                                           ui_broadcast=self._ui_broadcast)
+                                           ui_broadcast=self._ui_broadcast,
+                                           local_state=self._local_agent_state)
         except Exception as exc:  # noqa: BLE001
             log.warning("agents link unavailable: %s", exc)
             self._agents_link = None

@@ -9,8 +9,8 @@ class FakeVSCode:
     def terminal_pid_for(self, pid):
         return 500 if pid == 501 else None
 
-    def send_text(self, shell_pid, text, timeout=3.0):
-        self.sent.append((shell_pid, text))
+    def send_text(self, shell_pid, text, timeout=3.0, now=False):
+        self.sent.append((shell_pid, text) if not now else (shell_pid, text, "now"))
         return True
 
 
@@ -37,3 +37,15 @@ def test_no_tmux_path():
     ok, why = idl.type_into({"tmux_pane": "%1", "tmux": "x"}, "hi", run=lambda argv: 0)
     assert not ok and why == "can't type into this terminal"
     assert "tmux" not in open(idl.__file__).read().split('"""', 2)[2]
+
+
+def test_send_now_reaches_vscode_as_ctrl_enter():
+    vs = FakeVSCode()
+    ok, _ = idl.type_into({"term_program": "vscode"}, "go", pid=501, vscode=vs, run=lambda a: 1, now=True)
+    assert ok and vs.sent == [(500, "go", "now")]
+
+
+def test_iterm_send_now_writes_ctrl_enter_not_return():
+    calls = []
+    ok, _ = idl.type_into({"iterm": "w0t0p0:ABC"}, "go", run=lambda argv: calls.append(argv) or 0, now=True)
+    assert ok and calls[0][-3:] == ["ABC", "go", "\x1b[13;5u"]

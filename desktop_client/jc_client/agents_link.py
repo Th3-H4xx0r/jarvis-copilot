@@ -48,8 +48,11 @@ class AgentsLink:
                  instructions_on: Callable[[], bool] = lambda: True,
                  runtime: Optional[LocalRuntime] = None, inline: bool = False,
                  power_thread: bool = True,
-                 ui_broadcast: Optional[Callable[[dict], None]] = None) -> None:
+                 ui_broadcast: Optional[Callable[[dict], None]] = None,
+                 local_state: Optional[Callable[[str, str], Optional[str]]] = None) -> None:
         self._up = forward_up
+        # This Mac's own hook engine: it sees an approval menu before the server does.
+        self._local_state = local_state or (lambda agent, sid: None)
         self.vscode = vscode
         self._queue = queue
         self._instructions_on = instructions_on
@@ -198,6 +201,12 @@ class AgentsLink:
                                                "Code Master settings first")
         run = frame.get("run") or {}
         terminal = frame.get("terminal") or run.get("terminal") or {}
+        try:
+            local = self._local_state(agent, sid)
+        except Exception:  # noqa: BLE001
+            local = None
+        if local in ("approval", "question"):
+            frame = dict(frame, state=local)
         if frame.get("state") in ("approval", "question"):
             # Its terminal shows a menu: typing would answer it. Only ever after the turn.
             if agent in _STOP_QUEUE_AGENTS and self._queue:
@@ -206,6 +215,18 @@ class AgentsLink:
                 return self._report(did, "queued", None)
             return self._report(did, "failed", "It's waiting on an approval or a question: "
                                                "answer that first.")
+        if frame.get("state") in _WORKING:
+            # Typed into its terminal while it works, Claude Code queues the
+            # message itself (the "ctrl+enter to send now" line); "now" is
+            # Ctrl+Enter. Only a terminal Jarvis can't type into falls back to
+            # handing it over at the Stop hook.
+            # (Ctrl+Enter is Claude Code's key; Codex just gets it queued.)
+            from jc_client.instruction_delivery import type_into as _type_into
+            now = bool(frame.get("now")) and agent == "claude"
+            ok, _why = _type_into(terminal, text, pid=run.get("pid") or self._pids.get(f"{agent}|{sid}"),
+                                  vscode=self.vscode, now=now)
+            if ok:
+                return self._report(did, "sent" if now else "queued", None)
         if frame.get("state") in _WORKING and agent in _STOP_QUEUE_AGENTS and self._queue:
             self._queue().add(sid, text)
             self._queued.setdefault(sid, []).append(did)

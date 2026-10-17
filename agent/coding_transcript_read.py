@@ -174,6 +174,25 @@ def _result_text(content) -> str:
     return _clip("\n".join(p for p in parts if p), MAX_TOOL_OUTPUT)
 
 
+def _queued_prompt(a) -> str:
+    """A message typed while the agent worked: Claude Code records it only as a
+    ``queued_command`` attachment. Task notifications and other sessions'
+    messages ride the same queue and stay hidden."""
+    if not isinstance(a, dict) or a.get("type") != "queued_command" or a.get("isMeta"):
+        return ""
+    if a.get("commandMode") != "prompt":
+        return ""
+    origin = a.get("origin")
+    if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+        return ""
+    p = a.get("prompt")
+    if isinstance(p, list):
+        p = "\n".join(str(b.get("text") or "") for b in p
+                      if isinstance(b, dict) and b.get("type") == "text")
+    txt = str(p or "").strip()
+    return "" if txt.startswith("<") else txt
+
+
 def parse_transcript_text(text: str) -> list[dict]:
     """Parse raw transcript JSONL into the chat-message list (full, uncapped —
     callers slice; each message carries its absolute index ``i``)."""
@@ -194,6 +213,13 @@ def parse_transcript_text(text: str) -> list[dict]:
         except Exception:
             continue
         t = d.get("type")
+        if t == "attachment" and not d.get("isSidechain"):
+            txt = _queued_prompt(d.get("attachment"))
+            if txt:
+                m = _new("user", _iso_ts(d.get("timestamp")))
+                m["text"] = _clip(txt, MAX_TEXT)
+                m["queued"] = True
+            continue
         if t not in ("user", "assistant"):
             continue
         if d.get("isSidechain"):
@@ -216,6 +242,9 @@ def parse_transcript_text(text: str) -> list[dict]:
                 # Skip harness/meta envelopes (command echoes, reminders).
                 if not txt or txt.startswith("<"):
                     continue
+                if out and out[-1]["role"] == "user" and out[-1].get("queued") \
+                        and out[-1]["text"] == _clip(txt, MAX_TEXT):
+                    continue               # the queued message, written again as it went in
                 m = _new("user", ts)
                 m["text"] = _clip(txt, MAX_TEXT)
                 continue

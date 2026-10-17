@@ -41,3 +41,38 @@ def test_a_long_turn_keeps_its_newest_text():
     first = "x" * (MAX_TEXT + 500)
     msgs = parse_transcript_text("\n".join([U("u1", "go"), A("a1", first), A("a2", "THE END")]))
     assert msgs[-1]["text"].endswith("THE END")
+
+
+def Q(uid, prompt, mode="prompt", origin="human", meta=None):
+    a = {"type": "queued_command", "prompt": prompt, "commandMode": mode, "origin": {"kind": origin}}
+    if meta:
+        a["isMeta"] = True
+    return json.dumps({"type": "attachment", "uuid": uid, "timestamp": "2026-10-17T22:29:21.000Z",
+                       "attachment": a})
+
+
+def test_a_message_queued_while_it_works_is_a_user_bubble():
+    """Typed mid-turn (from the phone or the keyboard), Claude Code records the
+    message only as a queued_command attachment, never as a user line."""
+    msgs = parse_transcript_text("\n".join([
+        U("u1", "run the tests"), A("a1", "Running."), Q("q1", "then lint"),
+        Q("q2", [{"type": "text", "text": "and push"}]), A("a2", "Linted and pushed.")]))
+    assert [(m["role"], m["text"]) for m in msgs] == [
+        ("user", "run the tests"), ("assistant", "Running."), ("user", "then lint"),
+        ("user", "and push"), ("assistant", "Linted and pushed.")]
+
+
+def test_task_notifications_and_peer_messages_in_the_queue_stay_hidden():
+    msgs = parse_transcript_text("\n".join([
+        U("u1", "x"), A("a1", "one"),
+        Q("q1", "<task-notification>\n<task-id>t1</task-id>", mode="task-notification"),
+        Q("q2", "<cross-session-message from=\"uds:/x\">hi</cross-session-message>", origin="peer", meta=True),
+        A("a2", "two")]))
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+
+
+def test_a_queued_message_also_written_as_a_user_line_shows_once():
+    msgs = parse_transcript_text("\n".join([
+        U("u1", "go"), A("a1", "Working."), Q("q1", "stop and fix it"), U("u2", "stop and fix it"),
+        A("a2", "Fixed.")]))
+    assert [m["text"] for m in msgs if m["role"] == "user"] == ["go", "stop and fix it"]

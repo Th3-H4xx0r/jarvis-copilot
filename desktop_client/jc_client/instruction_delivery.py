@@ -40,6 +40,28 @@ _ITERM_SCRIPT = [
 ]
 
 
+# The same, typing the text without a Return and then Ctrl+Enter (CSI 13;5u):
+# Claude Code's "send now" while it works.
+_ITERM_NOW_SCRIPT = [
+    "on run argv",
+    'tell application "iTerm2"',
+    "repeat with w in windows",
+    "repeat with t in tabs of w",
+    "repeat with s in sessions of t",
+    "if (unique id of s) is (item 1 of argv) then",
+    "tell s to write text (item 2 of argv) newline NO",
+    "tell s to write text (item 3 of argv) newline NO",
+    "return",
+    "end if",
+    "end repeat",
+    "end repeat",
+    "end repeat",
+    "end tell",
+    "end run",
+]
+CTRL_ENTER = "\x1b[13;5u"
+
+
 class InstructionQueue:
     """Messages waiting for a session's next Stop, per session id."""
 
@@ -71,24 +93,25 @@ def stop_reply(text: str) -> dict:
 
 
 def type_into(terminal: dict, text: str, *, pid=None, vscode=None,
-              run: Callable[[list], int] = None) -> tuple[bool, str]:
-    """Type ``text`` + Return into the terminal running the session."""
+              run: Callable[[list], int] = None, now: bool = False) -> tuple[bool, str]:
+    """Type ``text`` into the terminal running the session and submit it with
+    Return, or with Ctrl+Enter when ``now`` (Claude's "send now")."""
     run = run or (lambda argv: subprocess.run(argv, timeout=10, capture_output=True).returncode)
     terminal = terminal or {}
     if str(terminal.get("term_program") or "").lower() == "vscode":
         shell = vscode.terminal_pid_for(int(pid)) if (vscode is not None and pid) else None
         if not shell:
             return False, "VS Code isn't showing that session (is the Jarvis extension on?)"
-        if not vscode.send_text(shell, text):
+        if not vscode.send_text(shell, text, now=now):
             return False, "VS Code couldn't type into that terminal"
         return True, "typed into VS Code"
     iterm = str(terminal.get("iterm") or "")
     if iterm:
         uid = iterm.split(":", 1)[-1]
         argv = ["/usr/bin/osascript"]
-        for line in _ITERM_SCRIPT:
+        for line in (_ITERM_NOW_SCRIPT if now else _ITERM_SCRIPT):
             argv += ["-e", line]
-        argv += [uid, text]
+        argv += [uid, text] + ([CTRL_ENTER] if now else [])
         if run(argv) != 0:
             return False, "iTerm couldn't type into that session"
         return True, "typed into iTerm"

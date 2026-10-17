@@ -25,8 +25,9 @@ class FakeClaude:
         self.started.append((cwd, kw))
         return "bg123456"
 
-    def send(self, bg_id, text, timeout=8.0):
+    def send(self, bg_id, text, timeout=8.0, now=False, hold_until=None, **kw):
         self.sent.append((bg_id, text))
+        self.holds = getattr(self, "holds", []) + [hold_until]
 
     def stop(self, bg_id):
         self.stopped.append(bg_id)
@@ -153,6 +154,38 @@ def test_send_to_server_owner_uses_runtime(env):
     env["h"].continue_on_server(ck)
     out = env["h"].send(ck, "next")
     assert out["state"] == "sent" and env["claude"].sent[-1] == ("bg123456", "next")
+
+
+def test_working_server_session_queues_and_holds_until_it_stops(env):
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    env["conv"].upsert(ck, state="working")
+    out = env["h"].send(ck, "then lint")
+    assert out["state"] == "queued" and env["claude"].sent[-1] == ("bg123456", "then lint")
+    idle = env["claude"].holds[-1]
+    env["claude"].live = [{"bg_id": "bg123456", "status": "working"}]
+    assert idle() is False
+    env["claude"].live = [{"bg_id": "bg123456", "status": "idle"}]
+    assert idle() is True
+    env["claude"].live = []
+    assert idle() is True
+
+
+def test_send_now_to_a_working_server_session_holds_the_attach_too(env):
+    """Send now also waits in the attach client for a moment (~2 s while Claude
+    sets the running tool aside): closing it at once would drop the message."""
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    env["conv"].upsert(ck, state="working")
+    out = env["h"].send(ck, "stop", now=True)
+    assert out["state"] == "sent" and env["claude"].holds[-1] is not None
+
+
+def test_a_send_to_an_idle_server_session_needs_no_hold(env):
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    out = env["h"].send(ck, "next")
+    assert out["state"] == "sent" and env["claude"].holds[-1] is None
 
 
 def test_restart_mid_handoff_recovers(env):
@@ -407,3 +440,11 @@ def test_continue_on_mac_twice_moves_once(env):
     assert env["h"].continue_on_mac(ck)["ok"] is True
     again = env["h"].continue_on_mac(ck)
     assert again["ok"] is False and again["reason"] == "moving"
+
+
+def test_send_now_reaches_the_mac(env):
+    ck = _asleep(env, status="live", state="working")
+    env["presence"].on_connect("dev1")
+    env["h"].send(ck, "fix it now", now=True)
+    (dev, frame) = env["frames"][-1]
+    assert frame["type"] == "agent_instruction" and frame["now"] is True

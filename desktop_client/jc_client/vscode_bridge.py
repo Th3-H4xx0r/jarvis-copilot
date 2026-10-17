@@ -9,7 +9,8 @@ a window to show a terminal.
 
 Wire format: newline-delimited JSON both ways.
 
-* extension → here: ``{"type": "hello", "window", "folders", "terminals"}``
+* extension → here: ``{"type": "hello", "window", "folders", "terminals", "submit"?}``
+  (``submit`` lists the keys it can press: "enter", and "now" = Ctrl+Enter)
   (again whenever a terminal opens or closes) and
   ``{"type": "result", "req", "ok", "error"?}`` (one per request).
 * here → extension: ``{"type": "send_text"|"run"|"focus", "req", ...}``.
@@ -142,13 +143,17 @@ class VSCodeBridge:
         return None
 
     # ── requests ───────────────────────────────────────────────────────
-    def send_text(self, shell_pid: int, text: str, timeout: float = 3.0) -> bool:
-        """Type ``text`` + Return into the terminal whose shell is ``shell_pid``."""
+    def send_text(self, shell_pid: int, text: str, timeout: float = 3.0, now: bool = False) -> bool:
+        """Type ``text`` into the terminal whose shell is ``shell_pid`` and submit
+        it: Return (Claude queues it while it works), or Ctrl+Enter with ``now``
+        (Claude's "send now")."""
         conn = self._owner(shell_pid)
         if conn is None:
             return False
-        return self._request(conn, {"type": "send_text", "pid": int(shell_pid), "text": str(text)},
-                             timeout)
+        if now and "now" not in ((getattr(conn, "hello", None) or {}).get("submit") or []):
+            return False   # an older extension would press Enter: queued, not "sent"
+        return self._request(conn, {"type": "send_text", "pid": int(shell_pid), "text": str(text),
+                                    "submit": "now" if now else "enter"}, timeout)
 
     def run_in_terminal(self, cwd: str, command: str, timeout: float = 3.0) -> bool:
         """Run ``command`` in a new terminal of the window that has ``cwd`` open."""
@@ -291,7 +296,9 @@ def _clean_hello(msg: dict) -> dict:
         entry = dict(t)
         entry["pid"] = pid if isinstance(pid, int) and not isinstance(pid, bool) else None
         terminals.append(entry)
-    return {"window": str(msg.get("window") or ""), "folders": folders, "terminals": terminals}
+    submit = [str(s) for s in (msg.get("submit") or []) if isinstance(s, str)]
+    return {"window": str(msg.get("window") or ""), "folders": folders, "terminals": terminals,
+            "submit": submit}
 
 
 def _containing_len(folder: str, path: str) -> int:

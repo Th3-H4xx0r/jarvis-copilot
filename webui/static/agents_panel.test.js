@@ -155,3 +155,25 @@ test('A session already moving is not asked to continue again', async () => {
   assert.strictEqual(h.continues.length, 1, 'a session on its way to the server was sent again');
   assert.deepStrictEqual(h.continues[0].ckeys, ['claude|a', 'claude|b']);
 });
+
+test('While it works, Enter queues the message and Ctrl+Enter or Send now sends it straight in', async () => {
+  const h = harness();
+  h.state.failNextSend = false;
+  h.state.list = listWith(conv({ state: 'working' }));
+  await h.window.loadAgents();
+  await h.click({ act: 'open', ckey: 'claude|s1' });
+  const key = (over) => Object.assign({ target: h.els.agentsInput, key: 'Enter', shiftKey: false,
+    isComposing: false, altKey: false, metaKey: false, ctrlKey: false, preventDefault() {} }, over);
+
+  h.els.agentsInput.value = 'then lint';
+  h.handlers.keydown(key({}));
+  await h.settle(); await h.settle();
+  h.els.agentsInput.value = 'stop and fix the tests';
+  h.handlers.keydown(key({ ctrlKey: true }));
+  await h.settle(); await h.settle();
+  h.els.agentsInput.value = 'and push';
+  await h.click({ act: 'send-now' });
+
+  assert.deepStrictEqual(h.sends.map((s) => [s.text, !!s.now]),
+    [['then lint', false], ['stop and fix the tests', true], ['and push', true]]);
+});

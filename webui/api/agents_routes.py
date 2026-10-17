@@ -136,7 +136,7 @@ def _v2(method, p, query, body):
             return _err(400, "ckey and text are required")
         if len(text) > _MAX_INSTRUCTION:
             return _err(400, "message too long")
-        delivery = c.handoff.send(ckey, text)
+        delivery = c.handoff.send(ckey, text, now=bool(body.get("now")))
         c._changed()
         return (409 if delivery["state"] == "failed" else 200), {"delivery": delivery}
     if p == "/agents/continue":

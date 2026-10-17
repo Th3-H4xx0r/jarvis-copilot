@@ -339,10 +339,11 @@ final class AgentsStore {
     /// about what runs on the computer — approving a command is, and that still
     /// asks. The bubble shows at once as "Sending…", then what the server did
     /// with it, or why it didn't go.
-    func send(_ text: String, to ckey: String, prompts: [String]) async {
+    func send(_ text: String, to ckey: String, prompts: [String], now: Bool = false) async {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
-        let item = AgentOutgoing(text: body, baseline: AgentOutgoing.count(body, in: prompts))
+        var item = AgentOutgoing(text: body, baseline: AgentOutgoing.count(body, in: prompts))
+        item.now = now
         var list = outgoing(for: ckey)
         list.append(item)
         outgoingByKey[ckey] = Array(list.suffix(Self.outgoingLimit))
@@ -379,7 +380,7 @@ final class AgentsStore {
     private func deliver(_ id: UUID, ckey: String) async {
         guard let item = outgoing(for: ckey).first(where: { $0.id == id }) else { return }
         do {
-            let delivery = try await api.send(ckey: ckey, text: item.text)
+            let delivery = try await api.send(ckey: ckey, text: item.text, now: item.now)
             update(id, ckey: ckey) {
                 $0.phase = AgentOutgoing.Phase(delivery)
                 $0.deliveryId = delivery.id.isEmpty ? nil : delivery.id

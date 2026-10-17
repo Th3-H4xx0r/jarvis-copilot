@@ -154,3 +154,52 @@ def test_ensure_trusted_preserves_other_keys(home):
 
 def test_attach_argv():
     assert ClaudeRuntime(run=Run()).attach_argv("745e113e") == ["claude", "attach", "745e113e"]
+
+
+def test_send_now_uses_ctrl_enter(home):
+    fake = FakePty()
+    rt = ClaudeRuntime(run=Run(), pty_factory=lambda argv: fake, settle=0)
+    rt.send("745e113e", "go", now=True)
+    assert fake.writes[-1] == b"\x1b[13;5u"
+
+
+def test_send_while_working_holds_the_attach_until_idle(home):
+    """Claude keeps a message typed while it works in the attach client's own
+    queue: closing that client at once would lose it."""
+    import time
+    fake = FakePty()
+    idle = {"now": False}
+    rt = ClaudeRuntime(run=Run(), pty_factory=lambda argv: fake, settle=0)
+    rt.send("745e113e", "next", hold_until=lambda: idle["now"], hold_poll=0.05)
+    time.sleep(0.15)
+    assert fake.closed is False
+    idle["now"] = True
+    time.sleep(0.3)
+    assert fake.closed is True
+
+
+def test_trusting_folders_at_once_keeps_every_one(home, monkeypatch):
+    """Two Continues landing together each read ~/.claude.json, add their
+    folder and write it back: without a lock the second write drops the first."""
+    import json as _json
+    import threading
+    import time
+    import agent.server_runtime as sr
+    real_dump = _json.dump
+
+    def slow_dump(*a, **kw):
+        time.sleep(0.05)
+        return real_dump(*a, **kw)
+    monkeypatch.setattr(sr.json, "dump", slow_dump)
+    rt = ClaudeRuntime(run=Run())
+    dirs = []
+    for n in range(4):
+        d = home / f"p{n}"
+        d.mkdir()
+        dirs.append(str(d))
+    threads = [threading.Thread(target=rt.ensure_trusted, args=(d,)) for d in dirs]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    import os
+    data = _json.loads((home / ".claude.json").read_text())
+    assert all(data["projects"][os.path.realpath(d)]["hasTrustDialogAccepted"] for d in dirs)

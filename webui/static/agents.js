@@ -843,6 +843,8 @@
         '<div class="agents-blocked" id="agentsBlocked" hidden></div>' +
         '<form class="agents-form" id="agentsForm" autocomplete="off">' +
           '<textarea class="agents-input" id="agentsInput" rows="1" aria-label="Message"></textarea>' +
+          '<button type="button" class="agents-send-now" id="agentsSendNow" data-act="send-now" hidden ' +
+            'title="Send it in now instead of after this turn (Ctrl+Enter)">Send now</button>' +
           '<button type="submit" class="agents-send" id="agentsSend" aria-label="Send" title="Send (Enter)">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</form>' +
@@ -1254,9 +1256,15 @@
     const blocked = $('agentsBlocked');
     if (!ta || !btn || !blocked) return;
     const reason = cantSendReason(c);
+    const working = isWorking(c);
     ta.disabled = !!reason;
-    ta.placeholder = reason ? 'Can’t send to this session right now' : 'Message ' + agentName(c.agent) + '…  (Enter sends, Shift+Enter for a new line)';
+    ta.placeholder = reason ? 'Can’t send to this session right now'
+      : working ? 'Message ' + agentName(c.agent) + '…  (Enter queues it for after this turn, Ctrl+Enter sends now)'
+      : 'Message ' + agentName(c.agent) + '…  (Enter sends, Shift+Enter for a new line)';
     btn.disabled = !!reason || !ta.value.trim();
+    btn.title = working ? 'Queue for after this turn (Enter)' : 'Send (Enter)';
+    const now = $('agentsSendNow');
+    if (now) { now.hidden = !working || !!reason; now.disabled = !!reason || !ta.value.trim(); }
     blocked.hidden = !reason;
     let actions = '';
     if (reason && c.can_continue_server) {
@@ -1268,7 +1276,11 @@
     setHtml(blocked, reason ? '<span>' + esc(reason) + '</span>' + actions : '');
   }
 
-  async function send(retryText) {
+  function isWorking(c) { return c.state === 'working' || c.state === 'thinking'; }
+
+  // While the agent works a message joins its own queue (the terminal's
+  // Enter); ``now`` sends it straight in (its Ctrl+Enter).
+  async function send(retryText, now) {
     const c = currentConv();
     const ta = $('agentsInput');
     if (!c || !ta) return;
@@ -1276,13 +1288,13 @@
     if (!text || cantSendReason(c)) return;
     const ch = st.chats[c.ckey];
     const o = { id: ++st.seq, text, norm: norm(text), state: 'sending', reason: '', at: Date.now(),
-      baseEnd: ch ? ch.start + ch.messages.length : 0 };
+      now: !!now, baseEnd: ch ? ch.start + ch.messages.length : 0 };
     (st.outgoing[c.ckey] || (st.outgoing[c.ckey] = [])).push(o);
     if (retryText == null) { ta.value = ''; delete st.drafts[c.ckey]; }
     st.scrollToEnd = true;
     updateSession();
     try {
-      const res = await post('/agents/send', { ckey: c.ckey, text });
+      const res = await post('/agents/send', now ? { ckey: c.ckey, text, now: true } : { ckey: c.ckey, text });
       takeDelivery(o, res && res.delivery);
     } catch (e) {
       let d = null;
@@ -1761,9 +1773,10 @@
         const why = c ? cantSendReason(c) : 'This session isn’t in the list any more.';
         if (why) { setFlash('session', why, 'error'); updateSession(); break; }
         st.outgoing[st.selected] = list.filter((x) => x !== o);
-        send(o.text);
+        send(o.text, o.now);
         break;
       }
+      case 'send-now': send(null, true); break;
       case 'drop-send':
         st.outgoing[st.selected] = (st.outgoing[st.selected] || []).filter((x) => String(x.id) !== t.dataset.oid);
         updateSession();
@@ -1774,9 +1787,9 @@
 
   function onKeydown(e) {
     if (e.target && e.target.id === 'agentsInput' && e.key === 'Enter' && !e.shiftKey && !e.isComposing &&
-        !e.altKey && !e.metaKey && !e.ctrlKey) {
+        !e.altKey) {
       e.preventDefault();
-      send();
+      send(null, e.ctrlKey || e.metaKey);
       return;
     }
     if (e.target && e.target.classList && e.target.classList.contains('agents-deny-note') && e.key === 'Enter') {
@@ -1814,6 +1827,8 @@
       if (st.selected) st.drafts[st.selected] = t.value;
       const btn = $('agentsSend');
       if (btn) btn.disabled = t.disabled || !t.value.trim();
+      const now = $('agentsSendNow');
+      if (now) now.disabled = t.disabled || !t.value.trim();
     } else if (t.classList && t.classList.contains('agents-deny-note')) {
       st.denyNote[t.dataset.key] = t.value;
     }

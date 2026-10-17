@@ -2849,6 +2849,9 @@ main.main.showing-harnesses > #mainHarnesses{display:flex;flex-direction:column;
 .agents-send{flex:none;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--accent);background:var(--accent-bg-strong);color:var(--accent-text);cursor:pointer;}
 .agents-send svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}
 .agents-send:disabled{opacity:.4;cursor:default;}
+.agents-send-now{flex:none;height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--border2);background:transparent;color:var(--text);font:inherit;font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;}
+.agents-send-now:hover:not(:disabled){border-color:var(--accent);color:var(--accent-text);}
+.agents-send-now:disabled{opacity:.4;cursor:default;}
 /* empty pane and the launch form */
 .agents-pane-empty{margin:auto;padding:32px;max-width:340px;text-align:center;font-size:.88rem;line-height:1.55;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px;}
 .agents-pane-empty-title{font-size:1.02rem;font-weight:600;color:var(--text);}
