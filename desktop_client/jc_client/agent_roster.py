@@ -32,6 +32,49 @@ def _title(name) -> str:
     return line if len(line) <= TITLE_MAX else line[:TITLE_MAX - 1].rstrip() + "…"
 
 
+_TITLE_TAIL = 512 * 1024
+_TITLE_CACHE: dict = {}
+
+
+def _transcript(cwd: str, session_id: str) -> str:
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    enc = os.path.realpath(cwd).replace("/", "-").replace(".", "-")
+    return os.path.join(cfg, "projects", enc, f"{session_id}.jsonl")
+
+
+def transcript_facts(cwd: str, session_id: str) -> tuple:
+    """(title, last write time) of a Claude session's transcript: the newest
+    ``ai-title`` (what the Claude app shows), read from the file's end and
+    cached per size, and the file's mtime. (None, None) when it isn't there."""
+    path = _transcript(cwd, session_id)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None, None
+    hit = _TITLE_CACHE.get(path)
+    if hit and hit[0] == st.st_size:
+        return hit[1], st.st_mtime
+    title = None
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, st.st_size - _TITLE_TAIL))
+            data = fh.read()
+        for line in reversed(data.split(b"\n")):
+            if b'"ai-title"' not in line:
+                continue
+            try:
+                raw = str(json.loads(line).get("aiTitle") or "").strip()
+            except ValueError:
+                continue
+            if raw:
+                title = _title(raw)
+                break
+    except OSError:
+        pass
+    _TITLE_CACHE[path] = (st.st_size, title)
+    return title, st.st_mtime
+
+
 def find_claude(home: Optional[str] = None, path_env: Optional[str] = None) -> Optional[str]:
     """The ``claude`` executable. jc-client runs under launchd, whose PATH
     (/usr/bin:/bin:/usr/sbin:/sbin) doesn't hold Claude Code's install dirs."""
@@ -165,7 +208,9 @@ class RosterAgent:
             bg = s.get("kind") == "background"
             if not bg and not (s.get("pid") and self._alive(s["pid"])):
                 continue
+            title, active = transcript_facts(s.get("cwd") or "", sid)
             out.append({"agent": "claude", "session_id": sid, "pid": s.get("pid"),
+                        "title": title, "last_active_at": active,
                         "kind": "background" if bg else "interactive",
                         "bg_id": s.get("id") if bg else None, "cwd": s.get("cwd") or "",
                         "name": _title(s.get("name")), "status": s.get("status") or "",

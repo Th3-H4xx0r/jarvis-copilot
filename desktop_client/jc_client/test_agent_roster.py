@@ -109,3 +109,27 @@ def test_claude_is_found_outside_the_launchd_path(tmp_path, monkeypatch):
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755)
     assert find_claude(home=str(tmp_path), path_env="/usr/bin:/bin") == str(exe)
+
+
+def test_titles_and_activity_come_from_the_transcript(tmp_path, monkeypatch):
+    """The Claude app's title is the transcript's latest ai-title; the newest
+    write to the transcript is when the session last did anything."""
+    import os
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    cwd = str(tmp_path / "app")
+    os.makedirs(cwd)
+    enc = os.path.realpath(cwd).replace("/", "-").replace(".", "-")
+    t = tmp_path / ".claude" / "projects" / enc / "s1.jsonl"
+    t.parent.mkdir(parents=True)
+    t.write_text("\n".join([
+        json.dumps({"type": "ai-title", "aiTitle": "Old title", "sessionId": "s1"}),
+        json.dumps({"type": "user", "message": {"content": "hi"}}),
+        json.dumps({"type": "ai-title", "aiTitle": "Replacing Tailscale with Cloudflare Tunnel",
+                    "sessionId": "s1"})]) + "\n")
+    os.utime(t, (1_700_000_000, 1_700_000_000))
+    listing = json.dumps([{"pid": 1, "cwd": cwd, "kind": "interactive", "sessionId": "s1",
+                           "name": "jarvis-copilot-e2", "status": "idle"}])
+    (e,) = RosterAgent(lambda f: None, run=_run(listing), alive=lambda pid: True).scan_now()
+    assert e["title"] == "Replacing Tailscale with Cloudflare Tunnel"
+    assert e["name"] == "jarvis-copilot-e2" and e["last_active_at"] == 1_700_000_000

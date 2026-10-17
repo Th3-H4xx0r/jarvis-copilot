@@ -20,7 +20,7 @@ def test_roster_upserts_and_ends_missing(tmp_path):
     row = conv.get("claude|a")
     assert row["owner"] == "dev1" and row["status"] == "live"
     assert row["run"]["pid"] == 10 and row["run"]["terminal"]["term_program"] == "vscode"
-    assert row["title"] == "Fix it" and row["cwd"] == "/m/app"
+    assert row["name"] == "Fix it" and row["cwd"] == "/m/app"   # Claude's handle; titles come from ai-title
     changed = apply_roster(conv, "dev1", [E("a")], now=20.0)
     assert changed == ["claude|b"]
     assert conv.get("claude|b")["status"] == "ended" and conv.get("claude|b")["ended_at"] == 20.0

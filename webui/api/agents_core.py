@@ -314,7 +314,7 @@ class AgentsCore:
         convs = [self._present(r, tsess.get((r.get("agent"), r.get("session_id"),
                                              r.get("owner") or "server")))
                  for r in self.conv.list_visible(now)]
-        convs.sort(key=lambda c: (c["status"] != "live", -(c.get("last_event_at") or 0)))
+        convs.sort(key=lambda c: -(c.get("last_event_at") or 0))   # most recent first
         needs = [c for c in convs if c["status"] == "live" and c["state"] in _WAITING]
         groups: dict = {}
         for c in convs:
@@ -534,12 +534,12 @@ class AgentsCore:
         return {
             "ckey": row["ckey"], "key": ts.get("key") or row.get("key"), "agent": agent,
             "session_id": row.get("session_id"),
-            "title": short_title(row.get("title")) or project or os.path.basename(row.get("cwd") or ""),
+            "title": self._title(row) or project or os.path.basename(row.get("cwd") or ""),
             "project_id": row.get("project_id"), "project": project, "cwd": row.get("cwd") or "",
             "owner": owner, "owner_name": "Server" if owner == "server" else self._name(owner),
             "status": status, "state": state, "step": ts.get("step"), "pending": pending,
             "turn_summary": ts.get("turn_summary"), "model": ts.get("model"),
-            "last_event_at": row.get("last_event_at") or row.get("updated_at"),
+            "last_event_at": self._last_active(row),
             "terminal_app": term.get("term_program") or "",
             "can_continue_server": agent in HANDOFF_AGENTS and owner != "server"
             and status in ("asleep", "offline", "ended"),
@@ -561,6 +561,29 @@ class AgentsCore:
             return []
         return [{"id": d["id"], "state": d["state"], "reason": d.get("reason")}
                 for d in rows if (d.get("updated_at") or 0) >= cutoff]
+
+    def _title(self, row: dict) -> Optional[str]:
+        """What the Claude app calls it: the transcript's newest ai-title (the
+        server's copy, else what the Mac read), then the first prompt, then
+        Claude's session handle."""
+        ai = None
+        if row.get("agent") == "claude":
+            try:
+                ai = tm.latest_title(row)
+            except Exception:  # noqa: BLE001
+                ai = None
+        return short_title(ai or row.get("ai_title") or row.get("title") or row.get("name"))
+
+    def _last_active(self, row: dict) -> float:
+        """When it last did anything: its newest hook, transcript write, or the
+        Mac's reading of its transcript — never a roster refresh."""
+        times = [row.get("last_event_at"), row.get("last_active_at")]
+        try:
+            times.append(tm.last_write(row))
+        except Exception:  # noqa: BLE001
+            pass
+        vals = [float(t) for t in times if t]
+        return max(vals) if vals else float(row.get("created_at") or 0)
 
     def _project_for(self, cwd: str, device_id) -> Optional[str]:
         try:

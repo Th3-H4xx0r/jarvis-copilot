@@ -44,7 +44,11 @@ def apply_roster(conv: Conversations, owner: str, entries: list, now: float,
         if e.get("cwd"):
             fields["cwd"] = e["cwd"]
         if e.get("name"):
-            fields["title"] = e["name"]
+            fields["name"] = e["name"]              # Claude's session handle (jarvis-copilot-e8)
+        if e.get("title"):
+            fields["ai_title"] = e["title"]         # the title the Claude app shows
+        if e.get("last_active_at"):
+            fields["last_active_at"] = e["last_active_at"]
         before = (row or {}).get("status"), (row or {}).get("owner"), (row or {}).get("run")
         conv.upsert(ckey, **fields)
         if before != ("live", owner, fields["run"]):

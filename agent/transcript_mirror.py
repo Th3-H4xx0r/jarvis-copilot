@@ -153,3 +153,51 @@ def replace(conv: dict, data: bytes) -> None:
             except OSError:
                 pass
             raise
+
+
+_TITLE_TAIL = 512 * 1024
+_TITLE_CACHE: dict = {}
+
+
+def title_from_tail(path, tail: int = _TITLE_TAIL):
+    """The newest ``ai-title`` in a Claude transcript (the title the Claude app
+    shows), read from the file's end and cached per size. None when absent."""
+    import json as _json
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    hit = _TITLE_CACHE.get(str(path))
+    if hit and hit[0] == st.st_size:
+        return hit[1]
+    title = None
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, st.st_size - tail))
+            data = fh.read()
+    except OSError:
+        return None
+    for line in reversed(data.split(b"\n")):
+        if b'"ai-title"' not in line:
+            continue
+        try:
+            obj = _json.loads(line)
+        except ValueError:
+            continue
+        raw = str(obj.get("aiTitle") or "").strip()
+        if raw:
+            title = " ".join(raw.splitlines()[0].split())[:120]
+            break
+    _TITLE_CACHE[str(path)] = (st.st_size, title)
+    return title
+
+
+def latest_title(conv: dict):
+    return title_from_tail(path_for(conv))
+
+
+def last_write(conv: dict):
+    try:
+        return path_for(conv).stat().st_mtime
+    except OSError:
+        return None

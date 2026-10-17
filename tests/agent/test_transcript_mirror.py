@@ -58,3 +58,14 @@ def test_replace_writes_whole_file_atomically(home):
     tm.append_chunk(conv, 0, b"old\n")
     tm.replace(conv, b"new\nlines\n")
     assert tm.read_from(conv, 0) == b"new\nlines\n"
+
+
+def test_latest_title_reads_the_newest_ai_title(home):
+    import json
+    conv = _conv(home)
+    lines = [json.dumps({"type": "ai-title", "aiTitle": "First"}),
+             json.dumps({"type": "user", "message": {"content": "x" * 300000}}),
+             json.dumps({"type": "ai-title", "aiTitle": "Second\nline two"})]
+    tm.append_chunk(conv, 0, ("\n".join(lines) + "\n").encode())
+    assert tm.latest_title(conv) == "Second"
+    assert tm.latest_title({"agent": "claude", "session_id": "none", "server_cwd": "/nope"}) is None

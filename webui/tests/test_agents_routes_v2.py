@@ -420,3 +420,18 @@ def test_offline_after_grace_pushes_the_list(tmp_path, monkeypatch):
     t["now"] += 61
     core.tick()
     assert pushed and pushed[-1]["card"]["kind"] == "offline"
+
+
+def test_titles_prefer_the_ai_title_and_sessions_sort_by_activity(env):
+    env["core"].on_hello("d1", {})
+    env["core"].on_roster("d1", {"entries": [
+        {"agent": "claude", "session_id": "old", "pid": 1, "kind": "interactive", "cwd": "/Users/p/app",
+         "name": "app-a1", "title": "Older work", "last_active_at": 1000.0},
+        {"agent": "claude", "session_id": "new", "pid": 2, "kind": "interactive", "cwd": "/Users/p/app",
+         "name": "app-b2", "title": "Newest work", "last_active_at": 5000.0},
+        {"agent": "claude", "session_id": "plain", "pid": 3, "kind": "interactive", "cwd": "/Users/p/app",
+         "name": "app-c3", "last_active_at": 3000.0}]})
+    _, body = call("GET", "/agents/list")
+    (proj,) = body["projects"]
+    assert [c["title"] for c in proj["sessions"]] == ["Newest work", "app-c3", "Older work"]
+    assert proj["sessions"][0]["last_event_at"] == 5000.0
