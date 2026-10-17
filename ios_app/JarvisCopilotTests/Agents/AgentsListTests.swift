@@ -455,3 +455,34 @@ final class AgentsListTests: XCTestCase {
         XCTAssertEqual(body?["to"] as? String, "server")
     }
 }
+
+/// The chat keeps up with what arrives at the end — while you're at the bottom.
+final class AgentChatFollowTests: XCTestCase {
+    private func key(_ last: String?, outgoing: Int = 0, working: Bool = false,
+                     text: String = "") -> AgentChatFollow.Key {
+        AgentChatFollow.Key(lastID: last, lastSignature: (last ?? "") + "|" + text,
+                            outgoing: outgoing, hasRequest: false, working: working, workingText: "")
+    }
+
+    func testTheFirstPageJumpsToTheEnd() {
+        XCTAssertTrue(AgentChatFollow.shouldScroll(from: key(nil), to: key("a"), atBottom: false))
+    }
+
+    func testAGrowingLastMessageFollowsWhileAtTheBottom() {
+        XCTAssertTrue(AgentChatFollow.shouldScroll(from: key("a", text: "x"), to: key("a", text: "xy"),
+                                                   atBottom: true))
+    }
+
+    func testReadingBackIsNotYanked() {
+        XCTAssertFalse(AgentChatFollow.shouldScroll(from: key("a", text: "x"), to: key("a", text: "xy"),
+                                                    atBottom: false))
+    }
+
+    func testSendingAlwaysScrolls() {
+        XCTAssertTrue(AgentChatFollow.shouldScroll(from: key("a"), to: key("a", outgoing: 1), atBottom: false))
+    }
+
+    func testNothingNewNoScroll() {
+        XCTAssertFalse(AgentChatFollow.shouldScroll(from: key("a"), to: key("a"), atBottom: true))
+    }
+}

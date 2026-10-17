@@ -25,6 +25,8 @@ struct AgentSessionScreen: View {
     @State private var confirmStop = false
     @State private var askResume = false
     @State private var confirmOffline = false
+    /// Whether the transcript is scrolled to (near) its end: new content follows only then.
+    @State private var atBottom = true
 
     init(ckey: String, store: AgentsStore,
          navigate: @escaping (AgentsRoute) -> Void = { _ in },
@@ -102,10 +104,16 @@ struct AgentSessionScreen: View {
             .environment(\.agentLoadDetails, AgentLoadDetails { i in Task { await model.loadDetails(i) } })
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await reload() }
-            .onChange(of: "\(items.last?.id ?? "")|\(outgoing.count)|\(request == nil ? 0 : 1)") { old, _ in
-                // Follows what arrives at the END (an older page coming in on
-                // top doesn't move you). The first page jumps; the rest slides in.
-                if old.hasPrefix("|") {
+            .modifier(AgentTracksBottom(atBottom: $atBottom))
+            .onChange(of: AgentChatFollow.Key(
+                lastID: items.last?.id, lastSignature: items.last.map { "\($0)" } ?? "",
+                outgoing: outgoing.count, hasRequest: request != nil, working: working,
+                workingText: conv?.step ?? "")) { old, new in
+                // Follows what arrives at the END — a new message, the last one
+                // growing, the working line — while you're at the bottom. An
+                // older page coming in on top doesn't move you; sending always does.
+                guard AgentChatFollow.shouldScroll(from: old, to: new, atBottom: atBottom) else { return }
+                if old.lastID == nil {
                     proxy.scrollTo(Self.bottom, anchor: .bottom)
                 } else {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
@@ -342,6 +350,43 @@ private struct AgentEarlierRow: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
         .opacity(loading ? 1 : 0.7)
+    }
+}
+
+/// When the chat should follow what arrives at its end.
+enum AgentChatFollow {
+    struct Key: Equatable {
+        var lastID: String?
+        var lastSignature: String
+        var outgoing: Int
+        var hasRequest: Bool
+        var working: Bool
+        var workingText: String
+    }
+
+    static func shouldScroll(from old: Key, to new: Key, atBottom: Bool) -> Bool {
+        if old.lastID == nil && new.lastID != nil { return true }       // the first page
+        if new.outgoing > old.outgoing { return true }                  // you just sent
+        guard old != new else { return false }
+        return atBottom
+    }
+}
+
+/// Tracks whether the scroll view sits at (or near) its end. iOS 17 can't
+/// read scroll geometry, so there it always counts as at the end.
+private struct AgentTracksBottom: ViewModifier {
+    @Binding var atBottom: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 120
+            } action: { _, now in
+                atBottom = now
+            }
+        } else {
+            content
+        }
     }
 }
 
