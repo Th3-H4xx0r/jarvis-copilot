@@ -22,6 +22,16 @@ from typing import Callable, Optional
 log = logging.getLogger(__name__)
 
 
+TITLE_MAX = 120
+
+
+def _title(name) -> str:
+    """One line, at most TITLE_MAX characters: rosters go up on every heartbeat."""
+    line = next((ln for ln in str(name or "").splitlines() if ln.strip()), "")
+    line = " ".join(line.split())
+    return line if len(line) <= TITLE_MAX else line[:TITLE_MAX - 1].rstrip() + "…"
+
+
 def _pid_alive(pid) -> bool:
     try:
         os.kill(int(pid), 0)
@@ -126,7 +136,7 @@ class RosterAgent:
             out.append({"agent": "claude", "session_id": sid, "pid": s.get("pid"),
                         "kind": "background" if bg else "interactive",
                         "bg_id": s.get("id") if bg else None, "cwd": s.get("cwd") or "",
-                        "name": s.get("name") or "", "status": s.get("status") or "",
+                        "name": _title(s.get("name")), "status": s.get("status") or "",
                         "terminal": self._terms.get(("claude", sid)) or {}})
         return out
 

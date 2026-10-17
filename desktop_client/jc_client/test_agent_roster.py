@@ -70,3 +70,15 @@ def test_heartbeat_only_while_live():
     r2 = RosterAgent(lambda f: None, run=_run(AGENTS), alive=lambda pid: True, heartbeat=60.0)
     r2.scan_now()
     assert r2.next_heartbeat() == 60.0
+
+
+def test_titles_are_one_short_line():
+    long = json.dumps([{"pid": 1, "cwd": "/w", "kind": "interactive", "sessionId": "s1",
+                        "name": "Summarise this\n" + "x" * 5000, "status": "idle"}])
+    r = RosterAgent(lambda f: None, run=_run(long), alive=lambda pid: True)
+    (e,) = r.scan_now()
+    assert e["name"] == "Summarise this"
+    long2 = json.dumps([{"pid": 1, "cwd": "/w", "kind": "interactive", "sessionId": "s2",
+                         "name": "y" * 500, "status": "idle"}])
+    (e2,) = RosterAgent(lambda f: None, run=_run(long2), alive=lambda pid: True).scan_now()
+    assert len(e2["name"]) == 120 and e2["name"].endswith("…")
