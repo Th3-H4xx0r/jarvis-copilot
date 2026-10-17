@@ -388,7 +388,7 @@ final class CodingWidgetData: WidgetDataProvider {
 
     func values() async -> [String: JCJSON] {
         if let cache, Date().timeIntervalSince(cache.at) < 120 { return cache.values }
-        guard BridgeClient.shared.isPaired, let sessions = try? await CodingSessionsAPI().listSessions() else {
+        guard BridgeClient.shared.isPaired, let sessions = try? await CodingSessionsAPI().listLiveSessions() else {
             return cache?.values ?? [:]
         }
         let running = sessions.filter { $0.activityState != nil }

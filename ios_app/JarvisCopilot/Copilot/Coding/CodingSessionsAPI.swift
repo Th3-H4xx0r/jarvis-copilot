@@ -102,6 +102,14 @@ struct CodingSessionsAPI {
     /// `liveOnly` asks for just the live sessions and the projects holding them — what the island
     /// polls every 5 s. The whole list was 3.8 MB (1,000 sessions, Oct 17); an older server sends
     /// it anyway, and callers filter for live themselves.
+    /// The live sessions alone (`?live=1`, ≈3 KB), flattened: what the island, the
+    /// Chat dashboard and the widgets count. `listSessions()` is every session ever
+    /// (666 KB on 2026-10-17).
+    func listLiveSessions() async throws -> [CodingSession] {
+        let view = try await listProjectsExpanded(liveOnly: true)
+        return view.projects.flatMap(\.sessions) + view.ungrouped
+    }
+
     func listProjectsExpanded(liveOnly: Bool = false) async throws -> CodingProjectsView {
         var query = ["expand": "sessions"]
         if liveOnly { query["live"] = "1" }

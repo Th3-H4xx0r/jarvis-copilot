@@ -71,12 +71,11 @@ struct ChatPage: View {
         .onChange(of: targets.generation, initial: true) { _, _ in
             Task { await store.openDeepLinkTarget(targets) }
         }
-        // The list poll runs only while Chat is on screen in a foregrounded app:
-        // the background keepalive keeps the process running, so a poll gated on
-        // the tab alone would keep the radio awake all night.
+        // The list (every chat, 659 KB) loads and polls only while the Chats sheet
+        // is up in a foregrounded app: under Chat and Voice it was 93 MB in 25 min.
         .onChange(of: router.selectedTab, initial: true) { _, tab in
             let visible = tab == .chat
-            store.setListPolling(visible && scenePhase == .active)
+            store.setListShown(showSessions && visible && scenePhase == .active)
             // The mirror is gated the same way and for the same reason: it is a
             // long-lived connection, and one that outlived the visible chat would
             // undo the battery work that made pings receive-driven.
@@ -88,12 +87,15 @@ struct ChatPage: View {
         }
         .onChange(of: scenePhase) { _, phase in
             let visible = phase == .active && router.selectedTab == .chat
-            store.setListPolling(visible)
+            store.setListShown(showSessions && visible)
             store.setMirroring(visible)
             if visible {
                 Task { await store.refreshOnFocus() }
                 Task { await dashboard.refresh() }
             }
+        }
+        .onChange(of: showSessions) { _, shown in
+            store.setListShown(shown && router.selectedTab == .chat && scenePhase == .active)
         }
         .sheet(isPresented: $showSessions) { ChatSessionsSheet(store: store) }
     }

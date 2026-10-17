@@ -23,8 +23,10 @@ final class LiveActivityCoordinator {
     /// keeps a running activity fresh over APNs push-to-update.
     static let backgroundInterval: TimeInterval = 30
     /// The island catalog changes rarely, and on its OWN cadence so a layout edit
-    /// applies live even when the coding poll is throttled to 60 s.
-    static let islandInterval: TimeInterval = 5
+    /// applies within half a minute even when the coding poll is throttled to 60 s.
+    /// It is 40 KB (31 KB of it layouts): every 5 s that was ~29 MB an hour on
+    /// screen. The designs screen still applies a selection at once (`refreshIslandNow`).
+    static let islandInterval: TimeInterval = 30
 
     // MARK: Dependencies
 

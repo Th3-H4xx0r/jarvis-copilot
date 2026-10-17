@@ -406,15 +406,15 @@ final class ChatStoreTests: XCTestCase {
     }
 
     /// A fresh launch opens on a new chat — the status dashboard — not on
-    /// whatever was talked about last. History is one tap away in the sidebar,
-    /// so the list is still loaded.
-    func testOpenInitialStartsANewChatAndStillLoadsTheList() async {
+    /// whatever was talked about last. The list (every chat, 659 KB) waits for
+    /// the Chats sheet: a Voice quick-launch must not pull it.
+    func testOpenInitialStartsANewChatAndLeavesTheListToTheSheet() async {
         transport.on("GET /api/sessions", .json(["sessions": [["session_id": "a", "updated_at": 1]]]))
         await store.openInitial()
         XCTAssertNil(store.sessionID)
         XCTAssertEqual(store.sessionTitle, "New chat")
         XCTAssertTrue(store.messages.isEmpty)
-        XCTAssertEqual(store.sessions.map(\.id), ["a"])
+        XCTAssertEqual(transport.count("GET /api/sessions"), 0)
     }
 
     func testOpenInitialLeavesADeepLinkedChatOpen() async {
@@ -638,7 +638,9 @@ final class ChatStoreTests: XCTestCase {
 
     // MARK: Live refresh
 
-    func testTheSyncBusRefreshesTheListAndTheOpenThread() async {
+    /// A voice turn re-hydrates the open thread; the list is left for the sheet
+    /// (every persisted voice turn used to pull all 659 KB of it).
+    func testTheSyncBusRefreshesTheOpenThreadButNotAClosedList() async {
         transport.on("GET /api/session", .json(["session": ["title": "T", "messages": []]]))
         await store.openSession("s1")
         transport.on("GET /api/sessions", .json(["sessions": [["session_id": "s1", "title": "T"]]]))
@@ -650,7 +652,33 @@ final class ChatStoreTests: XCTestCase {
         bus.sessionChanged("s1")
         await waitUntil("the thread to re-hydrate") { self.store.messages.count == 1 }
         XCTAssertEqual(store.messages.first?.plainText, "added by voice")
-        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(transport.count("GET /api/sessions"), 0)
+    }
+
+    /// The list loads when the Chats sheet opens, follows changes and polls while
+    /// it is up, and goes quiet when it closes.
+    func testTheListLoadsAndPollsOnlyWhileTheSheetIsUp() async {
+        for _ in 0..<3 { transport.on("GET /api/sessions", .json(["sessions": [["session_id": "s1"]]])) }
+        await waitUntil("the store to subscribe to the bus") { self.bus.subscriberCount == 1 }
+
+        store.setListShown(true)
+        await waitUntil("the list to load on opening") { self.store.sessions.count == 1 }
+        await waitUntil("the poll to arm") { self.clock.parked == 1 }
+        XCTAssertTrue(store.listPolling)
+
+        bus.sessionChanged("other")
+        await waitUntil("a change to refetch the list on screen") { self.transport.count("GET /api/sessions") == 2 }
+
+        store.setListShown(false)
+        await waitUntil("the poll to stop") { self.clock.parked == 0 }
+        XCTAssertFalse(store.listPolling)
+        await store.refreshListIfShown()
+        await store.refreshOnFocus()
+        XCTAssertEqual(transport.count("GET /api/sessions"), 2, "a closed sheet fetches nothing")
+
+        store.setListShown(true)
+        await waitUntil("reopening to load it again") { self.transport.count("GET /api/sessions") == 3 }
+        store.setListShown(false)
     }
 
     func testAQuietRefreshNeverClobbersALiveTurn() async {
@@ -669,13 +697,13 @@ final class ChatStoreTests: XCTestCase {
         _ = await sending.value
     }
 
-    func testRefreshOnFocusPullsTheListAndTheThread() async {
+    func testRefreshOnFocusPullsTheThreadButNotAClosedList() async {
         store.sessionID = "s1"
         transport.on("GET /api/sessions", .json(["sessions": [["session_id": "s1"]]]))
         transport.on("GET /api/session", .json(["session": ["title": "Focused", "messages": []]]))
         await store.refreshOnFocus()
         XCTAssertEqual(store.sessionTitle, "Focused")
-        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(transport.count("GET /api/sessions"), 0)
     }
 
     func testAClarifyAnswerTheServerRefusesPutsTheQuestionBack() async {

@@ -110,6 +110,10 @@ final class ChatStore {
     /// cannot answer "is the poll still running" — this can (swift-correctness M26).
     @ObservationIgnored private var pollRunning = false
     @ObservationIgnored private var pollEpoch = 0
+    /// Whether the Chats sheet is up in a foregrounded app. The list is every chat
+    /// (~1.1 KB each: 659 KB at 578 chats), so it is fetched only while it can be
+    /// seen. Polled under Chat and Voice it was 93 MB in 25 minutes (2026-10-17).
+    @ObservationIgnored private(set) var listShown = false
     // Cross-device mirror: following a turn another device started.
     @ObservationIgnored let sessionEventsAPI = SessionEventsAPI()
     @ObservationIgnored let mirrorHandle = TaskHandle()
@@ -208,10 +212,27 @@ final class ChatStore {
     static let quietFailureLimit = 3
 
     /// Called when the chat tab becomes visible (or the app resumes): pull the
-    /// latest list and open thread so anything added while we were away shows up.
+    /// open thread so anything added while we were away shows up. The list waits
+    /// for the Chats sheet, which loads it on opening.
     func refreshOnFocus() async {
-        await loadSessions(quiet: true)
+        await refreshListIfShown()
         await refreshActiveQuietly()
+    }
+
+    /// The Chats sheet came up, or went away (or the app left the foreground under
+    /// it). Opening it loads the list, then the poll keeps it live while it stays up.
+    func setListShown(_ shown: Bool) {
+        let opened = shown && !listShown
+        listShown = shown
+        setListPolling(shown)
+        if opened { Task { await loadSessions(quiet: !sessions.isEmpty) } }
+    }
+
+    /// A turn or another device changed a chat's row: refetch the list only if
+    /// someone can see it. Opening the sheet fetches it anyway.
+    func refreshListIfShown() async {
+        guard listShown else { return }
+        await loadSessions(quiet: true)
     }
 
     /// Re-fetch the open thread and re-hydrate it without the clear/reload flash.
@@ -230,8 +251,8 @@ final class ChatStore {
         setMessages(detail.messages)
     }
 
-    /// Poll the sessions LIST (cheap: previews and ordering) while the chat tab is
-    /// visible, so it stays live. The open thread is refreshed on focus and on sync
+    /// Poll the sessions LIST while the Chats sheet is up (``setListShown(_:)``),
+    /// so it stays live. The open thread is refreshed on focus and on sync
     /// signals — not polled — to avoid scroll and flicker mid-read.
     func setListPolling(_ on: Bool) {
         guard on else {
@@ -266,7 +287,7 @@ final class ChatStore {
     /// A session changed elsewhere (a voice turn was persisted). Refresh the list
     /// quietly, and silently re-hydrate the open thread if it's the one that changed.
     private func sessionChangedElsewhere(_ changedID: String?) async {
-        await loadSessions(quiet: true)
+        await refreshListIfShown()
         guard !streaming, let changedID, !changedID.isEmpty, changedID == sessionID else { return }
         await refreshActiveQuietly()
     }
@@ -275,12 +296,11 @@ final class ChatStore {
 
     /// Open the most recent session, or stage a fresh one if there are none.
     /// A fresh launch opens on a new chat rather than the newest one — what the
-    /// page shows then is the status dashboard. The list still loads for the
-    /// sidebar. A chat opened before this ran (a shared link) is left alone.
+    /// page shows then is the status dashboard. The list loads when the Chats
+    /// sheet opens. A chat opened before this ran (a shared link) is left alone.
     func openInitial() async {
         guard !hasSession else { return }
         startNewSession()
-        await loadSessions()
     }
 
     func openSession(_ id: String) async {
@@ -443,7 +463,7 @@ final class ChatStore {
             // can't take them — and `forceServer` is the "Try on server" retry.
             if !forceServer, attachments.isEmpty, let onDevice,
                await runOnDevice(onDevice, text: text, state: &state) {
-                await loadSessions(quiet: true)
+                await refreshListIfShown()
                 return
             }
             let id = try await ensureSession()
@@ -459,7 +479,7 @@ final class ChatStore {
         }
         // The turn changed this session's row (title, ordering). Quietly: a failed
         // background refresh must never stomp the view.
-        await loadSessions(quiet: true)
+        await refreshListIfShown()
     }
 
     private func streamTurn(sessionID id: String, text: String,
@@ -878,7 +898,7 @@ extension ChatStore {
                let message = ChatMessage(stored: stored) {
                 setMessages(messages + [message])
             } else {
-                await loadSessions(quiet: true)
+                await refreshListIfShown()
             }
         case "harness_job":
             // A harness Background job started, took a step or ended: its card.
@@ -887,7 +907,7 @@ extension ChatStore {
             if let title = event.string("title"), !title.isEmpty, !streaming {
                 sessionTitle = title
             }
-            await loadSessions(quiet: true)
+            await refreshListIfShown()
         default:
             break   // forward-compatible: a newer server may add events
         }
@@ -943,6 +963,6 @@ extension ChatStore {
             failTurn(&state, apiErrorMessage(error))
         }
         mirroringRun = false
-        await loadSessions(quiet: true)
+        await refreshListIfShown()
     }
 }
