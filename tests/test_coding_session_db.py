@@ -313,3 +313,39 @@ def test_la_token_upsert_list_delete(tmp_path):
     # blank token is ignored
     s.upsert_la_token("", "devA")
     assert {r["token"] for r in s.list_la_tokens()} == {"tok1b"}
+
+
+# A summarizer prompt as a "title" (7,807 characters on 443 rows, 2026-10-17) made the sessions
+# list 3.8 MB; a title is one short line.
+_PROMPT = ("Below is a conversation log from a Claude Code coding session. Create a summary "
+           "to help the next session pick up where it left off.\n\n" + "user: hi\n" * 800)
+
+
+def test_short_title_is_one_capped_line():
+    assert db.short_title("  fix   the\ttests \n second line") == "fix the tests"
+    assert db.short_title("\n\n  real title") == "real title"
+    assert db.short_title(None) is None
+    long = db.short_title(_PROMPT)
+    assert len(long) <= db.TITLE_MAX and long.endswith("…")
+    assert long.startswith("Below is a conversation log")
+
+
+def test_titles_are_stored_short(tmp_path):
+    s = _store(str(tmp_path))
+    sid = s.create_session(project_id=None, host="desktop", cwd="/r", branch=None,
+                           tmux_name=None, source="discovered-transcript", title=_PROMPT)
+    assert len(s.get_session(sid)["title"]) <= db.TITLE_MAX
+    s.update_session(sid, title="renamed\nwith a second line")
+    assert s.get_session(sid)["title"] == "renamed"
+
+
+def test_long_titles_already_stored_are_trimmed_on_open(tmp_path):
+    path = os.path.join(str(tmp_path), "coding.db")
+    s = db.CodingSessionStore(db_path=path)
+    sid = s.create_session(project_id=None, host="desktop", cwd="/r", branch=None,
+                           tmux_name=None, source="discovered-transcript", title="short")
+    with sqlite3.connect(path) as c:   # a row written before short_title existed
+        c.execute("UPDATE coding_sessions SET title=?, updated_at=1 WHERE id=?", (_PROMPT, sid))
+    row = db.CodingSessionStore(db_path=path).get_session(sid)
+    assert len(row["title"]) <= db.TITLE_MAX
+    assert row["updated_at"] == 1, "a trim is not an update"

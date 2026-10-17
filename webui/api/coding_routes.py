@@ -888,6 +888,16 @@ def _err(status: int, msg: str) -> tuple[int, dict]:
     return status, {"error": msg}
 
 
+def _fleet_live(row) -> bool:
+    """A session the iPhone's island counts — ``LiveFleet``'s ``isLive && !isTranscriptIdle``:
+    running, starting or idle, and not a transcript-only history row that isn't running."""
+    status = row.get("status") or ""
+    if status not in ("running", "starting", "idle"):
+        return False
+    return not (row.get("source") == "discovered-transcript"
+                and status.lower() not in ("running", "active", "busy"))
+
+
 def _with_sync(row):
     """Attach a parsed ``sync`` object (from the stored ``sync_config`` JSON) to a
     session row returned to clients.
@@ -950,6 +960,9 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     if p == "/projects":
         if method == "GET":
             expand = (query.get("expand") or "") == "sessions"
+            # ?live=1 — only the live sessions and the projects holding them: what the iPhone's
+            # island polls every 5 s (the whole list was 3.8 MB for 1,000 sessions).
+            live_only = expand and (query.get("live") or "") in ("1", "true")
 
             def _list_projects():
                 all_projects = manager.store.list_projects()
@@ -958,6 +971,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 if expand:
                     by_pid = {}
                     for s in manager.list():
+                        if live_only and not _fleet_live(s):
+                            continue
                         by_pid.setdefault(
                             s.get("project_id"), []).append(_with_sync(s))
                     for proj in all_projects:
@@ -966,6 +981,9 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     # bucket so nothing is hidden in the UI. Ignored projects' own
                     # sessions stay attached to them (shown under the Ignored menu).
                     orphans = by_pid.get(None, [])
+                    if live_only:
+                        return _ok({"projects": [p for p in active if p["sessions"]],
+                                    "ungrouped": orphans})
                     return _ok({"projects": active, "ungrouped": orphans,
                                 "ignored": ignored})
                 return _ok({"projects": active, "ignored": ignored})

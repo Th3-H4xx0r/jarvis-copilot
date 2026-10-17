@@ -14,6 +14,22 @@ import uuid
 from pathlib import Path
 
 
+# A session's title is a label: one line. A transcript without a summary line was titled with its
+# whole first prompt, so 443 sessions carried a 7,807-character summarizer prompt and the sessions
+# list the iPhone polled every 5 s came to 3.8 MB (2026-10-17).
+TITLE_MAX = 120
+
+
+def short_title(title: str | None) -> str | None:
+    """The first non-blank line, whitespace collapsed, at most ``TITLE_MAX`` characters (an
+    ellipsis marks a cut)."""
+    if title is None:
+        return None
+    line = next((ln for ln in str(title).splitlines() if ln.strip()), "")
+    line = " ".join(line.split())
+    return line if len(line) <= TITLE_MAX else line[:TITLE_MAX - 1].rstrip() + "…"
+
+
 def _default_db_path() -> str:
     """Resolve the db path under the profile-scoped JarvisCopilot home."""
     try:
@@ -163,6 +179,12 @@ class CodingSessionStore:
                     c.execute(ddl)
                 except sqlite3.OperationalError:
                     pass
+            # Titles stored before short_title(): trim them once (a no-op scan after that).
+            for r in c.execute(
+                    "SELECT id, title FROM coding_sessions WHERE length(title) > ? "
+                    "OR instr(title, char(10)) > 0", (TITLE_MAX,)).fetchall():
+                c.execute("UPDATE coding_sessions SET title=? WHERE id=?",
+                          (short_title(r["title"]), r["id"]))
             # One project per (repo_path, device_id). The expression-based unique
             # index (COALESCE folds a NULL device_id to '') is what makes
             # get_or_create atomic under concurrency — two racing launches in the
@@ -217,7 +239,7 @@ class CodingSessionStore:
                 "skip_permissions,sync_config,device_id,external,claude_session_id)"
                 " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, project_id, host, cwd, worktree_path, branch, tmux_name,
-                 status, title, source, now, now,
+                 status, short_title(title), source, now, now,
                  1 if skip_permissions else 0, sync_config,
                  device_id, 1 if external else 0, claude_session_id))
         return sid
@@ -229,6 +251,8 @@ class CodingSessionStore:
                    "device_id", "external", "project_id", "source",
                    "activity_state", "attached"}
         sets = {k: v for k, v in fields.items() if k in allowed}
+        if "title" in sets:
+            sets["title"] = short_title(sets["title"])
         if "status" in sets and sets["status"] not in VALID_STATUSES:
             raise ValueError(f"invalid status: {sets['status']!r}")
         if not sets:

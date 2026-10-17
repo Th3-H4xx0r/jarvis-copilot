@@ -553,6 +553,25 @@ def test_get_projects_expand_project_with_no_sessions():
     assert body["ungrouped"] == []
 
 
+def test_get_projects_live_only_keeps_what_the_island_shows():
+    m = FakeManager()
+    busy = m.store.create_project(name="busy", repo_path="/busy")
+    m.store.create_project(name="history", repo_path="/history")
+    m._sessions = [
+        {"id": "run", "status": "running", "source": "discovered-tmux", "project_id": busy},
+        {"id": "past", "status": "idle", "source": "discovered-transcript", "project_id": busy},
+        {"id": "done", "status": "stopped", "source": "chat", "project_id": busy},
+        {"id": "loose", "status": "idle", "source": "chat", "project_id": None},
+    ]
+    status, body = handle_coding_request(
+        "GET", "/projects?expand=sessions&live=1", None, manager=m)
+    assert status == 200
+    assert [p["name"] for p in body["projects"]] == ["busy"]
+    assert [s["id"] for s in body["projects"][0]["sessions"]] == ["run"]
+    assert [s["id"] for s in body["ungrouped"]] == ["loose"]
+    assert "ignored" not in body
+
+
 def test_get_projects_no_expand_has_no_sessions_key():
     m = FakeManager()
     m.store.create_project(name="p", repo_path="/r")

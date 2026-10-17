@@ -75,10 +75,14 @@ def row_text(hour: dict, utc_offset: float) -> str:
     requests = sum(v for k, v in counts.items() if k.startswith("net.") and not k.startswith("net.bg."))
     places = sorted(((k[6:], v) for k, v in cpu.items() if k.startswith("where.")), key=lambda kv: -kv[1])
     top = f"{places[0][0].replace('|', ' › ').rstrip(' › ')} {places[0][1]:.0f}s" if places else ""
+    # The skill list sent / kept home unchanged (its ~85 KB went out every ~8 s before 2026-10-17).
+    sent = sum(v for k, v in counts.items() if k.startswith("register.sent."))
+    same = sum(v for k, v in counts.items() if k.startswith("register.same."))
     return (f"{when} {battery}%  screen {secs.get('foreground', 0) / 60:3.0f}m {cpu.get('foreground', 0):5.0f}s  "
             f"pocket {secs.get('background', 0) / 60:3.0f}m (alive {secs.get('bg.keepalive', 0) / 60:2.0f}, "
             f"cell {secs.get('bg.cellular', 0) / 60:2.0f}) {cpu.get('background', 0):4.0f}s  "
-            f"link {frames:4d} drop {counts.get('bridge.drop', 0)}  req {requests:3d}  {top}")
+            f"link {frames:4d} {counts.get('bridge.out_bytes', 0) / 1e6:5.1f} MB up drop {counts.get('bridge.drop', 0)}  "
+            f"skills {sent}/{same}  req {requests:3d}  {top}")
 
 
 def main() -> int:
