@@ -148,8 +148,8 @@ class Handoff:
     def on_device_connect(self, device_id: str) -> None:
         moved = [r for r in self.conv.all()
                  if r.get("moved_from") == device_id and r.get("owner") == "server"]
-        if not moved:
-            return
+        # Always answer, even with nothing: the Mac's gate holds prompts after a
+        # wake until it hears what moved.
         self._send_frame(device_id, {
             "type": "agent_moved", "ckeys": [r["ckey"] for r in moved],
             "sessions": [self._descr(r) for r in moved]})

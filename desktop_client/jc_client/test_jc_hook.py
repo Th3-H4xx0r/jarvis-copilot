@@ -94,7 +94,7 @@ def test_event_is_forwarded_as_one_frame(jarvis):
                          "__CFBundleIdentifier": "com.apple.Terminal"})
     assert (out, code) == ("", 0)
     frame = wait_frames(j)[0]
-    assert frame["jc"] == 1 and frame["kind"] == "event"
+    assert frame["jc"] == 1 and frame["kind"] == "gate"
     assert frame["agent"] == "claude"
     p = frame["payload"]
     assert p["hook_event_name"] == "UserPromptSubmit"
@@ -341,3 +341,46 @@ def test_stop_without_jarvis_is_instant():
     t0 = _t.monotonic()
     out, code = run(["--socket", "/tmp/jch-none.sock"], {"hook_event_name": "Stop", "session_id": "s"})
     assert (out, code) == ("", 0) and _t.monotonic() - t0 < 0.5
+
+
+def test_user_prompt_submit_block_json(jarvis):
+    j = jarvis(reply={"decision": "block", "reason": "moved"})
+    out, code = run(["--socket", j.path], {"hook_event_name": "UserPromptSubmit",
+                                           "session_id": "s1", "cwd": "/w", "prompt": "x"})
+    assert code == 0 and json.loads(out) == {"decision": "block", "reason": "moved"}
+
+
+def test_pre_tool_use_block_json(jarvis):
+    j = jarvis(reply={"decision": "block", "reason": "moved"})
+    out, _ = run(["--socket", j.path], {"hook_event_name": "PreToolUse", "session_id": "s1",
+                                        "cwd": "/w", "tool_name": "Bash"})
+    assert json.loads(out) == {"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+        "permissionDecisionReason": "moved"}}
+
+
+def test_gate_allows_when_nothing_moved(jarvis):
+    j = jarvis(reply={})
+    out, _ = run(["--socket", j.path], {"hook_event_name": "PreToolUse", "session_id": "s1",
+                                        "cwd": "/w", "tool_name": "Bash"})
+    assert out == ""
+
+
+def test_gate_without_jarvis_is_instant():
+    import time as _t
+    t0 = _t.monotonic()
+    out, code = run(["--socket", "/tmp/jch-none.sock"], {"hook_event_name": "UserPromptSubmit",
+                                                         "session_id": "s", "prompt": "x"})
+    assert (out, code) == ("", 0) and _t.monotonic() - t0 < 0.5
+
+
+def test_codex_records_its_process_id(jarvis, monkeypatch):
+    j = jarvis(reply={})
+    monkeypatch.setattr(jc_hook, "_agent_pid", lambda: 4242)
+    run(["--socket", j.path, "--agent", "codex"], {"hook_event_name": "SessionStart",
+                                                   "session_id": "c1", "cwd": "/w"})
+    assert wait_frames(j)[0]["payload"]["agent_pid"] == 4242
+
+
+def test_no_tmux_lookup():
+    assert not hasattr(jc_hook, "_tmux_session")

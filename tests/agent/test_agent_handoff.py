@@ -230,3 +230,11 @@ def test_reverse_tail_not_sent_while_mac_asleep(env):
     env["frames"].clear()
     env["h"].push_reverse(ck)
     assert env["frames"] == []
+
+
+def test_connect_always_tells_the_mac_what_moved(env):
+    """The Mac's gate holds prompts after wake until the server answers, so an
+    empty answer must still come."""
+    env["h"].on_device_connect("dev1")
+    (dev, frame), = env["frames"]
+    assert dev == "dev1" and frame == {"type": "agent_moved", "ckeys": [], "sessions": []}

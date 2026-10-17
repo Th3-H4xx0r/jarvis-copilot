@@ -38,7 +38,9 @@ class HookServer:
                  on_usage: Optional[Callable[[dict], None]] = None,
                  host: str = "local", sweep_every: float = 1.0,
                  ingest: Optional[Callable[[str, str, dict], list]] = None,
-                 on_stop: Optional[Callable[[str, dict], Optional[dict]]] = None) -> None:
+                 on_stop: Optional[Callable[[str, dict], Optional[dict]]] = None,
+                 on_gate: Optional[Callable[[str, dict], Optional[dict]]] = None,
+                 on_hook: Optional[Callable[[str, str, dict], None]] = None) -> None:
         """``ingest(kind, agent, payload) -> effects`` replaces the local engine
         (the server feeds its own tracker); with it, ``engine`` may be None."""
         self.path = path
@@ -51,6 +53,11 @@ class HookServer:
         # A Stop (kind "stop") is answered with what waits for the session — a
         # message from the phone — so the hook can make Claude carry on with it.
         self._on_stop = on_stop
+        # A prompt or tool call (kind "gate") is answered with whether this
+        # session may go on here: a session that moved to the server may not.
+        self._on_gate = on_gate
+        # Every event, after the engine: the roster and transcript shipper.
+        self._on_hook = on_hook
         self._on_usage = on_usage
         self._limits: Optional[dict] = None   # merged plan usage (agent_engine.merge_rate_limits)
         self._sweep_every = sweep_every
@@ -183,12 +190,25 @@ class HookServer:
             key = agent_engine.session_key(self.host, agent, str(payload.get("session_id") or ""),
                                            str(payload.get("cwd") or ""))
             engine_kind = kind if kind in _BLOCKING_KINDS else "event"
+            if kind == "gate":
+                answer = None
+                if self._on_gate is not None:
+                    try:
+                        answer = self._on_gate(agent, payload)
+                    except Exception:
+                        log.debug("on_gate failed", exc_info=True)
+                self._reply(conn, answer or {})
             if self._ingest is not None:
                 effects = self._ingest(engine_kind, agent, payload) or []
             else:
                 with self._lock:
                     effects = self._engine.ingest(self.host, agent, payload, kind=engine_kind)
             self._emit(effects)
+            if self._on_hook is not None:
+                try:
+                    self._on_hook(kind, agent, payload)
+                except Exception:
+                    log.debug("on_hook failed", exc_info=True)
             if kind not in _BLOCKING_KINDS:
                 if self._arbiter is not None:
                     try:

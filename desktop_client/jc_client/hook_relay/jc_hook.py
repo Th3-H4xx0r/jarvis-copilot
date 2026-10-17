@@ -2,7 +2,7 @@
 """jc-hook — the Jarvis relay coding agents run for every hook event.
 
 Reads the hook JSON on stdin, adds where the session runs (terminal app, tab,
-tmux), and hands it to jc-client over a UNIX socket as one JSON line:
+process), and hands it to jc-client over a UNIX socket as one JSON line:
 
     {"jc": 1, "kind": "event"|"permission"|"ask"|"statusline",
      "agent": "claude", "payload": {...}}
@@ -31,6 +31,11 @@ PERMISSION_WAIT = 118.0
 ASK_WAIT = 125.0
 # Asking jc-client whether a phone message waits for this session's next step.
 STOP_WAIT = 0.8
+# Asking jc-client whether this session moved to the server (its stale copy here
+# must not take new work). Instant unless jc-client is holding just after a wake.
+GATE_WAIT = 10.5
+_GATE_EVENTS = ("UserPromptSubmit", "PreToolUse")
+_GATE_AGENTS = ("claude", "claude-desktop", "codex")
 _STOP_DELIVERY_AGENTS = ("claude", "claude-desktop")
 
 _EVENT_NAMES = {
@@ -120,16 +125,17 @@ def _normalize(payload):
         payload["cwd"] = payload["workdir"]
 
 
-def _tmux_session(env):
-    pane = env.get("TMUX_PANE") or ""
-    if not env.get("TMUX") or not pane:
-        return ""
+def _agent_pid():
+    """The agent's process: our parent, or the one above the shell that ran us."""
+    ppid = os.getppid()
     try:
-        out = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#S"],
-                             capture_output=True, text=True, timeout=0.3)
-        return out.stdout.strip()
+        out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(ppid)],
+                             capture_output=True, text=True, timeout=0.3).stdout.split(None, 1)
+        if len(out) == 2 and os.path.basename(out[1].strip()).lstrip("-") in ("sh", "bash", "zsh", "dash"):
+            return int(out[0])
     except Exception:
-        return ""
+        pass
+    return ppid
 
 
 def _add_context(payload, env, event):
@@ -137,11 +143,10 @@ def _add_context(payload, env, event):
     payload.setdefault("bundle_id", env.get("__CFBundleIdentifier", ""))
     payload.setdefault("iterm_session_id", env.get("ITERM_SESSION_ID", ""))
     payload.setdefault("term_session_id", env.get("TERM_SESSION_ID", ""))
-    payload.setdefault("tmux_pane", env.get("TMUX_PANE", ""))
-    # Tool events fire many times a turn; the terminal can't change mid-turn,
-    # so only the turn-level events pay for the tmux lookup.
-    if event not in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
-        payload.setdefault("tmux_session", _tmux_session(env))
+    # Codex has no session list of its own: its process id keeps it on the roster.
+    # Only turn-level events pay for the lookup.
+    if payload.get("jc_agent") == "codex" and event in ("SessionStart", "UserPromptSubmit", "Stop"):
+        payload.setdefault("agent_pid", _agent_pid())
     payload.setdefault("entrypoint", env.get("CLAUDE_CODE_ENTRYPOINT", ""))
     if not payload.get("cwd"):
         roots = payload.get("workspacePaths") or payload.get("workspace_roots")
@@ -363,8 +368,8 @@ def _main(argv, raw, env):
         payload["hook_event_name"] = _EVENT_NAMES.get(event, event)
     event = payload.get("hook_event_name", "")
     _normalize(payload)
-    _add_context(payload, env, event)
     payload["jc_agent"] = agent
+    _add_context(payload, env, event)
 
     if event == "PermissionRequest":
         reply = _send(sock_path, {"jc": VERSION, "kind": "permission", "agent": agent,
@@ -380,6 +385,18 @@ def _main(argv, raw, env):
                       wait=STOP_WAIT)
         if isinstance(reply, dict) and reply.get("decision") == "block" and reply.get("reason"):
             return (json.dumps({"decision": "block", "reason": str(reply["reason"])}), 0)
+        return ("", 0)
+
+    if event in _GATE_EVENTS and agent in _GATE_AGENTS:
+        reply = _send(sock_path, {"jc": VERSION, "kind": "gate", "agent": agent, "payload": payload},
+                      wait=GATE_WAIT)
+        if isinstance(reply, dict) and reply.get("decision") == "block":
+            reason = str(reply.get("reason") or "Blocked by Jarvis")
+            if event == "UserPromptSubmit":
+                return (json.dumps({"decision": "block", "reason": reason}), 0)
+            return (json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                "permissionDecisionReason": reason}}), 0)
         return ("", 0)
 
     _send(sock_path, {"jc": VERSION, "kind": "event", "agent": agent, "payload": payload}, wait=0)

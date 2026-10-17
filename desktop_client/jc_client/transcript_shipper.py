@@ -75,6 +75,7 @@ class TranscriptShipper:
             self._online = online
             for w in self._watch.values():
                 w["sent"] = w["acked"]
+                w["inflight"] = False   # an ack lost with the old connection never comes
         if online:
             for ckey in list(self._watch):
                 self.poke(ckey)

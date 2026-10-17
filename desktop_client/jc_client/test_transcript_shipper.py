@@ -111,3 +111,15 @@ def test_tail_appends_unseen_lines(tmp_path, monkeypatch):
     sh.apply_tail({"ckey": "claude|s1", "agent": "claude", "session_id": "s1", "origin_cwd": "/x",
                    "data_b64": base64.b64encode(data).decode()})
     assert local.read_text() == L("a") + "\n" + L("b") + "\n"
+
+
+def test_reconnect_resends_after_a_lost_ack(tmp_path):
+    p = tmp_path / "s1.jsonl"
+    p.write_text(L("a") + "\n")
+    sent = []
+    sh = TranscriptShipper(sent.append)
+    sh.watch("claude|s1", "claude", str(p), cwd="/x")   # chunk sent, its ack never comes
+    sh.set_online(False)
+    sh.set_online(True)
+    offs = [c["offset"] for c in _frames(sent, "agent_transcript_chunk")]
+    assert offs == [0, 0]

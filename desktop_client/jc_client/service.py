@@ -152,6 +152,11 @@ class Service:
         # Instructions from the phone for sessions outside tmux (claude --resume).
         self._agent_instructions = _cfg.get("remote_instructions") is True
         self._instructions = None
+        # The merged Agents tab: roster, live transcript copy, sleep/wake, the
+        # moved-session gate and phone messages (jc_client/agents_link.py), and
+        # the VS Code extension's socket for typing into its terminals.
+        self._agents_link = None
+        self._vscode = None
         # The Jarvis Mac app's link (ui.sock) and the server topics it wants.
         self._ui = None
         self._ui_topics: dict = {}
@@ -251,6 +256,16 @@ class Service:
             # Push to talk was held on this display: ui_look reads it next.
             from jc_client.skills import ui
             ui.note_talk_screen(req.get("bounds") or (), str(req.get("name") or ""))
+            return {"ok": True}
+        if kind == "power":
+            # The Mac app heard the system's will-sleep / did-wake.
+            if self._agents_link is not None:
+                self._agents_link.power.notify(str(req.get("event") or ""))
+            return {"ok": True}
+        if kind == "agent_continue_mac":
+            # The island's "Bring back" on a session that moved to the server.
+            self._forward_up({"type": "event", "name": "agent_continue_mac",
+                              "data": {"ckey": str(req.get("ckey") or "")}})
             return {"ok": True}
         if kind == "roster":
             return self._ui_roster()
@@ -425,11 +440,15 @@ class Service:
 
             self._arbiter = Arbiter(send_up=self._forward_up, gate=self._approvals_gate,
                                     on_settled=settled, on_change=self._ui_push_pending)
+            self._start_agents_link()
+            link = self._agents_link
             server = HookServer(_hook_socket_path(), self._agent_engine,
                                 forward=self._forward_up, arbiter=self._arbiter,
                                 on_effects=self._ui_push_sessions,
                                 on_usage=lambda p: self._ui_broadcast({"type": "usage", **p}),
-                                on_stop=self._stop_answer)
+                                on_stop=self._stop_answer,
+                                on_gate=link.gate_answer if link else None,
+                                on_hook=link.on_hook if link else None)
             server.start()
             self._hook_server = server
             from jc_client.plan_usage import CodexPoller
@@ -448,7 +467,34 @@ class Service:
             log.warning("agent hook server unavailable: %s", exc)
             self._hook_server = None
 
+    def _start_agents_link(self) -> None:
+        try:
+            from jc_client.agents_link import AgentsLink
+            from jc_client.vscode_bridge import VSCodeBridge
+            bridge = VSCodeBridge()
+            bridge.start()
+            self._vscode = bridge
+        except Exception as exc:  # noqa: BLE001 — typing into VS Code is optional
+            log.warning("VS Code bridge unavailable: %s", exc)
+            self._vscode = None
+        try:
+            self._agents_link = AgentsLink(self._forward_up, vscode=self._vscode,
+                                           queue=self._instruction_queue,
+                                           instructions_on=lambda: self._agent_instructions)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("agents link unavailable: %s", exc)
+            self._agents_link = None
+
     def stop_agent_hooks(self) -> None:
+        link, self._agents_link = self._agents_link, None
+        if link is not None:
+            link.close()
+        bridge, self._vscode = self._vscode, None
+        if bridge is not None:
+            try:
+                bridge.stop()
+            except Exception:  # noqa: BLE001
+                pass
         poller, self._codex_poller = getattr(self, "_codex_poller", None), None
         if poller is not None:
             poller.stop()
@@ -721,6 +767,8 @@ class Service:
             "registered %d skills in %d frame(s)", len(manifest), len(chunks)
         )
         self._agent_hello()
+        if self._agents_link is not None:
+            self._agents_link.on_connected()
         if self._ui_topics:
             self._send_subscription()  # the server forgets subscriptions with the socket
 
@@ -773,6 +821,8 @@ class Service:
             except Exception:
                 pass
             self._ws = None
+            if self._agents_link is not None:
+                self._agents_link.on_disconnected()
 
     def _handle_frame(self, ws: WsConnection, frame: dict) -> None:
         msg_type = frame.get("type")
@@ -819,6 +869,12 @@ class Service:
             # A server push the Mac app subscribed to (harness_jobs).
             self._ui_broadcast({"type": "topic", "topic": frame.get("topic"),
                                 "data": frame.get("data") or {}})
+            return
+
+        if self._agents_link is not None and (
+                msg_type in _AGENTS_LINK_FRAMES
+                or (msg_type == "agent_instruction" and frame.get("delivery_id"))):
+            self._agents_link.handle_frame(frame)   # its own worker pool, not this loop
             return
 
         if msg_type == "agent_instruction":
@@ -951,6 +1007,12 @@ class Service:
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
+
+try:
+    from jc_client.agents_link import FRAME_TYPES as _AGENTS_LINK_FRAMES
+except Exception:  # noqa: BLE001
+    _AGENTS_LINK_FRAMES = frozenset()
 
 
 def _hook_socket_path() -> str:

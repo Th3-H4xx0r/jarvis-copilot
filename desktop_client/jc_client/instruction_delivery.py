@@ -7,15 +7,16 @@ window that forks the conversation into a second copy that acts on its own.
   Stop hook (jc-hook) asks for it and answers Claude Code with
   ``{"decision": "block", "reason": …}``, which makes Claude carry on with it in
   the same window. Works in any terminal, VS Code included.
-* An idle session in a tmux pane or an iTerm session gets it typed in.
+* An idle session gets it typed in: in VS Code's terminal through the Jarvis
+  Terminal Bridge extension (found by the session's process id), or in an
+  iTerm session by AppleScript.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable
 
 QUEUE_TTL = 2 * 3600.0
 
@@ -69,21 +70,18 @@ def stop_reply(text: str) -> dict:
             "reason": "Pranav sent this from his phone (Jarvis, Agents tab). Do it now:\n\n" + text}
 
 
-def type_into(terminal: dict, text: str, *, run: Callable[[list], int] = None,
-              which: Callable[[str], Optional[str]] = shutil.which) -> tuple[bool, str]:
-    """Type ``text`` + Return into the session's tmux pane or iTerm session."""
+def type_into(terminal: dict, text: str, *, pid=None, vscode=None,
+              run: Callable[[list], int] = None) -> tuple[bool, str]:
+    """Type ``text`` + Return into the terminal running the session."""
     run = run or (lambda argv: subprocess.run(argv, timeout=10, capture_output=True).returncode)
     terminal = terminal or {}
-    pane = terminal.get("tmux_pane") or terminal.get("tmux")
-    if pane:
-        tmux = which("tmux") or next((p for p in ("/opt/homebrew/bin/tmux", "/usr/local/bin/tmux")
-                                      if shutil.which(p) or _exists(p)), None)
-        if not tmux:
-            return False, "tmux isn't installed here"
-        if run([tmux, "send-keys", "-t", str(pane), "-l", "--", text]) != 0:
-            return False, "tmux couldn't type into that pane"
-        run([tmux, "send-keys", "-t", str(pane), "Enter"])
-        return True, "typed into tmux"
+    if str(terminal.get("term_program") or "").lower() == "vscode":
+        shell = vscode.terminal_pid_for(int(pid)) if (vscode is not None and pid) else None
+        if not shell:
+            return False, "VS Code isn't showing that session (is the Jarvis extension on?)"
+        if not vscode.send_text(shell, text):
+            return False, "VS Code couldn't type into that terminal"
+        return True, "typed into VS Code"
     iterm = str(terminal.get("iterm") or "")
     if iterm:
         uid = iterm.split(":", 1)[-1]

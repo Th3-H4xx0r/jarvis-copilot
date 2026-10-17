@@ -202,6 +202,14 @@ class AgentsCore:
                                    error=str(data.get("error") or ""))
         self._changed()
 
+    def on_continue_mac(self, device_id, data) -> None:
+        """The Mac island's "Bring back" on a session that moved to the server."""
+        ckey = str(data.get("ckey") or "")
+        row = self.conv.get(ckey)
+        if row and row.get("moved_from") == device_id:
+            self.handoff.continue_on_mac(ckey)
+            self._changed()
+
     def on_delivery(self, _device_id, data) -> None:
         self.handoff.on_device_delivery(str(data.get("delivery_id") or ""),
                                         str(data.get("state") or ""), data.get("reason"))
@@ -499,7 +507,8 @@ def start(store) -> AgentsCore:
     set_core(c)
     for name, fn in (("agent_roster", c.on_roster), ("device_sleeping", c.on_sleeping),
                      ("agent_transcript_chunk", c.on_chunk), ("agent_transcript_need", c.on_need),
-                     ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery)):
+                     ("agent_merge_done", c.on_merge_done), ("agent_delivery", c.on_delivery),
+                     ("agent_continue_mac", c.on_continue_mac)):
         device_bridge.on_device_event(name, fn)
     device_bridge.on_device_disconnect(c.on_disconnect)
     try:

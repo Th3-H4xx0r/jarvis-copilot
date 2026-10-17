@@ -203,3 +203,16 @@ def test_roster_from_mac_adds_project(env):
     _, body = call("GET", "/agents/list")
     (proj,) = body["projects"]
     assert proj["name"] == "app" and proj["sessions"][0]["title"] == "From roster"
+
+
+def test_island_bring_back_runs_continue_on_mac(env):
+    _three(env)
+    _ship(env, "s1", [{"type": "user", "uuid": "u1", "message": {"role": "user", "content": "x"}}])
+    env["core"].on_sleeping("d1", {"entries": []})
+    call("POST", "/agents/continue", {"ckeys": ["claude|s1"], "to": "server"})
+    env["core"].on_hello("d1", {})
+    env["frames"].clear()
+    env["core"].on_continue_mac("d1", {"ckey": "claude|s1"})
+    assert env["core"].conv.get("claude|s1")["status"] == "moving"
+    assert any(f["type"] == "agent_transcript_sync" and f.get("then") == "resume_local"
+               for _, f in env["frames"])
