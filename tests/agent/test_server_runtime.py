@@ -1,0 +1,149 @@
+"""Claude sessions on the server run as Claude's own background sessions."""
+import json
+import subprocess
+
+import pytest
+
+from agent.server_runtime import ClaudeRuntime, DeliveryError
+
+AGENTS_JSON = json.dumps([
+    {"id": "745e113e", "cwd": "/srv/app", "kind": "background", "startedAt": 1,
+     "sessionId": "745e113e-a511", "name": "ready reply", "status": "idle", "state": "done"},
+    {"pid": 4707, "cwd": "/srv/other", "kind": "interactive", "startedAt": 2,
+     "sessionId": "3fcbe39e-1db7", "name": "other", "status": "busy"},
+])
+
+
+class Run:
+    def __init__(self, stdout="", returncode=0):
+        self.calls, self.stdout, self.returncode = [], stdout, returncode
+
+    def __call__(self, argv, **kw):
+        self.calls.append((argv, kw))
+        out = kw.get("stdout")
+        if hasattr(out, "write"):
+            out.write(self.stdout)
+            out.flush()
+            return subprocess.CompletedProcess(argv, self.returncode, None, None)
+        return subprocess.CompletedProcess(argv, self.returncode, self.stdout, "")
+
+
+class FakePty:
+    def __init__(self, output=b"\x1b[2J welcome", fail_open=False):
+        self.writes, self.closed, self.output, self.fail_open = [], False, output, fail_open
+
+    def read_some(self, timeout):
+        return b"" if self.fail_open else self.output
+
+    def write(self, data):
+        self.writes.append(data)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
+    return tmp_path
+
+
+def test_start_argv_no_shell_and_scrubbed_env(home):
+    run = Run(stdout="backgrounded · 1a2b3c4d\n  claude agents  list sessions\n")
+    rt = ClaudeRuntime(run=run, pty_factory=None)
+    bg = rt.start("/srv/app", prompt="hi", model="claude-sonnet-5-5")
+    assert bg == "1a2b3c4d"
+    argv, kw = run.calls[-1]
+    assert argv[:2] == ["claude", "--bg"] and "--model" in argv and argv[-1] == "hi"
+    assert kw.get("shell") in (None, False) and kw["cwd"] == "/srv/app"
+    assert "ANTHROPIC_API_KEY" not in kw["env"]
+
+
+def test_start_does_not_pipe_stdout(home):
+    """`claude --bg` leaves a daemon holding whatever stdout it was given; a pipe
+    would never reach EOF and the call would hang (seen live, 2026-10-17)."""
+    run = Run(stdout="backgrounded · 1a2b3c4d\n")
+    ClaudeRuntime(run=run).start("/srv/app")
+    _argv, kw = run.calls[-1]
+    assert not kw.get("capture_output") and hasattr(kw.get("stdout"), "write")
+
+
+def test_model_outside_allowlist_is_dropped(home):
+    run = Run(stdout="backgrounded · 1a2b3c4d\n")
+    ClaudeRuntime(run=run).start("/srv/app", model="gpt-5; rm -rf /")
+    assert "--model" not in run.calls[-1][0]
+
+
+def test_resume_passes_session_id(home):
+    run = Run(stdout="backgrounded · 745e113e\n")
+    ClaudeRuntime(run=run).start("/srv/app", resume_session_id="745e113e-a511", model="claude-opus-5-5")
+    argv = run.calls[-1][0]
+    assert argv[argv.index("--resume") + 1] == "745e113e-a511" and "--model" in argv
+
+
+def test_resume_bg_origin_passes_no_flags(home):
+    run = Run(stdout="backgrounded · 745e113e\n")
+    ClaudeRuntime(run=run).start("/srv/app", resume_session_id="745e113e-a511", bg_origin=True,
+                                 model="claude-opus-5-5", permission_mode="acceptEdits")
+    assert run.calls[-1][0] == ["claude", "--bg", "--resume", "745e113e-a511"]
+
+
+def test_bypass_permissions_as_root_sets_sandbox(home, monkeypatch):
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+    run = Run(stdout="backgrounded · 1a2b3c4d\n")
+    ClaudeRuntime(run=run).start("/srv/app", permission_mode="bypassPermissions")
+    argv, kw = run.calls[-1]
+    assert "--permission-mode" in argv and kw["env"].get("IS_SANDBOX") == "1"
+
+
+def test_start_failure_raises(home):
+    run = Run(stdout="Workspace not trusted.", returncode=1)
+    with pytest.raises(RuntimeError):
+        ClaudeRuntime(run=run).start("/srv/app")
+
+
+def test_send_uses_bracketed_paste_then_cr(home):
+    fake = FakePty()
+    rt = ClaudeRuntime(run=Run(), pty_factory=lambda argv: fake, settle=0)
+    rt.send("745e113e", "line one\nline two")
+    assert fake.writes[0] == b"\x1b[200~line one\nline two\x1b[201~"
+    assert fake.writes[-1] == b"\r" and fake.closed
+
+
+def test_send_raises_when_session_never_opens(home):
+    fake = FakePty(fail_open=True)
+    rt = ClaudeRuntime(run=Run(), pty_factory=lambda argv: fake, settle=0)
+    with pytest.raises(DeliveryError):
+        rt.send("745e113e", "hi", timeout=0.05)
+    assert fake.closed and fake.writes == []
+
+
+def test_roster_parses_agents_json(home):
+    rt = ClaudeRuntime(run=Run(stdout=AGENTS_JSON))
+    entries = rt.roster()
+    bg = next(e for e in entries if e["session_id"] == "745e113e-a511")
+    assert bg == {"agent": "claude", "session_id": "745e113e-a511", "kind": "background",
+                  "bg_id": "745e113e", "cwd": "/srv/app", "name": "ready reply",
+                  "status": "idle", "pid": None}
+    inter = next(e for e in entries if e["session_id"] == "3fcbe39e-1db7")
+    assert inter["pid"] == 4707 and inter["kind"] == "interactive" and inter["bg_id"] is None
+
+
+def test_roster_tolerates_garbage(home):
+    assert ClaudeRuntime(run=Run(stdout="nope")).roster() == []
+
+
+def test_ensure_trusted_preserves_other_keys(home):
+    cfg = home / ".claude.json"
+    cfg.write_text(json.dumps({"numStartups": 7, "projects": {"/x": {"allowedTools": ["a"]}}}))
+    ClaudeRuntime(run=Run()).ensure_trusted(str(home))
+    data = json.loads(cfg.read_text())
+    assert data["numStartups"] == 7 and data["projects"]["/x"] == {"allowedTools": ["a"]}
+    import os
+    assert data["projects"][os.path.realpath(str(home))]["hasTrustDialogAccepted"] is True
+
+
+def test_attach_argv():
+    assert ClaudeRuntime(run=Run()).attach_argv("745e113e") == ["claude", "attach", "745e113e"]
