@@ -25,6 +25,10 @@ from typing import Callable, Optional
 log = logging.getLogger(__name__)
 
 # Per-session ignores (Mutagen does NOT read .gitignore — the list is explicit).
+# Pranav wants both copies to match exactly (2026-10-17): only what CAN'T be
+# shared between a Mac and the Linux server is left out — dependency trees with
+# native binaries, build/compiler output, absolute-path generated files. Code,
+# .git, logs, coverage and project settings all sync.
 # Kept broad on purpose: the old 9-entry list let huge dependency/build/cache trees
 # (.cache, target, vendor, Pods, DerivedData, ...) sync and balloon the server disk.
 # These are ALWAYS applied; user/project ignores are MERGED on top, never replace.
@@ -36,7 +40,7 @@ DEFAULT_IGNORES = [
     ".pytest_cache", ".ruff_cache", ".tox", "*.egg-info",
     # build / dist / framework caches
     "build", "dist", "out", "target", ".next", ".nuxt", ".svelte-kit",
-    ".gradle", ".terraform", "DerivedData", ".cache", "coverage", ".turbo",
+    ".gradle", ".terraform", "DerivedData", ".cache", ".turbo",
     # CocoaPods plugin links (ABSOLUTE symlinks — unsyncable in Portable
     # mode, every one is a permanent scan problem; flutter regenerates them)
     ".symlinks",
@@ -50,10 +54,10 @@ DEFAULT_IGNORES = [
     "ephemeral", ".dart_tool", ".packages",
     ".flutter-plugins", ".flutter-plugins-dependencies",
     "Generated.xcconfig", "flutter_export_environment.sh",
-    # editor / OS cruft
-    ".DS_Store", ".idea", "*.swp",
-    # heavy binary artifacts
-    "*.so", "*.o", "*.a", "*.dylib", "*.class", "*.log",
+    # per-machine OS / editor scratch (project settings like .idea DO sync)
+    ".DS_Store", "*.swp",
+    # compiled binary artifacts
+    "*.so", "*.o", "*.a", "*.dylib", "*.class",
 ]
 _SYNC_MODE = "two-way-safe"
 # Bound staging so a single huge file (VM image / DB dump / media) can't blow up
@@ -95,7 +99,9 @@ def create_sync_argv(mutagen: str, *, name: str, local_path: str,
         "--name", name,
         "--sync-mode", _SYNC_MODE,
         "--max-staging-file-size", _MAX_STAGING_FILE_SIZE,
-        "--ignore-vcs",
+        # No --ignore-vcs: .git syncs, so a session continued on the server can
+        # commit, push and diff. Its conflicts are never auto-healed
+        # (coding_sync_heal skips .git/); they stop the sync for a human.
     ]
     # Always apply DEFAULT_IGNORES; user/project patterns are MERGED on top (the
     # old behavior REPLACED the defaults, so one custom rule stripped all baseline

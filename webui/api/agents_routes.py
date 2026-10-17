@@ -91,7 +91,8 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
 # ── the merged Agents tab (webui/api/agents_core.py) ─────────────────────────
 _V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/agents/continue",
                         "/agents/stop", "/agents/resume", "/agents/launch",
-                        "/agents/card/dismiss", "/agents/terminal/start"})
+                        "/agents/card/dismiss", "/agents/terminal/start",
+                        "/agents/project/sync"})
 _MAX_CONTINUE = 20
 
 
@@ -158,6 +159,13 @@ def _v2(method, p, query, body):
         if not device_id:
             return _err(400, "device_id is required")
         c.dismiss(device_id, body.get("ckeys"))
+        return _ok({"ok": True})
+    if p == "/agents/project/sync":
+        pid = str(body.get("project_id") or "").strip()
+        if not pid:
+            return _err(400, "project_id is required")
+        c.set_project_sync(pid, bool(body.get("on")))
+        c._changed()
         return _ok({"ok": True})
     if p == "/agents/terminal/start":
         target = c.terminal_argv(ckey)

@@ -19,7 +19,7 @@ def test_create_sync_argv_shape():
                             ignore=["node_modules", "build", "custompat"])
     assert argv[:6] == ["mutagen", "sync", "create", "--name", "jc-x", "--sync-mode"]
     assert "two-way-safe" in argv
-    assert "--ignore-vcs" in argv
+    assert "--ignore-vcs" not in argv   # .git syncs: the server copy can commit and push
     # staging is bounded so one huge file can't fill the server disk
     assert "--max-staging-file-size" in argv
     # user ignores are MERGED with DEFAULT_IGNORES (never replace), deduped — so a
@@ -216,3 +216,11 @@ def test_agent_reconcile_ignores_bad_payload():
         agent = CodingMutagenAgent(send=lambda f: None, state_dir=td, driver=drv)
         agent.handle_frame({"type": "coding_sync_reconcile"})  # no 'active'
     assert drv.terminated == []  # nothing terminated on a malformed frame
+
+
+def test_ignores_are_machine_specific_only():
+    from jc_client.coding_mutagen import DEFAULT_IGNORES
+    for p in ("node_modules", ".venv", "venv", "__pycache__", "DerivedData", ".dart_tool", "build"):
+        assert p in DEFAULT_IGNORES
+    for p in (".git", "*.log", "coverage", ".idea"):
+        assert p not in DEFAULT_IGNORES

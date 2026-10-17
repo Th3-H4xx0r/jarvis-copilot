@@ -68,12 +68,15 @@ class AgentsCore:
                  alert_phones: Optional[Callable] = None, claude=None, codex=None,
                  project_synced: Optional[Callable[[dict], bool]] = None,
                  publish: Optional[Callable[[str, dict], None]] = None,
-                 tracker: Optional[Callable[[], object]] = None, clock=time.time) -> None:
+                 tracker: Optional[Callable[[], object]] = None,
+                 start_sync: Optional[Callable[[str, str, str], None]] = None,
+                 clock=time.time) -> None:
         self.store = store
         self._send_frame = send_frame
         self._device_name = device_name
         self._alert = alert_phones
         self._publish_cb = publish
+        self._start_sync = start_sync or _start_folder_sync
         self._clock = clock
         if tracker is None:
             from agent.agent_tracking import tracker as _tracker
@@ -129,10 +132,13 @@ class AgentsCore:
                 title = short_title(payload.get("prompt"))
                 if title:
                     fields["title"] = title
-            if not (row or {}).get("project_id") and cwd:
+            new_project = not (row or {}).get("project_id") and cwd
+            if new_project:
                 fields["project_id"] = self._project_for(cwd, device_id)
             self.conv.upsert(ckey, **fields)
             moved_here = owner == "server" and (row or {}).get("moved_from")
+        if new_project and device_id and fields.get("project_id"):
+            self._maybe_auto_sync(fields["project_id"], device_id, cwd)
         if moved_here and event in _REVERSE_EVENTS:
             self.handoff.push_reverse(ckey)
         self._changed()
@@ -150,6 +156,7 @@ class AgentsCore:
 
     def on_hello(self, device_id, _data=None) -> None:
         self.presence.on_connect(device_id, self._name(device_id))
+        self._ensure_syncs(device_id)
         self.handoff.on_device_connect(device_id)
         self._send_frame(device_id, {"type": "agent_roster_request"})
         self._changed()
@@ -374,6 +381,52 @@ class AgentsCore:
             return None
         return self.claude.attach_argv(run["bg_id"]), row.get("cwd") or os.path.expanduser("~")
 
+    # ── project sync ─────────────────────────────────────────────────────
+    def set_project_sync(self, project_id: str, on: bool) -> None:
+        """The project's sync switch. Off is remembered: auto-sync never turns
+        a project back on that Pranav switched off."""
+        from agent.agent_sync_policy import SWITCHED_OFF_SETTING
+        off = set(self.store.get_setting(SWITCHED_OFF_SETTING, []) or [])
+        off.discard(project_id) if on else off.add(project_id)
+        self.store.set_setting(SWITCHED_OFF_SETTING, sorted(off))
+        self.store.update_project(project_id, sync_enabled=bool(on))
+        if on:
+            p = self.store.get_project(project_id) or {}
+            if p.get("device_id") and p.get("repo_path"):
+                self._sync_folder(p["device_id"], p.get("sync_desktop_path") or p["repo_path"])
+
+    def _maybe_auto_sync(self, project_id: str, device_id: str, cwd: str) -> None:
+        from agent.agent_sync_policy import SWITCHED_OFF_SETTING, should_auto_sync
+        try:
+            p = self.store.get_project(project_id) or {}
+            off = set(self.store.get_setting(SWITCHED_OFF_SETTING, []) or [])
+            ok, why = should_auto_sync(dict(p, id=project_id), cwd,
+                                       home=_device_home(cwd), switched_off=off)
+            if not ok:
+                return
+            self.store.update_project(project_id, sync_enabled=True, sync_desktop_path=cwd)
+            self._sync_folder(device_id, cwd)
+        except Exception:  # noqa: BLE001
+            log.warning("auto sync for %s failed", cwd, exc_info=True)
+
+    def _ensure_syncs(self, device_id: str) -> None:
+        """On connect: keep every synced project of this Mac with live sessions syncing."""
+        seen = set()
+        for r in self.conv.by_owner(device_id):
+            pid = r.get("project_id")
+            if not pid or pid in seen or r.get("status") not in ("live", "asleep", "offline"):
+                continue
+            seen.add(pid)
+            p = self.store.get_project(pid) or {}
+            if p.get("sync_enabled") and (p.get("sync_desktop_path") or p.get("repo_path")):
+                self._sync_folder(device_id, p.get("sync_desktop_path") or p["repo_path"])
+
+    def _sync_folder(self, device_id: str, local: str) -> None:
+        try:
+            self._start_sync(device_id, local, tm.server_cwd_for(local))
+        except Exception:  # noqa: BLE001
+            log.warning("starting the sync of %s failed", local, exc_info=True)
+
     # ── internals ────────────────────────────────────────────────────────
     def _apply_roster(self, owner, entries, agents, keep_unlisted=()) -> None:
         with self._lock:
@@ -475,6 +528,20 @@ class AgentsCore:
             self._publish_cb("agents_list", self.list_payload())
         except Exception:  # noqa: BLE001
             log.debug("agents_list publish failed", exc_info=True)
+
+
+def _device_home(cwd: str) -> str:
+    """The Mac's home folder for a Mac path (/Users/<name>), for the never-sync-home rule."""
+    parts = (cwd or "").split("/")
+    return "/".join(parts[:3]) if len(parts) >= 3 and parts[1] in ("Users", "home") else ""
+
+
+def _start_folder_sync(device_id: str, local: str, server_cwd: str) -> None:
+    """Start (or reuse) the Mutagen sync of a Mac folder with its server copy."""
+    from api.coding_desktop import start_sync_for_launch
+    os.makedirs(server_cwd, exist_ok=True)
+    start_sync_for_launch(device_id, session_id="project:" + os.path.basename(local), cwd=server_cwd,
+                          sync={"enabled": True, "remote_path": local, "device": device_id})
 
 
 _CORE: Optional[AgentsCore] = None

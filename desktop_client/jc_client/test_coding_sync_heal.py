@@ -175,3 +175,15 @@ def test_rate_limit_due():
     assert not h.due("s1")
     t["v"] += 31
     assert h.due("s1")
+
+
+def test_git_conflicts_not_auto_healed():
+    with tempfile.TemporaryDirectory() as alpha, \
+            tempfile.TemporaryDirectory() as state:
+        _mk(alpha, ".git/index", 1_500_000)
+        _mk(alpha, "a.py", 1_500_000)
+        runner = FakeRunner(stat_out="1400000|regular file|/root/proj/a.py\n"
+                                     "1400000|regular file|/root/proj/.git/index\n")
+        res = _healer(state, runner).heal(_session(alpha, [".git/index", "a.py"]), "s1")
+        assert res["healed"] == 1 and res["git_conflicts"] == [".git/index"]
+        assert not any(".git/index" in c and "mv -- " in c for c in runner.calls)

@@ -121,8 +121,15 @@ class ConflictHealer:
         if ends is None:
             return out
         alpha_root, host, beta_root = ends
-        rels = [r for r in extract_conflict_paths(session)
-                if safe_relpath(r)][:MAX_HEAL_PER_PASS]
+        rels = [r for r in extract_conflict_paths(session) if safe_relpath(r)]
+        # .git is never resolved by newest-edit-wins: picking one side's index,
+        # refs or lock by timestamp can corrupt the repository. Report it.
+        git = [r for r in rels if r == ".git" or r.startswith(".git/")]
+        if git:
+            out["git_conflicts"] = git
+            log.warning("sync heal[%s]: %d conflict(s) inside .git left for a human: %s",
+                        name, len(git), ", ".join(git[:5]))
+        rels = [r for r in rels if r not in git][:MAX_HEAL_PER_PASS]
         if not rels:
             return out
 

@@ -51,16 +51,18 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("JC_CODING_PROJECTS_ROOT", str(tmp_path / "cp"))
     store = CodingSessionStore(str(tmp_path / "c.db"))
-    frames, pushes = [], []
+    frames, pushes, syncs = [], [], []
     core = agents_core.AgentsCore(
         store, send_frame=lambda d, f: frames.append((d, f)) or True,
         device_name=lambda d: "MacBook",
         alert_phones=lambda title, body, **kw: pushes.append((title, body, kw)) or 1,
-        claude=FakeClaude(), codex=FakeCodex(), project_synced=lambda row: True)
+        claude=FakeClaude(), codex=FakeCodex(), project_synced=lambda row: True,
+        start_sync=lambda device, local, server: syncs.append((device, local, server)))
     agents_core.set_core(core)
     tr = AgentTracker(store, observer=core.on_hook)
     set_tracker(tr)
-    yield {"store": store, "core": core, "tr": tr, "frames": frames, "pushes": pushes}
+    yield {"store": store, "core": core, "tr": tr, "frames": frames, "pushes": pushes,
+           "syncs": syncs, "tmp": tmp_path}
     set_tracker(None)
     agents_core.set_core(None)
 
@@ -216,3 +218,28 @@ def test_island_bring_back_runs_continue_on_mac(env):
     assert env["core"].conv.get("claude|s1")["status"] == "moving"
     assert any(f["type"] == "agent_transcript_sync" and f.get("then") == "resume_local"
                for _, f in env["frames"])
+
+
+def test_new_mac_project_turns_sync_on(env):
+    _three(env)
+    pid = env["core"].conv.get("claude|s1")["project_id"]
+    assert env["store"].get_project(pid)["sync_enabled"]
+    assert ("d1", "/Users/p/app", str(env["tmp"] / "cp" / "app")) in env["syncs"]
+    assert len([s for s in env["syncs"] if s[1] == "/Users/p/app"]) == 1
+
+
+def test_switched_off_project_is_not_synced(env):
+    env["core"].on_hello("d1", {})
+    pid = env["store"].get_or_create_project_for_path(repo_path="/Users/p/app", host="desktop",
+                                                      device_id="d1")
+    env["core"].set_project_sync(pid, False)
+    env["tr"].ingest("d1", "event", "claude", ev("UserPromptSubmit", sid="s1", prompt="x"))
+    assert env["syncs"] == [] and not env["store"].get_project(pid)["sync_enabled"]
+
+
+def test_project_sync_switch_route(env):
+    _three(env)
+    pid = env["core"].conv.get("claude|s1")["project_id"]
+    status, body = call("POST", "/agents/project/sync", {"project_id": pid, "on": False})
+    assert status == 200 and not env["store"].get_project(pid)["sync_enabled"]
+    assert pid in env["store"].get_setting("sync_off_projects", [])
