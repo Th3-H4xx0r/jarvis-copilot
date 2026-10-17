@@ -146,6 +146,10 @@ class Handoff:
         owner, run = row.get("owner"), row.get("run") or {}
         if row.get("status") in ("ended", "moving"):
             return "failed", row.get("status")
+        if row.get("state") in ("approval", "question"):
+            # Its terminal shows the approval/question menu: typed text plus Enter
+            # would pick the highlighted answer — an approval without Face ID.
+            return "failed", "waiting"
         if owner == "server":
             try:
                 if run.get("kind") == "headless":
@@ -241,6 +245,8 @@ class Handoff:
         if row is None:
             return _fail("no_session", "That session is gone.")
         device = row.get("moved_from") or row.get("origin_device_id")
+        if row.get("status") == "moving":
+            return _fail("moving", "It's already moving.")
         if row.get("owner") != "server" or not device:
             return _fail("not_on_server", "It isn't running on the server.")
         if self.presence.state(device) != "online":

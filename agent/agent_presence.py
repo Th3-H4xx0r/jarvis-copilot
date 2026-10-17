@@ -70,12 +70,16 @@ class Presence:
                     self.store.put_presence(p["device_id"], **dict(
                         _strip(p), state="disconnected", since=now))
 
-    def tick(self) -> None:
+    def tick(self) -> list:
+        """Mark Macs gone past the grace period offline; returns their ids."""
         now = self._clock()
+        gone = []
         for p in self.store.list_presence():
             if p.get("state") == "disconnected" and now - float(p.get("since") or now) >= self._grace:
                 self._pause(p["device_id"], p.get("device_name") or "", "offline", "offline",
                             since=float(p.get("since") or now))
+                gone.append(p["device_id"])
+        return gone
 
     def dismiss(self, device_id: str, ckeys: Optional[list] = None) -> None:
         with self._lock:

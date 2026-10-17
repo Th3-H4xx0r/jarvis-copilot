@@ -234,3 +234,18 @@ def test_sync_parts_out_of_order_still_merge(tmp_path, monkeypatch):
     link.handle_frame(dict(base, part=0, data_b64=base64.b64encode(data[:half]).decode()))
     assert local.read_text() == a + "\n" + b + "\n"
     assert _events(up, "agent_merge_done")
+
+
+def test_waiting_session_is_never_typed_into():
+    """A pending approval/question: typing would answer its menu. Queue it for
+    the end of the turn (Claude) or refuse (others)."""
+    link, up, q = _link()
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "w1", "agent": "claude",
+                       "session_id": "s1", "text": "yes", "state": "approval",
+                       "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [] and q.items == [("s1", "yes")]
+    assert _events(up, "agent_delivery")[-1]["state"] == "queued"
+    link.handle_frame({"type": "agent_instruction", "delivery_id": "w2", "agent": "codex",
+                       "session_id": "c1", "text": "yes", "state": "question",
+                       "terminal": {"term_program": "vscode"}, "run": {"pid": 901}})
+    assert link.vscode.sent == [] and _events(up, "agent_delivery")[-1]["state"] == "failed"

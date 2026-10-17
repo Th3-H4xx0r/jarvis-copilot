@@ -197,6 +197,13 @@ class AgentsLink:
                                                "Code Master settings first")
         run = frame.get("run") or {}
         terminal = frame.get("terminal") or run.get("terminal") or {}
+        if frame.get("state") in ("approval", "question"):
+            # Its terminal shows a menu: typing would answer it. Only ever after the turn.
+            if agent in _STOP_QUEUE_AGENTS and self._queue:
+                self._queue().add(sid, text)
+                return self._report(did, "queued", None)
+            return self._report(did, "failed", "It's waiting on an approval or a question: "
+                                               "answer that first.")
         if frame.get("state") in _WORKING and agent in _STOP_QUEUE_AGENTS and self._queue:
             self._queue().add(sid, text)
             return self._report(did, "queued", None)

@@ -288,7 +288,8 @@ class AgentsCore:
         self._last_tick = now
         if self._recover_pending:
             self._recover_pending = not self.handoff.recover()
-        self.presence.tick()
+        if self.presence.tick():
+            self._changed()   # open screens see the sessions go offline
         live_here = [r for r in self.conv.by_owner("server") if r.get("status") == "live"
                      and (r.get("run") or {}).get("kind") == "background"]
         if live_here and now - self._last_server_roster >= _SERVER_ROSTER_EVERY:
@@ -544,7 +545,7 @@ class AgentsCore:
             and status in ("asleep", "offline", "ended"),
             "can_continue_mac": owner == "server" and bool(row.get("moved_from")) and status == "live",
             "can_resume": status == "ended",
-            "can_send": status == "live" and (typable or state in _WORKING),
+            "can_send": status == "live" and state not in _WAITING and (typable or state in _WORKING),
             "can_terminal": owner == "server" and run.get("kind") == "background" and status == "live",
             "moved_from": row.get("moved_from"),
             "moved_from_name": self._name(row["moved_from"]) if row.get("moved_from") else "",

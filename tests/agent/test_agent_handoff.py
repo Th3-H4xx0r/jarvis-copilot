@@ -388,3 +388,22 @@ def test_continue_drops_a_half_shipped_last_line_first(env):
     env["claude"].start = start
     assert env["h"].continue_on_server(ck, confirm_offline=True)["ok"] is True
     assert seen["data"] == b'{"uuid":"a"}\n'
+
+
+def test_waiting_session_refuses_messages(env):
+    """Typed into a pending approval/question, the text's Enter picks the menu's
+    highlighted answer — an approval without Face ID. Never deliver it."""
+    ck = _asleep(env, status="live", state="approval")
+    env["presence"].on_connect("dev1")
+    out = env["h"].send(ck, "yes do it")
+    assert out["state"] == "failed" and out["reason"] == "waiting"
+    assert not [f for _, f in env["frames"] if f.get("type") == "agent_instruction"]
+
+
+def test_continue_on_mac_twice_moves_once(env):
+    ck = _asleep(env, state="idle")
+    env["h"].continue_on_server(ck)
+    env["presence"].on_connect("dev1")
+    assert env["h"].continue_on_mac(ck)["ok"] is True
+    again = env["h"].continue_on_mac(ck)
+    assert again["ok"] is False and again["reason"] == "moving"

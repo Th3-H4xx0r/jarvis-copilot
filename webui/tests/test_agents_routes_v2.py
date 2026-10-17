@@ -396,3 +396,27 @@ def test_server_codex_approval_reaches_needs_you_and_is_answered(env):
     env["core"].on_codex_event("approval_resolved", {"id": "a1", "handle": "c1"})
     _, body = call("GET", "/agents/list")
     assert body["needs_you"] == []
+
+
+def test_waiting_session_cannot_send(env):
+    _three(env)
+    _, body = call("GET", "/agents/list")
+    (c,) = body["needs_you"]
+    assert c["can_send"] is False
+
+
+def test_offline_after_grace_pushes_the_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    store = CodingSessionStore(str(tmp_path / "c2.db"))
+    t = {"now": 1000.0}
+    pushed = []
+    core = agents_core.AgentsCore(store, send_frame=lambda d, f: True, device_name=lambda d: "Mac",
+                                  claude=FakeClaude(), codex=FakeCodex(), clock=lambda: t["now"],
+                                  publish=lambda topic, data: pushed.append(data), tracker=lambda: None,
+                                  start_sync=lambda *a: None)
+    core.conv.upsert("claude|z", agent="claude", session_id="z", owner="d9", status="live")
+    core.on_disconnect("d9")
+    pushed.clear()
+    t["now"] += 61
+    core.tick()
+    assert pushed and pushed[-1]["card"]["kind"] == "offline"
