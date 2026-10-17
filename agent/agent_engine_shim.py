@@ -42,6 +42,11 @@ def load_hook_server():
     return _load_sibling("jarvis_hook_server", "hook_server.py").HookServer
 
 
+def load_hook_install():
+    """jc-client's hook installer: the one list of hook events and their shape."""
+    return _load_sibling("jarvis_hook_install", "hook_install.py")
+
+
 def load_arbiter():
     """jc-client's approval Arbiter class, for hooks running on this host."""
     return _load_sibling("jarvis_approval_arbiter", "approval_arbiter.py").Arbiter

@@ -64,6 +64,19 @@ class _NoCodex:
     send = stop = start
 
 
+def _server_hook_settings():
+    """The hooks file every server session starts with (agent/server_hooks.py)."""
+    try:
+        from agent.server_hooks import write_hook_settings
+        from api.agent_hooks import socket_path
+        from jarviscopilot_constants import get_hermes_home
+        return write_hook_settings(str(get_hermes_home() / "agent-hooks" / "claude-hooks.json"),
+                                   socket=socket_path())
+    except Exception as exc:  # noqa: BLE001 — sessions still run, just without hooks
+        log.warning("server agent hooks unavailable: %s", exc)
+        return None
+
+
 class AgentsCore:
     def __init__(self, store, *, send_frame: Callable[[str, dict], bool],
                  device_name: Callable[[str], str] = lambda _d: "",
@@ -86,7 +99,7 @@ class AgentsCore:
         self._tracker = tracker
         if claude is None:
             from agent.server_runtime import ClaudeRuntime
-            claude = ClaudeRuntime()
+            claude = ClaudeRuntime(hook_settings=_server_hook_settings())
         self.claude = claude
         self.codex = codex if codex is not None else _NoCodex()
         self.conv = Conversations(store, clock=clock)
@@ -96,6 +109,7 @@ class AgentsCore:
                                send_frame=send_frame,
                                project_synced=project_synced or self._project_synced, clock=clock)
         self._last_server_roster = 0.0
+        self._seen_write: dict = {}   # server session -> its transcript's last mtime
         self._last_tick = 0.0
         self._recover_pending = False
         self._msg_cache: OrderedDict = OrderedDict()
@@ -290,10 +304,41 @@ class AgentsCore:
             self._recover_pending = not self.handoff.recover()
         if self.presence.tick():
             self._changed()   # open screens see the sessions go offline
+        self._watch_server()
         live_here = [r for r in self.conv.by_owner("server") if r.get("status") == "live"
                      and (r.get("run") or {}).get("kind") == "background"]
         if live_here and now - self._last_server_roster >= _SERVER_ROSTER_EVERY:
             self.server_roster()
+
+    def _watch_server(self) -> None:
+        """Server sessions between their hooks: a write to the transcript reaches
+        open screens at once, and one started before it had hooks still reads
+        working or idle from Claude's own job file."""
+        changed = False
+        job_state = getattr(self.claude, "job_state", None)
+        for r in self.conv.by_owner("server"):
+            if r.get("status") != "live":
+                continue
+            ck = r["ckey"]
+            try:
+                wrote = tm.last_write(r)
+            except Exception:  # noqa: BLE001
+                wrote = None
+            if wrote and self._seen_write.get(ck) != wrote:
+                changed = changed or ck in self._seen_write
+                self._seen_write[ck] = wrote
+            bg = (r.get("run") or {}).get("bg_id")
+            if bg and job_state is not None and (r.get("agent") or "claude") == "claude":
+                try:
+                    st = (job_state(bg) or {}).get("state")
+                except Exception:  # noqa: BLE001
+                    st = None
+                state = "working" if st in ("working", "running") else ("idle" if st else None)
+                if state and state != r.get("state") and r.get("state") not in _WAITING:
+                    self.conv.upsert(ck, state=state)
+                    changed = True
+        if changed:
+            self._changed()
 
     def server_roster(self) -> None:
         self._last_server_roster = self._clock()
@@ -521,6 +566,9 @@ class AgentsCore:
     def _present(self, row: dict, ts: Optional[dict]) -> dict:
         ts = ts or {}
         owner, status = row.get("owner"), row.get("status") or "live"
+        if status == "live" and owner not in (None, "server") \
+                and self.presence.state(owner) in ("disconnected", "asleep", "offline"):
+            status = "offline"   # its Mac dropped: offer the server now, not after the grace period
         run = row.get("run") or {}
         term = run.get("terminal") or {}
         state = (ts.get("state") or row.get("state") or "idle") if status == "live" else status

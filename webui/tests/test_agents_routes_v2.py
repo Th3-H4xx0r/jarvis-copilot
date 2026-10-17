@@ -16,6 +16,7 @@ import pytest  # noqa: E402
 
 from agent.agent_tracking import AgentTracker, set_tracker  # noqa: E402
 from agent.coding_session_db import CodingSessionStore  # noqa: E402
+from agent import transcript_mirror as tm  # noqa: E402
 from api import agents_core  # noqa: E402
 from api.coding_routes import handle_coding_request  # noqa: E402
 
@@ -435,3 +436,61 @@ def test_titles_prefer_the_ai_title_and_sessions_sort_by_activity(env):
     (proj,) = body["projects"]
     assert [c["title"] for c in proj["sessions"]] == ["Newest work", "app-c3", "Older work"]
     assert proj["sessions"][0]["last_event_at"] == 5000.0
+
+
+def test_a_session_whose_mac_just_dropped_offers_the_server(env):
+    env["core"].on_hello("d1", {})
+    env["core"].on_roster("d1", {"entries": [
+        {"agent": "claude", "session_id": "gone", "pid": 1, "kind": "interactive", "cwd": "/Users/p/app",
+         "terminal": {"term_program": "vscode"}}]})
+    env["core"].on_disconnect("d1")
+    _, body = call("GET", "/agents/list")
+    (c,) = [s for p in body["projects"] for s in p["sessions"] if s["session_id"] == "gone"]
+    assert c["status"] == "offline" and c["can_send"] is False and c["can_continue_server"] is True
+
+
+def test_server_sessions_are_watched_between_hooks(tmp_path, monkeypatch):
+    """A session running on the server shows working while Claude's job file
+    says so (sessions started before they had hooks), and each new write to its
+    transcript reaches open screens without waiting for a hook."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    store = CodingSessionStore(str(tmp_path / "w.db"))
+    t = {"now": 1000.0}
+    pushed = []
+    job = {"state": "working"}
+
+    class Claude(FakeClaude):
+        def job_state(self, bg):
+            return dict(job) if bg == "bg000001" else {}
+
+        def roster(self):
+            return [{"agent": "claude", "session_id": "z", "kind": "background", "bg_id": "bg000001",
+                     "cwd": str(tmp_path / "app"), "status": job["state"]}]
+
+    core = agents_core.AgentsCore(store, send_frame=lambda d, f: True, device_name=lambda d: "Mac",
+                                  claude=Claude(), codex=FakeCodex(), clock=lambda: t["now"],
+                                  publish=lambda topic, data: pushed.append(data), tracker=lambda: None,
+                                  start_sync=lambda *a: None)
+    core.conv.upsert("claude|z", agent="claude", session_id="z", owner="server", status="live",
+                     state="idle", cwd=str(tmp_path / "app"), run={"kind": "background", "bg_id": "bg000001"})
+    row = core.conv.get("claude|z")
+    tm.append_chunk(row, 0, b'{"uuid":"a"}\n')
+
+    def tick():
+        t["now"] += 6
+        core.tick()
+
+    tick()
+    assert core.conv.get("claude|z")["state"] == "working" and pushed
+    pushed.clear()
+    tick()
+    assert pushed == [], "nothing new, nothing pushed"
+    tm.append_chunk(row, tm.size(row), b'{"uuid":"b"}\n')
+    import os
+    os.utime(tm.path_for(row), (t["now"] + 1, t["now"] + 1))
+    tick()
+    assert pushed, "a transcript write is pushed"
+    job["state"] = "done"
+    pushed.clear()
+    tick()
+    assert core.conv.get("claude|z")["state"] == "idle" and pushed

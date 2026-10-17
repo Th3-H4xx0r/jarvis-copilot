@@ -255,14 +255,17 @@ def test_send_now_asks_the_terminal_for_ctrl_enter(monkeypatch):
     assert b.send_text(5, "hi") and seen["submit"] == "enter"
 
 
-def test_send_now_only_goes_to_a_window_that_can_press_ctrl_enter(bridge):
-    """A window still on the old extension ignores "submit" and presses Enter:
-    Send now there would only queue it while saying "sent"."""
+def test_send_now_reaches_a_window_still_on_the_old_extension(bridge):
+    """Extension 0.1.0 ignores "submit": it pastes the text and presses Enter.
+    Closing the paste early and pressing Ctrl+Enter inside it sends it now (the
+    Enter after it lands on an empty prompt and does nothing)."""
     old = FakeExtension(bridge.path, "w1", ["/a"], [101]).hello()
     new = FakeExtension(bridge.path, "w2", ["/b"], [201]).hello(submit=["enter", "now"])
     assert until(lambda: len(bridge.windows()) == 2)
-    assert bridge.send_text(101, "go", now=True) is False and old.received == []
-    assert bridge.send_text(101, "go") is True
-    assert bridge.send_text(201, "go", now=True) is True and new.received[-1]["submit"] == "now"
+    assert bridge.send_text(101, "go", now=True) is True
+    assert old.received[-1]["text"] == "go\x1b[201~\x1b[13;5u\x1b[200~"
+    assert bridge.send_text(101, "go") is True and old.received[-1]["text"] == "go"
+    assert bridge.send_text(201, "go", now=True) is True
+    assert new.received[-1]["submit"] == "now" and new.received[-1]["text"] == "go"
     old.close()
     new.close()

@@ -203,3 +203,30 @@ def test_trusting_folders_at_once_keeps_every_one(home, monkeypatch):
     import os
     data = _json.loads((home / ".claude.json").read_text())
     assert all(data["projects"][os.path.realpath(d)]["hasTrustDialogAccepted"] for d in dirs)
+
+
+def test_sessions_the_server_starts_carry_its_hooks(home):
+    """Server sessions report to the server's own hook socket, like the Mac's do,
+    through a settings file given at start (never the server's global settings:
+    Jarvis's own Claude chats run there too)."""
+    run = Run(stdout="backgrounded · 1a2b3c4d\n")
+    rt = ClaudeRuntime(run=run, pty_factory=None, hook_settings="/srv/jc/claude-hooks.json")
+    rt.start("/srv/app", prompt="hi")
+    argv, _ = run.calls[-1]
+    assert argv[argv.index("--settings") + 1] == "/srv/jc/claude-hooks.json"
+    rt.start("/srv/app", resume_session_id="745e113e-a511")
+    assert "--settings" in run.calls[-1][0]
+    # A session born in the background keeps the flags it started with: adding
+    # any on resume makes a copy.
+    rt.start("/srv/app", resume_session_id="745e113e-a511", bg_origin=True)
+    assert "--settings" not in run.calls[-1][0]
+
+
+def test_job_state_reads_claudes_own_job_file(home):
+    d = home / ".claude" / "jobs" / "1a2b3c4d"
+    d.mkdir(parents=True)
+    (d / "state.json").write_text(json.dumps({"state": "working", "tempo": "active"}))
+    rt = ClaudeRuntime(run=Run())
+    assert rt.job_state("1a2b3c4d")["state"] == "working"
+    assert rt.job_state("ffffffff") == {}
+    assert rt.job_state("../../etc") == {}

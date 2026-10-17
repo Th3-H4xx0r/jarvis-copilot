@@ -562,7 +562,7 @@
     paused: ['<span class="agents-moon">☾</span>', 'Mac asleep'],
     ratelimit: ['<span class="agents-hollow is-quiet"></span>', 'Rate-limited'],
     ended: ['<span class="agents-hollow is-ended"></span>', 'Ended'],
-    idle: ['<span class="agents-hollow"></span>', 'Idle'],
+    idle: ['<span class="agents-dot is-open"></span>', 'Open, idle'],
   };
   function markHtml(status) {
     const m = MARKS[status] || MARKS.idle;

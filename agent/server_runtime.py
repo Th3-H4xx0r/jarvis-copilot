@@ -116,13 +116,30 @@ _TRUST_LOCK = threading.Lock()
 class ClaudeRuntime:
     def __init__(self, *, run: Callable = subprocess.run,
                  pty_factory: Optional[Callable[[list], object]] = None,
-                 binary: str = "claude", settle: float = 0.4) -> None:
+                 binary: str = "claude", settle: float = 0.4,
+                 hook_settings: Optional[str] = None) -> None:
         self._run = run
+        # The server's hook settings (agent/server_hooks.py), given to every
+        # session it starts so its hooks reach the server's own socket.
+        self._hook_settings = hook_settings
         self._pty = pty_factory or (lambda argv: _Pty(argv, _env()))
         self._bin = binary
         self._settle = settle
 
     # ── trust ────────────────────────────────────────────────────────────
+    def job_state(self, bg_id: str) -> dict:
+        """Claude's own record of a background session (``~/.claude/jobs/<id>/
+        state.json``: state working/blocked/done..., updatedAt). {} if none."""
+        if not re.fullmatch(r"[0-9a-f]{6,16}", str(bg_id or "")):
+            return {}
+        cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        base = Path(cfg) if cfg else Path.home() / ".claude"
+        try:
+            data = json.loads((base / "jobs" / bg_id / "state.json").read_text())
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def _config_path(self) -> Path:
         cfg = os.environ.get("CLAUDE_CONFIG_DIR")
         return Path(cfg) / ".claude.json" if cfg else Path.home() / ".claude.json"
@@ -167,6 +184,8 @@ class ClaudeRuntime:
                     env["IS_SANDBOX"] = "1"
             if mcp_config:
                 argv += ["--mcp-config", mcp_config, "--strict-mcp-config"]
+            if self._hook_settings:
+                argv += ["--settings", self._hook_settings]
         if resume_session_id:
             argv += ["--resume", resume_session_id]
         if prompt and not (resume_session_id and bg_origin):

@@ -253,7 +253,7 @@ struct AgentSectionHeader: View {
 }
 
 /// The quiet status mark: a spinner while it works, a check when it finished,
-/// an amber dot while it waits on you.
+/// an amber dot while it waits on you, a green dot while it's open and idle.
 struct AgentStatusMark: View {
     let status: AgentRowStatus
     var size: CGFloat = 16
@@ -272,7 +272,8 @@ struct AgentStatusMark: View {
             case .rateLimited:
                 JcIcon("clock", size: size * 0.86).foregroundStyle(status.color)
             case .idle:
-                Circle().strokeBorder(status.color, lineWidth: 1.5).frame(width: size * 0.56, height: size * 0.56)
+                // Open on the Mac or the server, waiting for you: a green dot.
+                Circle().fill(status.color).frame(width: size * 0.5, height: size * 0.5)
             case .paused:
                 JcIcon("moon.fill", size: size * 0.8).foregroundStyle(status.color)
             case .moving:

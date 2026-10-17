@@ -133,3 +133,30 @@ def test_titles_and_activity_come_from_the_transcript(tmp_path, monkeypatch):
     (e,) = RosterAgent(lambda f: None, run=_run(listing), alive=lambda pid: True).scan_now()
     assert e["title"] == "Replacing Tailscale with Cloudflare Tunnel"
     assert e["name"] == "jarvis-copilot-e2" and e["last_active_at"] == 1_700_000_000
+
+
+def test_a_session_quiet_since_the_client_started_still_knows_its_terminal():
+    """Hook terminals live in memory: after a restart an idle session sends no
+    hook, so its terminal is read from the process's own environment (once)."""
+    asked = []
+
+    def env_terminal(pid):
+        asked.append(pid)
+        return {"term_program": "vscode", "bundle_id": "com.microsoft.VSCode"}
+    r = RosterAgent(lambda f: None, run=_run(AGENTS), alive=lambda pid: True, env_terminal=env_terminal)
+    s1 = next(e for e in r.scan_now() if e["session_id"] == "s1")
+    assert s1["terminal"] == {"term_program": "vscode", "bundle_id": "com.microsoft.VSCode"}
+    r.scan_now()
+    assert asked == [4707], "read once per process, background sessions never"
+    r.note_hook("claude", "s1", pid=4707, terminal={"term_program": "iTerm.app", "iterm": "w0t0p0:AB"})
+    s1 = next(e for e in r.scan_now() if e["session_id"] == "s1")
+    assert s1["terminal"]["term_program"] == "iTerm.app", "a hook's word wins"
+
+
+def test_terminal_from_env_reads_the_terminal_keys():
+    from jc_client.agent_roster import terminal_from_env_text
+    text = ("/Users/p/.local/bin/claude --resume x PATH=/usr/bin TERM_PROGRAM=vscode "
+            "__CFBundleIdentifier=com.microsoft.VSCode ITERM_SESSION_ID=w0t1p0:ABC-123 HOME=/Users/p")
+    assert terminal_from_env_text(text) == {"term_program": "vscode", "bundle_id": "com.microsoft.VSCode",
+                                            "iterm": "w0t1p0:ABC-123"}
+    assert terminal_from_env_text("") == {}

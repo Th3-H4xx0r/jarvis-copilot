@@ -91,6 +91,17 @@ def test_continue_offline_needs_confirm(env):
     assert env["h"].continue_on_server(ck, confirm_offline=True)["ok"] is True
 
 
+def test_continue_while_the_mac_just_dropped_needs_confirm(env):
+    """Gone without a sleep notice, a Mac's sessions only read offline after a
+    grace period: until then they can still move, once you confirm."""
+    ck = _asleep(env, status="live")
+    env["presence"].on_connect("dev1")
+    env["presence"].on_disconnect("dev1")
+    out = env["h"].continue_on_server(ck)
+    assert out["ok"] is False and out["reason"] == "confirm_offline"
+    assert env["h"].continue_on_server(ck, confirm_offline=True)["ok"] is True
+
+
 def test_continue_live_on_mac_refused(env):
     ck = _asleep(env, status="live")
     assert env["h"].continue_on_server(ck)["reason"] == "owner_awake"

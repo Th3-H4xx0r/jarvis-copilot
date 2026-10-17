@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -105,12 +106,39 @@ def _pid_alive(pid) -> bool:
         return False
 
 
+# The terminal a session runs in, as its process's environment names it:
+# env var -> the key the hooks use for it.
+_ENV_TERMINAL = (("TERM_PROGRAM", "term_program"), ("__CFBundleIdentifier", "bundle_id"),
+                 ("ITERM_SESSION_ID", "iterm"), ("TERM_SESSION_ID", "term_session"))
+_ENV_RE = re.compile(r"(?:^|\s)(" + "|".join(k for k, _ in _ENV_TERMINAL) + r")=(\S+)")
+
+
+def terminal_from_env_text(text: str) -> dict:
+    """The terminal keys out of `ps eww` output (command line, then the environment)."""
+    found = dict(_ENV_RE.findall(text or ""))
+    return {dst: found[src] for src, dst in _ENV_TERMINAL if found.get(src)}
+
+
+def terminal_from_pid(pid) -> dict:
+    """Read from the process itself: hook terminals only live in memory, so a
+    session quiet since jc-client started has none."""
+    try:
+        out = subprocess.run(["/bin/ps", "eww", "-o", "command=", "-p", str(int(pid))],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    return terminal_from_env_text(out.stdout) if out.returncode == 0 else {}
+
+
 class RosterAgent:
     def __init__(self, send: Callable[[dict], None], *, run: Callable = subprocess.run,
                  alive: Callable[[int], bool] = _pid_alive, clock=time.time,
                  debounce: float = 1.0, heartbeat: float = 60.0,
-                 claude_bin: Optional[str] = None) -> None:
+                 claude_bin: Optional[str] = None,
+                 env_terminal: Callable[[int], dict] = terminal_from_pid) -> None:
         self._send = send
+        self._env_terminal = env_terminal
+        self._env_terms: dict = {}  # pid -> terminal read from its environment
         self._run = run
         self._alive = alive
         self._clock = clock
@@ -171,6 +199,8 @@ class RosterAgent:
     def scan_now(self, send: bool = True) -> list:
         claude = self._claude_entries()
         entries = (claude or []) + self._codex_entries()
+        live = {e.get("pid") for e in entries}
+        self._env_terms = {p: t for p, t in self._env_terms.items() if p in live}
         agents = ["claude", "codex"] if claude is not None else ["codex"]
         self._last = entries
         self.last_agents = agents
@@ -214,8 +244,20 @@ class RosterAgent:
                         "kind": "background" if bg else "interactive",
                         "bg_id": s.get("id") if bg else None, "cwd": s.get("cwd") or "",
                         "name": _title(s.get("name")), "status": s.get("status") or "",
-                        "terminal": self._terms.get(("claude", sid)) or {}})
+                        "terminal": self._terminal("claude", sid, None if bg else s.get("pid"))})
         return out
+
+    def _terminal(self, agent: str, sid: str, pid) -> dict:
+        """The hook's word for the session's terminal, else its process's own."""
+        term = self._terms.get((agent, sid))
+        if term or not pid:
+            return dict(term or {})
+        if pid not in self._env_terms:
+            try:
+                self._env_terms[pid] = self._env_terminal(pid) or {}
+            except Exception:  # noqa: BLE001
+                self._env_terms[pid] = {}
+        return dict(self._env_terms[pid])
 
     def _codex_entries(self) -> list:
         out = []
@@ -229,5 +271,5 @@ class RosterAgent:
             out.append({"agent": "codex", "session_id": sid, "pid": info["pid"],
                         "kind": "interactive", "bg_id": None, "cwd": info.get("cwd") or "",
                         "name": "", "status": "",
-                        "terminal": self._terms.get(("codex", sid)) or {}})
+                        "terminal": self._terminal("codex", sid, info["pid"])})
         return out

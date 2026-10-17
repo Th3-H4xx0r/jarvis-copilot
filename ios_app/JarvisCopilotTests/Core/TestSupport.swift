@@ -24,6 +24,14 @@ final class MockTransport: APITransport, @unchecked Sendable {
 
     /// Reply that matches a request path (first match wins), else FIFO.
     private var routed: [(String, Reply)] = []
+    /// Replies built from the request (its query), matched by path before `routed`.
+    private var handled: [(String, (URLRequest) -> Reply)] = []
+
+    /// Route by path substring to a reply made from the request.
+    func route(_ pathContains: String, reply: @escaping (URLRequest) -> Reply) {
+        lock.lock(); defer { lock.unlock() }
+        handled.append((pathContains, reply))
+    }
 
     func enqueue(_ reply: Reply) { lock.lock(); replies.append(reply); lock.unlock() }
     func enqueue(json: Any, status: Int = 200) {
@@ -52,6 +60,7 @@ final class MockTransport: APITransport, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         requests.append(request)
         let path = request.url?.path ?? ""
+        if let h = handled.first(where: { path.contains($0.0) }) { return h.1(request) }
         if let i = routed.firstIndex(where: { path.contains($0.0) }) { return routed[i].1 }
         guard !replies.isEmpty else {
             throw APIError.badResponse("MockTransport: no reply queued for \(request.httpMethod ?? "") \(path)")

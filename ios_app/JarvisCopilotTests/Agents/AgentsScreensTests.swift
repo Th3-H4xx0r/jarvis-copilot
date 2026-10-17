@@ -121,6 +121,56 @@ final class AgentsScreensTests: XCTestCase {
     }
 }
 
+// MARK: - Opening a long chat
+
+/// A long conversation opens at its newest message, on screen in a real window
+/// (scroll positions only exist once SwiftUI lays the transcript out).
+@MainActor
+final class AgentChatOpensAtEndTests: XCTestCase {
+
+    func testALongChatOpensAtItsEnd() async throws {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/list", json: Fx.list)
+        transport.route("/api/coding/permission/pending", json: ["pending": []])
+        transport.route("/api/coding/agents/messages") { request in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let before = query.first { $0.name == "before" }?.value.flatMap(Int.init)
+            return MockTransport.Reply(body: try! JSONSerialization.data(withJSONObject: Fx.longPage(before: before)))
+        }
+        let topics = BridgeTopics()
+        topics.send = { _ in }
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: topics)
+        await store.refresh()
+        store.requestOpen(Fx.working)
+        let router = AppRouter()
+        router.selectedTab = .agents
+
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = UIHostingController(rootView: AgentsPage(store: store).environment(router))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        try await Task.sleep(nanoseconds: 4_000_000_000)
+
+        let chat = try XCTUnwrap(Self.scrollViews(in: window).max { $0.contentSize.height < $1.contentSize.height })
+        let shownEnd = chat.contentOffset.y + chat.bounds.height - chat.adjustedContentInset.bottom
+        let olderPages = transport.requests.filter {
+            $0.url?.path.contains("agents/messages") == true && $0.url?.query?.contains("before=") == true
+        }.count
+        print("CHAT offset=\(chat.contentOffset.y) height=\(chat.bounds.height) content=\(chat.contentSize.height) "
+              + "insetBottom=\(chat.adjustedContentInset.bottom) olderPagesLoaded=\(olderPages)")
+        XCTAssertGreaterThan(chat.contentSize.height, chat.bounds.height * 3, "the transcript is long")
+        XCTAssertGreaterThanOrEqual(shownEnd, chat.contentSize.height - 40, "it opens at the newest message")
+        XCTAssertEqual(olderPages, 0, "opening doesn't page in older messages on its own")
+    }
+
+    private static func scrollViews(in view: UIView) -> [UIScrollView] {
+        (view as? UIScrollView).map { [$0] } ?? [] + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+}
+
 // MARK: - Sample data
 
 /// Conversations, a Mac-asleep card, a waiting approval, a question, plan
@@ -235,6 +285,25 @@ private enum Fx {
         Timeout - Async callback was not invoked within the 5000 ms timeout
     Tests: 1 failed, 23 passed, 24 total
     """
+
+    /// A 60-message conversation served 40 at a time from the end, with long
+    /// markdown replies like a real report.
+    static func longPage(before: Int?) -> [String: Any] {
+        let total = 60
+        let end = min(before ?? total, total)
+        let start = max(0, end - 40)
+        let reply = (1...6).map { n in
+            "### Part \(n)\n\nThe check ran against the staging server and the numbers held up. "
+                + "Here is what changed and why it matters for the next deploy.\n\n"
+                + "- **First:** the cache warms before traffic arrives.\n- **Second:** retries back off.\n"
+                + "- **Third:** the dashboard reads the new counters."
+        }.joined(separator: "\n\n")
+        let messages: [[String: Any]] = (start..<end).map { i in
+            i % 2 == 0 ? ["i": i, "role": "user", "text": "Question number \(i): what's next?"]
+                       : ["i": i, "role": "assistant", "text": "Answer \(i).\n\n" + reply]
+        }
+        return ["total": total, "activity_state": "idle", "status": "running", "messages": messages]
+    }
 
     static func transcript(_ key: String) -> [String: Any] {
         if key == approval {

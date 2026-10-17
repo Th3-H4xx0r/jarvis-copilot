@@ -27,6 +27,11 @@ struct AgentSessionScreen: View {
     @State private var confirmOffline = false
     /// Whether the transcript is scrolled to (near) its end: new content follows only then.
     @State private var atBottom = true
+    /// The first page has been shown at its end. Until then the "earlier" row at
+    /// the top doesn't load: it's laid out on the first frame, before the jump to
+    /// the end, and paging in then scrolled the chat to the middle.
+    @State private var openedAtEnd = false
+    @State private var earlierInView = false
 
     init(ckey: String, store: AgentsStore,
          navigate: @escaping (AgentsRoute) -> Void = { _ in },
@@ -47,6 +52,14 @@ struct AgentSessionScreen: View {
     private var working: Bool { status == .working }
     private var agentName: String { conv?.agentName ?? "the agent" }
     private var busy: Bool { store.busy.contains(ckey) }
+
+    /// Pages in the messages above, keeping the one that was first in place.
+    private func loadEarlier(_ proxy: ScrollViewProxy, keeping anchor: String?) {
+        Task {
+            await model.loadOlder()
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+        }
+    }
 
     var body: some View {
         let choice = model.choice()
@@ -69,11 +82,13 @@ struct AgentSessionScreen: View {
                             // Reaching the top loads the page above, keeping your place.
                             AgentEarlierRow(loading: model.loadingOlder)
                                 .onAppear {
-                                    let anchor = items.first?.id
-                                    Task {
-                                        await model.loadOlder()
-                                        if let anchor { proxy.scrollTo(anchor, anchor: .top) }
-                                    }
+                                    earlierInView = true
+                                    if openedAtEnd { loadEarlier(proxy, keeping: items.first?.id) }
+                                }
+                                .onDisappear { earlierInView = false }
+                                .onChange(of: openedAtEnd) { _, opened in
+                                    // A short chat shows the row at its end too: load it now.
+                                    if opened && earlierInView { loadEarlier(proxy, keeping: items.first?.id) }
                                 }
                         }
                         ForEach(items) { item in
@@ -115,6 +130,11 @@ struct AgentSessionScreen: View {
                 guard AgentChatFollow.shouldScroll(from: old, to: new, atBottom: atBottom) else { return }
                 if old.lastID == nil {
                     proxy.scrollTo(Self.bottom, anchor: .bottom)
+                    Task {
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        proxy.scrollTo(Self.bottom, anchor: .bottom)   // rows measured by now
+                        openedAtEnd = true
+                    }
                 } else {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 }

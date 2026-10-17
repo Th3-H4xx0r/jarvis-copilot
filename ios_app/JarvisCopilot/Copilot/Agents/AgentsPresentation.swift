@@ -56,7 +56,8 @@ enum AgentRowStatus: Equatable {
         case .finished: return JcTheme.success
         case .failed: return JcTheme.danger
         case .rateLimited: return JcTheme.muted
-        case .idle, .ended: return AgentPane.grey
+        case .idle: return JcTheme.success   // open and ready
+        case .ended: return AgentPane.grey
         case .paused: return JcTheme.blue
         case .moving: return JcTheme.muted
         }

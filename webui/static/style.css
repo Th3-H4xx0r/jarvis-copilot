@@ -2708,6 +2708,7 @@ main.main.showing-harnesses > #mainHarnesses{display:flex;flex-direction:column;
 .agents-dot{width:9px;height:9px;border-radius:50%;}
 .agents-dot.is-amber{background:var(--ag-amber);box-shadow:0 0 0 4px var(--ag-amber-bg);}
 .agents-dot.is-red{background:var(--ag-red);}
+.agents-dot.is-open{width:8px;height:8px;background:var(--ag-green);}
 .agents-hollow{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--muted);opacity:.85;}
 .agents-hollow.is-quiet{border-style:dashed;}
 .agents-hollow.is-ended{opacity:.4;}

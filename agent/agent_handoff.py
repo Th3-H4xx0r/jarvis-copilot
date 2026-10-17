@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 CARRY_ON = "Carry on from where you left off."
 HANDOFF_AGENTS = ("claude", "codex")
 _WORKING = ("working", "thinking")
+# A Mac in these states isn't there to type into, whatever its rows say yet.
+_MAC_GONE = ("disconnected", "asleep", "offline")
 _CHUNK = 192 * 1024
 
 
@@ -64,9 +66,13 @@ class Handoff:
         if row.get("owner") == "server" and row.get("status") == "live":
             return {"ok": True, "owner": "server"}
         status = row.get("status")
-        if status not in ("asleep", "offline", "ended"):
+        seen = status
+        if status == "live" and row.get("owner") not in (None, "server") \
+                and self.presence.state(row["owner"]) in _MAC_GONE:
+            seen = "offline"   # dropped without a sleep notice, still in its grace period
+        if seen not in ("asleep", "offline", "ended"):
             return _fail("owner_awake", "It's still running on the Mac.")
-        if status == "offline" and not confirm_offline:
+        if seen == "offline" and not confirm_offline:
             return _fail("confirm_offline", "The Mac went offline without sleeping, so it may "
                          "still be running this session. Continue anyway?")
         agent = row.get("agent") or "claude"

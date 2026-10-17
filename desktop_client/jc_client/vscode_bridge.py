@@ -55,6 +55,9 @@ def shell_pid_of(pid: int) -> Optional[int]:
     return ppid if ppid > 0 else None
 
 
+_PASTE_START, _PASTE_END, _CTRL_ENTER = "\x1b[200~", "\x1b[201~", "\x1b[13;5u"
+
+
 class _Conn:
     """One extension connection = one VS Code window."""
 
@@ -150,9 +153,13 @@ class VSCodeBridge:
         conn = self._owner(shell_pid)
         if conn is None:
             return False
+        text = str(text)
         if now and "now" not in ((getattr(conn, "hello", None) or {}).get("submit") or []):
-            return False   # an older extension would press Enter: queued, not "sent"
-        return self._request(conn, {"type": "send_text", "pid": int(shell_pid), "text": str(text),
+            # Extension 0.1.0 ignores "submit": it pastes and presses Enter. End
+            # the paste early and press Ctrl+Enter inside it; its Enter then lands
+            # on an empty prompt, which does nothing (checked on a live session).
+            text += _PASTE_END + _CTRL_ENTER + _PASTE_START
+        return self._request(conn, {"type": "send_text", "pid": int(shell_pid), "text": text,
                                     "submit": "now" if now else "enter"}, timeout)
 
     def run_in_terminal(self, cwd: str, command: str, timeout: float = 3.0) -> bool:
