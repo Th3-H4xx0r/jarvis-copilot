@@ -154,6 +154,7 @@ final class BridgeClient: NSObject, ObservableObject {
     /// re-sent it unchanged every ~8 s, day and night (≈ 40 MB an hour up, Oct 16–17): a new
     /// socket sends it, after that only a change does.
     private var sentCatalogue: Data?
+    private var registrationSoon: Task<Void, Never>?
 
     /// All bridge traffic goes through this rather than `URLSession.shared`.
     ///
@@ -470,7 +471,8 @@ final class BridgeClient: NSObject, ObservableObject {
             syncKeepalive()      // back online: the allowance is worth holding again
             status = .online
             sentCatalogue = nil  // the server knows nothing of us yet
-            sendRegistration()
+            registrationSoon?.cancel()
+            sendRegistrationNow()
             // What this phone wants pushed, and a catch-up for whatever was missed while away.
             BridgeTopics.shared.resubscribe()
             WearablesHub.shared.sendStateSoon(force: true)
@@ -489,7 +491,19 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
+    /// A catalogue change waits 2 s for the next: wearables linking one by one at launch sent
+    /// the whole catalogue (~80 KB) eleven times, one device more each time (Oct 17).
     func sendRegistration(file: String = #fileID, line: Int = #line) {
+        guard socket != nil else { return }
+        registrationSoon?.cancel()
+        registrationSoon = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.sendRegistrationNow(file: file, line: line)
+        }
+    }
+
+    private func sendRegistrationNow(file: String = #fileID, line: Int = #line) {
         guard socket != nil else { return }
         let skills = DeviceRegistry.shared.allSkills()
         let channels = DeviceRegistry.shared.notificationChannels().map { $0.wireForm }
