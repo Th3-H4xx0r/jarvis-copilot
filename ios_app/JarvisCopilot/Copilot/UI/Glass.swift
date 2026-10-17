@@ -364,45 +364,61 @@ private struct JcNavigationTitle: ViewModifier {
 
 /// A glow that rides the border, in the manner of libraries.dev/beam: an angular
 /// gradient sweeping round the shape, painted on the stroke only. It runs while
-/// `active` (the composer uses "you're typing, or Jarvis is replying") so nothing
-/// animates in the background.
+/// `active` (the chat composer while Jarvis replies, an agent's while it works).
+///
+/// The gradient is drawn once and turned as a layer. Animating `AngularGradient(angle:)`
+/// re-shaded the whole conic gradient on the CPU every frame (142 layer redraws in 3 s;
+/// turned, none): 57 % of a core on screen for as long as the beam ran (cpu_resource
+/// report, 2026-10-17). The sweep view exists only while active, so its
+/// `repeatForever` ends with it.
 private struct JcBorderBeam<S: InsettableShape>: ViewModifier {
     let shape: S
     let active: Bool
     var lineWidth: CGFloat = 1.6
     var duration: Double = 2.6
-    @State private var angle: Double = 0
 
     func body(content: Content) -> some View {
         content
             .overlay {
-                shape
-                    .strokeBorder(
-                        AngularGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .clear, location: 0.55),
-                                .init(color: JcTheme.accent.opacity(0.65), location: 0.74),
-                                .init(color: JcTheme.accent, location: 0.85),
-                                .init(color: JcTheme.accentAlt.opacity(0.9), location: 0.93),
-                                .init(color: .clear, location: 1),
-                            ]),
-                            center: .center,
-                            angle: .degrees(angle)
-                        ),
-                        lineWidth: lineWidth
-                    )
-                    .opacity(active ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.25), value: active)
-                    .allowsHitTesting(false)
+                if active {
+                    JcBeamSweep(shape: shape, lineWidth: lineWidth, duration: duration)
+                        .transition(.opacity.animation(.easeInOut(duration: 0.25)))
+                        .allowsHitTesting(false)
+                }
             }
-            .onAppear { if active { spin() } }
-            .onChange(of: active) { _, on in if on { spin() } }
     }
+}
 
-    private func spin() {
-        angle = 0
-        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) { angle = 360 }
+private struct JcBeamSweep<S: InsettableShape>: View {
+    let shape: S
+    let lineWidth: CGFloat
+    let duration: Double
+    @State private var angle: Double = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            // A square that still covers the shape at any turn, so the sweep is the
+            // same as a conic gradient centred on the shape.
+            let side = (geo.size.width * geo.size.width + geo.size.height * geo.size.height).squareRoot()
+            AngularGradient(
+                gradient: Gradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .clear, location: 0.55),
+                    .init(color: JcTheme.accent.opacity(0.65), location: 0.74),
+                    .init(color: JcTheme.accent, location: 0.85),
+                    .init(color: JcTheme.accentAlt.opacity(0.9), location: 0.93),
+                    .init(color: .clear, location: 1),
+                ]),
+                center: .center
+            )
+            .frame(width: side, height: side)
+            .rotationEffect(.degrees(angle))
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
+        }
+        .mask { shape.strokeBorder(lineWidth: lineWidth) }
+        .onAppear {
+            withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) { angle = 360 }
+        }
     }
 }
 
