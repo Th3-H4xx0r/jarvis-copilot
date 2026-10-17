@@ -94,3 +94,14 @@ def test_node_check_passes(name):
         pytest.skip("node is not installed")
     res = subprocess.run([node, "--check", str(ROOT / name)], capture_output=True, text=True, timeout=60)
     assert res.returncode == 0, res.stderr
+
+
+def test_agents_panel_node_tests_pass():
+    """agents_panel.test.js drives agents.js in node: Retry on a failed message
+    while its Mac still sleeps must keep the bubble (nothing was sent)."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    res = subprocess.run([node, "--test", str(ROOT / "agents_panel.test.js")],
+                         capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stdout + res.stderr

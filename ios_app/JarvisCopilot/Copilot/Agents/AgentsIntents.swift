@@ -56,8 +56,22 @@ struct SendAgentInstructionIntent: AppIntent {
         guard let target = overview.sessions.first(where: { $0.state != .idle }) ?? overview.sessions.first else {
             return .result(dialog: "No coding agent is running.")
         }
+        if let refusal = Self.refusal(for: target) {
+            return .result(dialog: IntentDialog(stringLiteral: refusal))
+        }
         let delivery = try await AgentsAPI().send(ckey: AgentsListLayout.ckey(fromKey: target.key), text: text)
         return .result(dialog: IntentDialog(stringLiteral: Self.reply(delivery, to: target)))
+    }
+
+    /// Why Siri won't send it: a session waiting on an approval or a question
+    /// would get the words typed into that menu, and the Return picks "Yes".
+    static func refusal(for target: AgentSessionItem) -> String? {
+        let to = "\(target.agentName) in \(target.project)"
+        switch target.state {
+        case .approval: return "\(to) is waiting on an approval. Answer it in the Agents tab first."
+        case .question: return "\(to) is waiting on your answer. Answer it in the Agents tab first."
+        default: return nil
+        }
     }
 
     /// What Siri says back: where it went, or honestly why it didn't.

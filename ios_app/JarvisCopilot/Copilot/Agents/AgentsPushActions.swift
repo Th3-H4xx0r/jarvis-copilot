@@ -26,9 +26,13 @@ enum AgentsPushActions {
 
     /// Fetch the list and continue every session on its Mac-asleep card on the
     /// server. True when every one moved (or there was nothing left to move).
-    static func continueAllOnServer(api: AgentsAPI) async -> Bool {
+    /// `deviceId` is the Mac the push was about: the card shows whichever Mac
+    /// went most recently, and another Mac's sessions are never moved from
+    /// this push (that's a false, so the app says to open the Agents tab).
+    static func continueAllOnServer(api: AgentsAPI, deviceId: String = "") async -> Bool {
         do {
             guard let card = try await api.list().card, !card.sessions.isEmpty else { return true }
+            if !deviceId.isEmpty && card.deviceId != deviceId { return false }
             let results = try await api.continueSessions(card.sessions.map(\.ckey), to: "server")
             return card.sessions.allSatisfy { results[$0.ckey]?.ok == true }
         } catch {
@@ -40,10 +44,10 @@ enum AgentsPushActions {
     /// The same, holding a background task so iOS doesn't suspend the app
     /// halfway through (the action doesn't bring it to the foreground).
     @MainActor
-    static func continueAllInBackground(api: AgentsAPI = AgentsAPI()) async -> Bool {
+    static func continueAllInBackground(api: AgentsAPI = AgentsAPI(), deviceId: String = "") async -> Bool {
         let task = BackgroundTask.begin("agents.continue-all")
         defer { task.end() }
-        return await continueAllOnServer(api: api)
+        return await continueAllOnServer(api: api, deviceId: deviceId)
     }
 }
 

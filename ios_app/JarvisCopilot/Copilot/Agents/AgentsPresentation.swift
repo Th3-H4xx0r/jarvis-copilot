@@ -232,6 +232,9 @@ struct AgentOutgoing: Identifiable, Equatable {
     /// it was sent — a repeat ("continue") is only delivered once there's one more.
     let baseline: Int
     var phase: Phase
+    /// The server's record of this send (`POST /agents/send`'s `delivery.id`):
+    /// the list push carries its later state — typed, queued, delivered, refused.
+    var deliveryId: String? = nil
 
     init(id: UUID = UUID(), text: String, baseline: Int, phase: Phase = .sending) {
         self.id = id
@@ -255,6 +258,16 @@ struct AgentOutgoing: Identifiable, Equatable {
     var failure: AgentSendFailure? {
         if case .failed(let f) = phase { return f }
         return nil
+    }
+
+    /// The server's later word on this send, from the list push. A send in
+    /// flight (a retry) keeps its spinner; Delivered is never taken back.
+    func following(_ deliveries: [AgentDelivery]) -> AgentOutgoing {
+        guard let deliveryId, !deliveryId.isEmpty, phase != .sending, phase != .delivered,
+              let d = deliveries.first(where: { $0.id == deliveryId }) else { return self }
+        var next = self
+        next.phase = Phase(d)
+        return next
     }
 
     static func count(_ text: String, in prompts: [String]) -> Int {

@@ -199,10 +199,38 @@ enum AgentsListLayout {
         list.needsYou.count + orphans(requests, list: list).count
     }
 
+    // MARK: the open chat
+
+    /// What the open chat refetches on: changes when something new may be in
+    /// the server's transcript copy. Every hook moves `lastEventAt`. A Mac
+    /// session's lines reach the server just after the hook that pushed the
+    /// list (the hook pokes the shipper) and move nothing in the row, so for a
+    /// short while after its own event every push counts — otherwise a turn's
+    /// last answer stays missing until something else happens. A server
+    /// session writes its transcript before its hooks fire.
+    static func transcriptReloadKey(_ c: AgentConv?, listTs: Double) -> String {
+        guard let c else { return "" }
+        let last = c.lastEventAt.timeIntervalSince1970
+        let shipping = c.status == .live && !c.onServer && listTs >= last
+            && listTs - last <= transcriptCatchUp
+        return shipping ? "\(last)|\(listTs)" : "\(last)"
+    }
+
+    /// How long after a Mac session's hook its transcript lines can still be
+    /// on their way to the server (seconds).
+    static let transcriptCatchUp: Double = 15
+
     // MARK: sending
 
     /// Why the message box is replaced, or nil when the session takes messages.
     static func cantSendReason(_ c: AgentConv) -> String? {
+        // A message now would be typed into its approval / question menu, and
+        // the Return picks the highlighted "Yes" — an approval without Face ID.
+        // The card above answers it.
+        if c.waitsOnYou {
+            let question = c.pending.map(\.isQuestion) ?? (c.state == .question)
+            return question ? "Answer the question above first." : "Allow or deny the request above first."
+        }
         guard !c.canSend else { return nil }
         let name = c.ownerName.isEmpty || c.onServer ? "This Mac" : c.ownerName
         switch c.status {

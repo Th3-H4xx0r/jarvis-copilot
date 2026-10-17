@@ -122,14 +122,37 @@ final class AgentsStore {
         if let cards = try? await cards { requests = cards }
     }
 
-    /// One list, from a fetch, a push or a preview.
+    /// One list, from a fetch, a push or a preview. A fetch answered after a
+    /// newer push is older than what's on screen: it's dropped (unless the
+    /// server's clock went back further than any request takes).
     func show(_ next: AgentsList) {
+        if let current = list, next.ts > 0, next.ts < current.ts,
+           current.ts - next.ts < Self.staleListWindow {
+            loaded = true
+            return
+        }
         list = next
         AgentsSpotlight.index(next.all)
         usage = next.usage ?? usage
         codexUsage = next.codexUsage ?? codexUsage
         loadError = nil
         loaded = true
+        followDeliveries(next)
+    }
+
+    /// How much older (server seconds) a list can be and still be a stale
+    /// in-flight answer rather than a server whose clock was reset.
+    static let staleListWindow: Double = 120
+
+    /// Each conversation's recent sends, as the server last recorded them, onto
+    /// this phone's bubbles: a "Sent" the Mac couldn't type turns Failed, a
+    /// queued one Delivered.
+    private func followDeliveries(_ next: AgentsList) {
+        for (ckey, items) in outgoingByKey {
+            guard let deliveries = next.conv(ckey)?.deliveries, !deliveries.isEmpty else { continue }
+            let followed = items.map { $0.following(deliveries) }
+            if followed != items { outgoingByKey[ckey] = followed }
+        }
     }
 
     /// One `agents_list` push.
@@ -326,10 +349,16 @@ final class AgentsStore {
         await deliver(item.id, ckey: ckey)
     }
 
-    /// Sends a failed bubble again, in place.
+    /// Sends a failed bubble again, in place — unless the session waits on an
+    /// approval or a question: typed now, the words land in its menu and the
+    /// Return picks "Yes". The bubble keeps its words and says why.
     func retry(_ id: UUID, ckey: String) async {
         guard let item = outgoing(for: ckey).first(where: { $0.id == id }),
               case .failed = item.phase else { return }
+        if let c = conv(ckey), c.waitsOnYou, let why = AgentsListLayout.cantSendReason(c) {
+            update(id, ckey: ckey) { $0.phase = .failed(.other(why)) }
+            return
+        }
         update(id, ckey: ckey) { $0.phase = .sending }
         await deliver(id, ckey: ckey)
     }
@@ -351,7 +380,10 @@ final class AgentsStore {
         guard let item = outgoing(for: ckey).first(where: { $0.id == id }) else { return }
         do {
             let delivery = try await api.send(ckey: ckey, text: item.text)
-            update(id, ckey: ckey) { $0.phase = AgentOutgoing.Phase(delivery) }
+            update(id, ckey: ckey) {
+                $0.phase = AgentOutgoing.Phase(delivery)
+                $0.deliveryId = delivery.id.isEmpty ? nil : delivery.id
+            }
         } catch {
             update(id, ckey: ckey) { $0.phase = .failed(AgentSendFailure.from(error)) }
         }

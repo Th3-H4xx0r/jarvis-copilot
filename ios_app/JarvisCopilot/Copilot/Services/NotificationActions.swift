@@ -34,6 +34,8 @@ struct NotificationAction: Equatable, Sendable {
     /// The deferred-skill payload written by `notificationActionPayload`, when
     /// this was a "tap to run" banner rather than a permission prompt.
     var deferredPayload: String? = nil
+    /// The Mac a "went to sleep" push is about (`mac_paused`'s `device_id`).
+    var deviceID: String = ""
 
     /// Action identifiers, matching what the server sets on its APNs payload and
     /// what `NotificationCategories` registers.
@@ -75,7 +77,8 @@ struct NotificationAction: Equatable, Sendable {
             agentKey: (envelope["agent_key"] as? String) ?? "",
             kind: (envelope["type"] as? String) ?? (envelope["kind"] as? String) ?? "",
             text: verdict == .reply ? userText : "",
-            deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String)
+            deferredPayload: userInfo[DefaultNotifier.payloadKey] as? String,
+            deviceID: (envelope["device_id"] as? String) ?? "")
     }
 }
 
@@ -172,7 +175,7 @@ final class NotificationActionHandler {
                 router.open(.coding(session: action.sessionID))
             }
         case .continueAll:
-            if !(await AgentsPushActions.continueAllInBackground()) {
+            if !(await AgentsPushActions.continueAllInBackground(deviceId: action.deviceID)) {
                 await postFailure(title: "Couldn't continue on the server",
                                   body: "Open JARVIS to continue your Mac's sessions from the Agents tab.")
             }

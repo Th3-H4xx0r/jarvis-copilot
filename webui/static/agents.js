@@ -66,6 +66,7 @@
     menuOpen: false,
     flash: null,           // {scope: 'list'|'card'|'session', text, tone, until}
     busy: {},
+    moving: new Set(),     // ckeys a Continue is on its way for (one move per session at a time)
     termOpen: false, termCkey: null,
     projSync: {}, projSyncLoading: false,
     devices: null,
@@ -338,6 +339,13 @@
   }
   function cantSendReason(c) {
     if (c.gone) return 'This session isn’t in the list any more.';
+    // A message now would be typed into Claude's approval / question menu, and
+    // the Return would pick its highlighted "Yes". The card answers it.
+    if (c.status === 'live' && waitsOnYou(c)) {
+      const p = livePending(c);
+      return (p ? isQuestionKind(p.kind) : c.state === 'question')
+        ? 'Answer the question above first.' : 'Allow or deny the request above first.';
+    }
     if (c.can_send) return null;
     const name = (!c.owner_name || onServer(c)) ? 'This Mac' : c.owner_name;
     switch (c.status) {
@@ -520,7 +528,7 @@
     const sleep = card.kind !== 'offline';
     const title = sleep ? name + ' went to sleep' : name + ' went offline';
     const rows = sessions.map((s) => {
-      const busy = st.busy['continue:' + s.ckey];
+      const busy = st.moving.has(s.ckey);
       const was = wasLine(s.was);
       const line = s.project ? s.project + ' · ' + was : was.charAt(0).toUpperCase() + was.slice(1);
       return '<div class="agents-sleep-row"><div class="agents-sleep-main">' +
@@ -531,7 +539,7 @@
         (busy ? 'Continuing…' : 'Continue') + '</button></div>';
     }).join('');
     const all = sessions.map((s) => s.ckey);
-    const allBusy = st.busy['continue:' + all.join(',')];
+    const allBusy = all.some((k) => st.moving.has(k));
     const allTitle = sessions.length === 2 ? 'Continue both on server' : 'Continue all on server';
     const allBtn = sessions.length < 2 ? '' :
       '<button type="button" class="agents-pill-btn is-all" data-act="continue" data-to="server" data-scope="card" ' +
@@ -1296,15 +1304,19 @@
   async function doContinue(ckeys, to, opts) {
     const o = opts || {};
     const busyKey = 'continue:' + ckeys.join(',');
-    if (!ckeys.length || st.busy[busyKey]) return;
+    // A session already on its way (a row's Continue during "Continue all")
+    // isn't asked again: two moves at once could start it twice.
+    const keys = ckeys.filter((k) => !st.moving.has(k));
+    if (!keys.length || st.busy[busyKey]) return;
     st.busy[busyKey] = true;
+    keys.forEach((k) => st.moving.add(k));
     renderAll();
     try {
-      const res = await post('/agents/continue', { ckeys, to, confirm_offline: !!o.confirmOffline });
+      const res = await post('/agents/continue', { ckeys: keys, to, confirm_offline: !!o.confirmOffline });
       const results = (res && res.results) || {};
       const confirm = [];
       const errors = [];
-      ckeys.forEach((k) => {
+      keys.forEach((k) => {
         const r = results[k] || {};
         if (r.ok) return;
         if (r.reason === 'confirm_offline' && !o.confirmOffline) confirm.push(k);
@@ -1320,6 +1332,7 @@
       setFlash(o.scope || 'session', errText(e, 'It couldn’t move.'), 'error');
     } finally {
       delete st.busy[busyKey];
+      keys.forEach((k) => st.moving.delete(k));
       renderAll();
       refreshSoon();
     }
@@ -1742,7 +1755,13 @@
       case 'retry-send': {
         const list = st.outgoing[st.selected] || [];
         const o = list.find((x) => String(x.id) === t.dataset.oid);
-        if (o) { st.outgoing[st.selected] = list.filter((x) => x !== o); send(o.text); }
+        if (!o) break;
+        // Nothing goes while it can't take a message: keep the bubble (and its
+        // words) and say why, rather than dropping it unsent.
+        const why = c ? cantSendReason(c) : 'This session isn’t in the list any more.';
+        if (why) { setFlash('session', why, 'error'); updateSession(); break; }
+        st.outgoing[st.selected] = list.filter((x) => x !== o);
+        send(o.text);
         break;
       }
       case 'drop-send':

@@ -138,7 +138,7 @@ struct AgentSessionScreen: View {
             }
         }
         .task { await reload() }
-        .onChange(of: conv?.lastEventAt) { _, _ in
+        .onChange(of: AgentsListLayout.transcriptReloadKey(conv, listTs: store.list?.ts ?? 0)) { _, _ in
             Task { await reload() }
         }
         .onChange(of: prompts) { _, now in store.reconcileOutgoing(ckey: ckey, prompts: now) }

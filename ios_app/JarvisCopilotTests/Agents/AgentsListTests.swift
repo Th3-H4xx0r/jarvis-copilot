@@ -284,6 +284,164 @@ final class AgentsListTests: XCTestCase {
         XCTAssertEqual(router.selectedTab, .agents)
     }
 
+    // MARK: sweep regressions
+
+    /// A list fixture with one change: `mutate` edits the decoded JSON.
+    private static func fixture(_ mutate: (inout [String: Any]) -> Void) -> [String: Any] {
+        var json = fixtureJSON()
+        mutate(&json)
+        return json
+    }
+
+    /// `s-spec` (server, live) carrying the given recent deliveries, at `ts`.
+    private static func withDeliveries(_ deliveries: [[String: Any]], ts: Double = 1781000800) -> [String: Any] {
+        fixture { json in
+            var projects = json["projects"] as! [[String: Any]]
+            var sessions = projects[0]["sessions"] as! [[String: Any]]
+            sessions[0]["deliveries"] = deliveries
+            projects[0]["sessions"] = sessions
+            json["projects"] = projects
+            json["ts"] = ts
+        }
+    }
+
+    /// The Mac answers later (`agent_delivery`): typed, queued, or it couldn't.
+    /// The bubble must follow the server's record, not keep saying "Sent".
+    func testAPushedDeliveryStateReachesTheBubble() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/send", json: ["delivery": ["id": "d1", "state": "sent"]])
+        transport.route("/api/coding/permission/pending", json: ["pending": [] as [Any]])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        store.apply(Self.fixtureJSON())
+        await store.send("run the tests", to: "claude|s-spec", prompts: [])
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase, .sent)
+
+        store.apply(Self.withDeliveries([["id": "d1", "state": "failed",
+                                           "reason": "Jarvis can't type into this session's terminal."]]))
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase,
+                       .failed(.other("Jarvis can't type into this session's terminal.")))
+        XCTAssertEqual(store.list?.conv("claude|s-spec")?.deliveries.first?.id, "d1")
+    }
+
+    func testAQueuedMessageTurnsDeliveredFromThePush() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/send", json: ["delivery": ["id": "d2", "state": "queued"]])
+        transport.route("/api/coding/permission/pending", json: ["pending": [] as [Any]])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        store.apply(Self.fixtureJSON())
+        await store.send("then commit", to: "claude|s-spec", prompts: [])
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase, .queued)
+        // Another message's record doesn't touch this one.
+        store.apply(Self.withDeliveries([["id": "other", "state": "failed", "reason": "x"]]))
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase, .queued)
+        store.apply(Self.withDeliveries([["id": "d2", "state": "delivered"]], ts: 1781000900))
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase, .delivered)
+    }
+
+    /// A list fetched before a push but answered after it is older: it must
+    /// not put the list back the way it was.
+    func testAnOlderListDoesNotReplaceANewerPush() {
+        let store = AgentsStore(api: AgentsAPI(api: JarvisAPI.mocked().0), topics: BridgeTopics())
+        store.apply(Self.fixture { $0["ts"] = 1781000800.0; $0["card"] = NSNull() })
+        XCTAssertNil(store.card)
+        store.show(AgentsList(json: Self.fixtureJSON()))          // ts 1781000700, still has the card
+        XCTAssertNil(store.card, "a stale fetch brought the Mac-asleep card back")
+        store.show(AgentsList(json: Self.fixture { $0["ts"] = 1781000900.0 }))
+        XCTAssertNotNil(store.card, "a newer list still lands")
+        // A server whose clock went back a long way isn't ignored for ever.
+        store.show(AgentsList(json: Self.fixture { $0["ts"] = 1780000000.0; $0["card"] = NSNull() }))
+        XCTAssertNil(store.card)
+    }
+
+    /// The Mac's transcript copy arrives just after the hook that pushed the
+    /// list, and moves nothing in the row. The open chat must still refetch on
+    /// the push right after its own event, or the final answer never shows.
+    func testTheChatRefetchesWhenTheMacsTranscriptCatchesUp() throws {
+        let mac = try XCTUnwrap(list.conv("claude|s-car"))         // asleep: nothing will arrive
+        let base = AgentsListLayout.transcriptReloadKey(mac, listTs: 1781000001)
+        XCTAssertEqual(base, AgentsListLayout.transcriptReloadKey(mac, listTs: 1781000005))
+
+        let live = AgentConv(json: [
+            "ckey": "claude|s-mac", "agent": "claude", "session_id": "s-mac", "owner": "mac-1",
+            "owner_name": "MacBook", "status": "live", "state": "idle", "last_event_at": 1781000000.0])
+        let atHook = AgentsListLayout.transcriptReloadKey(live, listTs: 1781000000)
+        let chunk = AgentsListLayout.transcriptReloadKey(live, listTs: 1781000000.4)
+        XCTAssertNotEqual(atHook, chunk, "the chunk's push must reload the chat")
+        // Long after its last event, other sessions' pushes don't refetch it.
+        XCTAssertEqual(AgentsListLayout.transcriptReloadKey(live, listTs: 1781000100),
+                       AgentsListLayout.transcriptReloadKey(live, listTs: 1781000200))
+        // A server session writes its transcript before its hooks fire.
+        let server = try XCTUnwrap(list.conv("claude|s-spec"))
+        let t = server.lastEventAt.timeIntervalSince1970
+        XCTAssertEqual(AgentsListLayout.transcriptReloadKey(server, listTs: t),
+                       AgentsListLayout.transcriptReloadKey(server, listTs: t + 1))
+    }
+
+    /// "Continue all" on one Mac's sleep push must never move another Mac's
+    /// sessions (the card shows whichever Mac went most recently).
+    func testContinueAllFromThePushOnlyMovesThatMacsSessions() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/list", json: Self.fixtureJSON())
+        transport.route("/api/coding/agents/continue", json: ["results": [
+            "claude|s-car": ["ok": true], "claude|s-router": ["ok": true]]])
+        let other = await AgentsPushActions.continueAllOnServer(api: AgentsAPI(api: client), deviceId: "mac-2")
+        XCTAssertFalse(other)
+        XCTAssertFalse(transport.requests.contains { $0.url?.path.hasSuffix("/agents/continue") == true })
+        let same = await AgentsPushActions.continueAllOnServer(api: AgentsAPI(api: client), deviceId: "mac-1")
+        XCTAssertTrue(same)
+        let info: [AnyHashable: Any] = ["jarviscopilot": ["kind": "mac_paused", "device_id": "mac-1"]]
+        XCTAssertEqual(NotificationAction.decode(actionIdentifier: "CONTINUE_ALL", userInfo: info).deviceID, "mac-1")
+    }
+
+    /// A message to a session that waits on an approval or a question is typed
+    /// into its menu, and the Return picks the highlighted "Yes" — approving
+    /// without Face ID. The box gives way to the card until it's answered.
+    func testASessionWaitingOnYouTakesNoMessageUntilAnswered() throws {
+        let approval = try XCTUnwrap(list.conv("claude|s-push"))        // can_send true, state approval
+        XCTAssertTrue(approval.canSend)
+        XCTAssertEqual(AgentsListLayout.cantSendReason(approval), "Allow or deny the request above first.")
+        let question = try XCTUnwrap(list.conv("claude|s-old"))
+        XCTAssertEqual(AgentsListLayout.cantSendReason(question), "Answer the question above first.")
+        // Siri's "tell my coding agent…" picks the session that needs you: it
+        // must not type into that menu either.
+        let waiting = AgentSessionItem(json: ["key": "mac-1|claude|s1", "agent": "claude", "project": "app",
+                                              "state": "approval"])
+        XCTAssertEqual(SendAgentInstructionIntent.refusal(for: waiting),
+                       "Claude Code in app is waiting on an approval. Answer it in the Agents tab first.")
+        let working = AgentSessionItem(json: ["key": "mac-1|claude|s1", "agent": "claude", "project": "app",
+                                              "state": "working"])
+        XCTAssertNil(SendAgentInstructionIntent.refusal(for: working))
+    }
+
+    /// Retry on a failed bubble bypasses the hidden message box: while the
+    /// session waits on you it must not send either.
+    func testRetryDoesNotTypeIntoAWaitingSession() async {
+        let (client, transport) = JarvisAPI.mocked()
+        transport.route("/api/coding/agents/send", json: ["delivery": ["id": "d1", "state": "failed",
+                                                                       "reason": "owner_offline"]])
+        transport.route("/api/coding/permission/pending", json: ["pending": [] as [Any]])
+        let store = AgentsStore(api: AgentsAPI(api: client), topics: BridgeTopics())
+        store.apply(Self.fixtureJSON())
+        await store.send("stop that", to: "claude|s-spec", prompts: [])
+        let item = try? XCTUnwrap(store.outgoing(for: "claude|s-spec").first)
+        XCTAssertEqual(item?.phase, .failed(.macOffline))
+        // Now it waits on an approval.
+        store.apply(Self.fixture { json in
+            var projects = json["projects"] as! [[String: Any]]
+            var sessions = projects[0]["sessions"] as! [[String: Any]]
+            sessions[0]["state"] = "approval"
+            projects[0]["sessions"] = sessions
+            json["projects"] = projects
+            json["ts"] = 1781000800.0
+        })
+        let sends = transport.requests.filter { $0.url?.path.hasSuffix("/agents/send") == true }.count
+        await store.retry(item!.id, ckey: "claude|s-spec")
+        XCTAssertEqual(transport.requests.filter { $0.url?.path.hasSuffix("/agents/send") == true }.count, sends)
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.phase,
+                       .failed(.other("Allow or deny the request above first.")))
+        XCTAssertEqual(store.outgoing(for: "claude|s-spec").first?.text, "stop that", "the words stay")
+    }
+
     func testContinueAllFromThePushMovesTheCardsSessions() async {
         let (client, transport) = JarvisAPI.mocked()
         transport.route("/api/coding/agents/list", json: Self.fixtureJSON())

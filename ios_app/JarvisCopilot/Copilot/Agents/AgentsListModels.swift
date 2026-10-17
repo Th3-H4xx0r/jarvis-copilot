@@ -76,6 +76,9 @@ struct AgentConv: Identifiable, Equatable {
     let canTerminal: Bool
     let movedFrom: String?
     let movedFromName: String
+    /// The last few messages sent to it (past hour) and what became of each —
+    /// how a "Sent" bubble learns it was typed, queued, delivered or refused.
+    let deliveries: [AgentDelivery]
 
     var id: String { ckey }
     var agentName: String { AgentNames.display(agent) }
@@ -112,6 +115,7 @@ struct AgentConv: Identifiable, Equatable {
         canTerminal = CodingJSON.bool(json["can_terminal"])
         movedFrom = CodingJSON.str(json["moved_from"])
         movedFromName = CodingJSON.text(json["moved_from_name"])
+        deliveries = CodingJSON.maps(json["deliveries"]).map(AgentDelivery.init(json:)).filter { !$0.id.isEmpty }
     }
 }
 
