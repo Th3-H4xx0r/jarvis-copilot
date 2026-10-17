@@ -23,4 +23,14 @@ final class AgentsOnServerTests: XCTestCase {
         model.bringBack("claude|s1", link: nil)
         XCTAssertEqual(model.onServer.map(\.ckey), ["codex|c1"])
     }
+
+    func testWillSleepWaitsForTheReplyButNeverHangs() {
+        // The link is down here, so the reply is an immediate failure: the
+        // will-sleep handler must come back at once instead of waiting it out.
+        let link = JcLink()
+        let started = Date()
+        let answer = link.requestAndWait(PowerRelay.message("will_sleep"), timeout: 3)
+        XCTAssertEqual(answer?["ok"] as? Bool, false)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
 }

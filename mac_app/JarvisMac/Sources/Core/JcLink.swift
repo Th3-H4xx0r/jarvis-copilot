@@ -35,13 +35,32 @@ final class JcLink: @unchecked Sendable {
     /// Send a request; `reply` runs on the main actor with the answer (or
     /// `["ok": false]` when the link is down).
     func request(_ body: [String: Any], reply: (@MainActor ([String: Any]) -> Void)? = nil) {
+        send(body, onReply: reply.map { reply in
+            { answer in DispatchQueue.main.async { MainActor.assumeIsolated { reply(answer) } } }
+        })
+    }
+
+    /// Send a request and wait on this thread for its reply, at most `timeout`
+    /// (nil when it times out). For the will-sleep notification: the Mac must
+    /// not sleep before jc-client has flushed its transcripts and said so.
+    func requestAndWait(_ body: [String: Any], timeout: TimeInterval) -> [String: Any]? {
+        let done = DispatchSemaphore(value: 0)
+        let box = ReplyBox()
+        send(body) { answer in
+            box.set(answer)
+            done.signal()
+        }
+        return done.wait(timeout: .now() + timeout) == .success ? box.get() : nil
+    }
+
+    private func send(_ body: [String: Any], onReply: (([String: Any]) -> Void)?) {
         var msg = body
         lock.lock()
         let id = nextId
         nextId += 1
         msg["id"] = id
-        if let reply {
-            replies[id] = { answer in DispatchQueue.main.async { MainActor.assumeIsolated { reply(answer) } } }
+        if let onReply {
+            replies[id] = onReply
         }
         lock.unlock()
         guard let data = try? JSONSerialization.data(withJSONObject: msg) else {
@@ -164,4 +183,12 @@ final class JcLink: @unchecked Sendable {
             MainActor.assumeIsolated { self?.onConnection?(up) }
         }
     }
+}
+
+/// One reply handed from the read thread to a waiting caller.
+private final class ReplyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: [String: Any]?
+    func set(_ v: [String: Any]) { lock.lock(); value = v; lock.unlock() }
+    func get() -> [String: Any]? { lock.lock(); defer { lock.unlock() }; return value }
 }

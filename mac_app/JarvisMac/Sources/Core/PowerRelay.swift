@@ -18,7 +18,9 @@ final class PowerRelay {
         let center = NSWorkspace.shared.notificationCenter
         tokens.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil,
                                          queue: .main) { _ in
-            link.request(PowerRelay.message("will_sleep"))
+            // Wait (briefly) for jc-client to flush and tell the server before
+            // the Mac actually sleeps; never longer than a few seconds.
+            _ = link.requestAndWait(PowerRelay.message("will_sleep"), timeout: 4)
         })
         tokens.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil,
                                          queue: .main) { _ in
