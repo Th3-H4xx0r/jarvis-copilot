@@ -69,6 +69,7 @@ class AgentTracker:
                  live_push: Optional[Callable[[], None]] = None,
                  is_dismissed: Optional[Callable[[str, str], bool]] = None,
                  phone_approvals: Optional[Callable[[], bool]] = None,
+                 observer: Optional[Callable[[Optional[str], str, dict, Optional[dict]], None]] = None,
                  clock=time.time) -> None:
         self.store = store
         self._publish_cb = publish
@@ -78,6 +79,9 @@ class AgentTracker:
         # While on, a relayed request reaches the phone as its own actionable
         # push, so the matrix "needs you" banner would be a second buzz.
         self._phone_approvals = phone_approvals or (lambda: False)
+        # The Agents conversation layer (webui/api/agents_core.py): told about every
+        # hook with the session as it stands after it (None once it ended).
+        self._observer = observer
         self._clock = clock
         self._lock = threading.RLock()
         self.engine = engine_mod.Engine(clock=clock)
@@ -145,6 +149,12 @@ class AgentTracker:
             changed = self._apply(effects, device_id)
             if session is not None:
                 self._persist(key, force=bool(effects))
+            snapshot = dict(session) if session is not None else None
+        if self._observer is not None:
+            try:
+                self._observer(device_id, agent, payload, snapshot)
+            except Exception:  # noqa: BLE001
+                log.warning("agent conversation observer failed", exc_info=True)
         if changed:
             self._live_push()
         self._publish()

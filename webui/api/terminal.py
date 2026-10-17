@@ -311,6 +311,40 @@ def start_attach_terminal(session_id: str, tmux_name: str,
         return term
 
 
+def start_argv_terminal(session_id: str, argv: list, *, cwd: str | None = None,
+                        rows: int = 24, cols: int = 80) -> TerminalSession:
+    """Start a live terminal running ``argv`` in a PTY (e.g. ``claude attach
+    <id>`` for an agent's background session), registered under
+    ``session_id`` so /api/terminal/{output,input,resize,close} drive it.
+    One viewer at a time: a new start takes over. Closing it ends only the
+    viewer process (a background session keeps running)."""
+    sid = str(session_id or "").strip()
+    if not sid or not argv:
+        raise ValueError("session_id and argv are required")
+    with _LOCK:
+        if _TERMINALS.get(sid):
+            close_terminal(sid)
+        master_fd, slave_fd = os.openpty()
+        safe = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+                "TZ", "TMPDIR", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+                "CLAUDE_CONFIG_DIR"}
+        env = {k: v for k, v in os.environ.items() if k in safe}
+        env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor",
+                    "COLUMNS": str(cols), "LINES": str(rows)})
+        home = cwd if cwd and os.path.isdir(cwd) else (env.get("HOME") or "/")
+        proc = subprocess.Popen(list(argv), cwd=home, env=env, stdin=slave_fd, stdout=slave_fd,
+                                stderr=slave_fd, close_fds=True, start_new_session=True)
+        os.close(slave_fd)
+        _set_nonblocking(master_fd)
+        term = TerminalSession(session_id=sid, workspace=home, proc=proc, master_fd=master_fd,
+                               rows=rows, cols=cols)
+        _set_size(term, rows, cols)
+        term.reader = threading.Thread(target=_reader_loop, args=(term,), daemon=True)
+        term.reader.start()
+        _TERMINALS[sid] = term
+        return term
+
+
 def get_terminal(session_id: str) -> TerminalSession | None:
     with _LOCK:
         term = _TERMINALS.get(str(session_id or ""))

@@ -18,7 +18,10 @@ def _run(entry: dict) -> dict:
     return {k: entry[k] for k in _RUN_KEYS if entry.get(k) not in (None, "")}
 
 
-def apply_roster(conv: Conversations, owner: str, entries: list, now: float) -> list:
+def apply_roster(conv: Conversations, owner: str, entries: list, now: float,
+                 agents=None, keep_kinds=()) -> list:
+    """``agents``: the agents this roster reports (others it can't see are left
+    alone); ``keep_kinds``: run kinds a roster can't list (headless Codex threads)."""
     changed: list = []
     seen: set = set()
     for e in entries or []:
@@ -44,7 +47,12 @@ def apply_roster(conv: Conversations, owner: str, entries: list, now: float) -> 
         if before != ("live", owner, fields["run"]):
             changed.append(ckey)
     for row in conv.by_owner(owner):
-        if row.get("status") == "live" and row["ckey"] not in seen:
-            conv.mark(row["ckey"], "ended", ended_at=now)
-            changed.append(row["ckey"])
+        if row.get("status") != "live" or row["ckey"] in seen:
+            continue
+        if agents is not None and row.get("agent") not in agents:
+            continue
+        if (row.get("run") or {}).get("kind") in keep_kinds:
+            continue
+        conv.mark(row["ckey"], "ended", ended_at=now)
+        changed.append(row["ckey"])
     return changed

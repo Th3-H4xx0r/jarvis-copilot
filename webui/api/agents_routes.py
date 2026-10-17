@@ -78,11 +78,98 @@ def handle_agents_request(method, p, query, body, *, manager, manager_for_host=N
         return _ok({"ok": True, "only_waiting": only})
     if p == "/agents/recap" and method == "GET":
         return _recap(manager.store, query)
+    if p in _V2_ROUTES:
+        return _v2(method, p, query, body or {})
     if p == "/agents/history" and method == "GET":
         import time as _time
         turns = manager.store.list_agent_turns(since=_time.time() - 7 * 86400)
         turns.sort(key=lambda t: t.get("ended_at") or 0, reverse=True)
         return _ok({"turns": turns[:200]})
+    return _err(404, "not found")
+
+
+# ── the merged Agents tab (webui/api/agents_core.py) ─────────────────────────
+_V2_ROUTES = frozenset({"/agents/list", "/agents/messages", "/agents/send", "/agents/continue",
+                        "/agents/stop", "/agents/resume", "/agents/launch",
+                        "/agents/card/dismiss", "/agents/terminal/start"})
+_MAX_CONTINUE = 20
+
+
+def _core():
+    try:
+        from api.agents_core import core
+        return core()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _int(v):
+    try:
+        return int(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _result(out: dict):
+    return (200, out) if out.get("ok") else (409, out)
+
+
+def _v2(method, p, query, body):
+    c = _core()
+    if c is None:
+        return _err(503, "the Agents service isn't ready yet")
+    ckey = str((query or {}).get("ckey") or body.get("ckey") or "").strip()
+    if p == "/agents/list" and method == "GET":
+        return _ok(c.list_payload())
+    if p == "/agents/messages" and method == "GET":
+        page = c.messages(ckey, after=_int(query.get("after")) or 0,
+                          before=_int(query.get("before")), limit=_int(query.get("limit")))
+        return _ok(page) if page is not None else _err(404, "no such session")
+    if method != "POST":
+        return _err(405, "method not allowed")
+    if p == "/agents/send":
+        text = str(body.get("text") or "").strip()
+        if not ckey or not text:
+            return _err(400, "ckey and text are required")
+        if len(text) > _MAX_INSTRUCTION:
+            return _err(400, "message too long")
+        delivery = c.handoff.send(ckey, text)
+        c._changed()
+        return (409 if delivery["state"] == "failed" else 200), {"delivery": delivery}
+    if p == "/agents/continue":
+        ckeys = [str(k) for k in (body.get("ckeys") or ([ckey] if ckey else []))][:_MAX_CONTINUE]
+        to = str(body.get("to") or "server")
+        if not ckeys or to not in ("server", "mac"):
+            return _err(400, "ckeys and to=server|mac are required")
+        results = {}
+        for k in ckeys:
+            results[k] = (c.handoff.continue_on_server(k, confirm_offline=bool(body.get("confirm_offline")))
+                          if to == "server" else c.handoff.continue_on_mac(k))
+        c._changed()
+        return _ok({"results": results})
+    if p == "/agents/stop":
+        return _result(c.stop(ckey))
+    if p == "/agents/resume":
+        return _result(c.resume(ckey, str(body.get("where") or "server")))
+    if p == "/agents/launch":
+        return _result(c.launch(body))
+    if p == "/agents/card/dismiss":
+        device_id = str(body.get("device_id") or "").strip()
+        if not device_id:
+            return _err(400, "device_id is required")
+        c.dismiss(device_id, body.get("ckeys"))
+        return _ok({"ok": True})
+    if p == "/agents/terminal/start":
+        target = c.terminal_argv(ckey)
+        if target is None:
+            return _err(409, "this session has no terminal to open")
+        import hashlib
+        from api.terminal import start_argv_terminal
+        argv, cwd = target
+        tid = "agent-" + hashlib.sha1(ckey.encode()).hexdigest()[:12]
+        start_argv_terminal(tid, argv, cwd=cwd, rows=_int(body.get("rows")) or 24,
+                            cols=_int(body.get("cols")) or 80)
+        return _ok({"terminal_id": tid})
     return _err(404, "not found")
 
 

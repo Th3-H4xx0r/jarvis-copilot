@@ -143,9 +143,15 @@ def build_tracker(store) -> AgentTracker:
         except Exception:  # noqa: BLE001
             return False
 
+    def observe(device_id, agent, payload, session):
+        from api.agents_core import core
+        c = core()
+        if c is not None:
+            c.on_hook(device_id, agent, payload, session)
+
     return AgentTracker(store, publish=publish, notify=notify,
                         live_push=lambda: _live_push(store), is_dismissed=dismissed,
-                        phone_approvals=lambda: _remote_approvals())
+                        phone_approvals=lambda: _remote_approvals(), observer=observe)
 
 
 def _mark_transcript(payload) -> None:
@@ -378,6 +384,10 @@ def maybe_send_recap(store, now: float, push=None) -> bool:
 def on_agent_hello(device_id, _data=None) -> None:
     from api import device_bridge
     device_bridge.send_frame(device_id, _config_frame(_settings()))
+    from api.agents_core import core
+    c = core()
+    if c is not None:
+        c.on_hello(device_id, _data)
 
 
 def broadcast_config(settings: dict) -> None:
@@ -447,6 +457,11 @@ def start(store) -> None:
     tr = build_tracker(store)
     set_tracker(tr)
     try:
+        from api import agents_core
+        agents_core.start(store)
+    except Exception as exc:  # noqa: BLE001 — the tracker keeps working without it
+        print(f"[!!] WARNING: Agents conversation layer unavailable: {exc}", flush=True)
+    try:
         from agent import agent_la_push
         agent_la_push.set_pusher(build_la_pusher(store))
     except Exception as exc:  # noqa: BLE001 — the rest of tracking works without it
@@ -470,6 +485,13 @@ def start(store) -> None:
                 tr.sweep()
             except Exception:  # noqa: BLE001
                 log.debug("agent tracker sweep failed", exc_info=True)
+            try:
+                from api.agents_core import core
+                c = core()
+                if c is not None:
+                    c.tick()
+            except Exception:  # noqa: BLE001
+                log.debug("agents core tick failed", exc_info=True)
             if time.monotonic() - last_la >= _AGENT_LA_EVERY:
                 last_la = time.monotonic()
                 _agent_la_tick()

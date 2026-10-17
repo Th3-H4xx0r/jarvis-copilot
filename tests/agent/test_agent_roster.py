@@ -48,3 +48,20 @@ def test_roster_leaves_moving_alone(tmp_path):
 def test_roster_skips_entries_without_session_id(tmp_path):
     conv = _conv(tmp_path)
     assert apply_roster(conv, "dev1", [E("")], now=1.0) == []
+
+
+def test_roster_only_ends_agents_it_reports(tmp_path):
+    conv = _conv(tmp_path)
+    apply_roster(conv, "server", [E("a"), E("x", agent="codex")], now=1.0)
+    conv.upsert("codex|x", run={"kind": "headless", "handle": "h"})
+    apply_roster(conv, "server", [], now=2.0, agents=("claude",))
+    assert conv.get("claude|a")["status"] == "ended"
+    assert conv.get("codex|x")["status"] == "live"
+
+
+def test_roster_keep_kinds(tmp_path):
+    conv = _conv(tmp_path)
+    apply_roster(conv, "server", [E("a")], now=1.0)
+    conv.upsert("claude|a", run={"kind": "headless"})
+    apply_roster(conv, "server", [], now=2.0, keep_kinds=("headless",))
+    assert conv.get("claude|a")["status"] == "live"

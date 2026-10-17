@@ -242,6 +242,13 @@ def _safe_close(conn: _DeviceConn) -> None:
         get_desktop_bridge().on_device_disconnect(conn.device_id)
     except Exception:
         pass
+    with _REGISTRY_CHANGE_LOCK:
+        callbacks = list(_DISCONNECT_CALLBACKS)
+    for cb in callbacks:
+        try:
+            cb(conn.device_id)
+        except Exception:
+            logger.debug("device-bridge disconnect callback raised", exc_info=True)
 
 
 # ── Topics ──────────────────────────────────────────────────────────────────
@@ -404,6 +411,25 @@ def wearables_for(device_id: str) -> Optional[tuple[list, float]]:
 
 
 # ── Public API used by routes ───────────────────────────────────────────────
+
+_DISCONNECT_CALLBACKS: list = []
+
+
+def on_device_disconnect(callback) -> None:
+    """Register ``callback(device_id)``, fired whenever a device's connection
+    closes (also when a reconnect replaces it). Best-effort."""
+    with _REGISTRY_CHANGE_LOCK:
+        if callback not in _DISCONNECT_CALLBACKS:
+            _DISCONNECT_CALLBACKS.append(callback)
+
+
+def device_name(device_id: str) -> str:
+    """The paired name of a connected device ("" when it isn't connected)."""
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+    name = (c.name if c else "") or ""
+    return "" if name == "device" else name
+
 
 def connected_device_ids() -> list[str]:
     with _REG_LOCK:
