@@ -227,6 +227,10 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Built (51d4a549a0, server deployed 16:11:56 UTC): a taken play gets 3 checks to load before it's sent again
     (each play restarts the song), a song the phone holds paused is resumed, a relinked track counts, and every
     check logs "Spotify reports for the play on …". Next try's log says which of the three it is.
+  - His 16:56 + 17:03 tries: "nothing playing anywhere" at every check after 3 taken plays — the play never
+    reaches the phone's player. 50900a7904 (deployed 17:11:19 UTC): a resend first transfers playback to the
+    phone (play=true), and every command logs Spotify's HTTP status. If it's still silent, the next lever is
+    Spotify's iOS SDK (App Remote) on the phone.
 - [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
   surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
   message, Send/Call + ✕; Jarvis says it and the mic stays open for yes / no / a correction.
@@ -250,6 +254,9 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
     Review fixes: "Don't send it" echoing a question's "don't" never counts as yes; a re-drafted text replaces the
     old one; a session id change mid-turn keeps the ask; phone_control texts gated; a Send tapped while Jarvis is
     still thinking waits for the question; a held answer dies with its session; refused taps re-enable buttons.
+  - Confirmed live 16:56–17:03 UTC: yes → texted Shabd ("sent"); "No." → cancelled (text and a call).
+  - 12:03: Stop dead on a rebuilt voice card (its buttons had been replaced while on screen). 0d79e39c5c: every
+    card's buttons are set before it shows and never replaced; Mute builds a new card.
 
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
