@@ -218,6 +218,19 @@ this change doesn't touch (Inmo keychain -34018, CarModelRender, CodeMasterSetti
   - Texts found: "Messages got an error: Can't get handle." — the script's variable `handle` is a Messages term.
     Built: targetHandle / messageText; read-only probe as the client resolves the number via the variable.
 
+## Round 6 (2026-10-18 16:00 UTC)
+
+- [ ] **31. "Spotify still doesn't play — it opens Spotify and nothing"** (16:02, 16:06 UTC)
+  - Found: Spotify took the play on the iPhone 15 times (16:02) and 4 times (16:06) and never reported it
+    playing; the Jarvis card closed the moment Spotify opened (11:02:48 local), so Jarvis's audio wasn't in the way
+    (every Jarvis audio plan mixes with others). No record of what Spotify reported each check.
+  - Built (51d4a549a0, server deployed 16:11:56 UTC): a taken play gets 3 checks to load before it's sent again
+    (each play restarts the song), a song the phone holds paused is resumed, a relinked track counts, and every
+    check logs "Spotify reports for the play on …". Next try's log says which of the three it is.
+- [ ] **32. Calls, texts, emails and other-app messages ask first, with a card** — his picks: every voice
+  surface (typed chat unchanged); calls + texts + emails + other-app messages. Card: contact photo, full name,
+  message, Send/Call + ✕; Jarvis says it and the mic stays open for yes / no / a correction.
+
 ## For you
 - Add the button: iPhone Settings → General → CarPlay → your car → Customize → add **Talk to Jarvis (car)** on
   CarPlay's Widgets page (one swipe from the home screen).
