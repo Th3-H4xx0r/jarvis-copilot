@@ -31,7 +31,7 @@ _PENDING_PLAY_POLL_INTERVAL_S = 1.5
 # A phone turn opens the song's own spotify: link on the phone instead (iPhone
 # Spotify opened on CarPlay and idle never shows up as a Connect device, so
 # waiting for one can't work); this long to see the phone play it.
-_OPENED_PLAY_WINDOW_S = 20.0
+_OPENED_PLAY_WINDOW_S = 30.0
 
 
 def _check_spotify_available() -> bool:
@@ -113,6 +113,12 @@ class _PendingPlay:
         self.play_kwargs = play_kwargs
         self.phones_only = phones_only  # a phone turn: never the MacBook at home
         self.cancelled = threading.Event()
+        self.sent = 0  # plays sent that Spotify took but the device hasn't started yet
+
+
+class _NotPlayingYet(Exception):
+    """Spotify took the play but the device isn't playing it yet: look again — and
+    send it again — on the follow-up's next tick."""
 
 
 # Held while a pending play starts playback, and by every new play request
@@ -216,15 +222,23 @@ def _start_pending_play(pending: _PendingPlay, client: Any, device: Dict[str, An
     with _pending_lock:
         if pending.cancelled.is_set():
             raise car_app_followup.Cancelled("superseded by a newer request")
-        started = not _already_playing(client, device, pending.play_kwargs)
+        playing = _already_playing(client, device, pending.play_kwargs)
+        started = not playing
         if started:
             client.start_playback(device_id=device["id"], **pending.play_kwargs)  # raises → next tick
+            # Spotify takes a play for a phone that only just came up and then
+            # never starts it (2026-10-18 06:49: "started", and silence). Done is
+            # when Spotify says the phone plays the song — a resume has nothing to
+            # check, so for that the take is enough.
+            if _play_uri(pending.play_kwargs):
+                pending.sent += 1
+                raise _NotPlayingYet(f"{_device_label(device)} took play #{pending.sent}; not playing yet")
         pending.cancelled.set()
         if _pending_play is pending:
             _pending_play = None
     logger.info(
         "Spotify pending play %s on %s (%s)",
-        "started" if started else "was already playing",
+        f"playing after {pending.sent} play(s)" if pending.sent else ("started" if started else "was already playing"),
         _device_label(device),
         device.get("type") or "unknown type",
     )

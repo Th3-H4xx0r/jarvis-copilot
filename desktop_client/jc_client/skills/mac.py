@@ -81,27 +81,30 @@ def quit_app(name: str) -> dict:
 # ── Messages ───────────────────────────────────────────────────────────────
 
 # The handle and the text arrive as `argv`, never pasted into the script: a
-# message can say anything. iMessage first — to the person, then to their chat by
-# id (newer macOS sends there when the person form fails) — and an SMS account
+# message can say anything. No variable is named like a Messages term: inside
+# `tell application "Messages"`, `handle` is the app's own property ("Can't get
+# handle", 2026-10-18), so they're targetHandle / messageText. iMessage first —
+# to the person, then to their chat by id (newer macOS sends there when the
+# person form fails) — and an SMS account
 # (text forwarding from his iPhone) last. When nothing sends, every attempt's
 # error comes back, so a failure says why (it used to be just "exit status 1").
 _SEND_MESSAGE_SCRIPT = """
 on run argv
-    set handle to item 1 of argv
-    set body to item 2 of argv
+    set targetHandle to item 1 of argv
+    set messageText to item 2 of argv
     set problems to ""
     tell application "Messages"
         try
             set svc to 1st account whose service type = iMessage
             try
-                send body to participant handle of svc
+                send messageText to participant targetHandle of svc
                 return "iMessage"
             on error e number n
                 set problems to problems & "participant " & n & " " & e & "; "
             end try
             repeat with prefix in {"iMessage;-;", "any;-;"}
                 try
-                    send body to chat id ((prefix as text) & handle)
+                    send messageText to chat id ((prefix as text) & targetHandle)
                     return "iMessage"
                 on error e number n
                     set problems to problems & "chat " & n & " " & e & "; "
@@ -112,7 +115,7 @@ on run argv
         end try
         try
             set textAccount to 1st account whose service type = SMS
-            send body to participant handle of textAccount
+            send messageText to participant targetHandle of textAccount
             return "SMS"
         on error e number n
             set problems to problems & "sms " & n & " " & e

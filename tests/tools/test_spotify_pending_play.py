@@ -57,6 +57,7 @@ class _PlayerStub:
         self.play_calls: list[dict] = []
         self.device_calls = 0
         self.pause_calls = 0
+        self.started: dict | None = None  # what a taken play left playing, like Spotify
 
     def start_playback(self, **kw):
         self.play_calls.append(kw)
@@ -64,6 +65,10 @@ class _PlayerStub:
             err = self.play_errors.pop(0)
             if err is not None:
                 raise err
+        if kw.get("device_id"):
+            uri = (kw.get("uris") or [None])[0] or kw.get("context_uri")
+            self.started = {"is_playing": True, "device": {"id": kw["device_id"]}, "item": {"uri": uri},
+                            "context": {"uri": kw["context_uri"]} if kw.get("context_uri") else None}
         return {"success": True, "status_code": 204, "empty": True}
 
     def get_devices(self):
@@ -77,6 +82,8 @@ class _PlayerStub:
             return self.playback_states.pop(0)
         if self.playback_states:
             return self.playback_states[0]
+        if self.started:
+            return self.started
         return {"success": True, "status_code": 204, "empty": True}
 
     def pause_playback(self, **kw):
@@ -499,7 +506,7 @@ def test_the_phone_is_started_on_the_song_when_it_shows_up_on_another_track(monk
     stub = _PlayerStub(
         play_errors=[_no_active_device()],
         device_polls=[[MACBOOK], [MACBOOK], [MACBOOK, PHONE_ACTIVE]],
-        playback_states=[_playing(OTHER_TRACK)],
+        playback_states=[_playing(OTHER_TRACK), _playing(TRACK)],
     )
     _use(monkeypatch, stub)
     _car_play(uris=[TRACK], position_ms=1000)
@@ -689,3 +696,34 @@ def test_a_turn_from_an_unknown_device_keeps_todays_note(monkeypatch, spawned, c
     assert phone.calls == []
     assert "open_app spotify" in payload["note"]
     assert len(spawned) == 1 and runs == []
+
+
+def test_a_play_the_phone_took_but_did_not_start_is_sent_again(monkeypatch, spawned, car_turn) -> None:
+    # 2026-10-18 06:49: the phone's Spotify came up and took the play 2 s after the
+    # song opened on CarPlay — "started", said the log — and nothing played.
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}, {"empty": True}, _playing(TRACK)],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "done"
+    phone_plays = [c for c in stub.play_calls if c.get("device_id") == "phone-1"]
+    assert len(phone_plays) == 2, "sent again until Spotify says it's playing"
+
+
+def test_a_song_that_never_starts_is_reported_not_done(monkeypatch, spawned, car_turn, caplog) -> None:
+    _, runs = car_turn
+    stub = _PlayerStub(
+        play_errors=[_no_active_device()],
+        device_polls=[[MACBOOK], [MACBOOK, PHONE_ACTIVE]],
+        playback_states=[{"empty": True}],
+    )
+    _use(monkeypatch, stub)
+    _car_play(uris=[TRACK])
+
+    assert _run(runs) == "timeout"
+    assert spotify_tool._current_pending_play() is None

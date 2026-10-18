@@ -82,3 +82,13 @@ def test_any_other_failure_carries_what_messages_said(monkeypatch):
     with pytest.raises(RuntimeError) as err:
         mac.messages_send("2096277732", "hello")
     assert "-1728" in str(err.value)
+
+
+def test_no_variable_is_named_like_a_messages_term():
+    # 2026-10-18 06:50: "Messages got an error: Can't get handle." — inside
+    # `tell application "Messages"`, `handle` is Messages' own property, not the
+    # script's variable; every send read the app's handle instead of the number.
+    import re
+
+    names = set(re.findall(r"\bset (\w+) to\b", mac._SEND_MESSAGE_SCRIPT))
+    assert not names & {"handle", "body", "text", "name", "id", "service", "account", "chat", "sms"}, names
