@@ -81,23 +81,44 @@ def quit_app(name: str) -> dict:
 # ── Messages ───────────────────────────────────────────────────────────────
 
 # The handle and the text arrive as `argv`, never pasted into the script: a
-# message can say anything. iMessage first; an SMS account (text forwarding from
-# his iPhone) when there is no iMessage one.
+# message can say anything. iMessage first — to the person, then to their chat by
+# id (newer macOS sends there when the person form fails) — and an SMS account
+# (text forwarding from his iPhone) last. When nothing sends, every attempt's
+# error comes back, so a failure says why (it used to be just "exit status 1").
 _SEND_MESSAGE_SCRIPT = """
 on run argv
     set handle to item 1 of argv
     set body to item 2 of argv
+    set problems to ""
     tell application "Messages"
         try
             set svc to 1st account whose service type = iMessage
-            send body to participant handle of svc
-            return "iMessage"
-        on error
-            set svc to 1st account whose service type = SMS
-            send body to participant handle of svc
+            try
+                send body to participant handle of svc
+                return "iMessage"
+            on error e number n
+                set problems to problems & "participant " & n & " " & e & "; "
+            end try
+            repeat with prefix in {"iMessage;-;", "any;-;"}
+                try
+                    send body to chat id ((prefix as text) & handle)
+                    return "iMessage"
+                on error e number n
+                    set problems to problems & "chat " & n & " " & e & "; "
+                end try
+            end repeat
+        on error e number n
+            set problems to problems & "no iMessage account " & n & "; "
+        end try
+        try
+            set textAccount to 1st account whose service type = SMS
+            send body to participant handle of textAccount
             return "SMS"
+        on error e number n
+            set problems to problems & "sms " & n & " " & e
         end try
     end tell
+    error problems number 1
 end run
 """
 
@@ -134,10 +155,18 @@ def messages_send(to: str, text: str) -> dict:
     handle = _message_handle(to)
     if not (text or "").strip():
         raise ValueError("text required")
-    res = subprocess.run(
-        ["osascript", "-e", _SEND_MESSAGE_SCRIPT, handle, text],
-        capture_output=True, text=True, timeout=20, check=True,
-    )
+    try:
+        res = subprocess.run(
+            ["osascript", "-e", _SEND_MESSAGE_SCRIPT, handle, text],
+            capture_output=True, text=True, timeout=20, check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        why = (exc.stderr or "").strip() or f"osascript exited {exc.returncode}"
+        if "-1743" in why or "Not authorized" in why:
+            raise RuntimeError(
+                "macOS hasn't allowed Jarvis to control Messages: on the Mac, System Settings → "
+                "Privacy & Security → Automation → turn on Messages for Python") from exc
+        raise RuntimeError(f"Messages couldn't send it: {why}") from exc
     return {"ok": True, "to": handle, "via": (res.stdout or "").strip() or "iMessage"}
 
 

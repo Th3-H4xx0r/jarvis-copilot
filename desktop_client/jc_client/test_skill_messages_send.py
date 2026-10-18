@@ -58,3 +58,27 @@ def test_a_name_is_not_a_handle(osa):
     with pytest.raises(ValueError):
         mac.messages_send("2096277732", "  ")
     assert osa == []
+
+
+def _failing(monkeypatch, stderr: str):
+    import subprocess as sp
+
+    def run(args, **kw):
+        raise sp.CalledProcessError(1, args, output="", stderr=stderr)
+
+    monkeypatch.setattr(mac.subprocess, "run", run)
+
+
+def test_a_refused_permission_says_how_to_allow_it(monkeypatch):
+    # 2026-10-18 06:38: two sends failed with only "returned non-zero exit status 1".
+    _failing(monkeypatch, "execution error: Not authorized to send Apple events to Messages. (-1743)")
+    with pytest.raises(RuntimeError) as err:
+        mac.messages_send("2096277732", "hello")
+    assert "Automation" in str(err.value) and "Messages" in str(err.value)
+
+
+def test_any_other_failure_carries_what_messages_said(monkeypatch):
+    _failing(monkeypatch, "execution error: Messages got an error: Can't get participant. (-1728)")
+    with pytest.raises(RuntimeError) as err:
+        mac.messages_send("2096277732", "hello")
+    assert "-1728" in str(err.value)
