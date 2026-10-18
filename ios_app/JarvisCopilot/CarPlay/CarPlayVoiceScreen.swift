@@ -140,8 +140,6 @@ final class CarPlayVoiceScreen {
         self.template = template
         isShowing = true
         pinned = !micAllowed
-        buttonsKey = nil
-        updateButtons()
         // Voice starts now, beside the card's animation: waiting for the card to
         // finish presenting put ~0.6 s between the tap and the mic. If CarPlay
         // refuses the card, the completion below stops it again.
@@ -219,7 +217,6 @@ final class CarPlayVoiceScreen {
             hideTask?.cancel()
             hideTask = nil
             activate(confirm.map(CarPlayConfirmText.stateID) ?? id)
-            updateButtons()
         case .hideSoon:
             guard !pinned, hideTask == nil else { break }
             hideTask = Task { [weak self] in
@@ -255,6 +252,35 @@ final class CarPlayVoiceScreen {
             states.append(CPVoiceControlState(identifier: id, titleVariants: CarPlayVoiceState.titles(for: state, micAllowed: micAllowed),
                                               image: OrbFrames.animated(for: state), repeats: true))
         }
+        // Every button is set here, before the card is shown, and never replaced: buttons
+        // given to a card already on the car's screen draw but do nothing (12:03: Stop
+        // dead after the confirmation's Send/Cancel were swapped back for Mute/Stop).
+        let primary: CPButton
+        if store.mode == .quality {
+            primary = CPButton(image: UIImage(systemName: "arrow.up.circle.fill") ?? UIImage()) { [weak self] _ in
+                self?.store.finishSpeaking()
+            }
+            primary.title = "Send"
+        } else {
+            primary = CPButton(image: UIImage(systemName: store.muted ? "mic.slash" : "mic") ?? UIImage()) { [weak self] _ in
+                guard let self else { return }
+                self.store.toggleMute()
+                self.swapTemplate()   // a new card for the new icon
+            }
+            primary.title = store.muted ? "Unmute" : "Mute"
+        }
+        let stop = CPButton(image: UIImage(systemName: "stop.fill") ?? UIImage()) { [weak self] _ in self?.close() }
+        stop.title = "Stop"
+        for state in states { state.actionButtons = [primary, stop] }
+        if let confirm, let first = states.first {
+            first.actionButtons = CarPlayConfirmText.buttons(confirm).map { spec -> CPButton in
+                let button = CPButton(image: UIImage(systemName: spec.symbol) ?? UIImage()) { _ in
+                    Task { await SendConfirmations.shared.tap(yes: spec.yes) }
+                }
+                button.title = spec.title
+                return button
+            }
+        }
         return CPVoiceControlTemplate(voiceControlStates: states)
     }
 
@@ -266,23 +292,22 @@ final class CarPlayVoiceScreen {
         if let card, !template.voiceControlStates.contains(where: { $0.identifier == CarPlayConfirmText.stateID(card) }) {
             swapTemplate()
         } else {
-            buttonsKey = nil
             follow()
         }
     }
 
-    /// The same card with this call/text's state: put up in place of the old one. Its
-    /// disappearance isn't him closing it — the session goes on.
+    /// A new card in place of the one showing (a call/text to confirm, or Mute's new icon —
+    /// a card's buttons can't change once it's up). Its disappearance isn't him closing it:
+    /// the session goes on.
     private func swapTemplate() {
+        guard isShowing, template != nil else { return }
         let micAllowed = CarPlayVoiceState.micAllowed(AVAudioApplication.shared.recordPermission)
         let new = makeTemplate(micAllowed: micAllowed)
         template = new
-        buttonsKey = nil
-        updateButtons()
         let present: () -> Void = { [weak self] in
             guard let self, self.template === new else { return }
             let shown: (Bool) -> Void = { [weak self] presented in
-                cpDiag("card swapped for a confirmation presented=\(presented)")
+                cpDiag("card rebuilt presented=\(presented)")
                 guard let self, self.template === new else { return }
                 guard presented else {
                     self.isShowing = false
@@ -302,50 +327,6 @@ final class CarPlayVoiceScreen {
             ui.hideOverlayTemplate(animated: false) { _, _ in present() }
         } else {
             ui.dismissTemplate(animated: false) { _, _ in present() }
-        }
-    }
-
-    /// Realtime: Mute / Unmute. Push-to-talk: Send ends the turn. Stop always — the
-    /// card's one way out (no separate Done button doing the same thing).
-    /// CarPlay keeps the buttons on each state, so every state gets the same pair;
-    /// they are only rebuilt when what they say changes.
-    private var buttonsKey: String?
-
-    private func updateButtons() {
-        guard let template else { return }
-        let key = "\(store.mode.rawValue)-\(store.muted)-\(confirm?.id ?? "")"
-        guard key != buttonsKey else { return }
-        buttonsKey = key
-        let primary: CPButton
-        if store.mode == .quality {
-            primary = CPButton(image: UIImage(systemName: "arrow.up.circle.fill") ?? UIImage()) { [weak self] _ in
-                self?.store.finishSpeaking()
-            }
-            primary.title = "Send"
-        } else {
-            primary = CPButton(image: UIImage(systemName: store.muted ? "mic.slash" : "mic") ?? UIImage()) { [weak self] _ in
-                self?.store.toggleMute()
-                self?.updateButtons()
-            }
-            primary.title = store.muted ? "Unmute" : "Mute"
-        }
-        let stop = CPButton(image: UIImage(systemName: "stop.fill") ?? UIImage()) { [weak self] _ in self?.close() }
-        stop.title = "Stop"
-        let confirmButtons = confirm.map { card in
-            CarPlayConfirmText.buttons(card).map { spec -> CPButton in
-                let button = CPButton(image: UIImage(systemName: spec.symbol) ?? UIImage()) { _ in
-                    Task { await SendConfirmations.shared.tap(yes: spec.yes) }
-                }
-                button.title = spec.title
-                return button
-            }
-        }
-        for state in template.voiceControlStates {
-            if let confirm, state.identifier == CarPlayConfirmText.stateID(confirm), let confirmButtons {
-                state.actionButtons = confirmButtons
-            } else {
-                state.actionButtons = [primary, stop]
-            }
         }
     }
 
